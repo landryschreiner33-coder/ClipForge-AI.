@@ -1,0 +1,78 @@
+import { useEffect, useState } from "react";
+import { Icon, Logo, ToastHost } from "./components/ui";
+import Dashboard from "./pages/Dashboard";
+import Create from "./pages/Create";
+import Projects from "./pages/Projects";
+import ProjectView from "./pages/ProjectView";
+import ClipEditor from "./pages/ClipEditor";
+import SettingsPage from "./pages/Settings";
+
+export function navigate(path: string) {
+  window.location.hash = path;
+}
+
+function useRoute(): string[] {
+  const read = () => (window.location.hash.replace(/^#\/?/, "") || "").split("/").filter(Boolean);
+  const [parts, setParts] = useState(read);
+  useEffect(() => {
+    const h = () => {
+      setParts(read());
+      document.querySelector(".main")?.scrollTo({ top: 0 });
+    };
+    window.addEventListener("hashchange", h);
+    return () => window.removeEventListener("hashchange", h);
+  }, []);
+  return parts;
+}
+
+const NAV = [
+  { path: "", label: "Dashboard", icon: "dashboard" as const },
+  { path: "create", label: "Create", icon: "create" as const },
+  { path: "projects", label: "Projects", icon: "projects" as const },
+  { path: "settings", label: "Settings", icon: "settings" as const },
+];
+
+export default function App() {
+  const parts = useRoute();
+  const section = parts[0] || "";
+  const activeNav = section === "project" || section === "clip" ? "projects" : section;
+
+  let page;
+  if (section === "create") page = <Create />;
+  else if (section === "projects") page = <Projects />;
+  else if (section === "project" && parts[1]) page = <ProjectView id={parts[1]} key={parts[1]} />;
+  else if (section === "clip" && parts[1]) page = <ClipEditor id={parts[1]} key={parts[1]} />;
+  else if (section === "settings") page = <SettingsPage />;
+  else page = <Dashboard />;
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <a className="brand" href="#/">
+          <Logo />
+          <div className="brand-name">
+            Clip<span>Foundry</span>
+          </div>
+        </a>
+        {NAV.map((n) => (
+          <a key={n.path} href={`#/${n.path}`} className={`nav-item ${activeNav === n.path ? "active" : ""}`}>
+            <Icon name={n.icon} />
+            <span>{n.label}</span>
+          </a>
+        ))}
+        <div className="spacer" />
+        <a href="#/create" className="btn primary block" style={{ marginBottom: 12 }}>
+          <Icon name="spark" size={16} />
+          <span className="nav-label">Create clips</span>
+        </a>
+        <div className="sidebar-foot">
+          Runs 100% on this computer.
+          <br />
+          No accounts, no cloud rendering.
+        </div>
+      </aside>
+      <main className="main">{page}</main>
+      <ToastHost />
+    </div>
+  );
+}

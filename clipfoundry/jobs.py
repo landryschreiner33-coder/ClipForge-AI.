@@ -1,0 +1,146 @@
+"""Single background worker: one heavy job at a time keeps a laptop responsive."""
+from __future__ import annotations
+
+import queue
+import threading
+import time
+from pathlib import Path
+
+from . import db
+from .pipeline import process
+from .pipeline.common import Cancelled, JobContext, log
+
+
+class Worker:
+    def __init__(self) -> None:
+        self.q: queue.Queue = queue.Queue()
+        self.cancelled: set[str] = set()
+        self.current: str | None = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(target=self._loop, daemon=True, name="clipfoundry-worker")
+            self._thread.start()
+
+    # ------------------------------------------------------------- submit
+    def submit_project(self, project_id: str, url: str | None = None) -> None:
+        self.cancelled.discard(project_id)
+        db.update_project(project_id, status="queued", progress=0, stage="queued", error="",
+                          message="Waiting in queue")
+        self.q.put(("project", project_id, url))
+        self.start()
+
+    def submit_render(self, clip_id: str) -> None:
+        self.cancelled.discard(clip_id)
+        db.update_clip(clip_id, status="queued", progress=0, error="")
+        self.q.put(("render", clip_id, None))
+        self.start()
+
+    def cancel(self, key: str) -> None:
+        self.cancelled.add(key)
+
+    # ------------------------------------------------------------- loop
+    def _loop(self) -> None:
+        while True:
+            kind, key, extra = self.q.get()
+            self.current = key
+            try:
+                if key in self.cancelled:
+                    self._mark_cancelled(kind, key)
+                elif kind == "project":
+                    self._run_project(key, extra)
+                elif kind == "render":
+                    self._run_render(key)
+            except Exception:  # noqa: BLE001 - never let the worker die
+                log.exception("job crashed")
+            finally:
+                self.current = None
+                self.q.task_done()
+
+    def _mark_cancelled(self, kind: str, key: str) -> None:
+        if kind == "project":
+            db.update_project(key, status="cancelled", message="Cancelled")
+        else:
+            db.update_clip(key, status="error", error="Cancelled")
+
+    def _run_project(self, project_id: str, url: str | None) -> None:
+        last = [0.0]
+
+        def report(frac: float, msg: str) -> None:
+            now = time.time()
+            if now - last[0] > 0.4 or frac >= 1.0:
+                last[0] = now
+                db.update_project(project_id, progress=round(frac, 4), message=msg)
+
+        ctx = JobContext(report, lambda: project_id in self.cancelled)
+        db.update_project(project_id, status="processing", message="Starting")
+        try:
+            if url:
+                self._download(project_id, url, ctx)
+            process.run_project(project_id, ctx)
+            clips = db.list_clips(project_id)
+            ready = sum(1 for c in clips if c["status"] == "ready")
+            msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
+            db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg)
+        except Cancelled:
+            db.update_project(project_id, status="cancelled", message="Cancelled")
+        except Exception as exc:  # noqa: BLE001
+            log.exception("project %s failed", project_id)
+            db.update_project(project_id, status="error", error=str(exc)[:1000], message="Failed")
+        finally:
+            self.cancelled.discard(project_id)
+
+    def _run_render(self, clip_id: str) -> None:
+        ctx = JobContext(None, lambda: clip_id in self.cancelled)
+        try:
+            process.render_single(clip_id, ctx)
+        except Cancelled:
+            pass
+        finally:
+            self.cancelled.discard(clip_id)
+
+    def _download(self, project_id: str, url: str, ctx: JobContext) -> None:
+        """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention."""
+        try:
+            import yt_dlp
+        except ImportError as exc:
+            raise RuntimeError("URL import needs yt-dlp (pip install yt-dlp)") from exc
+        project = db.get_project(project_id)
+        assert project
+        pdir = Path(project["source_path"]).parent
+        db.update_project(project_id, stage="download", message="Downloading video")
+
+        def hook(d: dict) -> None:
+            if ctx.cancelled():
+                raise Cancelled()
+            if d.get("status") == "downloading" and d.get("total_bytes"):
+                db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
+                                  message=f"Downloading {d.get('_percent_str', '').strip()}")
+
+        ydl_opts = {
+            "outtmpl": str(pdir / "source.%(ext)s"),
+            "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
+            "merge_output_format": "mp4",
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "progress_hooks": [hook],
+            "allow_unplayable_formats": False,  # never touch DRM-protected formats
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            meta = ydl.extract_info(url, download=True)
+            path = Path(ydl.prepare_filename(meta))
+        if not path.exists():
+            candidates = sorted(pdir.glob("source.*"))
+            if not candidates:
+                raise RuntimeError("Download finished but no video file was found")
+            path = candidates[0]
+        name = (meta or {}).get("title") or project["name"]
+        db.update_project(project_id, source_path=str(path), source_filename=path.name, name=name[:120])
+
+
+worker = Worker()

@@ -1,0 +1,13 @@
+# ClipFoundry - everything here runs locally; no paid service is required.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+faster-whisper>=1.1.0      # local transcription (downloads the Whisper model once)
+opencv-python>=4.8         # face detection (YuNet), framing analysis
+scenedetect>=0.6.4         # frame-exact scene-cut detection
+numpy>=1.24
+httpx>=0.27                # talks to local LLM servers (Ollama / LM Studio)
+
+# Optional features (safe to remove if you never use them)
+yt-dlp>=2024.1.1           # "From URL" import of public videos (no DRM/login bypass)
+anthropic>=1.0             # optional paid Claude API scoring; off by default

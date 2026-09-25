@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local data (videos, transcripts, clips, database, whisper models)
+data/
+
+# Bundled tools the user drops in
+tools/ffmpeg/
+
+# Frontend (the built dist/ IS committed so Node is not needed to run the app)
+frontend/node_modules/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+frontend/*.tsbuildinfo

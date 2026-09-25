@@ -1,0 +1,361 @@
+"""Render one clip: trim -> silence cleanup -> 9:16 reframe -> zoom -> captions -> H.264/AAC MP4.
+
+Video frames flow ffmpeg (decode) -> numpy/OpenCV (sub-pixel crop, zoom,
+layout) -> ffmpeg (burn ASS captions + encode).  Audio is cut with the same
+keep-segments so picture and sound stay in sync.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from .. import config
+from ..config import OUTPUT_H, OUTPUT_W
+from . import captions, reframe
+from .common import Cancelled, JobContext, log, read_json, write_json
+from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, filter_path, thumbnail, video_encoder_args
+from .text_utils import ends_sentence
+
+SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
+
+
+# ------------------------------------------------------------ timeline
+def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: float) -> list[tuple[float, float]]:
+    """Source-time ranges to keep; long pauses between words are removed."""
+    segs: list[tuple[float, float]]
+    if mode not in SILENCE_PRESETS or not words:
+        segs = [(start, end)]
+    else:
+        min_gap, pad = SILENCE_PRESETS[mode]
+        cuts = []
+        ws = [w for w in words if w["end"] > start and w["start"] < end]
+        prev_end = start
+        for w in ws:
+            if w["start"] - prev_end > min_gap:
+                a = prev_end + pad if prev_end > start else start
+                b = w["start"] - pad
+                if b - a > 0.05:
+                    cuts.append((a, b))
+            prev_end = max(prev_end, w["end"])
+        if end - prev_end > min_gap + pad:
+            cuts.append((prev_end + pad + 0.1, end))
+        segs = []
+        cur = start
+        for a, b in cuts:
+            if a > cur:
+                segs.append((cur, a))
+            cur = max(cur, b)
+        if cur < end:
+            segs.append((cur, end))
+    # snap to the frame grid so audio and video lengths match exactly
+    out = []
+    for a, b in segs:
+        fa = start + round((a - start) * fps) / fps
+        fb = start + round((b - start) * fps) / fps
+        if fb - fa >= 2 / fps:
+            if out and abs(out[-1][1] - fa) < 1e-6:
+                out[-1] = (out[-1][0], fb)
+            else:
+                out.append((fa, fb))
+    return out or [(start, end)]
+
+
+class Timeline:
+    def __init__(self, segs: list[tuple[float, float]]):
+        self.segs = segs
+        self.offsets = []
+        acc = 0.0
+        for a, b in segs:
+            self.offsets.append(acc)
+            acc += b - a
+        self.duration = acc
+
+    def to_out(self, t: float) -> float:
+        for (a, b), off in zip(self.segs, self.offsets):
+            if t < a:
+                return off
+            if t <= b:
+                return off + (t - a)
+        return self.duration
+
+    def contains(self, t: float) -> bool:
+        return any(a - 1e-6 <= t < b - 1e-6 for a, b in self.segs)
+
+
+# ------------------------------------------------------------ zoom
+def zoom_curve(words_out: list[dict], n: int, fps: float, strength: float) -> np.ndarray:
+    z = np.ones(n)
+    if strength <= 0 or n < 2:
+        return z
+    boundaries = [0.0]
+    for i, w in enumerate(words_out[:-1]):
+        if ends_sentence(w["w"]) and words_out[i + 1]["start"] - boundaries[-1] >= 2.5:
+            boundaries.append(words_out[i + 1]["start"])
+    dur = n / fps
+    # never hold one zoom level for too long
+    filled = [boundaries[0]]
+    for b in boundaries[1:] + [dur]:
+        while b - filled[-1] > 7.0:
+            filled.append(filled[-1] + 5.0)
+        if b < dur:
+            filled.append(b)
+    for k, b in enumerate(filled):
+        level = 1.0 + strength if k % 2 == 1 else 1.0
+        z[int(b * fps):] = level
+    win = max(3, int(0.35 * fps))
+    kernel = np.hanning(win + 2)[1:-1]
+    kernel /= kernel.sum()
+    pad = win // 2
+    zp = np.pad(z, (pad, win - 1 - pad), mode="edge")
+    return np.convolve(zp, kernel, mode="valid")[:n]
+
+
+# ------------------------------------------------------------ helpers
+def _decode_size(w: int, h: int) -> tuple[int, int]:
+    s = min(1.0, 1920 / max(1, h), 3840 / max(1, w))
+    dw, dh = int(w * s) // 2 * 2, int(h * s) // 2 * 2
+    return max(2, dw), max(2, dh)
+
+
+def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> str:
+    rel = [(a - start, b - start) for a, b in segs]
+    parts = []
+    fade = 0.01
+    if len(rel) == 1:
+        a, b = rel[0]
+        parts.append(f"[1:a]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
+    else:
+        labels = "".join(f"[s{i}]" for i in range(len(rel)))
+        parts.append(f"[1:a]asplit={len(rel)}{labels}")
+        for i, (a, b) in enumerate(rel):
+            d = b - a
+            parts.append(f"[s{i}]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS,"
+                         f"afade=t=in:st=0:d={fade},afade=t=out:st={max(0.0, d - fade):.4f}:d={fade}[c{i}]")
+        parts.append("".join(f"[c{i}]" for i in range(len(rel))) + f"concat=n={len(rel)}:v=0:a=1[ac]")
+    chain = "[ac]"
+    post = []
+    if opts.get("normalize_audio", True):
+        post.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+    gain = float(opts.get("gain_db", 0) or 0)
+    if abs(gain) > 0.01:
+        post.append(f"volume={gain:.2f}dB")
+    post.append("aresample=48000")
+    parts.append(chain + ",".join(post) + "[a]")
+    return ";".join(parts)
+
+
+def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> list[dict]:
+    out = []
+    for w in words:
+        if w["end"] <= start or w["start"] >= end:
+            continue
+        s = tl.to_out(max(start, w["start"]))
+        e = tl.to_out(min(end, w["end"]))
+        if e - s < 0.04:
+            e = s + 0.04
+        out.append({"start": s, "end": min(e, tl.duration), "w": w["w"]})
+    return out
+
+
+def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
+    keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
+            "hook_overlay", "hook_seconds", "normalize_audio"]
+    opts = {k: settings.get(k) for k in keys}
+    opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
+    opts.update({k: v for k, v in (edit or {}).items() if v is not None})
+    return opts
+
+
+# ------------------------------------------------------------ main
+def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext) -> dict:
+    t0 = time.time()
+    src = project["source_path"]
+    info = project.get("info") or {}
+    src_w, src_h = int(project["width"]), int(project["height"])
+    src_fps = float(project.get("fps") or 30.0)
+    max_fps = float(settings.get("max_fps", 30))
+    fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
+    opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
+
+    duration_src = float(project.get("duration") or 0)
+    start = max(0.0, float(opts.get("start", clip["start"])))
+    end = min(duration_src or 1e9, float(opts.get("end", clip["end"])))
+    if end - start < 1.0:
+        raise ValueError("Clip is shorter than one second; adjust the trim.")
+
+    # Snap AI-chosen cut points onto nearby hard scene cuts (no one-frame flashes of the previous shot).
+    edit = clip.get("edit") or {}
+    snapped = []
+    if "start" not in edit:
+        c = next((c for c in reframe.precise_cuts(src, start - 0.05, start + 0.7) if start < c <= start + 0.6), None)
+        if c is not None and not any(start <= w["start"] < c - 0.05 for w in words_all):
+            start, _ = c, snapped.append("start")
+    if "end" not in edit:
+        cs = [c for c in reframe.precise_cuts(src, end - 0.7, end + 0.05) if end - 0.6 <= c < end]
+        if cs and not any(w["start"] < end and w["end"] > cs[-1] + 0.05 for w in words_all if w["end"] > start):
+            end, _ = cs[-1], snapped.append("end")
+
+    clip_dir = Path(project["dir"]) / "clips" / clip["id"]
+    clip_dir.mkdir(parents=True, exist_ok=True)
+
+    words = opts.get("caption_words") or [w for w in words_all if w["end"] > start and w["start"] < end]
+    segs = keep_segments(words, start, end, opts.get("silence", "off"), fps)
+    tl = Timeline(segs)
+    words_out = _map_words(words, tl, start, end)
+
+    # ---- framing plan (cached: expensive analysis is skipped on caption-only edits)
+    mode = opts.get("tracking", "auto")
+    plan_key = f"{start:.3f}-{end:.3f}-{mode}-{fps:.3f}-{float(opts.get('crop_x', 0.5)):.3f}"
+    plan_path = clip_dir / "framing.json"
+    cached = read_json(plan_path, {})
+    if cached.get("key") == plan_key:
+        plan = reframe.Plan.from_json(cached["plan"])
+    else:
+        ctx.progress(0.02, "Analyzing framing")
+        plan = reframe.plan(src, start, end, src_w, src_h, mode, fps, ctx, float(opts.get("crop_x", 0.5)))
+        write_json(plan_path, {"key": plan_key, "plan": plan.to_json()})
+
+    # ---- captions
+    hook_text = opts.get("hook") if opts.get("hook") is not None else clip.get("hook", "")
+    ass = captions.build_ass(words_out, opts, tl.duration, hook_text or "")
+    (clip_dir / "captions.ass").write_text(ass, encoding="utf-8")
+    (clip_dir / "captions.srt").write_text(captions.build_srt(words_out, opts.get("caption_style", "clean")),
+                                           encoding="utf-8")
+
+    # ---- geometry
+    dw, dh = _decode_size(src_w, src_h)
+    cw_frac, ch_frac = reframe.crop_fraction(src_w, src_h)
+    base_w, base_h = cw_frac * dw, ch_frac * dh
+    base_zoom = max(1.0, min(2.5, float(opts.get("zoom", 1.0) or 1.0)))
+    n_out_frames = int(round(tl.duration * fps))
+    zc = zoom_curve(words_out, n_out_frames, fps, 0.07 if opts.get("auto_zoom") else 0.0) * base_zoom
+    layout = opts.get("layout", "fill")
+    fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
+
+    frame_bytes = dw * dh * 3
+    n_src_frames = plan.n
+    dec_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", src,
+               "-t", f"{end - start + 0.5:.3f}", "-map", "0:v:0", "-an", "-sn",
+               "-vf", f"fps={fps},scale={dw}:{dh}:flags=bicubic", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
+
+    enc_args, encoder = video_encoder_args(settings)
+    fonts = filter_path(config.FONTS_DIR, clip_dir)
+    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},format=yuv420p[v]"
+    audio_in: list[str]
+    if info.get("has_audio", True):
+        audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
+    else:
+        audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    fc = vf + ";" + _audio_filter(segs, start, opts)
+    tmp_out = clip_dir / "render.tmp.mp4"
+    enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
+               "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000",
+               "-movflags", "+faststart", "-shortest", tmp_out.name]
+
+    log_path = clip_dir / "render.log"
+    with open(log_path, "wb") as logf:
+        dec = subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
+                               bufsize=frame_bytes)
+        enc = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
+                               cwd=str(clip_dir), creationflags=NO_WINDOW)
+        written = 0
+        last = None
+        try:
+            for k in range(n_src_frames):
+                buf = dec.stdout.read(frame_bytes)  # type: ignore[union-attr]
+                if len(buf) == frame_bytes:
+                    last = np.frombuffer(buf, np.uint8).reshape(dh, dw, 3)
+                elif last is None:
+                    raise FFmpegError("Could not decode video frames for this clip.")
+                t_src = start + k / fps
+                if not tl.contains(t_src) or written >= n_out_frames:
+                    continue
+                z = float(zc[min(written, len(zc) - 1)])
+                frame = _compose(last, plan.cx[min(k, plan.n - 1)], plan.cy[min(k, plan.n - 1)], z, dw, dh,
+                                 base_w, base_h, layout, fit_scale)
+                enc.stdin.write(frame.data)  # type: ignore[union-attr]
+                written += 1
+                if written % 15 == 0:
+                    if ctx.cancelled():
+                        raise Cancelled()
+                    ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), "Rendering")
+            # pad if decoding ended early
+            while written < n_out_frames and last is not None:
+                frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,
+                                 fit_scale)
+                enc.stdin.write(frame.data)  # type: ignore[union-attr]
+                written += 1
+            enc.stdin.close()  # type: ignore[union-attr]
+            rc = enc.wait()
+        except (BrokenPipeError, OSError) as exc:
+            enc.kill()
+            enc.wait()
+            raise FFmpegError(f"Encoder stopped unexpectedly: {_tail(log_path)}") from exc
+        except BaseException:
+            enc.kill()
+            enc.wait()
+            raise
+        finally:
+            dec.kill()
+            dec.wait()
+    if rc != 0 or not tmp_out.exists():
+        raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
+    out_path = clip_dir / "clip.mp4"
+    os.replace(tmp_out, out_path)
+    thumb = clip_dir / "thumb.jpg"
+    try:
+        thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360)
+    except FFmpegError as exc:
+        log.warning("thumbnail failed: %s", exc)
+    ctx.progress(1.0, "Done")
+    return {
+        "output_path": str(out_path),
+        "thumb_path": str(thumb) if thumb.exists() else "",
+        "duration": round(tl.duration, 2),
+        "render_info": {"mode": plan.mode, "faces": plan.faces_found, "cuts": len(plan.cuts), "encoder": encoder,
+                        "fps": fps, "segments": len(segs), "removed_s": round((end - start) - tl.duration, 2),
+                        "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
+                        "snapped_to_cut": snapped},
+    }
+
+
+def _tail(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace").strip()[-600:]
+    except OSError:
+        return ""
+
+
+def _compose(frame: np.ndarray, cxn: float, cyn: float, z: float, dw: int, dh: int, base_w: float,
+             base_h: float, layout: str, fit_scale: float) -> np.ndarray:
+    if layout == "fit":
+        # whole frame (optionally zoomed) over a blurred, darkened fill
+        vw, vh = dw / z, dh / z
+        cx = min(dw - vw / 2, max(vw / 2, cxn * dw)) if z > 1.001 else dw / 2
+        cy = min(dh - vh / 2, max(vh / 2, cyn * dh)) if z > 1.001 else dh / 2
+        s = fit_scale * z
+        fg_w, fg_h = dw * fit_scale, dh * fit_scale
+        ox, oy = (OUTPUT_W - fg_w) / 2, (OUTPUT_H - fg_h) / 2
+        small = cv2.resize(frame, (54, 96), interpolation=cv2.INTER_AREA)
+        bg = cv2.GaussianBlur(small, (0, 0), 3)
+        bg = cv2.resize(bg, (OUTPUT_W, OUTPUT_H), interpolation=cv2.INTER_LINEAR)
+        bg = cv2.convertScaleAbs(bg, alpha=0.45)
+        m = np.float32([[s, 0, ox + fg_w / 2 - cx * s], [0, s, oy + fg_h / 2 - cy * s]])
+        x0, y0 = int(round(ox)), int(round(oy))
+        x1, y1 = int(round(ox + fg_w)), int(round(oy + fg_h))
+        fg = cv2.warpAffine(frame, m, (OUTPUT_W, OUTPUT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        bg[y0:y1, x0:x1] = fg[y0:y1, x0:x1]
+        return bg
+    cw, ch = base_w / z, base_h / z
+    cx = min(dw - cw / 2, max(cw / 2, cxn * dw))
+    cy = min(dh - ch / 2, max(ch / 2, cyn * dh))
+    s = OUTPUT_W / cw
+    m = np.float32([[s, 0, -(cx - cw / 2) * s], [0, s, -(cy - ch / 2) * s]])
+    return cv2.warpAffine(frame, m, (OUTPUT_W, OUTPUT_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)

@@ -1,0 +1,201 @@
+import { ReactNode, useEffect, useState } from "react";
+import { api, Health, Settings } from "../api";
+import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
+
+const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="opt-row">
+      <div className="lbl">{label}{hint && <small>{hint}</small>}</div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const [s, setS] = useState<Settings | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [check, setCheck] = useState<{ ok: boolean; detail: string } | null>(null);
+
+  useEffect(() => {
+    api.settings().then(setS);
+    api.health().then(setHealth).catch(() => undefined);
+  }, []);
+  if (!s) return <div className="page"><div className="spinner" /></div>;
+
+  const set = (patch: Settings) => {
+    setS({ ...s, ...patch });
+    setDirty(true);
+  };
+  const save = async () => {
+    try {
+      setS(await api.saveSettings(s));
+      setDirty(false);
+      setHealth(await api.health());
+      toast("Settings saved");
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  };
+  const testAi = async () => {
+    if (dirty) await save();
+    setCheck(await api.checkAi());
+  };
+
+  const provider = s.ai_provider as string;
+
+  return (
+    <div className="page" style={{ maxWidth: 980 }}>
+      <div className="page-head">
+        <div>
+          <h1>Settings</h1>
+          <p>Defaults for new projects. Everything is stored locally in <code>{health?.data_dir || "data/"}</code>.</p>
+        </div>
+        <button className="btn primary" disabled={!dirty} onClick={save}><Icon name="check" size={16} /> Save settings</button>
+      </div>
+
+      <div className="card">
+        <h3>Transcription (faster-whisper, local)</h3>
+        <Row label="Model" hint="auto = large-v3-turbo on GPU, small on CPU">
+          <select value={s.whisper_model} onChange={(e) => set({ whisper_model: e.target.value })}>
+            {WHISPER_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Row>
+        <Row label="Device" hint={health ? (health.cuda ? "NVIDIA GPU detected" : "No CUDA GPU detected") : ""}>
+          <Segmented value={s.whisper_device} onChange={(v) => set({ whisper_device: v })}
+            options={[{ value: "auto", label: "Auto" }, { value: "cuda", label: "GPU (CUDA)" }, { value: "cpu", label: "CPU" }]} />
+        </Row>
+        <Row label="Compute type">
+          <select value={s.whisper_compute_type} onChange={(e) => set({ whisper_compute_type: e.target.value })}>
+            {["auto", "float16", "int8_float16", "int8", "float32"].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Row>
+        <Row label="Language" hint="Leave empty to auto-detect">
+          <input type="text" placeholder="e.g. en, es, de" value={s.language} onChange={(e) => set({ language: e.target.value })} />
+        </Row>
+      </div>
+
+      <div className="card">
+        <h3>Clip discovery</h3>
+        <Row label="Clips per video" hint="Maximum; weaker moments are dropped">
+          <Segmented value={s.clip_count} onChange={(v) => set({ clip_count: v })} options={[3, 5, 10].map((n) => ({ value: n, label: n }))} />
+        </Row>
+        <Row label="Clip length (seconds)">
+          <div className="row">
+            <input type="number" value={s.min_duration} onChange={(e) => set({ min_duration: +e.target.value })} />
+            <span className="muted">to</span>
+            <input type="number" value={s.max_duration} onChange={(e) => set({ max_duration: +e.target.value })} />
+            <span className="muted">target</span>
+            <input type="number" value={s.target_duration} onChange={(e) => set({ target_duration: +e.target.value })} />
+          </div>
+        </Row>
+        <Row label="Minimum AI estimate" hint="Clips below this are skipped (the best clip is always kept)">
+          <div className="row"><input type="range" min={0} max={90} step={5} value={s.min_score} onChange={(e) => set({ min_score: +e.target.value })} /><b style={{ width: 30 }}>{s.min_score}</b></div>
+        </Row>
+      </div>
+
+      <div className="card">
+        <h3>AI scoring (Stage 2)</h3>
+        <div className="notice">
+          <Icon name="cpu" size={16} />
+          <div>
+            Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. <b>Local heuristic</b> is free and
+            offline; <b>Ollama</b> / <b>LM Studio</b> run a local LLM for free; <b>Claude API</b> is optional and paid per use.
+          </div>
+        </div>
+        <Row label="Provider">
+          <select value={provider} onChange={(e) => { set({ ai_provider: e.target.value }); setCheck(null); }}>
+            <option value="heuristic">Local heuristic (offline, free)</option>
+            <option value="ollama">Ollama (local LLM, free)</option>
+            <option value="openai_compatible">LM Studio / OpenAI-compatible local server</option>
+            <option value="anthropic">Claude API (optional, paid)</option>
+          </select>
+        </Row>
+        {provider === "ollama" && (
+          <>
+            <Row label="Ollama URL"><input type="text" value={s.ollama_url} onChange={(e) => set({ ollama_url: e.target.value })} /></Row>
+            <Row label="Model" hint="e.g. llama3.1:8b, qwen2.5:7b"><input type="text" value={s.ollama_model} onChange={(e) => set({ ollama_model: e.target.value })} /></Row>
+          </>
+        )}
+        {provider === "openai_compatible" && (
+          <>
+            <Row label="Server URL"><input type="text" value={s.openai_url} onChange={(e) => set({ openai_url: e.target.value })} /></Row>
+            <Row label="Model"><input type="text" value={s.openai_model} onChange={(e) => set({ openai_model: e.target.value })} /></Row>
+            <Row label="API key" hint="Usually not needed for local servers"><input type="password" value={s.openai_api_key} onChange={(e) => set({ openai_api_key: e.target.value })} /></Row>
+          </>
+        )}
+        {provider === "anthropic" && (
+          <>
+            <Row label="API key" hint="Stored locally in your SQLite database"><input type="password" value={s.anthropic_api_key} onChange={(e) => set({ anthropic_api_key: e.target.value })} /></Row>
+            <Row label="Model" hint="e.g. claude-opus-5, claude-sonnet-5, claude-haiku-4-5 (cheapest)"><input type="text" value={s.anthropic_model} onChange={(e) => set({ anthropic_model: e.target.value })} /></Row>
+            <Row label="Max candidates" hint="Caps paid calls per video"><input type="number" min={1} max={30} value={s.ai_max_candidates} onChange={(e) => set({ ai_max_candidates: +e.target.value })} /></Row>
+          </>
+        )}
+        <div className="row mt">
+          <button className="btn" onClick={testAi}><Icon name="refresh" size={14} /> Test connection</button>
+          {check && <span className={`badge ${check.ok ? "good" : "bad"}`}>{check.detail}</span>}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Rendering defaults</h3>
+        <Row label="Caption style"><StylePicker value={s.caption_style} onChange={(v) => set({ caption_style: v })} /></Row>
+        <Row label="Caption position">
+          <Segmented value={s.caption_position} onChange={(v) => set({ caption_position: v })}
+            options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }]} />
+        </Row>
+        <Row label="Word highlight"><Toggle on={s.highlight_words} onChange={(v) => set({ highlight_words: v })} /></Row>
+        <Row label="Tracking">
+          <select value={s.tracking} onChange={(e) => set({ tracking: e.target.value })}>
+            {TRACKING.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </Row>
+        <Row label="Layout">
+          <Segmented value={s.layout} onChange={(v) => set({ layout: v })}
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred bg)" }]} />
+        </Row>
+        <Row label="Silence cleanup">
+          <Segmented value={s.silence} onChange={(v) => set({ silence: v })}
+            options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" }, { value: "aggressive", label: "Aggressive" }]} />
+        </Row>
+        <Row label="Extras">
+          <div className="row wrap" style={{ gap: 20 }}>
+            <Toggle on={s.auto_zoom} onChange={(v) => set({ auto_zoom: v })} label="Auto-zoom" />
+            <Toggle on={s.hook_overlay} onChange={(v) => set({ hook_overlay: v })} label="Hook overlay" />
+            <Toggle on={s.normalize_audio} onChange={(v) => set({ normalize_audio: v })} label="Normalize audio" />
+          </div>
+        </Row>
+        <Row label="Video encoder" hint={health ? (health.nvenc ? "NVENC available" : "NVENC not available") : ""}>
+          <Segmented value={s.encoder} onChange={(v) => set({ encoder: v })}
+            options={[{ value: "auto", label: "Auto" }, { value: "nvenc", label: "NVIDIA NVENC" }, { value: "x264", label: "x264 (CPU)" }]} />
+        </Row>
+        <Row label="Quality (CRF)" hint="Lower = better quality, bigger files">
+          <div className="row"><input type="range" min={14} max={30} value={s.crf} onChange={(e) => set({ crf: +e.target.value })} /><b style={{ width: 30 }}>{s.crf}</b></div>
+        </Row>
+        <Row label="x264 preset">
+          <select value={s.x264_preset} onChange={(e) => set({ x264_preset: e.target.value })}>
+            {["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"].map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Row>
+        <Row label="Max frame rate"><Segmented value={s.max_fps} onChange={(v) => set({ max_fps: v })} options={[{ value: 30, label: "30" }, { value: 60, label: "60" }]} /></Row>
+        <Row label="FFmpeg location" hint="Optional: folder or path of ffmpeg.exe">
+          <input type="text" placeholder={health?.ffmpeg || "auto-detect (PATH or tools/ffmpeg/bin)"} value={s.ffmpeg_path} onChange={(e) => set({ ffmpeg_path: e.target.value })} />
+        </Row>
+      </div>
+
+      {health && (
+        <div className="card">
+          <h3>System</h3>
+          <div className="kv">
+            <span className="k">Version</span><span>{health.version}</span>
+            <span className="k">FFmpeg</span><span>{health.ffmpeg || "not found"}</span>
+            <span className="k">Whisper</span><span>{health.whisper.model} · {health.whisper.device} · {health.whisper.compute_type} {health.whisper.cached ? "(downloaded)" : "(downloads on first use)"}</span>
+            <span className="k">Data folder</span><span>{health.data_dir}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
