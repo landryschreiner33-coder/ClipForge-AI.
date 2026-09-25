@@ -307,13 +307,21 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             dec.wait()
     if rc != 0 or not tmp_out.exists():
         raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
-    out_path = clip_dir / "clip.mp4"
+    # Versioned names: on Windows a file that the browser is still streaming cannot be replaced.
+    stamp = str(int(time.time() * 1000))
+    out_path = clip_dir / f"clip-{stamp}.mp4"
     os.replace(tmp_out, out_path)
-    thumb = clip_dir / "thumb.jpg"
+    thumb = clip_dir / f"thumb-{stamp}.jpg"
     try:
         thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360)
     except FFmpegError as exc:
         log.warning("thumbnail failed: %s", exc)
+    for old in list(clip_dir.glob("clip*.mp4")) + list(clip_dir.glob("thumb*.jpg")):
+        if old not in (out_path, thumb):
+            try:
+                old.unlink()
+            except OSError:
+                pass  # still open somewhere; cleaned up on the next render
     ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),
