@@ -57,7 +57,9 @@ export default function ProjectView({ id }: { id: string }) {
           <h1>{p.name}</h1>
           <p>
             {p.duration ? `${fmtTime(p.duration)} · ${p.width}×${p.height} · ${Math.round(p.fps)} fps` : p.source_filename}
-            {info.transcript_source ? ` · transcript: ${String(info.transcript_source).replace("faster-whisper:", "Whisper ")}` : ""}
+            {info.transcription
+              ? ` · transcribed on ${info.transcription.device === "cuda" ? "GPU" : "CPU"} (${info.transcription.model}, ${info.transcription.compute_type}, ${info.transcription.speed}x realtime)`
+              : info.transcript_source ? ` · transcript: ${String(info.transcript_source).replace("faster-whisper:", "Whisper ")}` : ""}
           </p>
         </div>
         <div className="row">
@@ -94,6 +96,12 @@ export default function ProjectView({ id }: { id: string }) {
       )}
 
       {p.status === "error" && <div className="notice bad mt"><b>Processing failed.</b>&nbsp;{p.error}</div>}
+      {info.transcription?.warning && (
+        <div className="notice warn mt block">
+          <b>Transcribed on {info.transcription.device === "cuda" ? "the GPU" : "the CPU"}.</b>&nbsp;{info.transcription.warning}
+          {info.transcription.fix ? ` Fix: ${info.transcription.fix}` : ""}
+        </div>
+      )}
       {info.stage2?.warning && <div className="notice warn mt">{info.stage2.warning}</div>}
 
       {clips.length > 0 && (

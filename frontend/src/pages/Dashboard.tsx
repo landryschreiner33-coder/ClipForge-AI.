@@ -81,13 +81,26 @@ export default function Dashboard() {
           ) : (
             <div className="sys-list">
               <SysRow k="FFmpeg" ok={!!health.ffmpeg} v={health.ffmpeg ? "Found" : "Missing"} />
-              <SysRow k="GPU (CUDA)" ok={health.cuda} v={health.cuda ? "Available" : "CPU mode"} neutral={!health.cuda} />
+              <SysRow k="GPU (CUDA)" ok={health.cuda && health.gpu.libs_ok !== false}
+                v={health.gpu.name ? health.gpu.name.replace(/^NVIDIA (GeForce )?/, "") : "Not found"}
+                neutral={!health.gpu.name} />
               <SysRow k="GPU encoder" ok={health.nvenc} v={health.nvenc ? "NVENC" : "x264 (CPU)"} neutral={!health.nvenc} />
-              <SysRow k="Transcription" ok={health.whisper_installed}
-                v={`${health.whisper.model} on ${health.whisper.device.toUpperCase()}`} />
+              <SysRow k="Transcription" ok={health.whisper_installed} neutral={health.whisper.mode === "cpu"}
+                v={`${health.whisper.mode === "gpu" ? "GPU" : "CPU"} mode · ${health.whisper.model} · ${health.whisper.compute_type}`} />
               <SysRow k="Whisper model" ok={health.whisper.cached} neutral={!health.whisper.cached}
                 v={health.whisper.cached ? "Downloaded" : "Downloads on first run"} />
               <SysRow k="Clip scoring" ok v={health.ai_provider} />
+              {health.whisper.fix && (
+                <div className="notice warn small block">
+                  <b>GPU not used for transcription.</b> {health.whisper.problem} Fix: {health.whisper.fix}
+                </div>
+              )}
+              {health.whisper.last_run?.warning && (
+                <div className="notice warn small block">
+                  <b>Last transcription:</b> {health.whisper.last_run.warning}
+                  {health.whisper.last_run.fix ? ` Fix: ${health.whisper.last_run.fix}` : ""}
+                </div>
+              )}
               {!health.ffmpeg && (
                 <div className="notice bad small">
                   FFmpeg is required. Install it with <code>winget install Gyan.FFmpeg</code> and restart, or set its

@@ -91,7 +91,12 @@ export interface Health {
   nvenc: boolean;
   cuda: boolean;
   whisper_installed: boolean;
-  whisper: { model: string; device: string; compute_type: string; cached: boolean };
+  gpu: { name: string; vram_mb: number; libs_ok: boolean | null; libraries: { name: string; what: string; ok: boolean; path: string }[] };
+  whisper: {
+    model: string; device: string; compute_type: string; cached: boolean;
+    mode: "gpu" | "cpu"; reason: string; problem: string; fix: string;
+    last_run: { device: string; compute_type: string; model: string; speed: number; warning: string; fix: string } | null;
+  };
   ai_provider: string;
   data_dir: string;
   busy: boolean;

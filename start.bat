@@ -58,6 +58,34 @@ if errorlevel 1 (
   copy /y requirements.txt ".venv\installed-requirements.txt" >nul
 )
 
+rem ------------------------------ NVIDIA GPU: CUDA libraries for Whisper
+rem faster-whisper (CTranslate2) needs the CUDA 12 cuBLAS/cuDNN libraries, whatever CUDA Toolkit is
+rem installed. They come from pip (requirements-gpu.txt) and are only installed when an NVIDIA GPU exists.
+set "NVSMI="
+where nvidia-smi >nul 2>nul && set "NVSMI=nvidia-smi"
+if not defined NVSMI if exist "%SystemRoot%\System32\nvidia-smi.exe" set "NVSMI=%SystemRoot%\System32\nvidia-smi.exe"
+if not defined NVSMI if exist "%ProgramFiles%\NVIDIA Corporation\NVSMI\nvidia-smi.exe" set "NVSMI=%ProgramFiles%\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
+if defined NVSMI (
+  "%NVSMI%" -L >nul 2>nul
+  if errorlevel 1 set "NVSMI="
+)
+if defined NVSMI (
+  fc /b requirements-gpu.txt ".venv\installed-gpu-requirements.txt" >nul 2>nul
+  if errorlevel 1 (
+    echo   NVIDIA GPU found - installing the CUDA libraries for GPU transcription.
+    echo   This is a one-time download of about 1 GB ...
+    "%VPY%" -m pip install -r requirements-gpu.txt
+    if errorlevel 1 (
+      echo   [!] Could not install the GPU libraries - transcription will use the CPU.
+      echo       Check your internet connection and run start.bat again.
+    ) else (
+      copy /y requirements-gpu.txt ".venv\installed-gpu-requirements.txt" >nul
+    )
+  )
+) else (
+  echo   No NVIDIA GPU found - transcription will run on the CPU.
+)
+
 rem --------------------------------------- UI (prebuilt dist is committed)
 if not exist "frontend\dist\index.html" (
   where npm >nul 2>nul
@@ -73,6 +101,8 @@ if not exist "frontend\dist\index.html" (
 )
 
 rem ------------------------------------------------------------------ run
+rem The app prints "Transcription: GPU mode" or "CPU mode" (with the reason) before it starts.
+rem "start.bat gpu-check [video]" runs a real transcription test instead of the app.
 "%VPY%" -m clipfoundry --open %*
 echo.
 pause

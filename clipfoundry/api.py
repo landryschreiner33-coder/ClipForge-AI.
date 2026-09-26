@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from . import __version__, config, db
 from .jobs import worker
-from .pipeline import export, llm, transcribe
+from .pipeline import cuda, export, llm, transcribe
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available
 from .pipeline.process import load_words, project_dir
@@ -73,17 +73,21 @@ def health() -> dict:
     settings = db.get_settings()
     ffmpeg = find_binary("ffmpeg", settings.get("ffmpeg_path", ""))
     ffprobe = find_binary("ffprobe", settings.get("ffmpeg_path", ""))
-    model, device, compute = transcribe.resolve_whisper(settings)
+    status = cuda.probe()
+    plan = transcribe.whisper_plan(settings, status)
     return {
         "version": __version__,
         "platform": sys.platform,
         "ffmpeg": ffmpeg,
         "ffprobe": ffprobe,
         "nvenc": nvenc_available() if ffmpeg else False,
-        "cuda": transcribe.cuda_available(),
+        "cuda": status["devices"] > 0,
+        "gpu": {"name": plan["gpu"], "vram_mb": plan["vram_mb"], "libs_ok": status["libs_ok"],
+                "libraries": status["libraries"]},
         "whisper_installed": transcribe.whisper_installed(),
-        "whisper": {"model": model, "device": device, "compute_type": compute,
-                    "cached": transcribe.model_cached(model)},
+        "whisper": {"model": plan["model"], "device": plan["device"], "compute_type": plan["compute_type"],
+                    "cached": transcribe.model_cached(plan["model"]), "mode": plan["mode"], "reason": plan["reason"],
+                    "problem": plan["problem"], "fix": plan["fix"], "last_run": transcribe.last_run or None},
         "ai_provider": llm.provider_label(settings),
         "data_dir": str(config.data_dir()),
         "busy": worker.current is not None,

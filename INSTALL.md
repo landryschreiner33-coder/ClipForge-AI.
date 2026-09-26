@@ -11,7 +11,7 @@ anywhere.
 | Python | 3.10 | 3.11 or 3.12 |
 | FFmpeg | any recent build with libx264 + libass | `winget install Gyan.FFmpeg` |
 | RAM | 8 GB | 16 GB |
-| GPU | not required | NVIDIA RTX (CUDA 12 driver) for fast transcription and NVENC encoding |
+| GPU | not required | NVIDIA RTX (recent driver) for fast transcription and NVENC encoding |
 | Disk | ~3 GB (dependencies + Whisper model) | plus space for your videos |
 
 Node.js is **not** required. The UI ships prebuilt in `frontend/dist`.
@@ -39,7 +39,9 @@ Double-click **`start.bat`**. On the first run it:
 
 1. creates a private Python environment in `.venv`,
 2. installs the dependencies from `requirements.txt` (a few minutes),
-3. starts the server and opens <http://127.0.0.1:8765> in your browser.
+3. if an NVIDIA GPU is present, installs the CUDA libraries for GPU transcription (see below),
+4. prints `Transcription: GPU mode` or `CPU mode`, then starts the server and opens <http://127.0.0.1:8765> in your
+   browser.
 
 Later runs start in seconds. Keep the console window open while you use the app; close it (or press Ctrl+C) to quit.
 
@@ -60,18 +62,42 @@ Which model is used automatically:
 Rough speed for a 60-minute video: GPU ~2-4 min to transcribe; CPU (8 cores, `small`) ~10-20 min. Rendering takes
 about 15-40 s per clip on CPU, faster with NVENC.
 
-## Optional: NVIDIA GPU acceleration
+## NVIDIA GPU acceleration
 
-* **Video encoding (NVENC)** is used automatically when your FFmpeg build and driver support it (Settings → Video
-  encoder).
-* **Transcription on the GPU** needs the CUDA 12 cuBLAS and cuDNN 9 libraries. The easiest way is pip:
+* **Transcription on the GPU is automatic.** When `start.bat` finds an NVIDIA GPU (via `nvidia-smi`), it installs the
+  CUDA 12 cuBLAS and cuDNN 9 libraries from `requirements-gpu.txt` once (about 1 GB). faster-whisper needs exactly these
+  versions, whichever CUDA Toolkit you have installed, so a CUDA 13 toolkit alone is not enough. ClipFoundry makes these
+  DLLs visible to CTranslate2 when it starts.
+* On an RTX card like the RTX 3050 6 GB, transcription uses `device="cuda"` with `compute_type="float16"` and the
+  `large-v3-turbo` model. float16 runs on the Tensor Cores and fits easily in 6 GB. `int8_float16` needs about 40%
+  less GPU memory at similar speed with a small accuracy cost. ClipFoundry switches to it on its own on GPUs with
+  under 5 GB, or if the GPU runs out of memory. You can also choose it in Settings.
+* When it starts, the console says which mode it is in:
 
-  ```powershell
-  .venv\Scripts\python -m pip install -r requirements-gpu.txt
+  ```
+  Transcription: GPU mode - NVIDIA GeForce RTX 3050, 6 GB (CUDA)
+                 faster-whisper large-v3-turbo, compute type float16
   ```
 
-  ClipFoundry registers these DLLs automatically. If the GPU can't be used for any reason, transcription falls back
-  to the CPU on its own. The Dashboard's *System* panel shows what was detected.
+  If the GPU can't be used, it says `CPU mode` and gives the reason and the fix. The Dashboard's *System* panel
+  shows the same information.
+* Each transcription logs the device and compute type it actually used (`Transcription starting: device=cuda
+  compute_type=float16 model=large-v3-turbo`), plus its speed when it finishes. If the GPU fails partway through, the
+  job continues on the CPU (`int8`). The console, the project page and the Dashboard all show a warning with the
+  reason, so a fallback is never silent.
+* **Video encoding (NVENC)** is used automatically when your FFmpeg build and driver support it (Settings → Video
+  encoder).
+
+### Checking that the GPU is really used
+
+Drag a video onto **`gpu-check.bat`** (or run `start.bat gpu-check "C:\path\to\video.mp4"`). It transcribes the
+first 5 minutes through the same code path as the app and prints the device, compute type, speed, CPU usage, and GPU
+utilization and memory sampled with `nvidia-smi`. It ends with `PASS: faster-whisper ran on the GPU` or `FAIL` plus
+the reason.
+
+In **Windows Task Manager** (Performance → GPU), CUDA work does **not** appear on the default "3D" graph. Click the
+title of one of the small graphs and choose **Cuda** (or **Compute_0**) to see it. `nvidia-smi -l 1` in a terminal
+shows it too.
 
 ## Optional: smarter clip scoring with a local LLM (free)
 
@@ -112,8 +138,10 @@ dependencies automatically.
 | --- | --- |
 | "FFmpeg was not found" | `winget install Gyan.FFmpeg`, then reopen the terminal; or set Settings → FFmpeg location. |
 | Captions missing or wrong font | Use a full FFmpeg build (it needs `libass`). Gyan's builds include it. |
-| GPU not used for transcription | Install `requirements-gpu.txt`, update the NVIDIA driver, and check Dashboard → System. |
-| `cublas64_12.dll` / `cudnn` errors | Same as above. ClipFoundry falls back to CPU automatically meanwhile. |
+| Console says `CPU mode` although you have an NVIDIA GPU | Read the `Reason:` line. Usually run `start.bat` again (it installs the GPU libraries), or `.venv\Scripts\python -m pip install -r requirements-gpu.txt`. Also check Settings → Transcription → Device is *Auto*. |
+| `cublas64_12.dll` / `cudnn` errors | Same as above. A CUDA 13 toolkit does not provide these CUDA 12 files. Meanwhile ClipFoundry falls back to CPU and shows a warning. |
+| "NVIDIA GPU was found by the driver, but CUDA is not usable" | Install the latest NVIDIA driver. |
+| Task Manager shows 0% GPU during transcription | Switch a GPU graph from "3D" to "Cuda"/"Compute_0", or run `gpu-check.bat`. |
 | Out of memory on GPU | Settings → Model: `small` or `medium`, or Compute type `int8_float16`. |
 | Port 8765 already in use | `start.bat --port 8877` |
 | Nothing happens after upload | Check the console window for errors. Only one job runs at a time; others wait in the queue. |

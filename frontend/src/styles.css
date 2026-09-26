@@ -233,6 +233,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: rgba(96, 165, 250, 0.07); border: 1px solid rgba(96, 165, 250, 0.25); color: #c7dcff; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
 .notice.warn { background: rgba(251, 191, 36, 0.07); border-color: rgba(251, 191, 36, 0.3); color: #fde6a8; }
 .notice.bad { background: rgba(248, 113, 113, 0.07); border-color: rgba(248, 113, 113, 0.3); color: #ffd0d0; }
+.notice.block { display: block; }
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
 .empty h3 { color: var(--text); margin: 14px 0 6px; }
 

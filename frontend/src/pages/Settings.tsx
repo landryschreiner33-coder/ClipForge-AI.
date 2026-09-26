@@ -63,7 +63,9 @@ export default function SettingsPage() {
             {WHISPER_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </Row>
-        <Row label="Device" hint={health ? (health.cuda ? "NVIDIA GPU detected" : "No CUDA GPU detected") : ""}>
+        <Row label="Device" hint={health ? (health.whisper.mode === "gpu"
+          ? `GPU mode: ${health.gpu.name} (CUDA, ${health.whisper.compute_type})`
+          : `CPU mode: ${health.whisper.reason}`) : ""}>
           <Segmented value={s.whisper_device} onChange={(v) => set({ whisper_device: v })}
             options={[{ value: "auto", label: "Auto" }, { value: "cuda", label: "GPU (CUDA)" }, { value: "cpu", label: "CPU" }]} />
         </Row>

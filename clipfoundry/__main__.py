@@ -3,6 +3,7 @@
     python -m clipfoundry                 # start the app (http://127.0.0.1:8765)
     python -m clipfoundry --open          # ...and open the browser
     python -m clipfoundry process video.mp4 --count 5   # headless run, no UI
+    python -m clipfoundry gpu-check [video.mp4]         # verify that transcription runs on the NVIDIA GPU
 """
 from __future__ import annotations
 
@@ -23,8 +24,22 @@ def _serve(host: str, port: int, open_browser: bool) -> None:
     url = f"http://{'127.0.0.1' if host in {'0.0.0.0', '::'} else host}:{port}"
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    _print_transcription_mode()
     print(f"\n  ClipFoundry is running at {url}\n  Press Ctrl+C to stop.\n")
     uvicorn.run("clipfoundry.api:app", host=host, port=port, log_level="warning")
+
+
+def _print_transcription_mode() -> None:
+    from . import db
+    from .pipeline import transcribe
+
+    try:
+        lines = transcribe.startup_banner(db.get_settings())
+    except Exception as exc:  # noqa: BLE001 - never block startup on diagnostics
+        lines = [f"Transcription: device check failed ({exc}); CPU will be used if the GPU cannot be."]
+    print()
+    for line in lines:
+        print("  " + line)
 
 
 def _process(args: argparse.Namespace) -> int:
@@ -92,9 +107,16 @@ def main() -> int:
     p.add_argument("--layout", choices=["fill", "fit"])
     p.add_argument("--silence", choices=["off", "light", "aggressive"])
     p.add_argument("--provider", choices=["heuristic", "ollama", "openai_compatible", "anthropic"])
+    g = sub.add_parser("gpu-check", help="run a real transcription and report whether it used the NVIDIA GPU")
+    g.add_argument("media", nargs="?", help="optional video/audio file (its first --seconds are transcribed)")
+    g.add_argument("--seconds", type=float, default=None, help="audio length to test (default 300, 120 synthetic)")
     args = parser.parse_args()
     if args.cmd == "process":
         return _process(args)
+    if args.cmd == "gpu-check":
+        from .gpucheck import run
+
+        return run(args.media, args.seconds)
     _serve(args.host, args.port, args.open)
     return 0
 

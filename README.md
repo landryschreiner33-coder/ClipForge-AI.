@@ -20,7 +20,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Area | What you get |
 | --- | --- |
 | Input | Upload or drag & drop MP4, MOV, MKV, WEBM, M4V. Optional import from a public URL via yt-dlp. |
-| Transcription | Local `faster-whisper` with word-level timestamps and VAD. Uses an NVIDIA GPU (CUDA) automatically and falls back to CPU. You can also import an existing SRT/VTT to skip Whisper. |
+| Transcription | Local `faster-whisper` with word-level timestamps and VAD. Uses an NVIDIA GPU automatically (CUDA, float16). It falls back to the CPU (int8) only when the GPU truly can't be used, and always says why. `gpu-check.bat` verifies it. You can also import an existing SRT/VTT to skip Whisper. |
 | Moment discovery | **Stage 1** (fast, local): scores every sentence-bounded window of the full transcript plus loudness (hook, energy, payoff, standalone, topic relevance, pacing). **Stage 2**: re-scores only the strongest candidates with an optional LLM, or the offline heuristic. |
 | Clip quality | Cuts land on sentence boundaries padded into pauses, never mid-word. Clips avoid running past the punchline or across topic changes, and snap to hard scene cuts. Clips are diverse (no two from the same moment). Weak moments are dropped, so you may get 3 clips when you asked for 10. |
 | Score | Every clip shows an **AI estimate** (0-100) with its breakdown (hook, engagement, context, payoff, standalone). It is an estimate, not a guarantee of views. |
@@ -62,7 +62,8 @@ clipfoundry/            Python backend (FastAPI)
   db.py / config.py     SQLite persistence, settings with defaults
   pipeline/
     ffmpeg_utils.py     probe, audio extraction, encoder selection (NVENC / x264)
-    transcribe.py       faster-whisper + SRT/VTT import
+    cuda.py             NVIDIA GPU / CUDA library detection for faster-whisper
+    transcribe.py       faster-whisper (GPU/CPU plan + fallback) + SRT/VTT import
     audio.py            loudness envelope
     candidates.py       Stage 1 discovery
     scoring.py, llm.py  Stage 2 evaluation (heuristic / Ollama / OpenAI-compatible / Claude)
@@ -88,6 +89,8 @@ Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.jso
   Select clips and **Download selected** or **Download all (ZIP)**.
 * **Regenerate** reuses the transcript to try different clip counts or lengths.
 * Headless / scripting: `python -m clipfoundry process my_video.mp4 --count 5 [--transcript subs.srt]`.
+* GPU check: `python -m clipfoundry gpu-check [video]` (or `gpu-check.bat`) runs a real transcription and reports the
+  device, compute type, speed and GPU utilization.
 
 ## AI scoring providers (Settings → AI scoring)
 

@@ -92,6 +92,8 @@ def run_project(project_id: str, ctx: JobContext) -> None:
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)
     info["transcript_source"] = transcript.get("source", "")
+    if transcript.get("runtime"):
+        info["transcription"] = {k: v for k, v in transcript["runtime"].items() if k not in ("started", "ended")}
     info["language"] = transcript.get("language", "")
     info["word_count"] = len(words)
     ctx.check()

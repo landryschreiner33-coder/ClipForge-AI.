@@ -14,6 +14,16 @@ if ! cmp -s requirements.txt .venv/installed-requirements.txt; then
   cp requirements.txt .venv/installed-requirements.txt
 fi
 
+# NVIDIA GPU: CUDA 12 cuBLAS/cuDNN for faster-whisper (from pip, whatever CUDA Toolkit is installed)
+if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
+  if ! cmp -s requirements-gpu.txt .venv/installed-gpu-requirements.txt; then
+    echo "NVIDIA GPU found - installing the CUDA libraries for GPU transcription (one-time, about 1 GB)"
+    .venv/bin/python -m pip install -r requirements-gpu.txt \
+      && cp requirements-gpu.txt .venv/installed-gpu-requirements.txt \
+      || echo "[!] Could not install the GPU libraries - transcription will use the CPU"
+  fi
+fi
+
 if [ ! -f frontend/dist/index.html ] && command -v npm >/dev/null; then
   (cd frontend && npm install && npm run build)
 fi
