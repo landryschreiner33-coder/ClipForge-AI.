@@ -90,10 +90,20 @@ about 15-40 s per clip on CPU, faster with NVENC.
 
 ### Checking that the GPU is really used
 
-Drag a video onto **`gpu-check.bat`** (or run `start.bat gpu-check "C:\path\to\video.mp4"`). It transcribes the
-first 5 minutes through the same code path as the app and prints the device, compute type, speed, CPU usage, and GPU
-utilization and memory sampled with `nvidia-smi`. It ends with `PASS: faster-whisper ran on the GPU` or `FAIL` plus
-the reason.
+Drag a video onto **`gpu-check.bat`** in the ClipFoundry folder. You can also double-click it for a quick
+synthetic test, or run `gpu-check.bat "C:\path\to\video.mp4" --seconds 120` from a terminal.
+
+* It first runs the same setup as `start.bat` (the `.venv` environment, dependencies and CUDA libraries), then runs
+  `.venv\Scripts\python.exe -m clipfoundry gpu-check`. It uses exactly the environment the app uses, not a system
+  Python.
+* It transcribes the first 5 minutes through the same code path as the app. It prints the device, compute type,
+  speed, CPU usage, and GPU utilization and memory sampled with `nvidia-smi`.
+* It ends with `PASS: faster-whisper ran on the GPU` or `FAIL` plus the reason. The window stays open until you
+  press a key.
+
+If `gpu-check.bat` is missing, or it says the folder is out of date, update the whole ClipFoundry folder (`git pull`,
+or download the branch ZIP again and copy it over the folder). Copying only the `.bat` file is not enough, because
+the check also needs the newer app files. Your `data` and `.venv` folders are kept.
 
 In **Windows Task Manager** (Performance → GPU), CUDA work does **not** appear on the default "3D" graph. Click the
 title of one of the small graphs and choose **Cuda** (or **Compute_0**) to see it. `nvidia-smi -l 1` in a terminal

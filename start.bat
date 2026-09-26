@@ -100,9 +100,11 @@ if not exist "frontend\dist\index.html" (
   )
 )
 
+rem gpu-check.bat calls "start.bat --setup-only" to prepare this same environment without starting the app.
+if /i "%~1"=="--setup-only" exit /b 0
+
 rem ------------------------------------------------------------------ run
 rem The app prints "Transcription: GPU mode" or "CPU mode" (with the reason) before it starts.
-rem "start.bat gpu-check [video]" runs a real transcription test instead of the app.
 "%VPY%" -m clipfoundry --open %*
 echo.
 pause

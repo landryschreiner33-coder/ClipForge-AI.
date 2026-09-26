@@ -1,4 +1,4 @@
-"""`python -m clipfoundry gpu-check [video]` (or `start.bat gpu-check`, or drag a video onto gpu-check.bat).
+"""`python -m clipfoundry gpu-check [video]`. On Windows: double-click gpu-check.bat or drag a video onto it.
 
 Runs a real faster-whisper transcription through the same code path as the app and reports the device and compute
 type CTranslate2 actually used, GPU utilization and memory (sampled with nvidia-smi), CPU usage and speed.
@@ -68,13 +68,17 @@ def run(media: str | None, seconds: float | None) -> int:
                 return 2
             secs = seconds or 300.0
             print(f"\n  Test audio: first {secs:.0f} s of {src.name}")
-            ffmpeg(["-t", f"{secs:.3f}", "-i", str(src), "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000",
-                    "-c:a", "pcm_s16le", str(wav)])
+            try:
+                ffmpeg(["-t", f"{secs:.3f}", "-i", str(src), "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000",
+                        "-c:a", "pcm_s16le", str(wav)])
+            except Exception as exc:  # noqa: BLE001 - ffmpeg missing, no audio track, unreadable file
+                print(f"\n  Could not read audio from {src.name}: {exc}")
+                return 2
             vad = True
         else:
             secs = seconds or 120.0
             print(f"\n  Test audio: {secs:.0f} s of synthetic sound. For a realistic speed test pass a video:"
-                  "\n              start.bat gpu-check \"C:\\path\\to\\video.mp4\"  (or drag it onto gpu-check.bat)")
+                  "\n              drag a video onto gpu-check.bat, or run: gpu-check.bat \"C:\\path\\to\\video.mp4\"")
             _synthetic_wav(wav, secs)
             vad = False
         dur = _wav_seconds(wav)

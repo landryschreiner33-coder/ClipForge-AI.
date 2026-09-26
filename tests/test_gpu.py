@@ -188,3 +188,26 @@ def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog):
     rt = out["runtime"]
     assert rt["device"] == "cuda" and rt["compute_type"] == "float16" and rt["audio_seconds"] == 30.0
     assert out["segments"][0]["words"][0]["w"] == "hello"
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_gpu_check_command_parses():
+    import sys
+
+    out = subprocess.run([sys.executable, "-m", "clipfoundry", "--open", "gpu-check", "--help"], cwd=ROOT,
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and "media" in out.stdout and "--seconds" in out.stdout
+
+
+def test_windows_launchers_use_the_venv_and_crlf():
+    bat = (ROOT / "gpu-check.bat").read_bytes()
+    start = (ROOT / "start.bat").read_bytes()
+    for raw in (bat, start):
+        assert raw.count(b"\n") == raw.count(b"\r\n"), "Windows batch files must use CRLF line endings"
+    text = bat.decode()
+    assert 'call "%~dp0start.bat" --setup-only' in text  # same environment setup as the app
+    assert '".venv\\Scripts\\python.exe" -m clipfoundry gpu-check %*' in text
+    setup_exit = start.decode().index('if /i "%~1"=="--setup-only" exit /b 0')
+    assert setup_exit < start.decode().index("-m clipfoundry --open")  # setup-only never starts the app

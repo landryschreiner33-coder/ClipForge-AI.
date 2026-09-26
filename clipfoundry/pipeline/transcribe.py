@@ -121,7 +121,7 @@ def _fix_for(exc: BaseException) -> str:
         return cuda.GPU_FIX
     if "driver" in msg or "insufficient" in msg:
         return cuda.DRIVER_FIX
-    return "run `start.bat gpu-check` for a detailed diagnosis"
+    return "run gpu-check.bat for a detailed diagnosis"
 
 
 def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContext,
