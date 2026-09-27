@@ -53,6 +53,12 @@ network (only do this on a trusted network, since there is no login).
 The first transcription downloads the Whisper model into `data\models` (about 500 MB for `small`, 1.6 GB for
 `large-v3-turbo`). After that ClipFoundry works fully offline.
 
+Each model goes into its own short folder, e.g. `data\models\large-v3-turbo`. Before Whisper loads it, ClipFoundry
+checks that every file is there (`config.json`, `model.bin`, `preprocessor_config.json`, `tokenizer.json`,
+`vocabulary.json`) against the sizes and checksums published on Hugging Face. A download that was interrupted or is
+damaged is repaired automatically: only the bad files are downloaded again. Models left in the old
+`models--…\snapshots\…` layout by earlier versions are moved into the new folder instead of downloaded again.
+
 Which model is used automatically:
 
 * NVIDIA GPU detected → `large-v3-turbo` (float16) on the GPU
@@ -138,7 +144,7 @@ Everything lives in the `data` folder next to the app (override it with the `CLI
 ```
 data\clipfoundry.db            projects, clips, metadata, settings
 data\projects\<id>\            source video, transcript, candidates, rendered clips, exports
-data\models\                   downloaded Whisper models
+data\models\<model>\           downloaded Whisper models, one verified folder each (e.g. large-v3-turbo)
 ```
 
 To back up, copy the `data` folder. Deleting a project in the UI removes its folder.
@@ -158,6 +164,7 @@ dependencies automatically.
 | `cublas64_12.dll` / `cudnn` errors | Same as above. A CUDA 13 toolkit does not provide these CUDA 12 files. Meanwhile ClipFoundry falls back to CPU and shows a warning. |
 | "NVIDIA GPU was found by the driver, but CUDA is not usable" | Install the latest NVIDIA driver. |
 | Task Manager shows 0% GPU during transcription | Switch a GPU graph from "3D" to "Cuda"/"Compute_0", or run `gpu-check.bat`. |
+| `WinError 3` or a missing `preprocessor_config.json` while loading Whisper | Fixed in this version: models now use short folders and are verified and repaired automatically before loading. Run `gpu-check.bat` to see the model check. |
 | Out of memory on GPU | Settings → Model: `small` or `medium`, or Compute type `int8_float16`. |
 | Port 8765 already in use | `start.bat --port 8877` |
 | Nothing happens after upload | Check the console window for errors. Only one job runs at a time; others wait in the queue. |

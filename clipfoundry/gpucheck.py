@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from . import db
-from .pipeline import cuda, transcribe
+from .pipeline import cuda, models, transcribe
 from .pipeline.common import JobContext
 
 
@@ -115,29 +115,41 @@ def run(media: str | None, seconds: float | None) -> int:
                 print(f"  ... {last[0]}", flush=True)
 
         ctx = JobContext(report)
+        print(f"\n  Step 1/3: checking the Whisper '{model_name}' model files (downloads or repairs them if needed)")
+        try:
+            folder = transcribe.prepare_model(model_name, ctx)
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"the Whisper model files are not ready.\n  {type(exc).__name__}: {exc}",
+                         transcribe._fix_for(exc))  # noqa: SLF001
+        files = sorted(p for p in folder.iterdir() if p.is_file() and not p.name.startswith(("clipfoundry-", ".")))
+        size = sum(p.stat().st_size for p in files)
+        verified = "complete and verified" if models.is_ready(model_name) else "present (not verified: offline)"
+        print(f"  Model files {verified}: {', '.join(p.name for p in files)} ({size / 1e9:.2f} GB)")
+        print(f"  Folder: {folder}")
+
         monitor = cuda.GpuMonitor(gpus[0]["index"] if gpus else 0)
         sampling = monitor.start()
         time.sleep(0.6 if sampling else 0)
         baseline = monitor.samples[-1][2] if monitor.samples else None
         try:
-            print(f"\n  Step 1/2: initializing Whisper '{model_name}' with device=\"cuda\", compute_type=\"{compute}\"")
+            print(f"\n  Step 2/3: initializing Whisper '{model_name}' with device=\"cuda\", compute_type=\"{compute}\"")
             try:
                 model, loaded = transcribe.load_model(model_name, "cuda", compute, ctx)
             except Exception as exc:  # noqa: BLE001
-                return _fail(f"the Whisper model did not initialize on CUDA.\n  CTranslate2 error: {exc}",
+                return _fail(f"the Whisper model did not initialize on CUDA.\n  {type(exc).__name__}: {exc}",
                              transcribe._fix_for(exc))  # noqa: SLF001
             print(f"  CTranslate2 loaded the model on device={loaded['device']}, compute_type="
                   f"{loaded['compute_type']} in {loaded['seconds']:.1f} s")
             if loaded["device"] != "cuda":
                 return _fail(f"CTranslate2 put the model on {loaded['device']}, not cuda.")
 
-            print("\n  Step 2/2: transcribing on the GPU")
+            print("\n  Step 3/3: transcribing on the GPU")
             try:
                 result = transcribe.run_model(model, loaded, wav, dur, settings, model_name, "cuda", compute,
                                               ctx, vad=vad)
             except Exception as exc:  # noqa: BLE001 - e.g. cuBLAS is only loaded at the first GPU computation
                 return _fail(f"the model initialized on CUDA, but transcription failed on the GPU.\n"
-                             f"  CTranslate2 error: {exc}", transcribe._fix_for(exc))  # noqa: SLF001
+                             f"  {type(exc).__name__}: {exc}", transcribe._fix_for(exc))  # noqa: SLF001
         finally:
             monitor.stop()
 

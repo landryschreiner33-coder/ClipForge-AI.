@@ -63,6 +63,7 @@ clipfoundry/            Python backend (FastAPI)
   pipeline/
     ffmpeg_utils.py     probe, audio extraction, encoder selection (NVENC / x264)
     cuda.py             NVIDIA GPU / CUDA library detection for faster-whisper
+    models.py           Whisper model download, verification and automatic repair
     transcribe.py       faster-whisper (GPU/CPU plan + fallback) + SRT/VTT import
     audio.py            loudness envelope
     candidates.py       Stage 1 discovery
@@ -75,7 +76,7 @@ clipfoundry/            Python backend (FastAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)
 tests/                  unit + end-to-end tests
-data/                   created at runtime: clipfoundry.db, projects/<id>/..., models/
+data/                   created at runtime: clipfoundry.db, projects/<id>/..., models/<model>/ (verified)
 ```
 
 Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.json`, `loudness.json`,

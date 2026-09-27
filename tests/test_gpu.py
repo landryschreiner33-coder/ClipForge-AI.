@@ -179,16 +179,19 @@ def test_probe_without_gpu_is_cpu_mode():
     assert transcribe.whisper_plan({}, st)["mode"] == "cpu"
 
 
-def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog):
+def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog, tmp_path):
     import types
 
     import faster_whisper
 
+    from clipfoundry.pipeline import models
+
     seen = {}
+    monkeypatch.setattr(models, "ensure_model", lambda name, progress=None: tmp_path)
 
     class FakeModel:
-        def __init__(self, name, device, compute_type, download_root, cpu_threads):
-            seen.update(device=device, compute_type=compute_type)
+        def __init__(self, path, device, compute_type, cpu_threads):
+            seen.update(path=path, device=device, compute_type=compute_type)
             self.model = types.SimpleNamespace(device=device, compute_type=compute_type)
 
         def transcribe(self, path, **kw):
@@ -203,6 +206,7 @@ def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog):
         out = transcribe._run_whisper(Path("a.wav"), 30.0, {}, "large-v3-turbo", "cuda", "float16",
                                       JobContext(lambda f, m: msgs.append(m)), 0.0, 1.0, vad=False)
     assert seen["device"] == "cuda" and seen["compute_type"] == "float16" and seen["beam_size"] == 5
+    assert seen["path"] == str(tmp_path)  # WhisperModel only ever gets the verified local folder
     assert seen["vad_filter"] is False and seen["vad_parameters"] is None
     assert "loaded by CTranslate2 on cuda/float16" in caplog.text
     assert any("Transcribing on GPU (cuda, float16)" in m for m in msgs)
@@ -240,10 +244,14 @@ class _Loaded:
 
 
 @pytest.fixture
-def check_env(monkeypatch):
+def check_env(monkeypatch, tmp_path):
     from clipfoundry import db, gpucheck
+    from clipfoundry.pipeline import models
 
     calls: dict = {"load": [], "run": []}
+    (tmp_path / "model.bin").write_bytes(b"x")
+    monkeypatch.setattr(transcribe, "prepare_model", lambda name, ctx=None, lo=0.0: tmp_path)
+    monkeypatch.setattr(models, "is_ready", lambda name: True)
     monkeypatch.setattr(db, "get_settings", lambda: {"whisper_device": "auto", "whisper_model": "auto",
                                                      "whisper_compute_type": "auto", "language": ""})
     monkeypatch.setattr(cuda, "probe", lambda refresh=False: status())
@@ -302,3 +310,18 @@ def test_gpu_check_attempts_cuda_despite_library_precheck(check_env, capsys):
     assert gpucheck.run(None, 2) == 0
     assert calls["load"] == [("large-v3-turbo", "cuda", "float16")]
     assert "pre-check warning above was wrong" in capsys.readouterr().out
+
+
+def test_gpu_check_stops_at_model_files_before_touching_cuda(check_env, capsys):
+    from clipfoundry.pipeline import models
+
+    gpucheck, calls, mp = check_env
+
+    def broken(name, ctx=None, lo=0.0):
+        raise models.ModelError("Whisper model 'large-v3-turbo' is not ready (not downloaded yet)", models.NET_FIX)
+
+    mp.setattr(transcribe, "prepare_model", broken)
+    mp.setattr(transcribe, "load_model", _load_as(calls))
+    assert gpucheck.run(None, 2) == 1
+    out = capsys.readouterr().out
+    assert "model files are not ready" in out and models.NET_FIX in out and calls["load"] == []

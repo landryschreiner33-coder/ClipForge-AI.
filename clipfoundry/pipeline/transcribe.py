@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .. import config
-from . import cuda
+from . import cuda, models
 from .common import Cancelled, JobContext, log, read_json
 
 
@@ -123,9 +123,8 @@ def whisper_installed() -> bool:
 
 
 def model_cached(model: str) -> bool:
-    root = config.models_dir()
-    slug = model.replace("/", "--")
-    return any(slug in p.name for p in root.glob("models--*")) or (Path(model).is_dir())
+    """True when the model is downloaded completely and verified (see pipeline/models.py)."""
+    return models.is_ready(model)
 
 
 def _is_oom(exc: BaseException | None) -> bool:
@@ -133,6 +132,8 @@ def _is_oom(exc: BaseException | None) -> bool:
 
 
 def _fix_for(exc: BaseException) -> str:
+    if isinstance(exc, models.ModelError):
+        return exc.fix or models.NET_FIX
     msg = str(exc).lower()
     if _is_oom(exc):
         return "choose a smaller Whisper model or compute type int8_float16 in Settings"
@@ -177,7 +178,8 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
             fix = _fix_for(exc)
             log.warning("Transcription on device=%s compute_type=%s failed: %s", dev, ct, exc)
             if dev == "cuda":
-                warning = f"GPU transcription failed ({ct}): {str(exc).strip()[:300]}"
+                warning = (f"Whisper '{model_name}' could not be prepared: {exc}" if isinstance(exc, models.ModelError)
+                           else f"GPU transcription failed ({ct}): {str(exc).strip()[:300]}")
                 nxt = next((a for a in attempts[i + 1:] if a[1] == "cpu" or _is_oom(exc)), None)
                 if nxt:
                     log.warning("Falling back to device=%s compute_type=%s model=%s. Fix: %s", nxt[1], nxt[2],
@@ -199,6 +201,31 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
     raise RuntimeError(f"Transcription failed: {last}")
 
 
+_CUDA_WORDS = ("cuda", "cublas", "cudnn", "out of memory", "device", "driver")
+_FILE_WORDS = ("model.bin", "config.json", "vocabulary", "tokenizer", "preprocessor", "unable to open", "parse",
+               "json", "end of file", "eof", "corrupt", "invalid", "no such file", "cannot find")
+
+
+def _model_file_error(exc: BaseException) -> bool:
+    """Errors that point at damaged model files (worth one repair), never at CUDA problems."""
+    msg = str(exc).lower()
+    if any(w in msg for w in _CUDA_WORDS):
+        return False
+    return isinstance(exc, (OSError, ValueError)) or any(w in msg for w in _FILE_WORDS)
+
+
+def prepare_model(model_name: str, ctx: JobContext | None = None, lo: float = 0.0) -> Path:
+    """Download/verify/repair the model files before WhisperModel ever sees them."""
+    ctx = ctx or JobContext()
+    if not model_cached(model_name):
+        ctx.progress(lo, f"Checking Whisper '{model_name}' model files...")
+
+    def report(done: int, total: int) -> None:
+        ctx.progress(lo, f"Downloading Whisper '{model_name}' (first run only)  {done / 1e6:,.0f} / {total / 1e6:,.0f} MB")
+
+    return models.ensure_model(model_name, report)
+
+
 def load_model(model_name: str, device: str, compute: str, ctx: JobContext | None = None,
                lo: float = 0.0) -> tuple[object, dict]:
     """Create the faster-whisper model and return it with what CTranslate2 actually loaded it on."""
@@ -206,20 +233,25 @@ def load_model(model_name: str, device: str, compute: str, ctx: JobContext | Non
     from faster_whisper import WhisperModel
 
     ctx = ctx or JobContext()
+    path = prepare_model(model_name, ctx, lo)
     where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
-    if not model_cached(model_name):
-        ctx.progress(lo, f"Downloading Whisper '{model_name}' model (first run only)...")
-    else:
-        ctx.progress(lo, f"Loading Whisper '{model_name}' on {where}...")
+    ctx.progress(lo, f"Loading Whisper '{model_name}' on {where}...")
     t_load = time.time()
     threads = min(os.cpu_count() or 4, 8)
-    model = WhisperModel(model_name, device=device, compute_type=compute,
-                         download_root=str(config.models_dir()), cpu_threads=threads)
+    try:
+        model = WhisperModel(str(path), device=device, compute_type=compute, cpu_threads=threads)
+    except Exception as exc:  # noqa: BLE001
+        if not _model_file_error(exc) or Path(model_name).is_dir():
+            raise
+        log.warning("Whisper '%s' could not be loaded from %s (%s); re-checking the files", model_name, path, exc)
+        models.mark_suspect(model_name)
+        path = prepare_model(model_name, ctx, lo)  # re-verifies every hash, re-downloads bad files
+        model = WhisperModel(str(path), device=device, compute_type=compute, cpu_threads=threads)
     loaded = {"device": str(getattr(model.model, "device", device)),
               "compute_type": str(getattr(model.model, "compute_type", compute)),
-              "seconds": round(time.time() - t_load, 1)}
-    log.info("Whisper '%s' loaded by CTranslate2 on %s/%s in %.1f s", model_name, loaded["device"],
-             loaded["compute_type"], loaded["seconds"])
+              "seconds": round(time.time() - t_load, 1), "path": str(path)}
+    log.info("Whisper '%s' loaded by CTranslate2 on %s/%s in %.1f s from %s", model_name, loaded["device"],
+             loaded["compute_type"], loaded["seconds"], path)
     return model, loaded
 
 
