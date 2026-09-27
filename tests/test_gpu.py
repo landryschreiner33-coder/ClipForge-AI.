@@ -48,10 +48,28 @@ def test_no_gpu_uses_cpu_int8():
     assert "no NVIDIA CUDA GPU" in plan["reason"] and plan["fix"] == ""
 
 
-def test_missing_cuda_libraries_is_cpu_with_reason_and_fix():
+def test_missing_cuda_library_still_attempts_cuda_with_warning():
+    # The pre-check alone must never switch to the CPU: that made gpu-check run small/cpu while CUDA was present.
     plan = transcribe.whisper_plan({}, MISSING)
-    assert plan["device"] == "cpu" and plan["compute_type"] == "int8"
-    assert "cublas64_12.dll" in plan["reason"] and "requirements-gpu.txt" in plan["fix"]
+    assert (plan["device"], plan["compute_type"], plan["model"]) == ("cuda", "float16", "large-v3-turbo")
+    assert "cublas64_12.dll" in plan["problem"] and "requirements-gpu.txt" in plan["fix"]
+
+
+def test_old_driver_is_cpu_with_reason_and_fix():
+    old_driver = status(devices=0, compute_types=[], libs_ok=None, fix=cuda.DRIVER_FIX,
+                        problem="NVIDIA GeForce RTX 3050 was found by the NVIDIA driver, but CUDA is not usable.")
+    plan = transcribe.whisper_plan({}, old_driver)
+    assert plan["device"] == "cpu" and "not usable" in plan["reason"] and plan["fix"] == cuda.DRIVER_FIX
+
+
+def test_gpu_check_plan_is_the_app_plan_on_cuda():
+    settings = {"whisper_model": "auto", "whisper_compute_type": "auto", "language": "en", "whisper_beam_size": 0}
+    for st in (status(), MISSING, status(libs_ok=None)):
+        app, check = transcribe.whisper_plan(settings, st), transcribe.whisper_plan(settings, st, device="cuda")
+        assert (app["model"], app["device"], app["compute_type"]) == (check["model"], "cuda", "float16")
+    forced = transcribe.whisper_plan({"whisper_device": "cpu"}, status(), device="cuda")
+    assert (forced["device"], forced["model"], forced["compute_type"]) == ("cuda", "large-v3-turbo", "float16")
+    assert transcribe.transcribe_options(settings, "cuda")["beam_size"] == 5
 
 
 def test_forced_settings():
@@ -73,8 +91,11 @@ def test_banner_says_gpu_or_cpu_mode():
     gpu = transcribe.startup_banner({}, status())
     assert gpu[0].startswith("Transcription: GPU mode - NVIDIA GeForce RTX 3050, 6 GB (CUDA)")
     assert "large-v3-turbo, compute type float16" in gpu[1]
-    cpu = transcribe.startup_banner({}, MISSING)
-    assert cpu[0].startswith("Transcription: CPU mode") and any(line.strip().startswith("Fix:") for line in cpu)
+    warn = transcribe.startup_banner({}, MISSING)
+    assert warn[0].startswith("Transcription: GPU mode") and any("Warning:" in line for line in warn)
+    assert any(line.strip().startswith("Fix:") for line in warn)
+    cpu = transcribe.startup_banner({}, NO_GPU)
+    assert cpu[0].startswith("Transcription: CPU mode - faster-whisper small, compute type int8")
 
 
 def _fake_run(calls: list, fail: dict):
@@ -211,3 +232,73 @@ def test_windows_launchers_use_the_venv_and_crlf():
     assert '".venv\\Scripts\\python.exe" -m clipfoundry gpu-check %*' in text
     setup_exit = start.decode().index('if /i "%~1"=="--setup-only" exit /b 0')
     assert setup_exit < start.decode().index("-m clipfoundry --open")  # setup-only never starts the app
+
+
+# ---------------------------------------------------------------- gpu-check: strict CUDA, no CPU fallback
+class _Loaded:
+    """Stand-in for a faster-whisper model; records how gpu-check drives it."""
+
+
+@pytest.fixture
+def check_env(monkeypatch):
+    from clipfoundry import db, gpucheck
+
+    calls: dict = {"load": [], "run": []}
+    monkeypatch.setattr(db, "get_settings", lambda: {"whisper_device": "auto", "whisper_model": "auto",
+                                                     "whisper_compute_type": "auto", "language": ""})
+    monkeypatch.setattr(cuda, "probe", lambda refresh=False: status())
+    monkeypatch.setattr(cuda.GpuMonitor, "start", lambda self: False)
+
+    def fake_run(model, loaded, wav, dur, settings, name, device, compute, ctx, lo=0.0, hi=1.0, vad=True):
+        calls["run"].append((name, device, compute, vad))
+        return {"runtime": {"model": name, "device": loaded["device"], "compute_type": loaded["compute_type"],
+                            "beam_size": 5, "load_seconds": 1.0, "seconds": 2.0, "audio_seconds": 2.0,
+                            "speed": 1.0, "cpu_seconds": 0.5, "started": 0.0, "ended": 2.0}}
+
+    monkeypatch.setattr(transcribe, "run_model", fake_run)
+    return gpucheck, calls, monkeypatch
+
+
+def _load_as(calls, device="cuda", compute="float16", error=None):
+    def load(name, dev, ct, ctx=None, lo=0.0):
+        calls["load"].append((name, dev, ct))
+        if error:
+            raise RuntimeError(error)
+        return _Loaded(), {"device": device, "compute_type": compute, "seconds": 1.0}
+    return load
+
+
+def test_gpu_check_passes_only_when_model_is_on_cuda(check_env, capsys):
+    gpucheck, calls, mp = check_env
+    mp.setattr(transcribe, "load_model", _load_as(calls))
+    assert gpucheck.run(None, 2) == 0
+    out = capsys.readouterr().out
+    assert calls["load"] == [("large-v3-turbo", "cuda", "float16")]
+    assert calls["run"] == [("large-v3-turbo", "cuda", "float16", False)]
+    assert 'device="cuda", compute_type="float16"' in out and "PASS" in out
+
+
+def test_gpu_check_never_falls_back_to_cpu(check_env, capsys, monkeypatch):
+    gpucheck, calls, mp = check_env
+    mp.setattr(transcribe, "load_model", _load_as(calls, error="Library cublas64_12.dll is not found or cannot be loaded"))
+    mp.setattr(transcribe, "_run_whisper", lambda *a, **k: pytest.fail("CPU fallback path must not run"))
+    assert gpucheck.run(None, 2) == 1
+    out = capsys.readouterr().out
+    assert calls["load"] == [("large-v3-turbo", "cuda", "float16")] and calls["run"] == []
+    assert "did not initialize on CUDA" in out and "cublas64_12.dll" in out and "PASS" not in out
+
+
+def test_gpu_check_fails_if_ctranslate2_reports_cpu(check_env, capsys):
+    gpucheck, calls, mp = check_env
+    mp.setattr(transcribe, "load_model", _load_as(calls, device="cpu", compute="int8_float32"))
+    assert gpucheck.run(None, 2) == 1
+    assert "not cuda" in capsys.readouterr().out and calls["run"] == []
+
+
+def test_gpu_check_attempts_cuda_despite_library_precheck(check_env, capsys):
+    gpucheck, calls, mp = check_env
+    mp.setattr(cuda, "probe", lambda refresh=False: MISSING)
+    mp.setattr(transcribe, "load_model", _load_as(calls))
+    assert gpucheck.run(None, 2) == 0
+    assert calls["load"] == [("large-v3-turbo", "cuda", "float16")]
+    assert "pre-check warning above was wrong" in capsys.readouterr().out

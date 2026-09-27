@@ -39,22 +39,28 @@ def _pick_compute(device: str, requested: str, supported: set[str], vram_mb: int
     return choice, (f"{note}; using {choice}" if note else "")
 
 
-def whisper_plan(settings: dict, status: dict | None = None) -> dict:
-    """Decide device, compute type and model. CUDA is used whenever a GPU is detected and usable."""
+def whisper_plan(settings: dict, status: dict | None = None, device: str | None = None) -> dict:
+    """Decide device, compute type and model; `device` forces one (gpu-check forces "cuda").
+
+    CUDA is attempted whenever CTranslate2 reports a CUDA device. The CUDA library pre-check never switches to the
+    CPU on its own: it only adds a warning, and a real CUDA failure is what triggers the (reported) CPU fallback.
+    """
     status = status if status is not None else cuda.probe()
-    want = settings.get("whisper_device", "auto") or "auto"
+    want = device or settings.get("whisper_device", "auto") or "auto"
     gpu = status["gpus"][0] if status.get("gpus") else {}
-    gpu_name = gpu.get("name") or ("NVIDIA GPU" if status.get("devices") else "")
+    devices = int(status.get("devices") or 0)
+    gpu_name = gpu.get("name") or ("NVIDIA GPU" if devices else "")
     problem = fix = ""
     if want == "cpu":
         device, reason = "cpu", "CPU selected in Settings"
-        if status.get("devices") and status.get("libs_ok") is not False:
+        if devices:
             reason += f" ({gpu_name} is available: set Settings > Transcription > Device to Auto to use it)"
-    elif want == "cuda":
-        device, reason = "cuda", "GPU selected in Settings"
-        problem, fix = status.get("problem", ""), status.get("fix", "")
-    elif status.get("devices", 0) > 0 and status.get("libs_ok") is not False:
-        device, reason = "cuda", "NVIDIA CUDA GPU detected"
+    elif want == "cuda" or devices > 0:
+        device = "cuda"
+        reason = {"auto": "NVIDIA CUDA GPU detected"}.get(want, "GPU selected in Settings")
+        if status.get("libs_ok") is False or not devices:
+            problem = status.get("problem") or "CTranslate2 reports no CUDA device."
+            fix = status.get("fix") or cuda.DRIVER_FIX
     else:
         device = "cpu"
         problem, fix = status.get("problem", ""), status.get("fix", "")
@@ -68,6 +74,18 @@ def whisper_plan(settings: dict, status: dict | None = None) -> dict:
     return {"mode": "gpu" if device == "cuda" else "cpu", "device": device, "compute_type": compute, "model": model,
             "reason": reason, "gpu": gpu_name, "vram_mb": int(gpu.get("vram_mb") or 0), "problem": problem,
             "fix": fix, "note": note}
+
+
+def transcribe_options(settings: dict, device: str, vad: bool = True) -> dict:
+    """The exact faster-whisper transcribe() arguments the app uses (shared with gpu-check)."""
+    return {
+        "language": settings.get("language") or None,
+        "beam_size": int(settings.get("whisper_beam_size") or 0) or (5 if device == "cuda" else 1),
+        "word_timestamps": True,
+        "vad_filter": vad,
+        "vad_parameters": {"min_silence_duration_ms": 500} if vad else None,
+        "condition_on_previous_text": False,
+    }
 
 
 def _gpu_label(plan: dict) -> str:
@@ -84,6 +102,7 @@ def startup_banner(settings: dict, status: dict | None = None) -> list[str]:
                  f"{pad}faster-whisper {plan['model']}, compute type {plan['compute_type']}"]
         if plan["problem"]:
             lines.append(f"{pad}Warning: {plan['problem']}")
+            lines.append(f"{pad}The GPU is still tried first; if it fails, transcription falls back to the CPU.")
     else:
         lines = [f"Transcription: CPU mode - faster-whisper {plan['model']}, compute type {plan['compute_type']}",
                  f"{pad}Reason: {plan['reason']}"]
@@ -130,6 +149,8 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
     plan = whisper_plan(settings, status)
     if plan["mode"] == "gpu":
         log.info("Transcription: GPU mode - %s", _gpu_label(plan))
+        if plan["problem"]:
+            log.warning("CUDA pre-check: %s Trying the GPU anyway.", plan["problem"])
     else:
         log.info("Transcription: CPU mode - %s", plan["reason"])
         if plan["fix"]:
@@ -178,11 +199,13 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
     raise RuntimeError(f"Transcription failed: {last}")
 
 
-def _run_whisper(audio_path: Path, duration: float, settings: dict, model_name: str, device: str,
-                 compute: str, ctx: JobContext, lo: float, hi: float, vad: bool = True) -> dict:
+def load_model(model_name: str, device: str, compute: str, ctx: JobContext | None = None,
+               lo: float = 0.0) -> tuple[object, dict]:
+    """Create the faster-whisper model and return it with what CTranslate2 actually loaded it on."""
     cuda.prepare()
     from faster_whisper import WhisperModel
 
+    ctx = ctx or JobContext()
     where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
     if not model_cached(model_name):
         ctx.progress(lo, f"Downloading Whisper '{model_name}' model (first run only)...")
@@ -192,19 +215,21 @@ def _run_whisper(audio_path: Path, duration: float, settings: dict, model_name: 
     threads = min(os.cpu_count() or 4, 8)
     model = WhisperModel(model_name, device=device, compute_type=compute,
                          download_root=str(config.models_dir()), cpu_threads=threads)
-    loaded = f"{getattr(model.model, 'device', device)}/{getattr(model.model, 'compute_type', compute)}"
-    log.info("Whisper '%s' loaded by CTranslate2 on %s in %.1f s", model_name, loaded, time.time() - t_load)
-    beam = int(settings.get("whisper_beam_size") or 0) or (5 if device == "cuda" else 1)
+    loaded = {"device": str(getattr(model.model, "device", device)),
+              "compute_type": str(getattr(model.model, "compute_type", compute)),
+              "seconds": round(time.time() - t_load, 1)}
+    log.info("Whisper '%s' loaded by CTranslate2 on %s/%s in %.1f s", model_name, loaded["device"],
+             loaded["compute_type"], loaded["seconds"])
+    return model, loaded
+
+
+def run_model(model, loaded: dict, audio_path: Path, duration: float, settings: dict, model_name: str,
+              device: str, compute: str, ctx: JobContext, lo: float = 0.0, hi: float = 1.0,
+              vad: bool = True) -> dict:
+    opts = transcribe_options(settings, device, vad)
+    where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
     t0, cpu0 = time.time(), time.process_time()
-    segments, info = model.transcribe(
-        str(audio_path),
-        language=settings.get("language") or None,
-        beam_size=beam,
-        word_timestamps=True,
-        vad_filter=vad,
-        vad_parameters={"min_silence_duration_ms": 500} if vad else None,
-        condition_on_previous_text=False,
-    )
+    segments, info = model.transcribe(str(audio_path), **opts)  # type: ignore[attr-defined]
     total = duration or float(getattr(info, "duration", 0) or 0) or 1.0
     label = f"Transcribing on {where}, {model_name}"
     out_segments = []
@@ -226,13 +251,20 @@ def _run_whisper(audio_path: Path, duration: float, settings: dict, model_name: 
     return {
         "language": getattr(info, "language", "") or "",
         "duration": total,
-        "source": f"faster-whisper:{model_name}:{device}",
+        "source": f"faster-whisper:{model_name}:{loaded['device']}",
         "segments": out_segments,
-        "runtime": {"model": model_name, "device": device, "compute_type": compute, "beam_size": beam,
-                    "load_seconds": round(t0 - t_load, 1), "seconds": round(secs, 1),
+        "runtime": {"model": model_name, "device": loaded["device"], "compute_type": loaded["compute_type"],
+                    "requested_device": device, "requested_compute_type": compute, "beam_size": opts["beam_size"],
+                    "load_seconds": loaded["seconds"], "seconds": round(secs, 1),
                     "audio_seconds": round(total, 1), "speed": round(total / secs, 1),
                     "cpu_seconds": round(time.process_time() - cpu0, 1), "started": t0, "ended": t1},
     }
+
+
+def _run_whisper(audio_path: Path, duration: float, settings: dict, model_name: str, device: str,
+                 compute: str, ctx: JobContext, lo: float, hi: float, vad: bool = True) -> dict:
+    model, loaded = load_model(model_name, device, compute, ctx, lo)
+    return run_model(model, loaded, audio_path, duration, settings, model_name, device, compute, ctx, lo, hi, vad)
 
 
 # ------------------------------------------------------------------ import

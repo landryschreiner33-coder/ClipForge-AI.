@@ -79,8 +79,11 @@ about 15-40 s per clip on CPU, faster with NVENC.
                  faster-whisper large-v3-turbo, compute type float16
   ```
 
-  If the GPU can't be used, it says `CPU mode` and gives the reason and the fix. The Dashboard's *System* panel
-  shows the same information.
+  Whenever CTranslate2 reports a CUDA device, ClipFoundry uses GPU mode. If a CUDA library looks missing, it adds a
+  warning and the fix, but still tries the GPU first. It says `CPU mode` only when there is no usable CUDA device, or
+  when Settings → Transcription → Device is set to *CPU*. The Dashboard's *System* panel shows the same information.
+  After updating ClipFoundry, close the old console window and run `start.bat` again, then reload the page
+  (Ctrl+F5). An old window keeps running the old version.
 * Each transcription logs the device and compute type it actually used (`Transcription starting: device=cuda
   compute_type=float16 model=large-v3-turbo`), plus its speed when it finishes. If the GPU fails partway through, the
   job continues on the CPU (`int8`). The console, the project page and the Dashboard all show a warning with the
@@ -96,10 +99,13 @@ synthetic test, or run `gpu-check.bat "C:\path\to\video.mp4" --seconds 120` from
 * It first runs the same setup as `start.bat` (the `.venv` environment, dependencies and CUDA libraries), then runs
   `.venv\Scripts\python.exe -m clipfoundry gpu-check`. It uses exactly the environment the app uses, not a system
   Python.
-* It transcribes the first 5 minutes through the same code path as the app. It prints the device, compute type,
-  speed, CPU usage, and GPU utilization and memory sampled with `nvidia-smi`.
-* It ends with `PASS: faster-whisper ran on the GPU` or `FAIL` plus the reason. The window stays open until you
-  press a key.
+* It uses the app's own transcription settings (model, compute type, beam size, language) and explicitly requests
+  `device="cuda"` with the app's GPU compute type (`float16` on an RTX 3050). It never falls back to the CPU.
+* Step 1 creates the Whisper model and checks that CTranslate2 reports it on `cuda`. Step 2 transcribes the first
+  5 minutes through the same code as the app. It prints the speed, CPU usage, and GPU utilization and memory
+  sampled with `nvidia-smi`.
+* It prints `PASS` only when the model initialized on CUDA and the transcription finished on the GPU. Otherwise it
+  prints `FAIL` with the exact CTranslate2 error and the fix. The window stays open until you press a key.
 
 If `gpu-check.bat` is missing, or it says the folder is out of date, update the whole ClipFoundry folder (`git pull`,
 or download the branch ZIP again and copy it over the folder). Copying only the `.bat` file is not enough, because

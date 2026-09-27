@@ -92,7 +92,10 @@ export default function Dashboard() {
               <SysRow k="Clip scoring" ok v={health.ai_provider} />
               {health.whisper.fix && (
                 <div className="notice warn small block">
-                  <b>GPU not used for transcription.</b> {health.whisper.problem} Fix: {health.whisper.fix}
+                  <b>{health.whisper.mode === "gpu" ? "GPU transcription may fail." : "GPU not used for transcription."}</b>{" "}
+                  {health.whisper.problem}
+                  {health.whisper.mode === "gpu" ? " ClipFoundry still tries the GPU first and falls back to the CPU only if it fails." : ""}
+                  {" "}Fix: {health.whisper.fix}
                 </div>
               )}
               {health.whisper.last_run?.warning && (
