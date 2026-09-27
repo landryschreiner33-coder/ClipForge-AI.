@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS clips (
     duration REAL DEFAULT 0,
     selected INTEGER DEFAULT 1,
     render_info TEXT DEFAULT '{}',
+    analysis TEXT DEFAULT '{}',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -72,8 +73,22 @@ CREATE TABLE IF NOT EXISTS settings (
 
 JSON_FIELDS = {
     "projects": {"options", "info"},
-    "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info"},
+    "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis"},
 }
+
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
+# are added with ALTER TABLE when missing (existing rows get the default).
+ADDED_COLUMNS = {
+    "clips": {"analysis": "TEXT DEFAULT '{}'"},
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, cols in ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 _ready: set[str] = set()
@@ -88,6 +103,7 @@ def connect() -> Iterator[sqlite3.Connection]:
     if path not in _ready:  # create tables on first use of this database file
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
+        _migrate(conn)
         _ready.add(path)
     try:
         yield conn

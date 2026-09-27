@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { api, Clip, clipDownloadUrl, clipThumbUrl, clipVideoUrl, downloadZip, fmtPrecise, fmtTime, Project } from "../api";
 import { Icon, Modal, ScoreBadge, Segmented, StatusBadge, toast, usePoll } from "../components/ui";
+import { ESTIMATE_NOTE, QualitySummary, StructureChips, SubscoreLine, ViralPanel } from "../components/viral";
 import { navigate } from "../App";
 
 const STAGES = ["Prepare", "Transcribe", "Find moments", "Score & hooks", "Render 9:16"];
@@ -104,13 +105,16 @@ export default function ProjectView({ id }: { id: string }) {
       )}
       {info.stage2?.warning && <div className="notice warn mt">{info.stage2.warning}</div>}
 
+      {!busy && info.quality && <QualitySummary q={info.quality} clipCount={clips.length} />}
+
       {clips.length > 0 && (
         <>
           <div className="notice mt">
             <Icon name="spark" size={16} />
             <div>
-              Scores are an <b>AI estimate</b> of short-form potential ({info.stage2?.provider || "local heuristic"}),
-              based on hook strength, engagement, context, payoff and standalone quality. They are not a guarantee of views.
+              Clips are ranked by <b>Viral Potential</b> ({info.stage2?.provider || "local analysis"}): hook strength,
+              curiosity, emotion, information density, payoff, standalone context, opening, pacing, uniqueness, speaker
+              clarity and retention, with a bonus for a clear hook → context → payoff structure. {ESTIMATE_NOTE}
             </div>
           </div>
           <div className="toolbar">
@@ -141,8 +145,11 @@ export default function ProjectView({ id }: { id: string }) {
       {!busy && p.status === "ready" && clips.length === 0 && (
         <div className="card empty mt">
           <Icon name="scissors" size={34} />
-          <h3>No strong moments found</h3>
-          <p>Try a longer video, a different clip length, or lower the minimum score in Settings.</p>
+          <h3>No moment passed the quality bar</h3>
+          <p>
+            ClipFoundry does not pad the results with weak clips. Try a different clip length with Regenerate, or lower
+            the minimum Viral Potential in Settings if you want to see weaker moments too.
+          </p>
         </div>
       )}
 
@@ -188,6 +195,13 @@ function ClipCard({ c, onPreview, onToggle }: { c: Clip; onPreview: () => void; 
           <span className="small muted">@ {fmtTime(c.edit?.start ?? c.start)}</span>
         </div>
         <div className="clip-title">{c.title}</div>
+        <SubscoreLine c={c} />
+        <StructureChips c={c} />
+        {(c.analysis?.flags || []).some((f) => f.severity === "warn") && (
+          <div className="small warn-text" title={(c.analysis?.flags || []).map((f) => `${f.label}: ${f.detail}`).join("\n")}>
+            ⚠ {(c.analysis?.flags || []).map((f) => f.label).join(", ")}
+          </div>
+        )}
         {(() => {
           const hook = c.edit?.hook ?? c.hook;
           const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
@@ -206,10 +220,6 @@ function ClipCard({ c, onPreview, onToggle }: { c: Clip; onPreview: () => void; 
     </div>
   );
 }
-
-const CRITERIA: [string, string][] = [
-  ["hook", "Hook"], ["engagement", "Engagement"], ["context", "Context"], ["payoff", "Payoff"], ["standalone", "Standalone"],
-];
 
 function PreviewModal({ c, onClose }: { c: Clip; onClose: () => void }) {
   const start = c.edit?.start ?? c.start;
@@ -232,18 +242,9 @@ function PreviewModal({ c, onClose }: { c: Clip; onClose: () => void }) {
             <span className="k">Scored by</span><span>{c.score_source}</span>
             {c.render_info?.mode && <><span className="k">Framing</span><span>{c.render_info.mode}</span></>}
           </div>
-          <div className="scorebars">
-            {CRITERIA.map(([k, label]) => (
-              <div className="scorebar" key={k}>
-                <span>{label}</span>
-                <div className="bar"><div style={{ width: `${(c.scores?.[k] ?? 0) * 10}%` }} /></div>
-                <span>{(c.scores?.[k] ?? 0).toFixed(1)}</span>
-              </div>
-            ))}
-          </div>
+          <ViralPanel c={c} />
           {c.reason && <div className="small muted">{c.reason}</div>}
           <div className="tags">{c.hashtags.map((t) => <span className="tag" key={t}>{t}</span>)}</div>
-          <div className="small muted">AI estimate only, not a guarantee of performance.</div>
           <div className="row" style={{ marginTop: "auto" }}>
             <a className="btn primary" href={clipDownloadUrl(c)}><Icon name="download" size={16} /> Download</a>
             <button className="btn" onClick={() => navigate(`/clip/${c.id}`)}><Icon name="edit" size={16} /> Edit</button>

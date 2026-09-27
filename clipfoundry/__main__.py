@@ -83,9 +83,15 @@ def _process(args: argparse.Namespace) -> int:
     process.run_project(project["id"], JobContext(report))
     db.update_project(project["id"], status="ready", progress=1.0, message="Done")
     clips = db.list_clips(project["id"])
-    print(f"\nDone in {time.time() - t0:.0f}s. {len(clips)} clip(s):")
+    quality = (db.get_project(project["id"]) or {}).get("info", {}).get("quality") or {}
+    print(f"\nDone in {time.time() - t0:.0f}s. {len(clips)} clip(s) passed the quality bar"
+          f" ({quality.get('evaluated', 0)} candidates evaluated; scores are estimates, not guarantees):")
     for c in clips:
-        print(f"  #{c['rank'] + 1}  score {c['score']:5.1f}  {c['duration']:5.1f}s  [{c['category']}] {c['title']}")
+        sub = (c.get("analysis") or {}).get("subscores") or {}
+        print(f"  #{c['rank'] + 1}  Viral Potential {c['score']:5.1f}  {c['duration']:5.1f}s  [{c['category']}] {c['title']}")
+        if sub:
+            print(f"       hook {sub['hook']} / retention {sub['retention']} / context {sub['context']} / "
+                  f"engagement {sub['engagement']}  ({(c['analysis'].get('structure') or {}).get('label', '')})")
         print(f"       hook: {c['hook']}")
         print(f"       {c['status']}: {c['output_path'] or c['error']}")
     return 0

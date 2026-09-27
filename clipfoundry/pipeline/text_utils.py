@@ -65,6 +65,39 @@ TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week
 SETUP_PHRASES = ["let me tell you", "here's", "here is", "what if", "i'll tell you", "let me explain", "let me show",
                  "a story", "guess what", "the question is", "you know what", "i want to talk about"]
 
+# Warm-up lines that make an opening slow ("so today I want to talk about...").
+SLOW_OPEN_PHRASES = ["hey guys", "hi guys", "hello everyone", "hey everyone", "welcome back", "welcome to",
+                     "what's up", "in this video", "in today's", "today i want", "today we're", "today we are",
+                     "so today", "before we start", "before we begin", "before we get", "let's get started",
+                     "let's get into it", "let me start", "first of all", "to start off", "alright so",
+                     "all right so", "okay so", "ok so", "so basically", "i just wanted to", "i want to start",
+                     "quick disclaimer", "real quick"]
+
+# Openers that promise something the viewer only gets by watching on (open loops).
+OPEN_LOOP_PHRASES = ["here's why", "here is why", "here's how", "here is how", "the reason", "the secret",
+                     "what nobody", "no one tells", "nobody tells", "you won't believe", "guess what", "turns out",
+                     "the truth", "the problem is", "the problem with", "most people", "the mistake", "the one thing",
+                     "the biggest", "what happened", "wait for it", "let me tell you", "i'll tell you",
+                     "here's the thing", "here's what", "what if", "did you know", "the key", "the craziest",
+                     "you need to know", "stop doing"]
+
+CONTRAST_WORDS = {"but", "actually", "instead", "however", "wrong", "except", "although", "yet", "surprisingly",
+                  "unexpected", "opposite", "myth", "mistake", "wasn't", "isn't", "didn't", "doesn't"}
+
+INTENSIFIERS = {"so", "really", "literally", "absolutely", "completely", "totally", "never", "always", "insane",
+                "crazy", "extremely", "incredibly", "seriously", "honestly", "massive", "huge", "every", "nothing",
+                "everything", "worst", "best"}
+
+# The clip leans on something said before it.
+BACKREF_PHRASES = ["as i said", "like i said", "as i mentioned", "like i mentioned", "i mentioned", "we talked about",
+                   "we discussed", "as we saw", "earlier", "going back to", "back to what", "the other one",
+                   "what you just said", "you just said", "like you said", "as you said", "that guy",
+                   "that story"]
+
+# A sentence that starts as a reply to someone else.
+RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "absolutely", "true", "correct",
+                   "definitely", "totally", "agreed", "sure", "mhm", "precisely"}
+
 # Promotional housekeeping that rarely works in a short.
 PROMO_PHRASES = ["subscribe", "sponsor", "link in the description", "in the description", "patreon",
                  "promo code", "discount code", "hit the bell", "smash that like", "check out my"]

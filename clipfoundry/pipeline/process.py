@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import db
 from . import candidates as cand_mod
-from . import render, scoring, transcribe
+from . import render, scoring, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
@@ -117,10 +117,13 @@ def run_project(project_id: str, ctx: JobContext) -> None:
 
     # ---- 5. stage 2 evaluation
     stage("scoring", P_ANALYZE, "Scoring candidates")
-    results, notes = scoring.evaluate(cands, sentences, opts, ctx, project["name"], P_ANALYZE, P_SCORE)
-    chosen = scoring.select(results, opts["clip_count"], float(opts.get("min_score", 50)))
+    results, notes = scoring.evaluate(cands, sentences, opts, ctx, project["name"], P_ANALYZE, P_SCORE,
+                                      words=words, loud=loud)
+    min_score = float(opts.get("min_score", 50))
+    chosen = scoring.select(results, opts["clip_count"], min_score)
     info["stage2"] = notes
     info["candidates_found"] = len(cands)
+    info["quality"] = scoring.quality_report(results, chosen, opts["clip_count"], min_score)
     db.update_project(project_id, info=info)
 
     # ---- 6. create clips
@@ -135,7 +138,8 @@ def run_project(project_id: str, ctx: JobContext) -> None:
             project_id, rank=rank, start=start, end=end, title=r["title"], hook=r["hook"],
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
-            reason=r["reason"], edit={}, status="queued", duration=round(end - start, 2),
+            reason=r["reason"], analysis=virality.summary(r["analysis"]), edit={}, status="queued",
+            duration=round(end - start, 2),
         ))
 
     # ---- 7. render

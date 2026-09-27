@@ -53,6 +53,34 @@ export interface ClipEdit {
   normalize_audio?: boolean;
 }
 
+export interface ClipFlag {
+  id: string;
+  label: string;
+  severity: "warn" | "block";
+  detail: string;
+}
+
+/** Viral Potential analysis. Every number is an estimate used for ranking, never a prediction of views. */
+export interface ClipAnalysis {
+  factors: Record<string, number>; // 0-10
+  subscores: { hook: number; retention: number; context: number; engagement: number }; // 0-100
+  structure: { hook: boolean; context: boolean; payoff: boolean; complete: boolean; label: string; missing: string[] };
+  flags: ClipFlag[];
+  viral_potential: number;
+  note: string;
+}
+
+export interface QualityReport {
+  evaluated: number;
+  passed: number;
+  shown: number;
+  requested: number;
+  min_score: number;
+  reject_counts: Record<string, number>;
+  rejected: { start: number; end: number; score: number; text: string; reasons: string[] }[];
+  note: string;
+}
+
 export interface Clip {
   id: string;
   project_id: string;
@@ -76,6 +104,7 @@ export interface Clip {
   duration: number;
   selected: number;
   render_info: Record<string, any>;
+  analysis: Partial<ClipAnalysis>;
   has_video: boolean;
   has_thumbnail: boolean;
   version: number;

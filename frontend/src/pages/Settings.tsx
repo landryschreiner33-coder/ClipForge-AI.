@@ -93,7 +93,7 @@ export default function SettingsPage() {
             <input type="number" value={s.target_duration} onChange={(e) => set({ target_duration: +e.target.value })} />
           </div>
         </Row>
-        <Row label="Minimum AI estimate" hint="Clips below this are skipped (the best clip is always kept)">
+        <Row label="Minimum Viral Potential" hint="Only clips at or above this (and without blocking problems such as a misleading cut) are shown. No filler is added.">
           <div className="row"><input type="range" min={0} max={90} step={5} value={s.min_score} onChange={(e) => set({ min_score: +e.target.value })} /><b style={{ width: 30 }}>{s.min_score}</b></div>
         </Row>
       </div>

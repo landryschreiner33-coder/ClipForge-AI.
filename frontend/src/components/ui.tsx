@@ -81,9 +81,9 @@ export function Segmented<T extends string | number>({
 export function ScoreBadge({ score, compact }: { score: number; compact?: boolean }) {
   const cls = score >= 75 ? "hi" : score >= 55 ? "mid" : "lo";
   return (
-    <span className={`score ${cls}`} title="AI estimate of short-form potential. Not a guarantee of views.">
+    <span className={`score ${cls}`} title="Viral Potential: an estimate from the clip's transcript and audio, used to rank clips. Not a guarantee of views.">
       {Math.round(score)}
-      {!compact && <small>AI estimate</small>}
+      {!compact && <small>Viral Potential</small>}
     </span>
   );
 }

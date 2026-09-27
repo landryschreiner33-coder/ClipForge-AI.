@@ -321,7 +321,7 @@ def _interp_words(text: str, start: float, end: float) -> list[dict]:
     words, t = [], start
     for tok, wgt in zip(tokens, weights):
         d = span * wgt / total
-        words.append({"start": round(t, 3), "end": round(t + d * 0.92, 3), "w": tok, "p": 1.0})
+        words.append({"start": round(t, 3), "end": round(t + d * 0.92, 3), "w": tok})  # no confidence: not measured
         t += d
     return words
 
@@ -369,7 +369,10 @@ def flatten_words(transcript: dict) -> list[dict]:
     for seg in transcript.get("segments", []):
         for w in seg.get("words", []):
             if w.get("w"):
-                words.append({"start": float(w["start"]), "end": float(w["end"]), "w": str(w["w"])})
+                word = {"start": float(w["start"]), "end": float(w["end"]), "w": str(w["w"])}
+                if w.get("p") is not None:
+                    word["p"] = float(w["p"])  # Whisper word confidence, used for the speaker clarity estimate
+                words.append(word)
     words.sort(key=lambda w: w["start"])
     # enforce monotonic, non-overlapping timings
     for i in range(1, len(words)):

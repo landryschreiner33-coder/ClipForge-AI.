@@ -21,9 +21,9 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | --- | --- |
 | Input | Upload or drag & drop MP4, MOV, MKV, WEBM, M4V. Optional import from a public URL via yt-dlp. |
 | Transcription | Local `faster-whisper` with word-level timestamps and VAD. Uses an NVIDIA GPU automatically (CUDA, float16). It falls back to the CPU (int8) only when a real CUDA attempt fails, and always says why. `gpu-check.bat` proves the model initializes and runs on CUDA. You can also import an existing SRT/VTT to skip Whisper. |
-| Moment discovery | **Stage 1** (fast, local): scores every sentence-bounded window of the full transcript plus loudness (hook, energy, payoff, standalone, topic relevance, pacing). **Stage 2**: re-scores only the strongest candidates with an optional LLM, or the offline heuristic. |
-| Clip quality | Cuts land on sentence boundaries padded into pauses, never mid-word. Clips avoid running past the punchline or across topic changes, and snap to hard scene cuts. Clips are diverse (no two from the same moment). Weak moments are dropped, so you may get 3 clips when you asked for 10. |
-| Score | Every clip shows an **AI estimate** (0-100) with its breakdown (hook, engagement, context, payoff, standalone). It is an estimate, not a guarantee of views. |
+| Moment discovery | **Stage 1** (fast, local): scores every sentence-bounded window of the full transcript plus loudness (hook, energy, payoff, standalone, topic relevance, pacing). **Stage 2**: measures only the strongest candidates on eleven Viral Potential factors, locally or blended with an optional LLM, then ranks them. |
+| Clip quality | Cuts land on sentence boundaries padded into pauses, never mid-word. Each candidate's opening and ending are optimized: a warm-up line is dropped, the clip stops at its payoff, or runs one line longer instead of cutting before an answer. Clips prefer a **hook → context → payoff** structure and avoid slow openings, excessive setup, repetition, missing context, misleading cuts and weak endings. **Quality over quantity:** only clips that pass the quality bar are shown, so you may get 3 clips (or none) when you asked for 10. No filler is added. |
+| Score | Every clip shows a **Viral Potential** score (0-100) with four sub-scores (**Hook Score, Retention Potential, Context Score, Engagement Potential**) and eleven factors. All of them are estimates used to rank clips, not a guarantee of views. |
 | 9:16 reframing | Auto, Center, **Face tracking**, **Active-speaker tracking** (mouth-motion based, with a cut on speaker change), **Screen content** tracking, or a manual position. Smooth virtual-camera movement, instant re-framing on scene cuts, Fill (crop) or Fit (blurred background) layouts. |
 | Captions | Burned-in styles **Clean, Bold, High Energy, Minimal** with word-level highlighting. Adjustable position, size and highlight color. Editable text keeps the original timing. |
 | Hooks & titles | One recommended hook and three alternatives per clip, plus title, hashtags and category. Hooks are extracted from the clip's own words; LLM hooks are rejected if they mention names, numbers or topics that are not in the clip. |
@@ -49,9 +49,21 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
    The best windows are de-duplicated by time overlap and text similarity. **Long transcripts are never sent to an
    LLM.**
 3. **Stage 2** evaluates only that short list. With a local LLM (Ollama / LM Studio) or the optional Claude API, the
-   model's scores are blended with the heuristic scores and may tighten the sentence range. Without one, the heuristic
-   scores are used as-is.
-4. Selection keeps the best, non-overlapping clips above the minimum score (the single best clip is always kept).
+   model scores the factors it can judge from text and those are blended with the local measurements; it may also
+   tighten the sentence range. Without one, the local analysis is used as-is.
+4. **Viral Potential.** Each shortlisted candidate is measured on eleven factors: hook strength, opening strength,
+   curiosity (an open loop that the clip closes), emotional intensity, information density, story/payoff, standalone
+   context, pacing (speaking rate, dead air, filler), uniqueness (repetition inside the clip and overlap with the other
+   candidates), speaker clarity (Whisper word confidence and how clearly speech stands out from the background) and
+   retention potential. Appeal factors (hook, curiosity, emotion, payoff, retention) decide how interesting a clip is;
+   quality factors decide how much of that survives. A clear hook → context → payoff structure earns a bonus. Nearby
+   sentence ranges are compared too (one line earlier, up to three later, shorter or longer endings), and the best
+   one is kept.
+5. **Quality gate.** A clip is shown only when its Viral Potential reaches the minimum (Settings, default 50) and it
+   has no blocking problem: a misleading cut (ends right before the answer or the point), a topic change inside, a
+   start that needs outside context, or an ending mid-sentence. Slow openings, excessive setup, repetition and weak
+   endings lower the score. The project page lists what was left out and why.
+6. Selection keeps the best non-overlapping clips that pass, up to the requested count.
 
 ## Architecture
 
@@ -67,7 +79,8 @@ clipfoundry/            Python backend (FastAPI)
     transcribe.py       faster-whisper (GPU/CPU plan + fallback) + SRT/VTT import
     audio.py            loudness envelope
     candidates.py       Stage 1 discovery
-    scoring.py, llm.py  Stage 2 evaluation (heuristic / Ollama / OpenAI-compatible / Claude)
+    virality.py         Viral Potential: 11 factors, sub-scores, structure, avoidance flags
+    scoring.py, llm.py  Stage 2 evaluation, ranking and quality gate (local / Ollama / OpenAI-compatible / Claude)
     hooks.py            grounded hooks, titles, hashtags, categories
     reframe.py          face / speaker / screen tracking, smooth camera path (OpenCV YuNet, PySceneDetect)
     captions.py         ASS caption styles, SRT

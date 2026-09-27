@@ -66,6 +66,14 @@ class Loudness:
         var = max(0.0, s2 / n - mean * mean)
         return float(mean), float(var ** 0.5)
 
+    def spread_db(self, t0: float, t1: float) -> float | None:
+        """Loud-vs-quiet spread in [t0, t1] (90th minus 10th percentile, dB): a rough speech-to-background ratio."""
+        a, b = self._idx(t0), self._idx(t1)
+        if b - a < 10:
+            return None
+        seg = self.db[a:b]
+        return float(np.percentile(seg, 90) - np.percentile(seg, 10))
+
     def quietest(self, t0: float, t1: float) -> float:
         """Time of the quietest frame in [t0, t1] (used to snap cut points)."""
         a, b = self._idx(t0), self._idx(t1)

@@ -87,7 +87,8 @@ def test_candidates_are_natural_diverse_and_gated(transcript):
         for b in cands[i + 1:]:
             inter = min(a["end"], b["end"]) - max(a["start"], b["start"])
             assert inter <= 0.15 * min(a["dur"], b["dur"]) + 1e-6
-    results, _ = scoring.evaluate(cands, sentences, opts, _ctx(), "test", 0, 1)
+    results, _ = scoring.evaluate(cands, sentences, opts, _ctx(), "test", 0, 1, words=words,
+                                  loud=flat_loudness(words[-1]["end"]))
     chosen = scoring.select(results, 10, 50)
     assert 1 <= len(chosen) < 10  # quality gate: fewer clips than requested when content is thin
     firsts = {sentences[c["s0"]]["text"] for c in chosen}
@@ -224,4 +225,4 @@ def test_export_metadata(tmp_path):
         meta = json.loads(zf.read("metadata.json"))
     assert "01 - Great title.mp4" in names and "metadata.csv" in names
     assert meta["clips"][0]["source_timestamp"] == "1:05 - 1:30"
-    assert meta["clips"][0]["ai_estimate_score"] == 81.5
+    assert meta["clips"][0]["viral_potential_estimate"] == 81.5

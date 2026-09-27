@@ -31,9 +31,12 @@ def clip_metadata(project: dict, clip: dict, filename: str) -> dict:
         "caption_text": clip.get("caption_text", ""),
         "hashtags": clip.get("hashtags") or [],
         "category": clip.get("category", ""),
-        "ai_estimate_score": clip.get("score", 0),
-        "score_note": "AI estimate of short-form potential, not a guarantee of views",
+        "viral_potential_estimate": clip.get("score", 0),
+        "subscores_estimate": (clip.get("analysis") or {}).get("subscores") or {},
+        "score_note": "Estimates used to rank clips, not a guarantee of views",
         "score_breakdown": clip.get("scores") or {},
+        "structure": ((clip.get("analysis") or {}).get("structure") or {}).get("label", ""),
+        "warnings": [f"{f['label']}: {f['detail']}" for f in (clip.get("analysis") or {}).get("flags", [])],
         "scored_by": clip.get("score_source", ""),
         "source_video": project.get("source_filename") or project.get("name"),
         "source_start": round(start, 2),
@@ -65,12 +68,15 @@ def build_zip(project: dict, clips: list[dict], dest_dir: Path) -> Path:
                                                 ensure_ascii=False))
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["file", "title", "hook", "alternative_hooks", "hashtags", "category", "ai_estimate_score",
+        w.writerow(["file", "title", "hook", "alternative_hooks", "hashtags", "category", "viral_potential_estimate",
+                    "hook_score", "retention_potential", "context_score", "engagement_potential", "structure",
                     "source_timestamp", "duration_seconds", "caption_text"])
         for m in rows:
+            sub = m["subscores_estimate"]
             w.writerow([m["file"], m["title"], m["hook"], " | ".join(m["alternative_hooks"]), " ".join(m["hashtags"]),
-                        m["category"], m["ai_estimate_score"], m["source_timestamp"], m["duration_seconds"],
-                        m["caption_text"]])
+                        m["category"], m["viral_potential_estimate"], sub.get("hook", ""), sub.get("retention", ""),
+                        sub.get("context", ""), sub.get("engagement", ""), m["structure"], m["source_timestamp"],
+                        m["duration_seconds"], m["caption_text"]])
         zf.writestr("metadata.csv", "﻿" + buf.getvalue())
     return zpath
 
@@ -79,5 +85,14 @@ def _post_text(meta: dict) -> str:
     alts = "\n".join(f"  - {h}" for h in meta["alternative_hooks"])
     return (f"Title: {meta['title']}\nHook: {meta['hook']}\nAlternative hooks:\n{alts}\n"
             f"Hashtags: {' '.join(meta['hashtags'])}\nCategory: {meta['category']}\n"
-            f"AI estimate: {meta['ai_estimate_score']}/100 (estimate, not a guarantee)\n"
+            f"Viral Potential: {meta['viral_potential_estimate']}/100 (estimate, not a guarantee)\n"
+            f"{_subscore_text(meta['subscores_estimate'])}"
+            f"{'Structure: ' + meta['structure'] + chr(10) if meta['structure'] else ''}"
             f"Source: {meta['source_video']} @ {meta['source_timestamp']}\n\nCaption:\n{meta['caption_text']}\n")
+
+
+def _subscore_text(sub: dict) -> str:
+    if not sub:
+        return ""
+    return (f"Hook Score {sub.get('hook')} / Retention Potential {sub.get('retention')} / "
+            f"Context Score {sub.get('context')} / Engagement Potential {sub.get('engagement')} (estimates)\n")

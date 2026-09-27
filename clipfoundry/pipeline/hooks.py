@@ -158,22 +158,3 @@ def is_grounded(hook: str, clip_text: str) -> bool:
         return True
     hits = sum(1 for t in content if t in src_tokens or t[:5] in src_stems)
     return hits / len(content) >= 0.5
-
-
-def reason_text(criteria: dict, signals: dict) -> str:
-    parts = []
-    if signals.get("question_open"):
-        parts.append("opens with a question")
-    elif criteria.get("hook", 0) > 0.6:
-        parts.append("strong opening line")
-    if signals.get("story"):
-        parts.append("story with a payoff" if criteria.get("payoff", 0) > 0.5 else "personal story")
-    elif criteria.get("payoff", 0) > 0.6:
-        parts.append("lands a clear conclusion")
-    if signals.get("energy_z", 0) > 0.4:
-        parts.append("high vocal energy")
-    if criteria.get("standalone", 0) > 0.8:
-        parts.append("works without extra context")
-    if criteria.get("context", 0) > 0.6:
-        parts.append("on the video's core topic")
-    return ("; ".join(parts) or "balanced moment").capitalize()

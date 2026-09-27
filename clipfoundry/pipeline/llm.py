@@ -25,6 +25,10 @@ CATEGORIES = ["Story", "Educational", "Motivational", "Funny", "Opinion", "Emoti
               "Highlight"]
 
 
+# Factors an LLM can judge from the text (speaker clarity and uniqueness are measured locally).
+AI_FACTORS = ("hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", "retention")
+
+
 class ProviderError(RuntimeError):
     pass
 
@@ -36,12 +40,16 @@ def build_prompt(video_name: str, sentences: list[str], context_before: str, dur
         f"Source video: {video_name}\n"
         f"Candidate clip, about {duration:.0f} seconds. Sentences are numbered.\n{ctx}"
         f"CLIP TRANSCRIPT:\n{numbered}\n\n"
-        "Score each criterion from 0 to 10:\n"
+        "Score each factor from 0 to 10 (be strict; 5 is an average clip):\n"
         "- hook: do the first 3 seconds grab attention?\n"
-        "- engagement: will viewers keep watching (energy, tension, humor, emotion, novelty)?\n"
-        "- context: is it relevant and meaningful for the video's topic and audience?\n"
-        "- payoff: does it build to a satisfying conclusion, punchline or insight?\n"
+        "- opening: does it get to the point immediately (no warm-up, greeting or slow setup)?\n"
+        "- curiosity: does it open a question or gap that makes viewers want the answer?\n"
+        "- emotion: emotional intensity (tension, humor, passion, surprise)\n"
+        "- density: useful information or story per second, no filler or repetition\n"
+        "- payoff: does it build to a satisfying conclusion, punchline or insight, and stop there?\n"
         "- standalone: does it make sense without the rest of the video?\n"
+        "- pacing: tight delivery without dead air or rambling\n"
+        "- retention: will viewers watch to the end?\n"
         "Also return:\n"
         f"- category: one of {', '.join(CATEGORIES)}\n"
         "- title: max 8 words, based only on the clip\n"
@@ -51,8 +59,9 @@ def build_prompt(video_name: str, sentences: list[str], context_before: str, dur
         "- start_sentence, end_sentence: the tightest sentence range (indices above) that keeps the full "
         "thought, hook and payoff\n"
         "- reason: one short sentence explaining the scores\n"
-        'JSON keys: {"hook", "engagement", "context", "payoff", "standalone", "category", "title", '
-        '"hook_text", "alt_hooks", "hashtags", "start_sentence", "end_sentence", "reason"}'
+        'JSON keys: {"hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing", '
+        '"retention", "category", "title", "hook_text", "alt_hooks", "hashtags", "start_sentence", "end_sentence", '
+        '"reason"}'
     )
 
 
@@ -64,12 +73,18 @@ def parse_response(text: str, n_sentences: int) -> dict:
         data = json.loads(m.group(0))
     except ValueError as exc:
         raise ProviderError(f"invalid JSON from model: {exc}") from exc
-    out: dict = {"scores": {}}
-    for key in ("hook", "engagement", "context", "payoff", "standalone"):
+    out: dict = {"scores": {}, "factors": {}}
+    for key in ("hook", "engagement", "context", "payoff", "standalone"):  # older five-criterion answers
         try:
             out["scores"][key] = max(0.0, min(10.0, float(data.get(key, 5))))
         except (TypeError, ValueError):
             out["scores"][key] = 5.0
+    for key in AI_FACTORS:  # only the factors the model actually returned
+        try:
+            if data.get(key) is not None:
+                out["factors"][key] = max(0.0, min(10.0, float(data[key])))
+        except (TypeError, ValueError):
+            pass
     cat = str(data.get("category") or "").strip()
     out["category"] = next((c for c in CATEGORIES if c.lower() == cat.lower()), "")
     out["title"] = str(data.get("title") or "").strip().strip('"')[:90]

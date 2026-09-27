@@ -14,8 +14,8 @@ from .audio import Loudness
 import numpy as np
 
 from .text_utils import (DANGLING_STARTS, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, PAYOFF_PHRASES, PROMO_PHRASES,
-                         SETUP_PHRASES, STORY_MARKERS, TRANSITION_PHRASES, content_tokens, cosine, count_phrases,
-                         ends_sentence, tf_vector, tokens)
+                         RESPONSE_STARTS, SETUP_PHRASES, SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_PHRASES,
+                         content_tokens, cosine, count_phrases, ends_sentence, tf_vector, tokens)
 
 FILLER_TOKENS = {"um", "uh", "erm", "hmm", "mm"}
 
@@ -52,11 +52,13 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
             "transition": count_phrases(low, TRANSITION_PHRASES) > 0,
             "setup": text.rstrip().endswith("?") or count_phrases(low, SETUP_PHRASES) > 0,
             "promo": count_phrases(low, PROMO_PHRASES),
+            "slow_open": count_phrases(low[:60], SLOW_OPEN_PHRASES) > 0,  # "so today I want to talk about..."
+            "response": first in RESPONSE_STARTS,  # "Exactly." / "No, ..." answers someone outside the clip
         }
         h = 0.30 * f["question"] + 0.12 * min(hookw, 3) + 0.10 * (f["you"] > 0) + 0.10 * (f["nums"] > 0)
         h += 0.06 * min(f["emo"], 2)
         h += 0.12 if 4 <= f["n"] <= 18 else (-0.05 if f["n"] > 18 else 0.0)
-        h -= 0.35 * f["dangling"] + 0.10 * min(f["filler"], 2)
+        h -= 0.35 * f["dangling"] + 0.10 * min(f["filler"], 2) + 0.30 * f["slow_open"] + 0.25 * f["response"]
         f["opener"] = max(0.0, min(1.0, h + 0.15))
         feats.append(f)
     for f, depth in zip(feats, topic_boundaries(sentences)):
@@ -126,7 +128,7 @@ def _window_scores(sentences, feats, i, j, agg, loud: Loudness, opts) -> dict:
 
     # Standalone: does not lean on earlier context, no dead air inside.
     standalone = 1.0
-    standalone -= 0.45 * fi["dangling"]
+    standalone -= 0.45 * fi["dangling"] + 0.25 * (fi["response"] and not fi["dangling"])
     standalone -= 0.20 * (fi["gap_before"] < 0.3)
     standalone -= 0.25 * (agg["max_gap"] > 3.0)
     standalone -= 0.15 * (not fj["complete"])
