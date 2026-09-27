@@ -190,17 +190,21 @@ def provider_label(settings: dict) -> str:
     return "Local heuristic"
 
 
-def evaluate(settings: dict, video_name: str, sentences: list[str], context_before: str,
-             duration: float) -> dict:
+def complete(settings: dict, prompt: str) -> str:
+    """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure)."""
     provider = settings.get("ai_provider", "heuristic")
     fn = PROVIDERS.get(provider)
     if fn is None:
         raise ProviderError("heuristic mode")
-    prompt = build_prompt(video_name, sentences, context_before, duration)
     try:
-        text = fn(settings, prompt)
+        return fn(settings, prompt)
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
+
+
+def evaluate(settings: dict, video_name: str, sentences: list[str], context_before: str,
+             duration: float) -> dict:
+    text = complete(settings, build_prompt(video_name, sentences, context_before, duration))
     return parse_response(text, len(sentences))
 
 

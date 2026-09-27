@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from . import __version__, config, db
 from .jobs import worker
-from .pipeline import cuda, export, llm, transcribe
+from .pipeline import cuda, export, llm, postpack, transcribe
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available
 from .pipeline.process import load_words, project_dir
@@ -291,6 +291,7 @@ class ClipPatch(BaseModel):
     caption_text: str | None = None
     selected: bool | None = None
     edit: dict | None = None
+    post: dict | None = None
 
 
 EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_style", "caption_position",
@@ -302,12 +303,22 @@ EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_st
 def patch_clip(clip_id: str, body: ClipPatch) -> dict:
     clip = _clip_or_404(clip_id)
     fields: dict[str, Any] = {}
+    post = dict(clip.get("post") or {})
     if body.title is not None:
-        fields["title"] = body.title.strip()[:120]
+        fields["title"] = body.title.strip()[:postpack.TITLE_MAX]
     if body.hook is not None:
         fields["hook"] = body.hook.strip()[:160]
     if body.hashtags is not None:
         fields["hashtags"] = [("#" + t.lstrip("#")).strip() for t in body.hashtags if t.strip("# ")][:10]
+    if post and (body.title is not None or body.hashtags is not None):  # keep the post package in step
+        fields["post"] = post = postpack.apply_edit(post, {k: fields[k] for k in ("title", "hashtags") if k in fields})
+    if body.post is not None:
+        post = postpack.apply_edit(post, body.post)
+        fields["post"] = post
+        if "title" in body.post:
+            fields["title"] = post["title"]
+        if "hashtags" in body.post:
+            fields["hashtags"] = post["hashtags"]
     if body.caption_text is not None:
         fields["caption_text"] = body.caption_text
     if body.selected is not None:
@@ -323,6 +334,21 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                 edit[k] = v
         fields["edit"] = edit
     db.update_clip(clip_id, **fields)
+    return get_clip(clip_id)
+
+
+class PostPackageBody(BaseModel):
+    use_ai: bool = True
+
+
+@app.post("/api/clips/{clip_id}/post-package")
+def regenerate_post_package(clip_id: str, body: PostPackageBody) -> dict:
+    """(Re)write the clip's post package from its current transcript range. Replaces any edits."""
+    clip = _clip_or_404(clip_id)
+    project = db.get_project(clip["project_id"])
+    assert project
+    post = postpack.for_clip(clip, load_words(project), db.get_settings(), use_ai=body.use_ai)
+    db.update_clip(clip_id, post=post, title=post["title"] or clip["title"], hashtags=post["hashtags"])
     return get_clip(clip_id)
 
 

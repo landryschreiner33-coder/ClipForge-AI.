@@ -81,6 +81,24 @@ export interface QualityReport {
   note: string;
 }
 
+/** Titles, captions, hashtags... written from the clip's own transcript; everything is editable. */
+export interface PostPackage {
+  titles: string[];
+  recommended_title: number;
+  captions: string[];
+  hashtags: string[];
+  description: string;
+  cta: string;
+  hook: string;
+  hooks: string[];
+  title: string;
+  caption: string;
+  source: string;
+  generated_at: number;
+  edited: boolean;
+  checks: Record<string, string[]>;
+}
+
 export interface Clip {
   id: string;
   project_id: string;
@@ -105,6 +123,7 @@ export interface Clip {
   selected: number;
   render_info: Record<string, any>;
   analysis: Partial<ClipAnalysis>;
+  post: Partial<PostPackage>;
   has_video: boolean;
   has_thumbnail: boolean;
   version: number;
@@ -170,6 +189,7 @@ export const api = {
   patchClip: (id: string, patch: Record<string, unknown>) =>
     req<Clip>("PATCH", `/api/clips/${id}`, patch),
   renderClip: (id: string) => req<Clip>("POST", `/api/clips/${id}/render`),
+  regeneratePost: (id: string, useAi = true) => req<Clip>("POST", `/api/clips/${id}/post-package`, { use_ai: useAi }),
   clipWords: (id: string) =>
     req<{ start: number; end: number; original_start: number; original_end: number; duration: number; words: Word[]; caption_words: Word[] | null }>(
       "GET",

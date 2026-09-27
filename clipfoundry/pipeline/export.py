@@ -9,6 +9,7 @@ import time
 import zipfile
 from pathlib import Path
 
+from . import postpack
 from .common import fmt_ts
 
 
@@ -43,6 +44,7 @@ def clip_metadata(project: dict, clip: dict, filename: str) -> dict:
         "source_end": round(end, 2),
         "source_timestamp": f"{fmt_ts(start)} - {fmt_ts(end)}",
         "duration_seconds": clip.get("duration", 0),
+        "post_package": {k: v for k, v in (clip.get("post") or {}).items() if k not in ("clip_text", "checks")},
     }
 
 
@@ -62,7 +64,8 @@ def build_zip(project: dict, clips: list[dict], dest_dir: Path) -> Path:
             if srt.exists():
                 zf.write(srt, f"{base}.srt")
             meta = clip_metadata(project, clip, f"{base}.mp4")
-            zf.writestr(f"{base}.txt", _post_text(meta))
+            zf.writestr(f"{base}.txt", _post_text(meta) + ("\n" + postpack.as_text(clip["post"])
+                                                          if clip.get("post") else ""))
             rows.append(meta)
         zf.writestr("metadata.json", json.dumps({"project": project["name"], "clips": rows}, indent=2,
                                                 ensure_ascii=False))

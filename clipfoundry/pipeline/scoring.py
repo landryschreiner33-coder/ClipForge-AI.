@@ -11,7 +11,7 @@ from collections import Counter
 
 from . import candidates as cand_mod
 from . import hooks as hk
-from . import llm, virality
+from . import llm, postpack, virality
 from .audio import Loudness
 from .common import JobContext, log
 from .text_utils import keywords
@@ -29,6 +29,14 @@ def _words_from_sentences(sentences: list[dict]) -> list[dict]:
         step = (s["end"] - s["start"]) / max(1, len(toks))
         out += [{"start": s["start"] + k * step, "end": s["start"] + (k + 1) * step, "w": t} for k, t in enumerate(toks)]
     return out
+
+
+def document_frequencies(sentences: list[dict]) -> Counter:
+    """In how many sentences each keyword occurs (makes keywords specific to a clip within its video)."""
+    df: Counter = Counter()
+    for s in sentences:
+        df.update(set(keywords(s["text"], top=50)))
+    return df
 
 
 def reason_text(r: dict) -> str:
@@ -67,9 +75,7 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
     loud = loud or Loudness({"hop": 0.1, "db": [-20.0] * 10})
     feats = cand_mod.sentence_features(sentences, words) if sentences else []
 
-    global_df: Counter = Counter()
-    for s in sentences:
-        global_df.update(set(keywords(s["text"], top=50)))
+    global_df = document_frequencies(sentences)
     n_docs = max(1, len(sentences))
 
     results = []
@@ -126,7 +132,9 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
         title = (ai or {}).get("title") or ""
         if not title or not hk.is_grounded(title, clip_text):
             title = hk.make_title(hook, kws)
-        tags = (ai or {}).get("hashtags") or hk.hashtags(clip_text, category, global_df, n_docs)
+        # hashtags are words the clip actually uses (AI suggestions only when they pass the same check)
+        tags = [t for t in (ai or {}).get("hashtags") or [] if not postpack.hashtag_problems(t, clip_text)] \
+            or postpack.hashtags_for(clip_text, global_df, n_docs)
         results.append({
             **cand,
             "s0": s0, "s1": s1, "start": r["start"], "end": r["end"], "dur": r["dur"],

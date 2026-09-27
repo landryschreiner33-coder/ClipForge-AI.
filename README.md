@@ -26,7 +26,8 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Score | Every clip shows a **Viral Potential** score (0-100) with four sub-scores (**Hook Score, Retention Potential, Context Score, Engagement Potential**) and eleven factors. All of them are estimates used to rank clips, not a guarantee of views. |
 | 9:16 reframing | Auto, Center, **Face tracking**, **Active-speaker tracking** (mouth-motion based, with a cut on speaker change), **Screen content** tracking, or a manual position. Smooth virtual-camera movement, instant re-framing on scene cuts, Fill (crop) or Fit (blurred background) layouts. |
 | Captions | Burned-in styles **Clean, Bold, High Energy, Minimal** with word-level highlighting. Adjustable position, size and highlight color. Editable text keeps the original timing. |
-| Hooks & titles | One recommended hook and three alternatives per clip, plus title, hashtags and category. Hooks are extracted from the clip's own words; LLM hooks are rejected if they mention names, numbers or topics that are not in the clip. |
+| Hooks & titles | One recommended hook and three alternatives per clip. Hooks are extracted from the clip's own words; LLM hooks are rejected if they mention names, numbers or topics that are not in the clip. |
+| Post package | For every clip: **three title options** (one recommended), **three caption/description options**, hashtags, a short description, a call-to-action suggestion and hook text. All of it is written from the clip's own transcript. A grounding check rejects any number, name, claim or topic that is not in the clip, including an optional LLM's suggestions. Hashtags are words the speaker actually says. Everything is editable (Edit → Post package) before anything is published, and it is included in the export. |
 | Polish | Light or aggressive silence cleanup, subtle auto-zooms, loudness normalization (-14 LUFS) and volume control. |
 | Editor | Simple manual controls: trim (click transcript words), framing, captions, hook, audio, then re-render. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
@@ -81,7 +82,8 @@ clipfoundry/            Python backend (FastAPI)
     candidates.py       Stage 1 discovery
     virality.py         Viral Potential: 11 factors, sub-scores, structure, avoidance flags
     scoring.py, llm.py  Stage 2 evaluation, ranking and quality gate (local / Ollama / OpenAI-compatible / Claude)
-    hooks.py            grounded hooks, titles, hashtags, categories
+    hooks.py            grounded hooks, titles, categories
+    postpack.py         post packages (titles, captions, hashtags, description, CTA, hook) + grounding check
     reframe.py          face / speaker / screen tracking, smooth camera path (OpenCV YuNet, PySceneDetect)
     captions.py         ASS caption styles, SRT
     render.py           ffmpeg decode → OpenCV crop/zoom/layout → ffmpeg encode with burned captions

@@ -7,14 +7,9 @@ before it is accepted.
 from __future__ import annotations
 
 import re
-from collections import Counter
 
 from .text_utils import (CATEGORY_LEXICON, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, STOPWORDS, clean_text,
-                         content_tokens, count_phrases, keywords, tokens)
-
-CATEGORY_TAGS = {"Story": "storytime", "Educational": "learnontiktok", "Motivational": "motivation",
-                 "Funny": "funny", "Opinion": "hottake", "Emotional": "real", "Business": "business",
-                 "Highlight": "highlights", "Q&A": "qanda"}
+                         content_tokens, count_phrases, tokens)
 
 _LEAD_JUNK = re.compile(r"^(?:(?:and|but|so|or|well|yeah|okay|ok|like|um|uh|now|anyway|right|also|then)\b[,.]?\s+)+",
                         re.I)
@@ -121,19 +116,6 @@ def categorize(text: str) -> str:
         scores["Q&A"] = low.count("?")
     best = max(scores.items(), key=lambda kv: kv[1])
     return best[0] if best[1] >= 2 else "Highlight"
-
-
-def hashtags(text: str, category: str, global_df: Counter | None, n_docs: int) -> list[str]:
-    tags = [f"#{k}" for k in keywords(text, global_df, n_docs, top=4) if k.isalpha()]
-    cat_tag = CATEGORY_TAGS.get(category)
-    if cat_tag:
-        tags.append(f"#{cat_tag}")
-    tags.append("#shorts")
-    out: list[str] = []
-    for t in tags:
-        if t.lower() not in [o.lower() for o in out]:
-            out.append(t)
-    return out[:6]
 
 
 def is_grounded(hook: str, clip_text: str) -> bool:

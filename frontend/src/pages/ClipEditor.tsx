@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { alignWords, api, Clip, clipDownloadUrl, clipVideoUrl, ClipEdit, fmtPrecise, Project, Settings, Word } from "../api";
 import { Icon, ScoreBadge, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
+import { PostPackageEditor } from "../components/postpack";
 import { navigate } from "../App";
 
-type Tab = "trim" | "framing" | "captions" | "hook" | "audio";
+type Tab = "trim" | "framing" | "captions" | "hook" | "audio" | "post";
 
 export default function ClipEditor({ id }: { id: string }) {
   const [clip, setClip] = useState<Clip | null>(null);
@@ -11,8 +12,6 @@ export default function ClipEditor({ id }: { id: string }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [words, setWords] = useState<Word[]>([]);
   const [draft, setDraft] = useState<ClipEdit>({});
-  const [title, setTitle] = useState("");
-  const [tags, setTags] = useState("");
   const [captionText, setCaptionText] = useState("");
   const [captionDirty, setCaptionDirty] = useState(false);
   const [customHook, setCustomHook] = useState("");
@@ -33,8 +32,6 @@ export default function ClipEditor({ id }: { id: string }) {
         setSettings(s);
         setWords(w.words);
         setDraft({ ...(c.edit || {}) });
-        setTitle(c.title);
-        setTags(c.hashtags.join(" "));
         const inRange = w.caption_words || w.words.filter((x) => x.end > w.start && x.start < w.end);
         setCaptionText(inRange.map((x) => x.w).join(" "));
       } catch (e) {
@@ -102,8 +99,7 @@ export default function ClipEditor({ id }: { id: string }) {
       } else if (trimChanged) {
         edit.caption_words = null;
       }
-      const hashtags = tags.split(/[\s,]+/).filter(Boolean);
-      await api.patchClip(id, { title, hashtags, caption_text: captionText, edit });
+      await api.patchClip(id, { caption_text: captionText, edit });
       if (render) {
         const c = await api.renderClip(id);
         setClip(c);
@@ -182,7 +178,7 @@ export default function ClipEditor({ id }: { id: string }) {
 
         <div>
           <div className="tabs">
-            {([["trim", "Trim"], ["framing", "Framing"], ["captions", "Captions"], ["hook", "Hook & text"], ["audio", "Audio"]] as [Tab, string][]).map(([k, l]) => (
+            {([["trim", "Trim"], ["framing", "Framing"], ["captions", "Captions"], ["hook", "On-screen hook"], ["audio", "Audio"], ["post", "Post package"]] as [Tab, string][]).map(([k, l]) => (
               <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>
             ))}
           </div>
@@ -285,10 +281,7 @@ export default function ClipEditor({ id }: { id: string }) {
                   <input type="number" min={1} max={15} step={0.5} style={{ width: 70 }} value={eff("hook_seconds", 3)}
                     onChange={(e) => set({ hook_seconds: +e.target.value })} /> seconds</label>
               </div>
-              <div className="hr" />
-              <label className="field">Title<input type="text" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
-              <label className="field mt">Hashtags<input type="text" value={tags} onChange={(e) => setTags(e.target.value)} /></label>
-              <div className="field-hint mt-s">Hooks are suggested from the clip's own words; they never add facts that aren't in the clip.</div>
+              <div className="field-hint mt">Hooks are suggested from the clip's own words; they never add facts that aren't in the clip. Title, caption and hashtags are in the Post package tab.</div>
             </div>
           )}
 
@@ -305,7 +298,12 @@ export default function ClipEditor({ id }: { id: string }) {
             </div>
           )}
 
-          <div className="save-bar">
+          {tab === "post" && (
+            <PostPackageEditor clip={clip} onSaved={setClip}
+              onUseHook={(h) => { set({ hook: h, hook_overlay: true }); setTab("hook"); toast("Hook set. Save & re-render to burn it into the video."); }} />
+          )}
+
+          <div className="save-bar" style={tab === "post" ? { display: "none" } : undefined}>
             {trimChanged && captionDirty && <span className="small muted">Trim changed: caption edits apply to words inside the new range.</span>}
             <button className="btn" disabled={saving} onClick={() => save(false)}>Save</button>
             <button className="btn primary" disabled={saving || rendering} onClick={() => save(true)}>

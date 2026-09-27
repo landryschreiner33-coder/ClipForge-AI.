@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS clips (
     selected INTEGER DEFAULT 1,
     render_info TEXT DEFAULT '{}',
     analysis TEXT DEFAULT '{}',
+    post TEXT DEFAULT '{}',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -73,13 +74,13 @@ CREATE TABLE IF NOT EXISTS settings (
 
 JSON_FIELDS = {
     "projects": {"options", "info"},
-    "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis"},
+    "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
 # are added with ALTER TABLE when missing (existing rows get the default).
 ADDED_COLUMNS = {
-    "clips": {"analysis": "TEXT DEFAULT '{}'"},
+    "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'"},
 }
 
 

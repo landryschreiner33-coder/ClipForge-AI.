@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import db
 from . import candidates as cand_mod
-from . import render, scoring, transcribe, virality
+from . import postpack, render, scoring, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
@@ -126,19 +126,24 @@ def run_project(project_id: str, ctx: JobContext) -> None:
     info["quality"] = scoring.quality_report(results, chosen, opts["clip_count"], min_score)
     db.update_project(project_id, info=info)
 
-    # ---- 6. create clips
+    # ---- 6. create clips, each with its post package (titles, captions, hashtags... from its own words)
     db.delete_clips(project_id)
     clip_rows = []
+    df = scoring.document_frequencies(sentences)
     for rank, r in enumerate(chosen):
+        ctx.check()
         if r["s0"] >= 0:
             start, end = cand_mod.refine_bounds(r, sentences, meta["duration"])
         else:
             start, end = r["start"], r["end"]
+        ctx.progress(P_SCORE, f"Writing post package {rank + 1} of {len(chosen)}")
+        sents = [sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
+        post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], opts, df, max(1, len(sentences)))
         clip_rows.append(db.create_clip(
-            project_id, rank=rank, start=start, end=end, title=r["title"], hook=r["hook"],
-            hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=r["hashtags"],
+            project_id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
+            hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
-            reason=r["reason"], analysis=virality.summary(r["analysis"]), edit={}, status="queued",
+            reason=r["reason"], analysis=virality.summary(r["analysis"]), post=post, edit={}, status="queued",
             duration=round(end - start, 2),
         ))
 
