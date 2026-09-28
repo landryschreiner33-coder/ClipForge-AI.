@@ -150,6 +150,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "gpu_min_free_vram_mb": 1200,       # autopilot waits for this much free GPU memory before heavy GPU work
     "gpu_wait_minutes": 20,
     "autopilot_allow_cpu_fallback": False,  # off (strict GPU): a GPU failure pauses Autopilot transcription
+    "autopilot_max_source_gb": 8.0,     # Autopilot never downloads a bigger source file
+    "autopilot_max_source_minutes": 240,  # ...nor processes a longer source (manual projects have no limit)
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
@@ -216,7 +218,8 @@ _RANGES: dict[str, tuple[float, float]] = {
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
     "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),
     "autopilot_youtube_daily_limit": (0, 100), "autopilot_tiktok_daily_limit": (0, 100),
-    "autopilot_upload_lead_minutes": (5, 720), "trend_poll_minutes": (15, 1440), "trend_max_age_hours": (6, 720),
+    "autopilot_upload_lead_minutes": (5, 720), "autopilot_max_source_gb": (0.5, 200.0),
+    "autopilot_max_source_minutes": (5, 1440), "trend_poll_minutes": (15, 1440), "trend_max_age_hours": (6, 720),
     "youtube_quota_default": (0, 10_000_000), "youtube_quota_uploads": (0, 100_000),
     "youtube_quota_search": (0, 100_000), "youtube_discovery_share": (0, 90),
     "youtube_search_discovery_share": (0, 100), "gpu_min_free_vram_mb": (0, 48_000), "gpu_wait_minutes": (1, 720),

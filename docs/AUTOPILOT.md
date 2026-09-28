@@ -110,6 +110,15 @@ an attempt and an action item says what failed and how to fix it. Live capture k
 post-live pass transcribes the whole recording again on the GPU. Settings → Autopilot → *Allow CPU transcription*
 lets it continue on the CPU instead (slower). Manual projects keep their visible CPU fallback. Local AI models (Ollama/LM Studio) share the same lock.
 
+**Downloads and addresses.** Autopilot fetches media and signals from URLs that come from data (a feed's rows, a
+discovered source, a redirect), so every such URL is checked first (`netguard.py`): only http/https for downloads and
+network stream protocols for live capture (never `file:`, `concat:`, `pipe:` or `data:` in ffmpeg), and the host
+must resolve to public addresses. Addresses you typed yourself (a source added by hand, a stream you configured, a
+signal feed's own URL) may point into your own network. Every redirect is checked, a download connects to exactly the
+address that was checked, and it stops at Settings → Autopilot → *Largest source* (8 GB and 240 minutes by default;
+longer videos are not processed). A download that would leave less than 2 GB free on the data drive waits with an
+action item.
+
 ## Scores
 
 All scores are 0-100 estimates computed by ClipFoundry to rank opportunities. They are not platform metrics and not

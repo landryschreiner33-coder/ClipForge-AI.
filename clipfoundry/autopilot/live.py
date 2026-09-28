@@ -21,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import config, db, gpu
+from .. import config, db, gpu, netguard
 from ..pipeline import candidates as cand_mod
 from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
 from ..pipeline.audio import Loudness, loudness_envelope
@@ -51,13 +51,17 @@ def input_args(src: dict, settings: dict) -> list[str]:
     url = src.get("url") or ""
     if not url:
         raise queue.Fail("The live source has no file or URL")
-    if rights.is_platform_url(url):
-        ok, why = rights.download_allowed(src, settings)
-        if not ok:
-            raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream yourself "
-                                  "into a watch folder.")
-        return [*timeout, "-i", _resolve_platform_stream(url)]
-    return [*timeout, "-i", url]
+    try:  # network protocols only, and no private or local addresses unless you typed the address yourself
+        if rights.is_platform_url(url):
+            ok, why = rights.download_allowed(src, settings)
+            if not ok:
+                raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream "
+                                      "yourself into a watch folder.")
+            return [*timeout, *netguard.ffmpeg_input(_resolve_platform_stream(url))]
+        return [*timeout, *netguard.ffmpeg_input(url, allow_private=rights.url_typed_by_user(src))]
+    except netguard.UnsafeUrl as exc:
+        raise queue.Fail(f"Not captured: {exc}", "Use a stream address on the internet, or add your own stream "
+                                                 "in Autopilot → Sources.") from exc
 
 
 def _resolve_platform_stream(url: str) -> str:

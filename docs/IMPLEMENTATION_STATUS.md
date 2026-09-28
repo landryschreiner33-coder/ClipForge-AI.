@@ -63,7 +63,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | One heavy GPU operation at a time across processes; recovery | `gpu.GpuManager.heavy`, `locks.FileLock` | verified (unit) | `gpu_lock_serializes_heavy_work`, `gpu_lock_is_shared_with_other_processes` (race in the test fixed) | — | — |
 | GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` does not take the lock | partial | source reviewed | decide: take the lock for NVENC encodes | — |
 | VRAM detection and resource status | `gpu.GpuManager.memory` (nvidia-smi), `status` | implemented-but-unverified | `gpu_waits_for_free_memory_then_gives_up` (fake) | verify on the RTX 3050 | no GPU here |
-| Bounded downloads / source size / duration | `hunter._http_download` (no size cap), `jobs.download_url` (yt-dlp, no max size) | missing | source reviewed | size and duration caps | — |
+| Bounded downloads / source size / duration | `netguard.download(max_bytes=...)`, `hunter.max_source_bytes`, `hunter.check_length`, yt-dlp `max_filesize` + duration filter (`jobs.download_url(max_bytes, max_seconds)`), free-disk reserve before a download; settings `autopilot_max_source_gb` (8) and `autopilot_max_source_minutes` (240) | verified (unit, local HTTP server) | `test_netguard.py` | CPU threads for Whisper are capped at 8 (existing); no global disk quota for renders | — |
 
 ### Discovery, rights and sources
 
@@ -71,9 +71,9 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | --- | --- | --- | --- | --- | --- |
 | Pluggable providers (YouTube Data API, watch folders, streams, signal feeds); unavailable ones shown as unavailable | `autopilot/providers.py`, `scout.py` | unit tested (fake API) | `test_autopilot_discovery` (14) | real API call on the user's key | API key; network |
 | Metric provenance (observed / estimated / unavailable), missing = null, velocity needs time-separated observations | `autopilot/trends.py` | verified (unit) | `missing_metrics_are_never_filled_in`, `momentum_beats_size` | — | — |
-| Rights statuses, basis, evidence URL, expiry; recheck at ingest, schedule, publish | `autopilot/rights.py` (`gate` re-evaluates rules each time) | partial | `rights_evaluation_order_and_policy`, `repeats_and_blocked_sources_are_never_scheduled`, `gates_before_every_upload` | allowed platforms, attribution requirements and audio/music restrictions are not modeled per rule | — |
+| Rights statuses, basis, evidence URL, expiry; recheck at ingest, schedule, publish | `autopilot/rights.py` (`gate` re-evaluates rules each time) | partial | `rights_evaluation_order_and_policy`, `repeats_and_blocked_sources_are_never_scheduled`, `gates_before_every_upload` | allowed platforms, attribution requirements and audio/music restrictions are not modeled per rule. **Found in this audit:** a channel rule without a platform matches any source claiming that channel id, and a signal feed's rows can claim any channel id (and platform), so a feed you added could inherit an Allowlisted channel's status. Proposed: channel rules match only sources whose channel id comes from a verified provider (YouTube API), or require the rule's platform. Not changed yet: it changes rights semantics | — |
 | Discovery-only kept separate from media eligibility; no platform downloads by default | `rights.download_allowed`, `rights_allow_remote_download` | verified (unit) | `folder_rules_and_download_policy` | — | — |
-| Remote media URLs and redirects checked against private/internal networks | none | missing | source reviewed | resolve and reject private/loopback/link-local targets on every redirect | — |
+| Remote media URLs and redirects checked against private/internal networks | `netguard.py` (`check`, `open_checked`, `download`, `get_text`, `ffmpeg_input`), used by `hunter._http_download`, `providers.signal_feed`, `live.input_args`; trust from `rights.url_typed_by_user` | verified (unit, local HTTP server, fake DNS) | `test_netguard.py` (18) | ffmpeg resolves stream hosts itself, so live stream URLs are checked but not pinned | — |
 
 ### Scheduling and publishing
 
@@ -126,7 +126,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 4. [x] Queue safety: `min_priority` inside the atomic claim; per-claim lease token; host keeps exclusivity while old
    threads run.
 5. [x] Strict-GPU Autopilot setting (pause instead of CPU fallback).
-6. [ ] Remote media URL validation (private networks, redirects) and download size caps.
+6. [x] Remote media URL validation (private networks, redirects) and download size caps.
 7. [ ] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
 
 ## Test log
@@ -150,6 +150,8 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | blueprint | after moving the filler count before the heard-words filter: blueprint, artifact/gate, editing (incl. its slow render test) and core suites | 54 passed |
 | strict GPU | `pytest -m "not slow"` | 244 passed (131 s) |
 | strict GPU | `pytest -m slow` (Whisper stand-ins now assert that Autopilot asks for strict GPU) | 4 passed (410 s) |
+| network guard | `pytest -m "not slow"` | 262 passed (127 s) |
+| network guard | `pytest -m slow` | 4 passed (409 s) |
 
 ## Checklist for the user's machine
 

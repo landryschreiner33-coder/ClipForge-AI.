@@ -127,6 +127,9 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
         </Row>
         <Row label="Free GPU memory needed" hint="Autopilot waits for this much free VRAM before transcribing (MB)">{n("gpu_min_free_vram_mb", { min: 0, max: 48000 })}</Row>
         <Row label="Wait for the GPU up to" hint="Minutes, then the job waits and tries later">{n("gpu_wait_minutes", { min: 1, max: 720 })}</Row>
+        <Row label="Largest source" hint="Autopilot does not download bigger files or process longer videos (manual projects have no limit)">
+          <div className="row">{n("autopilot_max_source_gb", { min: 0.5, max: 200, step: 0.5 })}<span className="small muted">GB</span>{n("autopilot_max_source_minutes", { min: 5, max: 1440 })}<span className="small muted">minutes</span></div>
+        </Row>
         <Row label="Allow CPU transcription" hint="Off: if the GPU fails, Autopilot pauses transcription and tells you why (manual projects always fall back, visibly). On: it continues on the CPU, much slower">{tog("autopilot_allow_cpu_fallback")}</Row>
       </div>
     </>
