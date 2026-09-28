@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipFoundry Privacy Policy</title>
+<meta name="robots" content="index,follow">
+<style>
+  :root { color-scheme: light dark; --text: #1c1c24; --muted: #5d5d70; --bg: #ffffff; --line: #e3e3ea; --warn-bg: #fff6e0; --warn-line: #f2c14e; --link: #c2410c; }
+  @media (prefers-color-scheme: dark) { :root { --text: #ececf3; --muted: #a0a0b4; --bg: #0f0f15; --line: #2a2a3a; --warn-bg: #2a2210; --warn-line: #a57a17; --link: #ff8a50; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 34px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  a { color: var(--link); }
+  .meta { color: var(--muted); font-size: 14px; }
+  .review { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 12px 16px; margin: 20px 0; font-size: 15px; }
+  nav { font-size: 14px; margin-bottom: 18px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+<nav><a href="index.html">Legal</a> · <a href="terms.html">Terms of Service</a></nav>
+<h1>Privacy Policy</h1>
+<div class="meta">ClipFoundry · provided by [LEGAL BUSINESS NAME] · Last updated: [DATE]</div>
+
+<div class="review">
+  <b>Template, not legal advice.</b> This policy describes how the ClipFoundry software handles data. It must be reviewed
+  and adapted by a qualified lawyer before it is published or relied on, and kept accurate if the Software changes.
+  Replace every placeholder in [BRACKETS]: [OWNER NAME], [LEGAL BUSINESS NAME], [CONTACT EMAIL],
+  [BUSINESS ADDRESS IF REQUIRED] and [DATE].
+</div>
+
+<h2>1. Summary</h2>
+<ul>
+  <li>ClipFoundry runs on your own computer. Your videos, transcripts, clips, schedules and results are stored there.</li>
+  <li>[LEGAL BUSINESS NAME] does not receive your videos, your account data, your tokens or usage analytics. The Software contains no telemetry, advertising or tracking.</li>
+  <li>Data leaves your computer only when a feature you use needs it: publishing to and reading from YouTube and TikTok, an optional cloud AI provider you configure, and downloads you start.</li>
+  <li>ClipFoundry never asks for, receives or stores your Google or TikTok password.</li>
+</ul>
+
+<h2>2. Who is responsible</h2>
+<p>
+  [LEGAL BUSINESS NAME], operated by [OWNER NAME], [BUSINESS ADDRESS IF REQUIRED]. Contact: [CONTACT EMAIL].
+  Because the Software processes data on your computer under your control, you decide what is processed; we have no
+  access to it.
+</p>
+
+<h2>3. Data processed on your computer</h2>
+<ul>
+  <li>Videos you add or that arrive in folders you choose, and the clips, thumbnails and transcripts made from them.</li>
+  <li>Titles, captions, hashtags, schedules, approvals and an audit trail of what was published and when.</li>
+  <li>Settings, job logs, rights records you enter (for example, the basis for a license), and learning statistics computed from your own results.</li>
+</ul>
+<p>This data stays in ClipFoundry's data folder (a SQLite database and files) until you delete it.</p>
+
+<h2>4. YouTube API Services</h2>
+<p>
+  ClipFoundry uses the YouTube API Services. By using its YouTube features you are also subject to the
+  <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and Google's processing of your data is covered by the
+  <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.
+</p>
+<p>When you connect a YouTube channel (Google OAuth), ClipFoundry requests these permissions:</p>
+<ul>
+  <li><code>youtube.upload</code>: upload the videos you approve;</li>
+  <li><code>youtube.readonly</code>: your channel's name and picture, and the status and statistics of videos you published with ClipFoundry;</li>
+  <li><code>yt-analytics.readonly</code> (optional): watch time and retention of those videos.</li>
+</ul>
+<p>
+  It stores the OAuth access and refresh tokens, your channel ID, name and picture URL, the IDs, upload and processing
+  status, privacy status and statistics of videos it published, and, for discovery, public metadata and statistics of
+  videos returned by YouTube search and chart requests. It uses this data only to publish, to show you status and results,
+  and to plan future posts on your computer. It does not sell it, share it, or use it for advertising.
+</p>
+<p>
+  YouTube API data is refreshed or deleted within 30 days, as YouTube's Developer Policies require. Metrics derived from
+  YouTube data are computed only if Google approved this for your API project; with that approval, the statistics of
+  your own videos are kept for your results history while your channel stays connected.
+</p>
+
+<h2>5. TikTok</h2>
+<p>
+  When you connect TikTok (TikTok Login Kit), ClipFoundry requests <code>user.info.basic</code> (your display name,
+  username and avatar), <code>video.upload</code> and/or <code>video.publish</code> (to send or post the videos you approve),
+  and optionally <code>video.list</code> (the statistics of your videos). It stores the OAuth tokens, your TikTok open ID and
+  profile basics, the creator options TikTok returns before a post (privacy options, maximum duration, interaction
+  settings), publish IDs and status, and the statistics of your videos. TikTok's handling of your data is described in
+  <a href="https://www.tiktok.com/legal/page/global/privacy-policy/en">TikTok's Privacy Policy</a>.
+</p>
+
+<h2>6. When data leaves your computer</h2>
+<ul>
+  <li><b>YouTube / Google and TikTok</b>: the videos and text you approve, and the API requests needed to publish and read results.</li>
+  <li><b>Optional cloud AI</b>: if you choose a cloud AI provider (for example, the Claude API or an OpenAI-compatible service), excerpts of transcripts and clip text are sent to it to suggest scores and text. Its own privacy terms apply. Local AI (such as Ollama on your computer) sends nothing out.</li>
+  <li><b>Downloads you start</b>: transcription model downloads (Hugging Face) and URLs you import are fetched from their hosts, which see your IP address like any website.</li>
+</ul>
+<p>Nothing is sent to [LEGAL BUSINESS NAME].</p>
+
+<h2>7. Security</h2>
+<p>
+  On Windows, OAuth tokens and API secrets are encrypted with Windows DPAPI so that only your Windows account on your
+  computer can decrypt them. On Linux and macOS they are stored in the local database, which is readable by your user
+  account only. By default, the local web interface only accepts connections from your own computer.
+</p>
+
+<h2>8. Your choices and control</h2>
+<ul>
+  <li>Disconnect YouTube or TikTok in ClipFoundry (Settings → Publishing): the tokens are revoked with the platform and deleted.</li>
+  <li>Revoke access from Google at any time: <a href="https://myaccount.google.com/connections">Google Account → Third-party apps &amp; services</a> (also <a href="https://security.google.com/settings/security/permissions">security.google.com/settings/security/permissions</a>).</li>
+  <li>Revoke access from TikTok in the TikTok app's settings for connected apps.</li>
+  <li>Delete projects and clips in ClipFoundry, or delete its data folder to remove everything.</li>
+</ul>
+
+<h2>9. Cookies and tracking</h2>
+<p>
+  ClipFoundry's interface runs in your browser from your own computer. It uses no advertising or analytics cookies and no
+  tracking technologies. The Software does not collect device identifiers.
+</p>
+
+<h2>10. Children</h2>
+<p>The Software is not directed at children under 13 (or the minimum age in your country) and must not be used by them.</p>
+
+<h2>11. Your rights</h2>
+<p>
+  Depending on where you live, you may have rights to access, correct, delete or port your personal data. Because this
+  data is on your own computer, you can exercise most of them directly in the Software. For anything else, contact
+  [CONTACT EMAIL]. For data held by Google or TikTok, contact them.
+</p>
+
+<h2>12. Changes</h2>
+<p>We will update this policy when the Software's data handling changes. The "Last updated" date shows the current version.</p>
+
+<h2>13. Contact</h2>
+<p>[LEGAL BUSINESS NAME] · [OWNER NAME] · [CONTACT EMAIL] · [BUSINESS ADDRESS IF REQUIRED]</p>
+</main>
+</body>
+</html>

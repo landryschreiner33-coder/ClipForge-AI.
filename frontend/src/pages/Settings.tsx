@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Accounts, api, Health, Settings } from "../api";
 import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
 import { AccountBadge, ConnectButton } from "../components/accounts";
+import { AutopilotSettings } from "../components/autopilotSettings";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
 
@@ -296,6 +297,8 @@ export default function SettingsPage() {
           <input type="text" placeholder={health?.ffmpeg || "auto-detect (PATH or tools/ffmpeg/bin)"} value={s.ffmpeg_path} onChange={(e) => set({ ffmpeg_path: e.target.value })} />
         </Row>
       </div>
+
+      <AutopilotSettings s={s} set={set} />
 
       {health && (
         <div className="card">

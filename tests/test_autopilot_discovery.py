@@ -282,8 +282,24 @@ def test_youtube_data_is_deleted_after_30_days(data):
     assert out["youtube_signals_deleted"] == 1 and out["youtube_snapshots_deleted"] == 1
     assert [s["external_id"] for s in db.select("trend_signals")] == ["mine"]
     assert {r["id"] for r in db.select("performance")} == {"p2", "p3"}
+    # Google's storage approval covers only the statistics of the connected user's own videos; public data about
+    # other videos is still deleted after 30 days.
     db.save_settings({"youtube_derived_metrics_approved": True})
-    assert scout.youtube_retention(now=now) == {"youtube_retention": "extended storage approved"}
+    db.execute("INSERT INTO performance (id, publication_id, platform, fetched_at, views) VALUES "
+               "('p4', 'pub', 'youtube', ?, 9)", (old,))
+    sig = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "old2",
+                                      "first_seen": old, "last_checked": old})
+    out = scout.youtube_retention(now=now)  # no connected account: nothing is authorized any more
+    assert out["youtube_snapshots_deleted"] == 1 and out["youtube_signals_deleted"] == 1
+    db.execute("INSERT INTO performance (id, publication_id, platform, fetched_at, views) VALUES "
+               "('p5', 'pub', 'youtube', ?, 9)", (old,))
+    db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "old3",
+                                "first_seen": old, "last_checked": old})
+    db.save_account("youtube", {"access_token": "t"}, display_name="Me")
+    out = scout.youtube_retention(now=now)
+    assert out["own_statistics"] == "kept (storage approved)" and out["youtube_snapshots_deleted"] == 0
+    assert out["youtube_signals_deleted"] == 1
+    assert "p5" in {r["id"] for r in db.select("performance")}
 
 
 # ------------------------------------------------------------------ API
@@ -315,3 +331,18 @@ def test_autopilot_api(data, tmp_path):
         assert stop["paused"] and stop["canceled"] >= 1  # the queued rights check and feed scan
         assert c.get("/api/autopilot/workers").json()["paused"]
         assert c.post("/api/autopilot/resume", headers=H).json() == {"paused": False}
+
+
+def test_legal_pages_are_served(data):
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        for path, text in [("/legal/terms", "Terms of Service"), ("/legal/privacy", "Privacy Policy"),
+                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "ClipFoundry legal")]:
+            r = c.get(path)
+            assert r.status_code == 200 and r.headers["content-type"].startswith("text/html") and text in r.text
+            assert "qualified lawyer" in r.text and "[CONTACT EMAIL]" in r.text
+        assert c.get("/legal", follow_redirects=False).headers["location"] == "/legal/"
+        assert c.get("/legal/x").status_code == 404

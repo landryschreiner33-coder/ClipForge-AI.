@@ -403,9 +403,12 @@ def rights_check(job: Job) -> dict:
 
 # ------------------------------------------------------------------ retention (YouTube: refresh or delete in 30 days)
 def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
+    """YouTube API data may be stored for at most 30 days, then it must be refreshed or deleted. Public data about
+    other channels' videos (trend signals, discovered sources, cached responses) always follows this rule. Google's
+    additional policy for derived metrics and data storage lets an approved project keep the statistics of the
+    connected user's own videos longer, as long as the user still authorizes it (the account stays connected)."""
     settings = db.get_settings()
-    if settings.get("youtube_derived_metrics_approved"):
-        return {"youtube_retention": "extended storage approved"}
+    keep_own = bool(settings.get("youtube_derived_metrics_approved")) and bool(db.get_account("youtube"))
     now = now or time.time()
     cutoff = now - YOUTUBE_RETENTION_DAYS * 86400
     old = [r["id"] for r in db.select("trend_signals", "platform = 'youtube' AND last_checked < ?", (cutoff,))]
@@ -418,10 +421,12 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
                         "status NOT IN ('queued', 'ingesting', 'analyzing')", (cutoff,))
     cleared = db.execute("UPDATE sources SET metrics = '{}', updated_at = ? WHERE platform = 'youtube' AND "
                          "updated_at < ? AND metrics != '{}'", (now, cutoff))
-    perf = db.execute("DELETE FROM performance WHERE platform = 'youtube' AND fetched_at < ?", (cutoff,))
+    perf = 0 if keep_own else db.execute("DELETE FROM performance WHERE platform = 'youtube' AND fetched_at < ?",
+                                         (cutoff,))
     db.execute("DELETE FROM api_cache WHERE fetched_at < ?", (cutoff,))
     return {"youtube_signals_deleted": len(old), "youtube_sources_deleted": unused,
-            "youtube_sources_cleared": cleared, "youtube_snapshots_deleted": perf}
+            "youtube_sources_cleared": cleared, "youtube_snapshots_deleted": perf,
+            "own_statistics": "kept (storage approved)" if keep_own else "30 days"}
 
 
 MAINTENANCE_STEPS.append(youtube_retention)

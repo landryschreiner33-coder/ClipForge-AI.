@@ -188,7 +188,7 @@ export class ApiError extends Error {
 // Sent with every request: publishing endpoints reject requests that do not come from this page.
 const APP_HEADER = { "X-ClipFoundry": "1" };
 
-async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+export async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json", ...APP_HEADER } : APP_HEADER,

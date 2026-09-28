@@ -213,12 +213,37 @@ upload to track it. Anything a platform does not report is shown as "—" with t
 it. Every refresh is kept as a snapshot, and **Data (CSV)** on the Dashboard downloads each clip's scores at publish
 time next to its real results.
 
+## Optional: Autopilot
+
+Autopilot is off until you turn it on. The full guide, including what the platforms allow, is in
+[docs/AUTOPILOT.md](docs/AUTOPILOT.md). The short version:
+
+1. Connect YouTube and/or TikTok as described above.
+2. Autopilot → *Sources & rights*: add a watch folder with your own recordings (or channels, stream URLs and feeds you
+   may use) and record your rights. Sources without a passing rights status are never clipped automatically.
+3. Optional: paste a **YouTube Data API key** from the same Google Cloud project in Settings → Autopilot → Discovery
+   (Google Cloud console → APIs & Services → Credentials → Create credentials → API key; restrict it to the YouTube
+   Data API v3). Enter your project's daily quota there if Google raised it.
+4. Check the time zone (default America/Chicago), active hours and limits in Settings → Autopilot, then switch
+   **AUTOPILOT ON**.
+5. Approve posts in the **Publish Center**. Both platforms require your approval of each post; approved posts are
+   published at their time.
+
+The workers run in a separate background process that starts and stops with the app. **STOP ALL JOBS** on the
+Autopilot page halts everything until you press *Resume jobs*. GPU transcription is unchanged: Autopilot uses the same
+CUDA path and runs one heavy GPU job at a time.
+
+For the Google OAuth consent screen (production) and the TikTok developer app you need public **Terms of Service** and
+**Privacy Policy** URLs. Templates are in `docs\legal`; they require review by a qualified lawyer, and can be published
+with GitHub Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy)).
+
 ## Where things are stored
 
 Everything lives in the `data` folder next to the app (override it with the `CLIPFOUNDRY_DATA` environment variable):
 
 ```
-data\clipfoundry.db            projects, clips, metadata, settings, publishing history (tokens are encrypted)
+data\clipfoundry.db            projects, clips, metadata, settings, publishing history (tokens are encrypted),
+                               Autopilot jobs, sources, rights, schedule and learning data
 data\projects\<id>\            source video, transcript, candidates, rendered clips, exports
 data\models\<model>\           downloaded Whisper models, one verified folder each (e.g. large-v3-turbo)
 ```
@@ -245,6 +270,7 @@ dependencies automatically.
 | Port 8765 already in use | `start.bat --port 8877` |
 | Nothing happens after upload | Check the console window for errors. Only one job runs at a time; others wait in the queue. |
 | Re-running the setup | Delete the `.venv` folder and run `start.bat` again. |
+| Autopilot problems | See the troubleshooting table in [docs/AUTOPILOT.md](docs/AUTOPILOT.md#troubleshooting). |
 
 ## Linux / macOS
 

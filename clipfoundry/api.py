@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -547,6 +547,25 @@ def _ffmpeg_error(_, exc: FFmpegError) -> JSONResponse:
 @app.exception_handler(PublishError)
 def _publish_error(_, exc: PublishError) -> JSONResponse:
     return JSONResponse({"detail": str(exc), "fix": exc.fix, "code": exc.code}, status_code=400)
+
+
+# ------------------------------------------------------------------ legal pages
+LEGAL_DIR = config.ROOT_DIR / "docs" / "legal"  # the same files can be published with GitHub Pages
+LEGAL_PAGES = {"": "index.html", "terms": "terms.html", "privacy": "privacy.html"}
+
+
+@app.get("/legal", include_in_schema=False)
+def legal_root() -> RedirectResponse:
+    return RedirectResponse("/legal/")  # the pages link to each other relatively
+
+
+@app.get("/legal/", include_in_schema=False)
+@app.get("/legal/{page}", include_in_schema=False)
+def legal(page: str = "") -> FileResponse:
+    name = LEGAL_PAGES.get(page.removesuffix(".html").replace("index", ""))
+    if not name or not (LEGAL_DIR / name).is_file():
+        raise HTTPException(404)
+    return FileResponse(LEGAL_DIR / name, media_type="text/html")
 
 
 # ------------------------------------------------------------------ UI

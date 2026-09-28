@@ -3,7 +3,8 @@ import type { Status } from "../api";
 
 type IconName =
   | "dashboard" | "create" | "projects" | "settings" | "upload" | "play" | "edit" | "download" | "trash"
-  | "check" | "x" | "zip" | "spark" | "refresh" | "film" | "link" | "cpu" | "back" | "scissors";
+  | "check" | "x" | "zip" | "spark" | "refresh" | "film" | "link" | "cpu" | "back" | "scissors"
+  | "autopilot" | "calendar" | "stop" | "shield";
 
 const PATHS: Record<IconName, string> = {
   dashboard: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
@@ -26,6 +27,10 @@ const PATHS: Record<IconName, string> = {
   cpu: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
   back: "M15 5l-7 7 7 7",
   scissors: "M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9L20 20M8.1 16.1L20 4",
+  autopilot: "M12 3a9 9 0 1 0 9 9M12 7v5l3 2M17 3h4v4M21 3l-5 5",
+  calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 14h3v3H8z",
+  stop: "M6 6h12v12H6z",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4",
 };
 
 export function Icon({ name, size = 18, fill = false }: { name: IconName; size?: number; fill?: boolean }) {

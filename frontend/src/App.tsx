@@ -7,6 +7,8 @@ import ProjectView from "./pages/ProjectView";
 import ClipEditor from "./pages/ClipEditor";
 import SettingsPage from "./pages/Settings";
 import PublishPage from "./pages/Publish";
+import AutopilotPage from "./pages/Autopilot";
+import PublishCenter from "./pages/PublishCenter";
 
 export function navigate(path: string) {
   window.location.hash = path;
@@ -30,6 +32,8 @@ const NAV = [
   { path: "", label: "Dashboard", icon: "dashboard" as const },
   { path: "create", label: "Create", icon: "create" as const },
   { path: "projects", label: "Projects", icon: "projects" as const },
+  { path: "autopilot", label: "Autopilot", icon: "autopilot" as const },
+  { path: "publish-center", label: "Publish Center", icon: "calendar" as const },
   { path: "settings", label: "Settings", icon: "settings" as const },
 ];
 
@@ -45,6 +49,8 @@ export default function App() {
   else if (section === "clip" && parts[1]) page = <ClipEditor id={parts[1]} key={parts[1]} />;
   else if (section === "publish" && parts[1]) page = <PublishPage id={parts[1]} key={parts[1]} />;
   else if (section === "settings") page = <SettingsPage />;
+  else if (section === "autopilot") page = <AutopilotPage tab={parts[1]} />;
+  else if (section === "publish-center") page = <PublishCenter view={parts[1]} />;
   else page = <Dashboard />;
 
   return (
@@ -71,6 +77,9 @@ export default function App() {
           Runs on this computer.
           <br />
           No cloud rendering. Publishing is optional and uses the official APIs.
+          <div className="legal-links">
+            <a href="/legal/terms" target="_blank" rel="noreferrer">Terms</a> · <a href="/legal/privacy" target="_blank" rel="noreferrer">Privacy</a>
+          </div>
         </div>
       </aside>
       <main className="main">{page}</main>

@@ -14,6 +14,11 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 * Paid AI APIs are optional and off by default. Local mode needs no API key.
 * Personal tool, not a SaaS. Single user, local SQLite database, local files.
 
+> **New: Autopilot.** ClipFoundry can now run as a persistent, local-first content opportunity engine: it finds
+> trending opportunities, checks the rights of every source, clips and packages the best moments, schedules them in
+> your time zone and publishes the posts you approve, then learns from the real results. Targets (3 sources, up to 5
+> clips each, 15 posts a day) are never quotas. See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
+
 > **Windows quick start:** install Python 3.11/3.12 and FFmpeg (`winget install Gyan.FFmpeg`), then double-click
 > **`start.bat`**. The app opens at <http://127.0.0.1:8765>. Full instructions are in [INSTALL.md](INSTALL.md).
 
@@ -38,7 +43,10 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | TikTok | **CONNECT TIKTOK** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
 | Publish screen | One screen per clip: video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube privacy and made-for-kids, TikTok privacy/interactions/disclosure, and explicit **Publish to YouTube**, **Publish to TikTok** and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there. |
 | Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. The Dashboard shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV/JSON as the basis for tuning the ranking later. |
-| Library | Dashboard, Create, Projects and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. Dashboard with the **15 / 15 DAILY TARGET**, workers, GPU, platforms, rights, quota and actions, plus **STOP ALL JOBS**. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
+| Publish Center | Every scheduled post in one queue: **Approve** (required by YouTube and TikTok), Edit, Reschedule, Cancel, Retry, Publish now, Open source, Open post, with the reasons behind each slot and score and an audit trail. |
+| Rights | Every source has a status: Owned, Licensed, Creative Commons, Allowlisted, Manual confirmation required or Blocked. Discovery is not authorization: only sources you have rights to are clipped automatically. |
+| Library | Dashboard, Create, Projects, Autopilot, Publish Center and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
 
@@ -102,8 +110,13 @@ clipfoundry/            Python backend (FastAPI)
     routes.py, jobs.py  publish endpoints (local-only, explicit confirmation) and the upload worker
     stats.py            real performance snapshots from the platform APIs (never estimated)
   learning.py           performance dataset (scores at publish time + real results) and ranking check
+  gpu.py, locks.py      cross-process GPU manager (one heavy GPU job at a time, VRAM check) and file locks
+  autopilot/            persistent workers: queue.py (durable jobs), host.py (worker threads/process), scout.py,
+                        providers.py, trends.py, rights.py, quota.py, hunter.py, live.py, packaging.py,
+                        scheduler.py, publisher.py, learner.py, routes.py (/api/autopilot)
   secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
+docs/                   AUTOPILOT.md (Autopilot guide) and legal/ (Terms of Service and Privacy Policy templates)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)
 tests/                  unit + end-to-end tests
 data/                   created at runtime: clipfoundry.db, projects/<id>/..., models/<model>/ (verified)
@@ -148,7 +161,8 @@ python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Window
 cd frontend && npm install && npm run dev  # UI dev server on :5173 (proxies /api)
 npm run build                              # rebuild frontend/dist (committed so users don't need Node)
 .venv/bin/python -m pytest                 # unit + integration tests (integration needs ffmpeg; e2e needs espeak-ng)
-.venv/bin/python -m pytest -m "not slow"   # skip the ~2 minute end-to-end render test
+.venv/bin/python -m pytest -m "not slow"   # skip the slow end-to-end render tests
+.venv/bin/python -m clipfoundry workers    # run the Autopilot workers on their own (normally started by the app)
 ```
 
 `tests/make_test_video.py` builds a synthetic talking-head video (espeak-ng speech + a moving face with scene cuts)
@@ -156,9 +170,19 @@ for exercising the whole pipeline.
 
 ## Responsible use
 
-Only process videos you own or have permission to use. The optional URL import uses yt-dlp for publicly accessible
-media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never passes cookies or
-credentials.
+Only process videos you own or have permission to use. Finding a video (trending, public or downloadable) does not
+make it reusable; Autopilot clips only sources whose rights status allows it. The optional URL import uses yt-dlp for
+publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never
+passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you
+have permission to download.
+
+## Legal pages
+
+Templates of a **Terms of Service** and a **Privacy Policy** are in [`docs/legal/`](docs/legal/) and served by the app
+at `/legal/terms` and `/legal/privacy`. They contain placeholders ([OWNER NAME], [LEGAL BUSINESS NAME],
+[CONTACT EMAIL], [BUSINESS ADDRESS IF REQUIRED], ...) and **require review by a qualified lawyer** before use. For the
+Google OAuth consent screen and the TikTok developer app they must be publicly reachable, for example with GitHub
+Pages; see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy).
 
 ## Third-party assets
 
