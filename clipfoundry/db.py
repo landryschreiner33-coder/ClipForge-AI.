@@ -185,7 +185,8 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
-        secure.restrict_file(path)  # it holds publishing tokens
+        for f in (path, f"{path}-wal", f"{path}-shm"):  # it holds (sealed) publishing tokens
+            secure.restrict_file(f)
         _ready.add(path)
     try:
         yield conn
