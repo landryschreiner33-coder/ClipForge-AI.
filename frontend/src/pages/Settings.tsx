@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
-import { api, Health, Settings } from "../api";
+import { Accounts, api, Health, Settings } from "../api";
 import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
+import { AccountBadge, ConnectButton } from "../components/accounts";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
 
@@ -18,10 +19,12 @@ export default function SettingsPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [dirty, setDirty] = useState(false);
   const [check, setCheck] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [accounts, setAccounts] = useState<Accounts | null>(null);
 
   useEffect(() => {
     api.settings().then(setS);
     api.health().then(setHealth).catch(() => undefined);
+    api.accounts().then(setAccounts).catch(() => undefined);
   }, []);
   if (!s) return <div className="page"><div className="spinner" /></div>;
 
@@ -29,12 +32,13 @@ export default function SettingsPage() {
     setS({ ...s, ...patch });
     setDirty(true);
   };
-  const save = async () => {
+  const save = async (quiet = false) => {
     try {
       setS(await api.saveSettings(s));
       setDirty(false);
       setHealth(await api.health());
-      toast("Settings saved");
+      setAccounts(await api.accounts());
+      if (!quiet) toast("Settings saved");
     } catch (e) {
       toast((e as Error).message, true);
     }
@@ -53,7 +57,7 @@ export default function SettingsPage() {
           <h1>Settings</h1>
           <p>Defaults for new projects. Everything is stored locally in <code>{health?.data_dir || "data/"}</code>.</p>
         </div>
-        <button className="btn primary" disabled={!dirty} onClick={save}><Icon name="check" size={16} /> Save settings</button>
+        <button className="btn primary" disabled={!dirty} onClick={() => save()}><Icon name="check" size={16} /> Save settings</button>
       </div>
 
       <div className="card">
@@ -139,6 +143,53 @@ export default function SettingsPage() {
           <button className="btn" onClick={testAi}><Icon name="refresh" size={14} /> Test connection</button>
           {check && <span className={`badge ${check.ok ? "good" : "bad"}`}>{check.detail}</span>}
         </div>
+      </div>
+
+      <div className="card" id="publishing">
+        <h3>Publishing (YouTube Shorts and TikTok)</h3>
+        <div className="notice">
+          <Icon name="link" size={16} />
+          <div>
+            ClipFoundry publishes only through the official YouTube Data API and TikTok Content Posting API, with your own
+            free developer apps. You sign in on Google's or TikTok's own page: ClipFoundry never sees or stores your
+            password. The access tokens it receives are {accounts?.protection || "stored locally"}. Nothing is posted
+            until you press a Publish button and confirm.
+          </div>
+        </div>
+
+        <div className="platform-head">
+          <b>YouTube Shorts</b>
+          <AccountBadge platform="youtube" account={accounts?.youtube} />
+          <span style={{ flex: 1 }} />
+          <ConnectButton platform="youtube" account={accounts?.youtube} onChange={setAccounts}
+            beforeConnect={s.youtube_client_id && s.youtube_client_secret ? (dirty ? () => save(true) : async () => undefined) : undefined} />
+        </div>
+        <Row label="OAuth client ID" hint="Google Cloud → Credentials → OAuth client (Desktop app)">
+          <input type="text" placeholder="1234567890-abc.apps.googleusercontent.com" value={s.youtube_client_id} onChange={(e) => set({ youtube_client_id: e.target.value })} />
+        </Row>
+        <Row label="OAuth client secret" hint="Stored encrypted on Windows">
+          <input type="password" value={s.youtube_client_secret} onChange={(e) => set({ youtube_client_secret: e.target.value })} />
+        </Row>
+        <Row label="API audit" hint="Only tick this after Google approved your project">
+          <Toggle on={!!s.youtube_project_verified} onChange={(v) => set({ youtube_project_verified: v })}
+            label="My Google Cloud project passed YouTube's API audit (public uploads allowed)" />
+        </Row>
+        {accounts?.youtube.restriction && <div className="notice warn small block">{accounts.youtube.restriction}</div>}
+        <details className="setup">
+          <summary>How to set up YouTube publishing (free, about 10 minutes)</summary>
+          <ol>
+            <li>Open <b>console.cloud.google.com</b> and create a project (any name).</li>
+            <li><b>APIs &amp; Services → Library</b>: enable <b>YouTube Data API v3</b>. Optional: also enable <b>YouTube Analytics API</b> so ClipFoundry can read watch time and retention of your videos.</li>
+            <li><b>OAuth consent screen</b>: choose <i>External</i>, fill in the app name and your e-mail, and add your Google account under <i>Test users</i>.</li>
+            <li><b>Credentials → Create credentials → OAuth client ID</b>, application type <b>Desktop app</b>. Copy the client ID and client secret into the fields above and save.</li>
+            <li>Click <b>CONNECT YOUTUBE</b>, sign in with Google and allow access. Google may show “Google hasn't verified this app”: that is your own app, choose <i>Continue</i>.</li>
+          </ol>
+          <p className="small muted">{accounts?.youtube.testing_note}</p>
+          <p className="small muted">
+            Until Google audits your project, YouTube keeps every upload from it Private. Private uploads are fine for
+            testing. Uploads count against your project's daily YouTube API quota.
+          </p>
+        </details>
       </div>
 
       <div className="card">

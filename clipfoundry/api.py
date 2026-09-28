@@ -19,16 +19,21 @@ from .pipeline import cuda, export, llm, postpack, transcribe
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available
 from .pipeline.process import load_words, project_dir
+from .publish import jobs as publish_jobs
+from .publish import routes as publish_routes
+from .publish.common import PublishError
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
     db.mark_interrupted()
     worker.start()
+    publish_jobs.worker.start()
     yield
 
 
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
+app.include_router(publish_routes.router)  # before the UI catch-all route below
 
 
 # ------------------------------------------------------------------ helpers
@@ -401,6 +406,11 @@ def clip_words(clip_id: str, pad: float = 20.0) -> dict:
 @app.exception_handler(FFmpegError)
 def _ffmpeg_error(_, exc: FFmpegError) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=500)
+
+
+@app.exception_handler(PublishError)
+def _publish_error(_, exc: PublishError) -> JSONResponse:
+    return JSONResponse({"detail": str(exc), "fix": exc.fix, "code": exc.code}, status_code=400)
 
 
 # ------------------------------------------------------------------ UI

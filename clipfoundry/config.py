@@ -90,9 +90,18 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "x264_preset": "veryfast",
     "max_fps": 30,
     "ffmpeg_path": "",                # optional explicit path to ffmpeg(.exe) or its folder
+    # Publishing (official APIs, your own developer apps; OAuth tokens are stored separately)
+    "youtube_client_id": "",
+    "youtube_client_secret": "",
+    "youtube_project_verified": False,  # True once Google's YouTube API audit lifted the private-only restriction
+    "youtube_category_id": "22",        # People & Blogs
+    "tiktok_client_key": "",
+    "tiktok_client_secret": "",
+    "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
 }
 
-SECRET_KEYS = {"openai_api_key", "anthropic_api_key"}
+SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret"}
+SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret"}  # encrypted at rest (see secure.py)
 
 
 def coerce_setting(key: str, value: Any) -> Any:

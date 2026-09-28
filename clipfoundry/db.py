@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from . import config
+from . import config, secure
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -70,11 +70,51 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS accounts (
+    platform TEXT PRIMARY KEY,
+    account_id TEXT DEFAULT '',
+    display_name TEXT DEFAULT '',
+    avatar_url TEXT DEFAULT '',
+    scopes TEXT DEFAULT '[]',
+    tokens TEXT DEFAULT '',
+    info TEXT DEFAULT '{}',
+    connected_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS publications (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    project_id TEXT DEFAULT '',
+    platform TEXT NOT NULL,
+    mode TEXT DEFAULT 'direct',
+    status TEXT NOT NULL DEFAULT 'queued',
+    progress REAL DEFAULT 0,
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    fix TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    requested_privacy TEXT DEFAULT '',
+    privacy TEXT DEFAULT '',
+    remote_id TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    video_path TEXT DEFAULT '',
+    version_id TEXT DEFAULT '',
+    options TEXT DEFAULT '{}',
+    info TEXT DEFAULT '{}',
+    features TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_publications_clip ON publications(clip_id);
 """
 
 JSON_FIELDS = {
     "projects": {"options", "info"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
+    "accounts": {"scopes", "info"},
+    "publications": {"tags", "options", "info", "features"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -105,6 +145,7 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
+        secure.restrict_file(path)  # it holds publishing tokens
         _ready.add(path)
     try:
         yield conn
@@ -142,13 +183,13 @@ def _encode(table: str, fields: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _update(table: str, row_id: str, fields: dict[str, Any]) -> None:
+def _update(table: str, row_id: str, fields: dict[str, Any], key: str = "id") -> None:
     if not fields:
         return
     fields = _encode(table, {**fields, "updated_at": time.time()})
     cols = ", ".join(f"{k} = ?" for k in fields)
     with connect() as conn:
-        conn.execute(f"UPDATE {table} SET {cols} WHERE id = ?", [*fields.values(), row_id])
+        conn.execute(f"UPDATE {table} SET {cols} WHERE {key} = ?", [*fields.values(), row_id])
 
 
 # ---------------------------------------------------------------- projects
@@ -224,6 +265,81 @@ def delete_clips(project_id: str) -> None:
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
 
 
+# ---------------------------------------------------------------- publishing accounts (OAuth)
+def get_account(platform: str) -> dict[str, Any] | None:
+    """Connected account without its tokens (use `account_tokens` for those)."""
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE platform = ?", (platform,)).fetchone()
+    acc = _decode("accounts", row)
+    if acc:
+        acc["has_tokens"] = bool(acc.pop("tokens"))
+    return acc
+
+
+def account_tokens(platform: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT tokens FROM accounts WHERE platform = ?", (platform,)).fetchone()
+    if not row or not row["tokens"]:
+        return None
+    return json.loads(secure.unseal(row["tokens"]))
+
+
+def save_account(platform: str, tokens: dict[str, Any] | None = None, **fields: Any) -> None:
+    now = time.time()
+    if tokens is not None:
+        fields["tokens"] = secure.seal(json.dumps(tokens))
+    enc = _encode("accounts", fields)
+    with connect() as conn:
+        exists = conn.execute("SELECT 1 FROM accounts WHERE platform = ?", (platform,)).fetchone()
+        if exists:
+            cols = ", ".join(f"{k} = ?" for k in [*enc, "updated_at"])
+            conn.execute(f"UPDATE accounts SET {cols} WHERE platform = ?", [*enc.values(), now, platform])
+        else:
+            row = {"platform": platform, "connected_at": now, "updated_at": now, **enc}
+            conn.execute(f"INSERT INTO accounts ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
+                         list(row.values()))
+
+
+def delete_account(platform: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM accounts WHERE platform = ?", (platform,))
+
+
+# ---------------------------------------------------------------- publications
+def create_publication(clip_id: str, platform: str, **fields: Any) -> dict[str, Any]:
+    now = time.time()
+    row = _encode("publications", {"id": new_id(), "clip_id": clip_id, "platform": platform, "created_at": now,
+                                   "updated_at": now, **fields})
+    with connect() as conn:
+        conn.execute(f"INSERT INTO publications ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
+                     list(row.values()))
+    return get_publication(row["id"])  # type: ignore[return-value]
+
+
+def get_publication(pub_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM publications WHERE id = ?", (pub_id,)).fetchone()
+    return _decode("publications", row)
+
+
+def list_publications(clip_id: str | None = None, platform: str | None = None) -> list[dict[str, Any]]:
+    where, args = [], []
+    if clip_id:
+        where.append("clip_id = ?")
+        args.append(clip_id)
+    if platform:
+        where.append("platform = ?")
+        args.append(platform)
+    sql = "SELECT * FROM publications" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY created_at DESC"
+    with connect() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [_decode("publications", r) for r in rows]  # type: ignore[misc]
+
+
+def update_publication(pub_id: str, **fields: Any) -> None:
+    _update("publications", pub_id, fields)
+
+
 # ---------------------------------------------------------------- settings
 def get_settings() -> dict[str, Any]:
     values = dict(config.DEFAULT_SETTINGS)
@@ -234,11 +350,18 @@ def get_settings() -> dict[str, Any]:
                     values[row["key"]] = json.loads(row["value"])
                 except ValueError:
                     pass
+    for key in config.SEALED_KEYS:
+        try:
+            values[key] = secure.unseal(values[key])
+        except secure.SecretError:
+            values[key] = ""  # unreadable here: the user enters it again
     return values
 
 
 def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
     clean = config.validate_settings(patch)
+    for key in config.SEALED_KEYS & set(clean):
+        clean[key] = secure.seal(clean[key])
     with connect() as conn:
         for key, value in clean.items():
             conn.execute(
@@ -259,4 +382,9 @@ def mark_interrupted() -> None:
         conn.execute(
             "UPDATE clips SET status = 'error', error = 'Interrupted (app was closed). Click Re-render.'"
             " WHERE status IN ('queued', 'rendering')"
+        )
+        conn.execute(
+            "UPDATE publications SET status = 'failed', error = 'Interrupted (app was closed) before the upload "
+            "finished. Nothing was published by this attempt; you can publish again.' WHERE status IN ('queued', "
+            "'uploading')"
         )

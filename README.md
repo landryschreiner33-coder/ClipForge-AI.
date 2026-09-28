@@ -8,7 +8,9 @@ YouTube Shorts and Reels.
 VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS → EXPORT
 ```
 
-* Runs entirely on your computer: no accounts, no cloud rendering, no subscription. Runtime cost is about **$0**.
+* Runs entirely on your computer: no ClipFoundry accounts, no cloud rendering, no subscription. Runtime cost is about
+  **$0**. The only network use is optional: publishing and reading your own videos' statistics through the official
+  YouTube and TikTok APIs.
 * Paid AI APIs are optional and off by default. Local mode needs no API key.
 * Personal tool, not a SaaS. Single user, local SQLite database, local files.
 
@@ -31,6 +33,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Polish | Light or aggressive silence cleanup, subtle auto-zooms, loudness normalization (-14 LUFS) and volume control. |
 | Editor | Simple manual controls: trim (click transcript words), framing, captions, hook, audio, then re-render. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
+| YouTube Shorts | **CONNECT YOUTUBE** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
 | Library | Dashboard, Create, Projects and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
@@ -88,6 +91,10 @@ clipfoundry/            Python backend (FastAPI)
     captions.py         ASS caption styles, SRT
     render.py           ffmpeg decode → OpenCV crop/zoom/layout → ffmpeg encode with burned captions
     export.py           ZIP + metadata
+  publish/              official-API publishing: OAuth, uploads, background publisher
+    youtube.py          YouTube Data API v3 (OAuth + PKCE, resumable upload, status)
+    routes.py, jobs.py  publish endpoints (local-only, explicit confirmation) and the upload worker
+  secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)
 tests/                  unit + end-to-end tests

@@ -151,26 +151,109 @@ export interface Health {
   queue: number;
 }
 
+/** An API error with the server's plain-language explanation and, when known, what to do about it. */
+export class ApiError extends Error {
+  fix: string;
+  code: string;
+  constructor(message: string, fix = "", code = "") {
+    super(message);
+    this.fix = fix;
+    this.code = code;
+  }
+}
+
+// Sent with every request: publishing endpoints reject requests that do not come from this page.
+const APP_HEADER = { "X-ClipFoundry": "1" };
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: body !== undefined ? { "Content-Type": "application/json", ...APP_HEADER } : APP_HEADER,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let fix = "";
+    let code = "";
     try {
       const j = await res.json();
       detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      fix = j.fix || "";
+      code = j.code || "";
     } catch {
       /* ignore */
     }
-    throw new Error(detail || `Request failed (${res.status})`);
+    throw new ApiError(detail || `Request failed (${res.status})`, fix, code);
   }
   return res.json() as Promise<T>;
 }
 
+/** Message plus fix, for toasts. */
+export const errorText = (e: unknown) =>
+  e instanceof ApiError && e.fix ? `${e.message} ${e.fix}` : (e as Error).message;
+
+export type Platform = "youtube" | "tiktok";
+
+export interface PlatformAccount {
+  configured: boolean;
+  connected: boolean;
+  needs_reconnect: boolean;
+  name: string;
+  account_id: string;
+  avatar: string;
+  scopes: string[];
+  connected_at: number | null;
+  restriction: string;
+  setup: string;
+  verified?: boolean;
+  audited?: boolean;
+  analytics?: boolean;
+  testing_note?: string;
+  redirect_uri?: string;
+  can_direct_post?: boolean;
+  can_inbox?: boolean;
+  can_read_stats?: boolean;
+}
+
+export interface Accounts {
+  youtube: PlatformAccount;
+  tiktok?: PlatformAccount;
+  protection: string;
+}
+
+export interface Publication {
+  id: string;
+  clip_id: string;
+  platform: Platform;
+  mode: "direct" | "inbox";
+  status: "queued" | "uploading" | "processing" | "done" | "action_needed" | "failed" | "cancelled";
+  progress: number;
+  message: string;
+  error: string;
+  fix: string;
+  title: string;
+  description: string;
+  tags: string[];
+  requested_privacy: string;
+  privacy: string;
+  remote_id: string;
+  url: string;
+  version_id: string;
+  options: Record<string, any>;
+  info: Record<string, any>;
+  created_at: number;
+  updated_at: number;
+}
+
 export const api = {
+  accounts: () => req<Accounts>("GET", "/api/publish/accounts"),
+  connect: (platform: Platform) => req<{ auth_url: string }>("POST", `/api/publish/${platform}/connect`),
+  disconnect: (platform: Platform) => req<Accounts>("POST", `/api/publish/${platform}/disconnect`),
+  publish: (clipId: string, platform: Platform, body: Record<string, unknown>) =>
+    req<Publication>("POST", `/api/clips/${clipId}/publish/${platform}`, body),
+  publications: (clipId: string) => req<Publication[]>("GET", `/api/clips/${clipId}/publications`),
+  cancelPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/cancel`),
+  refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),
   health: () => req<Health>("GET", "/api/health"),
   stats: () => req<{ projects: number; clips: number; processing: number; recent: Project[] }>("GET", "/api/stats"),
   settings: () => req<Settings>("GET", "/api/settings"),
@@ -215,6 +298,7 @@ export function uploadVideo(
     if (transcript) form.append("transcript", transcript);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/projects");
+    xhr.setRequestHeader("X-ClipFoundry", "1");
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     xhr.onload = () => {
       try {
@@ -233,7 +317,7 @@ export function uploadVideo(
 export async function downloadZip(projectId: string, clipIds: string[] | null): Promise<void> {
   const res = await fetch(`/api/projects/${projectId}/export`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...APP_HEADER },
     body: JSON.stringify({ clip_ids: clipIds }),
   });
   if (!res.ok) {

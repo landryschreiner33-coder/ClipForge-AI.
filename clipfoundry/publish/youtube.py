@@ -1,0 +1,326 @@
+"""YouTube Shorts through the official YouTube Data API v3.
+
+Sign-in uses Google's OAuth 2.0 flow for desktop apps (loopback redirect to http://127.0.0.1 with PKCE), with your
+own Google Cloud project's "Desktop app" client. ClipFoundry receives tokens, never your Google password.
+
+Uploads use the resumable upload protocol (videos.insert, uploadType=resumable) in 8 MiB chunks, resuming after
+network errors. YouTube classifies vertical videos of up to three minutes as Shorts automatically.
+
+Google restricts API projects that have not passed YouTube's API compliance audit: every video they upload is locked
+to private viewing, whatever privacy was requested. ClipFoundry says so before and after the upload, and private
+uploads work for testing in the meantime.
+"""
+from __future__ import annotations
+
+import os
+import re
+import time
+from typing import Callable
+from urllib.parse import urlencode
+
+import httpx
+
+from .. import db
+from .common import Cancelled, PublishError, client, save_tokens
+
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+API_URL = "https://www.googleapis.com/youtube/v3"
+UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
+ANALYTICS_URL = "https://youtubeanalytics.googleapis.com/v2/reports"
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",         # upload videos
+    "https://www.googleapis.com/auth/youtube.readonly",       # channel name, your videos' status and statistics
+    "https://www.googleapis.com/auth/yt-analytics.readonly",  # watch time / retention of your videos (optional)
+]
+CHUNK = 8 * 1024 * 1024  # must be a multiple of 256 KiB
+PRIVACY = ("public", "unlisted", "private")
+SHORTS_MAX_SECONDS = 180
+AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
+
+UNVERIFIED_NOTE = (
+    "YouTube locks every video uploaded through an API project that has not passed its API compliance audit to "
+    "Private, even when you choose Public or Unlisted. Private uploads work for testing. To publish publicly, get "
+    f"your Google Cloud project audited ({AUDIT_URL}) and then tick 'My project passed the audit' in Settings, or "
+    "upload the exported MP4 in YouTube Studio yourself."
+)
+SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
+             "the OAuth consent screen, create an OAuth client of type 'Desktop app' and paste its client ID and "
+             "secret.")
+RECONNECT_FIX = "Click Connect YouTube again (Settings → Publishing or the publish screen)."
+TESTING_NOTE = ("If your OAuth consent screen is in 'Testing', Google ends the connection after 7 days; set it to "
+                "'In production' to stay connected (for your own use you can continue past the 'unverified app' "
+                "screen).")
+
+
+def configured(settings: dict) -> bool:
+    return bool(settings.get("youtube_client_id") and settings.get("youtube_client_secret"))
+
+
+def auth_url(settings: dict, redirect_uri: str, state: str, challenge: str) -> str:
+    return AUTH_URL + "?" + urlencode({
+        "client_id": settings["youtube_client_id"], "redirect_uri": redirect_uri, "response_type": "code",
+        "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true",
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+    })
+
+
+def _token_request(data: dict) -> dict:
+    with client(30) as c:
+        r = c.post(TOKEN_URL, data=data)
+    body = _json(r)
+    if r.status_code != 200:
+        err = body.get("error", "")
+        if err == "invalid_grant":
+            raise PublishError("Google no longer accepts ClipFoundry's access to your YouTube channel (it was revoked, "
+                               "expired, or the password was changed).", f"{RECONNECT_FIX} {TESTING_NOTE}",
+                               "reconnect")
+        if err in ("invalid_client", "unauthorized_client"):
+            raise PublishError("Google rejected the OAuth client ID or secret.", SETUP_FIX, "setup")
+        raise PublishError(f"Google sign-in failed: {body.get('error_description') or err or r.status_code}.",
+                           RECONNECT_FIX)
+    return body
+
+
+def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str) -> dict:
+    """Finish the sign-in: store the tokens and the channel. Returns the account row."""
+    tok = _token_request({"code": code, "client_id": settings["youtube_client_id"],
+                          "client_secret": settings["youtube_client_secret"], "redirect_uri": redirect_uri,
+                          "grant_type": "authorization_code", "code_verifier": verifier})
+    granted = set((tok.get("scope") or "").split())
+    if SCOPES[0] not in granted:
+        raise PublishError("The permission to upload videos was not granted.",
+                           "Connect again and tick 'Manage your YouTube videos' on Google's permission screen.")
+    ch = channel(tok["access_token"])
+    db.save_account("youtube", tokens=save_tokens("youtube", tok), account_id=ch["id"], display_name=ch["title"],
+                    avatar_url=ch.get("thumbnail", ""), scopes=sorted(granted), info={"needs_reconnect": False})
+    return db.get_account("youtube") or {}
+
+
+class Token:
+    """A valid access token for the connected channel, refreshed when it is about to expire."""
+
+    def __init__(self, settings: dict):
+        self.settings = settings
+
+    def get(self, force: bool = False) -> str:
+        tokens = db.account_tokens("youtube")
+        if not tokens:
+            raise PublishError("YouTube is not connected.", RECONNECT_FIX, "not_connected")
+        if not force and tokens["expires_at"] - 90 > time.time():
+            return tokens["access_token"]
+        if not tokens.get("refresh_token"):
+            raise PublishError("The YouTube connection has expired.", RECONNECT_FIX, "reconnect")
+        try:
+            tok = _token_request({"client_id": self.settings["youtube_client_id"],
+                                  "client_secret": self.settings["youtube_client_secret"],
+                                  "refresh_token": tokens["refresh_token"], "grant_type": "refresh_token"})
+        except PublishError as exc:
+            if exc.code == "reconnect":
+                db.save_account("youtube", info={"needs_reconnect": True})
+            raise
+        db.save_account("youtube", tokens=save_tokens("youtube", tok))
+        return tok["access_token"]
+
+
+def disconnect(settings: dict) -> None:
+    """Revoke ClipFoundry's access at Google (best effort) and forget the tokens."""
+    tokens = db.account_tokens("youtube") or {}
+    token = tokens.get("refresh_token") or tokens.get("access_token")
+    if token:
+        try:
+            with client(15) as c:
+                c.post(REVOKE_URL, data={"token": token})
+        except httpx.HTTPError:
+            pass  # the local tokens are deleted either way
+    db.delete_account("youtube")
+
+
+def _json(r: httpx.Response) -> dict:
+    try:
+        data = r.json()
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        return {}
+
+
+def api_error(r: httpx.Response) -> PublishError:
+    """Plain-language version of a YouTube API error response."""
+    err = _json(r).get("error") or {}
+    reason = ((err.get("errors") or [{}])[0] or {}).get("reason", "") if isinstance(err, dict) else ""
+    message = err.get("message", "") if isinstance(err, dict) else str(err)
+    known = {
+        "quotaExceeded": ("Your Google Cloud project has used up today's YouTube API quota.",
+                          "Try again after midnight Pacific Time, or request more quota in the Google Cloud console."),
+        "uploadLimitExceeded": ("Your channel reached YouTube's upload limit for now.", "Try again in 24 hours."),
+        "youtubeSignupRequired": ("This Google account has no YouTube channel yet.",
+                                  "Create a channel on youtube.com, then connect again."),
+        "insufficientPermissions": ("ClipFoundry is not allowed to do this on your channel.", RECONNECT_FIX),
+        "forbidden": ("YouTube refused the request for this channel.", RECONNECT_FIX),
+        "invalidTitle": ("YouTube rejected the title.", "Use 1-100 characters without < or >."),
+        "invalidDescription": ("YouTube rejected the description.", "Use at most 5000 bytes without < or >."),
+        "invalidTags": ("YouTube rejected the tags.", "Use fewer or shorter hashtags (500 characters in total)."),
+        "accessNotConfigured": ("The YouTube Data API is not enabled in your Google Cloud project.",
+                                "Google Cloud console → APIs & Services → Library → YouTube Data API v3 → Enable."),
+    }
+    if reason in known:
+        return PublishError(*known[reason], code=reason)
+    if r.status_code == 401:
+        return PublishError("YouTube did not accept the access token.", RECONNECT_FIX, "reconnect")
+    return PublishError(f"YouTube API error {r.status_code}: {message or r.text[:200]}", code=reason)
+
+
+def _get(token: Token, url: str, params: dict) -> dict:
+    with client(30) as c:
+        r = c.get(url, params=params, headers={"Authorization": f"Bearer {token.get()}"})
+        if r.status_code == 401:
+            r = c.get(url, params=params, headers={"Authorization": f"Bearer {token.get(force=True)}"})
+    if r.status_code != 200:
+        raise api_error(r)
+    return _json(r)
+
+
+def channel(access_token: str) -> dict:
+    with client(30) as c:
+        r = c.get(f"{API_URL}/channels", params={"part": "snippet", "mine": "true"},
+                  headers={"Authorization": f"Bearer {access_token}"})
+    if r.status_code != 200:
+        raise api_error(r)
+    items = _json(r).get("items") or []
+    if not items:
+        raise PublishError("This Google account has no YouTube channel yet.",
+                           "Create a channel on youtube.com, then connect again.", "no_channel")
+    sn = items[0].get("snippet") or {}
+    return {"id": items[0]["id"], "title": sn.get("title", ""),
+            "thumbnail": ((sn.get("thumbnails") or {}).get("default") or {}).get("url", "")}
+
+
+# ------------------------------------------------------------------ metadata
+def _clean(text: str) -> str:
+    return re.sub(r"[<>]", "", text or "").strip()
+
+
+def video_body(title: str, description: str, tags: list[str], privacy: str, made_for_kids: bool,
+               category_id: str = "22") -> dict:
+    """snippet + status for videos.insert, validated against YouTube's limits."""
+    title = _clean(title)
+    if not title:
+        raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
+    if len(title) > 100:
+        raise PublishError("YouTube titles can have at most 100 characters.", "Shorten the title.")
+    description = _clean(description)
+    if len(description.encode("utf-8")) > 5000:
+        raise PublishError("YouTube descriptions can have at most 5000 bytes.", "Shorten the description.")
+    if privacy not in PRIVACY:
+        raise PublishError("Choose Public, Unlisted or Private.")
+    clean_tags, total = [], 0
+    for t in tags:
+        t = _clean(t).lstrip("#").replace(",", " ").strip()
+        cost = len(t) + (2 if " " in t else 0) + (1 if clean_tags else 0)
+        if t and t not in clean_tags and total + cost <= 480:
+            clean_tags.append(t)
+            total += cost
+    return {"snippet": {"title": title, "description": description, "tags": clean_tags,
+                        "categoryId": str(category_id or "22")},
+            "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids),
+                       "embeddable": True}}
+
+
+# ------------------------------------------------------------------ upload
+def upload(path: str, body: dict, token: Token, progress: Callable[[float], None] | None = None,
+           cancelled: Callable[[], bool] = lambda: False, sleep: Callable[[float], None] = time.sleep) -> dict:
+    """Resumable upload. Returns the created video resource (id, snippet, status)."""
+    size = os.path.getsize(path)
+    report = progress or (lambda f: None)
+    with client(120) as c:
+        session = _start_session(c, body, size, token)
+        offset, failures = 0, 0
+        with open(path, "rb") as fh:
+            while True:
+                if cancelled():
+                    raise Cancelled()
+                fh.seek(offset)
+                chunk = fh.read(CHUNK)
+                headers = {"Authorization": f"Bearer {token.get()}", "Content-Type": "video/mp4",
+                           "Content-Range": f"bytes {offset}-{offset + len(chunk) - 1}/{size}"}
+                try:
+                    r = c.put(session, content=chunk, headers=headers)
+                except httpx.TransportError:
+                    r = None
+                if r is not None and r.status_code in (200, 201):
+                    report(1.0)
+                    return _json(r)
+                if r is not None and r.status_code == 308:
+                    offset, failures = _next_offset(r), 0
+                    report(offset / size)
+                    continue
+                if r is not None and r.status_code == 401:
+                    token.get(force=True)
+                elif r is not None and r.status_code not in (408, 429, 500, 502, 503, 504):
+                    raise api_error(r)
+                failures += 1
+                if failures > 6:
+                    raise PublishError("The upload to YouTube kept getting interrupted.",
+                                       "Check your internet connection and publish again.")
+                sleep(min(60.0, 2.0 ** failures))
+                offset, done = _resume_offset(c, session, size, token)
+                if done is not None:
+                    report(1.0)
+                    return done
+                if offset < 0:  # the upload session expired: start over
+                    session, offset = _start_session(c, body, size, token), 0
+
+
+def _start_session(c: httpx.Client, body: dict, size: int, token: Token) -> str:
+    params = {"uploadType": "resumable", "part": "snippet,status"}
+    for attempt in range(2):
+        r = c.post(UPLOAD_URL, params=params, json=body,
+                   headers={"Authorization": f"Bearer {token.get(force=attempt > 0)}",
+                            "X-Upload-Content-Type": "video/mp4", "X-Upload-Content-Length": str(size)})
+        if r.status_code == 200 and r.headers.get("Location"):
+            return r.headers["Location"]
+        if r.status_code != 401:
+            break
+    raise api_error(r)
+
+
+def _next_offset(r: httpx.Response) -> int:
+    rng = r.headers.get("Range", "")
+    m = re.search(r"(\d+)-(\d+)", rng)
+    return int(m.group(2)) + 1 if m else 0
+
+
+def _resume_offset(c: httpx.Client, session: str, size: int, token: Token) -> tuple[int, dict | None]:
+    """Ask YouTube how much of the file it already has (offset, or the finished video, or -1 if expired)."""
+    try:
+        r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
+                                    "Content-Length": "0"})
+    except httpx.TransportError:
+        return 0, None
+    if r.status_code in (200, 201):
+        return size, _json(r)
+    if r.status_code == 308:
+        return _next_offset(r), None
+    if r.status_code in (404, 410):
+        return -1, None
+    return 0, None
+
+
+def video_url(video_id: str) -> str:
+    return f"https://www.youtube.com/shorts/{video_id}"
+
+
+def studio_url(video_id: str) -> str:
+    return f"https://studio.youtube.com/video/{video_id}/edit"
+
+
+def video_status(token: Token, video_id: str) -> dict:
+    """Current privacy / processing status of an uploaded video (None fields if it was deleted)."""
+    items = _get(token, f"{API_URL}/videos", {"part": "status,processingDetails", "id": video_id}).get("items") or []
+    if not items:
+        return {"exists": False}
+    st = items[0].get("status") or {}
+    return {"exists": True, "privacy": st.get("privacyStatus", ""), "upload_status": st.get("uploadStatus", ""),
+            "rejection_reason": st.get("rejectionReason", ""), "failure_reason": st.get("failureReason", ""),
+            "processing": ((items[0].get("processingDetails") or {}).get("processingStatus", ""))}

@@ -137,12 +137,43 @@ Only the 8-12 strongest candidate clips are sent to the model, never the full tr
 Choose *Claude API* in Settings and paste an API key. This costs money per call. Use *Max candidates* to cap how many
 clips per video are sent. The key is stored only in your local `data\clipfoundry.db`.
 
+## Optional: publishing to YouTube Shorts
+
+ClipFoundry uploads through the official **YouTube Data API v3** with your own free Google Cloud project. You sign in on
+Google's page; ClipFoundry never sees or stores your Google password. It receives OAuth tokens, which are stored
+encrypted with Windows DPAPI (only your Windows account on this PC can read them).
+
+1. Open <https://console.cloud.google.com> and create a project.
+2. **APIs & Services → Library**: enable **YouTube Data API v3**. Optional: enable **YouTube Analytics API** too, so
+   ClipFoundry can show the real watch time and retention of your uploads.
+3. **OAuth consent screen**: choose *External*, enter an app name and your e-mail, and add your own Google account
+   under *Test users*.
+4. **Credentials → Create credentials → OAuth client ID**, application type **Desktop app**. Copy the client ID and
+   secret into **Settings → Publishing → YouTube** and save.
+5. Click **CONNECT YOUTUBE**, sign in and allow access. The connected channel's name appears in Settings.
+
+Things Google enforces, which ClipFoundry explains on screen:
+
+* **Unaudited projects upload Private only.** Google locks every video uploaded by an API project that has not passed
+  the [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to Private, even if you choose Public
+  or Unlisted. Private uploads work for testing. After the audit, tick *My project passed YouTube's API audit* in
+  Settings.
+* **Testing-mode connections expire after 7 days.** While the consent screen is in *Testing*, click Connect again
+  weekly, or set it to *In production* (for your own use you can continue past the "unverified app" screen).
+* **Quota.** Uploads count against your project's daily YouTube API quota. If it runs out, ClipFoundry says so; try
+  again the next day (quotas reset at midnight Pacific Time).
+* Vertical videos of up to 3 minutes are classified as Shorts by YouTube automatically.
+* YouTube requires you to say whether a video is *made for kids*; the publish screen asks every time.
+
+Connecting and publishing only work in the browser on the PC that runs ClipFoundry (`http://127.0.0.1:8765`), even
+if you started it with `--host 0.0.0.0`.
+
 ## Where things are stored
 
 Everything lives in the `data` folder next to the app (override it with the `CLIPFOUNDRY_DATA` environment variable):
 
 ```
-data\clipfoundry.db            projects, clips, metadata, settings
+data\clipfoundry.db            projects, clips, metadata, settings, publishing history (tokens are encrypted)
 data\projects\<id>\            source video, transcript, candidates, rendered clips, exports
 data\models\<model>\           downloaded Whisper models, one verified folder each (e.g. large-v3-turbo)
 ```
