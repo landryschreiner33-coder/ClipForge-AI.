@@ -55,10 +55,10 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Retry-After handling | `queue.Retry(delay=...)`; publisher uses a fixed 60 s for rate limits | partial | source reviewed | read Retry-After from platform responses | — |
 | Waiting (consent, quota, GPU) does not consume attempts | `queue.claim` (`bump = 0` after `waiting`) | verified (unit) | `waiting_jobs_resume_without_using_an_attempt` | — | — |
 | Atomic claim | `queue.claim` (`BEGIN IMMEDIATE`) | verified (unit) | `idempotent_enqueue_and_priority` | — | — |
-| Autopilot-off priority restriction **inside** the atomic claim | `host.WorkerHost._claim` checks with a separate SELECT, then calls an unrestricted `queue.claim` | partial (race) | `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | pass `min_priority` into the claim's SQL | — |
-| Stale workers cannot finalize reclaimed jobs | `queue._finish` checks `lease_owner` | partial | `recovery_after_a_crash` | owner is `hostname:pid`, shared by every thread and by a host restarted in the same process: use a per-claim lease token | — |
+| Autopilot-off priority restriction **inside** the atomic claim | `queue.claim(min_priority=...)` (in the `BEGIN IMMEDIATE` transaction), `host.WorkerHost._claim` | verified (unit) | `test_the_priority_floor_is_part_of_the_claim`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | — | — |
+| Stale workers cannot finalize reclaimed jobs | `queue._finish`/`renew` check the lease owner; `host.WorkerHost._token` gives every claim its own token | verified (unit) | `test_a_recovered_job_cannot_be_finished_by_its_old_thread`, `recovery_after_a_crash` | — | — |
 | Crash between stage output and downstream handoff | handlers enqueue (idempotency keys) before `complete` | partial | source reviewed | replay re-runs the whole stage; `analyze_source` replay deletes and recreates the project's clips | — |
-| Shutdown does not release exclusivity while old workers can still act | `WorkerHost.stop` releases the host lock after a join timeout | partial | source reviewed | keep the lock while threads are alive | — |
+| Shutdown does not release exclusivity while old workers can still act | `WorkerHost.stop` keeps the host lock until every worker thread has exited | verified (unit) | `test_a_stopping_host_keeps_exclusivity_until_its_threads_are_done` | — | — |
 | STOP ALL JOBS persistent across restart, stops dispatch, signals running work | `state.paused`, `routes.stop_all`, host heartbeat | verified (unit) | `cancel_and_stop_all`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | submitted uploads should show "reconciling", not "cancelled" | — |
 | One heavy GPU operation at a time across processes; recovery | `gpu.GpuManager.heavy`, `locks.FileLock` | verified (unit) | `gpu_lock_serializes_heavy_work`, `gpu_lock_is_shared_with_other_processes` (race in the test fixed) | — | — |
 | GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` does not take the lock | partial | source reviewed | decide: take the lock for NVENC encodes | — |
@@ -122,7 +122,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
    and publisher require a passing report for the current artifact; blockers shown in the Publish Center.
 3. [ ] Clip Blueprint: typed model with validation, persisted per clip, built by the analyzer, consumed by the
    renderer; unsupported instructions reported; the quality report binds the blueprint hash.
-4. [ ] Queue safety: `min_priority` inside the atomic claim; per-claim lease token; host keeps exclusivity while old
+4. [x] Queue safety: `min_priority` inside the atomic claim; per-claim lease token; host keeps exclusivity while old
    threads run.
 5. [ ] Strict-GPU Autopilot setting (pause instead of CPU fallback).
 6. [ ] Remote media URL validation (private networks, redirects) and download size caps.
@@ -136,11 +136,13 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | baseline | `pytest tests/test_autopilot_core.py::test_gpu_lock_is_shared_with_other_processes` ×6 | 6 passed |
 | baseline | `pytest -m slow` | 4 passed (404 s) |
 | fix | old vs new version of that test with a 2.5 s cold `status()` injected | old fails at the same assertion as the baseline failure; new passes |
-| artifact record | `pytest -m "not slow"` | 210 passed |
+| artifact record | `pytest tests/test_artifact_quality.py` + scheduler, publish, editing, core, packaging suites | 3 new passed; 49 passed (the full fast suite ran at the next step) |
 | final quality gate | `pytest -m "not slow"` | 217 passed (136 s) |
 | final quality gate | `pytest -m slow` | 4 passed (414 s); the end-to-end Autopilot test now also runs the gate inside the worker host |
 | final quality gate | `npm run build` in `frontend/` (tsc + vite) | passes; the committed `dist/` was first rebuilt from unchanged source and came out byte-identical |
 | final quality gate | e2e suite (`e2e/`, 39 tests) against a scratch app seeded with one passing and one damaged Autopilot clip | 39 passed; screenshots of the Publish Center checked by eye |
+| queue safety | the 3 new tests on the old `queue.py`/`host.py` | 3 failed (as expected) |
+| queue safety | `pytest -m "not slow"` | 220 passed (121 s) |
 
 ## Checklist for the user's machine
 
