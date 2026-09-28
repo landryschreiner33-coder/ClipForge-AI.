@@ -102,10 +102,60 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
     "tiktok_direct_post": True,         # request video.publish (Direct Post) when connecting
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
+    # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
+    "autopilot_enabled": False,
+    "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
+    "autopilot_daily_target": 15,       # a target, never a quota: quality, rights and platform limits come first
+    "autopilot_sources_per_day": 3,
+    "autopilot_clips_per_source": 5,
+    "autopilot_min_quality": 60.0,      # minimum Viral Potential for autopilot clips
+    "autopilot_youtube": True,
+    "autopilot_tiktok": True,
+    "autopilot_auto_schedule": True,
+    "autopilot_auto_publish": True,     # publish approved posts at their scheduled time without another click
+    "autopilot_dynamic_replacement": True,
+    "autopilot_replacement_threshold": 15.0,  # % better than the weakest future item before it is replaced
+    "autopilot_live_monitoring": False,
+    "autopilot_learning": True,
+    "autopilot_timezone": "America/Chicago",
+    "autopilot_active_start": 9,        # local hour, inclusive
+    "autopilot_active_end": 23,         # local hour, exclusive
+    "autopilot_min_gap_minutes": 45,
+    "autopilot_youtube_daily_limit": 15,
+    "autopilot_tiktok_daily_limit": 15,
+    "autopilot_youtube_privacy": "public",  # suggested visibility; you confirm it when approving
+    "autopilot_upload_lead_minutes": 30,    # YouTube: upload this early and let YouTube publish at the planned time
+    "autopilot_allow_republish": False,
+    # Discovery (Trend Scout / Source Scout)
+    "trend_region": "US",
+    "trend_language": "en",
+    "trend_topics": ("podcast, interview, UFC, boxing, NBA, NFL, soccer, gaming, esports, stand-up comedy, "
+                     "commentary, news, live stream, science, business, education"),
+    "trend_poll_minutes": 60,
+    "trend_max_age_hours": 72,
+    "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
+    "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
+    # Rights: which statuses allow automatic clipping (OWNED always does; BLOCKED never)
+    "rights_auto_licensed": True,
+    "rights_auto_allowlisted": True,
+    "rights_auto_creative_commons": False,
+    "rights_allow_remote_download": False,  # download platform-hosted sources with the URL importer
+    # YouTube Data API quota of your Google Cloud project (per day, resets at midnight Pacific Time)
+    "youtube_quota_default": 10000,     # units for everything except uploads and searches
+    "youtube_quota_uploads": 100,       # videos.insert calls
+    "youtube_quota_search": 100,        # search.list calls
+    "youtube_discovery_share": 40,      # % of the default bucket that discovery may use
+    "youtube_search_discovery_share": 90,  # % of the search bucket that discovery may use
+    # GPU resource manager
+    "gpu_min_free_vram_mb": 1200,       # autopilot waits for this much free GPU memory before heavy GPU work
+    "gpu_wait_minutes": 20,
 }
 
-SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret"}
-SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret"}  # encrypted at rest (see secure.py)
+SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
+               "youtube_api_key"}
+SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret", "youtube_api_key"}  # encrypted at rest (secure.py)
+AUTOPILOT_PROCESS = ["separate", "in_app"]
+YOUTUBE_PRIVACY = ["public", "unlisted", "private"]
 
 
 def coerce_setting(key: str, value: Any) -> Any:
@@ -145,5 +195,38 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             v = max(10, min(35, v))
         elif key == "max_fps":
             v = max(15, min(60, v))
+        elif key in _RANGES:
+            lo, hi = _RANGES[key]
+            v = type(v)(max(lo, min(hi, v)))
+        elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
+            continue
+        elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
+            continue
+        elif key == "autopilot_timezone" and not valid_timezone(v):
+            continue
+        elif key == "trend_region":
+            v = v.upper()[:2]
         out[key] = v
     return out
+
+
+_RANGES: dict[str, tuple[float, float]] = {
+    "autopilot_daily_target": (1, 100), "autopilot_sources_per_day": (1, 30), "autopilot_clips_per_source": (1, 10),
+    "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
+    "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),
+    "autopilot_youtube_daily_limit": (0, 100), "autopilot_tiktok_daily_limit": (0, 100),
+    "autopilot_upload_lead_minutes": (5, 720), "trend_poll_minutes": (15, 1440), "trend_max_age_hours": (6, 720),
+    "youtube_quota_default": (0, 10_000_000), "youtube_quota_uploads": (0, 100_000),
+    "youtube_quota_search": (0, 100_000), "youtube_discovery_share": (0, 90),
+    "youtube_search_discovery_share": (0, 100), "gpu_min_free_vram_mb": (0, 48_000), "gpu_wait_minutes": (1, 720),
+}
+
+
+def valid_timezone(name: str) -> bool:
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(name)
+        return True
+    except Exception:  # noqa: BLE001 - unknown zone, or no time zone database (Windows: pip install tzdata)
+        return False

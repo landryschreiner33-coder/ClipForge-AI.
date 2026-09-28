@@ -1,6 +1,7 @@
 """Single background worker: one heavy job at a time keeps a laptop responsive."""
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -49,6 +50,38 @@ class Worker:
     def cancel(self, key: str) -> None:
         self.cancelled.add(key)
 
+    def resume(self, work: dict) -> dict:
+        """Continue what was queued or running when the app stopped (cached audio and transcripts are reused).
+
+        A project interrupted twice in a row is not resumed again automatically: it may be what stops the app.
+        """
+        resumed = {"projects": 0, "clips": 0, "versions": 0, "not_resumed": 0}
+        for p in work.get("projects", []):
+            try:
+                info = json.loads(p.get("info") or "{}")
+            except ValueError:
+                info = {}
+            count = int(info.get("resume_count", 0)) + 1
+            if count > 2:
+                db.update_project(p["id"], status="error", message="Failed",
+                                  error="Interrupted again while processing (the app was closed or stopped twice). "
+                                        "Click Retry to try once more.")
+                resumed["not_resumed"] += 1
+                continue
+            db.update_project(p["id"], info={**info, "resume_count": count})
+            source_missing = not p.get("source_path") or not Path(p["source_path"]).exists()
+            self.submit_project(p["id"], url=p.get("source_url") if source_missing and p.get("source_url") else None)
+            resumed["projects"] += 1
+        for clip_id in work.get("clips", []):
+            self.submit_render(clip_id)
+            resumed["clips"] += 1
+        for version_id in work.get("versions", []):
+            self.submit_version(version_id)
+            resumed["versions"] += 1
+        if any(resumed.values()):
+            log.info("Resumed after restart: %s", resumed)
+        return resumed
+
     # ------------------------------------------------------------- loop
     def _loop(self) -> None:
         while True:
@@ -95,7 +128,9 @@ class Worker:
             clips = db.list_clips(project_id)
             ready = sum(1 for c in clips if c["status"] == "ready")
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
-            db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg)
+            info = (db.get_project(project_id) or {}).get("info") or {}
+            info.pop("resume_count", None)
+            db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg, info=info)
         except Cancelled:
             db.update_project(project_id, status="cancelled", message="Cancelled")
         except Exception as exc:  # noqa: BLE001

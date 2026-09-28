@@ -22,14 +22,17 @@ from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
 from .publish.common import PublishError
+from .autopilot import host as autopilot_host
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
-    db.mark_interrupted()
+    worker.resume(db.interrupted_work())
     worker.start()
     publish_jobs.worker.start()
+    autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
     yield
+    autopilot_host.supervisor.stop()
 
 
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)

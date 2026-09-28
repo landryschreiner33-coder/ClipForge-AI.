@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .. import db
+from .. import db, gpu
 from . import candidates as cand_mod
 from . import postpack, render, scoring, transcribe, virality
 from .audio import Loudness, loudness_envelope
@@ -35,7 +35,9 @@ def _options(project: dict, settings: dict) -> dict:
     return opts
 
 
-def run_project(project_id: str, ctx: JobContext) -> None:
+def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> None:
+    """Process a project. `gpu_policy` (autopilot) can make transcription wait for free GPU memory:
+    {"need_free_mb": int, "max_wait_s": float, "job_id": str}."""
     project = db.get_project(project_id)
     if not project:
         return
@@ -88,7 +90,15 @@ def run_project(project_id: str, ctx: JobContext) -> None:
             transcript = {"language": "", "duration": meta["duration"], "source": "none", "segments": []}
         else:
             stage("transcribe", P_AUDIO, "Transcribing")
-            transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE)
+            policy = gpu_policy or {}
+            # one heavy GPU job at a time (app + autopilot worker); the transcription itself is unchanged
+            with gpu.manager.heavy("transcription", project["name"], policy.get("job_id", ""), ctx.cancelled,
+                                   need_free_mb=int(policy.get("need_free_mb") or 0),
+                                   max_wait_s=policy.get("max_wait_s"),
+                                   on_wait=lambda m: stage("transcribe", P_AUDIO, m)):
+                stage("transcribe", P_AUDIO, "Transcribing")
+                transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE)
+            gpu.manager.record_transcription(transcript.get("runtime") or {}, project["name"])
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)
     info["transcript_source"] = transcript.get("source", "")

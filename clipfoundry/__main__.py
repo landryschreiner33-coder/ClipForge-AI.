@@ -4,6 +4,7 @@
     python -m clipfoundry --open          # ...and open the browser
     python -m clipfoundry process video.mp4 --count 5   # headless run, no UI
     python -m clipfoundry gpu-check [video.mp4]         # verify that transcription runs on the NVIDIA GPU
+    python -m clipfoundry workers                       # autopilot workers (the app starts them by itself)
 """
 from __future__ import annotations
 
@@ -116,7 +117,13 @@ def main() -> int:
     g = sub.add_parser("gpu-check", help="run a real transcription and report whether it used the NVIDIA GPU")
     g.add_argument("media", nargs="?", help="optional video/audio file (its first --seconds are transcribed)")
     g.add_argument("--seconds", type=float, default=None, help="audio length to test (default 300, 120 synthetic)")
+    w = sub.add_parser("workers", help="run the autopilot workers (the app normally starts them itself)")
+    w.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)  # started by the app: exit with it
     args = parser.parse_args()
+    if args.cmd == "workers":
+        from .autopilot.host import run_worker_process
+
+        return run_worker_process(managed=args.managed)
     if args.cmd == "process":
         return _process(args)
     if args.cmd == "gpu-check":

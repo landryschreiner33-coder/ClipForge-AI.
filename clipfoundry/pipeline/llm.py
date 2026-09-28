@@ -177,6 +177,7 @@ def _anthropic(settings: dict, prompt: str) -> str:
 
 
 PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic}
+LOCAL_PROVIDERS = {"ollama", "openai_compatible"}
 
 
 def provider_label(settings: dict) -> str:
@@ -197,6 +198,16 @@ def complete(settings: dict, prompt: str) -> str:
     if fn is None:
         raise ProviderError("heuristic mode")
     try:
+        if provider in LOCAL_PROVIDERS:  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+            from .. import gpu
+
+            try:
+                with gpu.manager.heavy("local AI model", str(settings.get("ollama_model") if provider == "ollama"
+                                                             else settings.get("openai_model") or "local model"),
+                                       max_wait_s=900):
+                    return fn(settings, prompt)
+            except gpu.GpuBusy as exc:
+                raise ProviderError(str(exc)) from exc
         return fn(settings, prompt)
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
