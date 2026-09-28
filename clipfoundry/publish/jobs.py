@@ -1,6 +1,7 @@
 """Background uploads. One publication at a time, on its own thread so rendering keeps going meanwhile."""
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -8,7 +9,7 @@ from typing import Callable
 
 from .. import db
 from ..pipeline.common import log
-from . import youtube
+from . import tiktok, youtube
 from .common import Cancelled, PublishError
 
 ACTIVE = ("queued", "uploading", "processing")
@@ -64,7 +65,62 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
                                 "locked_private": locked})
 
 
-RUNNERS: dict[str, Callable[[dict, Callable[[], bool]], None]] = {"youtube": run_youtube}
+def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
+    """Publication fields for a TikTok status/fetch answer (empty while TikTok is still working on it)."""
+    status = st.get("status", "")
+    if status == "PUBLISH_COMPLETE":
+        ids = st.get("publicaly_available_post_id") or []  # TikTok's spelling
+        url = tiktok.post_url(username, str(ids[0])) if ids else ""
+        seen = tiktok.PRIVACY_LABELS.get(pub["requested_privacy"], pub["requested_privacy"])
+        return {"status": "done", "progress": 1.0, "url": url, "privacy": pub["requested_privacy"],
+                "message": f"Posted on TikTok ({seen}). {tiktok.PROCESSING_NOTE}"
+                           + ("" if url else " Open your TikTok profile to see it."),
+                "info": {**(pub.get("info") or {}), "post_ids": ids, "tiktok_status": status}}
+    if status == "SEND_TO_USER_INBOX":
+        return {"status": "action_needed", "progress": 1.0,
+                "message": "Sent to your TikTok inbox. Open the TikTok app, tap the notification about the new video, "
+                           "edit it if you like, choose who can see it and post it.",
+                "info": {**(pub.get("info") or {}), "tiktok_status": status}}
+    if status == "FAILED":
+        err = tiktok.api_error(st.get("fail_reason", ""), st.get("fail_reason", ""))
+        return {"status": "failed", "error": str(err), "fix": err.fix,
+                "info": {**(pub.get("info") or {}), "tiktok_status": status, "code": err.code}}
+    return {}
+
+
+def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
+    settings = db.get_settings()
+    token = tiktok.Token(settings)
+    opts = pub.get("options") or {}
+    mode = pub.get("mode") or "direct"
+    username = ""
+    if mode == "direct":  # TikTok asks apps to read the creator's current options right before posting
+        info = tiktok.creator_info(token)
+        username = info["username"]
+        tiktok.validate(pub["description"], pub["requested_privacy"], opts, mode, settings, info,
+                        float(opts.get("duration") or 0))
+    size = os.path.getsize(pub["video_path"])
+    where = "TikTok" if mode == "direct" else "your TikTok inbox"
+    db.update_publication(pub["id"], status="uploading", progress=0, message=f"Uploading to {where}")
+    init = tiktok.init_upload(token, mode, size, pub["description"], pub["requested_privacy"], opts)
+    db.update_publication(pub["id"], remote_id=init["publish_id"], info={**(pub.get("info") or {}),
+                                                                         "username": username})
+    tiktok.upload_chunks(init["upload_url"], pub["video_path"], _progress_writer(pub["id"]), cancelled)
+    db.update_publication(pub["id"], status="processing", progress=1.0,
+                          message=f"Uploaded. TikTok is processing it. {tiktok.PROCESSING_NOTE}")
+    deadline = time.time() + tiktok.POLL_TIMEOUT
+    while time.time() < deadline:
+        time.sleep(tiktok.POLL_SECONDS)
+        current = db.get_publication(pub["id"]) or pub
+        outcome = _tiktok_outcome(current, tiktok.fetch_status(token, init["publish_id"]), username)
+        if outcome:
+            db.update_publication(pub["id"], **outcome)
+            return
+    db.update_publication(pub["id"], message="Uploaded; TikTok is still processing it. Use Refresh status later, "
+                                             "or check your TikTok profile.")
+
+
+RUNNERS: dict[str, Callable[[dict, Callable[[], bool]], None]] = {"youtube": run_youtube, "tiktok": run_tiktok}
 
 
 def refresh(pub: dict) -> dict:
@@ -81,6 +137,12 @@ def refresh(pub: dict) -> dict:
                 msg = f"YouTube set this video to Private. {youtube.UNVERIFIED_NOTE}"
             info["locked_private"] = locked or (pub.get("info") or {}).get("locked_private", False)
             db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg)
+    if pub["platform"] == "tiktok" and pub.get("remote_id") and pub["status"] in ("processing", "action_needed"):
+        token = tiktok.Token(db.get_settings())
+        outcome = _tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),
+                                  (pub.get("info") or {}).get("username", ""))
+        if outcome and not (pub["status"] == "action_needed" and outcome["status"] == "action_needed"):
+            db.update_publication(pub["id"], **outcome)
     return db.get_publication(pub["id"]) or pub
 
 

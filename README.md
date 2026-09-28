@@ -34,6 +34,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Editor | Simple manual controls: trim (click transcript words), framing, captions, hook, audio, then re-render. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
 | YouTube Shorts | **CONNECT YOUTUBE** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
+| TikTok | **CONNECT TIKTOK** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
 | Library | Dashboard, Create, Projects and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
@@ -93,6 +94,7 @@ clipfoundry/            Python backend (FastAPI)
     export.py           ZIP + metadata
   publish/              official-API publishing: OAuth, uploads, background publisher
     youtube.py          YouTube Data API v3 (OAuth + PKCE, resumable upload, status)
+    tiktok.py           TikTok Content Posting API (Login Kit desktop OAuth, Direct Post, inbox drafts)
     routes.py, jobs.py  publish endpoints (local-only, explicit confirmation) and the upload worker
   secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)

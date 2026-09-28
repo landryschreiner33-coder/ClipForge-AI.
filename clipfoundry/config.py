@@ -98,6 +98,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_client_key": "",
     "tiktok_client_secret": "",
     "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
+    "tiktok_direct_post": True,         # request video.publish (Direct Post) when connecting
+    "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret"}

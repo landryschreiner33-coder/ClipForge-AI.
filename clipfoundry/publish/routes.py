@@ -8,12 +8,12 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .. import db, secure
-from . import jobs, youtube
-from .common import (PublishError, app_request, callback_page, challenge_s256, finish_login, local_only,
-                     redirect_uri, start_login)
+from . import jobs, tiktok, youtube
+from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
+                     local_only, redirect_uri, start_login)
 
 router = APIRouter()
-PLATFORMS = ("youtube",)
+PLATFORMS = ("youtube", "tiktok")
 
 
 def _youtube_state(settings: dict) -> dict:
@@ -31,10 +31,28 @@ def _youtube_state(settings: dict) -> dict:
     }
 
 
+def _tiktok_state(settings: dict, request: Request | None) -> dict:
+    acc = db.get_account("tiktok") or {}
+    granted = acc.get("scopes") or []
+    audited = bool(settings.get("tiktok_app_audited"))
+    return {
+        "configured": tiktok.configured(settings), "connected": bool(acc.get("has_tokens")),
+        "needs_reconnect": bool((acc.get("info") or {}).get("needs_reconnect")), "name": acc.get("display_name", ""),
+        "account_id": acc.get("account_id", ""), "avatar": acc.get("avatar_url", ""), "scopes": granted,
+        "connected_at": acc.get("connected_at"), "audited": audited,
+        "can_direct_post": "video.publish" in granted, "can_inbox": "video.upload" in granted,
+        "can_read_stats": "video.list" in granted,
+        "restriction": "" if audited else tiktok.UNAUDITED_NOTE, "setup": tiktok.SETUP_FIX,
+        "redirect_uri": redirect_uri(request, "tiktok") if request else "",
+        "requested_scopes": tiktok.scopes(settings),
+    }
+
+
 @router.get("/api/publish/accounts", dependencies=[Depends(local_only)])
-def accounts() -> dict:
+def accounts(request: Request) -> dict:
     settings = db.get_settings()
-    return {"youtube": _youtube_state(settings), "protection": secure.protection()}
+    return {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, request),
+            "protection": secure.protection()}
 
 
 # ------------------------------------------------------------------ YouTube sign-in
@@ -65,18 +83,64 @@ def youtube_callback(state: str = "", code: str = "", error: str = "") -> str:
 
 
 @router.post("/api/publish/youtube/disconnect", dependencies=[Depends(app_request)])
-def youtube_disconnect() -> dict:
+def youtube_disconnect(request: Request) -> dict:
     youtube.disconnect(db.get_settings())
-    return accounts()
+    return accounts(request)
+
+
+# ------------------------------------------------------------------ TikTok sign-in
+@router.post("/api/publish/tiktok/connect", dependencies=[Depends(app_request)])
+def tiktok_connect(request: Request) -> dict:
+    settings = db.get_settings()
+    if not tiktok.configured(settings):
+        raise PublishError("TikTok is not set up yet.", tiktok.SETUP_FIX, "setup")
+    uri = redirect_uri(request, "tiktok")
+    state, verifier = start_login("tiktok", uri)
+    return {"auth_url": tiktok.auth_url(settings, uri, state, challenge_hex(verifier))}
+
+
+@router.get("/api/oauth/tiktok/callback", dependencies=[Depends(local_only)], response_class=HTMLResponse)
+def tiktok_callback(state: str = "", code: str = "", error: str = "", error_description: str = "") -> str:
+    if error:
+        why = "you declined access" if error == "access_denied" else f"TikTok reported “{error_description or error}”"
+        return callback_page(False, "TikTok was not connected", f"Sign-in stopped because {why}.",
+                             "Click Connect TikTok again. If TikTok mentions the redirect URI or scopes, check "
+                             "them in your TikTok developer app against Settings → Publishing → TikTok.")
+    try:
+        login = finish_login("tiktok", state)
+        acc = tiktok.exchange_code(db.get_settings(), code, login.verifier, login.redirect_uri)
+    except PublishError as exc:
+        return callback_page(False, "TikTok was not connected", str(exc), exc.fix)
+    return callback_page(True, "TikTok connected", f"ClipFoundry can now upload to “{acc.get('display_name', '')}”. "
+                                                   "Your password was never shared with ClipFoundry.")
+
+
+@router.post("/api/publish/tiktok/disconnect", dependencies=[Depends(app_request)])
+def tiktok_disconnect(request: Request) -> dict:
+    tiktok.disconnect(db.get_settings())
+    return accounts(request)
+
+
+@router.get("/api/publish/tiktok/creator", dependencies=[Depends(local_only)])
+def tiktok_creator() -> dict:
+    """Nickname, privacy options and interaction settings for the publish screen (read fresh every time)."""
+    return tiktok.creator_info(tiktok.Token(db.get_settings()))
 
 
 # ------------------------------------------------------------------ publishing
 class PublishBody(BaseModel):
     title: str = ""
-    description: str = ""
+    description: str = ""          # YouTube description, or the TikTok caption
     tags: list[str] = []
-    privacy: str = ""
+    privacy: str = ""              # YouTube: public/unlisted/private. TikTok: one of creator_info's options
     made_for_kids: bool | None = None
+    mode: str = "direct"           # TikTok: direct (Direct Post) or inbox (draft in the TikTok app)
+    allow_comment: bool = False
+    allow_duet: bool = False
+    allow_stitch: bool = False
+    disclose: bool = False         # commercial content disclosure
+    brand_organic: bool = False    # "Your brand"
+    brand_content: bool = False    # "Branded content" (paid partnership)
     confirm: bool = False
 
 
@@ -110,8 +174,26 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         youtube.video_body(body.title, body.description, body.tags, body.privacy, body.made_for_kids,
                            settings.get("youtube_category_id") or "22")  # validate before queueing
         options["made_for_kids"] = body.made_for_kids
+    mode = "direct"
+    if platform == "tiktok":
+        acc = db.get_account("tiktok") or {}
+        if not acc.get("has_tokens"):
+            raise PublishError("TikTok is not connected.", "Click Connect TikTok first.", "not_connected")
+        mode = body.mode if body.mode in ("direct", "inbox") else "direct"
+        needed = "video.publish" if mode == "direct" else "video.upload"
+        if needed not in (acc.get("scopes") or []):
+            raise PublishError(f"ClipFoundry does not have TikTok's {needed} permission.",
+                               "Use the other posting option, or add the Content Posting API to your TikTok app and "
+                               "connect again.", "scope")
+        options = {k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
+                                                 "brand_organic", "brand_content")}
+        options["duration"] = float((version or clip).get("duration") or 0)
+        if not body.disclose:
+            options["brand_organic"] = options["brand_content"] = False
+        info = tiktok.creator_info(tiktok.Token(settings)) if mode == "direct" else None
+        tiktok.validate(body.description, body.privacy, options, mode, settings, info, options["duration"])
     pub = db.create_publication(
-        clip_id, platform, project_id=clip["project_id"], status="queued", message="Waiting to upload",
+        clip_id, platform, project_id=clip["project_id"], mode=mode, status="queued", message="Waiting to upload",
         title=body.title.strip(), description=body.description.strip(), tags=body.tags,
         requested_privacy=body.privacy, video_path=video_path, version_id=(version or {}).get("id", ""),
         options=options, features=jobs.feature_snapshot(clip, version))

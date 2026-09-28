@@ -190,6 +190,63 @@ export default function SettingsPage() {
             testing. Uploads count against your project's daily YouTube API quota.
           </p>
         </details>
+
+        <div className="platform-head">
+          <b>TikTok</b>
+          <AccountBadge platform="tiktok" account={accounts?.tiktok} />
+          <span style={{ flex: 1 }} />
+          <ConnectButton platform="tiktok" account={accounts?.tiktok} onChange={setAccounts}
+            beforeConnect={s.tiktok_client_key && s.tiktok_client_secret ? (dirty ? () => save(true) : async () => undefined) : undefined} />
+        </div>
+        {accounts?.tiktok?.connected && (
+          <div className="small muted" style={{ marginBottom: 6 }}>
+            Permissions: {accounts.tiktok.can_direct_post ? "Direct Post" : "no Direct Post"} ·{" "}
+            {accounts.tiktok.can_inbox ? "upload to inbox" : "no inbox upload"} ·{" "}
+            {accounts.tiktok.can_read_stats ? "video statistics" : "no statistics"}
+          </div>
+        )}
+        <Row label="Client key" hint="developers.tiktok.com → your app">
+          <input type="text" value={s.tiktok_client_key} onChange={(e) => set({ tiktok_client_key: e.target.value })} />
+        </Row>
+        <Row label="Client secret" hint="Stored encrypted on Windows">
+          <input type="password" value={s.tiktok_client_secret} onChange={(e) => set({ tiktok_client_secret: e.target.value })} />
+        </Row>
+        <Row label="Redirect URI" hint="Register exactly this in your TikTok app (Login Kit → Desktop)">
+          <div className="row">
+            <code className="uri">{accounts?.tiktok?.redirect_uri || "http://127.0.0.1:8765/api/oauth/tiktok/callback"}</code>
+            <button className="btn sm" type="button" onClick={() => {
+              navigator.clipboard?.writeText(accounts?.tiktok?.redirect_uri || "").then(() => toast("Redirect URI copied"));
+            }}>Copy</button>
+          </div>
+        </Row>
+        <Row label="Permissions to request" hint="Each must be enabled for your TikTok app">
+          <div className="row wrap" style={{ gap: 18 }}>
+            <Toggle on={!!s.tiktok_direct_post} onChange={(v) => set({ tiktok_direct_post: v })} label="Direct Post (video.publish)" />
+            <Toggle on={!!s.tiktok_read_stats} onChange={(v) => set({ tiktok_read_stats: v })} label="Video statistics (video.list)" />
+          </div>
+        </Row>
+        <Row label="App audit" hint="Only tick this after TikTok approved your app">
+          <Toggle on={!!s.tiktok_app_audited} onChange={(v) => set({ tiktok_app_audited: v })}
+            label="My TikTok app passed TikTok's Content Posting audit" />
+        </Row>
+        {accounts?.tiktok?.restriction && <div className="notice warn small block">{accounts.tiktok.restriction}</div>}
+        <details className="setup">
+          <summary>How to set up TikTok publishing (free)</summary>
+          <ol>
+            <li>Sign in at <b>developers.tiktok.com</b> and create an app (any name, category "Video").</li>
+            <li>Add the products <b>Login Kit</b> (platform <i>Desktop</i>) and <b>Content Posting API</b>. In Content Posting API, turn on <b>Direct Post</b> if you want to post directly.</li>
+            <li>Add the scopes <code>user.info.basic</code>, <code>video.upload</code>, <code>video.publish</code> (Direct Post) and <code>video.list</code> (statistics).</li>
+            <li>In Login Kit, register the redirect URI shown above. If you start ClipFoundry on another port, register that port too.</li>
+            <li>Add your TikTok account as a <b>target user</b> (sandbox) while the app is not reviewed, paste the client key and secret above and save.</li>
+            <li>Click <b>CONNECT TIKTOK</b>, sign in on TikTok's page and allow access.</li>
+          </ol>
+          <p className="small muted">
+            Until TikTok audits your app, Direct Post only works when your TikTok account is private, every post is
+            “Only me”, and at most 5 users can post per day. <b>Send to TikTok inbox</b> works without the audit: the
+            video arrives as a draft in the TikTok app and you post it from there. You can also export the clip and
+            upload it on tiktok.com/tiktokstudio/upload.
+          </p>
+        </details>
       </div>
 
       <div className="card">

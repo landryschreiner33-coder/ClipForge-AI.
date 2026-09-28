@@ -165,6 +165,36 @@ Things Google enforces, which ClipFoundry explains on screen:
 * Vertical videos of up to 3 minutes are classified as Shorts by YouTube automatically.
 * YouTube requires you to say whether a video is *made for kids*; the publish screen asks every time.
 
+## Optional: publishing to TikTok
+
+ClipFoundry uses TikTok's official **Content Posting API** and **Login Kit for Desktop** with your own free TikTok
+developer app. You sign in on TikTok's page; ClipFoundry never sees or stores your TikTok password.
+
+1. Sign in at <https://developers.tiktok.com> and create an app.
+2. Add the products **Login Kit** (platform *Desktop*) and **Content Posting API** (turn on *Direct Post* if you want
+   to post directly).
+3. Add the scopes `user.info.basic`, `video.upload`, `video.publish` (Direct Post) and `video.list` (statistics). You
+   can switch off Direct Post or statistics in Settings if your app does not have them.
+4. Register the redirect URI shown in **Settings → Publishing → TikTok** (for example
+   `http://127.0.0.1:8765/api/oauth/tiktok/callback`; use your port if you changed it).
+5. While the app is not reviewed, add your TikTok account as a target user. Paste the client key and secret into
+   Settings, save, and click **CONNECT TIKTOK**.
+
+Two official ways to post, both on the publish screen:
+
+* **Post directly** (Direct Post): posted to your profile with the privacy you choose from the options TikTok offers
+  for your account. Until TikTok audits your app, TikTok only accepts Direct Posts when your account is private,
+  limits them to "Only me", and allows at most 5 users per day. ClipFoundry explains this and blocks settings TikTok
+  would reject.
+* **Send to TikTok inbox** (draft): works without the audit. The video arrives in the TikTok app as a draft; tap the
+  notification, edit if you like, choose who can see it and post it.
+* Or use **Export** and upload the MP4 on <https://www.tiktok.com/tiktokstudio/upload> yourself.
+
+As TikTok's sharing guidelines require, ClipFoundry shows your TikTok nickname, never pre-selects a privacy option,
+leaves comments, duets and stitches off unless you allow them (and greys them out if your account disables them),
+offers the commercial content disclosure, and shows TikTok's Music Usage Confirmation before posting. It does not
+scrape TikTok or automate its website.
+
 Connecting and publishing only work in the browser on the PC that runs ClipFoundry (`http://127.0.0.1:8765`), even
 if you started it with `--host 0.0.0.0`.
 
