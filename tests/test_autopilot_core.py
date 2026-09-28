@@ -165,8 +165,10 @@ def test_host_runs_retries_and_waits(host):
     for job in (ok, flaky, waits):
         _until(lambda j=job: queue.get(j["id"])["status"] == "completed")
     assert queue.get(ok["id"])["result"]["x"] == 1 and queue.get(flaky["id"])["attempts"] == 2
-    st = db.fetch("worker_state", "maintenance", "name")
-    assert st["status"] in ("completed", "idle") and st["pid"] == os.getpid()
+    # the worker records "completed" right after the job's own status: wait for it instead of racing it
+    st = _until(lambda: (lambda r: r if r and r["status"] in ("completed", "idle") else None)(
+        db.fetch("worker_state", "maintenance", "name")))
+    assert st["pid"] == os.getpid()
 
 
 def test_running_job_is_canceled_cooperatively(host):
