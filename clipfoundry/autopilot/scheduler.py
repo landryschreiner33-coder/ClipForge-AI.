@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..pipeline import fingerprint
+from ..pipeline import artifact, fingerprint
 from . import learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
@@ -160,11 +160,8 @@ def final_score(scores: dict, learned: dict[str, float] | None = None) -> tuple[
 # ------------------------------------------------------------------ what can be scheduled
 def active_version_path(clip: dict) -> tuple[str, str]:
     """(video path, version id) that would be published for this clip."""
-    if clip.get("active_version"):
-        v = db.get_version(clip["active_version"])
-        if v and v["status"] == "ready" and Path(v.get("output_path") or "").exists():
-            return v["output_path"], v["id"]
-    return clip.get("output_path") or "", ""
+    path, version, _ = artifact.active(clip)
+    return path, version
 
 
 def _published_or_active(clip_id: str, platform: str) -> bool:

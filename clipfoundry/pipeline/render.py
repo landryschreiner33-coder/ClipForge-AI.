@@ -17,7 +17,7 @@ import numpy as np
 
 from .. import config
 from ..config import OUTPUT_H, OUTPUT_W
-from . import captions, reframe
+from . import artifact, captions, reframe
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, filter_path, thumbnail, video_encoder_args
 from .text_utils import ends_sentence
@@ -393,6 +393,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 old.unlink()
             except OSError:
                 pass  # still open somewhere; cleaned up on the next render
+    record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder)
     ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),
@@ -403,7 +404,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),
                         "render_seconds": round(time.time() - t0, 1), "start": start, "end": end,
-                        "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {})},
+                        "snapped_to_cut": snapped, "edit_hash": edit_hash(clip.get("edit") or {}),
+                        "artifact": record},
     }
 
 
