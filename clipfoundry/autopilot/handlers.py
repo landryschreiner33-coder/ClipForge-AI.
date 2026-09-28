@@ -53,4 +53,4 @@ def selftest(job: Job) -> dict:
 
 
 # Worker modules register their handlers (and maintenance steps) on import.
-from . import hunter, scout  # noqa: E402,F401
+from . import hunter, packaging, scout  # noqa: E402,F401
