@@ -82,7 +82,30 @@ class FakeGoogle(_Server):
         self.default_statistics: dict | None = None  # statistics given to every new video (browser tests)
         self.scope = ("https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly "
                       "https://www.googleapis.com/auth/yt-analytics.readonly")
+        self.api_key = "test-api-key"
+        self.catalog: dict[str, dict] = {}       # public videos of other channels (discovery)
+        self.popular: list[str] = []             # the mostPopular chart, in order
+        self.search_quota_exceeded = False
+        self.calls: dict[str, int] = {}
         super().__init__()
+
+    def add_video(self, vid: str, title: str, channel: str = "UCother0000000000", views: int | None = 1000,
+                  likes: int | None = 50, comments: int | None = 5, age_hours: float = 10.0, duration: str = "PT25M",
+                  live_viewers: int | None = None, license_: str = "youtube", category: str = "22",
+                  made_for_kids: bool = False, tags: list | None = None) -> dict:
+        import datetime as _dt
+        published = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=age_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stats = {k: str(v) for k, v in (("viewCount", views), ("likeCount", likes), ("commentCount", comments))
+                 if v is not None}
+        item = {"id": vid, "snippet": {"title": title, "channelId": channel, "channelTitle": f"Channel {channel[-4:]}",
+                                       "publishedAt": published, "categoryId": category, "tags": tags or [],
+                                       "liveBroadcastContent": "live" if live_viewers is not None else "none"},
+                "statistics": stats, "contentDetails": {"duration": duration},
+                "status": {"license": license_, "madeForKids": made_for_kids, "privacyStatus": "public"}}
+        if live_viewers is not None:
+            item["liveStreamingDetails"] = {"concurrentViewers": str(live_viewers)}
+        self.catalog[vid] = item
+        return item
 
     def approve(self, auth_url: str) -> str:
         """What happens in the browser: the user signs in on Google's page and approves; Google issues a code."""
@@ -93,6 +116,8 @@ class FakeGoogle(_Server):
         return code
 
     def _authorized(self, h) -> bool:
+        if parse_qs(urlparse(h.path).query).get("key") == [self.api_key]:
+            return True
         return h.headers.get("Authorization") == f"Bearer {self.access}" and bool(self.access)
 
     def handle(self, h, method: str, body: bytes) -> None:
@@ -123,15 +148,44 @@ class FakeGoogle(_Server):
         if u.path == "/revoke":
             self.revoked = True
             return h._send(200, {})
+        self.calls[u.path] = self.calls.get(u.path, 0) + 1
         if u.path == "/youtube/v3/channels":
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
+            if "id" in q:
+                cid = q["id"][0]
+                return h._send(200, {"items": [{"id": cid, "contentDetails": {"relatedPlaylists": {
+                    "uploads": "UU" + cid[2:]}}}]})
             return h._send(200, {"items": [{"id": "UC123", "snippet": {"title": "Test Channel", "thumbnails": {
                 "default": {"url": "https://yt3.example/avatar.jpg"}}}}]})
+        if u.path == "/youtube/v3/playlistItems":
+            if not self._authorized(h):
+                return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
+            channel = "UC" + q["playlistId"][0][2:]
+            ids = [v for v, it in self.catalog.items() if it["snippet"]["channelId"] == channel]
+            return h._send(200, {"items": [{"contentDetails": {"videoId": v}} for v in ids]})
+        if u.path == "/youtube/v3/search":
+            if not self._authorized(h):
+                return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
+            if self.search_quota_exceeded:
+                return h._send(403, {"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}})
+            words = q.get("q", [""])[0].lower().split()
+            live = q.get("eventType") == ["live"]
+            hits = [it for it in self.catalog.values()
+                    if (it["snippet"]["liveBroadcastContent"] == "live") == live
+                    and (live or all(w in it["snippet"]["title"].lower() for w in words))]
+            hits.sort(key=lambda it: -int(it["statistics"].get("viewCount", 0)))
+            n = int(q.get("maxResults", ["25"])[0])
+            return h._send(200, {"items": [{"id": {"kind": "youtube#video", "videoId": it["id"]}} for it in hits[:n]]})
         if u.path == "/youtube/v3/videos":
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
-            v = self.videos.get(q["id"][0])
+            if q.get("chart") == ["mostPopular"]:
+                return h._send(200, {"items": [self.catalog[v] for v in self.popular if v in self.catalog]})
+            ids = q["id"][0].split(",")
+            if len(ids) > 1 or ids[0] in self.catalog:
+                return h._send(200, {"items": [self.catalog[v] for v in ids if v in self.catalog]})
+            v = self.videos.get(ids[0])
             items = [{"id": v["id"], "status": v["status"], "processingDetails": {"processingStatus": "succeeded"},
                       "statistics": v.get("statistics", {})}] if v else []
             return h._send(200, {"items": items})

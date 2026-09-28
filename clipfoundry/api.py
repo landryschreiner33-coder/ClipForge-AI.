@@ -23,6 +23,7 @@ from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
+from .autopilot import routes as autopilot_routes
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -37,6 +38,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
+app.include_router(autopilot_routes.router)
 
 
 # ------------------------------------------------------------------ helpers

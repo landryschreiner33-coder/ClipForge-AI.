@@ -50,3 +50,7 @@ def selftest(job: Job) -> dict:
         job.progress(1 - (end - time.monotonic()) / max(0.001, float(p.get("sleep", 1))), "Self-test running")
         time.sleep(0.05)
     return {"ok": True, "message": "Self-test passed", **(p.get("result") or {})}
+
+
+# Worker modules register their handlers (and maintenance steps) on import.
+from . import scout  # noqa: E402,F401

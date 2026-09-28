@@ -147,11 +147,26 @@ def _json(r: httpx.Response) -> dict:
         return {}
 
 
-def api_error(r: httpx.Response) -> PublishError:
+def _quota(method: str, purpose: str) -> None:
+    """Count the call against the project's daily quota and refuse it when a budget would be exceeded."""
+    from ..autopilot import quota
+
+    try:
+        quota.charge(method, purpose)
+    except quota.QuotaDenied as exc:
+        raise PublishError(str(exc), "The YouTube quota resets at midnight Pacific Time. The budgets are in Settings "
+                                     "→ Autopilot → YouTube quota.", "quota_budget") from exc
+
+
+def api_error(r: httpx.Response, method: str = "") -> PublishError:
     """Plain-language version of a YouTube API error response."""
     err = _json(r).get("error") or {}
     reason = ((err.get("errors") or [{}])[0] or {}).get("reason", "") if isinstance(err, dict) else ""
     message = err.get("message", "") if isinstance(err, dict) else str(err)
+    if reason in ("quotaExceeded", "dailyLimitExceeded"):
+        from ..autopilot import quota
+
+        quota.mark_exhausted(method or "videos.list", message)
     known = {
         "quotaExceeded": ("Your Google Cloud project has used up today's YouTube API quota.",
                           "Try again after midnight Pacific Time, or request more quota in the Google Cloud console."),
@@ -174,23 +189,25 @@ def api_error(r: httpx.Response) -> PublishError:
 
 
 @network_errors("YouTube")
-def _get(token: Token, url: str, params: dict) -> dict:
+def _get(token: Token, url: str, params: dict, method: str = "videos.list", purpose: str = "stats") -> dict:
+    _quota(method, purpose)
     with client(30) as c:
         r = c.get(url, params=params, headers={"Authorization": f"Bearer {token.get()}"})
         if r.status_code == 401:
             r = c.get(url, params=params, headers={"Authorization": f"Bearer {token.get(force=True)}"})
     if r.status_code != 200:
-        raise api_error(r)
+        raise api_error(r, method)
     return _json(r)
 
 
 @network_errors("YouTube")
 def channel(access_token: str) -> dict:
+    _quota("channels.list", "account")
     with client(30) as c:
         r = c.get(f"{API_URL}/channels", params={"part": "snippet", "mine": "true"},
                   headers={"Authorization": f"Bearer {access_token}"})
     if r.status_code != 200:
-        raise api_error(r)
+        raise api_error(r, "channels.list")
     items = _json(r).get("items") or []
     if not items:
         raise PublishError("This Google account has no YouTube channel yet.",
@@ -262,7 +279,7 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 if r is not None and r.status_code == 401:
                     token.get(force=True)
                 elif r is not None and r.status_code not in (408, 429, 500, 502, 503, 504):
-                    raise api_error(r)
+                    raise api_error(r, "videos.insert")
                 failures += 1
                 if failures > 6:
                     raise PublishError("The upload to YouTube kept getting interrupted.",
@@ -279,6 +296,7 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
 @network_errors("YouTube")
 def _start_session(c: httpx.Client, body: dict, size: int, token: Token) -> str:
     params = {"uploadType": "resumable", "part": "snippet,status"}
+    _quota("videos.insert", "publish")
     for attempt in range(2):
         r = c.post(UPLOAD_URL, params=params, json=body,
                    headers={"Authorization": f"Bearer {token.get(force=attempt > 0)}",
@@ -287,7 +305,7 @@ def _start_session(c: httpx.Client, body: dict, size: int, token: Token) -> str:
             return r.headers["Location"]
         if r.status_code != 401:
             break
-    raise api_error(r)
+    raise api_error(r, "videos.insert")
 
 
 def _next_offset(r: httpx.Response) -> int:
@@ -343,7 +361,8 @@ ANALYTICS_METRICS = "views,likes,comments,shares,estimatedMinutesWatched,average
 def video_analytics(token: Token, video_id: str, start_date: str, end_date: str) -> dict | None:
     """YouTube Analytics totals for one video between two dates (YYYY-MM-DD); None when there is no data yet."""
     data = _get(token, ANALYTICS_URL, {"ids": "channel==MINE", "startDate": start_date, "endDate": end_date,
-                                       "metrics": ANALYTICS_METRICS, "filters": f"video=={video_id}"})
+                                       "metrics": ANALYTICS_METRICS, "filters": f"video=={video_id}"},
+                method="analytics.reports")
     rows = data.get("rows") or []
     if not rows:
         return None
