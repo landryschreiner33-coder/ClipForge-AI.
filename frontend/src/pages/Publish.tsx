@@ -7,6 +7,7 @@ import { Icon, Modal, ScoreBadge, toast } from "../components/ui";
 import { AccountBadge, ConnectButton } from "../components/accounts";
 import { StructureChips, SubscoreLine } from "../components/viral";
 import { VersionsCard } from "../components/versions";
+import { PublicationStats } from "../components/stats";
 import { navigate } from "../App";
 
 const TIKTOK_PRIVACY: Record<string, string> = {
@@ -499,6 +500,7 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
       {p.message && <div className="small mt-s">{p.message}</div>}
       {p.error && <div className="small bad-text mt-s">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</div>}
       <div className="small muted mt-s">“{p.title || p.description.slice(0, 80)}”</div>
+      <PublicationStats p={p} onChange={onChange} />
     </div>
   );
 }

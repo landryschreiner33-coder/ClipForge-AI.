@@ -330,3 +330,22 @@ def video_status(token: Token, video_id: str) -> dict:
             "rejection_reason": st.get("rejectionReason", ""), "failure_reason": st.get("failureReason", ""),
             "processing": ((items[0].get("processingDetails") or {}).get("processingStatus", ""))}
 
+
+def video_statistics(token: Token, video_id: str) -> dict | None:
+    """videos.list statistics (views, likes, comments) of your own video; None if it no longer exists."""
+    items = _get(token, f"{API_URL}/videos", {"part": "statistics", "id": video_id}).get("items") or []
+    return (items[0].get("statistics") or {}) if items else None
+
+
+ANALYTICS_METRICS = "views,likes,comments,shares,estimatedMinutesWatched,averageViewDuration,averageViewPercentage"
+
+
+def video_analytics(token: Token, video_id: str, start_date: str, end_date: str) -> dict | None:
+    """YouTube Analytics totals for one video between two dates (YYYY-MM-DD); None when there is no data yet."""
+    data = _get(token, ANALYTICS_URL, {"ids": "channel==MINE", "startDate": start_date, "endDate": end_date,
+                                       "metrics": ANALYTICS_METRICS, "filters": f"video=={video_id}"})
+    rows = data.get("rows") or []
+    if not rows:
+        return None
+    names = [h.get("name") for h in data.get("columnHeaders") or []]
+    return dict(zip(names, rows[0]))

@@ -37,6 +37,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | YouTube Shorts | **CONNECT YOUTUBE** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
 | TikTok | **CONNECT TIKTOK** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
 | Publish screen | One screen per clip: video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube privacy and made-for-kids, TikTok privacy/interactions/disclosure, and explicit **Publish to YouTube**, **Publish to TikTok** and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there. |
+| Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. The Dashboard shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV/JSON as the basis for tuning the ranking later. |
 | Library | Dashboard, Create, Projects and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
@@ -99,6 +100,8 @@ clipfoundry/            Python backend (FastAPI)
     youtube.py          YouTube Data API v3 (OAuth + PKCE, resumable upload, status)
     tiktok.py           TikTok Content Posting API (Login Kit desktop OAuth, Direct Post, inbox drafts)
     routes.py, jobs.py  publish endpoints (local-only, explicit confirmation) and the upload worker
+    stats.py            real performance snapshots from the platform APIs (never estimated)
+  learning.py           performance dataset (scores at publish time + real results) and ranking check
   secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)

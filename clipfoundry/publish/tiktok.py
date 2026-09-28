@@ -331,3 +331,12 @@ def fetch_status(token: Token, publish_id: str) -> dict:
 def post_url(username: str, post_id: str) -> str:
     return f"https://www.tiktok.com/@{username}/video/{post_id}" if username else ""
 
+
+STATS_FIELDS = "id,view_count,like_count,comment_count,share_count"
+
+
+def video_statistics(token: Token, video_ids: list[str]) -> dict[str, dict]:
+    """video.query (scope video.list): statistics of your own public videos, by id."""
+    data = _call(token, "/video/query/", {"filters": {"video_ids": [str(v) for v in video_ids][:20]}},
+                 params={"fields": STATS_FIELDS})
+    return {str(v.get("id")): v for v in data.get("videos") or []}

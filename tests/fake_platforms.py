@@ -77,6 +77,9 @@ class FakeGoogle(_Server):
         self.lock_private = False                # behave like an unaudited API project
         self.quota_exceeded = False
         self.chunk_delay = 0.0
+        self.analytics: dict | None = None      # a YouTube Analytics row for every video, or None = no data yet
+        self.analytics_disabled = False         # the Analytics API is not enabled in the Cloud project
+        self.default_statistics: dict | None = None  # statistics given to every new video (browser tests)
         self.scope = ("https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly "
                       "https://www.googleapis.com/auth/yt-analytics.readonly")
         super().__init__()
@@ -132,6 +135,17 @@ class FakeGoogle(_Server):
             items = [{"id": v["id"], "status": v["status"], "processingDetails": {"processingStatus": "succeeded"},
                       "statistics": v.get("statistics", {})}] if v else []
             return h._send(200, {"items": items})
+        if u.path == "/v2/reports":
+            if not self._authorized(h):
+                return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
+            if self.analytics_disabled:
+                return h._send(403, {"error": {"code": 403, "message": "YouTube Analytics API has not been used",
+                                               "errors": [{"reason": "accessNotConfigured"}]}})
+            assert q["ids"] == ["channel==MINE"] and q["filters"][0].startswith("video==")
+            names = q["metrics"][0].split(",")
+            headers = [{"name": n, "columnType": "METRIC"} for n in names]
+            rows = [[self.analytics[n] for n in names]] if self.analytics else []
+            return h._send(200, {"kind": "youtubeAnalytics#resultTable", "columnHeaders": headers, "rows": rows})
         if u.path == "/upload/youtube/v3/videos" and method == "POST":
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
@@ -170,6 +184,8 @@ class FakeGoogle(_Server):
         status = {"uploadStatus": "uploaded", "privacyStatus": "private" if self.lock_private else wanted,
                   "selfDeclaredMadeForKids": s["meta"]["status"]["selfDeclaredMadeForKids"]}
         video = {"id": vid, "snippet": s["meta"]["snippet"], "status": status, "bytes": bytes(s["data"])}
+        if self.default_statistics:
+            video["statistics"] = dict(self.default_statistics)
         self.videos[vid] = video
         return h._send(200, {k: v for k, v in video.items() if k != "bytes"})
 
@@ -192,6 +208,8 @@ class FakeTikTok(_Server):
         self.init_error = ""        # e.g. unaudited_client_can_only_post_to_private_accounts
         self.fail_reason = ""       # makes status/fetch report FAILED
         self.duet_disabled = True
+        self.stats: dict[str, dict] = {}   # public post id -> video.query fields
+        self.default_stats: dict | None = None
         super().__init__()
 
     def approve(self, auth_url: str) -> str:
@@ -262,6 +280,14 @@ class FakeTikTok(_Server):
             self.uploads[pid] = {"size": size, "data": bytearray(), "inbox": "inbox" in u.path,
                                  "privacy": (req.get("post_info") or {}).get("privacy_level", "")}
             return self._ok(h, {"publish_id": pid, "upload_url": f"{self.url}/upload/{pid}"})
+        if u.path == "/v2/video/query/":
+            assert "view_count" in parse_qs(u.query)["fields"][0]
+            ids = json.loads(body)["filters"]["video_ids"]
+            for i in ids:
+                if self.default_stats and i not in self.stats:
+                    self.stats[i] = dict(self.default_stats)
+            return self._ok(h, {"videos": [{"id": i, **self.stats[i]} for i in ids if i in self.stats],
+                                "cursor": 0, "has_more": False})
         if u.path == "/v2/post/publish/status/fetch/":
             pid = json.loads(body)["publish_id"]
             up = self.uploads[pid]

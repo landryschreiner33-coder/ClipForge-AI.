@@ -127,6 +127,25 @@ CREATE TABLE IF NOT EXISTS clip_versions (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_versions_clip ON clip_versions(clip_id);
+CREATE TABLE IF NOT EXISTS performance (
+    id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL,
+    clip_id TEXT DEFAULT '',
+    platform TEXT NOT NULL,
+    remote_id TEXT DEFAULT '',
+    fetched_at REAL NOT NULL,
+    views INTEGER,
+    likes INTEGER,
+    comments INTEGER,
+    shares INTEGER,
+    watch_time_minutes REAL,
+    avg_view_duration_s REAL,
+    avg_view_percentage REAL,
+    source TEXT DEFAULT '',
+    notes TEXT DEFAULT '[]',
+    raw TEXT DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_performance_pub ON performance(publication_id, fetched_at);
 """
 
 JSON_FIELDS = {
@@ -135,6 +154,7 @@ JSON_FIELDS = {
     "accounts": {"scopes", "info"},
     "publications": {"tags", "options", "info", "features"},
     "clip_versions": {"edit", "render_info"},
+    "performance": {"notes", "raw"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -395,6 +415,44 @@ def list_publications(clip_id: str | None = None, platform: str | None = None) -
 
 def update_publication(pub_id: str, **fields: Any) -> None:
     _update("publications", pub_id, fields)
+
+
+# ---------------------------------------------------------------- performance (real platform metrics only)
+METRICS = ("views", "likes", "comments", "shares", "watch_time_minutes", "avg_view_duration_s", "avg_view_percentage")
+
+
+def add_performance(publication: dict, metrics: dict[str, Any], source: str, notes: list[str],
+                    raw: dict[str, Any]) -> dict[str, Any]:
+    """Store one snapshot. Metrics the platform did not report are stored as NULL, never estimated."""
+    row = {"id": new_id(), "publication_id": publication["id"], "clip_id": publication.get("clip_id", ""),
+           "platform": publication["platform"], "remote_id": metrics.get("remote_id", ""), "fetched_at": time.time(),
+           "source": source, **{k: metrics.get(k) for k in METRICS}}
+    row = _encode("performance", {**row, "notes": notes, "raw": raw})
+    with connect() as conn:
+        conn.execute(f"INSERT INTO performance ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
+                     list(row.values()))
+    return _decode("performance", _row("performance", row["id"]))  # type: ignore[return-value]
+
+
+def _row(table: str, row_id: str) -> sqlite3.Row | None:
+    with connect() as conn:
+        return conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+
+
+def performance_history(publication_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM performance WHERE publication_id = ? ORDER BY fetched_at DESC",
+                            (publication_id,)).fetchall()
+    return [_decode("performance", r) for r in rows]  # type: ignore[misc]
+
+
+def latest_performance() -> dict[str, dict[str, Any]]:
+    """Newest snapshot per publication."""
+    with connect() as conn:
+        rows = conn.execute("SELECT p.* FROM performance p JOIN (SELECT publication_id, MAX(fetched_at) AS m FROM "
+                            "performance GROUP BY publication_id) l ON l.publication_id = p.publication_id AND "
+                            "l.m = p.fetched_at").fetchall()
+    return {r["publication_id"]: _decode("performance", r) for r in rows}  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------- settings

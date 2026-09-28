@@ -316,6 +316,19 @@ code.uri { background: var(--bg-2); border: 1px solid var(--line-2); padding: 8p
 .sequence video { height: min(72vh, 760px); aspect-ratio: 9 / 16; background: #000; border-radius: 14px; }
 .seq-side { display: flex; flex-direction: column; gap: 8px; }
 
+/* ---------- performance */
+.pub-stats { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.stats { display: flex; flex-direction: column; gap: 4px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.stat-grid > div { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 7px 8px; display: flex; flex-direction: column; }
+.stat-grid b { font-size: 16px; }
+.stat-grid span { font-size: 11px; color: var(--muted); }
+.stat-grid .missing b { color: var(--muted); font-weight: 500; }
+.perf-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.perf-item { display: grid; grid-template-columns: 70px 1fr 100px 90px 64px; gap: 8px; align-items: center; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.perf-item:last-child { border-bottom: none; }
+.perf-item .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* ---------- modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(5, 5, 8, 0.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px; animation: fade 0.15s; }
 @keyframes fade { from { opacity: 0; } }

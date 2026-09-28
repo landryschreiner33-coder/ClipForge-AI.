@@ -198,6 +198,21 @@ scrape TikTok or automate its website.
 Connecting and publishing only work in the browser on the PC that runs ClipFoundry (`http://127.0.0.1:8765`), even
 if you started it with `--host 0.0.0.0`.
 
+## Performance statistics
+
+After publishing, **Refresh stats** (on the publish screen or the Dashboard) reads the real numbers of your own
+uploads from the official APIs:
+
+| | Views | Likes | Comments | Shares | Watch time / retention |
+| --- | --- | --- | --- | --- | --- |
+| YouTube | Data API | Data API | Data API | Analytics API | Analytics API (enable *YouTube Analytics API*; data arrives 2-3 days after upload) |
+| TikTok | `video.query` | `video.query` | `video.query` | `video.query` | not available from TikTok's API |
+
+TikTok only reports public posts. For an inbox draft you finished in the TikTok app, paste the post's link under the
+upload to track it. Anything a platform does not report is shown as "—" with the reason; ClipFoundry never estimates
+it. Every refresh is kept as a snapshot, and **Data (CSV)** on the Dashboard downloads each clip's scores at publish
+time next to its real results.
+
 ## Where things are stored
 
 Everything lives in the `data` folder next to the app (override it with the `CLIPFOUNDRY_DATA` environment variable):

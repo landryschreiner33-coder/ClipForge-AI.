@@ -4,11 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from .. import db, secure
-from . import jobs, tiktok, youtube
+from .. import db, learning, secure
+from . import jobs, stats, tiktok, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
 
@@ -207,9 +207,14 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     return pub
 
 
+def _with_stats(pubs: list[dict]) -> list[dict]:
+    latest = db.latest_performance()
+    return [{**p, "stats": latest.get(p["id"])} for p in pubs]
+
+
 @router.get("/api/clips/{clip_id}/publications", dependencies=[Depends(local_only)])
 def clip_publications(clip_id: str) -> list[dict]:
-    return db.list_publications(clip_id)
+    return _with_stats(db.list_publications(clip_id))
 
 
 def _pub_or_404(pub_id: str) -> dict:
@@ -234,4 +239,81 @@ def cancel_publication(pub_id: str) -> dict:
 
 @router.post("/api/publications/{pub_id}/refresh", dependencies=[Depends(app_request)])
 def refresh_publication(pub_id: str) -> dict:
-    return jobs.refresh(_pub_or_404(pub_id))
+    return _with_stats([jobs.refresh(_pub_or_404(pub_id))])[0]
+
+
+# ------------------------------------------------------------------ real performance (never estimated)
+@router.post("/api/publications/{pub_id}/stats", dependencies=[Depends(app_request)])
+def refresh_stats(pub_id: str) -> dict:
+    stats.refresh(_pub_or_404(pub_id))
+    return _with_stats([_pub_or_404(pub_id)])[0]
+
+
+@router.get("/api/publications/{pub_id}/stats", dependencies=[Depends(local_only)])
+def stats_history(pub_id: str) -> list[dict]:
+    _pub_or_404(pub_id)
+    return db.performance_history(pub_id)
+
+
+class LinkBody(BaseModel):
+    url: str
+
+
+@router.post("/api/publications/{pub_id}/link", dependencies=[Depends(app_request)])
+def link_tiktok_post(pub_id: str, body: LinkBody) -> dict:
+    """After posting an inbox draft (or an 'Only me' post made public) in the TikTok app, link the actual post so
+    its statistics can be read."""
+    import re
+
+    pub = _pub_or_404(pub_id)
+    if pub["platform"] != "tiktok":
+        raise HTTPException(400, "Only TikTok posts can be linked")
+    m = re.search(r"/video/(\d{6,25})", body.url) or re.fullmatch(r"\s*(\d{6,25})\s*", body.url)
+    if not m:
+        raise PublishError("That does not look like a TikTok video link.",
+                           "Copy the link from the TikTok app (Share → Copy link) or tiktok.com, e.g. "
+                           "https://www.tiktok.com/@you/video/7300000000000000000.")
+    post_id = m.group(1)
+    username = (pub.get("info") or {}).get("username", "")
+    url = body.url.strip() if body.url.strip().startswith("http") else tiktok.post_url(username, post_id)
+    db.update_publication(pub_id, url=url, info={**(pub.get("info") or {}), "post_ids": [post_id], "linked": True})
+    return refresh_stats(pub_id)
+
+
+@router.post("/api/performance/refresh", dependencies=[Depends(app_request)])
+def refresh_all_stats() -> dict:
+    return stats.refresh_all()
+
+
+@router.get("/api/performance", dependencies=[Depends(local_only)])
+def performance_overview() -> dict:
+    """Totals over the latest real snapshot of each publication (metrics a platform does not report are skipped,
+    and the counts say how many publications each total covers)."""
+    latest = db.latest_performance()
+    pubs = [p for p in db.list_publications() if p["status"] in ("done", "action_needed")]
+    totals = {}
+    for key in ("views", "likes", "comments", "shares", "watch_time_minutes"):
+        vals = [latest[p["id"]][key] for p in pubs if p["id"] in latest and latest[p["id"]].get(key) is not None]
+        totals[key] = {"total": round(sum(vals), 1) if vals else None, "publications": len(vals)}
+    last = max((s["fetched_at"] for s in latest.values()), default=None)
+    items = []
+    for p in pubs[:50]:
+        clip = db.get_clip(p["clip_id"]) or {}
+        items.append({"id": p["id"], "clip_id": p["clip_id"], "platform": p["platform"], "title": p["title"] or
+                      clip.get("title", ""), "privacy": p.get("privacy") or p["requested_privacy"], "url": p["url"],
+                      "created_at": p["created_at"], "viral_potential": (p.get("features") or {}).get("viral_potential"),
+                      "stats": latest.get(p["id"])})
+    return {"published": len(pubs), "with_stats": sum(1 for p in pubs if p["id"] in latest), "totals": totals,
+            "last_refreshed": last, "items": items, "check": learning.ranking_check()}
+
+
+@router.get("/api/performance/dataset", dependencies=[Depends(local_only)])
+def performance_dataset(format: str = "csv") -> Response:  # noqa: A002 - query parameter name
+    rows = learning.dataset()
+    if format == "json":
+        import json
+
+        return Response(json.dumps(rows, indent=2), media_type="application/json",
+                        headers={"Content-Disposition": 'attachment; filename="clipfoundry-performance.json"'})
+    return Response("\ufeff" + learning.to_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="clipfoundry-performance.csv"'})

@@ -256,6 +256,29 @@ export interface TikTokCreator {
   max_duration: number;
 }
 
+/** One snapshot of real numbers from a platform API. null = the platform did not report it (never estimated). */
+export interface PerfSnapshot {
+  fetched_at: number;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  watch_time_minutes: number | null;
+  avg_view_duration_s: number | null;
+  avg_view_percentage: number | null;
+  source: string;
+  notes: string[];
+}
+
+export interface PerformanceOverview {
+  published: number;
+  with_stats: number;
+  totals: Record<string, { total: number | null; publications: number }>;
+  last_refreshed: number | null;
+  items: { id: string; clip_id: string; platform: Platform; title: string; privacy: string; url: string; created_at: number; viral_potential: number | null; stats: PerfSnapshot | null }[];
+  check: { metric: string; samples: number; min_samples: number; spearman: number | null };
+}
+
 export interface Publication {
   id: string;
   clip_id: string;
@@ -278,6 +301,7 @@ export interface Publication {
   info: Record<string, any>;
   created_at: number;
   updated_at: number;
+  stats?: PerfSnapshot | null;
 }
 
 export const api = {
@@ -289,6 +313,10 @@ export const api = {
   publications: (clipId: string) => req<Publication[]>("GET", `/api/clips/${clipId}/publications`),
   cancelPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/cancel`),
   tiktokCreator: () => req<TikTokCreator>("GET", "/api/publish/tiktok/creator"),
+  refreshStats: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/stats`),
+  linkTikTok: (pubId: string, url: string) => req<Publication>("POST", `/api/publications/${pubId}/link`, { url }),
+  performance: () => req<PerformanceOverview>("GET", "/api/performance"),
+  refreshAllStats: () => req<{ refreshed: number; failed: { platform: string; error: string; fix: string }[] }>("POST", "/api/performance/refresh"),
   refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),
   health: () => req<Health>("GET", "/api/health"),
   stats: () => req<{ projects: number; clips: number; processing: number; recent: Project[] }>("GET", "/api/stats"),

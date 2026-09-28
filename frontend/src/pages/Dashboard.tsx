@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { api, Health } from "../api";
-import { Icon, usePoll } from "../components/ui";
+import { api, errorText, Health, PerformanceOverview } from "../api";
+import { Icon, toast, usePoll } from "../components/ui";
+import { fmtNum } from "../components/stats";
 import { navigate } from "../App";
 import { ProjectCard } from "./Projects";
 
 export default function Dashboard() {
   const { data: stats } = usePoll(() => api.stats(), [], 3000, (s) => !!s && s.processing > 0);
   const [health, setHealth] = useState<Health | null>(null);
+  const [perf, setPerf] = useState<PerformanceOverview | null>(null);
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
+    api.performance().then(setPerf).catch(() => setPerf(null));
   }, []);
 
   return (
@@ -114,6 +117,77 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+      {perf && <PerformanceCard perf={perf} setPerf={setPerf} />}
+    </div>
+  );
+}
+
+function PerformanceCard({ perf, setPerf }: { perf: PerformanceOverview; setPerf: (p: PerformanceOverview) => void }) {
+  const [busy, setBusy] = useState(false);
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      const r = await api.refreshAllStats();
+      setPerf(await api.performance());
+      toast(r.failed.length ? `Updated ${r.refreshed}; ${r.failed.length} failed: ${r.failed[0].error}` : `Updated ${r.refreshed} upload(s)`, r.failed.length > 0);
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const t = perf.totals;
+  const tile = (key: string, label: string, unit = "") => (
+    <div className="card stat" title={t[key]?.total === null ? "No platform reported this yet" : `From ${t[key]?.publications} of ${perf.published} uploads`}>
+      <b>{t[key]?.total === null || t[key]?.total === undefined ? "—" : `${fmtNum(Math.round(t[key].total as number))}${unit}`}</b>
+      <span>{label}{t[key]?.total !== null && t[key]?.publications < perf.published ? ` (${t[key].publications} of ${perf.published})` : ""}</span>
+    </div>
+  );
+  const check = perf.check;
+  return (
+    <div className="card mt">
+      <div className="row between wrap">
+        <h3 style={{ margin: 0 }}>Performance of published clips</h3>
+        <div className="row">
+          {perf.last_refreshed && <span className="small muted">Updated {new Date(perf.last_refreshed * 1000).toLocaleString()}</span>}
+          <button className="btn sm" disabled={busy || !perf.published} onClick={refresh}><Icon name="refresh" size={13} /> Refresh stats</button>
+          <a className="btn sm ghost" href="/api/performance/dataset" title="Your clips' scores at publish time next to their real numbers, for analysis">
+            <Icon name="download" size={13} /> Data (CSV)
+          </a>
+        </div>
+      </div>
+      <p className="small muted" style={{ marginTop: 6 }}>
+        Real numbers read from YouTube and TikTok for your own uploads. Metrics a platform does not report are shown as “—”;
+        nothing is estimated.
+      </p>
+      {perf.published === 0 ? (
+        <div className="small muted">Nothing published yet.</div>
+      ) : (
+        <>
+          <div className="grid grid-4 mt-s">
+            {tile("views", "Views")}
+            {tile("likes", "Likes")}
+            {tile("comments", "Comments")}
+            {tile("shares", "Shares")}
+          </div>
+          <div className="small muted mt-s">
+            {check.spearman === null
+              ? `Comparing Viral Potential with real views needs at least ${check.min_samples} uploads with view counts (now ${check.samples}).`
+              : `Viral Potential vs. real views over ${check.samples} uploads: rank correlation ${check.spearman.toFixed(2)} (1 = perfect order, 0 = no relation).`}
+          </div>
+          <div className="perf-list">
+            {perf.items.slice(0, 8).map((i) => (
+              <div className="perf-item" key={i.id}>
+                <span className="badge">{i.platform === "youtube" ? "YouTube" : "TikTok"}</span>
+                <a className="t" href={`#/publish/${i.clip_id}`} title={i.title}>{i.title}</a>
+                <span title="Views">{fmtNum(i.stats?.views)} views</span>
+                <span title="Likes">{fmtNum(i.stats?.likes)} likes</span>
+                <span className="muted" title="Viral Potential estimate at publish time">VP {i.viral_potential ?? "—"}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
