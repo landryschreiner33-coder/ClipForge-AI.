@@ -18,6 +18,7 @@ import numpy as np
 from .. import config
 from ..config import OUTPUT_H, OUTPUT_W
 from . import artifact, captions, reframe
+from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, filter_path, thumbnail, video_encoder_args
 from .text_utils import ends_sentence
@@ -30,9 +31,11 @@ PLAN_VERSION = 2  # bump when the framing analysis changes, so cached plans are 
 
 # ------------------------------------------------------------ timeline
 def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: float,
-                  drop_fillers: bool = False) -> list[tuple[float, float]]:
+                  drop_fillers: bool = False, within: list[tuple[float, float]] | None = None
+                  ) -> list[tuple[float, float]]:
     """Source-time ranges to keep; long pauses between words are removed. With `drop_fillers`, an "um" or "uh"
-    counts as part of the pause around it, so it goes too when that pause is long enough to cut."""
+    counts as part of the pause around it, so it goes too when that pause is long enough to cut. `within` (a
+    blueprint's source intervals) keeps only what lies inside them, before everything is put on the frame grid."""
     segs: list[tuple[float, float]]
     if mode not in SILENCE_PRESETS or not words:
         segs = [(start, end)]
@@ -59,6 +62,8 @@ def keep_segments(words: list[dict], start: float, end: float, mode: str, fps: f
             cur = max(cur, b)
         if cur < end:
             segs.append((cur, end))
+    if within:
+        segs = [(max(a, wa), min(b, wb)) for a, b in segs for wa, wb in within if min(b, wb) - max(a, wa) > 1e-6]
     # snap to the frame grid so audio and video lengths match exactly
     out = []
     for a, b in segs:
@@ -226,27 +231,9 @@ def edit_hash(edit: dict) -> str:
     return hashlib.sha1(json.dumps(edit, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
-def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext,
-                out_dir: Path | None = None) -> dict:
-    """Render `clip` (with its edit) to a new MP4 in `out_dir` (default: the clip's folder; versions use a
-    subfolder). The framing analysis is cached in the clip's folder and shared by all versions."""
-    t0 = time.time()
-    src = project["source_path"]
-    info = project.get("info") or {}
-    src_w, src_h = int(project["width"]), int(project["height"])
-    src_fps = float(project.get("fps") or 30.0)
-    max_fps = float(settings.get("max_fps", 30))
-    fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
-    opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
-
-    duration_src = float(project.get("duration") or 0)
-    start = max(0.0, float(opts.get("start", clip["start"])))
-    end = min(duration_src or 1e9, float(opts.get("end", clip["end"])))
-    if end - start < 1.0:
-        raise ValueError("Clip is shorter than one second; adjust the trim.")
-
-    # Snap AI-chosen cut points onto nearby hard scene cuts (no one-frame flashes of the previous shot).
-    edit = clip.get("edit") or {}
+def snap_to_cuts(src: str, start: float, end: float, words_all: list[dict], edit: dict) -> tuple[float, float, list]:
+    """Move AI-chosen cut points onto a hard scene cut right next to them (no one-frame flash of the previous shot),
+    never past a word. A trim the user made is left alone. Returns (start, end, which edges moved)."""
     snapped = []
     if "start" not in edit:
         c = next((c for c in reframe.precise_cuts(src, start - 0.05, start + 0.7) if start < c <= start + 0.6), None)
@@ -256,6 +243,39 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         cs = [c for c in reframe.precise_cuts(src, end - 0.7, end + 0.05) if end - 0.6 <= c < end]
         if cs and not any(w["start"] < end and w["end"] > cs[-1] + 0.05 for w in words_all if w["end"] > start):
             end, _ = cs[-1], snapped.append("end")
+    return start, end, snapped
+
+
+def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext,
+                out_dir: Path | None = None, blueprint: "blueprint_mod.Blueprint | None" = None) -> dict:
+    """Render `clip` (with its edit) to a new MP4 in `out_dir` (default: the clip's folder; versions use a
+    subfolder). The framing analysis is cached in the clip's folder and shared by all versions.
+
+    With a `blueprint` (Autopilot clips) the render follows that validated plan exactly: its source intervals,
+    speed, framing, captions, emphasis, audio and hook. Without one (manual clips) it renders as it always has."""
+    t0 = time.time()
+    src = project["source_path"]
+    info = project.get("info") or {}
+    src_w, src_h = int(project["width"]), int(project["height"])
+    src_fps = float(project.get("fps") or 30.0)
+    max_fps = float(settings.get("max_fps", 30))
+    fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
+    opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
+    if blueprint is not None:
+        opts.update(blueprint_mod.render_options(blueprint))
+
+    duration_src = float(project.get("duration") or 0)
+    if blueprint is not None:
+        start, end = blueprint.window()  # the plan already placed its cuts (scene cuts included)
+        start, end = max(0.0, start), min(duration_src or 1e9, end)
+    else:
+        start = max(0.0, float(opts.get("start", clip["start"])))
+        end = min(duration_src or 1e9, float(opts.get("end", clip["end"])))
+    if end - start < 1.0:
+        raise ValueError("Clip is shorter than one second; adjust the trim.")
+    snapped = []
+    if blueprint is None:
+        start, end, snapped = snap_to_cuts(src, start, end, words_all, clip.get("edit") or {})
 
     clip_dir = Path(project["dir"]) / "clips" / clip["id"]
     clip_dir.mkdir(parents=True, exist_ok=True)
@@ -263,10 +283,13 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     out_dir.mkdir(parents=True, exist_ok=True)
 
     words = opts.get("caption_words") or [w for w in words_all if w["end"] > start and w["start"] < end]
-    segs = keep_segments(words, start, end, opts.get("silence", "off"), fps, bool(opts.get("remove_fillers")))
+    within = [(i.start, i.end) for i in blueprint.intervals] if blueprint is not None else None
+    segs = keep_segments(words, start, end, opts.get("silence", "off"), fps, bool(opts.get("remove_fillers")), within)
     tl = Timeline(segs, float(opts.get("speed", 1.0) or 1.0))
-    words_out = _map_words(words, tl, start, end)
     fillers_cut = sum(1 for w in words if FILLER_WORD.match(w["w"].strip()) and not tl.contains(w["start"] + 0.01))
+    if blueprint is not None:  # only words that are heard get captions (whole sentences may be cut out)
+        words = [w for w in words if artifact.kept_fraction(max(start, w["start"]), min(end, w["end"]), segs) >= 0.5]
+    words_out = _map_words(words, tl, start, end)
 
     # ---- framing plan (cached: expensive analysis is skipped on caption-only edits)
     mode = opts.get("tracking", "auto")
@@ -285,7 +308,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
     keywords = {t.lstrip("#").lower() for t in ((clip.get("post") or {}).get("hashtags") or clip.get("hashtags") or [])}
-    emphasis = emphasis_words(words_out, keywords)
+    emphasis = blueprint_mod.emphasis_indices(blueprint, words) if blueprint is not None else \
+        emphasis_words(words_out, keywords)
     if opts.get("caption_emphasis"):
         for i in emphasis:
             words_out[i] = {**words_out[i], "em": True}
@@ -393,7 +417,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                 old.unlink()
             except OSError:
                 pass  # still open somewhere; cleaned up on the next render
-    record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder)
+    followed = blueprint.summary() if blueprint is not None else None
+    if blueprint is not None:
+        write_json(out_dir / "blueprint.json", blueprint.to_dict())
+    record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder, followed)
     ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),

@@ -250,3 +250,31 @@ def test_clip_hunter_and_analyzer_end_to_end(talk_video, tmp_path, monkeypatch):
         assert len(fp["phash"]) == fingerprint.FRAMES and fp["source_key"].startswith("local:")
         assert db.fetch("clip_analysis", c["id"], "clip_id")["boundary"]["lead_in"] <= 0.35 + 1e-6
     assert len(queue.jobs(worker="packager")) == len(clips)
+
+    # every clip was planned before it was rendered, and its file is bound to exactly that plan
+    from clipfoundry.autopilot import gate, scheduler
+    from clipfoundry.pipeline import blueprint as bpm
+    from clipfoundry.pipeline import export
+
+    for c in clips:
+        plan = bpm.plan_of(c["id"])
+        assert plan is not None and plan.origin == "strategist" and plan.reasons and plan.intervals
+        assert c["render_info"]["artifact"]["blueprint"]["sha256"] == plan.sha256()
+
+    # the rest of the slice: packaging from what is heard, the final quality gate, the schedule, the export
+    def drain(worker: str) -> None:
+        while (job := queue.claim(worker, "test")) is not None:
+            queue.complete(job, "test", host.HANDLERS[job["kind"]](host.Job(job, "test")) or {})
+
+    drain("packager")
+    drain("quality_gate")
+    for c in clips:
+        rep = gate.report_for(c)
+        assert rep and rep["status"] == "passed", (rep or {}).get("blockers")
+        assert rep["bindings"]["blueprint"]["sha256"] == bpm.plan_of(c["id"]).sha256()
+    planned = scheduler.plan_new(db.get_settings(), time.time())
+    assert planned["created"] >= 1
+    items = db.select("scheduled_publications")
+    assert items and all(i["status"] == "awaiting_approval" for i in items)  # nothing goes out without approval
+    zpath = export.build_zip(project, clips, tmp_path / "exports")
+    assert zpath.exists() and zpath.stat().st_size > sum(Path(c["output_path"]).stat().st_size for c in clips) * 0.9

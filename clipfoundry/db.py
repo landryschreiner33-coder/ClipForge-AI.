@@ -480,6 +480,20 @@ CREATE TABLE IF NOT EXISTS quota_usage (
     last_at REAL,
     PRIMARY KEY (day, bucket, method, purpose)
 );
+CREATE TABLE IF NOT EXISTS clip_blueprints (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    version_id TEXT DEFAULT '',
+    origin TEXT DEFAULT 'strategist',         -- strategist (the plan) edit version (changes applied on top)
+    schema_version INTEGER DEFAULT 1,
+    sha256 TEXT NOT NULL,
+    blueprint TEXT NOT NULL,
+    status TEXT DEFAULT 'valid',              -- valid invalid
+    issues TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_blueprints_clip ON clip_blueprints(clip_id, origin, created_at);
 CREATE TABLE IF NOT EXISTS quality_reports (
     id TEXT PRIMARY KEY,
     clip_id TEXT NOT NULL,
@@ -537,6 +551,7 @@ JSON_FIELDS = {
     "quota_usage": set(),
     "api_cache": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
+    "clip_blueprints": {"blueprint", "issues"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -712,10 +727,14 @@ def update_project(project_id: str, **fields: Any) -> None:
     _update("projects", project_id, fields)
 
 
+CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports")
+
+
 def delete_project(project_id: str) -> None:
     with connect() as conn:
-        conn.execute("DELETE FROM clip_versions WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
-                     (project_id,))
+        for table in CLIP_CHILDREN:
+            conn.execute(f"DELETE FROM {table} WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
+                         (project_id,))
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
@@ -752,8 +771,9 @@ def update_clip(clip_id: str, **fields: Any) -> None:
 
 def delete_clips(project_id: str) -> None:
     with connect() as conn:
-        conn.execute("DELETE FROM clip_versions WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
-                     (project_id,))
+        for table in CLIP_CHILDREN:
+            conn.execute(f"DELETE FROM {table} WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
+                         (project_id,))
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
 
 

@@ -64,7 +64,8 @@ def edit_decisions(tl: TimeMap) -> list[dict]:
             for (a, b), off in zip(tl.segs, tl.offsets)]
 
 
-def _kept_fraction(a: float, b: float, segs: list[tuple[float, float]]) -> float:
+def kept_fraction(a: float, b: float, segs: list[tuple[float, float]]) -> float:
+    """How much of the source range [a, b] is inside the kept segments (0-1)."""
     if b - a <= 1e-6:
         return 1.0 if any(sa - 1e-6 <= a < sb for sa, sb in segs) else 0.0
     return sum(max(0.0, min(b, sb) - max(a, sa)) for sa, sb in segs) / (b - a)
@@ -78,7 +79,7 @@ def final_words(words: list[dict], tl: TimeMap, start: float, end: float) -> tup
         if w["end"] <= start or w["start"] >= end:
             continue
         a, b = max(start, float(w["start"])), min(end, float(w["end"]))
-        if _kept_fraction(a, b, tl.segs) < 0.5:
+        if kept_fraction(a, b, tl.segs) < 0.5:
             removed += 1
             continue
         out.append({"w": w["w"], "start": round(tl.to_out(a), 3), "end": round(min(tl.to_out(b), tl.duration), 3),

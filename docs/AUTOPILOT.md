@@ -77,7 +77,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Rights and Content Safety Gate | `rights_check` | Applies your rules. Only *Owned*, *Licensed*, *Allowlisted* (and *Creative Commons* if you allow it) sources continue automatically; everything else becomes an action item. The gate runs again before scheduling and before publishing, so a later *Blocked* rule stops a post. |
 | Live Monitor | `live_watch`, `live_capture`, `post_live` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time), clips strong moments from a rolling 15-minute window, and after the stream ends runs a full pass that can replace weaker live clips that were not published yet. |
 | Clip Hunter | `hunt_source` | Brings the source in (hard link or copy of a local file, a direct media URL, or the URL importer only when allowed), transcribes on the GPU and builds a large candidate pool. |
-| Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Renders up to 5 clips that pass the quality bar. |
+| Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
 | Packaging AI | `package_clip` | Writes title/description/caption/hashtag options in six styles from the words heard in the rendered clip (its final transcript), optionally with an AI provider, validates grounding, repetition and duplicates, and scores them. Each option records which render it was written for. |
 | Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
 | Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
@@ -91,6 +91,16 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 counts and a structured log (`job_logs`). Claims are atomic (`BEGIN IMMEDIATE`). If the app, the worker or the PC stops,
 leases expire and the jobs are picked up again after restart; a job that was halfway never runs twice for the same key.
 Jobs you start by hand (for example *Clip now*) run even while Autopilot is off.
+
+**Clip Blueprint.** Before a clip is rendered, the Engagement Strategist stores a typed, versioned plan for it
+(`pipeline/blueprint.py`, table `clip_blueprints`, `blueprint.json` next to the render): the source intervals in
+seconds of the original, speed, framing, captions, the words to stress, audio adjustments, the hook and the payoff
+line, and why the moment was chosen. A plan the renderer could not follow faithfully is rejected before rendering
+(intervals outside the source, reversed, overlapping or out of order, a cut inside a word, unsupported speed or
+options, emphasis outside the kept intervals, on-screen text that is not said in the clip). Instructions the renderer
+does not support are listed as unsupported and left out, never claimed as applied. The renderer follows the plan
+exactly and records the plan's hash with the file; your edits and alternative versions are applied on top as a new,
+stored plan. Manual projects have no plan and render as before.
 
 **GPU.** One heavy GPU operation at a time, across processes (a lock file), with a wait for free VRAM
 (Settings → Autopilot → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2

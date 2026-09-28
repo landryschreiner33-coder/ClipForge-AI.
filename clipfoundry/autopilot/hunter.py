@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import config, db, gpu
 from ..jobs import download_url
-from ..pipeline import cuda, fingerprint, process, transcribe
+from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
 from ..pipeline.common import JobContext, read_json
 from ..publish.common import client
 from . import queue, rights, state
@@ -199,6 +199,23 @@ def store_fingerprint(clip: dict, src: dict) -> None:
               key="clip_id", replace=True)
 
 
+def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source_id: str) -> list[dict]:
+    """Engagement Strategist: a validated blueprint for every chosen clip, stored before anything is rendered.
+    A clip whose plan is rejected is not rendered; the reasons are kept on the clip."""
+    ok = []
+    for row, r in zip(rows, chosen):
+        bp = blueprint.build(row, p.project, p.words, p.settings, source_id=source_id, selection=r,
+                             video_path=p.project.get("source_path"))
+        issues = blueprint.validate(bp, p.meta.get("duration"), p.words)
+        blueprint.save(bp, issues)
+        problems = blueprint.errors(issues)
+        if problems:
+            db.update_clip(row["id"], status="error", error=("Plan rejected: " + "; ".join(problems[:3]))[:500])
+            continue
+        ok.append(row)
+    return ok
+
+
 @handler("analyze_source")
 @_guard
 def analyze_source(job: Job) -> dict:
@@ -218,6 +235,7 @@ def analyze_source(job: Job) -> dict:
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
     job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
     rows = process.create_clips(p, chosen, ctx)
+    planned = plan_clips(p, rows, chosen, src["id"])
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
         db.update("clip_candidates", f"{p.id}-{r['cid']}", clip_id=row["id"])
@@ -235,7 +253,7 @@ def analyze_source(job: Job) -> dict:
                                   "components": {"viral_potential": r["score"], "subscores": sub,
                                                  "diversity": r.get("diversity") or {}},
                                   "explanation": r.get("explanation") or []}, key="clip_id", replace=True)
-    process.render_clips(p, rows, ctx, lo=0.6, hi_total=0.95)
+    process.render_clips(p, planned, ctx, lo=0.6, hi_total=0.95)
     ready = [c for c in db.list_clips(p.id) if c["status"] == "ready"]
     for clip in ready:
         job.check()

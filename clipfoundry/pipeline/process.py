@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import db, gpu
 from . import candidates as cand_mod
-from . import postpack, render, scoring, transcribe, virality
+from . import blueprint, postpack, render, scoring, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
@@ -15,6 +15,10 @@ from .text_utils import build_sentences
 
 # Overall progress budget per stage
 P_PROBE, P_AUDIO, P_TRANSCRIBE, P_ANALYZE, P_SCORE, P_RENDER = 0.02, 0.07, 0.45, 0.50, 0.58, 1.0
+
+
+def _duration(project: dict) -> float | None:
+    return float(project.get("duration") or 0) or None
 
 
 def project_dir(project: dict) -> Path:
@@ -255,7 +259,8 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
             ctx_report(a + (b - a) * f, msg), db.update_clip(cid, progress=round(f, 3))),
             ctx.cancelled)
         try:
-            out = render.render_clip(project, clip, p.words, p.settings, sub)
+            plan = blueprint.for_render(clip, _duration(project), p.words)  # None for manual clips
+            out = render.render_clip(project, clip, p.words, p.settings, sub, blueprint=plan)
             db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
         except Cancelled:
             db.update_clip(clip["id"], status="error", error="Cancelled")
@@ -290,7 +295,9 @@ def render_single(clip_id: str, ctx: JobContext) -> None:
     db.update_clip(clip_id, status="rendering", progress=0, error="")
     sub = JobContext(lambda f, m: db.update_clip(clip_id, progress=round(f, 3)), ctx.cancelled)
     try:
-        out = render.render_clip(project, clip, load_words(project), settings, sub)
+        words = load_words(project)
+        plan = blueprint.for_render(clip, _duration(project), words)  # None for manual clips
+        out = render.render_clip(project, clip, words, settings, sub, blueprint=plan)
         db.update_clip(clip_id, status="ready", progress=1.0, error="", **out)
     except Cancelled:
         db.update_clip(clip_id, status="error", error="Cancelled")
@@ -316,8 +323,10 @@ def render_version(version_id: str, ctx: JobContext) -> None:
     db.update_version(version_id, status="rendering", progress=0, error="")
     sub = JobContext(lambda f, m: db.update_version(version_id, progress=round(f, 3)), ctx.cancelled)
     try:
-        out = render.render_clip(project, merged, load_words(project), db.get_settings(), sub,
-                                 out_dir=version_dir(project, version))
+        words = load_words(project)
+        plan = blueprint.for_render(clip, _duration(project), words, version.get("edit") or {}, version_id)
+        out = render.render_clip(project, merged, words, db.get_settings(), sub, out_dir=version_dir(project, version),
+                                 blueprint=plan)
         db.update_version(version_id, status="ready", progress=1.0, error="", **out)
     except Cancelled:
         db.update_version(version_id, status="error", error="Cancelled")

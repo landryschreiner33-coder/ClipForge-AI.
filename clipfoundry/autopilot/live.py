@@ -23,14 +23,14 @@ from pathlib import Path
 
 from .. import config, db, gpu
 from ..pipeline import candidates as cand_mod
-from ..pipeline import deep, hooks, postpack, process, render, scoring, transcribe, virality
+from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
 from ..pipeline.audio import Loudness, loudness_envelope
 from ..pipeline.common import JobContext, log, read_json, write_json
 from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe
 from ..pipeline.text_utils import build_sentences
 from . import queue, rights, state
 from .host import Job, handler
-from .hunter import gpu_policy, prior_fingerprints, project_options, store_fingerprint
+from .hunter import gpu_policy, plan_clips, prior_fingerprints, project_options, store_fingerprint
 
 SEGMENT_SECONDS = 60
 WINDOW_SECONDS = 900          # the rolling window searched for live clips
@@ -233,9 +233,18 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
             "height": meta["height"], "fps": meta["fps"], "duration": meta["duration"], "info": meta, "options": {}}
     shifted = [{**w, "start": w["start"] - shift, "end": w["end"] - shift} for w in sess.words
                if w["end"] > shift and w["start"] < shift + meta["duration"]]
+    # Engagement Strategist: the plan in recording time, stored before rendering; rendered on the window's time line
+    bp = blueprint.build(clip, sess.project, sess.words, sess.settings, source_id=sess.src["id"], selection=r,
+                         video_path=str(window), video_offset=shift)
+    issues = blueprint.validate(bp, sess.offset or None, sess.words)
+    blueprint.save(bp, issues)
+    if blueprint.errors(issues):
+        db.update_clip(clip["id"], status="error",
+                       error=("Plan rejected: " + "; ".join(blueprint.errors(issues)[:3]))[:500])
+        return clip
     try:
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
-                                 sess.settings, JobContext(None, job.cancelled))
+                                 sess.settings, JobContext(None, job.cancelled), blueprint=blueprint.shifted(bp, -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except queue.Canceled:
         raise
@@ -409,7 +418,7 @@ def post_live(job: Job) -> dict:
     cps = int(settings.get("autopilot_clips_per_source") or 5)
     keep = keep[:max(0, cps - len(live))] if len(live) + len(keep) > cps else keep
     rows = process.create_clips(p, keep, ctx, replace_existing=False)
-    process.render_clips(p, rows, ctx, lo=0.6, hi_total=0.95)
+    process.render_clips(p, plan_clips(p, rows, keep, src["id"]), ctx, lo=0.6, hi_total=0.95)
     added = [c for c in (db.get_clip(r["id"]) for r in rows) if c and c["status"] == "ready"]
     for clip in added:
         store_fingerprint(clip, src)
