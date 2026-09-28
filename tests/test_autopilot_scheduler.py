@@ -95,7 +95,7 @@ def test_learned_timing_picks_your_best_hour(data):
     from clipfoundry.autopilot import scheduler
 
     db.insert("learning_metrics", {"id": "h19", "dimension": "hour", "key": "19", "platform": "youtube",
-                                   "metric": "performance", "n": 12, "lift": 1.8})
+                                   "metric": "performance", "n": 12, "lift": 1.8, "data": {"reliable": True}})
     make_clip(data, "Only clip", 70)
     scheduler.plan_new(db.get_settings(), _at(6))
     item = db.select("scheduled_publications")[0]

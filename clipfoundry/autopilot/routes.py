@@ -637,3 +637,21 @@ def link_inbox_post(item_id: str, body: UrlBody) -> dict:
               audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
     state.resolve(f"inbox:{item_id}")
     return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+# ------------------------------------------------------------------ learning
+@router.get("/learning", dependencies=READ)
+def learning_status() -> dict:
+    from . import learner
+
+    rows = db.select("learning_metrics", "dimension NOT IN ('weight', 'calibration')", (), "dimension, platform, lift DESC")
+    return {"status": state.get("learning:status") or {"samples": 0, "needed": learner.MIN_SAMPLES,
+                                                       "message": "Nothing learned yet."},
+            "metrics": [r for r in rows if (r.get("data") or {}).get("reliable")],
+            "weights": db.select("learning_metrics", "dimension = 'weight'"),
+            "labels": learner.DIMENSION_LABELS, "min_samples": learner.MIN_SAMPLES}
+
+
+@router.post("/learn", dependencies=WRITE)
+def learn_now() -> dict:
+    return _manual("learn")

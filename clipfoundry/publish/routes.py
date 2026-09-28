@@ -291,10 +291,13 @@ def performance_overview() -> dict:
     and the counts say how many publications each total covers)."""
     latest = db.latest_performance()
     pubs = [p for p in db.list_publications() if p["status"] in ("done", "action_needed")]
+    settings = db.get_settings()
+    counted = [p for p in pubs if p["platform"] != "youtube" or learning.youtube_allowed(settings)]
     totals = {}
     for key in ("views", "likes", "comments", "shares", "watch_time_minutes"):
-        vals = [latest[p["id"]][key] for p in pubs if p["id"] in latest and latest[p["id"]].get(key) is not None]
+        vals = [latest[p["id"]][key] for p in counted if p["id"] in latest and latest[p["id"]].get(key) is not None]
         totals[key] = {"total": round(sum(vals), 1) if vals else None, "publications": len(vals)}
+    excluded = len(pubs) - len(counted)
     last = max((s["fetched_at"] for s in latest.values()), default=None)
     items = []
     for p in pubs[:50]:
@@ -304,7 +307,8 @@ def performance_overview() -> dict:
                       "created_at": p["created_at"], "viral_potential": (p.get("features") or {}).get("viral_potential"),
                       "stats": latest.get(p["id"])})
     return {"published": len(pubs), "with_stats": sum(1 for p in pubs if p["id"] in latest), "totals": totals,
-            "last_refreshed": last, "items": items, "check": learning.ranking_check()}
+            "last_refreshed": last, "items": items, "check": learning.ranking_check(settings=settings),
+            "totals_note": learning.YOUTUBE_NOTE if excluded else "", "excluded_from_totals": excluded}
 
 
 @router.get("/api/performance/dataset", dependencies=[Depends(local_only)])

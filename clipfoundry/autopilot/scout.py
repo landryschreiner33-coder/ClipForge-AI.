@@ -28,7 +28,8 @@ YIELD_PER_MINUTE = {"People & Blogs": 0.10, "Comedy": 0.10, "Education": 0.08, "
                     "News & Politics": 0.08, "Sports": 0.07, "Science & Technology": 0.08, "Howto & Style": 0.06,
                     "Gaming": 0.05, "Film & Animation": 0.03, "Music": 0.01}
 DEFAULT_YIELD = 0.07
-SOURCE_WEIGHTS = {"trend": 0.35, "clip_potential": 0.30, "creator": 0.15, "freshness": 0.10, "live": 0.10}
+SOURCE_WEIGHTS = {"trend": 0.35, "clip_potential": 0.30, "creator": 0.15, "freshness": 0.10, "live": 0.10,
+                  "topic_results": 0.15}
 
 
 def tz(settings: dict) -> ZoneInfo:
@@ -282,6 +283,14 @@ def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dic
     if src.get("published_at") and trends.derived_allowed(src["platform"], settings):
         age_h = max(0.0, (now - src["published_at"]) / 3600)
         comps["freshness"] = {"value": math.exp(-age_h / 48), "note": f"{age_h:.0f} h old"}
+    if settings.get("autopilot_learning", True):
+        from . import learner
+
+        topic = (src.get("topic") or src.get("category") or "").lower()
+        lift, posts = learner.lift("topic", topic) if topic else (1.0, 0)
+        if posts:
+            comps["topic_results"] = {"value": max(0.0, min(1.0, 0.5 * lift)),
+                                      "note": f"{lift:.2f}x your average across {posts} of your posts on “{topic}”"}
     if src.get("kind") == "live":
         comps["live"] = {"value": 1.0 if settings.get("autopilot_live_monitoring") else 0.0,
                          "note": "live now" + ("" if settings.get("autopilot_live_monitoring") else

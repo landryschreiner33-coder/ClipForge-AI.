@@ -154,8 +154,22 @@ def test_tiktok_inbox_draft_is_linked_after_posting_in_the_app(client, fakes):
     assert p["stats"]["views"] is None and any("did not return this video" in n for n in p["stats"]["notes"])
 
 
+def test_youtube_numbers_are_not_summed_without_googles_approval(client, fakes):
+    g, t = fakes
+    yt = _youtube_pub(client, g)
+    g.videos[yt["remote_id"]]["statistics"] = {"viewCount": "100", "commentCount": "2"}
+    _tiktok_pub(client, t)
+    t.stats["7300000000000000001"] = {"view_count": 50, "like_count": 5, "comment_count": 1, "share_count": 2}
+    client.post("/api/performance/refresh", headers=H)
+    ov = client.get("/api/performance").json()
+    assert ov["totals"]["views"] == {"total": 50, "publications": 1} and ov["excluded_from_totals"] == 1
+    assert "Developer Policies" in ov["totals_note"]
+    assert any(i["platform"] == "youtube" and i["stats"]["views"] == 100 for i in ov["items"])  # shown as reported
+
+
 def test_overview_totals_and_dataset_only_use_real_numbers(client, fakes):
     g, t = fakes
+    client.put("/api/settings", json={"youtube_derived_metrics_approved": True})
     yt = _youtube_pub(client, g)
     g.videos[yt["remote_id"]]["statistics"] = {"viewCount": "100", "commentCount": "2"}
     tt = _tiktok_pub(client, t)

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from .. import db
 from ..pipeline import fingerprint
-from . import queue, rights, state
+from . import learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
 
@@ -115,6 +115,8 @@ class Timing:
         if settings.get("autopilot_learning", True):
             for r in db.select("learning_metrics", "platform = ? AND dimension IN ('hour', 'weekday') AND "
                                                    "metric = 'performance'", (platform,)):
+                if not (r.get("data") or {}).get("reliable"):
+                    continue  # too few posts in this group to trust
                 target = self.hour if r["dimension"] == "hour" else self.weekday
                 try:
                     target[int(r["key"])] = float(r["lift"] if r["lift"] is not None else 1.0)
@@ -130,15 +132,20 @@ class Timing:
         return max(0.0, min(1.0, 0.5 * lift)), f"{lift:.2f}x your average at this hour/weekday (your results)"
 
 
-def final_score(scores: dict) -> tuple[float, list[str]]:
-    """Weighted mix of the available scores (each 0-100); missing ones are left out and the weights renormalized."""
-    avail = {k: float(v) for k, v in scores.items() if k in FINAL_WEIGHTS and v is not None}
+def final_score(scores: dict, learned: dict[str, float] | None = None) -> tuple[float, list[str]]:
+    """Weighted mix of the available scores (each 0-100); missing ones are left out and the weights renormalized.
+    `learned` weights (from how well each score ordered your real results) replace the defaults they cover."""
+    weights = {**FINAL_WEIGHTS, **{k: v for k, v in (learned or {}).items() if k in FINAL_WEIGHTS}}
+    avail = {k: float(v) for k, v in scores.items() if k in weights and v is not None}
     if not avail:
         return 0.0, ["no scores"]
-    total = sum(FINAL_WEIGHTS[k] for k in avail)
-    value = sum(FINAL_WEIGHTS[k] * v for k, v in avail.items()) / total
-    why = [f"{SCORE_LABELS[k]} {v:.0f} × {FINAL_WEIGHTS[k] / total:.0%}" for k, v in
-           sorted(avail.items(), key=lambda kv: -FINAL_WEIGHTS[kv[0]])]
+    total = sum(weights[k] for k in avail)
+    value = sum(weights[k] * v for k, v in avail.items()) / total
+    why = [f"{SCORE_LABELS[k]} {v:.0f} × {weights[k] / total:.0%}" for k, v in
+           sorted(avail.items(), key=lambda kv: -weights[kv[0]])]
+    if learned:
+        why.append("weights adjusted from your own results: " + ", ".join(SCORE_LABELS[k] for k in learned
+                                                                           if k in FINAL_WEIGHTS))
     missing = [SCORE_LABELS[k] for k in FINAL_WEIGHTS if k not in avail]
     if missing:
         why.append("not counted (not available): " + ", ".join(missing))
@@ -198,6 +205,7 @@ def candidates(settings: dict, now: float) -> list[dict]:
             if repeat:
                 continue
         sc = db.fetch("clip_scores", clip["id"], "clip_id") or {}
+        retention, _ = learner.expected_retention(sc.get("retention"))
         for platform in platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
@@ -211,7 +219,7 @@ def candidates(settings: dict, now: float) -> list[dict]:
             out.append({"clip": clip, "platform": platform, "meta": meta[0], "source": source,
                         "scores": {"clip": sc.get("clip", clip.get("score")), "packaging": meta[0]["score"],
                                    "trend": sc.get("trend"), "source": sc.get("source"),
-                                   "diversity": sc.get("diversity"), "retention": sc.get("retention")},
+                                   "diversity": sc.get("diversity"), "retention": retention},
                         "urgency": max(0.0, min(1.0, urgency / 100))})
     return out
 
@@ -296,7 +304,7 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
                 audit: list | None = None) -> dict:
     opp = _opportunity(slot, c["urgency"], planned_at, now)
     scores = {**c["scores"], "publish_opportunity": opp}
-    final, why = final_score(scores)
+    final, why = final_score(scores, learner.weights())
     item = db.insert("scheduled_publications", {
         "clip_id": c["clip"]["id"], "source_id": (c["source"] or {}).get("id", ""), "platform": c["platform"],
         "metadata_id": c["meta"]["id"], **_meta_fields(c, settings), "planned_at": planned_at,
@@ -324,7 +332,8 @@ def try_replace(c: dict, settings: dict, now: float, plan: Plan) -> dict | None:
     weak = weakest_replaceable(c["platform"], now)
     if not weak:
         return None
-    probe = final_score({**c["scores"], "publish_opportunity": (weak.get("scores") or {}).get("publish_opportunity")})
+    probe = final_score({**c["scores"], "publish_opportunity": (weak.get("scores") or {}).get("publish_opportunity")},
+                        learner.weights())
     threshold = float(settings.get("autopilot_replacement_threshold") or 15)
     if probe[0] < (weak["final_score"] or 0) * (1 + threshold / 100):
         return None
@@ -354,8 +363,9 @@ def plan_new(settings: dict, now: float) -> dict:
     timings = {p: Timing(p, settings) for p in PLATFORMS}
     created, replaced, no_slot = 0, 0, 0
     cands = candidates(settings, now)
+    learned = learner.weights()
     for c in cands:
-        c["rank"], _ = final_score({**c["scores"], "publish_opportunity": 50.0})
+        c["rank"], _ = final_score({**c["scores"], "publish_opportunity": 50.0}, learned)
     for c in sorted(cands, key=lambda c: c["rank"], reverse=True):
         slot = plan.best_slot(c["platform"], c["clip"]["id"], c["urgency"], timings[c["platform"]])
         if slot:

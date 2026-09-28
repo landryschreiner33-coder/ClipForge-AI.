@@ -64,14 +64,26 @@ def spearman(a: list[float], b: list[float]) -> float | None:
     return float(np.corrcoef(ra, rb)[0, 1])
 
 
-def ranking_check(rows: list[dict] | None = None, metric: str = "views", platform: str | None = None) -> dict:
+YOUTUBE_NOTE = ("YouTube numbers are not used here: YouTube's Developer Policies require Google's approval for "
+                "metrics derived from YouTube API data (Settings → Autopilot → Discovery).")
+
+
+def youtube_allowed(settings: dict | None = None) -> bool:
+    settings = settings if settings is not None else db.get_settings()
+    return bool(settings.get("youtube_derived_metrics_approved"))
+
+
+def ranking_check(rows: list[dict] | None = None, metric: str = "views", platform: str | None = None,
+                  settings: dict | None = None) -> dict:
     """Rank correlation between the Viral Potential estimate and a real metric (None until enough samples)."""
     rows = dataset() if rows is None else rows
+    allow_yt = youtube_allowed(settings) if settings is not None or rows is None else True
+    excluded = sum(1 for r in rows if r.get("platform") == "youtube") if not allow_yt else 0
     pairs = [(r["viral_potential"], r[metric]) for r in rows
              if r.get("viral_potential") is not None and r.get(metric) is not None
-             and (platform is None or r["platform"] == platform)]
+             and (platform is None or r["platform"] == platform) and (allow_yt or r.get("platform") != "youtube")]
     out = {"metric": metric, "platform": platform or "all", "samples": len(pairs), "min_samples": MIN_SAMPLES,
-           "spearman": None}
+           "spearman": None, "excluded_youtube": excluded, "note": YOUTUBE_NOTE if excluded else ""}
     if len(pairs) >= MIN_SAMPLES:
         rho = spearman([p[0] for p in pairs], [math.log1p(p[1]) for p in pairs])
         out["spearman"] = None if rho is None else round(rho, 3)

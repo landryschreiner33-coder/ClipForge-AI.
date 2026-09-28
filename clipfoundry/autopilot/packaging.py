@@ -124,8 +124,18 @@ def score(meta: dict, platform: str, clip_text: str, clip_keywords: list[str], t
     comps["uniqueness"] = _clamp(1 - similar)
     comps["click"] = _clamp(0.45 * comps["curiosity"] + 0.3 * comps["emotion"] + 0.25 * comps["clarity"])
     value = 0.0 if problems else sum(WEIGHTS[k] * comps[k] for k in WEIGHTS)
-    return {"score": round(100 * value, 1), "components": {k: round(v, 3) for k, v in comps.items()},
-            "grounded": not problems}
+    out = {"score": round(100 * value, 1), "components": {k: round(v, 3) for k, v in comps.items()},
+           "grounded": not problems}
+    if value and meta.get("style"):
+        from . import learner
+
+        lift, posts = learner.lift("style", meta["style"], platform)
+        if posts:  # how this packaging style did on your own posts
+            adj = max(-8.0, min(8.0, 10 * (lift - 1)))
+            out["score"] = round(max(0.0, min(100.0, out["score"] + adj)), 1)
+            out["components"]["your_results"] = round(lift, 3)
+            out["note"] = f"{adj:+.1f} from {posts} of your {platform} posts in this style"
+    return out
 
 
 # ------------------------------------------------------------------ candidates
