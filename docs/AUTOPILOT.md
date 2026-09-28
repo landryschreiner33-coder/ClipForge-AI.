@@ -104,8 +104,11 @@ stored plan. Manual projects have no plan and render as before.
 
 **GPU.** One heavy GPU operation at a time, across processes (a lock file), with a wait for free VRAM
 (Settings → Autopilot → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2
-CUDA path; Autopilot only waits for its turn. If a transcription ever runs on the CPU although the GPU was requested,
-an action item says so; it is never silent. Local AI models (Ollama/LM Studio) share the same lock.
+CUDA path; Autopilot only waits for its turn. **Strict GPU:** when an NVIDIA GPU is expected and CUDA fails (or the
+GPU is present but unusable), Autopilot does not fall back to the CPU: the job pauses for 30 minutes without using
+an attempt and an action item says what failed and how to fix it. Live capture keeps recording meanwhile; the
+post-live pass transcribes the whole recording again on the GPU. Settings → Autopilot → *Allow CPU transcription*
+lets it continue on the CPU instead (slower). Manual projects keep their visible CPU fallback. Local AI models (Ollama/LM Studio) share the same lock.
 
 ## Scores
 
@@ -205,6 +208,7 @@ Where they are served:
 | Nothing gets clipped | Sources need a passing rights status (Autopilot → Sources & rights) and a video file or allowed URL. *Needs file* means: add the file (*Add file*) or a watch folder. |
 | Jobs wait for the GPU | Another heavy GPU job (or another program) is using it; see the GPU card. Lower *Free GPU memory needed* only if you know the model fits. |
 | "fell back to CPU" on the GPU card | Run `gpu-check.bat` and follow the fix it prints (see INSTALL.md). |
+| "Autopilot transcription is paused: the GPU could not be used" | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can allow CPU transcription in Settings → Autopilot. |
 | Discovery stopped: quota | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
 | Posts wait in *Needs approval* | That is required by the platforms; approve them in the Publish Center. |
 | YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |

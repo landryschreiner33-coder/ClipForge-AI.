@@ -68,8 +68,8 @@ class Prepared:
 def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> Prepared | None:
     """Stages 1-3: read the video, extract the audio, transcribe (or import) the speech, measure loudness.
 
-    `gpu_policy` (autopilot) can make transcription wait for free GPU memory:
-    {"need_free_mb": int, "max_wait_s": float, "job_id": str}."""
+    `gpu_policy` (autopilot) can make transcription wait for free GPU memory and forbid a CPU fallback:
+    {"need_free_mb": int, "max_wait_s": float, "job_id": str, "allow_cpu_fallback": bool}."""
     project = db.get_project(project_id)
     if not project:
         return None
@@ -129,7 +129,8 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
                                    max_wait_s=policy.get("max_wait_s"),
                                    on_wait=lambda m: stage("transcribe", P_AUDIO, m)):
                 stage("transcribe", P_AUDIO, "Transcribing")
-                transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE)
+                transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE,
+                                                   allow_cpu_fallback=policy.get("allow_cpu_fallback", True))
             gpu.manager.record_transcription(transcript.get("runtime") or {}, project["name"])
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)

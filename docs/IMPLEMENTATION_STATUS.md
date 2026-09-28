@@ -36,7 +36,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Manual workflow upload → transcribe → discover → edit → render → preview → export/publish | `api.py`, `jobs.py`, `pipeline/process.run_project`, `pipeline/export.py` | verified (local pipeline, synthetic espeak video) | `test_integration::full_api_flow` (slow), `test_editing`, `test_postpack` | keep green | — |
 | CUDA faster-whisper transcription, model cache, word timestamps | `pipeline/transcribe.py`, `pipeline/cuda.py`, `pipeline/models.py` | implemented-but-unverified on hardware (unit tested with fakes) | `test_gpu` (24), `test_models` (10) | run `gpu-check.bat` on the RTX 3050 | no GPU here |
 | Visible CPU fallback in manual mode | `transcribe.transcribe` attempt list, `gpu.GpuManager.record_transcription` | verified (unit) | `test_gpu::cuda_failure_falls_back_to_cpu_loudly`, `test_autopilot_core::cpu_fallback_is_never_silent` | — | — |
-| Strict-GPU Autopilot: CUDA failure pauses the job; CPU fallback only by explicit setting | none: Autopilot uses the manual fallback | missing | — | setting + pause with action item | — |
+| Strict-GPU Autopilot: CUDA failure pauses the job; CPU fallback only by explicit setting | `transcribe.transcribe(allow_cpu_fallback=...)`, `GpuTranscriptionFailed`, setting `autopilot_allow_cpu_fallback` (default off), `hunter.gpu_failed` (Wait 30 min + action item), live capture keeps recording and post-live re-transcribes | verified (unit, fake CUDA failures) | `test_gpu::test_strict_gpu_*` (3), `test_autopilot_analysis::test_strict_gpu_pauses_the_hunt_instead_of_using_the_cpu` | confirm on the RTX 3050 | no GPU here |
 | Eleven-factor Viral Potential | `pipeline/virality.py` | verified (unit) | `test_virality` (17) | — | — |
 | Broad candidate pool, staged ranking, boundary optimization, diversity/dedupe | `pipeline/candidates.py`, `deep.py`, `diversity.py`, `fingerprint.py`, `autopilot/hunter.py` | verified (unit + slow end-to-end) | `test_autopilot_analysis` (11) | — | — |
 | Typed, versioned, validated **Clip Blueprint** persisted before rendering and consumed by the renderer | `pipeline/blueprint.py` (`Blueprint`, `build`, `validate`, `with_edit`, `for_render`), `autopilot/hunter.plan_clips` (analyzer and post-live), `live.make_live_clip`, `render.render_clip(blueprint=...)`, table `clip_blueprints` | verified (unit + local pipeline) | `tests/test_blueprint.py` (20, incl. a real two-interval render), `test_clip_hunter_and_analyzer_end_to_end` (slow) | the Strategist plans one interval per clip today (multi-interval plans render correctly but are not generated yet); no reordering (rejected, the renderer plays forwards) | — |
@@ -125,7 +125,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
    renderer; unsupported instructions reported; the quality report binds the blueprint hash.
 4. [x] Queue safety: `min_priority` inside the atomic claim; per-claim lease token; host keeps exclusivity while old
    threads run.
-5. [ ] Strict-GPU Autopilot setting (pause instead of CPU fallback).
+5. [x] Strict-GPU Autopilot setting (pause instead of CPU fallback).
 6. [ ] Remote media URL validation (private networks, redirects) and download size caps.
 7. [ ] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
 
@@ -148,6 +148,8 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | blueprint | `pytest -m slow` | 4 passed (417 s); the end-to-end test now runs the whole slice through export |
 | blueprint | manual inspection of one Autopilot render (synthetic espeak talk, `test_clip_hunter_and_analyzer_0`) | 1080x1920 H.264 + AAC 48 kHz stereo, 17.8 s, mean -20 dB / max -4.2 dB; frames every 4 s show the hook overlay then word-synced captions; final transcript = the planned sentences; payoff inside the range. Not listened to (no audio output here). |
 | blueprint | after moving the filler count before the heard-words filter: blueprint, artifact/gate, editing (incl. its slow render test) and core suites | 54 passed |
+| strict GPU | `pytest -m "not slow"` | 244 passed (131 s) |
+| strict GPU | `pytest -m slow` (Whisper stand-ins now assert that Autopilot asks for strict GPU) | 4 passed (410 s) |
 
 ## Checklist for the user's machine
 

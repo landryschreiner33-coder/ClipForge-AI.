@@ -148,6 +148,40 @@ def test_out_of_memory_retries_on_gpu_with_int8_float16(gpu_present, monkeypatch
     assert out["runtime"]["compute_type"] == "int8_float16" and "out of GPU memory" in out["runtime"]["warning"]
 
 
+def test_strict_gpu_never_transcribes_on_the_cpu(gpu_present, monkeypatch):
+    """Autopilot's strict GPU mode: a CUDA failure stops the transcription instead of falling back."""
+    calls: list = []
+    err = "Library cublas64_12.dll is not found or cannot be loaded"
+    monkeypatch.setattr(transcribe, "_run_whisper", _fake_run(calls, {("cuda", "float16"): err}))
+    with pytest.raises(transcribe.GpuTranscriptionFailed, match="cublas64_12.dll") as info:
+        transcribe.transcribe(Path("a.wav"), 60.0, {}, JobContext(), allow_cpu_fallback=False)
+    assert calls == [("large-v3-turbo", "cuda", "float16")]  # the CPU was never tried
+    assert "requirements-gpu.txt" in info.value.fix
+
+
+def test_strict_gpu_still_retries_on_the_gpu_after_running_out_of_memory(gpu_present, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(transcribe, "_run_whisper", _fake_run(calls, {("cuda", "float16"): "CUDA out of memory"}))
+    out = transcribe.transcribe(Path("a.wav"), 60.0, {}, JobContext(), allow_cpu_fallback=False)
+    assert calls[-1] == ("large-v3-turbo", "cuda", "int8_float16") and out["runtime"]["device"] == "cuda"
+
+
+def test_strict_gpu_when_the_gpu_is_there_but_unusable(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(transcribe, "_run_whisper", _fake_run(calls, {}))
+    broken = status(devices=0, compute_types=[], libs_ok=None, fix=cuda.DRIVER_FIX,
+                    problem="NVIDIA GeForce RTX 3050 was found by the NVIDIA driver, but CUDA is not usable.")
+    monkeypatch.setattr(cuda, "probe", lambda refresh=False: broken)
+    with pytest.raises(transcribe.GpuTranscriptionFailed, match="not usable"):
+        transcribe.transcribe(Path("a.wav"), 60.0, {}, JobContext(), allow_cpu_fallback=False)
+    assert calls == []  # detection alone is not enough: nothing ran on the CPU instead
+    transcribe.transcribe(Path("a.wav"), 60.0, {}, JobContext())  # the manual workflow keeps its visible fallback
+    assert calls == [("small", "cpu", "int8")]
+    monkeypatch.setattr(cuda, "probe", lambda refresh=False: NO_GPU)
+    out = transcribe.transcribe(Path("a.wav"), 60.0, {}, JobContext(), allow_cpu_fallback=False)
+    assert out["runtime"]["device"] == "cpu"  # a PC without an NVIDIA GPU: the CPU is the plan, not a fallback
+
+
 def test_required_libraries_read_from_ctranslate2():
     if not cuda._ctranslate2_binaries():
         pytest.skip("ctranslate2 binary not found")

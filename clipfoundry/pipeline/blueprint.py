@@ -270,7 +270,8 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     return Blueprint(
         clip_id=clip["id"], project_id=clip.get("project_id") or project.get("id", ""), source_id=source_id,
         input_hash=artifact.sha256_json({"words": source_words, "range": [clip["start"], clip["end"]],
-                                         "score": clip.get("score"), "source": video_path or project.get("source_path")}),
+                                         "score": clip.get("score"),
+                                         "source": video_path or project.get("source_path")}),
         intervals=[Interval(round(start, 3), round(end, 3))],
         speed=float(opts.get("speed") or 1.0),
         framing=Framing(mode=opts.get("tracking") or "auto", crop_x=float(opts.get("crop_x", 0.5) or 0.5),

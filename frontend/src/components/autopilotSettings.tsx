@@ -127,6 +127,7 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
         </Row>
         <Row label="Free GPU memory needed" hint="Autopilot waits for this much free VRAM before transcribing (MB)">{n("gpu_min_free_vram_mb", { min: 0, max: 48000 })}</Row>
         <Row label="Wait for the GPU up to" hint="Minutes, then the job waits and tries later">{n("gpu_wait_minutes", { min: 1, max: 720 })}</Row>
+        <Row label="Allow CPU transcription" hint="Off: if the GPU fails, Autopilot pauses transcription and tells you why (manual projects always fall back, visibly). On: it continues on the CPU, much slower">{tog("autopilot_allow_cpu_fallback")}</Row>
       </div>
     </>
   );

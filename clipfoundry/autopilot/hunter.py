@@ -29,11 +29,24 @@ POOL_SIZE = 60
 DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 
 
+GPU_PAUSE_SECONDS = 1800
+
+
 def gpu_policy(settings: dict, job: Job) -> dict:
     plan = transcribe.whisper_plan(settings, cuda.probe())
     need = int(settings.get("gpu_min_free_vram_mb") or 0) if plan["mode"] == "gpu" else 0
     return {"need_free_mb": need, "max_wait_s": 60.0 * float(settings.get("gpu_wait_minutes") or 20),
-            "job_id": job.id}
+            "job_id": job.id, "allow_cpu_fallback": bool(settings.get("autopilot_allow_cpu_fallback"))}
+
+
+def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
+    """Strict GPU: the job pauses (without using an attempt) and the user learns what to do."""
+    state.action("gpu:strict", "gpu", "Autopilot transcription is paused: the GPU could not be used",
+                 f"{what}: {exc}", (exc.fix + " " if exc.fix else "") + "Run gpu-check.bat. To let Autopilot "
+                 "transcribe on the CPU meanwhile (slower), turn on Settings → Autopilot → "
+                 "Allow CPU transcription.",
+                 level="error")
+    return queue.Wait("gpu_failed", GPU_PAUSE_SECONDS, f"GPU transcription failed; paused. {exc}")
 
 
 def project_options(settings: dict) -> dict:
@@ -160,6 +173,10 @@ def hunt_source(job: Job) -> dict:
     except gpu.GpuBusy as exc:
         db.update("sources", src["id"], status="queued", status_note=str(exc))
         raise queue.Wait("gpu", 600, f"{exc} Trying again in 10 minutes.") from exc
+    except transcribe.GpuTranscriptionFailed as exc:
+        db.update("sources", src["id"], status="queued", status_note=f"Paused: GPU transcription failed. {exc}"[:300])
+        raise gpu_failed(exc, f"“{src.get('title', '')[:60]}”") from exc
+    state.resolve("gpu:strict")
     if p is None:
         raise queue.Fail("The project could not be prepared")
     cands = process.candidate_pool(p, ctx)

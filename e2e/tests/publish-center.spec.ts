@@ -60,7 +60,8 @@ test("each post shows the final quality check of its exact file", async ({ page,
       const expected = !q ? "Final check pending" : q.status === "failed" ? "Final check failed"
         : q.text_status && q.text_status !== "passed" ? "Text needs a fix"
         : q.warnings.length ? /^Final check: \d+ warnings?$/ : "Final check passed";
-      await expect(page.locator(`.qitem[data-id="${it.id}"] .badge`).filter({ hasText: /Final check|Text needs a fix/ })).toHaveText(expected);
+      const badge = page.locator(`.qitem[data-id="${it.id}"] .badge`).filter({ hasText: /Final check|Text needs a fix/ });
+      await expect(badge).toHaveText(expected);
     }
   }
 });

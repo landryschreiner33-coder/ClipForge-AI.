@@ -149,6 +149,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # GPU resource manager
     "gpu_min_free_vram_mb": 1200,       # autopilot waits for this much free GPU memory before heavy GPU work
     "gpu_wait_minutes": 20,
+    "autopilot_allow_cpu_fallback": False,  # off (strict GPU): a GPU failure pauses Autopilot transcription
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",

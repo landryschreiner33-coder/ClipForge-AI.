@@ -30,7 +30,7 @@ from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe
 from ..pipeline.text_utils import build_sentences
 from . import queue, rights, state
 from .host import Job, handler
-from .hunter import gpu_policy, plan_clips, prior_fingerprints, project_options, store_fingerprint
+from .hunter import gpu_failed, gpu_policy, plan_clips, prior_fingerprints, project_options, store_fingerprint
 
 SEGMENT_SECONDS = 60
 WINDOW_SECONDS = 900          # the rolling window searched for live clips
@@ -100,6 +100,7 @@ class Session:
         self.env: list[float] = st.get("env", [])
         self.clips: list[dict] = st.get("clips", [])
         self.meta: dict = st.get("meta", {})
+        self.untranscribed: list[list[float]] = st.get("untranscribed", [])  # strict GPU: minutes not transcribed
         self.transcript = read_json(self.pdir / "transcript.json", None) or {"language": "", "source": "live",
                                                                              "segments": []}
         self.words = transcribe.flatten_words(self.transcript)
@@ -111,7 +112,8 @@ class Session:
 
     def save(self) -> None:
         write_json(self.segdir / "state.json", {"run": self.run, "segments": self.segments, "offset": self.offset,
-                                                "env": self.env, "clips": self.clips, "meta": self.meta})
+                                                "env": self.env, "clips": self.clips, "meta": self.meta,
+                                                "untranscribed": self.untranscribed})
         write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
         write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
 
@@ -151,9 +153,17 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     frames = int(round(duration / 0.1))
     env = (env + [env[-1] if env else -60.0] * frames)[:frames]
     ctx = JobContext(None, job.cancelled)
-    with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
-                           max_wait_s=600):
-        t = transcribe.transcribe(wav, duration, sess.settings, ctx)
+    try:
+        with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
+                               max_wait_s=600):
+            t = transcribe.transcribe(wav, duration, sess.settings, ctx, allow_cpu_fallback=bool(
+                sess.settings.get("autopilot_allow_cpu_fallback")))
+    except transcribe.GpuTranscriptionFailed as exc:
+        # Strict GPU: live clipping pauses, the recording goes on. The post-live pass transcribes the whole
+        # recording again (on the GPU) before it is analyzed, so nothing said in these minutes is lost.
+        gpu_failed(exc, f"live “{sess.src.get('title', '')[:60]}”")
+        sess.untranscribed.append([sess.offset, sess.offset + duration])
+        t = {"segments": [], "language": "", "runtime": {}}
     gpu.manager.record_transcription(t.get("runtime") or {}, f"live: {sess.src.get('title', '')[:60]}")
     for seg in t.get("segments", []):
         shifted = {"start": seg["start"] + sess.offset, "end": seg["end"] + sess.offset, "text": seg.get("text", ""),
@@ -244,7 +254,8 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
         return clip
     try:
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
-                                 sess.settings, JobContext(None, job.cancelled), blueprint=blueprint.shifted(bp, -shift))
+                                 sess.settings, JobContext(None, job.cancelled),
+                                 blueprint=blueprint.shifted(bp, -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except queue.Canceled:
         raise
@@ -392,9 +403,18 @@ def post_live(job: Job) -> dict:
     if not src or not db.get_project(project_id):
         raise queue.Fail("The live source or its project is missing")
     ctx = job.pipeline_ctx(0.0, 1.0)
-    p = process.prepare(project_id, ctx, gpu_policy(settings, job))  # the transcript is already there: no Whisper
+    live_state_path = config.projects_dir() / project_id / "live" / "state.json"
+    live_state = read_json(live_state_path, {}) or {}
+    if live_state.get("untranscribed"):  # parts were not transcribed live: transcribe the whole recording
+        (live_state_path.parent.parent / "transcript.json").unlink(missing_ok=True)
+    try:
+        p = process.prepare(project_id, ctx, gpu_policy(settings, job))  # usually the live transcript: no Whisper
+    except transcribe.GpuTranscriptionFailed as exc:
+        raise gpu_failed(exc, f"post-live “{src.get('title', '')[:60]}”") from exc
     if p is None:
         raise queue.Fail("The recording could not be read")
+    if live_state.get("untranscribed"):
+        write_json(live_state_path, {**live_state, "untranscribed": []})
     cands = process.candidate_pool(p, ctx)
     chosen = process.evaluate_select(p, cands, ctx, prior=prior_fingerprints(p.id))
     live = [c for c in db.list_clips(p.id) if c["status"] in ("ready", "rendering", "queued")]
