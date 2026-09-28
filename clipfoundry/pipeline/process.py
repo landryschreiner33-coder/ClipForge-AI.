@@ -205,12 +205,17 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
     return chosen
 
 
-def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext) -> list[dict]:
-    """Stage 6: one clip per chosen moment, each with its post package written from its own words."""
-    db.delete_clips(p.id)
+def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_existing: bool = True) -> list[dict]:
+    """Stage 6: one clip per chosen moment, each with its post package written from its own words.
+    `replace_existing=False` adds to the project's clips (post-live analysis next to the live clips)."""
+    first_rank = 0
+    if replace_existing:
+        db.delete_clips(p.id)
+    else:
+        first_rank = len(db.list_clips(p.id))
     rows = []
     df = scoring.document_frequencies(p.sentences)
-    for rank, r in enumerate(chosen):
+    for rank, r in enumerate(chosen, first_rank):
         ctx.check()
         if r.get("bounds"):
             start, end = r["bounds"]["start"], r["bounds"]["end"]
@@ -218,7 +223,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext) -> list[dict]
             start, end = cand_mod.refine_bounds(r, p.sentences, p.meta["duration"])
         else:
             start, end = r["start"], r["end"]
-        ctx.progress(P_SCORE, f"Writing post package {rank + 1} of {len(chosen)}")
+        ctx.progress(P_SCORE, f"Writing post package {rank - first_rank + 1} of {len(chosen)}")
         sents = [p.sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
         post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], p.opts, df,
                                  max(1, len(p.sentences)))
