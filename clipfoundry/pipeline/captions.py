@@ -7,13 +7,17 @@ from ..config import OUTPUT_H, OUTPUT_W
 
 STYLE_PRESETS = {
     "clean": {"font": "Poppins SemiBold", "size": 76, "upper": False, "max_words": 5, "max_chars": 26,
-              "outline": 5, "shadow": 1, "highlight": "#FFD23F", "pop": False, "word_scale": 100},
+              "outline": 5, "shadow": 1, "highlight": "#FFD23F", "pop": False, "word_scale": 100,
+              "emphasis": "#5CE1E6"},
     "bold": {"font": "Poppins ExtraBold", "size": 92, "upper": True, "max_words": 3, "max_chars": 18,
-             "outline": 7, "shadow": 3, "highlight": "#FFE500", "pop": False, "word_scale": 100},
+             "outline": 7, "shadow": 3, "highlight": "#FFE500", "pop": False, "word_scale": 100,
+             "emphasis": "#FF5E5B"},
     "high_energy": {"font": "Anton", "size": 132, "upper": True, "max_words": 2, "max_chars": 14,
-                    "outline": 8, "shadow": 4, "highlight": "#3CFF6B", "pop": True, "word_scale": 112},
+                    "outline": 8, "shadow": 4, "highlight": "#3CFF6B", "pop": True, "word_scale": 112,
+                    "emphasis": "#FFE500"},
     "minimal": {"font": "Poppins Medium", "size": 62, "upper": False, "max_words": 7, "max_chars": 34,
-                "outline": 0, "shadow": 2, "highlight": "#FFFFFF", "pop": False, "word_scale": 100},
+                "outline": 0, "shadow": 2, "highlight": "#FFFFFF", "pop": False, "word_scale": 100,
+                "emphasis": ""},
 }
 
 POSITIONS = {"bottom": (2, 0.23), "middle": (5, 0.0), "top": (8, 0.16)}
@@ -87,6 +91,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     outline_col = "&H00000000"
     back = "&H64000000" if style != "minimal" else "&H96000000"
     bold_flag = -1 if style in {"bold", "high_energy"} else 0
+    emph = hex_to_ass(p["emphasis"]) if opts.get("caption_emphasis") and p.get("emphasis") else ""
     hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
     hook_secs = float(opts.get("hook_seconds", 3.0) or 3.0)
 
@@ -130,6 +135,9 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
             texts = [_escape(w["w"].strip()) for w in chunk]
             if p["upper"]:
                 texts = [t.upper() for t in texts]
+            if emph:  # key words keep their own color (and a slight size bump) for the whole chunk
+                texts = [f"{{\\c{emph}\\fscx108\\fscy108}}{t}{{\\r}}" if w.get("em") else t
+                         for t, w in zip(texts, chunk)]
             pop = "{\\fscx80\\fscy80\\t(0,90,\\fscx100\\fscy100)}" if p["pop"] else ""
             if not highlight_on:
                 lines.append(f"Dialogue: 1,{_ass_time(c_start)},{_ass_time(c_end)},Caption,,0,0,0,,{pop}"

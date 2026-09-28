@@ -273,6 +273,8 @@ export default function SettingsPage() {
         <Row label="Extras">
           <div className="row wrap" style={{ gap: 20 }}>
             <Toggle on={s.auto_zoom} onChange={(v) => set({ auto_zoom: v })} label="Auto-zoom" />
+            <Toggle on={s.remove_fillers} onChange={(v) => set({ remove_fillers: v })} label="Cut filler words" />
+            <Toggle on={s.caption_emphasis} onChange={(v) => set({ caption_emphasis: v })} label="Emphasize key words" />
             <Toggle on={s.hook_overlay} onChange={(v) => set({ hook_overlay: v })} label="Hook overlay" />
             <Toggle on={s.normalize_audio} onChange={(v) => set({ normalize_audio: v })} label="Normalize audio" />
           </div>

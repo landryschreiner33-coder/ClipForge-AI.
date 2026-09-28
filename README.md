@@ -30,7 +30,8 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Captions | Burned-in styles **Clean, Bold, High Energy, Minimal** with word-level highlighting. Adjustable position, size and highlight color. Editable text keeps the original timing. |
 | Hooks & titles | One recommended hook and three alternatives per clip. Hooks are extracted from the clip's own words; LLM hooks are rejected if they mention names, numbers or topics that are not in the clip. |
 | Post package | For every clip: **three title options** (one recommended), **three caption/description options**, hashtags, a short description, a call-to-action suggestion and hook text. All of it is written from the clip's own transcript. A grounding check rejects any number, name, claim or topic that is not in the clip, including an optional LLM's suggestions. Hashtags are words the speaker actually says. Everything is editable (Edit → Post package) before anything is published, and it is included in the export. |
-| Polish | Light or aggressive silence cleanup, subtle auto-zooms, loudness normalization (-14 LUFS) and volume control. |
+| Polish | Light or aggressive silence cleanup that also cuts "um"/"uh" together with the pause around them, subtle push-ins on sentences with an emphasized word, optional key-word emphasis in the captions, adjustable pacing (up to 1.15×, same voice pitch), loudness normalization (-14 LUFS) and volume control. Active-speaker framing only switches while someone is actually talking, so a nod or a laugh during a pause never moves the camera. |
+| Versions | On the publish screen, render **Original**, **Faster pacing** (tighter pauses, no fillers, 8% faster), **Alternative hook** (another hook line from the clip, and a stronger first line when the clip has one) and **Alternative caption style** (contrasting style with key words emphasized). Compare them side by side (played together, sound from the one you pick) or one after another, then choose which one is published and exported. |
 | Editor | Simple manual controls: trim (click transcript words), framing, captions, hook, audio, then re-render. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
 | YouTube Shorts | **CONNECT YOUTUBE** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
@@ -91,7 +92,8 @@ clipfoundry/            Python backend (FastAPI)
     postpack.py         post packages (titles, captions, hashtags, description, CTA, hook) + grounding check
     reframe.py          face / speaker / screen tracking, smooth camera path (OpenCV YuNet, PySceneDetect)
     captions.py         ASS caption styles, SRT
-    render.py           ffmpeg decode → OpenCV crop/zoom/layout → ffmpeg encode with burned captions
+    render.py           ffmpeg decode → OpenCV crop/zoom/layout → ffmpeg encode with burned captions (speed, fillers)
+    versions.py         alternative versions (faster pacing, alternative hook, alternative caption style)
     export.py           ZIP + metadata
   publish/              official-API publishing: OAuth, uploads, background publisher
     youtube.py          YouTube Data API v3 (OAuth + PKCE, resumable upload, status)
@@ -105,7 +107,8 @@ data/                   created at runtime: clipfoundry.db, projects/<id>/..., m
 ```
 
 Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.json`, `loudness.json`,
-`candidates.json`, `clips/<clip>/clip.mp4`, `thumb.jpg`, `captions.ass`, `captions.srt`, `framing.json`.
+`candidates.json`, `clips/<clip>/clip.mp4`, `thumb.jpg`, `captions.ass`, `captions.srt`, `framing.json`, and
+`clips/<clip>/versions/<version>/` for alternative versions.
 
 ## Usage
 

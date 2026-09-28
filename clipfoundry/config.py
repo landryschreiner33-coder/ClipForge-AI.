@@ -81,7 +81,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tracking": "auto",
     "layout": "fill",
     "silence": "light",
-    "auto_zoom": True,
+    "remove_fillers": True,           # with silence cleanup: an "um"/"uh" goes together with the pause around it
+    "auto_zoom": True,                # subtle push-ins on sentences with an emphasized word
+    "caption_emphasis": False,        # key words in their own color
     "hook_overlay": True,
     "hook_seconds": 3.0,
     "normalize_audio": True,

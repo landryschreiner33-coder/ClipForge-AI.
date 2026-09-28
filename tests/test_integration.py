@@ -139,6 +139,32 @@ def test_full_api_flow(media, tmp_path, monkeypatch):
         assert c["status"] == "ready", c["error"]
         assert c["render_info"]["segments"] >= 1
 
+        # versions: render the three alternatives, choose one, and export uses it
+        r = client.post(f"/api/clips/{cid}/versions", json={"kinds": None})
+        assert r.status_code == 200 and len(r.json()["versions"]) == 4
+        for _ in range(600):
+            vs = client.get(f"/api/clips/{cid}/versions").json()["versions"]
+            if all(v["status"] in {"ready", "error"} for v in vs):
+                break
+            time.sleep(1)
+        by_kind = {v["kind"]: v for v in vs}
+        assert all(v["status"] == "ready" for v in vs), [(v["kind"], v["error"]) for v in vs]
+        assert by_kind["faster"]["duration"] < by_kind["original"]["duration"]
+        assert by_kind["faster"]["render_info"]["speed"] == 1.08
+        faster = by_kind["faster"]["id"]
+        assert client.post(f"/api/clips/{cid}/active-version", json={"version_id": faster}).json()["active"] == faster
+        v_bytes = client.get(f"/api/versions/{faster}/video").content
+        z = client.post(f"/api/projects/{pid}/export", json={"clip_ids": [cid]})
+        import io
+        import zipfile
+
+        with zipfile.ZipFile(io.BytesIO(z.content)) as zf:
+            mp4 = next(n for n in zf.namelist() if n.endswith(".mp4"))
+            assert zf.read(mp4) == v_bytes  # the chosen version is what gets exported
+            assert json.loads(zf.read("metadata.json"))["clips"][0]["version"] == "Faster pacing"
+        assert client.delete(f"/api/versions/{faster}").status_code == 200
+        assert client.get(f"/api/clips/{cid}/versions").json()["active"] == ""  # back to the original
+
         assert client.delete(f"/api/projects/{pid}").json()["ok"]
         assert client.get(f"/api/projects/{pid}").status_code == 404
 

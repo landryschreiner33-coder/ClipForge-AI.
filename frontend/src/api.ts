@@ -51,6 +51,9 @@ export interface ClipEdit {
   auto_zoom?: boolean;
   gain_db?: number;
   normalize_audio?: boolean;
+  speed?: number;
+  remove_fillers?: boolean;
+  caption_emphasis?: boolean;
 }
 
 export interface ClipFlag {
@@ -99,6 +102,25 @@ export interface PostPackage {
   checks: Record<string, string[]>;
 }
 
+/** An alternative rendering of a clip ("" id = the original). */
+export interface ClipVersion {
+  id: string;
+  clip_id: string;
+  kind: "original" | "faster" | "alt_hook" | "alt_captions";
+  label: string;
+  description: string;
+  edit?: Record<string, unknown>;
+  status: "queued" | "rendering" | "ready" | "error";
+  progress: number;
+  error: string;
+  duration: number;
+  render_info: Record<string, any>;
+  has_video: boolean;
+  has_thumbnail: boolean;
+  version: number;
+  stale: boolean;
+}
+
 export interface Clip {
   id: string;
   project_id: string;
@@ -124,6 +146,7 @@ export interface Clip {
   render_info: Record<string, any>;
   analysis: Partial<ClipAnalysis>;
   post: Partial<PostPackage>;
+  active_version: string;
   has_video: boolean;
   has_thumbnail: boolean;
   version: number;
@@ -285,6 +308,12 @@ export const api = {
   patchClip: (id: string, patch: Record<string, unknown>) =>
     req<Clip>("PATCH", `/api/clips/${id}`, patch),
   renderClip: (id: string) => req<Clip>("POST", `/api/clips/${id}/render`),
+  versions: (clipId: string) => req<{ active: string; versions: ClipVersion[] }>("GET", `/api/clips/${clipId}/versions`),
+  createVersions: (clipId: string, kinds?: string[]) =>
+    req<{ active: string; versions: ClipVersion[] }>("POST", `/api/clips/${clipId}/versions`, { kinds: kinds ?? null }),
+  deleteVersion: (id: string) => req<{ active: string; versions: ClipVersion[] }>("DELETE", `/api/versions/${id}`),
+  setActiveVersion: (clipId: string, versionId: string) =>
+    req<{ active: string; versions: ClipVersion[] }>("POST", `/api/clips/${clipId}/active-version`, { version_id: versionId }),
   regeneratePost: (id: string, useAi = true) => req<Clip>("POST", `/api/clips/${id}/post-package`, { use_ai: useAi }),
   clipWords: (id: string) =>
     req<{ start: number; end: number; original_start: number; original_end: number; duration: number; words: Word[]; caption_words: Word[] | null }>(
@@ -297,6 +326,12 @@ export const clipVideoUrl = (c: Clip) => `/api/clips/${c.id}/video?v=${c.version
 export const clipDownloadUrl = (c: Clip) => `/api/clips/${c.id}/video?download=1`;
 export const clipThumbUrl = (c: Clip) => `/api/clips/${c.id}/thumbnail?v=${c.version}`;
 export const projectThumbUrl = (p: Project) => `/api/projects/${p.id}/thumbnail`;
+export const versionVideoUrl = (clip: Clip, v: ClipVersion) =>
+  v.id ? `/api/versions/${v.id}/video?v=${v.version}` : clipVideoUrl(clip);
+export const versionThumbUrl = (clip: Clip, v: ClipVersion) =>
+  v.id ? `/api/versions/${v.id}/thumbnail?v=${v.version}` : clipThumbUrl(clip);
+export const versionDownloadUrl = (clip: Clip, v?: ClipVersion) =>
+  v && v.id ? `/api/versions/${v.id}/video?download=1` : clipDownloadUrl(clip);
 
 export function uploadVideo(
   file: File,

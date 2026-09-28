@@ -194,3 +194,30 @@ def render_single(clip_id: str, ctx: JobContext) -> None:
     except Exception as exc:
         log.exception("render failed")
         db.update_clip(clip_id, status="error", error=str(exc)[:500])
+
+
+def version_dir(project: dict, version: dict) -> Path:
+    return project_dir(project) / "clips" / version["clip_id"] / "versions" / version["id"]
+
+
+def render_version(version_id: str, ctx: JobContext) -> None:
+    """Render one alternative version: the clip's current edit plus the version's overrides."""
+    version = db.get_version(version_id)
+    clip = db.get_clip(version["clip_id"]) if version else None
+    project = db.get_project(clip["project_id"]) if clip else None
+    if not version or not clip or not project:
+        return
+    project["dir"] = str(project_dir(project))
+    merged = {**clip, "edit": {**(clip.get("edit") or {}), **(version.get("edit") or {})}}
+    db.update_version(version_id, status="rendering", progress=0, error="")
+    sub = JobContext(lambda f, m: db.update_version(version_id, progress=round(f, 3)), ctx.cancelled)
+    try:
+        out = render.render_clip(project, merged, load_words(project), db.get_settings(), sub,
+                                 out_dir=version_dir(project, version))
+        db.update_version(version_id, status="ready", progress=1.0, error="", **out)
+    except Cancelled:
+        db.update_version(version_id, status="error", error="Cancelled")
+        raise
+    except Exception as exc:
+        log.exception("version render failed")
+        db.update_version(version_id, status="error", error=str(exc)[:500])

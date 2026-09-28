@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import Cancelled, PublishError, client, save_tokens
+from .common import Cancelled, PublishError, client, network_errors, save_tokens
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 API_URL = "https://open.tiktokapis.com/v2"
@@ -81,6 +81,7 @@ def _json(r: httpx.Response) -> dict:
         return {}
 
 
+@network_errors("TikTok")
 def _token_request(settings: dict, data: dict) -> dict:
     with client(30) as c:
         r = c.post(f"{API_URL}/oauth/token/", data={"client_key": settings["tiktok_client_key"],
@@ -137,6 +138,7 @@ class Token:
         return tok["access_token"]
 
 
+@network_errors("TikTok")
 def disconnect(settings: dict) -> None:
     tokens = db.account_tokens("tiktok") or {}
     if tokens.get("access_token") and configured(settings):
@@ -191,6 +193,7 @@ def api_error(code: str, message: str = "", status: int = 0) -> PublishError:
     return PublishError(f"TikTok API error{f' {status}' if status else ''}: {message or code}.", code=code)
 
 
+@network_errors("TikTok")
 def _call(token: Token, path: str, body: dict | None = None, method: str = "POST", params: dict | None = None) -> dict:
     with client(30) as c:
         for attempt in range(2):
@@ -208,6 +211,7 @@ def _call(token: Token, path: str, body: dict | None = None, method: str = "POST
     return data.get("data") or {}
 
 
+@network_errors("TikTok")
 def user_info(access_token: str) -> dict:
     with client(30) as c:
         r = c.get(f"{API_URL}/user/info/", params={"fields": "open_id,avatar_url,display_name"},
@@ -326,3 +330,4 @@ def fetch_status(token: Token, publish_id: str) -> dict:
 
 def post_url(username: str, post_id: str) -> str:
     return f"https://www.tiktok.com/@{username}/video/{post_id}" if username else ""
+

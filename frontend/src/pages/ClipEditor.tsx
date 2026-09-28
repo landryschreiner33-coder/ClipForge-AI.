@@ -231,7 +231,7 @@ export default function ClipEditor({ id }: { id: string }) {
               <div className="opt-row"><div className="lbl">Zoom<small>{eff("zoom", 1).toFixed(2)}×</small></div>
                 <input type="range" min={1} max={2} step={0.05} value={eff("zoom", 1)} onChange={(e) => set({ zoom: +e.target.value })} /></div>
               <div className="opt-row"><div className="lbl">Auto-zoom</div>
-                <Toggle on={!!eff("auto_zoom", true)} onChange={(v) => set({ auto_zoom: v })} label="Subtle zoom changes between sentences" /></div>
+                <Toggle on={!!eff("auto_zoom", true)} onChange={(v) => set({ auto_zoom: v })} label="Subtle push-in on sentences with an emphasized word" /></div>
               {clip.render_info?.mode && <div className="field-hint mt-s">Last render used <b>{clip.render_info.mode}</b> framing
                 {clip.render_info.faces ? `, ${clip.render_info.faces} face track(s)` : ""}{clip.render_info.cuts ? `, ${clip.render_info.cuts} scene cut(s)` : ""}.</div>}
             </div>
@@ -248,6 +248,8 @@ export default function ClipEditor({ id }: { id: string }) {
                   options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }]} /></div>
               <div className="opt-row"><div className="lbl">Size<small>{Math.round(eff("caption_size", 1) * 100)}%</small></div>
                 <input type="range" min={0.6} max={1.6} step={0.05} value={eff("caption_size", 1)} onChange={(e) => set({ caption_size: +e.target.value })} /></div>
+              <div className="opt-row"><div className="lbl">Emphasis</div>
+                <Toggle on={!!eff("caption_emphasis", false)} onChange={(v) => set({ caption_emphasis: v })} label="Key words (numbers, strong words, the clip's keywords) in their own color" /></div>
               <div className="opt-row"><div className="lbl">Word highlight</div>
                 <div className="row">
                   <Toggle on={eff("highlight_words", true)} onChange={(v) => set({ highlight_words: v })} />
@@ -295,7 +297,11 @@ export default function ClipEditor({ id }: { id: string }) {
               <div className="opt-row"><div className="lbl">Silence cleanup</div>
                 <Segmented value={eff("silence", "light")} onChange={(v) => set({ silence: v })}
                   options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" }, { value: "aggressive", label: "Aggressive" }]} /></div>
-              {clip.render_info?.removed_s > 0.1 && <div className="field-hint">Last render removed {clip.render_info.removed_s}s of pauses.</div>}
+              <div className="opt-row"><div className="lbl">Filler words</div>
+                <Toggle on={!!eff("remove_fillers", true)} onChange={(v) => set({ remove_fillers: v })} label="Cut “um” / “uh” together with the pause around them" /></div>
+              <div className="opt-row"><div className="lbl">Pacing<small>{eff("speed", 1).toFixed(2)}× (voice pitch unchanged)</small></div>
+                <input type="range" min={1} max={1.15} step={0.01} value={eff("speed", 1)} onChange={(e) => set({ speed: +e.target.value })} /></div>
+              {clip.render_info?.removed_s > 0.1 && <div className="field-hint">Last render removed {clip.render_info.removed_s}s of pauses{clip.render_info.fillers_removed ? ` and ${clip.render_info.fillers_removed} filler word(s)` : ""}.</div>}
             </div>
           )}
 

@@ -206,3 +206,13 @@ def test_chunking_rules():
     assert tiktok.chunking(12 * MB) == (10 * MB, 1)                  # the last chunk carries the remainder
     assert tiktok.chunking(100 * MB) == (10 * MB, 10)
     assert tiktok.caption_length("😀" * 1100) == 2200                # TikTok counts UTF-16 code units
+
+
+def test_unreachable_platform_is_a_plain_error_not_a_crash(app_client, tt, monkeypatch):
+    from clipfoundry.publish import tiktok
+
+    _connect(app_client, tt)
+    monkeypatch.setattr(tiktok, "API_URL", "http://127.0.0.1:9/v2")  # nothing listens there
+    r = app_client.get("/api/publish/tiktok/creator")
+    assert r.status_code == 400 and "Could not reach TikTok" in r.json()["detail"]
+    assert "internet connection" in r.json()["fix"]

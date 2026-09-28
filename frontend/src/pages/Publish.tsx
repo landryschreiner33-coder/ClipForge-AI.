@@ -1,11 +1,12 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Accounts, api, Clip, clipDownloadUrl, clipThumbUrl, clipVideoUrl, downloadZip, errorText, fmtTime, Project,
-  Publication, TikTokCreator,
+  Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, Project,
+  Publication, TikTokCreator, versionDownloadUrl, versionThumbUrl, versionVideoUrl,
 } from "../api";
 import { Icon, Modal, ScoreBadge, toast } from "../components/ui";
 import { AccountBadge, ConnectButton } from "../components/accounts";
 import { StructureChips, SubscoreLine } from "../components/viral";
+import { VersionsCard } from "../components/versions";
 import { navigate } from "../App";
 
 const TIKTOK_PRIVACY: Record<string, string> = {
@@ -35,6 +36,8 @@ export default function PublishPage({ id }: { id: string }) {
   const [meta, setMeta] = useState<Meta>({ title: "", caption: "", hashtags: "" });
   const [metaDirty, setMetaDirty] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [version, setVersion] = useState<ClipVersion | undefined>();
+  const onVersions = useCallback((active: ClipVersion | undefined) => setVersion(active), []);
 
   useEffect(() => {
     (async () => {
@@ -96,8 +99,11 @@ export default function PublishPage({ id }: { id: string }) {
   };
 
   if (!clip || !project) return <div className="page"><div className="spinner" /></div>;
-  const ready = clip.status === "ready" && clip.has_video;
+  const ready = clip.status === "ready" && clip.has_video && (!version || (version.status === "ready" && version.has_video));
   const post = clip.post || {};
+  const duration = version?.duration ?? clip.duration;
+  const videoUrl = version ? versionVideoUrl(clip, version) : `/api/clips/${clip.id}/video?v=${clip.version}`;
+  const thumbUrl = version ? versionThumbUrl(clip, version) : clipThumbUrl(clip);
 
   return (
     <div className="page">
@@ -120,21 +126,23 @@ export default function PublishPage({ id }: { id: string }) {
       <div className="publish">
         <div className="player">
           {ready ? (
-            <video key={clip.version} src={clipVideoUrl(clip)} poster={clip.has_thumbnail ? clipThumbUrl(clip) : undefined} controls playsInline />
+            <video key={videoUrl} src={videoUrl} poster={clip.has_thumbnail ? thumbUrl : undefined} controls playsInline />
           ) : (
             <div className="rendering"><span className="badge warn">Not rendered yet</span><div className="small muted">{clip.error || "Render the clip first."}</div></div>
           )}
           <div className="card mt-s" style={{ padding: 14 }}>
-            <div className="row between"><ScoreBadge score={clip.score} /><span className="small muted">{fmtTime(clip.duration)} · 1080×1920</span></div>
+            <div className="row between"><ScoreBadge score={clip.score} /><span className="small muted">{version ? `${version.label} · ` : ""}{fmtTime(duration)} · 1080×1920</span></div>
             <SubscoreLine c={clip} />
             <StructureChips c={clip} />
-            <a className="btn sm mt-s" href={ready ? clipDownloadUrl(clip) : undefined} style={ready ? undefined : { opacity: 0.45, pointerEvents: "none" }}>
+            <a className="btn sm mt-s" href={ready ? versionDownloadUrl(clip, version) : undefined} style={ready ? undefined : { opacity: 0.45, pointerEvents: "none" }}>
               <Icon name="download" size={13} /> Download MP4
             </a>
           </div>
         </div>
 
         <div className="publish-side">
+          <VersionsCard clip={clip} onChange={onVersions} />
+
           <div className="card">
             <h3>Post text <span className="muted small" style={{ fontWeight: 400 }}>used for both platforms · {post.source || "your text"}</span></h3>
             <label className="field">
@@ -160,8 +168,8 @@ export default function PublishPage({ id }: { id: string }) {
             </div>
           </div>
 
-          <YouTubePanel clip={clip} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "youtube" && ACTIVE.includes(p.status))} onPublish={publish} />
-          <TikTokPanel clip={clip} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "tiktok" && ACTIVE.includes(p.status))} onPublish={publish} onExport={exportClip} />
+          <YouTubePanel clip={clip} duration={duration} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "youtube" && ACTIVE.includes(p.status))} onPublish={publish} />
+          <TikTokPanel clip={clip} duration={duration} downloadUrl={versionDownloadUrl(clip, version)} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "tiktok" && ACTIVE.includes(p.status))} onPublish={publish} onExport={exportClip} />
 
           {pubs.length > 0 && (
             <div className="card">
@@ -229,6 +237,7 @@ function Confirm({ title, children, label, onConfirm, onClose }: { title: string
 
 type PanelProps = {
   clip: Clip;
+  duration: number;
   accounts: Accounts | null;
   setAccounts: (a: Accounts) => void;
   meta: Meta;
@@ -237,7 +246,7 @@ type PanelProps = {
   onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
 };
 
-function YouTubePanel({ clip, accounts, setAccounts, meta, ready, busy, onPublish }: PanelProps) {
+function YouTubePanel({ duration, accounts, setAccounts, meta, ready, busy, onPublish }: PanelProps) {
   const acc = accounts?.youtube;
   const [privacy, setPrivacy] = useState<"public" | "unlisted" | "private">("private");
   const [kids, setKids] = useState<"" | "no" | "yes">("");
@@ -281,7 +290,7 @@ function YouTubePanel({ clip, accounts, setAccounts, meta, ready, busy, onPublis
       <div className="opt-row"><div className="lbl">#Shorts tag<small>Optional; vertical videos up to 3 min are Shorts anyway</small></div>
         <label className="row small"><input type="checkbox" checked={shortsTag} onChange={(e) => setShortsTag(e.target.checked)} /> Add #Shorts to the description</label>
       </div>
-      {clip.duration > 180 && <div className="notice warn small block">This clip is longer than 3 minutes, so YouTube will publish it as a regular video, not a Short.</div>}
+      {duration > 180 && <div className="notice warn small block">This clip is longer than 3 minutes, so YouTube will publish it as a regular video, not a Short.</div>}
       <details className="small mt-s"><summary>Description as it will appear on YouTube</summary><pre className="desc-preview">{description || "(empty)"}</pre></details>
       <div className="row between mt">
         <span className="small muted">{problems.length ? `To publish: ${problems.join(", ")}.` : `Uploads to ${acc?.name} as ${privacy}.`}</span>
@@ -306,7 +315,7 @@ function YouTubePanel({ clip, accounts, setAccounts, meta, ready, busy, onPublis
   );
 }
 
-function TikTokPanel({ clip, accounts, setAccounts, meta, ready, busy, onPublish, onExport }: PanelProps & { onExport: () => void }) {
+function TikTokPanel({ duration, accounts, setAccounts, meta, ready, busy, onPublish, onExport, downloadUrl }: PanelProps & { onExport: () => void; downloadUrl: string }) {
   const acc = accounts?.tiktok;
   const connected = !!acc?.connected && !acc.needs_reconnect;
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
@@ -340,7 +349,7 @@ function TikTokPanel({ clip, accounts, setAccounts, meta, ready, busy, onPublish
     direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
     direct && brandContent && privacy === "SELF_ONLY" && "branded content can't be “Only me”",
     direct && !audited && privacy && privacy !== "SELF_ONLY" && "unaudited apps can only post “Only me”",
-    direct && creator && creator.max_duration > 0 && clip.duration > creator.max_duration && `trim to ${creator.max_duration}s`,
+    direct && creator && creator.max_duration > 0 && duration > creator.max_duration && `trim to ${creator.max_duration}s`,
   ].filter(Boolean) as string[];
   const branded = direct && disclose && brandContent;
   const label = disclose ? (brandContent ? "Paid partnership" : brandOrganic ? "Promotional content" : "") : "";
@@ -426,7 +435,7 @@ function TikTokPanel({ clip, accounts, setAccounts, meta, ready, busy, onPublish
         <button className="btn ghost sm" onClick={() => setManual(!manual)}>{manual ? "Hide" : "Can't post through the API?"} Upload it yourself in TikTok</button>
         {manual && (
           <ol className="manual small">
-            <li><button className="btn sm" onClick={onExport}><Icon name="zip" size={13} /> Export</button> or <a href={clipDownloadUrl(clip)}>download the MP4</a>.</li>
+            <li><button className="btn sm" onClick={onExport}><Icon name="zip" size={13} /> Export</button> or <a href={downloadUrl}>download the MP4</a>.</li>
             <li><button className="btn sm" onClick={() => navigator.clipboard?.writeText(caption).then(() => toast("Caption copied"))}>Copy caption</button> (text and hashtags).</li>
             <li>Open <a href="https://www.tiktok.com/tiktokstudio/upload" target="_blank" rel="noreferrer">TikTok Studio → Upload</a> (official), select the MP4, paste the caption, choose privacy and post.</li>
           </ol>

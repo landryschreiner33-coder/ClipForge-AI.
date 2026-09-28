@@ -44,6 +44,7 @@ def clip_metadata(project: dict, clip: dict, filename: str) -> dict:
         "source_end": round(end, 2),
         "source_timestamp": f"{fmt_ts(start)} - {fmt_ts(end)}",
         "duration_seconds": clip.get("duration", 0),
+        "version": clip.get("version_label", "Original"),
         "post_package": {k: v for k, v in (clip.get("post") or {}).items() if k not in ("clip_text", "checks")},
     }
 

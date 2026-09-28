@@ -145,6 +145,12 @@ class PublishBody(BaseModel):
 
 
 def _video_for(clip: dict) -> tuple[str, dict | None]:
+    """The file to upload: the version chosen on the publish screen, or the original clip."""
+    if clip.get("active_version"):
+        v = db.get_version(clip["active_version"])
+        if not v or v["status"] != "ready" or not Path(v.get("output_path") or "").exists():
+            raise PublishError("The chosen version is not rendered.", "Render it again or choose another version.")
+        return v["output_path"], v
     path = clip.get("output_path") or ""
     if clip.get("status") != "ready" or not path or not Path(path).exists():
         raise PublishError("This clip is not rendered yet.", "Wait for the render to finish, or re-render the clip.")

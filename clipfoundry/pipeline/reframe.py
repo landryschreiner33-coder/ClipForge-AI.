@@ -236,9 +236,27 @@ def _choose_mode(a: dict) -> str:
     return "center"
 
 
+def speech_mask(times: list[float], speech: list[tuple[float, float]] | None, pad: float = 0.25) -> np.ndarray:
+    """True at the sample times where someone is talking (word timings, clip-relative). All True if unknown."""
+    t = np.asarray(times, dtype=np.float64)
+    if speech is None:
+        return np.ones(len(t), dtype=bool)
+    mask = np.zeros(len(t), dtype=bool)
+    for a, b in speech:
+        mask |= (t >= a - pad) & (t <= b + pad)
+    return mask
+
+
 def _face_targets(a: dict, crop_w: float, crop_h: float, speaker: bool) -> tuple[np.ndarray, np.ndarray, list[float]]:
-    """Per-sample framing targets from face tracks, plus times where the camera should cut (speaker switch)."""
+    """Per-sample framing targets from face tracks, plus times where the camera should cut (speaker switch).
+
+    Mouth movement only counts while someone is speaking (a["speech"]), so nodding, chewing or reacting during a
+    pause never pulls the camera to another person, and the camera holds its shot through pauses.
+    """
     n = a["n"]
+    speech = a.get("speech")
+    if speech is None or len(speech) != n:
+        speech = np.ones(n, dtype=bool)
     xs, ys = np.full(n, np.nan), np.full(n, np.nan)
     switches: list[float] = []
     tracks: list[Track] = a["tracks"]
@@ -252,7 +270,9 @@ def _face_targets(a: dict, crop_w: float, crop_h: float, speaker: bool) -> tuple
         ema = np.zeros(n)
         val = 0.0
         for i in range(n):
-            if i in tr.activity and (i - 1) in tr.boxes:
+            if not speech[i]:
+                val *= 0.9  # silence: mouth motion is not speech
+            elif i in tr.activity and (i - 1) in tr.boxes:
                 val = 0.7 * val + 0.3 * tr.activity[i]
             elif i not in tr.boxes:
                 val *= 0.97
@@ -281,7 +301,9 @@ def _face_targets(a: dict, crop_w: float, crop_h: float, speaker: bool) -> tuple
         if speaker and len(visible) > 1:
             cand = max(visible, key=lambda tid: smooth[tid][i])
             cur_act = smooth[current][i] if current in visible else -1.0
-            if cand != current and (current not in visible or smooth[cand][i] > 1.3 * cur_act + 0.02):
+            if not speech[i] and current in visible:
+                pending, pending_count = None, 0  # nobody is talking: hold the shot
+            elif cand != current and (current not in visible or smooth[cand][i] > 1.3 * cur_act + 0.02):
                 pending_count = pending_count + 1 if pending == cand else 1
                 pending = cand
                 if current not in visible or (pending_count >= 3 and i - last_switch >= 12):
@@ -417,7 +439,9 @@ def build_path(sample_t: np.ndarray, target: np.ndarray, cuts: list[float], fps:
 
 
 def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, fps: float,
-         ctx: JobContext | None = None, manual_x: float = 0.5) -> Plan:
+         ctx: JobContext | None = None, manual_x: float = 0.5,
+         speech: list[tuple[float, float]] | None = None) -> Plan:
+    """`speech`: clip-relative (start, end) of spoken words; speaker switches only happen while someone talks."""
     n_out = max(1, int(round((end - start) * fps)))
     cw, ch = crop_fraction(src_w, src_h)
     if mode == "center" or (cw >= 0.999 and ch >= 0.999):
@@ -425,6 +449,7 @@ def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, 
     if mode == "manual":
         return static_plan("manual", fps, n_out, min(1 - cw / 2, max(cw / 2, manual_x)), 0.5)
     a = analyze(src, start, end, src_w, src_h, ctx)
+    a["speech"] = speech_mask(a["times"], speech)
     used = _choose_mode(a) if mode == "auto" else mode
     faces_found = len([t for t in a["tracks"] if t.presence >= 3])
     if used in {"face", "speaker"} and not a["tracks"]:

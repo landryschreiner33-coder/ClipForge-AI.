@@ -40,6 +40,12 @@ class Worker:
         self.q.put(("render", clip_id, None))
         self.start()
 
+    def submit_version(self, version_id: str) -> None:
+        self.cancelled.discard(version_id)
+        db.update_version(version_id, status="queued", progress=0, error="")
+        self.q.put(("version", version_id, None))
+        self.start()
+
     def cancel(self, key: str) -> None:
         self.cancelled.add(key)
 
@@ -55,6 +61,8 @@ class Worker:
                     self._run_project(key, extra)
                 elif kind == "render":
                     self._run_render(key)
+                elif kind == "version":
+                    self._run_version(key)
             except Exception:  # noqa: BLE001 - never let the worker die
                 log.exception("job crashed")
             finally:
@@ -64,6 +72,8 @@ class Worker:
     def _mark_cancelled(self, kind: str, key: str) -> None:
         if kind == "project":
             db.update_project(key, status="cancelled", message="Cancelled")
+        elif kind == "version":
+            db.update_version(key, status="error", error="Cancelled")
         else:
             db.update_clip(key, status="error", error="Cancelled")
 
@@ -102,6 +112,15 @@ class Worker:
             pass
         finally:
             self.cancelled.discard(clip_id)
+
+    def _run_version(self, version_id: str) -> None:
+        ctx = JobContext(None, lambda: version_id in self.cancelled)
+        try:
+            process.render_version(version_id, ctx)
+        except Cancelled:
+            pass
+        finally:
+            self.cancelled.discard(version_id)
 
     def _download(self, project_id: str, url: str, ctx: JobContext) -> None:
         """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention."""

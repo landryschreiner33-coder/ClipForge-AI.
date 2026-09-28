@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import html
 import secrets
@@ -28,6 +29,21 @@ class PublishError(RuntimeError):
 
 class Cancelled(Exception):
     pass
+
+
+def network_errors(platform: str):
+    """Turn connection problems (offline, proxy, firewall, timeouts) into a plain PublishError."""
+    def wrap(fn):
+        @functools.wraps(fn)
+        def inner(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except httpx.HTTPError as exc:
+                raise PublishError(f"Could not reach {platform} ({type(exc).__name__}: {exc}).",
+                                   "Check the internet connection, proxy or firewall, then try again.",
+                                   "network") from exc
+        return inner
+    return wrap
 
 
 def client(timeout: float = 60.0) -> httpx.Client:

@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS clips (
     render_info TEXT DEFAULT '{}',
     analysis TEXT DEFAULT '{}',
     post TEXT DEFAULT '{}',
+    active_version TEXT DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -108,6 +109,24 @@ CREATE TABLE IF NOT EXISTS publications (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_publications_clip ON publications(clip_id);
+CREATE TABLE IF NOT EXISTS clip_versions (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    edit TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'queued',
+    progress REAL DEFAULT 0,
+    error TEXT DEFAULT '',
+    output_path TEXT DEFAULT '',
+    thumb_path TEXT DEFAULT '',
+    duration REAL DEFAULT 0,
+    render_info TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_versions_clip ON clip_versions(clip_id);
 """
 
 JSON_FIELDS = {
@@ -115,12 +134,13 @@ JSON_FIELDS = {
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},
     "publications": {"tags", "options", "info", "features"},
+    "clip_versions": {"edit", "render_info"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
 # are added with ALTER TABLE when missing (existing rows get the default).
 ADDED_COLUMNS = {
-    "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'"},
+    "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'", "active_version": "TEXT DEFAULT ''"},
 }
 
 
@@ -226,6 +246,8 @@ def update_project(project_id: str, **fields: Any) -> None:
 
 def delete_project(project_id: str) -> None:
     with connect() as conn:
+        conn.execute("DELETE FROM clip_versions WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
+                     (project_id,))
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
@@ -262,7 +284,42 @@ def update_clip(clip_id: str, **fields: Any) -> None:
 
 def delete_clips(project_id: str) -> None:
     with connect() as conn:
+        conn.execute("DELETE FROM clip_versions WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
+                     (project_id,))
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
+
+
+# ---------------------------------------------------------------- clip versions
+def create_version(clip_id: str, kind: str, **fields: Any) -> dict[str, Any]:
+    now = time.time()
+    row = _encode("clip_versions", {"id": new_id(), "clip_id": clip_id, "kind": kind, "created_at": now,
+                                    "updated_at": now, **fields})
+    with connect() as conn:
+        conn.execute(f"INSERT INTO clip_versions ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
+                     list(row.values()))
+    return get_version(row["id"])  # type: ignore[return-value]
+
+
+def get_version(version_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM clip_versions WHERE id = ?", (version_id,)).fetchone()
+    return _decode("clip_versions", row)
+
+
+def list_versions(clip_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM clip_versions WHERE clip_id = ? ORDER BY created_at", (clip_id,)).fetchall()
+    return [_decode("clip_versions", r) for r in rows]  # type: ignore[misc]
+
+
+def update_version(version_id: str, **fields: Any) -> None:
+    _update("clip_versions", version_id, fields)
+
+
+def delete_version(version_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM clip_versions WHERE id = ?", (version_id,))
+        conn.execute("UPDATE clips SET active_version = '' WHERE active_version = ?", (version_id,))
 
 
 # ---------------------------------------------------------------- publishing accounts (OAuth)
@@ -381,6 +438,10 @@ def mark_interrupted() -> None:
         )
         conn.execute(
             "UPDATE clips SET status = 'error', error = 'Interrupted (app was closed). Click Re-render.'"
+            " WHERE status IN ('queued', 'rendering')"
+        )
+        conn.execute(
+            "UPDATE clip_versions SET status = 'error', error = 'Interrupted (app was closed). Render it again.'"
             " WHERE status IN ('queued', 'rendering')"
         )
         conn.execute(

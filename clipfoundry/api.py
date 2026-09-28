@@ -15,10 +15,10 @@ from pydantic import BaseModel
 
 from . import __version__, config, db
 from .jobs import worker
-from .pipeline import cuda, export, llm, postpack, transcribe
+from .pipeline import cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available
-from .pipeline.process import load_words, project_dir
+from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
 from .publish.common import PublishError
@@ -67,7 +67,8 @@ def _public_clip(c: dict) -> dict:
 
 def _clean_options(raw: dict) -> dict:
     allowed = {"clip_count", "min_duration", "max_duration", "target_duration", "caption_style", "tracking",
-               "layout", "silence", "auto_zoom", "hook_overlay", "caption_position", "highlight_words"}
+               "layout", "silence", "auto_zoom", "hook_overlay", "caption_position", "highlight_words",
+               "remove_fillers", "caption_emphasis"}
     clean = config.validate_settings({k: v for k, v in raw.items() if k in allowed})
     return clean
 
@@ -279,8 +280,17 @@ def export_zip(project_id: str, body: ExportBody) -> FileResponse:
         clips = [c for c in clips if c["id"] in wanted]
     if not clips:
         raise HTTPException(400, "No rendered clips selected")
-    zpath = export.build_zip(p, clips, project_dir(p) / "exports")
+    zpath = export.build_zip(p, [with_active_version(c) for c in clips], project_dir(p) / "exports")
     return FileResponse(zpath, media_type="application/zip", filename=zpath.name)
+
+
+def with_active_version(clip: dict) -> dict:
+    """The clip as exported/published: the chosen version's video when one is chosen and rendered."""
+    v = db.get_version(clip.get("active_version") or "") if clip.get("active_version") else None
+    if v and v["status"] == "ready" and Path(v.get("output_path") or "").exists():
+        return {**clip, "output_path": v["output_path"], "duration": v["duration"], "version_label": v["label"],
+                "version_id": v["id"]}
+    return clip
 
 
 # ------------------------------------------------------------------ clips
@@ -301,7 +311,8 @@ class ClipPatch(BaseModel):
 
 EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_style", "caption_position",
              "caption_size", "highlight_color", "highlight_words", "captions_enabled", "caption_words", "hook",
-             "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio"}
+             "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio", "speed",
+             "remove_fillers", "caption_emphasis"}
 
 
 @app.patch("/api/clips/{clip_id}")
@@ -400,6 +411,126 @@ def clip_words(clip_id: str, pad: float = 20.0) -> dict:
     around = [w for w in words if start - pad <= w["start"] <= end + pad]
     return {"start": start, "end": end, "original_start": clip["start"], "original_end": clip["end"],
             "duration": project.get("duration", 0), "words": around, "caption_words": edit.get("caption_words")}
+
+
+# ------------------------------------------------------------------ versions
+ORIGINAL_DESCRIPTION = "The clip as edited."
+
+
+def _public_version(v: dict, clip: dict) -> dict:
+    merged = {**(clip.get("edit") or {}), **(v.get("edit") or {})}
+    out = {k: val for k, val in v.items() if k not in {"output_path", "thumb_path"}}
+    out["has_video"] = bool(v.get("output_path")) and Path(v["output_path"]).exists()
+    out["has_thumbnail"] = bool(v.get("thumb_path")) and Path(v["thumb_path"]).exists()
+    out["version"] = int(v.get("updated_at", 0))
+    rendered = (v.get("render_info") or {}).get("edit_hash")
+    out["stale"] = bool(rendered) and rendered != render.edit_hash(merged)
+    return out
+
+
+def _versions_payload(clip: dict) -> dict:
+    original = {"id": "", "clip_id": clip["id"], "kind": "original", "label": "Original",
+                "description": ORIGINAL_DESCRIPTION, "status": clip["status"], "progress": clip.get("progress", 0),
+                "error": clip.get("error", ""), "duration": clip.get("duration", 0),
+                "render_info": clip.get("render_info") or {}, "stale": False, **{k: _public_clip(clip)[k] for k in
+                                                                                  ("has_video", "has_thumbnail",
+                                                                                   "version")}}
+    return {"active": clip.get("active_version") or "",
+            "versions": [original, *(_public_version(v, clip) for v in db.list_versions(clip["id"]))]}
+
+
+@app.get("/api/clips/{clip_id}/versions")
+def clip_versions(clip_id: str) -> dict:
+    return _versions_payload(_clip_or_404(clip_id))
+
+
+class VersionsBody(BaseModel):
+    kinds: list[str] | None = None
+
+
+@app.post("/api/clips/{clip_id}/versions")
+def create_versions(clip_id: str, body: VersionsBody) -> dict:
+    """Create (or rebuild) the requested alternative versions and queue their renders."""
+    clip = _clip_or_404(clip_id)
+    if clip["status"] != "ready":
+        raise HTTPException(409, "Render the clip before creating versions")
+    project = db.get_project(clip["project_id"])
+    assert project
+    kinds = [k for k in (body.kinds or list(versions.KINDS)) if k in versions.KINDS]
+    words = load_words(project)
+    existing = {v["kind"]: v for v in db.list_versions(clip_id)}
+    for kind in kinds:
+        edit, description = versions.build(kind, clip, project, db.get_settings(), words)
+        old = existing.get(kind)
+        if old and old["status"] in {"queued", "rendering"}:
+            continue
+        if old:
+            db.update_version(old["id"], edit=edit, description=description)
+            vid = old["id"]
+        else:
+            vid = db.create_version(clip_id, kind, label=versions.KINDS[kind], description=description, edit=edit,
+                                    status="queued")["id"]
+        worker.submit_version(vid)
+    return _versions_payload(db.get_clip(clip_id) or clip)
+
+
+def _version_or_404(version_id: str) -> dict:
+    v = db.get_version(version_id)
+    if not v:
+        raise HTTPException(404, "Version not found")
+    return v
+
+
+@app.delete("/api/versions/{version_id}")
+def delete_version(version_id: str) -> dict:
+    v = _version_or_404(version_id)
+    if v["status"] in {"queued", "rendering"}:
+        raise HTTPException(409, "Wait for the render to finish")
+    clip = db.get_clip(v["clip_id"])
+    project = db.get_project(clip["project_id"]) if clip else None
+    db.delete_version(version_id)
+    if project:
+        folder = version_dir(project, v)
+        if config.projects_dir().resolve() in folder.resolve().parents:
+            shutil.rmtree(folder, ignore_errors=True)
+    return _versions_payload(db.get_clip(v["clip_id"])) if clip else {"active": "", "versions": []}
+
+
+class ActiveVersionBody(BaseModel):
+    version_id: str = ""
+
+
+@app.post("/api/clips/{clip_id}/active-version")
+def set_active_version(clip_id: str, body: ActiveVersionBody) -> dict:
+    """Choose which version is published and exported ("" = the original)."""
+    _clip_or_404(clip_id)
+    if body.version_id:
+        v = _version_or_404(body.version_id)
+        if v["clip_id"] != clip_id:
+            raise HTTPException(400, "That version belongs to another clip")
+        if v["status"] != "ready":
+            raise HTTPException(409, "That version is not rendered yet")
+    db.update_clip(clip_id, active_version=body.version_id)
+    return _versions_payload(db.get_clip(clip_id))  # type: ignore[arg-type]
+
+
+@app.get("/api/versions/{version_id}/video")
+def version_video(version_id: str, download: int = 0) -> FileResponse:
+    v = _version_or_404(version_id)
+    path = Path(v.get("output_path") or "")
+    if not path.exists():
+        raise HTTPException(404, "Version not rendered yet")
+    clip = db.get_clip(v["clip_id"]) or {}
+    name = f"{export.safe_name(clip.get('title', ''), v['clip_id'])} - {v['label']}.mp4"
+    return FileResponse(path, media_type="video/mp4", filename=name if download else None)
+
+
+@app.get("/api/versions/{version_id}/thumbnail")
+def version_thumbnail(version_id: str) -> FileResponse:
+    path = Path(_version_or_404(version_id).get("thumb_path") or "")
+    if not path.exists():
+        raise HTTPException(404, "No thumbnail")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 # ------------------------------------------------------------------ errors

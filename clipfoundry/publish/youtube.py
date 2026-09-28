@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import Cancelled, PublishError, client, save_tokens
+from .common import Cancelled, PublishError, client, network_errors, save_tokens
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -66,6 +66,7 @@ def auth_url(settings: dict, redirect_uri: str, state: str, challenge: str) -> s
     })
 
 
+@network_errors("YouTube")
 def _token_request(data: dict) -> dict:
     with client(30) as c:
         r = c.post(TOKEN_URL, data=data)
@@ -124,6 +125,7 @@ class Token:
         return tok["access_token"]
 
 
+@network_errors("YouTube")
 def disconnect(settings: dict) -> None:
     """Revoke ClipFoundry's access at Google (best effort) and forget the tokens."""
     tokens = db.account_tokens("youtube") or {}
@@ -171,6 +173,7 @@ def api_error(r: httpx.Response) -> PublishError:
     return PublishError(f"YouTube API error {r.status_code}: {message or r.text[:200]}", code=reason)
 
 
+@network_errors("YouTube")
 def _get(token: Token, url: str, params: dict) -> dict:
     with client(30) as c:
         r = c.get(url, params=params, headers={"Authorization": f"Bearer {token.get()}"})
@@ -181,6 +184,7 @@ def _get(token: Token, url: str, params: dict) -> dict:
     return _json(r)
 
 
+@network_errors("YouTube")
 def channel(access_token: str) -> dict:
     with client(30) as c:
         r = c.get(f"{API_URL}/channels", params={"part": "snippet", "mine": "true"},
@@ -272,6 +276,7 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                     session, offset = _start_session(c, body, size, token), 0
 
 
+@network_errors("YouTube")
 def _start_session(c: httpx.Client, body: dict, size: int, token: Token) -> str:
     params = {"uploadType": "resumable", "part": "snippet,status"}
     for attempt in range(2):
@@ -324,3 +329,4 @@ def video_status(token: Token, video_id: str) -> dict:
     return {"exists": True, "privacy": st.get("privacyStatus", ""), "upload_status": st.get("uploadStatus", ""),
             "rejection_reason": st.get("rejectionReason", ""), "failure_reason": st.get("failureReason", ""),
             "processing": ((items[0].get("processingDetails") or {}).get("processingStatus", ""))}
+

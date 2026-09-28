@@ -299,6 +299,23 @@ code.uri { background: var(--bg-2); border: 1px solid var(--line-2); padding: 8p
   .publish .player { position: static; max-width: 360px; margin: 0 auto; }
 }
 
+/* ---------- versions */
+.versions { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ver { border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; background: var(--bg-2); display: flex; flex-direction: column; }
+.ver.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255, 106, 43, 0.2); }
+.ver-thumb { aspect-ratio: 9 / 16; max-height: 220px; background: #0d0d13 center / cover no-repeat; position: relative; }
+.ver-thumb .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(8, 8, 12, 0.72); padding: 10px; text-align: center; }
+.ver-thumb .dur { position: absolute; bottom: 6px; left: 6px; background: rgba(0, 0, 0, 0.7); padding: 2px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.ver-body { padding: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.compare { padding: 20px; width: min(1500px, 94vw); }
+.compare-grid { display: grid; gap: 12px; }
+.compare-cell { display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; padding: 8px; border-radius: 12px; border: 1px solid transparent; }
+.compare-cell.on { border-color: var(--accent); }
+.compare-cell video { width: 100%; aspect-ratio: 9 / 16; max-height: 64vh; background: #000; border-radius: 12px; }
+.sequence { display: grid; grid-template-columns: auto 280px; gap: 18px; align-items: start; }
+.sequence video { height: min(72vh, 760px); aspect-ratio: 9 / 16; background: #000; border-radius: 14px; }
+.seq-side { display: flex; flex-direction: column; gap: 8px; }
+
 /* ---------- modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(5, 5, 8, 0.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px; animation: fade 0.15s; }
 @keyframes fade { from { opacity: 0; } }
