@@ -321,6 +321,24 @@ def test_cpu_fallback_is_never_silent(data):
     assert not state.open_actions()
 
 
+def test_dismissed_questions_stay_dismissed_but_problems_do_not(data):
+    from clipfoundry.autopilot import state
+
+    state.action("rights:s1", "rights", "Confirm the rights", snooze_s=3600)
+    state.dismiss("rights:s1")
+    state.action("rights:s1", "rights", "Confirm the rights", snooze_s=3600)  # the next scout run asks again
+    assert not state.open_actions()
+    state.action("gpu:fallback", "gpu", "GPU transcription did not run as configured")
+    state.dismiss("gpu:fallback")
+    state.action("gpu:fallback", "gpu", "GPU transcription did not run as configured")  # happened again
+    assert [a["key"] for a in state.open_actions()] == ["gpu:fallback"]
+    state.resolve("rights:s2")  # resolving (not dismissing) an item does not snooze it
+    state.action("rights:s2", "rights", "Confirm", snooze_s=3600)
+    state.resolve("rights:s2")
+    state.action("rights:s2", "rights", "Confirm", snooze_s=3600)
+    assert {a["key"] for a in state.open_actions()} == {"gpu:fallback", "rights:s2"}
+
+
 # ------------------------------------------------------------------ manual jobs survive a restart
 def test_manual_work_resumes_after_restart(data, monkeypatch):
     from clipfoundry import db, jobs

@@ -174,11 +174,14 @@ def confirm(source_id: str, status: str, basis: str) -> dict:
     return apply(db.fetch("sources", source_id) or source)
 
 
+ASK_AGAIN_AFTER = 7 * 86400  # a rights question you dismissed stays quiet this long
+
+
 def request_confirmation(source: dict) -> None:
     state.action(f"rights:{source['id']}", "rights", f"Confirm the rights for “{source.get('title', '')[:80]}”",
                  f"{source.get('channel_title') or source.get('platform')} · {EXPLAIN[MANUAL]}",
                  "Autopilot → Sources: mark it Owned, Licensed or Allowlisted (with the basis), or Block it.",
-                 level="action", ref_type="source", ref_id=source["id"])
+                 level="action", ref_type="source", ref_id=source["id"], snooze_s=ASK_AGAIN_AFTER)
 
 
 def gate(source: dict | None, stage: str, settings: dict | None = None) -> dict:

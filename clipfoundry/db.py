@@ -236,7 +236,8 @@ CREATE TABLE IF NOT EXISTS action_items (
     ref_id TEXT DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    resolved_at REAL
+    resolved_at REAL,
+    dismissed_at REAL                         -- dismissed by you (not re-asked while snoozed)
 );
 CREATE TABLE IF NOT EXISTS trend_signals (
     id TEXT PRIMARY KEY,
@@ -523,6 +524,7 @@ ADDED_COLUMNS = {
     "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'", "active_version": "TEXT DEFAULT ''"},
     "projects": {"origin": "TEXT DEFAULT 'manual'", "source_id": "TEXT DEFAULT ''"},
     "publications": {"scheduled_id": "TEXT DEFAULT ''"},
+    "action_items": {"dismissed_at": "REAL"},
 }
 
 

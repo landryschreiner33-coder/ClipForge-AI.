@@ -86,7 +86,7 @@ export default function PublishCenter({ view: wanted }: { view?: string }) {
           const [label, cls] = ITEM_STATUS[it.status] || [it.status, ""];
           const can = (s: string[]) => s.includes(it.status);
           return (
-            <div key={it.id} className={`qitem ${it.status}`}>
+            <div key={it.id} className={`qitem ${it.status}`} data-id={it.id}>
               <div className="qthumb" style={{ backgroundImage: `url(${it.clip.thumbnail_url})` }} onClick={() => setPreview(it)} title="Preview">
                 <span className="dur">{fmtTime(it.clip.duration)}</span>
                 <div className="play"><Icon name="play" size={18} fill /></div>

@@ -183,7 +183,7 @@ def test_quota_cache_deduplicates(data):
 
 
 # ------------------------------------------------------------------ Trend Scout + Source Scout end to end
-def test_trend_and_source_scout(google, data, tmp_path):
+def test_trend_and_source_scout(google, data, tmp_path, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import quota, rights, state
 
@@ -240,6 +240,15 @@ def test_trend_and_source_scout(google, data, tmp_path):
 
     hunts = queue.jobs(worker="clip_hunter")
     assert [j["ref_id"] for j in hunts] == [local["id"]]
+    # Dismissed questions are not asked again by the next scout run; only the top sources are asked about.
+    from clipfoundry.autopilot import scout
+
+    state.dismiss(f"rights:{src['ufc1']['id']}")
+    run("source_scout")
+    assert f"rights:{src['ufc1']['id']}" not in {a["key"] for a in state.open_actions()}
+    monkeypatch.setattr(scout, "RIGHTS_QUESTIONS", 0)
+    run("source_scout")
+    assert not [a for a in state.open_actions() if a["key"].startswith("rights:")]
 
 
 def test_search_quota_exhaustion_stops_discovery_honestly(google, data):

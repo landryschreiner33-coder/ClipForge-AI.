@@ -80,6 +80,11 @@ def _local(ts: float, settings: dict) -> dt.datetime:
     return dt.datetime.fromtimestamp(ts, tz(settings))
 
 
+def _label(ts: float, settings: dict) -> str:
+    """How a time is shown to you (in the Autopilot time zone)."""
+    return _local(ts, settings).strftime("%a %b %d, %H:%M")
+
+
 def grid(settings: dict, day: dt.date, per_day: int) -> list[float]:
     """Evenly spaced candidate times over the active hours of a local day (never closer than the minimum gap)."""
     zone = tz(settings)
@@ -311,10 +316,11 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
         "timezone": settings.get("autopilot_timezone") or "America/Chicago", "slot": slot, "final_score": final,
         "scores": {**scores, "explanation": why}, "status": "awaiting_approval", "replaces": replaces,
         "status_note": "Waiting for your approval",
-        "audit": audit or [{"at": now, "event": "scheduled", "detail": f"Planned for {slot['local']} ({slot['note']}); "
-                                                                        f"Final Opportunity Score {final:.0f}"}]})
-    state.event("scheduled", f"{c['platform']}: “{c['meta']['title'][:60]}” planned for {slot['local']}",
-                ref_type="scheduled", ref_id=item["id"], final=final)
+        "audit": audit or [{"at": now, "event": "scheduled", "detail": f"Planned for {_label(planned_at, settings)} "
+                                                                        f"({slot['note']}); Final Opportunity Score "
+                                                                        f"{final:.0f}"}]})
+    state.event("scheduled", f"{c['platform']}: “{c['meta']['title'][:60]}” planned for "
+                             f"{_label(planned_at, settings)}", ref_type="scheduled", ref_id=item["id"], final=final)
     return item
 
 
@@ -483,7 +489,7 @@ def reschedule(item_id: str, planned_at: float) -> dict:
     if status == "failed":  # a retry at a new time: still approved only if nothing changed since the approval
         status = "approved" if approval_valid({**item, "status": "approved"}) else "awaiting_approval"
     db.update("scheduled_publications", item_id, planned_at=planned_at, slot=slot, status=status,
-              audit=_audit(item, "rescheduled", f"Moved to {slot['local']} by you"))
+              audit=_audit(item, "rescheduled", f"Moved to {_label(planned_at, settings)} by you"))
     return db.fetch("scheduled_publications", item_id) or item
 
 

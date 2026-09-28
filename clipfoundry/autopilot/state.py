@@ -72,14 +72,18 @@ def events(limit: int = 100, ref_type: str = "", ref_id: str = "", kind: str = "
 
 # ------------------------------------------------------------------ action items (what the user needs to do)
 def action(key: str, kind: str, title: str, detail: str = "", fix: str = "", level: str = "action",
-           ref_type: str = "", ref_id: str = "") -> None:
-    """Open (or refresh) an action item. The same key is never listed twice."""
+           ref_type: str = "", ref_id: str = "", snooze_s: float = 0) -> None:
+    """Open (or refresh) an action item. The same key is never listed twice. With `snooze_s`, an item you dismissed
+    is not asked again for that long (for repeated questions, not for problems that must always be shown)."""
     now = time.time()
     with db.connect() as conn:
-        row = conn.execute("SELECT id, resolved_at FROM action_items WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT id, resolved_at, dismissed_at FROM action_items WHERE key = ?", (key,)).fetchone()
         if row:
+            if snooze_s and row["resolved_at"] is not None and row["dismissed_at"] and \
+                    now - row["dismissed_at"] < snooze_s:
+                return
             conn.execute("UPDATE action_items SET kind=?, level=?, title=?, detail=?, fix=?, ref_type=?, ref_id=?, "
-                         "updated_at=?, resolved_at=NULL WHERE key=?",
+                         "updated_at=?, resolved_at=NULL, dismissed_at=NULL WHERE key=?",
                          (kind, level, title, detail, fix, ref_type, ref_id, now, key))
             if row["resolved_at"] is None:
                 return
@@ -92,6 +96,12 @@ def action(key: str, kind: str, title: str, detail: str = "", fix: str = "", lev
 
 def resolve(key: str) -> None:
     db.execute("UPDATE action_items SET resolved_at = ? WHERE key = ? AND resolved_at IS NULL", (time.time(), key))
+
+
+def dismiss(key: str) -> None:
+    now = time.time()
+    db.execute("UPDATE action_items SET resolved_at = ?, dismissed_at = ? WHERE key = ? AND resolved_at IS NULL",
+               (now, now, key))
 
 
 def resolve_prefix(prefix: str) -> None:

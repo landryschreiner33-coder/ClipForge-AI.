@@ -314,7 +314,7 @@ def actions() -> list[dict]:
 
 @router.post("/actions/{key}/dismiss", dependencies=WRITE)
 def dismiss_action(key: str) -> dict:
-    state.resolve(key)
+    state.dismiss(key)
     return {"ok": True}
 
 

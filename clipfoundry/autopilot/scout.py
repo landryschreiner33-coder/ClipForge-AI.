@@ -312,6 +312,9 @@ def today_counts(settings: dict, now: float | None = None) -> dict:
             "busy": sum(1 for r in rows if r["status"] in ACTIVE_SOURCE)}
 
 
+RIGHTS_QUESTIONS = 5  # open rights questions at a time (the most promising sources)
+
+
 @handler("source_scout")
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
@@ -336,9 +339,15 @@ def source_scout(job: Job) -> dict:
                       components=sc["components"])
     job.check()
     picked = select_for_today(settings, now)
-    # Ask about rights only for the most promising sources (not every trending video)
-    for src in db.select("sources", "status = 'needs_rights'", (), "source_score DESC", 5):
+    # Ask about rights only for the most promising sources (not every trending video): the open questions are
+    # always the current top 5; the rest stay listed under Autopilot → Sources.
+    top = db.select("sources", "status = 'needs_rights'", (), "source_score DESC", RIGHTS_QUESTIONS)
+    for src in top:
         rights.request_confirmation(src)
+    asked = {f"rights:{s['id']}" for s in top}
+    for item in state.open_actions():
+        if item["key"].startswith("rights:") and item["key"] not in asked:
+            state.resolve(item["key"])
     return {"sources_new": created, "picked": [p["id"] for p in picked],
             "message": f"{created} new source(s); {len(picked)} sent to the Clip Hunter"}
 
@@ -371,7 +380,8 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         if not ok:
             db.update("sources", src["id"], status="needs_file", status_note=why)
             state.action(f"file:{src['id']}", "source_file", f"Add the video file for “{src['title'][:80]}”", why,
-                         "Autopilot → Sources → Add file.", ref_type="source", ref_id=src["id"])
+                         "Autopilot → Sources → Add file.", ref_type="source", ref_id=src["id"],
+                         snooze_s=rights.ASK_AGAIN_AFTER)
             continue
         db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter")
         queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
