@@ -22,7 +22,7 @@ from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
 from ..publish.common import PublishError, client
-from . import queue, quota, rights, state
+from . import gate, queue, quota, rights, state
 from .host import Job, handler
 from .scheduler import _audit, active_version_path, approval_valid, block_platform, blocked_until, tz
 
@@ -206,6 +206,15 @@ def publish(job: Job) -> dict:
         raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
     state.resolve(f"connect:{item['platform']}")
     video, version = active_version_path(clip)
+    if not item.get("publication_id"):  # an upload already under way is resumed, never re-judged halfway
+        try:
+            gate.verify_file(clip, video)  # the exact bytes that would be uploaded passed the final quality gate
+        except queue.Wait as w:
+            db.update("scheduled_publications", item["id"], status_note=w.message)
+            raise
+        except queue.Fail as exc:
+            _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
+            raise
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:

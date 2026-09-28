@@ -63,7 +63,7 @@ computer ClipFoundry runs on, so those tests would fail.
 | `tests/create.spec.ts` | CREATE CLIPS only enabled with a video or an http(s) URL, non-video files refused, options start from your saved defaults and changing them does not save anything |
 | `tests/projects.spec.ts` | Library matches the API, Delete asks first (the test says no), a project and a clip editor open, an unknown project shows an error |
 | `tests/autopilot.spec.ts` | Switch and STOP ALL JOBS reflect the real state, Overview cards, tabs and their addresses, Jobs list matches the queue |
-| `tests/publish-center.spec.ts` | Each view matches the queue, approval count, time zone and auto-publish note |
+| `tests/publish-center.spec.ts` | Each view matches the queue, approval count, time zone and auto-publish note, each post shows the final quality check of its file |
 | `tests/settings.spec.ts` | All sections, data folder, Save only after a change and nothing saved when you leave, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import providers, queue, quota, rights, scout, state
+from . import gate, providers, queue, quota, rights, scout, state
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -445,6 +445,7 @@ def _public_item(item: dict, settings: dict) -> dict:
             "trend": ({"topic": signal.get("topic"), "score": signal.get("score"), "mode": signal.get("score_mode")}
                       if signal else None),
             "clip_scores": db.fetch("clip_scores", item["clip_id"], "clip_id"),
+            "quality": gate.summary(gate.report_for(clip), item["platform"]) if clip else None,
             "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
                                           (item["clip_id"], item["platform"]), "score DESC"),
             "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
@@ -521,9 +522,9 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
         out = scheduler.approve(item_id, fields, creator)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    clip = db.get_clip(item["clip_id"]) or {}
-    warnings = packaging.validate({"title": out["title"], "caption": out["description"]},
-                                  clip.get("caption_text") or "")
+    clip = db.get_clip(item["clip_id"])
+    heard = " ".join(packaging.clip_sentences(clip)[0]) if clip else ""  # what is said in the file to be published
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard)
     return {**_public_item(out, db.get_settings()), "warnings": warnings}
 
 

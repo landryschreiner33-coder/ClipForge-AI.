@@ -37,6 +37,7 @@ WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "clip_hunter": ("Clip Hunter", ("hunt_source",)),
     "analyzer": ("Deep Clip Analyzer", ("analyze_source",)),
     "packager": ("Packaging AI", ("package_clip",)),
+    "quality_gate": ("Final Quality Gate", ("quality_check",)),
     "scheduler": ("Smart Scheduler", ("schedule_tick",)),
     "publisher": ("Publisher", ("publish",)),
     "learner": ("Learning Worker", ("learn",)),

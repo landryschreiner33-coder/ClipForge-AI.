@@ -40,12 +40,12 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Eleven-factor Viral Potential | `pipeline/virality.py` | verified (unit) | `test_virality` (17) | — | — |
 | Broad candidate pool, staged ranking, boundary optimization, diversity/dedupe | `pipeline/candidates.py`, `deep.py`, `diversity.py`, `fingerprint.py`, `autopilot/hunter.py` | verified (unit + slow end-to-end) | `test_autopilot_analysis` (11) | — | — |
 | Typed, versioned, validated **Clip Blueprint** persisted before rendering and consumed by the renderer | none | missing | — | `pipeline/blueprint.py`, table, renderer input, report unsupported effects | — |
-| Edit-decision time map (source → output) persisted; final transcript in output time | `render.Timeline`, `render._map_words` (in memory only) | partial | `test_core::keep_segments_and_timeline`, `test_editing::speed_shortens_the_timeline_and_keeps_order` | persist EDL + final transcript, use them for packaging and checks | — |
-| Artifact metadata: path, hash, duration, codecs, dimensions, effective settings, captions, final transcript, blueprint version | `render_info` (duration, encoder, fps, segments, edit_hash) | partial | source reviewed | sha256, ffprobe of the output, effective settings, file list | — |
+| Edit-decision time map (source → output) persisted; final transcript in output time | `pipeline/artifact.py` (`edit_decisions`, `final_words`, `record`), written by `render.render_clip` as `edl.json` + `transcript.final.json` | verified (local pipeline, synthetic video) | `test_artifact_quality::test_render_writes_the_artifact_record`, `test_final_transcript_keeps_only_what_is_heard` | multi-interval blueprint cuts (see blueprint row) | — |
+| Artifact metadata: path, hash, duration, codecs, dimensions, effective settings, captions, final transcript, blueprint version | `render_info["artifact"]` from `artifact.record` | verified (local pipeline) except blueprint version (field exists, `None` until the blueprint lands) | `test_render_writes_the_artifact_record` | fill `blueprint` | — |
 | Atomic artifact finalize | `render.render_clip` (`render.tmp.mp4` → `os.replace`) | verified (source reviewed) | — | — | — |
-| Packaging after render from the edited transcript; several options; ≤3 AI retries; grounded fallback or block | `autopilot/packaging.py`, `pipeline/postpack.py` | partial | `test_autopilot_packaging` (6) | a fallback that still has problems is selected and can be scheduled; packaging is not bound to the render it describes | — |
-| Independent final quality gate (decodable, streams, duration/dimensions, caption bounds, black/frozen frames, silence) bound to the artifact hash; only passing artifacts schedule/publish | none: scheduler accepts any clip with status `ready` | missing | source reviewed (`scheduler.candidates`, `publisher.publish`) | implement and wire into scheduler and publisher | — |
-| Material edits invalidate packaging, quality report and consent | `scheduler.approval_hash` (video path+size+mtime, text, privacy) | partial | `test_autopilot_scheduler::approval_rules_and_invalidation` | invalidate quality report and packaging on a new render | — |
+| Packaging after render from the edited transcript; several options; ≤3 AI retries; grounded fallback or block | `autopilot/packaging.py` (`clip_sentences` reads the final transcript of the active render; rows carry `artifact_sha256`), `pipeline/postpack.py` | verified (unit + local pipeline) | `test_autopilot_packaging` (6), `test_the_gate_decides_what_is_scheduled_and_uploaded` | a fallback with problems is still stored as selected, but the gate now marks that platform's text failed and it is not scheduled | — |
+| Independent final quality gate (decodable, streams, duration/dimensions, caption bounds, black/frozen frames, silence) bound to the artifact hash; only passing artifacts schedule/publish | `pipeline/quality.py` (media checks), `autopilot/gate.py` (`quality_check` job, `quality_reports` table, `schedulable`, `verify_file`), wired into `scheduler.candidates`, `scheduler.approve`, `publisher.publish`; Publish Center badge and check list | verified (local pipeline, synthetic media: clean, truncated, wrong size, black, frozen+silent, frozen+speech, muted speech, late captions, mid-word cuts) | `tests/test_artifact_quality.py` (10), `test_autopilot_publish::test_only_files_that_passed_the_final_quality_gate_are_uploaded`, e2e `publish-center.spec.ts` | semantic checks are estimates from the selection-time analysis; no LLM review | — |
+| Material edits invalidate packaging, quality report and consent | reports keyed by file (stamp + SHA-256); packaging rows keyed by artifact SHA-256 (stale → repackaged); `scheduler.approval_hash` for consent | verified (unit + local pipeline) | `test_the_gate_decides_what_is_scheduled_and_uploaded`, `approval_rules_and_invalidation` | — | — |
 
 ### Orchestration and resources
 
@@ -108,16 +108,16 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | --- | --- |
 | Create source → persist rights → enqueue job → transcript (imported fixture) → candidates → select → render MP4 | local pipeline verified (`test_autopilot_analysis::clip_hunter_and_analyzer_end_to_end`, synthetic espeak video, imported transcript) |
 | Persist blueprint before rendering | missing |
-| Package from the edited transcript | partial (source words inside the trimmed range; not bound to the render) |
-| Validate artifact and metadata (final quality gate) | missing |
+| Package from the edited transcript | verified (final transcript of the active render; rows bound to its SHA-256) |
+| Validate artifact and metadata (final quality gate) | verified (local pipeline, synthetic media; see `test_artifact_quality.py`) |
 | Persist publication intent, show in Publish Center | unit tested (`publish_center_api`) |
 | Restart → consistent state → export | partial (restart tests exist separately; not in one slice test) |
 
 ## Plan (highest priority first)
 
-1. [ ] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
+1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
    an ffprobe of the output with every render. Additive; manual renders unchanged otherwise.
-2. [ ] Final quality gate (`pipeline/quality.py`): technical checks on the actual MP4 plus metadata re-validation,
+2. [x] Final quality gate (`pipeline/quality.py`): technical checks on the actual MP4 plus metadata re-validation,
    stored in a report bound to the artifact hash; a `quality_check` job between render and packaging; scheduler
    and publisher require a passing report for the current artifact; blockers shown in the Publish Center.
 3. [ ] Clip Blueprint: typed model with validation, persisted per clip, built by the analyzer, consumed by the
@@ -136,6 +136,11 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | baseline | `pytest tests/test_autopilot_core.py::test_gpu_lock_is_shared_with_other_processes` ×6 | 6 passed |
 | baseline | `pytest -m slow` | 4 passed (404 s) |
 | fix | old vs new version of that test with a 2.5 s cold `status()` injected | old fails at the same assertion as the baseline failure; new passes |
+| artifact record | `pytest -m "not slow"` | 210 passed |
+| final quality gate | `pytest -m "not slow"` | 217 passed (136 s) |
+| final quality gate | `pytest -m slow` | 4 passed (414 s); the end-to-end Autopilot test now also runs the gate inside the worker host |
+| final quality gate | `npm run build` in `frontend/` (tsc + vite) | passes; the committed `dist/` was first rebuilt from unchanged source and came out byte-identical |
+| final quality gate | e2e suite (`e2e/`, 39 tests) against a scratch app seeded with one passing and one damaged Autopilot clip | 39 passed; screenshots of the Publish Center checked by eye |
 
 ## Checklist for the user's machine
 

@@ -46,3 +46,21 @@ test("an unknown view shows Upcoming", async ({ page }) => {
   await page.goto("/#/publish-center/no-such-view");
   await expect(page.locator(".page-head .segmented button.on")).toHaveText(/^Upcoming/);
 });
+
+test("each post shows the final quality check of its exact file", async ({ page, request }) => {
+  const data = await getJson(request, "/api/autopilot/scheduled?view=all");
+  test.skip(data.items.length === 0, "no scheduled posts in your queue");
+  const views = page.locator(".page-head .segmented");
+  for (const v of ["upcoming", "problems", "published", "history"]) {
+    const { items } = await getJson(request, `/api/autopilot/scheduled?view=${v}`);
+    if (!items.length) continue;
+    await views.getByRole("button", { name: new RegExp(`^${VIEWS.find((x) => x.slug === v)!.label}`) }).click();
+    for (const it of items.slice(0, 10)) {
+      const q = it.quality;
+      const expected = !q ? "Final check pending" : q.status === "failed" ? "Final check failed"
+        : q.text_status && q.text_status !== "passed" ? "Text needs a fix"
+        : q.warnings.length ? /^Final check: \d+ warnings?$/ : "Final check passed";
+      await expect(page.locator(`.qitem[data-id="${it.id}"] .badge`).filter({ hasText: /Final check|Text needs a fix/ })).toHaveText(expected);
+    }
+  }
+});

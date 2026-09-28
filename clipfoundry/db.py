@@ -480,6 +480,26 @@ CREATE TABLE IF NOT EXISTS quota_usage (
     last_at REAL,
     PRIMARY KEY (day, bucket, method, purpose)
 );
+CREATE TABLE IF NOT EXISTS quality_reports (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    version_id TEXT DEFAULT '',
+    artifact_path TEXT DEFAULT '',
+    artifact_sha256 TEXT NOT NULL,
+    file_stamp TEXT DEFAULT '',               -- size:mtime of the file, to find its report without hashing it
+    gate_version INTEGER DEFAULT 1,
+    status TEXT NOT NULL,                     -- passed failed
+    checks TEXT DEFAULT '[]',
+    blockers TEXT DEFAULT '[]',
+    warnings TEXT DEFAULT '[]',
+    bindings TEXT DEFAULT '{}',               -- final transcript, EDL, blueprint the file was rendered from
+    metadata TEXT DEFAULT '{}',               -- platform -> the packaging checked against this file
+    coverage TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quality_clip ON quality_reports(clip_id, file_stamp);
+CREATE INDEX IF NOT EXISTS idx_quality_sha ON quality_reports(artifact_sha256);
 CREATE TABLE IF NOT EXISTS api_cache (
     key TEXT PRIMARY KEY,
     method TEXT DEFAULT '',
@@ -516,6 +536,7 @@ JSON_FIELDS = {
     "learning_metrics": {"data"},
     "quota_usage": set(),
     "api_cache": set(),
+    "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -525,6 +546,7 @@ ADDED_COLUMNS = {
     "projects": {"origin": "TEXT DEFAULT 'manual'", "source_id": "TEXT DEFAULT ''"},
     "publications": {"scheduled_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
+    "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
 }
 
 

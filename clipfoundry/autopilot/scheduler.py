@@ -25,7 +25,7 @@ from pathlib import Path
 
 from .. import db
 from ..pipeline import artifact, fingerprint
-from . import learner, queue, rights, state
+from . import gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
 
@@ -213,8 +213,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
-            if not meta:
-                continue
+            if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
+                continue  # not packaged, or the final quality gate has not passed this file and text
             signal = db.fetch("trend_signals", (source or {}).get("signal_id") or "") if source and \
                 source.get("signal_id") else None
             urgency = (signal or {}).get("score") or 0.0
@@ -429,6 +429,10 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     updated = {**item, **{k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy",
                                                                      "options")}}
     check_platform(updated, creator)
+    rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
+    if rep and rep["status"] != "passed":  # not checked yet is fine: the publisher waits for the check
+        raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
+                         + "). Fix the clip and render it again before approving it.")
     now = _now()
     approval = {"at": now, "by": "you", "hash": approval_hash(updated)}
     db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",

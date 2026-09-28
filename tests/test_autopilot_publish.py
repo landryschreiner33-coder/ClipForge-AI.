@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from fake_platforms import FakeGoogle, FakeTikTok
+from quality_stub import passed_report
 
 H = {"X-ClipFoundry": "1"}
 
@@ -65,6 +66,7 @@ def make_item(tmp, platform: str = "youtube", size: int = 300_000, planned_in: f
                           output_path=str(video), duration=20.0, caption_text=text, score=72.0)
     db.insert("clip_fingerprints", {"clip_id": clip["id"], "text_sig": fingerprint.text_signature(text), "phash": [],
                                     "title_norm": "talk to customers first"}, key="clip_id")
+    passed_report(clip)
     item = db.insert("scheduled_publications", {
         "clip_id": clip["id"], "platform": platform, "title": "Talk to customers first, then build",
         "description": text if platform == "tiktok" else f"{text}\n\nFollow for more clips like this.",
@@ -220,6 +222,29 @@ def test_gates_before_every_upload(env):
         run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "blocked"
     assert not g.videos  # nothing was uploaded by any of these attempts
+
+
+def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.pipeline import artifact, quality
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, planned_in=60, approve={"options": {"made_for_kids": False}})
+    clip = db.get_clip(item["clip_id"])
+    db.execute("DELETE FROM quality_reports")  # these exact bytes were never checked
+    with pytest.raises(queue.Wait, match="Checking the final file"):
+        run_publish(item["id"])
+    assert queue.jobs(worker="quality_gate")  # the check was requested instead
+    path = clip["output_path"]
+    db.insert("quality_reports", {"clip_id": clip["id"], "artifact_path": path, "artifact_sha256":
+                                  artifact.sha256_file(path), "file_stamp": quality.file_stamp(path),
+                                  "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"]})
+    with pytest.raises(queue.Fail, match="did not pass"):
+        run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "blocked"
+    assert not g.videos  # nothing was uploaded
 
 
 def test_duplicates_and_quota(env):

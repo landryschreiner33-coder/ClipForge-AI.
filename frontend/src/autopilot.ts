@@ -251,6 +251,27 @@ export interface MetadataOption {
   selected: number;
 }
 
+export interface QualityCheck {
+  name: string;
+  label: string;
+  kind: "deterministic" | "heuristic";
+  status: "pass" | "warn" | "fail" | "skipped";
+  detail: string;
+}
+
+/** The final quality gate's report on the exact file (and this platform's text) that would be published. */
+export interface QualitySummary {
+  status: "passed" | "failed";
+  blockers: string[];
+  warnings: string[];
+  text_status: "passed" | "failed" | "missing" | null;
+  text_problems: string[];
+  checked_at: number;
+  sha256: string;
+  coverage: { note?: string; skipped?: string[] };
+  checks: QualityCheck[];
+}
+
 export interface ScheduledItem extends ScheduledItemRow {
   local_time: string;
   approval_valid: boolean;
@@ -259,6 +280,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   trend: { topic: string; score: number; mode: string } | null;
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];
+  quality: QualitySummary | null;
   publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any> } | null;
   warnings?: string[];
 }

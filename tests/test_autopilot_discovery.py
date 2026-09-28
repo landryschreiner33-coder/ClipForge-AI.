@@ -335,7 +335,7 @@ def test_autopilot_api(data, tmp_path):
         rules = c.get("/api/autopilot/rights").json()["rules"]
         assert {r["scope"] for r in rules} == {"channel", "folder"}
         assert c.get("/api/autopilot/quota").json()["buckets"]["search"]["budget"] == 100
-        assert len(c.get("/api/autopilot/workers").json()["workers"]) == 11
+        assert len(c.get("/api/autopilot/workers").json()["workers"]) == 12
         stop = c.post("/api/autopilot/stop-all", headers=H).json()
         assert stop["paused"] and stop["canceled"] >= 1  # the queued rights check and feed scan
         assert c.get("/api/autopilot/workers").json()["paused"]

@@ -47,3 +47,9 @@ def words_every(seconds: float, start: float = 0.2, step: float = 0.5, text: str
         t += step
         i += 1
     return out
+
+
+def words_from(text: str, start: float = 0.2, step: float = 0.4, length: float = 0.3) -> list[dict]:
+    """Timed words for a synthetic transcript of `text` (one word every `step` seconds)."""
+    return [{"w": w, "start": round(start + i * step, 3), "end": round(start + i * step + length, 3)}
+            for i, w in enumerate(text.split())]
