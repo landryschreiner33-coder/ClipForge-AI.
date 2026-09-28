@@ -279,18 +279,22 @@ def test_gpu_lock_serializes_heavy_work(data):
 def test_gpu_lock_is_shared_with_other_processes(data):
     from clipfoundry import gpu
 
-    code = ("import time;from clipfoundry import gpu\n"
+    # The other process holds the GPU until we close its stdin, so a slow first status() call cannot race it.
+    code = ("import sys;from clipfoundry import gpu\n"
             "with gpu.manager.heavy('transcription','other process'):\n"
-            "    print('held', flush=True); time.sleep(1.5)\n")
-    proc = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT, stdout=subprocess.PIPE, text=True,
-                            env={**os.environ, "CLIPFOUNDRY_DATA": str(data)})
+            "    print('held', flush=True); sys.stdin.readline()\n")
+    proc = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            text=True, env={**os.environ, "CLIPFOUNDRY_DATA": str(data)})
     assert proc.stdout.readline().strip() == "held"
     st = gpu.manager.status({"gpu_min_free_vram_mb": 1200})
     assert st["busy"] and st["holder"]["label"] == "other process"
     waited: list[str] = []
+    release = threading.Timer(1.0, proc.stdin.close)
+    release.start()
     t0 = time.monotonic()
     with gpu.manager.heavy("transcription", "me", on_wait=waited.append):
         took = time.monotonic() - t0
+    release.join()
     proc.wait(10)
     assert took > 0.5 and waited and "other process" in waited[0]
     assert not gpu.manager.status({})["busy"]
