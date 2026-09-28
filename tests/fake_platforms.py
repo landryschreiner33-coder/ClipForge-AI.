@@ -237,6 +237,9 @@ class FakeGoogle(_Server):
         wanted = s["meta"]["status"]["privacyStatus"]
         status = {"uploadStatus": "uploaded", "privacyStatus": "private" if self.lock_private else wanted,
                   "selfDeclaredMadeForKids": s["meta"]["status"]["selfDeclaredMadeForKids"]}
+        if s["meta"]["status"].get("publishAt"):
+            assert wanted == "private"  # YouTube only accepts publishAt on private videos
+            status["publishAt"] = s["meta"]["status"]["publishAt"]
         video = {"id": vid, "snippet": s["meta"]["snippet"], "status": status, "bytes": bytes(s["data"])}
         if self.default_statistics:
             video["statistics"] = dict(self.default_statistics)

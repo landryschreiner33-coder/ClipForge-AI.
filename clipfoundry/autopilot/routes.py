@@ -1,6 +1,7 @@
 """REST endpoints for Autopilot. State-changing calls only work from ClipFoundry's own page on this computer."""
 from __future__ import annotations
 
+import datetime as dt
 import time
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import providers, queue, quota, rights, state
+from . import providers, queue, quota, rights, scout, state
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -319,12 +320,17 @@ def dismiss_action(key: str) -> dict:
 
 @router.post("/stop-all", dependencies=WRITE)
 def stop_all() -> dict:
-    """STOP ALL JOBS: cancel queued work, stop running jobs at their next check, and hold everything until resumed."""
+    """STOP ALL JOBS: cancel queued work, stop running jobs at their next check, and hold everything until resumed.
+    Covers the autopilot workers and the app's own render and upload queues."""
+    from ..jobs import worker as render_worker
+    from ..publish.jobs import worker as upload_worker
+
     state.put("emergency_stop", True)
     out = queue.cancel_all()
+    manual = render_worker.cancel_all() + upload_worker.cancel_all()
     state.event("emergency_stop", f"STOP ALL JOBS: {out['canceled']} queued job(s) canceled, {out['stopping']} "
-                                  "running job(s) stopping", "warning")
-    return {**out, "paused": True}
+                                  f"running job(s) stopping, {manual} render/upload job(s) stopped", "warning")
+    return {**out, "manual": manual, "paused": True}
 
 
 @router.post("/resume", dependencies=WRITE)
@@ -332,3 +338,302 @@ def resume() -> dict:
     state.put("emergency_stop", False)
     state.event("resumed", "Jobs allowed again after STOP ALL JOBS")
     return {"paused": False}
+
+
+# ------------------------------------------------------------------ Autopilot on/off and the overview
+class EnableBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/enable", dependencies=WRITE)
+def enable(body: EnableBody) -> dict:
+    db.save_settings({"autopilot_enabled": body.enabled})
+    state.event("autopilot_on" if body.enabled else "autopilot_off",
+                "Autopilot turned on" if body.enabled else "Autopilot turned off (queued work waits)")
+    if body.enabled:
+        for kind in ("feed_scan", "trend_scan", "schedule_tick"):
+            _manual(kind)
+    return status()
+
+
+def _local_time(ts: float | None, settings: dict) -> str:
+    if not ts:
+        return ""
+    return dt.datetime.fromtimestamp(ts, scout.tz(settings)).strftime("%a %b %d, %H:%M")
+
+
+@router.get("/status", dependencies=READ)
+def status() -> dict:
+    """Everything the Autopilot dashboard shows."""
+    from ..publish.routes import _tiktok_state, _youtube_state
+    from .scout import local_day, today_counts, tz
+
+    settings = db.get_settings()
+    now = time.time()
+    day = local_day(settings, now)
+    zone = tz(settings)
+    start = dt.datetime.combine(dt.datetime.now(zone).date(), dt.time(0, 0), zone).timestamp()
+    end = start + 86400
+    rows = db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end))
+    published = {r["clip_id"] for r in rows if r["status"] == "published"}
+    scheduled = {r["clip_id"] for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing")}
+    processed = int(db.scalar("SELECT COUNT(*) FROM clips WHERE status = 'ready' AND created_at >= ? AND project_id IN "
+                              "(SELECT id FROM projects WHERE origin IN ('autopilot', 'live'))", (start,)) or 0)
+    nxt = db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval', 'publishing') AND "
+                                              "planned_at >= ?", (now - 600,), "planned_at", 1)
+    rights_counts = {r["rights_status"]: r["n"] for r in _count("sources", "rights_status", "status != 'skipped'")}
+    q = quota.status(settings)
+    return {
+        "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
+        "timezone": settings.get("autopilot_timezone"),
+        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), "published": len(published),
+                   "scheduled": len(scheduled - published), "processed": processed,
+                   "note": "A target, not a quota: quality, rights and platform limits come first."},
+        "sources_today": today_counts(settings, now), "sources_per_day": settings.get("autopilot_sources_per_day"),
+        "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
+        "queue": {"size": int(db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE status IN ('queued', 'retrying', "
+                                        "'waiting', 'running')") or 0), "by_worker": queue.counts()},
+        "workers": workers(), "gpu": gpu.manager.status(settings),
+        "platforms": {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)},
+        "rights": rights_counts, "quota": {"warnings": q["warnings"], "buckets": {k: {kk: v[kk] for kk in (
+            "label", "used", "budget", "remaining", "projected", "exhausted")} for k, v in q["buckets"].items()},
+            "resets_at": q["resets_at"], "discovery_paused": q["discovery_paused"]},
+        "actions": state.open_actions(), "events": state.events(25),
+        "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
+        "providers": state.get("providers", {}) or {},
+        "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
+    }
+
+
+def _count(table: str, column: str, where: str = "") -> list[dict]:
+    with db.connect() as conn:
+        rows = conn.execute(f"SELECT {column}, COUNT(*) AS n FROM {table}" + (f" WHERE {where}" if where else "")
+                            + f" GROUP BY {column}").fetchall()
+    return [dict(r) for r in rows]
+
+
+# ------------------------------------------------------------------ Publish Center
+VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'action_needed')",
+         "published": "status = 'published'",
+         "problems": "status IN ('failed', 'blocked', 'action_needed')",
+         "history": "status IN ('published', 'canceled', 'replaced', 'failed', 'blocked')",
+         "all": ""}
+
+
+def _public_item(item: dict, settings: dict) -> dict:
+    clip = db.get_clip(item["clip_id"]) or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", item.get("source_id") or project.get("source_id") or "") if (
+        item.get("source_id") or project.get("source_id")) else None
+    signal = db.fetch("trend_signals", source["signal_id"]) if source and source.get("signal_id") else None
+    pub = db.get_publication(item["publication_id"]) if item.get("publication_id") else None
+    version = clip.get("active_version") or ""
+    from .scheduler import approval_valid
+
+    return {**item, "local_time": _local_time(item.get("planned_at"), settings),
+            "approval_valid": approval_valid(item),
+            "clip": {"id": clip.get("id"), "title": clip.get("title"), "duration": clip.get("duration"),
+                     "score": clip.get("score"), "category": clip.get("category"), "status": clip.get("status"),
+                     "has_thumbnail": bool(clip.get("thumb_path")), "version_id": version,
+                     "video_url": f"/api/versions/{version}/video" if version else f"/api/clips/{clip.get('id')}/video",
+                     "thumbnail_url": f"/api/clips/{clip.get('id')}/thumbnail", "caption_text": clip.get("caption_text")},
+            "source": ({"id": source["id"], "title": source.get("title"), "url": source.get("url"),
+                        "platform": source.get("platform"), "channel": source.get("channel_title"),
+                        "rights_status": source.get("rights_status"),
+                        "rights_label": rights.LABELS.get(source.get("rights_status") or "", "")} if source else
+                       {"title": project.get("name"), "rights_status": "OWNED", "rights_label": "Manual project"}),
+            "trend": ({"topic": signal.get("topic"), "score": signal.get("score"), "mode": signal.get("score_mode")}
+                      if signal else None),
+            "clip_scores": db.fetch("clip_scores", item["clip_id"], "clip_id"),
+            "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
+                                          (item["clip_id"], item["platform"]), "score DESC"),
+            "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
+                                                     "message", "error", "fix", "info", "remote_id")} if pub else None)}
+
+
+@router.get("/scheduled", dependencies=READ)
+def scheduled_list(view: str = "upcoming", limit: int = 200) -> dict:
+    settings = db.get_settings()
+    where = VIEWS.get(view, VIEWS["upcoming"])
+    order = "planned_at IS NULL, planned_at ASC" if view == "upcoming" else "updated_at DESC"
+    items = [_public_item(i, settings) for i in db.select("scheduled_publications", where, (), order, min(500, limit))]
+    return {"items": items, "view": view, "timezone": settings.get("autopilot_timezone"),
+            "auto_publish": bool(settings.get("autopilot_auto_publish")),
+            "counts": {r["status"]: r["n"] for r in _count("scheduled_publications", "status")}}
+
+
+def _item_or_404(item_id: str) -> dict:
+    item = db.fetch("scheduled_publications", item_id)
+    if not item:
+        raise HTTPException(404, "Scheduled post not found")
+    return item
+
+
+class ApproveBody(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    privacy: str | None = None
+    made_for_kids: bool | None = None
+    mode: str | None = None
+    allow_comment: bool = False
+    allow_duet: bool = False
+    allow_stitch: bool = False
+    disclose: bool = False
+    brand_organic: bool = False
+    brand_content: bool = False
+    confirm: bool = False
+
+
+def _fields(item: dict, body: ApproveBody) -> dict:
+    fields: dict = {k: getattr(body, k) for k in ("title", "description", "tags", "privacy")
+                    if getattr(body, k) is not None}
+    opts = dict(item.get("options") or {})
+    if item["platform"] == "youtube":
+        if body.made_for_kids is not None:
+            opts["made_for_kids"] = body.made_for_kids
+    else:
+        opts.update({k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
+                                                   "brand_organic", "brand_content")})
+        if not body.disclose:
+            opts["brand_organic"] = opts["brand_content"] = False
+        if body.mode in ("direct", "inbox"):
+            opts["mode"] = body.mode
+    fields["options"] = opts
+    return fields
+
+
+@router.post("/scheduled/{item_id}/approve", dependencies=WRITE)
+def approve_item(item_id: str, body: ApproveBody) -> dict:
+    """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
+    from ..publish import tiktok
+    from ..publish.common import PublishError
+    from . import packaging, scheduler
+
+    if not body.confirm:
+        raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
+    item = _item_or_404(item_id)
+    fields = _fields(item, body)
+    creator = None
+    if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
+        creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
+    try:
+        out = scheduler.approve(item_id, fields, creator)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    clip = db.get_clip(item["clip_id"]) or {}
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]},
+                                  clip.get("caption_text") or "")
+    return {**_public_item(out, db.get_settings()), "warnings": warnings}
+
+
+class EditBody(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    privacy: str | None = None
+    metadata_id: str | None = None
+
+
+@router.patch("/scheduled/{item_id}", dependencies=WRITE)
+def edit_item(item_id: str, body: EditBody) -> dict:
+    from . import packaging, scheduler
+
+    item = _item_or_404(item_id)
+    fields = {k: getattr(body, k) for k in ("title", "description", "tags", "privacy") if getattr(body, k) is not None}
+    if body.metadata_id:  # use another packaging candidate
+        meta = db.fetch("metadata_candidates", body.metadata_id)
+        if not meta or meta["clip_id"] != item["clip_id"] or meta["platform"] != item["platform"]:
+            raise HTTPException(400, "That text option belongs to another clip or platform")
+        fields.update(title=meta["title"], description=meta["description"] if item["platform"] == "youtube" else
+                      meta["caption"], tags=meta["tags"] if item["platform"] == "youtube" else meta["hashtags"])
+        db.update("scheduled_publications", item_id, metadata_id=meta["id"])
+    try:
+        out = scheduler.edit(item_id, fields)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    clip = db.get_clip(item["clip_id"]) or {}
+    return {**_public_item(out, db.get_settings()),
+            "warnings": packaging.validate({"title": out["title"], "caption": out["description"]},
+                                           clip.get("caption_text") or "")}
+
+
+class RescheduleBody(BaseModel):
+    planned_at: float
+
+
+@router.post("/scheduled/{item_id}/reschedule", dependencies=WRITE)
+def reschedule_item(item_id: str, body: RescheduleBody) -> dict:
+    from . import scheduler
+
+    _item_or_404(item_id)
+    if body.planned_at < time.time() + 60:
+        raise HTTPException(400, "Choose a time in the future")
+    try:
+        return _public_item(scheduler.reschedule(item_id, body.planned_at), db.get_settings())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/scheduled/{item_id}/cancel", dependencies=WRITE)
+def cancel_item(item_id: str) -> dict:
+    from . import scheduler
+
+    _item_or_404(item_id)
+    try:
+        return _public_item(scheduler.cancel(item_id), db.get_settings())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/scheduled/{item_id}/retry", dependencies=WRITE)
+def retry_item(item_id: str) -> dict:
+    """Try a failed or blocked post again (with a new time). It needs a valid approval to go out."""
+    from .scheduler import _audit, approval_valid
+
+    item = _item_or_404(item_id)
+    if item["status"] not in ("failed", "blocked", "action_needed", "canceled"):
+        raise HTTPException(409, "Only failed, blocked or canceled posts can be retried")
+    valid = approval_valid({**item, "status": "approved"})
+    db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
+              planned_at=None, last_error="", fix="", publication_id="",
+              status_note="Retrying: a new time will be chosen" if valid else "Approve it again to publish it",
+              audit=_audit(item, "retry", "Retry requested by you"))
+    state.resolve(f"review:{item_id}")
+    _manual("schedule_tick")
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+@router.post("/scheduled/{item_id}/publish-now", dependencies=WRITE)
+def publish_now(item_id: str) -> dict:
+    from .scheduler import _audit, approval_valid
+
+    item = _item_or_404(item_id)
+    if not approval_valid({**item, "status": "approved"}) or item["status"] not in ("approved",):
+        raise HTTPException(409, "Approve the post first")
+    db.update("scheduled_publications", item_id, planned_at=time.time() + 30, status="publishing",
+              status_note="Publishing now (started by you)", audit=_audit(item, "publish_now", "Publish now: by you"))
+    queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}", priority=MANUAL_PRIORITY,
+                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600)
+    state.resolve(f"publish:{item_id}")
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+class UrlBody(BaseModel):
+    url: str
+
+
+@router.post("/scheduled/{item_id}/link", dependencies=WRITE)
+def link_inbox_post(item_id: str, body: UrlBody) -> dict:
+    """After finishing a TikTok inbox draft in the app: link the post (its URL) to read its real statistics."""
+    from ..publish.routes import LinkBody, link_tiktok_post
+    from .scheduler import _audit
+
+    item = _item_or_404(item_id)
+    if not item.get("publication_id"):
+        raise HTTPException(400, "Nothing was uploaded for this post yet")
+    link_tiktok_post(item["publication_id"], LinkBody(url=body.url))
+    db.update("scheduled_publications", item_id, status="published", status_note="Posted from the TikTok app",
+              audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
+    state.resolve(f"inbox:{item_id}")
+    return _public_item(_item_or_404(item_id), db.get_settings())

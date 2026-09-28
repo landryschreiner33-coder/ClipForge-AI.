@@ -42,14 +42,35 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
     token = youtube.Token(settings)
     opts = pub.get("options") or {}
+    publish_at = opts.get("publish_at") if (opts.get("publish_at") or 0) > time.time() + 300 else None
     body = youtube.video_body(pub["title"], pub["description"], pub.get("tags") or [], pub["requested_privacy"],
-                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22")
+                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22",
+                              publish_at)
     db.update_publication(pub["id"], status="uploading", progress=0, message="Uploading to YouTube")
-    video = youtube.upload(pub["video_path"], body, token, _progress_writer(pub["id"]), cancelled)
+
+    def remember(session: str) -> None:  # lets an interrupted upload resume instead of uploading twice
+        current = db.get_publication(pub["id"]) or pub
+        db.update_publication(pub["id"], info={**(current.get("info") or {}), "upload_session": session,
+                                               "session_started": time.time()})
+
+    video = youtube.upload(pub["video_path"], body, token, _progress_writer(pub["id"]), cancelled,
+                           on_session=remember, resume_session=(pub.get("info") or {}).get("upload_session", ""))
     vid = video.get("id", "")
     st = video.get("status") or {}
     privacy = st.get("privacyStatus") or pub["requested_privacy"]
     wanted = pub["requested_privacy"]
+    info = {**((db.get_publication(pub["id"]) or pub).get("info") or {}), "studio_url": youtube.studio_url(vid),
+            "upload_status": st.get("uploadStatus", "")}
+    if publish_at and st.get("publishAt"):
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(publish_at))
+        message = (f"Uploaded as Private and scheduled: YouTube makes it public at {when}.")
+        if not settings.get("youtube_project_verified"):
+            message += (" Your API project is not marked as audited: YouTube may keep it Private at that time. "
+                        "Check it with Refresh status after the scheduled time.")
+        db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
+                              privacy="private", message=message,
+                              info={**info, "publish_at": publish_at, "scheduled": True, "locked_private": False})
+        return
     locked = wanted != "private" and privacy == "private"
     if locked:
         message = f"Uploaded, but YouTube set it to Private instead of {wanted.capitalize()}. {youtube.UNVERIFIED_NOTE}"
@@ -60,9 +81,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
             message += (" Your API project is not marked as audited, so YouTube may still lock it to Private: "
                         "use Refresh status or check YouTube Studio.")
     db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
-                          privacy=privacy, message=message,
-                          info={"studio_url": youtube.studio_url(vid), "upload_status": st.get("uploadStatus", ""),
-                                "locked_private": locked})
+                          privacy=privacy, message=message, info={**info, "locked_private": locked})
 
 
 def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
@@ -131,11 +150,19 @@ def refresh(pub: dict) -> dict:
         if not st["exists"]:
             db.update_publication(pub["id"], info=info, message="This video no longer exists on YouTube.")
         else:
-            locked = pub["requested_privacy"] != "private" and st["privacy"] == "private"
+            old = pub.get("info") or {}
+            waiting = old.get("scheduled") and st["privacy"] == "private" and time.time() < float(
+                old.get("publish_at") or 0) + 600
+            locked = pub["requested_privacy"] != "private" and st["privacy"] == "private" and not waiting
             msg = pub.get("message", "")
-            if locked and not (pub.get("info") or {}).get("locked_private"):
-                msg = f"YouTube set this video to Private. {youtube.UNVERIFIED_NOTE}"
-            info["locked_private"] = locked or (pub.get("info") or {}).get("locked_private", False)
+            if waiting:
+                msg = "Scheduled: YouTube makes it public at " + time.strftime(
+                    "%Y-%m-%d %H:%M UTC", time.gmtime(float(old["publish_at"]))) + "."
+            elif locked and not old.get("locked_private"):
+                msg = f"YouTube kept this video Private. {youtube.UNVERIFIED_NOTE}"
+            elif old.get("scheduled") and st["privacy"] == "public":
+                msg = "Published: YouTube made it public at its scheduled time."
+            info["locked_private"] = locked or (old.get("locked_private", False) and st["privacy"] == "private")
             db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg)
     if pub["platform"] == "tiktok" and pub.get("remote_id") and pub["status"] in ("processing", "action_needed"):
         token = tiktok.Token(db.get_settings())
@@ -167,6 +194,23 @@ class PublishWorker:
 
     def cancel(self, pub_id: str) -> None:
         self.cancelled.add(pub_id)
+
+    def cancel_all(self) -> int:
+        """STOP ALL JOBS: queued uploads are canceled, the running one stops at its next chunk."""
+        n = 0
+        while True:
+            try:
+                pub_id = self.q.get_nowait()
+            except queue.Empty:
+                break
+            self.cancelled.add(pub_id)
+            db.update_publication(pub_id, status="cancelled", message="Stopped with STOP ALL JOBS")
+            self.q.task_done()
+            n += 1
+        if self.current:
+            self.cancelled.add(self.current)
+            n += 1
+        return n
 
     def _loop(self) -> None:
         while True:

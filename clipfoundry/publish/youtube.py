@@ -223,8 +223,11 @@ def _clean(text: str) -> str:
 
 
 def video_body(title: str, description: str, tags: list[str], privacy: str, made_for_kids: bool,
-               category_id: str = "22") -> dict:
-    """snippet + status for videos.insert, validated against YouTube's limits."""
+               category_id: str = "22", publish_at: float | None = None) -> dict:
+    """snippet + status for videos.insert, validated against YouTube's limits.
+
+    With `publish_at` (a public post planned for later), the video is uploaded as private with status.publishAt and
+    YouTube itself makes it public at that time, even if this computer is off."""
     title = _clean(title)
     if not title:
         raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
@@ -242,21 +245,40 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
         if t and t not in clean_tags and total + cost <= 480:
             clean_tags.append(t)
             total += cost
+    status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids), "embeddable": True}
+    if publish_at and privacy == "public":
+        import datetime as dt
+
+        status["privacyStatus"] = "private"  # YouTube requires private + publishAt for scheduled publishing
+        status["publishAt"] = dt.datetime.fromtimestamp(publish_at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     return {"snippet": {"title": title, "description": description, "tags": clean_tags,
-                        "categoryId": str(category_id or "22")},
-            "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids),
-                       "embeddable": True}}
+                        "categoryId": str(category_id or "22")}, "status": status}
 
 
 # ------------------------------------------------------------------ upload
 def upload(path: str, body: dict, token: Token, progress: Callable[[float], None] | None = None,
-           cancelled: Callable[[], bool] = lambda: False, sleep: Callable[[float], None] = time.sleep) -> dict:
-    """Resumable upload. Returns the created video resource (id, snippet, status)."""
+           cancelled: Callable[[], bool] = lambda: False, sleep: Callable[[float], None] = time.sleep,
+           on_session: Callable[[str], None] | None = None, resume_session: str = "") -> dict:
+    """Resumable upload. Returns the created video resource (id, snippet, status).
+
+    `on_session` receives the upload session URL as soon as it exists (store it: an interrupted upload can then be
+    resumed with `resume_session` instead of uploading the video a second time)."""
     size = os.path.getsize(path)
     report = progress or (lambda f: None)
     with client(120) as c:
-        session = _start_session(c, body, size, token)
         offset, failures = 0, 0
+        session = ""
+        if resume_session:
+            offset, done = _resume_offset(c, resume_session, size, token)
+            if done is not None:
+                report(1.0)
+                return done
+            session = resume_session if offset >= 0 else ""
+            offset = max(0, offset)
+        if not session:
+            session = _start_session(c, body, size, token)
+            if on_session:
+                on_session(session)
         with open(path, "rb") as fh:
             while True:
                 if cancelled():
@@ -291,6 +313,8 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                     return done
                 if offset < 0:  # the upload session expired: start over
                     session, offset = _start_session(c, body, size, token), 0
+                    if on_session:
+                        on_session(session)
 
 
 @network_errors("YouTube")

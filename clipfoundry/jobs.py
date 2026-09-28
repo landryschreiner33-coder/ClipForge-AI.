@@ -50,6 +50,22 @@ class Worker:
     def cancel(self, key: str) -> None:
         self.cancelled.add(key)
 
+    def cancel_all(self) -> int:
+        """STOP ALL JOBS: cancel everything queued and the running job (at its next check)."""
+        keys = []
+        while True:
+            try:
+                kind, key, extra = self.q.get_nowait()
+            except queue.Empty:
+                break
+            keys.append(key)
+            self._mark_cancelled(kind, key)
+            self.q.task_done()
+        if self.current:
+            self.cancelled.add(self.current)
+            keys.append(self.current)
+        return len(keys)
+
     def resume(self, work: dict) -> dict:
         """Continue what was queued or running when the app stopped (cached audio and transcripts are reused).
 

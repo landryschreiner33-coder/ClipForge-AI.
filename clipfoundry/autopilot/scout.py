@@ -16,8 +16,7 @@ from zoneinfo import ZoneInfo
 from .. import db
 from ..publish.common import PublishError
 from . import providers, quota, rights, state, trends
-from .handlers import MAINTENANCE_STEPS
-from .host import PERIOD_ADJUST, Job, handler
+from .host import MAINTENANCE_STEPS, PERIOD_ADJUST, Job, handler
 from . import queue  # noqa: E402 - after host (registration order does not matter)
 
 MIN_SOURCE_SECONDS = 240          # shorter videos rarely contain several standalone moments

@@ -5,7 +5,7 @@ import time
 
 from .. import db
 from . import queue, state
-from .host import Job, handler
+from .host import MAINTENANCE_STEPS, Job, handler
 
 KEEP_JOB_DAYS = 30
 KEEP_EVENT_DAYS = 90
@@ -30,8 +30,6 @@ def maintenance(job: Job) -> dict:
     return {**result, "message": "Maintenance done"}
 
 
-MAINTENANCE_STEPS: list = []  # later modules add retention steps (e.g. the 30-day YouTube data rule)
-
 
 @handler("selftest")
 def selftest(job: Job) -> dict:
@@ -53,4 +51,4 @@ def selftest(job: Job) -> dict:
 
 
 # Worker modules register their handlers (and maintenance steps) on import.
-from . import hunter, live, packaging, scheduler, scout  # noqa: E402,F401
+from . import hunter, live, packaging, publisher, scheduler, scout  # noqa: E402,F401

@@ -26,6 +26,7 @@ APP_HEARTBEAT_STALE = 60.0     # a managed worker process exits when the app sto
 
 Handler = Callable[["Job"], "dict | None"]
 HANDLERS: dict[str, Handler] = {}
+MAINTENANCE_STEPS: list[Callable[["Job"], "dict | None"]] = []  # e.g. the 30-day YouTube data rule (scout.py)
 
 
 def handler(kind: str) -> Callable[[Handler], Handler]:
