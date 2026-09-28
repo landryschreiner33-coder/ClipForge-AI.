@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import db, gpu
@@ -35,12 +36,39 @@ def _options(project: dict, settings: dict) -> dict:
     return opts
 
 
-def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> None:
-    """Process a project. `gpu_policy` (autopilot) can make transcription wait for free GPU memory:
+@dataclass
+class Prepared:
+    """Everything the later stages need once a project's video has been read and transcribed."""
+    project: dict
+    settings: dict
+    opts: dict
+    pdir: Path
+    meta: dict
+    info: dict
+    words: list[dict]
+    sentences: list[dict]
+    loud: Loudness
+    t_start: float = field(default_factory=time.time)
+
+    @property
+    def id(self) -> str:
+        return self.project["id"]
+
+    def stage(self, name: str, frac: float, msg: str) -> None:
+        db.update_project(self.id, stage=name, progress=round(frac, 4), message=msg)
+
+    def save_info(self) -> None:
+        db.update_project(self.id, info=self.info)
+
+
+def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> Prepared | None:
+    """Stages 1-3: read the video, extract the audio, transcribe (or import) the speech, measure loudness.
+
+    `gpu_policy` (autopilot) can make transcription wait for free GPU memory:
     {"need_free_mb": int, "max_wait_s": float, "job_id": str}."""
     project = db.get_project(project_id)
     if not project:
-        return
+        return None
     settings = db.get_settings()
     opts = _options(project, settings)
     pdir = project_dir(project)
@@ -107,72 +135,122 @@ def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None
     info["language"] = transcript.get("language", "")
     info["word_count"] = len(words)
     ctx.check()
-
-    # ---- 4. stage 1 candidates
-    stage("candidates", P_TRANSCRIBE, "Finding the best moments")
     env_path = pdir / "loudness.json"
     env = read_json(env_path, None)
     if not env:
         env = loudness_envelope(wav)
         write_json(env_path, env)
-    loud = Loudness(env)
-    sentences = build_sentences(words)
-    pool = min(24, max(opts["clip_count"] * 2 + 2, 8))
-    if sentences:
-        cands = cand_mod.find_candidates(words, sentences, loud, opts, pool_size=pool)
+    return Prepared(project, settings, opts, pdir, meta, info, words, build_sentences(words), Loudness(env), t_start)
+
+
+def load_prepared(project_id: str) -> Prepared | None:
+    """The result of `prepare` rebuilt from the files it wrote (no decoding, no transcription)."""
+    project = db.get_project(project_id)
+    if not project:
+        return None
+    pdir = project_dir(project)
+    transcript = read_json(pdir / "transcript.json", None)
+    env = read_json(pdir / "loudness.json", None)
+    if transcript is None or env is None:
+        return None
+    settings = db.get_settings()
+    words = transcribe.flatten_words(transcript)
+    info = project.get("info") or {}
+    meta = {k: info.get(k, project.get(k)) for k in ("duration", "width", "height", "fps", "has_audio", "has_video")}
+    return Prepared(project, settings, _options(project, settings), pdir, meta, info, words, build_sentences(words),
+                    Loudness(env))
+
+
+def candidate_pool(p: Prepared, ctx: JobContext) -> list[dict]:
+    """Stage 4: cheap scoring of every sentence-aligned window; the best distinct ones form the pool."""
+    p.stage("candidates", P_TRANSCRIBE, "Finding the best moments")
+    pool = int(p.opts.get("pool_size") or 0) or min(24, max(p.opts["clip_count"] * 2 + 2, 8))
+    if p.sentences:
+        overlap = 0.5 if p.opts.get("deep_analysis") else 0.15  # a broad pool; overlaps are resolved later
+        cands = cand_mod.find_candidates(p.words, p.sentences, p.loud, p.opts, pool_size=pool, max_overlap=overlap)
     else:
-        cands = cand_mod.fallback_windows(loud, meta["duration"], opts, pool)
-    write_json(pdir / "candidates.json", [{k: v for k, v in c.items() if k != "tf"} for c in cands])
+        cands = cand_mod.fallback_windows(p.loud, p.meta["duration"], p.opts, pool)
+    for k, c in enumerate(cands):
+        c["cid"] = k
+    write_json(p.pdir / "candidates.json", [{k: v for k, v in c.items() if k != "tf"} for c in cands])
+    p.info["candidates_found"] = len(cands)
     ctx.check()
+    return cands
 
-    # ---- 5. stage 2 evaluation
-    stage("scoring", P_ANALYZE, "Scoring candidates")
-    results, notes = scoring.evaluate(cands, sentences, opts, ctx, project["name"], P_ANALYZE, P_SCORE,
-                                      words=words, loud=loud)
-    min_score = float(opts.get("min_score", 50))
-    chosen = scoring.select(results, opts["clip_count"], min_score)
-    info["stage2"] = notes
-    info["candidates_found"] = len(cands)
-    info["quality"] = scoring.quality_report(results, chosen, opts["clip_count"], min_score)
-    db.update_project(project_id, info=info)
 
-    # ---- 6. create clips, each with its post package (titles, captions, hashtags... from its own words)
-    db.delete_clips(project_id)
-    clip_rows = []
-    df = scoring.document_frequencies(sentences)
+def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywords: list[str] | None = None,
+                    prior: list[dict] | None = None) -> list[dict]:
+    """Stage 5: evaluate the pool and choose the clips (quality first; never padded with weak ones)."""
+    p.stage("scoring", P_ANALYZE, "Scoring candidates")
+    min_score = float(p.opts.get("min_score", 50))
+    if p.opts.get("deep_analysis"):
+        from . import deep
+
+        chosen, results, notes = deep.evaluate_select(
+            p.sentences, p.words, p.loud, p.opts, ctx, p.project["name"], cands,
+            video_path=p.project.get("source_path", ""), meta=p.meta, lo=P_ANALYZE, hi=P_SCORE,
+            trend_keywords=trend_keywords, prior=prior)
+        report = scoring.quality_report(results, chosen, p.opts["clip_count"], min_score)
+        report["rejected"] = notes.pop("rejected", [])[:12] or report["rejected"]
+        report["stages"] = notes.get("stages", {})
+        p.info["candidates"] = notes.pop("candidates", [])
+    else:
+        results, notes = scoring.evaluate(cands, p.sentences, p.opts, ctx, p.project["name"], P_ANALYZE, P_SCORE,
+                                          words=p.words, loud=p.loud)
+        chosen = scoring.select(results, p.opts["clip_count"], min_score)
+        report = scoring.quality_report(results, chosen, p.opts["clip_count"], min_score)
+    p.info["stage2"] = notes
+    p.info["quality"] = report
+    p.save_info()
+    return chosen
+
+
+def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext) -> list[dict]:
+    """Stage 6: one clip per chosen moment, each with its post package written from its own words."""
+    db.delete_clips(p.id)
+    rows = []
+    df = scoring.document_frequencies(p.sentences)
     for rank, r in enumerate(chosen):
         ctx.check()
-        if r["s0"] >= 0:
-            start, end = cand_mod.refine_bounds(r, sentences, meta["duration"])
+        if r.get("bounds"):
+            start, end = r["bounds"]["start"], r["bounds"]["end"]
+        elif r["s0"] >= 0:
+            start, end = cand_mod.refine_bounds(r, p.sentences, p.meta["duration"])
         else:
             start, end = r["start"], r["end"]
         ctx.progress(P_SCORE, f"Writing post package {rank + 1} of {len(chosen)}")
-        sents = [sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
-        post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], opts, df, max(1, len(sentences)))
-        clip_rows.append(db.create_clip(
-            project_id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
+        sents = [p.sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
+        post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], p.opts, df,
+                                 max(1, len(p.sentences)))
+        rows.append(db.create_clip(
+            p.id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
             reason=r["reason"], analysis=virality.summary(r["analysis"]), post=post, edit={}, status="queued",
             duration=round(end - start, 2),
         ))
+    return rows
 
-    # ---- 7. render
-    project = db.get_project(project_id) or project
-    project["dir"] = str(pdir)
+
+def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float = P_SCORE,
+                 hi_total: float = P_RENDER) -> None:
+    """Stage 7: render every clip; one failed render does not stop the others."""
+    project = db.get_project(p.id) or p.project
+    project["dir"] = str(p.pdir)
+    ctx_report = ctx._report  # noqa: SLF001
     n = max(1, len(clip_rows))
     for i, clip in enumerate(clip_rows):
         ctx.check()
-        lo = P_SCORE + (P_RENDER - P_SCORE) * i / n
-        hi = P_SCORE + (P_RENDER - P_SCORE) * (i + 1) / n
+        a = lo + (hi_total - lo) * i / n
+        b = lo + (hi_total - lo) * (i + 1) / n
         msg = f"Rendering clip {i + 1} of {len(clip_rows)}"
-        stage("render", lo, msg)
+        p.stage("render", a, msg)
         db.update_clip(clip["id"], status="rendering", progress=0)
-        sub = JobContext(lambda f, m, lo=lo, hi=hi, cid=clip["id"], msg=msg: (
-            ctx_report(lo + (hi - lo) * f, msg), db.update_clip(cid, progress=round(f, 3))),
+        sub = JobContext(lambda f, m, a=a, b=b, cid=clip["id"], msg=msg: (
+            ctx_report(a + (b - a) * f, msg), db.update_clip(cid, progress=round(f, 3))),
             ctx.cancelled)
         try:
-            out = render.render_clip(project, clip, words, settings, sub)
+            out = render.render_clip(project, clip, p.words, p.settings, sub)
             db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
         except Cancelled:
             db.update_clip(clip["id"], status="error", error="Cancelled")
@@ -180,8 +258,19 @@ def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None
         except Exception as exc:  # keep going with the other clips
             log.exception("render failed")
             db.update_clip(clip["id"], status="error", error=str(exc)[:500])
-    info["processing_seconds"] = round(time.time() - t_start, 1)
-    db.update_project(project_id, info=info)
+
+
+def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> None:
+    """The whole pipeline for one project (manual projects and the CLI)."""
+    p = prepare(project_id, ctx, gpu_policy)
+    if not p:
+        return
+    cands = candidate_pool(p, ctx)
+    chosen = evaluate_select(p, cands, ctx)
+    rows = create_clips(p, chosen, ctx)
+    render_clips(p, rows, ctx)
+    p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
+    p.save_info()
 
 
 def render_single(clip_id: str, ctx: JobContext) -> None:

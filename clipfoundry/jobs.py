@@ -158,43 +158,47 @@ class Worker:
             self.cancelled.discard(version_id)
 
     def _download(self, project_id: str, url: str, ctx: JobContext) -> None:
-        """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention."""
-        try:
-            import yt_dlp
-        except ImportError as exc:
-            raise RuntimeError("URL import needs yt-dlp (pip install yt-dlp)") from exc
-        project = db.get_project(project_id)
-        assert project
-        pdir = Path(project["source_path"]).parent
-        db.update_project(project_id, stage="download", message="Downloading video")
+        download_url(project_id, url, ctx)
 
-        def hook(d: dict) -> None:
-            if ctx.cancelled():
-                raise Cancelled()
-            if d.get("status") == "downloading" and d.get("total_bytes"):
-                db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
-                                  message=f"Downloading {d.get('_percent_str', '').strip()}")
 
-        ydl_opts = {
-            "outtmpl": str(pdir / "source.%(ext)s"),
-            "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
-            "merge_output_format": "mp4",
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "progress_hooks": [hook],
-            "allow_unplayable_formats": False,  # never touch DRM-protected formats
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            meta = ydl.extract_info(url, download=True)
-            path = Path(ydl.prepare_filename(meta))
-        if not path.exists():
-            candidates = sorted(pdir.glob("source.*"))
-            if not candidates:
-                raise RuntimeError("Download finished but no video file was found")
-            path = candidates[0]
-        name = (meta or {}).get("title") or project["name"]
-        db.update_project(project_id, source_path=str(path), source_filename=path.name, name=name[:120])
+def download_url(project_id: str, url: str, ctx: JobContext) -> None:
+    """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention."""
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise RuntimeError("URL import needs yt-dlp (pip install yt-dlp)") from exc
+    project = db.get_project(project_id)
+    assert project
+    pdir = Path(project["source_path"]).parent
+    db.update_project(project_id, stage="download", message="Downloading video")
+
+    def hook(d: dict) -> None:
+        if ctx.cancelled():
+            raise Cancelled()
+        if d.get("status") == "downloading" and d.get("total_bytes"):
+            db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
+                              message=f"Downloading {d.get('_percent_str', '').strip()}")
+
+    ydl_opts = {
+        "outtmpl": str(pdir / "source.%(ext)s"),
+        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "progress_hooks": [hook],
+        "allow_unplayable_formats": False,  # never touch DRM-protected formats
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        meta = ydl.extract_info(url, download=True)
+        path = Path(ydl.prepare_filename(meta))
+    if not path.exists():
+        candidates = sorted(pdir.glob("source.*"))
+        if not candidates:
+            raise RuntimeError("Download finished but no video file was found")
+        path = candidates[0]
+    name = (meta or {}).get("title") or project["name"]
+    db.update_project(project_id, source_path=str(path), source_filename=path.name, name=name[:120])
 
 
 worker = Worker()

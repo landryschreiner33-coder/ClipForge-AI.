@@ -162,7 +162,9 @@ def _overlap(a: dict, b: dict) -> float:
 
 
 def find_candidates(words: list[dict], sentences: list[dict], loud: Loudness, opts: dict,
-                    pool_size: int = 12) -> list[dict]:
+                    pool_size: int = 12, max_overlap: float = 0.15) -> list[dict]:
+    """The best distinct windows. A broad pool for staged analysis allows partly overlapping windows
+    (`max_overlap` > 0.15); the final selection removes overlaps."""
     if not sentences:
         return []
     feats = sentence_features(sentences, words)
@@ -209,9 +211,21 @@ def find_candidates(words: list[dict], sentences: list[dict], loud: Loudness, op
                "promo": sum(f["promo"] for f in feats)}
         windows.append(_window_scores(sentences, feats, 0, len(sentences) - 1, agg, loud, local))
 
-    # Topic relevance for the strongest windows only (bag-of-words cosine vs the whole video).
+    # Topic relevance for the strongest windows only (bag-of-words cosine vs the whole video). The shortlist is
+    # spread over the video (a window almost identical to a stronger one is skipped), so long videos are not
+    # represented by a few regions only.
     windows.sort(key=lambda w: w["stage1"], reverse=True)
-    top = windows[:400]
+    top: list[dict] = []
+    near: dict[int, list[dict]] = {}  # kept windows by 10-second bucket of their start
+    reach = int(max_d // 10) + 1
+    for w in windows:
+        if len(top) >= 600:
+            break
+        b = int(w["start"] // 10)
+        if any(_overlap(w, t) > 0.85 for k in range(b - reach, b + reach + 1) for t in near.get(k, ())):
+            continue
+        top.append(w)
+        near.setdefault(b, []).append(w)
     global_tf = Counter()
     for s in sentences:
         global_tf.update(content_tokens(s["text"]))
@@ -232,9 +246,9 @@ def find_candidates(words: list[dict], sentences: list[dict], loud: Loudness, op
     for w in top:
         if len(picked) >= pool_size:
             break
-        if any(_overlap(w, p) > 0.15 for p in picked):
+        if any(_overlap(w, p) > max_overlap for p in picked):
             continue
-        if any(cosine(w["tf"], p["tf"]) > 0.8 for p in picked):
+        if any(cosine(w["tf"], p["tf"]) > max(0.8, max_overlap + 0.3) for p in picked):
             continue
         picked.append(w)
     for w in picked:
