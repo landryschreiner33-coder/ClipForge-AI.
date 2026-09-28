@@ -275,6 +275,30 @@ details summary { cursor: pointer; color: var(--text-2); }
 .setup code { background: var(--bg-2); padding: 1px 6px; border-radius: 6px; }
 code.uri { background: var(--bg-2); border: 1px solid var(--line-2); padding: 8px 10px; border-radius: 8px; font-size: 12.5px; overflow-x: auto; white-space: nowrap; flex: 1; }
 
+/* ---------- publish screen */
+.publish { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 24px; align-items: start; }
+.publish-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.publish-side .card + .card { margin-top: 0; }
+.options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.opt { border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); border-radius: 999px; padding: 5px 11px; font-size: 12px; cursor: pointer; text-align: left; max-width: 100%; }
+.opt:hover { border-color: #55556d; color: var(--text); }
+.opt.on { border-color: var(--accent); color: var(--text); background: rgba(255, 106, 43, 0.08); }
+.opt .rec { color: var(--accent-3); margin-right: 5px; }
+.platform .opt-row { grid-template-columns: 170px 1fr; }
+.desc-preview { white-space: pre-wrap; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font-family: inherit; font-size: 12.5px; margin: 8px 0 0; color: var(--text-2); }
+.avatar { width: 26px; height: 26px; border-radius: 50%; }
+.manual { padding-left: 20px; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; }
+.manual a { color: var(--info); }
+.pubs { display: flex; flex-direction: column; gap: 10px; }
+.pub { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg-2); }
+.confirm { padding: 24px; width: min(520px, 92vw); }
+.confirm .kv span { overflow-wrap: anywhere; }
+.clip-actions .span3 { grid-column: 1 / -1; }
+@media (max-width: 1000px) {
+  .publish { grid-template-columns: 1fr; }
+  .publish .player { position: static; max-width: 360px; margin: 0 auto; }
+}
+
 /* ---------- modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(5, 5, 8, 0.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px; animation: fade 0.15s; }
 @keyframes fade { from { opacity: 0; } }

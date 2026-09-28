@@ -216,6 +216,9 @@ function ClipCard({ c, onPreview, onToggle }: { c: Clip; onPreview: () => void; 
           style={ready ? undefined : { opacity: 0.45, pointerEvents: "none" }}>
           <Icon name="download" size={13} /> MP4
         </a>
+        <button className="btn sm primary span3" disabled={!ready} onClick={() => navigate(`/publish/${c.id}`)}>
+          <Icon name="upload" size={13} /> Publish
+        </button>
       </div>
     </div>
   );
@@ -246,7 +249,8 @@ function PreviewModal({ c, onClose }: { c: Clip; onClose: () => void }) {
           {c.reason && <div className="small muted">{c.reason}</div>}
           <div className="tags">{c.hashtags.map((t) => <span className="tag" key={t}>{t}</span>)}</div>
           <div className="row" style={{ marginTop: "auto" }}>
-            <a className="btn primary" href={clipDownloadUrl(c)}><Icon name="download" size={16} /> Download</a>
+            <button className="btn primary" onClick={() => navigate(`/publish/${c.id}`)}><Icon name="upload" size={16} /> Publish</button>
+            <a className="btn" href={clipDownloadUrl(c)}><Icon name="download" size={16} /> Download</a>
             <button className="btn" onClick={() => navigate(`/clip/${c.id}`)}><Icon name="edit" size={16} /> Edit</button>
           </div>
         </div>

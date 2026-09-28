@@ -6,6 +6,7 @@ import Projects from "./pages/Projects";
 import ProjectView from "./pages/ProjectView";
 import ClipEditor from "./pages/ClipEditor";
 import SettingsPage from "./pages/Settings";
+import PublishPage from "./pages/Publish";
 
 export function navigate(path: string) {
   window.location.hash = path;
@@ -35,13 +36,14 @@ const NAV = [
 export default function App() {
   const parts = useRoute();
   const section = parts[0] || "";
-  const activeNav = section === "project" || section === "clip" ? "projects" : section;
+  const activeNav = section === "project" || section === "clip" || section === "publish" ? "projects" : section;
 
   let page;
   if (section === "create") page = <Create />;
   else if (section === "projects") page = <Projects />;
   else if (section === "project" && parts[1]) page = <ProjectView id={parts[1]} key={parts[1]} />;
   else if (section === "clip" && parts[1]) page = <ClipEditor id={parts[1]} key={parts[1]} />;
+  else if (section === "publish" && parts[1]) page = <PublishPage id={parts[1]} key={parts[1]} />;
   else if (section === "settings") page = <SettingsPage />;
   else page = <Dashboard />;
 
@@ -66,9 +68,9 @@ export default function App() {
           <span className="nav-label">Create clips</span>
         </a>
         <div className="sidebar-foot">
-          Runs 100% on this computer.
+          Runs on this computer.
           <br />
-          No accounts, no cloud rendering.
+          No cloud rendering. Publishing is optional and uses the official APIs.
         </div>
       </aside>
       <main className="main">{page}</main>

@@ -35,6 +35,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
 | YouTube Shorts | **CONNECT YOUTUBE** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
 | TikTok | **CONNECT TIKTOK** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
+| Publish screen | One screen per clip: video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube privacy and made-for-kids, TikTok privacy/interactions/disclosure, and explicit **Publish to YouTube**, **Publish to TikTok** and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there. |
 | Library | Dashboard, Create, Projects and Settings. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
@@ -112,6 +113,11 @@ Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.jso
 * Watch the progress (Transcribe → Find moments → Score & hooks → Render). The first run downloads the Whisper model.
 * Results show cards with thumbnail, title, duration, AI estimate, category, and **Preview / Edit / Download** buttons.
   Select clips and **Download selected** or **Download all (ZIP)**.
+* **Publish** (on a clip card, in the preview or the editor) opens one screen with the video preview, editable title,
+  description/caption and hashtags (pick any generated option or write your own), privacy per platform, and the
+  buttons **Publish to YouTube**, **Publish to TikTok** and **Export**. Each Publish button shows a summary to confirm
+  first; progress and the result (with a link to the video) appear below. Connect the accounts once in Settings →
+  Publishing (or right on this screen).
 * **Regenerate** reuses the transcript to try different clip counts or lengths.
 * Headless / scripting: `python -m clipfoundry process my_video.mp4 --count 5 [--transcript subs.srt]`.
 * GPU check: `python -m clipfoundry gpu-check [video]` (or `gpu-check.bat`) runs a real transcription and reports the

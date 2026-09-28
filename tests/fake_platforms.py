@@ -95,6 +95,9 @@ class FakeGoogle(_Server):
     def handle(self, h, method: str, body: bytes) -> None:
         u = urlparse(h.path)
         q = parse_qs(u.query)
+        if u.path == "/o/oauth2/v2/auth":  # a browser test: the user approves on Google's page
+            code = self.approve(h.path)
+            return h._send(302, b"", {"Location": f"{q['redirect_uri'][0]}?state={q['state'][0]}&code={code}"})
         if u.path == "/token":
             form = {k: v[0] for k, v in parse_qs(body.decode()).items()}
             self.grants.append(form["grant_type"])
@@ -209,6 +212,11 @@ class FakeTikTok(_Server):
         u = urlparse(h.path)
         if method == "PUT" and u.path.startswith("/upload/"):
             return self.handle_upload(h, body)
+        if u.path == "/v2/auth/authorize/":  # a browser test: the user approves on TikTok's page
+            q = parse_qs(u.query)
+            code = self.approve(h.path)
+            return h._send(302, b"", {"Location": f"{q['redirect_uri'][0]}?state={q['state'][0]}&code={code}"
+                                                  f"&scopes={q['scope'][0]}"})
         if u.path == "/v2/oauth/token/":
             form = {k: v[0] for k, v in parse_qs(body.decode()).items()}
             self.grants.append(form["grant_type"])

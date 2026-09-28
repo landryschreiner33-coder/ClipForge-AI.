@@ -141,6 +141,7 @@ export default function ClipEditor({ id }: { id: string }) {
         <div className="row">
           <ScoreBadge score={clip.score} />
           <button className="btn ghost" onClick={() => navigate(`/project/${project.id}`)}><Icon name="back" size={16} /> Back</button>
+          <button className="btn primary" disabled={!clip.has_video} onClick={() => navigate(`/publish/${clip.id}`)}><Icon name="upload" size={16} /> Publish</button>
         </div>
       </div>
 

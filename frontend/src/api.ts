@@ -221,6 +221,18 @@ export interface Accounts {
   protection: string;
 }
 
+/** Read fresh from TikTok before posting (TikTok's sharing guidelines). */
+export interface TikTokCreator {
+  nickname: string;
+  username: string;
+  avatar: string;
+  privacy_options: string[];
+  comment_disabled: boolean;
+  duet_disabled: boolean;
+  stitch_disabled: boolean;
+  max_duration: number;
+}
+
 export interface Publication {
   id: string;
   clip_id: string;
@@ -253,6 +265,7 @@ export const api = {
     req<Publication>("POST", `/api/clips/${clipId}/publish/${platform}`, body),
   publications: (clipId: string) => req<Publication[]>("GET", `/api/clips/${clipId}/publications`),
   cancelPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/cancel`),
+  tiktokCreator: () => req<TikTokCreator>("GET", "/api/publish/tiktok/creator"),
   refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),
   health: () => req<Health>("GET", "/api/health"),
   stats: () => req<{ projects: number; clips: number; processing: number; recent: Project[] }>("GET", "/api/stats"),
