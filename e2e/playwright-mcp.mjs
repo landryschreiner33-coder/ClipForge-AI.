@@ -1,6 +1,8 @@
 // Starts the Playwright MCP server declared in .mcp.json.
 // Cloud sessions ship a Chromium at /opt/pw-browsers/chromium and block browser downloads, so use it when present;
-// elsewhere (your PC) the server finds its own Chromium (install it once with `npx playwright install chromium`).
+// elsewhere (your PC) the server uses its own browser. If that is missing, its error names the one-time install
+// (`npx @playwright/mcp@latest install-browser chrome-for-testing`): the browser has to match the server's
+// Playwright version, which `npx playwright install chromium` does not guarantee.
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
