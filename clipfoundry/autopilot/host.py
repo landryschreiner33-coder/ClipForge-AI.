@@ -7,6 +7,7 @@ SQLite queue, so the app, the host and a restarted host always agree on what is 
 from __future__ import annotations
 
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -170,7 +171,21 @@ class WorkerHost:
             t.join(timeout=max(0.1, deadline - time.monotonic()))
         for name in self.names:
             self.set_state(name, "idle", message="Stopped")
-        self.host_lock.release()
+        alive = [t for t in self._threads if t.is_alive()]
+        if alive:
+            # A job that has not reached its next safe point may still act (an upload, a render): no other host
+            # may start until it has, so the host lock is only released once those threads are done.
+            log.warning("%d worker thread(s) still finishing; the worker host lock is kept until they stop",
+                        len(alive))
+
+            def release_when_done() -> None:
+                for t in alive:
+                    t.join()
+                self.host_lock.release()
+
+            threading.Thread(target=release_when_done, daemon=True, name="cf-worker-release").start()
+        else:
+            self.host_lock.release()
         self.started = False
 
     def wake(self, worker: str | None = None) -> None:
@@ -234,14 +249,14 @@ class WorkerHost:
                 log.exception("worker %s loop error", name)
                 time.sleep(self.poll)
 
+    def _token(self, name: str) -> str:
+        """A lease token for one claim: only this claim can renew or finish the job, so a thread still working on
+        a job that was recovered and claimed again (even by this same process) cannot overwrite the outcome."""
+        return f"{self.owner}/{name}/{secrets.token_hex(4)}"
+
     def _claim(self, name: str, min_priority: int) -> dict | None:
-        if min_priority <= 0:
-            return queue.claim(name, self.owner)
-        # Autopilot off: only jobs a user started by hand
-        due = db.select("worker_jobs", "worker = ? AND status IN ('queued','retrying','waiting') AND run_after <= ? "
-                                       "AND priority >= ? AND cancel_requested = 0", (name, time.time(), min_priority),
-                        "priority DESC", 1)
-        return queue.claim(name, self.owner) if due else None
+        # Autopilot off: min_priority limits the claim to jobs a user started by hand, inside the claim itself
+        return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None)
 
     def _idle(self, name: str, message: str) -> None:
         row = db.fetch("worker_state", name, "name") or {}
@@ -255,7 +270,8 @@ class WorkerHost:
                        (now, self.owner, os.getpid(), name))
 
     def _run(self, name: str, row: dict) -> None:
-        job = Job(row, self.owner, self)
+        token = row["lease_owner"]
+        job = Job(row, token, self)
         with self._lock:
             self._running[job.id] = job
         self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
@@ -265,31 +281,31 @@ class WorkerHost:
                 raise queue.Fail(f"No handler for job kind {row['kind']}")
             result = fn(job) or {}
             job.check()
-            queue.complete(row, self.owner, result, str(result.get("message") or "Done"))
+            queue.complete(row, token, result, str(result.get("message") or "Done"))
             self.set_state(name, "completed", None, message=str(result.get("message") or f"{row['kind']} done"))
         except queue.Wait as w:
-            queue.wait(row, self.owner, w.reason, w.seconds, w.message)
+            queue.wait(row, token, w.reason, w.seconds, w.message)
             self.set_state(name, "waiting", job, message=w.message)
         except queue.Canceled:
             if job.timed_out:
-                queue.fail(row, self.owner, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
+                queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
                            "It will run again on the next cycle; check the log if this repeats.")
                 self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
             else:
-                queue.mark_canceled(row, self.owner, "Canceled")
+                queue.mark_canceled(row, token, "Canceled")
                 self.set_state(name, "idle", None, message="Canceled")
         except queue.Retry as exc:
-            status = queue.retry_or_fail(row, self.owner, str(exc), exc.fix, exc.delay)
+            status = queue.retry_or_fail(row, token, str(exc), exc.fix, exc.delay)
             self.set_state(name, "failed" if status == "failed" else "waiting", None, message=str(exc),
                            error=str(exc))
         except queue.Fail as exc:
-            queue.fail(row, self.owner, str(exc), exc.fix)
+            queue.fail(row, token, str(exc), exc.fix)
             self.set_state(name, "failed", None, message=str(exc), error=str(exc))
         except Exception as exc:  # noqa: BLE001 - unexpected: retry with backoff, keep the pipeline going
             detail = f"{type(exc).__name__}: {exc}"
             log.error("job %s (%s) crashed: %s\n%s", row["id"], row["kind"], detail, traceback.format_exc())
             job.log("crash", detail, "error", trace=traceback.format_exc()[-4000:])
-            status = queue.retry_or_fail(row, self.owner, detail)
+            status = queue.retry_or_fail(row, token, detail)
             self.set_state(name, "failed" if status == "failed" else "waiting", None, message=detail, error=detail)
         finally:
             with self._lock:
@@ -328,7 +344,7 @@ class WorkerHost:
         """Renew the leases of running jobs and pass on cancel requests, timeouts and STOP ALL JOBS."""
         stop_all = state.paused()
         for job in self.running().values():
-            flags = queue.renew(job.id, self.owner)
+            flags = queue.renew(job.id, job.owner)
             if flags is None or stop_all:
                 job.cancel_event.set()
             elif flags["cancel_requested"]:

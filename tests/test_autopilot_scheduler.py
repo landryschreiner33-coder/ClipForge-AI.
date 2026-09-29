@@ -6,6 +6,7 @@ import time
 from zoneinfo import ZoneInfo
 
 import pytest
+from quality_stub import passed_report
 
 CHI = ZoneInfo("America/Chicago")
 
@@ -46,6 +47,7 @@ def make_clip(tmp, title: str, clip_score: float, packaging: float = 60.0, text:
                                           "description": f"{title}\n\nFollow for more clips like this.",
                                           "caption": f"{title} #test", "tags": ["test"], "hashtags": ["#test"],
                                           "score": packaging, "selected": 1})
+    passed_report(clip)
     return clip
 
 

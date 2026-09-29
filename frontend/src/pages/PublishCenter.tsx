@@ -15,6 +15,17 @@ const VIEWS = [
  * Publish Center: every scheduled post in one queue. Approve (required by YouTube and TikTok), edit, reschedule,
  * cancel, retry, publish now, open the source or the published post.
  */
+const CHECK_STATUS: Record<string, string> = { pass: "passed", warn: "warning", fail: "failed", skipped: "not checked" };
+
+/** [label, badge tone, tooltip] for the final quality gate's verdict on the file and this platform's text. */
+function qualityBadge(q: ScheduledItem["quality"]): [string, string, string] {
+  if (!q) return ["Final check pending", "", "The exact file is checked before it can be published."];
+  if (q.status === "failed") return ["Final check failed", "bad", q.blockers.join("\n")];
+  if (q.text_status && q.text_status !== "passed") return ["Text needs a fix", "warn", q.text_problems.join("\n")];
+  if (q.warnings.length) return [`Final check: ${q.warnings.length} warning${q.warnings.length > 1 ? "s" : ""}`, "warn", q.warnings.join("\n")];
+  return ["Final check passed", "good", "Every check of the file passed"];
+}
+
 export default function PublishCenter({ view: wanted }: { view?: string }) {
   const view = VIEWS.some((x) => x.value === wanted) ? wanted! : "upcoming";
   const setView = (v: string) => { window.location.hash = `#/publish-center/${v}`; };
@@ -98,6 +109,7 @@ export default function PublishCenter({ view: wanted }: { view?: string }) {
                   <span className={`badge ${RIGHTS_BADGE[it.source.rights_status] || ""}`} title="Rights status of the source">{it.source.rights_label || it.source.rights_status}</span>
                   {it.privacy && <span className="badge">{it.platform === "tiktok" ? ({ SELF_ONLY: "Only me", PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers" } as Record<string, string>)[it.privacy] || it.privacy : it.privacy[0].toUpperCase() + it.privacy.slice(1)}</span>}
                   {it.replaces && <span className="badge warn" title="A stronger opportunity for the slot of another post">Replacement</span>}
+                  {(() => { const [text, tone, why] = qualityBadge(it.quality); return <span className={`badge ${tone}`} title={why}>{text}</span>; })()}
                 </div>
                 <div className="qtitle">{it.title}</div>
                 <div className="small muted qcaption">{it.description.split("\n")[0]}</div>
@@ -121,6 +133,20 @@ export default function PublishCenter({ view: wanted }: { view?: string }) {
                     {(it.audit || []).map((a, k) => <li key={k}>{new Date(a.at * 1000).toLocaleString()}: {a.detail}</li>)}
                   </ul>
                 </details>
+                {it.quality && (
+                  <details className="small">
+                    <summary>Final quality check of this file</summary>
+                    <ul className="flags">
+                      {it.quality.checks.map((c) => (
+                        <li key={c.name} className={c.status === "fail" ? "block" : c.status === "warn" ? "warn" : ""}>
+                          {c.label}: {CHECK_STATUS[c.status]}{c.detail ? ` (${c.detail})` : ""}{c.kind === "heuristic" ? " · estimate" : ""}
+                        </li>
+                      ))}
+                      {it.quality.text_problems.map((t, k) => <li key={`t${k}`} className="block">Text: {t}</li>)}
+                    </ul>
+                    {it.quality.coverage?.note && <div className="muted">{it.quality.coverage.note}</div>}
+                  </details>
+                )}
               </div>
               <div className="qactions">
                 {can(["awaiting_approval", "approved", "action_needed"]) && (
@@ -141,6 +167,15 @@ export default function PublishCenter({ view: wanted }: { view?: string }) {
                     const url = window.prompt("Paste the link of the post you made in the TikTok app:");
                     if (url) act(() => ap.link(it.id, url), "Linked");
                   }}>Link TikTok post</button>
+                )}
+                {it.status === "reconciling" && it.publication && (
+                  <>
+                    <button className="btn sm" onClick={() => {
+                      const url = window.prompt(`Paste the link of the video on ${it.platform === "youtube" ? "YouTube" : "TikTok"}:`);
+                      if (url) act(() => ap.resolve(it.id, true, url), "Marked as published");
+                    }}><Icon name="check" size={13} /> It is published</button>
+                    <button className="btn sm ghost" onClick={() => window.confirm("You checked and the video is not on the platform: upload it again at a new time?") && act(() => ap.resolve(it.id, false), "It will be uploaded again")}><Icon name="refresh" size={13} /> Upload again</button>
+                  </>
                 )}
                 <a className="btn sm ghost" href={`#/clip/${it.clip.id}`}><Icon name="scissors" size={13} /> Clip</a>
               </div>

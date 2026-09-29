@@ -177,8 +177,14 @@ class Worker:
         download_url(project_id, url, ctx)
 
 
-def download_url(project_id: str, url: str, ctx: JobContext) -> None:
-    """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention."""
+class DownloadRefused(RuntimeError):
+    """The video is over the size or length limit it was downloaded with; nothing was downloaded."""
+
+
+def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | None = None,
+                 max_seconds: float | None = None) -> None:
+    """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention.
+    Autopilot passes size and length limits; a video over them is not downloaded (DownloadRefused)."""
     try:
         import yt_dlp
     except ImportError as exc:
@@ -205,12 +211,22 @@ def download_url(project_id: str, url: str, ctx: JobContext) -> None:
         "progress_hooks": [hook],
         "allow_unplayable_formats": False,  # never touch DRM-protected formats
     }
+    if max_bytes:
+        ydl_opts["max_filesize"] = int(max_bytes)
+    if max_seconds:
+        from yt_dlp.utils import match_filter_func
+
+        ydl_opts["match_filter"] = match_filter_func(f"duration <=? {int(max_seconds)}")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         meta = ydl.extract_info(url, download=True)
-        path = Path(ydl.prepare_filename(meta))
+        path = Path(ydl.prepare_filename(meta)) if meta else pdir / "source.mp4"
     if not path.exists():
-        candidates = sorted(pdir.glob("source.*"))
+        candidates = sorted(p for p in pdir.glob("source.*") if not p.name.endswith(".part"))
         if not candidates:
+            if max_bytes or max_seconds:
+                raise DownloadRefused(
+                    f"Not downloaded: the video is larger than {(max_bytes or 0) / 1e9:.1f} GB or longer than "
+                    f"{(max_seconds or 0) / 60:.0f} min (Autopilot limits)")
             raise RuntimeError("Download finished but no video file was found")
         path = candidates[0]
     name = (meta or {}).get("title") or project["name"]

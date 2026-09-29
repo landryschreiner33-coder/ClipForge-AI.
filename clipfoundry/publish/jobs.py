@@ -53,8 +53,14 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
         db.update_publication(pub["id"], info={**(current.get("info") or {}), "upload_session": session,
                                                "session_started": time.time()})
 
+    def final_chunk() -> None:  # from now on the video may exist on YouTube even if its answer never arrives
+        current = db.get_publication(pub["id"]) or pub
+        db.update_publication(pub["id"], info={**(current.get("info") or {}), "final_chunk_at": time.time()})
+
+    info = pub.get("info") or {}
     video = youtube.upload(pub["video_path"], body, token, _progress_writer(pub["id"]), cancelled,
-                           on_session=remember, resume_session=(pub.get("info") or {}).get("upload_session", ""))
+                           on_session=remember, resume_session=info.get("upload_session", ""),
+                           on_final_chunk=final_chunk, may_be_complete=bool(info.get("final_chunk_at")))
     vid = video.get("id", "")
     st = video.get("status") or {}
     privacy = st.get("privacyStatus") or pub["requested_privacy"]

@@ -61,6 +61,8 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
              │                                                                          │
              │                                               Packaging AI <─────────────┘
              │                                                    │
+             │                                            Final Quality Gate (file + text)
+             │                                                    │
              │                   Smart Scheduler (America/Chicago, limits, replacement)
              │                                                    │
              │                         Publish Center: YOUR APPROVAL (required by both platforms)
@@ -75,11 +77,12 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Rights and Content Safety Gate | `rights_check` | Applies your rules. Only *Owned*, *Licensed*, *Allowlisted* (and *Creative Commons* if you allow it) sources continue automatically; everything else becomes an action item. The gate runs again before scheduling and before publishing, so a later *Blocked* rule stops a post. |
 | Live Monitor | `live_watch`, `live_capture`, `post_live` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time), clips strong moments from a rolling 15-minute window, and after the stream ends runs a full pass that can replace weaker live clips that were not published yet. |
 | Clip Hunter | `hunt_source` | Brings the source in (hard link or copy of a local file, a direct media URL, or the URL importer only when allowed), transcribes on the GPU and builds a large candidate pool. |
-| Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Renders up to 5 clips that pass the quality bar. |
-| Packaging AI | `package_clip` | Writes title/description/caption/hashtag options in six styles from the clip's own words (optionally with an AI provider), validates grounding, repetition and duplicates, and scores them. |
-| Smart Scheduler | `schedule_tick` | Places packaged clips on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
+| Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
+| Packaging AI | `package_clip` | Writes title/description/caption/hashtag options in six styles from the words heard in the rendered clip (its final transcript), optionally with an AI provider, validates grounding, repetition and duplicates, and scores them. Each option records which render it was written for. |
+| Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
+| Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
 | YouTube Quota Manager | (inside every YouTube call) | Counts units and calls per bucket, keeps discovery within its share, and reserves the rest for uploads, statistics and account checks. Resets at midnight Pacific. |
-| Publisher | `publish` | Uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. |
+| Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. If the platform accepted every byte but its answer was lost and it can no longer say what happened, the post is never uploaded again automatically: it becomes *Upload not confirmed* until you check (the video is looked for among the channel's newest uploads first). |
 | Learning Worker | `learn` | Reads the real results of your posts (snapshot near 48 h), and once there are at least 10, adjusts posting-time lifts, style bonuses, score weights and the retention estimate, using only groups with enough data. |
 | Maintenance | `maintenance`, `selftest` | Recovers stale jobs, applies the YouTube 30-day data rule, cleans caches. |
 
@@ -89,10 +92,32 @@ counts and a structured log (`job_logs`). Claims are atomic (`BEGIN IMMEDIATE`).
 leases expire and the jobs are picked up again after restart; a job that was halfway never runs twice for the same key.
 Jobs you start by hand (for example *Clip now*) run even while Autopilot is off.
 
+**Clip Blueprint.** Before a clip is rendered, the Engagement Strategist stores a typed, versioned plan for it
+(`pipeline/blueprint.py`, table `clip_blueprints`, `blueprint.json` next to the render): the source intervals in
+seconds of the original, speed, framing, captions, the words to stress, audio adjustments, the hook and the payoff
+line, and why the moment was chosen. A plan the renderer could not follow faithfully is rejected before rendering
+(intervals outside the source, reversed, overlapping or out of order, a cut inside a word, unsupported speed or
+options, emphasis outside the kept intervals, on-screen text that is not said in the clip). Instructions the renderer
+does not support are listed as unsupported and left out, never claimed as applied. The renderer follows the plan
+exactly and records the plan's hash with the file; your edits and alternative versions are applied on top as a new,
+stored plan. Manual projects have no plan and render as before.
+
 **GPU.** One heavy GPU operation at a time, across processes (a lock file), with a wait for free VRAM
 (Settings → Autopilot → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2
-CUDA path; Autopilot only waits for its turn. If a transcription ever runs on the CPU although the GPU was requested,
-an action item says so; it is never silent. Local AI models (Ollama/LM Studio) share the same lock.
+CUDA path; Autopilot only waits for its turn. **Strict GPU:** when an NVIDIA GPU is expected and CUDA fails (or the
+GPU is present but unusable), Autopilot does not fall back to the CPU: the job pauses for 30 minutes without using
+an attempt and an action item says what failed and how to fix it. Live capture keeps recording meanwhile; the
+post-live pass transcribes the whole recording again on the GPU. Settings → Autopilot → *Allow CPU transcription*
+lets it continue on the CPU instead (slower). Manual projects keep their visible CPU fallback. Local AI models (Ollama/LM Studio) share the same lock.
+
+**Downloads and addresses.** Autopilot fetches media and signals from URLs that come from data (a feed's rows, a
+discovered source, a redirect), so every such URL is checked first (`netguard.py`): only http/https for downloads and
+network stream protocols for live capture (never `file:`, `concat:`, `pipe:` or `data:` in ffmpeg), and the host
+must resolve to public addresses. Addresses you typed yourself (a source added by hand, a stream you configured, a
+signal feed's own URL) may point into your own network. Every redirect is checked, a download connects to exactly the
+address that was checked, and it stops at Settings → Autopilot → *Largest source* (8 GB and 240 minutes by default;
+longer videos are not processed). A download that would leave less than 2 GB free on the data drive waits with an
+action item.
 
 ## Scores
 
@@ -123,8 +148,13 @@ Every scheduled post, in order, with its video, text, platform, rights status, t
   new approval.
 * **Edit**, **Reschedule**, **Cancel**, **Retry**, **Publish now**, **Open source**, **Open post**, and **Link TikTok
   post** for inbox drafts finished in the TikTok app.
+* **Upload not confirmed**: the upload may have finished but the platform cannot confirm it (for example STOP ALL
+  JOBS or a crash during the upload). ClipFoundry first checks with the platform; if it still cannot tell, it
+  waits for you: **It is published** (paste the link) or **Upload again** (after you checked that it is not there). It never uploads a
+  second copy on its own.
 * YouTube posts are uploaded early (default 30 minutes) as Private with `publishAt`, so YouTube itself publishes them
   at the planned time.
+* **Final check**: every post shows the Final Quality Gate's verdict on its exact file and text (*passed*, *N warnings*, *failed*, *text needs a fix* or *pending*), with every check listed and marked as measured or as an estimate. A post whose file failed cannot be approved or uploaded; fix the clip and render it again.
 * Views: *Upcoming*, *Needs attention*, *Published*, *History*.
 
 ## Controls and emergency stop
@@ -191,6 +221,7 @@ Where they are served:
 | Nothing gets clipped | Sources need a passing rights status (Autopilot → Sources & rights) and a video file or allowed URL. *Needs file* means: add the file (*Add file*) or a watch folder. |
 | Jobs wait for the GPU | Another heavy GPU job (or another program) is using it; see the GPU card. Lower *Free GPU memory needed* only if you know the model fits. |
 | "fell back to CPU" on the GPU card | Run `gpu-check.bat` and follow the fix it prints (see INSTALL.md). |
+| "Autopilot transcription is paused: the GPU could not be used" | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can allow CPU transcription in Settings → Autopilot. |
 | Discovery stopped: quota | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
 | Posts wait in *Needs approval* | That is required by the platforms; approve them in the Publish Center. |
 | YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |

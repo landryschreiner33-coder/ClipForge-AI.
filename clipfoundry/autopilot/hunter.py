@@ -17,10 +17,11 @@ import shutil
 import time
 from pathlib import Path
 
-from .. import config, db, gpu
-from ..jobs import download_url
-from ..pipeline import cuda, fingerprint, process, transcribe
+from .. import config, db, gpu, netguard
+from ..jobs import DownloadRefused, download_url
+from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
 from ..pipeline.common import JobContext, read_json
+from ..pipeline.ffmpeg_utils import FFmpegError, probe
 from ..publish.common import client
 from . import queue, rights, state
 from .host import Job, handler
@@ -29,11 +30,24 @@ POOL_SIZE = 60
 DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 
 
+GPU_PAUSE_SECONDS = 1800
+
+
 def gpu_policy(settings: dict, job: Job) -> dict:
     plan = transcribe.whisper_plan(settings, cuda.probe())
     need = int(settings.get("gpu_min_free_vram_mb") or 0) if plan["mode"] == "gpu" else 0
     return {"need_free_mb": need, "max_wait_s": 60.0 * float(settings.get("gpu_wait_minutes") or 20),
-            "job_id": job.id}
+            "job_id": job.id, "allow_cpu_fallback": bool(settings.get("autopilot_allow_cpu_fallback"))}
+
+
+def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
+    """Strict GPU: the job pauses (without using an attempt) and the user learns what to do."""
+    state.action("gpu:strict", "gpu", "Autopilot transcription is paused: the GPU could not be used",
+                 f"{what}: {exc}", (exc.fix + " " if exc.fix else "") + "Run gpu-check.bat. To let Autopilot "
+                 "transcribe on the CPU meanwhile (slower), turn on Settings → Autopilot → "
+                 "Allow CPU transcription.",
+                 level="error")
+    return queue.Wait("gpu_failed", GPU_PAUSE_SECONDS, f"GPU transcription failed; paused. {exc}")
 
 
 def project_options(settings: dict) -> dict:
@@ -51,25 +65,43 @@ def _link_or_copy(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def _http_download(url: str, dst: Path, ctx: JobContext) -> None:
-    tmp = dst.with_suffix(dst.suffix + ".part")
-    with client(120) as c, c.stream("GET", url, follow_redirects=True) as r:
+MIN_FREE_DISK = 2e9  # never fill the disk: this much stays free after a download
+
+
+def max_source_bytes(settings: dict) -> int:
+    return int(float(settings.get("autopilot_max_source_gb") or 8) * 1e9)
+
+
+def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: dict) -> None:
+    """A direct media link, checked against private/local addresses on every redirect and bounded in size."""
+    def accept(r) -> None:
         if r.status_code != 200:
             raise queue.Retry(f"The media URL answered {r.status_code}", "Check that the link still works.")
         kind = r.headers.get("content-type", "")
         if not kind.startswith(("video/", "application/octet-stream", "binary/")):
             raise queue.Fail(f"The URL is not a video file ({kind or 'unknown type'})",
                              "Use a direct link to the video file, or add the file itself.")
-        total = int(r.headers.get("content-length") or 0)
-        done = 0
-        with open(tmp, "wb") as fh:
-            for chunk in r.iter_bytes(1 << 20):
-                ctx.check()
-                fh.write(chunk)
-                done += len(chunk)
-                if total:
-                    ctx.progress(0.02 * done / total, f"Downloading {done / 1e6:.0f} of {total / 1e6:.0f} MB")
-    os.replace(tmp, dst)
+        need = int(r.headers.get("content-length") or 0) + MIN_FREE_DISK
+        free = shutil.disk_usage(dst.parent).free
+        if free < need:
+            state.action("disk:space", "disk", "Not enough free disk space for Autopilot downloads",
+                         f"{free / 1e9:.1f} GB free; this source needs {need / 1e9:.1f} GB including a reserve.",
+                         "Free up space on the drive of the data folder (Settings → System).", level="warning")
+            raise queue.Wait("disk", 1800, "Waiting for free disk space")
+
+    def progress(done: int, total: int) -> None:
+        if total:
+            ctx.progress(0.02 * done / total, f"Downloading {done / 1e6:.0f} of {total / 1e6:.0f} MB")
+
+    try:
+        with client(120) as c:
+            netguard.download(c, url, dst, allow_private=rights.url_typed_by_user(src),
+                              max_bytes=max_source_bytes(settings), accept=accept, progress=progress,
+                              cancelled=ctx.cancelled)
+    except netguard.UnsafeUrl as exc:
+        raise queue.Fail(f"Not downloaded: {exc}", "Use a direct link to a video on the internet, or add the file "
+                                                   "itself.") from exc
+    state.resolve("disk:space")
 
 
 def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
@@ -98,13 +130,30 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
         url = src.get("url") or ""
         if url.lower().split("?")[0].endswith(DIRECT_MEDIA) or not rights.is_platform_url(url):
             dst = pdir / "source.mp4"
-            _http_download(url, dst, ctx)
+            _http_download(url, dst, ctx, src, settings)
         else:
             db.update_project(project["id"], source_path=str(pdir / "source.mp4"))
-            download_url(project["id"], url, ctx)  # the existing importer (no logins, cookies or DRM)
+            try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
+                download_url(project["id"], url, ctx, max_bytes=max_source_bytes(settings),
+                             max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
+            except DownloadRefused as exc:
+                raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
+                    from exc
             return db.get_project(project["id"]) or project
     db.update_project(project["id"], source_path=str(dst), source_filename=dst.name)
     return db.get_project(project["id"]) or project
+
+
+def check_length(project: dict, settings: dict) -> None:
+    """Autopilot processes sources up to the configured length (transcribing and analyzing costs grow with it)."""
+    limit = 60.0 * float(settings.get("autopilot_max_source_minutes") or 240)
+    try:
+        duration = float(probe(project["source_path"])["duration"] or 0)
+    except FFmpegError as exc:
+        raise queue.Fail(f"The source video cannot be read: {exc}", "Add another copy of the file.") from exc
+    if duration > limit:
+        raise queue.Fail(f"The source is {duration / 60:.0f} min long; Autopilot processes sources up to "
+                         f"{limit / 60:.0f} min", "Raise the limit in Settings → Autopilot, or clip it by hand.")
 
 
 # ------------------------------------------------------------------ Clip Hunter
@@ -154,12 +203,17 @@ def hunt_source(job: Job) -> dict:
     ctx = job.pipeline_ctx(0.0, 1.0)
     try:
         project = ensure_project(src, settings, ctx)
+        check_length(project, settings)
         db.update_project(project["id"], status="processing", message="Autopilot: reading the video", error="")
         job.progress(0.05, "Reading and transcribing", stage="transcribe")
         p = process.prepare(project["id"], ctx, gpu_policy(settings, job))
     except gpu.GpuBusy as exc:
         db.update("sources", src["id"], status="queued", status_note=str(exc))
         raise queue.Wait("gpu", 600, f"{exc} Trying again in 10 minutes.") from exc
+    except transcribe.GpuTranscriptionFailed as exc:
+        db.update("sources", src["id"], status="queued", status_note=f"Paused: GPU transcription failed. {exc}"[:300])
+        raise gpu_failed(exc, f"“{src.get('title', '')[:60]}”") from exc
+    state.resolve("gpu:strict")
     if p is None:
         raise queue.Fail("The project could not be prepared")
     cands = process.candidate_pool(p, ctx)
@@ -199,6 +253,23 @@ def store_fingerprint(clip: dict, src: dict) -> None:
               key="clip_id", replace=True)
 
 
+def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source_id: str) -> list[dict]:
+    """Engagement Strategist: a validated blueprint for every chosen clip, stored before anything is rendered.
+    A clip whose plan is rejected is not rendered; the reasons are kept on the clip."""
+    ok = []
+    for row, r in zip(rows, chosen):
+        bp = blueprint.build(row, p.project, p.words, p.settings, source_id=source_id, selection=r,
+                             video_path=p.project.get("source_path"))
+        issues = blueprint.validate(bp, p.meta.get("duration"), p.words)
+        blueprint.save(bp, issues)
+        problems = blueprint.errors(issues)
+        if problems:
+            db.update_clip(row["id"], status="error", error=("Plan rejected: " + "; ".join(problems[:3]))[:500])
+            continue
+        ok.append(row)
+    return ok
+
+
 @handler("analyze_source")
 @_guard
 def analyze_source(job: Job) -> dict:
@@ -218,6 +289,7 @@ def analyze_source(job: Job) -> dict:
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
     job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
     rows = process.create_clips(p, chosen, ctx)
+    planned = plan_clips(p, rows, chosen, src["id"])
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
         db.update("clip_candidates", f"{p.id}-{r['cid']}", clip_id=row["id"])
@@ -235,7 +307,7 @@ def analyze_source(job: Job) -> dict:
                                   "components": {"viral_potential": r["score"], "subscores": sub,
                                                  "diversity": r.get("diversity") or {}},
                                   "explanation": r.get("explanation") or []}, key="clip_id", replace=True)
-    process.render_clips(p, rows, ctx, lo=0.6, hi_total=0.95)
+    process.render_clips(p, planned, ctx, lo=0.6, hi_total=0.95)
     ready = [c for c in db.list_clips(p.id) if c["status"] == "ready"]
     for clip in ready:
         job.check()

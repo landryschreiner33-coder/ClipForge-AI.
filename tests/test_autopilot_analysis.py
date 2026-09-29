@@ -212,7 +212,9 @@ def test_clip_hunter_and_analyzer_end_to_end(talk_video, tmp_path, monkeypatch):
     srt = talk_video / "speech.srt"
     calls = []
 
-    def fake_transcribe(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True):  # Whisper stand-in
+    # Whisper stand-in
+    def fake_transcribe(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
+        assert allow_cpu_fallback is False  # Autopilot transcribes in strict GPU mode by default
         calls.append(str(wav))
         t = tr.import_transcript(srt, duration)
         t["runtime"] = {"device": "cpu", "requested_device": "cpu", "compute_type": "int8", "model": "test"}
@@ -250,3 +252,72 @@ def test_clip_hunter_and_analyzer_end_to_end(talk_video, tmp_path, monkeypatch):
         assert len(fp["phash"]) == fingerprint.FRAMES and fp["source_key"].startswith("local:")
         assert db.fetch("clip_analysis", c["id"], "clip_id")["boundary"]["lead_in"] <= 0.35 + 1e-6
     assert len(queue.jobs(worker="packager")) == len(clips)
+
+    # every clip was planned before it was rendered, and its file is bound to exactly that plan
+    from clipfoundry.autopilot import gate, scheduler
+    from clipfoundry.pipeline import blueprint as bpm
+    from clipfoundry.pipeline import export
+
+    for c in clips:
+        plan = bpm.plan_of(c["id"])
+        assert plan is not None and plan.origin == "strategist" and plan.reasons and plan.intervals
+        assert c["render_info"]["artifact"]["blueprint"]["sha256"] == plan.sha256()
+
+    # the rest of the slice: packaging from what is heard, the final quality gate, the schedule, the export
+    def drain(worker: str) -> None:
+        while (job := queue.claim(worker, "test")) is not None:
+            queue.complete(job, "test", host.HANDLERS[job["kind"]](host.Job(job, "test")) or {})
+
+    drain("packager")
+    drain("quality_gate")
+    for c in clips:
+        rep = gate.report_for(c)
+        assert rep and rep["status"] == "passed", (rep or {}).get("blockers")
+        assert rep["bindings"]["blueprint"]["sha256"] == bpm.plan_of(c["id"]).sha256()
+    planned = scheduler.plan_new(db.get_settings(), time.time())
+    assert planned["created"] >= 1
+    items = db.select("scheduled_publications")
+    assert items and all(i["status"] == "awaiting_approval" for i in items)  # nothing goes out without approval
+    zpath = export.build_zip(project, clips, tmp_path / "exports")
+    assert zpath.exists() and zpath.stat().st_size > sum(Path(c["output_path"]).stat().st_size for c in clips) * 0.9
+
+
+@needs_ffmpeg
+def test_strict_gpu_pauses_the_hunt_instead_of_using_the_cpu(tmp_path, monkeypatch):
+    from synthetic_media import make_video
+
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue, rights, state
+    from clipfoundry.pipeline import transcribe as tr
+
+    db.init()
+    folder = tmp_path / "recordings"
+    folder.mkdir()
+    make_video(folder / "talk.mp4", seconds=4.0)
+    rights.add_rule("folder", str(folder), rights.OWNED, "My recordings")
+    src = db.insert("sources", {"platform": "local", "external_id": "talk", "title": "Talk",
+                                "local_path": str(folder / "talk.mp4")})
+    seen = {}
+
+    def cuda_broken(*args, **kwargs):  # what transcribe() raises when the GPU fails and the CPU is not allowed
+        seen.update(kwargs)
+        raise tr.GpuTranscriptionFailed("GPU transcription failed and CPU fallback is off for Autopilot: cublas",
+                                        "Install requirements-gpu.txt.")
+
+    monkeypatch.setattr(tr, "transcribe", cuda_broken)
+    host.WorkerHost(periodic=False)
+    job = queue.enqueue("hunt_source", {"source_id": src["id"]})
+    claimed = queue.claim("clip_hunter", "test")
+    with pytest.raises(queue.Wait) as paused:
+        host.HANDLERS["hunt_source"](host.Job(claimed, "test"))
+    assert seen["allow_cpu_fallback"] is False  # strict GPU is Autopilot's default
+    assert paused.value.reason == "gpu_failed"
+    queue.wait(claimed, "test", paused.value.reason, paused.value.seconds, paused.value.message)
+    row = queue.get(job["id"])
+    assert row["status"] == "waiting" and row["run_after"] > time.time() + 600
+    action = next(a for a in state.open_actions() if a["key"] == "gpu:strict")
+    assert "gpu-check" in action["fix"] and "Allow CPU transcription" in action["fix"]
+    assert db.fetch("sources", src["id"])["status_note"].startswith("Paused: GPU transcription failed")
+    resumed = queue.claim("clip_hunter", "test", now=row["run_after"] + 1)
+    assert resumed["attempts"] == 1  # the pause did not use up an attempt

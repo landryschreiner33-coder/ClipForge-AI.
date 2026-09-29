@@ -21,7 +21,7 @@ import re
 import time
 
 from .. import db
-from ..pipeline import fingerprint, llm, postpack
+from ..pipeline import artifact, fingerprint, llm, postpack
 from ..pipeline.text_utils import (CONTRAST_WORDS, EMOTION_WORDS, INTENSIFIERS, OPEN_LOOP_PHRASES, clean_text,
                                    content_tokens, count_phrases, keywords, tokens)
 from . import queue, rights, state
@@ -282,15 +282,27 @@ def prior_titles(exclude_clip: str) -> list[str]:
     return [r["title"] for r in rows + sched if r.get("title")]
 
 
-def package(clip: dict, source: dict | None, platform: str, settings: dict) -> dict:
-    """Write, check and score all candidates for one platform; returns the chosen one (stored as selected)."""
-    words = []
-    project = db.get_project(clip["project_id"])
-    if project:
-        from ..pipeline.process import load_words
+def clip_sentences(clip: dict) -> tuple[list[str], str]:
+    """(sentences, SHA-256 of the file) of what is heard in the render that would be published: its final
+    transcript. Renders made before final transcripts existed fall back to the source words in the clip's range."""
+    _, _, render_info = artifact.active(clip)
+    art = artifact.of(render_info) or {}
+    sents = artifact.final_sentences(render_info)
+    if sents is None:
+        words = []
+        project = db.get_project(clip["project_id"])
+        if project and project.get("source_path"):
+            from ..pipeline.process import load_words
 
-        words = load_words(project)
-    sents = postpack.clip_sentences(words, clip) or [clip.get("caption_text") or clip.get("title") or ""]
+            words = load_words(project)
+        sents = postpack.clip_sentences(words, clip)
+    return sents or [clip.get("caption_text") or clip.get("title") or ""], art.get("sha256") or ""
+
+
+def package(clip: dict, source: dict | None, platform: str, settings: dict) -> dict:
+    """Write, check and score all candidates for one platform; returns the chosen one (stored as selected).
+    Everything is written from, and checked against, what is heard in the rendered clip."""
+    sents, artifact_sha = clip_sentences(clip)
     clip_text = " ".join(sents)
     signal = db.fetch("trend_signals", (source or {}).get("signal_id") or "") if source and source.get(
         "signal_id") else None
@@ -324,7 +336,8 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
             "description": meta.get("description", ""), "caption": meta.get("caption", ""),
             "tags": meta.get("tags") or [], "hashtags": meta.get("hashtags") or [], "score": value,
             "components": sc["components"], "problems": problems, "attempt": meta.get("attempt", 1),
-            "origin": meta.get("origin", "extracted"), "selected": int(meta is best[1])})
+            "origin": meta.get("origin", "extracted"), "selected": int(meta is best[1]),
+            "artifact_sha256": artifact_sha})
         if meta is best[1]:
             chosen_id = row["id"]
     return {**best[1], "id": chosen_id, "score": best[0], "components": best[2]["components"], "problems": best[3]}
@@ -353,5 +366,7 @@ def package_clip(job: Job) -> dict:
     state.event("packaged", f"“{clip['title'][:80]}”: " + ", ".join(
         f"{p} “{c['title'][:50]}” ({c['score']:.0f}, {STYLE_LABELS.get(c['style'], c['style'])})"
         for p, c in chosen.items()), ref_type="clip", ref_id=clip["id"])
-    queue.enqueue("schedule_tick", {"reason": "packaged"}, idem_key=f"schedule_tick:{int(time.time() // 60)}")
+    from . import gate
+
+    gate.request(clip, priority=job.row["priority"])  # the final quality gate decides whether it may be scheduled
     return {"platforms": list(chosen), "message": "Packaged for " + (", ".join(chosen) or "no platform")}

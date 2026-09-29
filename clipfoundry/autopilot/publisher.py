@@ -22,8 +22,9 @@ from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
 from ..publish.common import PublishError, client
-from . import queue, quota, rights, state
+from . import gate, queue, quota, rights, state
 from .host import Job, handler
+from .providers import iso_time
 from .scheduler import _audit, active_version_path, approval_valid, block_platform, blocked_until, tz
 
 RECONNECT_WAIT = 30 * 60
@@ -82,11 +83,32 @@ def _youtube_upload_by_title(pub: dict) -> dict | None:
         r = c.get(f"{youtube.API_URL}/playlistItems", params={"part": "snippet,contentDetails", "playlistId": playlist,
                                                               "maxResults": 10},
                   headers={"Authorization": f"Bearer {token.get()}"})
+    since = float((pub.get("info") or {}).get("session_started") or 0) - 120  # never an older video of that title
     for it in (r.json().get("items") or []) if r.status_code == 200 else []:
         sn = it.get("snippet") or {}
-        if sn.get("title") == pub["title"]:
+        published = iso_time(sn.get("publishedAt"))
+        if sn.get("title") == pub["title"] and (published is None or published >= since):
             return {"id": (it.get("contentDetails") or {}).get("videoId") or sn.get("resourceId", {}).get("videoId")}
     return None
+
+
+def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
+    """The upload may have created the video but the platform cannot say. Look for it among the channel's newest
+    uploads; if it is not there, the post waits for you ("reconciling") instead of risking a duplicate upload."""
+    try:
+        found = _youtube_upload_by_title(pub)
+    except (PublishError, httpx.HTTPError, ValueError):
+        found = None
+    if found and found.get("id"):
+        db.update_publication(pub["id"], status="done", remote_id=found["id"], url=youtube.video_url(found["id"]),
+                              message="The upload had finished; only YouTube's answer was lost.")
+        return finish(item, db.get_publication(pub["id"]) or pub)
+    db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix,
+                          info={**(pub.get("info") or {}), "outcome_unknown": True})
+    _set(item, "reconciling", f"{exc} {exc.fix}", "outcome_unknown", last_error=str(exc), fix=exc.fix)
+    state.action(f"review:{item['id']}", "publish", f"Check YouTube for “{item['title'][:50]}”", str(exc), exc.fix,
+                 ref_type="scheduled", ref_id=item["id"])
+    return {"message": "Needs your check: the upload may have finished"}
 
 
 def recover(pub: dict) -> str:
@@ -206,6 +228,15 @@ def publish(job: Job) -> dict:
         raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
     state.resolve(f"connect:{item['platform']}")
     video, version = active_version_path(clip)
+    if not item.get("publication_id"):  # an upload already under way is resumed, never re-judged halfway
+        try:
+            gate.verify_file(clip, video)  # the exact bytes that would be uploaded passed the final quality gate
+        except queue.Wait as w:
+            db.update("scheduled_publications", item["id"], status_note=w.message)
+            raise
+        except queue.Fail as exc:
+            _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
+            raise
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:
@@ -223,6 +254,8 @@ def publish(job: Job) -> dict:
              planned_at=None, publication_id="")
         raise queue.Canceled()
     except PublishError as exc:
+        if exc.code == youtube.OUTCOME_UNKNOWN:
+            return outcome_unknown(_item(item["id"]) or item, db.get_publication(pub["id"]) or pub, exc)
         db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix)
         db.update("scheduled_publications", item["id"], publication_id="")
         _handle_error(job, _item(item["id"]) or item, exc, settings)

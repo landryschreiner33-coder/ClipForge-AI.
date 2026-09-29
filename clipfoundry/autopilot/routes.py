@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import providers, queue, quota, rights, scout, state
+from . import gate, providers, queue, quota, rights, scout, state
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -376,7 +377,8 @@ def status() -> dict:
     end = start + 86400
     rows = db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end))
     published = {r["clip_id"] for r in rows if r["status"] == "published"}
-    scheduled = {r["clip_id"] for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing")}
+    scheduled = {r["clip_id"] for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing",
+                                                                "reconciling")}
     processed = int(db.scalar("SELECT COUNT(*) FROM clips WHERE status = 'ready' AND created_at >= ? AND project_id IN "
                               "(SELECT id FROM projects WHERE origin IN ('autopilot', 'live'))", (start,)) or 0)
     nxt = db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval', 'publishing') AND "
@@ -413,9 +415,9 @@ def _count(table: str, column: str, where: str = "") -> list[dict]:
 
 
 # ------------------------------------------------------------------ Publish Center
-VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'action_needed')",
+VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'action_needed')",
          "published": "status = 'published'",
-         "problems": "status IN ('failed', 'blocked', 'action_needed')",
+         "problems": "status IN ('failed', 'blocked', 'action_needed', 'reconciling')",
          "history": "status IN ('published', 'canceled', 'replaced', 'failed', 'blocked')",
          "all": ""}
 
@@ -445,6 +447,7 @@ def _public_item(item: dict, settings: dict) -> dict:
             "trend": ({"topic": signal.get("topic"), "score": signal.get("score"), "mode": signal.get("score_mode")}
                       if signal else None),
             "clip_scores": db.fetch("clip_scores", item["clip_id"], "clip_id"),
+            "quality": gate.summary(gate.report_for(clip), item["platform"]) if clip else None,
             "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
                                           (item["clip_id"], item["platform"]), "score DESC"),
             "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
@@ -521,9 +524,9 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
         out = scheduler.approve(item_id, fields, creator)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    clip = db.get_clip(item["clip_id"]) or {}
-    warnings = packaging.validate({"title": out["title"], "caption": out["description"]},
-                                  clip.get("caption_text") or "")
+    clip = db.get_clip(item["clip_id"])
+    heard = " ".join(packaging.clip_sentences(clip)[0]) if clip else ""  # what is said in the file to be published
+    warnings = packaging.validate({"title": out["title"], "caption": out["description"]}, heard)
     return {**_public_item(out, db.get_settings()), "warnings": warnings}
 
 
@@ -636,6 +639,44 @@ def link_inbox_post(item_id: str, body: UrlBody) -> dict:
     db.update("scheduled_publications", item_id, status="published", status_note="Posted from the TikTok app",
               audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
     state.resolve(f"inbox:{item_id}")
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+class ResolveBody(BaseModel):
+    published: bool
+    url: str = ""
+
+
+@router.post("/scheduled/{item_id}/resolve", dependencies=WRITE)
+def resolve_uncertain(item_id: str, body: ResolveBody) -> dict:
+    """Your answer for an upload whose outcome the platform could not confirm: it is live (with its link, so its
+    statistics can be read), or it is not (it gets a new time and is uploaded again)."""
+    from ..publish import youtube
+    from .scheduler import _audit, approval_valid
+
+    item = _item_or_404(item_id)
+    if item["status"] != "reconciling":
+        raise HTTPException(409, "Only a post whose upload could not be confirmed can be resolved this way")
+    if body.published:
+        m = re.search(r"(?:shorts/|watch\?v=|youtu\.be/)([\w-]{6,})", body.url or "")
+        if item["platform"] == "youtube" and not m:
+            raise HTTPException(400, "Paste the video's YouTube link (…/shorts/ID or …watch?v=ID)")
+        if item.get("publication_id"):
+            db.update_publication(item["publication_id"], status="done", remote_id=m.group(1) if m else "",
+                                  url=youtube.video_url(m.group(1)) if m else body.url.strip(),
+                                  message="Confirmed by you after checking")
+        db.update("scheduled_publications", item_id, status="published", last_error="", fix="",
+                  status_note="Published (confirmed by you)",
+                  audit=_audit(item, "resolved", "You confirmed the upload is live", url=body.url.strip()))
+    else:
+        valid = approval_valid({**item, "status": "approved"})
+        db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
+                  planned_at=None, publication_id="", last_error="", fix="",
+                  status_note="Not on the platform: it will be uploaded again at a new time" if valid else
+                  "Not on the platform: approve it again to upload it",
+                  audit=_audit(item, "resolved", "You confirmed the upload is not on the platform"))
+        _manual("schedule_tick")
+    state.resolve(f"review:{item_id}")
     return _public_item(_item_or_404(item_id), db.get_settings())
 
 

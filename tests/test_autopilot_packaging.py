@@ -119,8 +119,10 @@ def test_package_clip_job(data):
     project = db.create_project("talk", source_path=str(folder / "source.mp4"), status="ready", origin="autopilot")
     words = transcribe.flatten_words({"segments": transcribe.parse_subtitles(_srt(SCRIPT))})
     end = next(w["end"] for w in words if w["w"] == "build.")
+    (folder / "clip.mp4").write_bytes(b"placeholder")
     clip = db.create_clip(project["id"], start=0.3, end=end, title="t", hook=CLIP[0], status="ready",
-                          caption_text=TEXT, hashtags=["#business", "#customers"], post={"cta": postpack.CTA_DEFAULT})
+                          caption_text=TEXT, hashtags=["#business", "#customers"], post={"cta": postpack.CTA_DEFAULT},
+                          output_path=str(folder / "clip.mp4"))
     db.insert("clip_scores", {"clip_id": clip["id"], "clip": 70.0}, key="clip_id")
     db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": True})
     host.WorkerHost(periodic=False)
@@ -133,4 +135,4 @@ def test_package_clip_job(data):
         assert len(rows) >= 3 and len(chosen) == 1 and not chosen[0]["problems"] and chosen[0]["score"] > 0
         assert chosen[0]["score"] == max(r["score"] for r in rows if not r["problems"])
     assert db.fetch("clip_scores", clip["id"], "clip_id")["packaging"] > 0
-    assert queue.jobs(worker="scheduler")
+    assert queue.jobs(worker="quality_gate")  # packaged clips go through the final quality gate first

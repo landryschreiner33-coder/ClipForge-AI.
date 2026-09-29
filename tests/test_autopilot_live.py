@@ -103,7 +103,9 @@ def test_live_capture_and_post_live_analysis(talk_video, data, monkeypatch):
     words_all = tr.flatten_words(tr.import_transcript(talk_video / "speech.srt", 0))
     clock = {"offset": 0.0}
 
-    def fake_transcribe(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True):  # Whisper stand-in, per segment
+    # Whisper stand-in, per segment
+    def fake_transcribe(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
+        assert allow_cpu_fallback is False  # Autopilot transcribes in strict GPU mode by default
         a, b = clock["offset"], clock["offset"] + duration
         clock["offset"] = b
         ws = [{**w, "start": w["start"] - a, "end": w["end"] - a} for w in words_all if a <= w["start"] < b]

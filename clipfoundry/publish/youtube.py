@@ -256,23 +256,41 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
 
 
 # ------------------------------------------------------------------ upload
+OUTCOME_UNKNOWN = "outcome_unknown"
+OUTCOME_UNKNOWN_FIX = ("Open YouTube Studio → Content. If the video is there, mark the post as published (with its "
+                       "link); if it is not, upload it again.")
+
+
+def _outcome_unknown() -> PublishError:
+    return PublishError("All of the video may already have reached YouTube, but YouTube no longer knows the upload "
+                        "session, so ClipFoundry cannot tell whether the video was created. It is not uploaded again "
+                        "automatically, to avoid a duplicate.", OUTCOME_UNKNOWN_FIX, OUTCOME_UNKNOWN)
+
+
 def upload(path: str, body: dict, token: Token, progress: Callable[[float], None] | None = None,
            cancelled: Callable[[], bool] = lambda: False, sleep: Callable[[float], None] = time.sleep,
-           on_session: Callable[[str], None] | None = None, resume_session: str = "") -> dict:
+           on_session: Callable[[str], None] | None = None, resume_session: str = "",
+           on_final_chunk: Callable[[], None] | None = None, may_be_complete: bool = False) -> dict:
     """Resumable upload. Returns the created video resource (id, snippet, status).
 
     `on_session` receives the upload session URL as soon as it exists (store it: an interrupted upload can then be
-    resumed with `resume_session` instead of uploading the video a second time)."""
+    resumed with `resume_session` instead of uploading the video a second time). `on_final_chunk` is called right
+    before the last bytes are sent: from then on YouTube may create the video even if its answer is lost. When a
+    session that may already be complete (`may_be_complete`, or the last bytes were sent in this call) has expired,
+    the outcome cannot be known: PublishError with code OUTCOME_UNKNOWN, never a second upload."""
     size = os.path.getsize(path)
     report = progress or (lambda f: None)
     with client(120) as c:
         offset, failures = 0, 0
         session = ""
+        final_sent = False
         if resume_session:
             offset, done = _resume_offset(c, resume_session, size, token)
             if done is not None:
                 report(1.0)
                 return done
+            if offset < 0 and may_be_complete:
+                raise _outcome_unknown()
             session = resume_session if offset >= 0 else ""
             offset = max(0, offset)
         if not session:
@@ -285,6 +303,10 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                     raise Cancelled()
                 fh.seek(offset)
                 chunk = fh.read(CHUNK)
+                if offset + len(chunk) >= size and not final_sent:
+                    final_sent = True
+                    if on_final_chunk:
+                        on_final_chunk()
                 headers = {"Authorization": f"Bearer {token.get()}", "Content-Type": "video/mp4",
                            "Content-Range": f"bytes {offset}-{offset + len(chunk) - 1}/{size}"}
                 try:
@@ -311,7 +333,9 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 if done is not None:
                     report(1.0)
                     return done
-                if offset < 0:  # the upload session expired: start over
+                if offset < 0:  # the upload session expired: start over, unless the video may already exist
+                    if final_sent:
+                        raise _outcome_unknown()
                     session, offset = _start_session(c, body, size, token), 0
                     if on_session:
                         on_session(session)

@@ -127,6 +127,35 @@ def test_recovery_after_a_crash(data):
     assert queue.complete(j, "new-host") is False  # a stale owner cannot overwrite the outcome
 
 
+def test_the_priority_floor_is_part_of_the_claim(data):
+    from clipfoundry.autopilot import queue
+
+    auto = queue.enqueue("selftest")  # older, but only a user-started job may run while Autopilot is off
+    assert queue.claim("maintenance", "w", min_priority=100) is None
+    manual = queue.enqueue("selftest", priority=100)
+    assert queue.claim("maintenance", "w", min_priority=100)["id"] == manual["id"]
+    assert queue.claim("maintenance", "w", min_priority=100) is None
+    assert queue.claim("maintenance", "w")["id"] == auto["id"]
+
+
+def test_a_recovered_job_cannot_be_finished_by_its_old_thread(data):
+    from clipfoundry.autopilot import host as host_mod, queue
+
+    h = host_mod.WorkerHost(workers=["maintenance"], periodic=False)  # not started: only its tokens are used
+    job = queue.enqueue("selftest", max_attempts=3)
+    first = h._claim("maintenance", 0)  # noqa: SLF001 - the thread that will hang
+    time.sleep(0.01)
+    queue.db.execute("UPDATE worker_jobs SET lease_until = 0 WHERE id = ?", (job["id"],))  # its lease ran out
+    assert queue.recover()["retrying"] == 1
+    second = h._claim("maintenance", 0)  # noqa: SLF001 - the same process claims it again
+    assert second["id"] == job["id"] and first["lease_owner"] != second["lease_owner"]
+    assert first["lease_owner"].startswith(h.owner) and second["lease_owner"].startswith(h.owner)
+    assert queue.complete(first, first["lease_owner"], {"from": "old"}) is False
+    assert queue.renew(job["id"], first["lease_owner"]) is None
+    assert queue.complete(second, second["lease_owner"], {"from": "new"})
+    assert queue.get(job["id"])["result"] == {"from": "new"}
+
+
 def test_cancel_and_stop_all(data):
     from clipfoundry.autopilot import queue
 
@@ -245,6 +274,31 @@ def test_only_one_host_at_a_time(host):
     assert second.start() is False
 
 
+def test_a_stopping_host_keeps_exclusivity_until_its_threads_are_done(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host as host_mod, queue
+
+    db.save_settings({"autopilot_enabled": True})
+    release = threading.Event()
+
+    def stubborn(job):  # a job between two safe points (e.g. mid-chunk of an upload): cannot stop at once
+        release.wait(5)
+        return {"message": "finished"}
+
+    h = host_mod.WorkerHost(workers=["maintenance"], poll=0.05, periodic=False)
+    monkeypatch.setitem(host_mod.HANDLERS, "selftest", stubborn)
+    assert h.start()
+    job = queue.enqueue("selftest")
+    h.wake()
+    _until(lambda: queue.get(job["id"])["status"] == "running")
+    h.stop(timeout=0.2)
+    second = host_mod.WorkerHost(workers=["maintenance"], poll=0.05, periodic=False)
+    assert second.start() is False  # the old thread may still act: no second host yet
+    release.set()
+    _until(lambda: second.start(), 5)
+    second.stop()
+
+
 def test_periodic_jobs_are_enqueued_once_per_slot(data):
     from clipfoundry import db
     from clipfoundry.autopilot import host as host_mod, queue
@@ -279,18 +333,22 @@ def test_gpu_lock_serializes_heavy_work(data):
 def test_gpu_lock_is_shared_with_other_processes(data):
     from clipfoundry import gpu
 
-    code = ("import time;from clipfoundry import gpu\n"
+    # The other process holds the GPU until we close its stdin, so a slow first status() call cannot race it.
+    code = ("import sys;from clipfoundry import gpu\n"
             "with gpu.manager.heavy('transcription','other process'):\n"
-            "    print('held', flush=True); time.sleep(1.5)\n")
-    proc = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT, stdout=subprocess.PIPE, text=True,
-                            env={**os.environ, "CLIPFOUNDRY_DATA": str(data)})
+            "    print('held', flush=True); sys.stdin.readline()\n")
+    proc = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            text=True, env={**os.environ, "CLIPFOUNDRY_DATA": str(data)})
     assert proc.stdout.readline().strip() == "held"
     st = gpu.manager.status({"gpu_min_free_vram_mb": 1200})
     assert st["busy"] and st["holder"]["label"] == "other process"
     waited: list[str] = []
+    release = threading.Timer(1.0, proc.stdin.close)
+    release.start()
     t0 = time.monotonic()
     with gpu.manager.heavy("transcription", "me", on_wait=waited.append):
         took = time.monotonic() - t0
+    release.join()
     proc.wait(10)
     assert took > 0.5 and waited and "other process" in waited[0]
     assert not gpu.manager.status({})["busy"]

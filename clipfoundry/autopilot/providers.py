@@ -26,7 +26,7 @@ from typing import Iterable
 
 import httpx
 
-from .. import config, db
+from .. import config, db, netguard
 from ..publish import youtube
 from ..publish.common import PublishError, client
 from . import quota, state, trends
@@ -302,8 +302,8 @@ def signal_feed(feed: dict) -> list[dict]:
     cfg = feed.get("config") or {}
     where = (cfg.get("url") or cfg.get("path") or "").strip()
     if where.startswith(("http://", "https://")):
-        with client(30) as c:
-            text = c.get(where).text
+        with client(30) as c:  # you typed this address: it may be on your own network; redirects are checked
+            text = netguard.get_text(c, where, allow_private=True)
     else:
         text = Path(where).read_text(encoding="utf-8-sig")
     now = time.time()

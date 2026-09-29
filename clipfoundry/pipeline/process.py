@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import db, gpu
 from . import candidates as cand_mod
-from . import postpack, render, scoring, transcribe, virality
+from . import blueprint, postpack, render, scoring, transcribe, virality
 from .audio import Loudness, loudness_envelope
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import extract_audio, make_silent_wav, probe, thumbnail
@@ -15,6 +15,10 @@ from .text_utils import build_sentences
 
 # Overall progress budget per stage
 P_PROBE, P_AUDIO, P_TRANSCRIBE, P_ANALYZE, P_SCORE, P_RENDER = 0.02, 0.07, 0.45, 0.50, 0.58, 1.0
+
+
+def _duration(project: dict) -> float | None:
+    return float(project.get("duration") or 0) or None
 
 
 def project_dir(project: dict) -> Path:
@@ -64,8 +68,8 @@ class Prepared:
 def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> Prepared | None:
     """Stages 1-3: read the video, extract the audio, transcribe (or import) the speech, measure loudness.
 
-    `gpu_policy` (autopilot) can make transcription wait for free GPU memory:
-    {"need_free_mb": int, "max_wait_s": float, "job_id": str}."""
+    `gpu_policy` (autopilot) can make transcription wait for free GPU memory and forbid a CPU fallback:
+    {"need_free_mb": int, "max_wait_s": float, "job_id": str, "allow_cpu_fallback": bool}."""
     project = db.get_project(project_id)
     if not project:
         return None
@@ -125,7 +129,8 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
                                    max_wait_s=policy.get("max_wait_s"),
                                    on_wait=lambda m: stage("transcribe", P_AUDIO, m)):
                 stage("transcribe", P_AUDIO, "Transcribing")
-                transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE)
+                transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE,
+                                                   allow_cpu_fallback=policy.get("allow_cpu_fallback", True))
             gpu.manager.record_transcription(transcript.get("runtime") or {}, project["name"])
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)
@@ -255,7 +260,8 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
             ctx_report(a + (b - a) * f, msg), db.update_clip(cid, progress=round(f, 3))),
             ctx.cancelled)
         try:
-            out = render.render_clip(project, clip, p.words, p.settings, sub)
+            plan = blueprint.for_render(clip, _duration(project), p.words)  # None for manual clips
+            out = render.render_clip(project, clip, p.words, p.settings, sub, blueprint=plan)
             db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
         except Cancelled:
             db.update_clip(clip["id"], status="error", error="Cancelled")
@@ -290,7 +296,9 @@ def render_single(clip_id: str, ctx: JobContext) -> None:
     db.update_clip(clip_id, status="rendering", progress=0, error="")
     sub = JobContext(lambda f, m: db.update_clip(clip_id, progress=round(f, 3)), ctx.cancelled)
     try:
-        out = render.render_clip(project, clip, load_words(project), settings, sub)
+        words = load_words(project)
+        plan = blueprint.for_render(clip, _duration(project), words)  # None for manual clips
+        out = render.render_clip(project, clip, words, settings, sub, blueprint=plan)
         db.update_clip(clip_id, status="ready", progress=1.0, error="", **out)
     except Cancelled:
         db.update_clip(clip_id, status="error", error="Cancelled")
@@ -316,8 +324,10 @@ def render_version(version_id: str, ctx: JobContext) -> None:
     db.update_version(version_id, status="rendering", progress=0, error="")
     sub = JobContext(lambda f, m: db.update_version(version_id, progress=round(f, 3)), ctx.cancelled)
     try:
-        out = render.render_clip(project, merged, load_words(project), db.get_settings(), sub,
-                                 out_dir=version_dir(project, version))
+        words = load_words(project)
+        plan = blueprint.for_render(clip, _duration(project), words, version.get("edit") or {}, version_id)
+        out = render.render_clip(project, merged, words, db.get_settings(), sub, out_dir=version_dir(project, version),
+                                 blueprint=plan)
         db.update_version(version_id, status="ready", progress=1.0, error="", **out)
     except Cancelled:
         db.update_version(version_id, status="error", error="Cancelled")

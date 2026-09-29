@@ -37,6 +37,7 @@ WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "clip_hunter": ("Clip Hunter", ("hunt_source",)),
     "analyzer": ("Deep Clip Analyzer", ("analyze_source",)),
     "packager": ("Packaging AI", ("package_clip",)),
+    "quality_gate": ("Final Quality Gate", ("quality_check",)),
     "scheduler": ("Smart Scheduler", ("schedule_tick",)),
     "publisher": ("Publisher", ("publish",)),
     "learner": ("Learning Worker", ("learn",)),
@@ -113,15 +114,19 @@ def enqueue(kind: str, payload: dict | None = None, *, priority: int = 0, idem_k
 
 
 # ------------------------------------------------------------------ claim / lease
-def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | None = None) -> dict | None:
-    """Atomically take the next due job for `worker` (highest priority, then oldest)."""
+def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | None = None,
+          min_priority: int | None = None) -> dict | None:
+    """Atomically take the next due job for `worker` (highest priority, then oldest). `min_priority` (e.g. only
+    jobs a user started while Autopilot is off) is part of the same transaction, so no other claim can slip in
+    between the check and the take. `owner` becomes the job's lease token: only it can renew or finish the job."""
     now = now or _now()
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT id, status FROM worker_jobs WHERE worker = ? AND status IN ('queued', 'retrying', 'waiting') "
-            "AND run_after <= ? AND cancel_requested = 0 ORDER BY priority DESC, run_after ASC, created_at ASC "
-            "LIMIT 1", (worker, now)).fetchone()
+            "AND run_after <= ? AND cancel_requested = 0 AND priority >= ? "
+            "ORDER BY priority DESC, run_after ASC, created_at ASC LIMIT 1",
+            (worker, now, -(2 ** 62) if min_priority is None else min_priority)).fetchone()
         if not row:
             conn.execute("COMMIT")
             return None

@@ -219,6 +219,15 @@ def download_allowed(source: dict, settings: dict) -> tuple[bool, str]:
     return True, "Direct media or stream URL"
 
 
+def url_typed_by_user(source: dict) -> bool:
+    """Was this source's URL typed by you (added by hand, or a stream you configured)? Only then may it point into
+    your own network; URLs that came from a feed's rows or from discovery must be public (netguard.py)."""
+    if not source.get("signal_id"):
+        return True
+    signal = db.fetch("trend_signals", source["signal_id"]) or {}
+    return signal.get("provider") == "stream_url"
+
+
 def attribution(source: dict) -> str:
     """Credit line for Creative Commons sources (shown in the suggested description, which you approve)."""
     if source.get("rights_status") != CC:

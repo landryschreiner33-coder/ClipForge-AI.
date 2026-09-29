@@ -21,16 +21,16 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import config, db, gpu
+from .. import config, db, gpu, netguard
 from ..pipeline import candidates as cand_mod
-from ..pipeline import deep, hooks, postpack, process, render, scoring, transcribe, virality
+from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
 from ..pipeline.audio import Loudness, loudness_envelope
 from ..pipeline.common import JobContext, log, read_json, write_json
 from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe
 from ..pipeline.text_utils import build_sentences
 from . import queue, rights, state
 from .host import Job, handler
-from .hunter import gpu_policy, prior_fingerprints, project_options, store_fingerprint
+from .hunter import gpu_failed, gpu_policy, plan_clips, prior_fingerprints, project_options, store_fingerprint
 
 SEGMENT_SECONDS = 60
 WINDOW_SECONDS = 900          # the rolling window searched for live clips
@@ -51,13 +51,17 @@ def input_args(src: dict, settings: dict) -> list[str]:
     url = src.get("url") or ""
     if not url:
         raise queue.Fail("The live source has no file or URL")
-    if rights.is_platform_url(url):
-        ok, why = rights.download_allowed(src, settings)
-        if not ok:
-            raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream yourself "
-                                  "into a watch folder.")
-        return [*timeout, "-i", _resolve_platform_stream(url)]
-    return [*timeout, "-i", url]
+    try:  # network protocols only, and no private or local addresses unless you typed the address yourself
+        if rights.is_platform_url(url):
+            ok, why = rights.download_allowed(src, settings)
+            if not ok:
+                raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream "
+                                      "yourself into a watch folder.")
+            return [*timeout, *netguard.ffmpeg_input(_resolve_platform_stream(url))]
+        return [*timeout, *netguard.ffmpeg_input(url, allow_private=rights.url_typed_by_user(src))]
+    except netguard.UnsafeUrl as exc:
+        raise queue.Fail(f"Not captured: {exc}", "Use a stream address on the internet, or add your own stream "
+                                                 "in Autopilot → Sources.") from exc
 
 
 def _resolve_platform_stream(url: str) -> str:
@@ -100,6 +104,7 @@ class Session:
         self.env: list[float] = st.get("env", [])
         self.clips: list[dict] = st.get("clips", [])
         self.meta: dict = st.get("meta", {})
+        self.untranscribed: list[list[float]] = st.get("untranscribed", [])  # strict GPU: minutes not transcribed
         self.transcript = read_json(self.pdir / "transcript.json", None) or {"language": "", "source": "live",
                                                                              "segments": []}
         self.words = transcribe.flatten_words(self.transcript)
@@ -111,7 +116,8 @@ class Session:
 
     def save(self) -> None:
         write_json(self.segdir / "state.json", {"run": self.run, "segments": self.segments, "offset": self.offset,
-                                                "env": self.env, "clips": self.clips, "meta": self.meta})
+                                                "env": self.env, "clips": self.clips, "meta": self.meta,
+                                                "untranscribed": self.untranscribed})
         write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
         write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
 
@@ -151,9 +157,17 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     frames = int(round(duration / 0.1))
     env = (env + [env[-1] if env else -60.0] * frames)[:frames]
     ctx = JobContext(None, job.cancelled)
-    with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
-                           max_wait_s=600):
-        t = transcribe.transcribe(wav, duration, sess.settings, ctx)
+    try:
+        with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
+                               max_wait_s=600):
+            t = transcribe.transcribe(wav, duration, sess.settings, ctx, allow_cpu_fallback=bool(
+                sess.settings.get("autopilot_allow_cpu_fallback")))
+    except transcribe.GpuTranscriptionFailed as exc:
+        # Strict GPU: live clipping pauses, the recording goes on. The post-live pass transcribes the whole
+        # recording again (on the GPU) before it is analyzed, so nothing said in these minutes is lost.
+        gpu_failed(exc, f"live “{sess.src.get('title', '')[:60]}”")
+        sess.untranscribed.append([sess.offset, sess.offset + duration])
+        t = {"segments": [], "language": "", "runtime": {}}
     gpu.manager.record_transcription(t.get("runtime") or {}, f"live: {sess.src.get('title', '')[:60]}")
     for seg in t.get("segments", []):
         shifted = {"start": seg["start"] + sess.offset, "end": seg["end"] + sess.offset, "text": seg.get("text", ""),
@@ -233,9 +247,19 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
             "height": meta["height"], "fps": meta["fps"], "duration": meta["duration"], "info": meta, "options": {}}
     shifted = [{**w, "start": w["start"] - shift, "end": w["end"] - shift} for w in sess.words
                if w["end"] > shift and w["start"] < shift + meta["duration"]]
+    # Engagement Strategist: the plan in recording time, stored before rendering; rendered on the window's time line
+    bp = blueprint.build(clip, sess.project, sess.words, sess.settings, source_id=sess.src["id"], selection=r,
+                         video_path=str(window), video_offset=shift)
+    issues = blueprint.validate(bp, sess.offset or None, sess.words)
+    blueprint.save(bp, issues)
+    if blueprint.errors(issues):
+        db.update_clip(clip["id"], status="error",
+                       error=("Plan rejected: " + "; ".join(blueprint.errors(issues)[:3]))[:500])
+        return clip
     try:
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
-                                 sess.settings, JobContext(None, job.cancelled))
+                                 sess.settings, JobContext(None, job.cancelled),
+                                 blueprint=blueprint.shifted(bp, -shift))
         db.update_clip(clip["id"], status="ready", progress=1.0, error="", **out)
     except queue.Canceled:
         raise
@@ -361,7 +385,7 @@ def live_capture(job: Job) -> dict:
 
 def _published(clip_id: str) -> bool:
     return bool(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN "
-                          "('publishing', 'published')", (clip_id,))) or bool(db.scalar(
+                          "('publishing', 'reconciling', 'published')", (clip_id,))) or bool(db.scalar(
         "SELECT COUNT(*) FROM publications WHERE clip_id = ? AND status IN ('done', 'action_needed', 'uploading', "
         "'processing', 'queued')", (clip_id,)))
 
@@ -383,9 +407,18 @@ def post_live(job: Job) -> dict:
     if not src or not db.get_project(project_id):
         raise queue.Fail("The live source or its project is missing")
     ctx = job.pipeline_ctx(0.0, 1.0)
-    p = process.prepare(project_id, ctx, gpu_policy(settings, job))  # the transcript is already there: no Whisper
+    live_state_path = config.projects_dir() / project_id / "live" / "state.json"
+    live_state = read_json(live_state_path, {}) or {}
+    if live_state.get("untranscribed"):  # parts were not transcribed live: transcribe the whole recording
+        (live_state_path.parent.parent / "transcript.json").unlink(missing_ok=True)
+    try:
+        p = process.prepare(project_id, ctx, gpu_policy(settings, job))  # usually the live transcript: no Whisper
+    except transcribe.GpuTranscriptionFailed as exc:
+        raise gpu_failed(exc, f"post-live “{src.get('title', '')[:60]}”") from exc
     if p is None:
         raise queue.Fail("The recording could not be read")
+    if live_state.get("untranscribed"):
+        write_json(live_state_path, {**live_state, "untranscribed": []})
     cands = process.candidate_pool(p, ctx)
     chosen = process.evaluate_select(p, cands, ctx, prior=prior_fingerprints(p.id))
     live = [c for c in db.list_clips(p.id) if c["status"] in ("ready", "rendering", "queued")]
@@ -409,7 +442,7 @@ def post_live(job: Job) -> dict:
     cps = int(settings.get("autopilot_clips_per_source") or 5)
     keep = keep[:max(0, cps - len(live))] if len(live) + len(keep) > cps else keep
     rows = process.create_clips(p, keep, ctx, replace_existing=False)
-    process.render_clips(p, rows, ctx, lo=0.6, hi_total=0.95)
+    process.render_clips(p, plan_clips(p, rows, keep, src["id"]), ctx, lo=0.6, hi_total=0.95)
     added = [c for c in (db.get_clip(r["id"]) for r in rows) if c and c["status"] == "ready"]
     for clip in added:
         store_fingerprint(clip, src)

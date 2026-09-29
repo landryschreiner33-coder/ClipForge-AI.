@@ -224,7 +224,7 @@ export interface ScheduledItemRow {
   privacy: string;
   options: Record<string, any>;
   planned_at: number | null;
-  status: "awaiting_approval" | "approved" | "publishing" | "published" | "failed" | "canceled" | "replaced" | "blocked" | "action_needed";
+  status: "awaiting_approval" | "approved" | "publishing" | "reconciling" | "published" | "failed" | "canceled" | "replaced" | "blocked" | "action_needed";
   status_note: string;
   final_score: number | null;
   scores: Record<string, any>;
@@ -251,6 +251,27 @@ export interface MetadataOption {
   selected: number;
 }
 
+export interface QualityCheck {
+  name: string;
+  label: string;
+  kind: "deterministic" | "heuristic";
+  status: "pass" | "warn" | "fail" | "skipped";
+  detail: string;
+}
+
+/** The final quality gate's report on the exact file (and this platform's text) that would be published. */
+export interface QualitySummary {
+  status: "passed" | "failed";
+  blockers: string[];
+  warnings: string[];
+  text_status: "passed" | "failed" | "missing" | null;
+  text_problems: string[];
+  checked_at: number;
+  sha256: string;
+  coverage: { note?: string; skipped?: string[] };
+  checks: QualityCheck[];
+}
+
 export interface ScheduledItem extends ScheduledItemRow {
   local_time: string;
   approval_valid: boolean;
@@ -259,6 +280,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   trend: { topic: string; score: number; mode: string } | null;
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];
+  quality: QualitySummary | null;
   publication: { id: string; status: string; url: string; privacy: string; requested_privacy: string; message: string; error: string; fix: string; info: Record<string, any> } | null;
   warnings?: string[];
 }
@@ -319,6 +341,7 @@ export const ap = {
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),
+  resolve: (id: string, published: boolean, url = "") => req<ScheduledItem>("POST", `${A}/scheduled/${id}/resolve`, { published, url }),
   learning: () => req<LearningStatus>("GET", `${A}/learning`),
 };
 
@@ -338,6 +361,7 @@ export const ITEM_STATUS: Record<string, [string, string]> = {
   awaiting_approval: ["Needs approval", "warn"], approved: ["Approved", "good"], publishing: ["Publishing", "info"],
   published: ["Published", "good"], failed: ["Failed", "bad"], canceled: ["Canceled", ""], replaced: ["Replaced", ""],
   blocked: ["Blocked", "bad"], action_needed: ["Action needed", "bad"],
+  reconciling: ["Upload not confirmed", "warn"],
 };
 
 export function localInput(ts: number | null): string {

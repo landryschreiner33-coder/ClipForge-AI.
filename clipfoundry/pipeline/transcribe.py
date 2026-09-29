@@ -144,10 +144,26 @@ def _fix_for(exc: BaseException) -> str:
     return "run gpu-check.bat for a detailed diagnosis"
 
 
+class GpuTranscriptionFailed(RuntimeError):
+    """The GPU was expected for this transcription, it could not be used, and a CPU fallback is not allowed."""
+
+    def __init__(self, message: str, fix: str = ""):
+        super().__init__(message)
+        self.fix = fix
+
+
 def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContext,
-               lo: float = 0.0, hi: float = 1.0, vad: bool = True) -> dict:
+               lo: float = 0.0, hi: float = 1.0, vad: bool = True, allow_cpu_fallback: bool = True) -> dict:
+    """Transcribe with word timestamps. `allow_cpu_fallback=False` (strict GPU, Autopilot's default) never runs on
+    the CPU when an NVIDIA GPU is expected: a CUDA failure raises GpuTranscriptionFailed instead. The manual
+    workflow keeps the visible CPU fallback."""
     status = cuda.probe(refresh=True)
     plan = whisper_plan(settings, status)
+    gpu_expected = plan["device"] == "cuda" or (bool(status.get("gpus")) and
+                                                 (settings.get("whisper_device") or "auto") != "cpu")
+    if not allow_cpu_fallback and gpu_expected and plan["device"] != "cuda":
+        raise GpuTranscriptionFailed(f"{plan['problem'] or 'The NVIDIA GPU cannot be used for transcription.'} "
+                                     "CPU fallback is off for Autopilot.", plan["fix"] or cuda.DRIVER_FIX)
     if plan["mode"] == "gpu":
         log.info("Transcription: GPU mode - %s", _gpu_label(plan))
         if plan["problem"]:
@@ -161,7 +177,8 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
         if plan["compute_type"] != "int8_float16" and "int8_float16" in status.get("compute_types", []):
             attempts.append((plan["model"], "cuda", "int8_float16"))  # only after running out of GPU memory
         auto_model = (settings.get("whisper_model", "auto") or "auto") == "auto"
-        attempts.append((CPU_MODEL if auto_model else plan["model"], "cpu", "int8"))
+        if allow_cpu_fallback:
+            attempts.append((CPU_MODEL if auto_model else plan["model"], "cpu", "int8"))
     warning = plan["problem"] if plan["mode"] == "cpu" and plan["fix"] else ""
     fix = plan["fix"]
     last: Exception | None = None
@@ -198,6 +215,8 @@ def transcribe(audio_path: Path, duration: float, settings: dict, ctx: JobContex
         last_run.clear()
         last_run.update(rt, at=time.time())
         return result
+    if plan["device"] == "cuda" and not allow_cpu_fallback:
+        raise GpuTranscriptionFailed(f"GPU transcription failed and CPU fallback is off for Autopilot: {last}", fix)
     raise RuntimeError(f"Transcription failed: {last}")
 
 

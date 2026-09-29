@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..pipeline import fingerprint
-from . import learner, queue, rights, state
+from ..pipeline import artifact, fingerprint
+from . import gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
 
@@ -34,7 +34,7 @@ LOCK_MINUTES = 20          # this close to its time an item is never moved or re
 HORIZON_DAYS = 2           # plan today and the next two days
 MISSED_GRACE_HOURS = 48    # an unapproved item that missed its slot this long ago is retired
 OVERDUE_MINUTES = 15       # an approved item this late (app was off) gets a new slot instead of posting late
-ACTIVE = ("awaiting_approval", "approved", "publishing")
+ACTIVE = ("awaiting_approval", "approved", "publishing", "reconciling")  # reconciling: may already be live
 DONE = ("published",)
 FINAL_WEIGHTS = {"clip": 0.35, "packaging": 0.15, "trend": 0.15, "source": 0.10, "diversity": 0.10,
                  "retention": 0.10, "publish_opportunity": 0.05}
@@ -160,16 +160,13 @@ def final_score(scores: dict, learned: dict[str, float] | None = None) -> tuple[
 # ------------------------------------------------------------------ what can be scheduled
 def active_version_path(clip: dict) -> tuple[str, str]:
     """(video path, version id) that would be published for this clip."""
-    if clip.get("active_version"):
-        v = db.get_version(clip["active_version"])
-        if v and v["status"] == "ready" and Path(v.get("output_path") or "").exists():
-            return v["output_path"], v["id"]
-    return clip.get("output_path") or "", ""
+    path, version, _ = artifact.active(clip)
+    return path, version
 
 
 def _published_or_active(clip_id: str, platform: str) -> bool:
     if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND platform = ? AND status IN "
-                 "('awaiting_approval', 'approved', 'publishing', 'published')", (clip_id, platform)):
+                 "('awaiting_approval', 'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
         return True
     return bool(db.scalar("SELECT COUNT(*) FROM publications WHERE clip_id = ? AND platform = ? AND status IN "
                           "('done', 'action_needed', 'uploading', 'processing', 'queued')", (clip_id, platform)))
@@ -183,7 +180,8 @@ def _repeat_of_published(clip: dict) -> str:
     others = db.select("clip_fingerprints", "clip_id != ? AND clip_id IN (SELECT clip_id FROM publications WHERE "
                                             "status IN ('done', 'action_needed', 'uploading', 'processing') UNION "
                                             "SELECT clip_id FROM scheduled_publications WHERE status IN "
-                                            "('awaiting_approval', 'approved', 'publishing', 'published'))",
+                                            "('awaiting_approval', 'approved', 'publishing', 'reconciling', "
+                                            "'published'))",
                        (clip["id"],))
     for o in others:
         if fingerprint.text_similarity(mine.get("text_sig") or [], o.get("text_sig") or []) >= 0.6 or \
@@ -216,8 +214,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
-            if not meta:
-                continue
+            if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
+                continue  # not packaged, or the final quality gate has not passed this file and text
             signal = db.fetch("trend_signals", (source or {}).get("signal_id") or "") if source and \
                 source.get("signal_id") else None
             urgency = (signal or {}).get("score") or 0.0
@@ -237,7 +235,7 @@ class Plan:
         self.settings = settings
         self.now = now
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
-                                                         "'published') AND planned_at IS NOT NULL")
+                                                         "'reconciling', 'published') AND planned_at IS NOT NULL")
         self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
 
     def occupies(self, item: dict) -> bool:
@@ -432,6 +430,10 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     updated = {**item, **{k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy",
                                                                      "options")}}
     check_platform(updated, creator)
+    rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
+    if rep and rep["status"] != "passed":  # not checked yet is fine: the publisher waits for the check
+        raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
+                         + "). Fix the clip and render it again before approving it.")
     now = _now()
     approval = {"at": now, "by": "you", "hash": approval_hash(updated)}
     db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
@@ -460,7 +462,7 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
 def edit(item_id: str, fields: dict) -> dict:
     """Change the text or settings. An approved post needs to be approved again afterwards."""
     item = db.fetch("scheduled_publications", item_id)
-    if not item or item["status"] in ("publishing", "published"):
+    if not item or item["status"] in ("publishing", "reconciling", "published"):
         raise ValueError("This post can no longer be edited")
     clean = {k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy", "options")}
     changes = {**clean}
@@ -478,7 +480,7 @@ def reschedule(item_id: str, planned_at: float) -> dict:
     settings = db.get_settings()
     gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
     for other in db.select("scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', "
-                                                     "'approved', 'publishing', 'published')",
+                                                     "'approved', 'publishing', 'reconciling', 'published')",
                            (item["platform"], item_id)):
         if other["planned_at"] and abs(other["planned_at"] - planned_at) < gap:
             raise ValueError(f"Less than {gap / 60:.0f} minutes from another {item['platform']} post "
@@ -497,8 +499,8 @@ def cancel(item_id: str, reason: str = "Canceled by you") -> dict:
     item = db.fetch("scheduled_publications", item_id)
     if not item:
         raise ValueError("Scheduled post not found")
-    if item["status"] in ("publishing", "published"):
-        raise ValueError("This post is already being published")
+    if item["status"] in ("publishing", "reconciling", "published"):
+        raise ValueError("This post is already being published (or may already be live): check it first")
     db.update("scheduled_publications", item_id, status="canceled", status_note=reason,
               audit=_audit(item, "canceled", reason))
     for j in queue.jobs(("queued", "retrying", "waiting"), ref=("scheduled", item_id)):
@@ -514,9 +516,39 @@ def lead_seconds(item: dict, settings: dict) -> float:
     return 0.0
 
 
+ORPHAN_AFTER = 120  # seconds a post may show "publishing" without a publish job before it is reconciled
+
+
+def reconcile_orphans(now: float) -> int:
+    """Posts left "publishing" without a publish job (STOP ALL canceled it while it waited, or the worker died):
+    one that never started uploading gets a new time; one that did is checked with the platform ("reconciling"),
+    never uploaded again blindly."""
+    active = {j["ref_id"] for j in queue.jobs(("queued", "running", "waiting", "retrying"), worker="publisher",
+                                              limit=1000)}
+    n = 0
+    for item in db.select("scheduled_publications", "status = 'publishing' AND updated_at < ?", (now - ORPHAN_AFTER,)):
+        if item["id"] in active:
+            continue
+        if item.get("publication_id"):
+            db.update("scheduled_publications", item["id"], status="reconciling",
+                      status_note="Checking with the platform whether the upload finished",
+                      audit=_audit(item, "reconciling", "The upload job stopped before it finished; checking with the "
+                                                        "platform what happened"))
+            queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600,
+                          message="Checking what happened to the upload")
+        else:
+            db.update("scheduled_publications", item["id"], status="approved", planned_at=None,
+                      status_note="The upload never started; a new time will be chosen",
+                      audit=_audit(item, "requeued", "The upload job stopped before the upload started"))
+        n += 1
+    return n
+
+
 def process_due(settings: dict, now: float) -> dict:
     started, moved, retired = 0, 0, 0
     waiting = 0
+    reconciled = reconcile_orphans(now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
         if item["status"] == "approved":
@@ -574,7 +606,7 @@ def process_due(settings: dict, now: float) -> dict:
     else:
         state.resolve("approvals")
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
-            "awaiting_approval": pending}
+            "awaiting_approval": pending, "reconciled": reconciled}
 
 
 @handler("schedule_tick")
