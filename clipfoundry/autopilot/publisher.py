@@ -29,7 +29,7 @@ from ..publish.common import SHORT_WAIT, PublishError, asked_to_wait, client, wa
 from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import Job, handler
 from .providers import iso_time
-from .scheduler import _audit, _label, active_version_path, approval_valid, block_platform, blocked_until, tz
+from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
 
 RECONNECT_WAIT = 30 * 60
 
@@ -242,10 +242,10 @@ def publish(job: Job) -> dict:
     if not allowed:
         _set(item, "blocked", why, "blocked")
         raise queue.Fail(why, "The agreement for this video does not cover this platform.")
-    if not approval_valid({**item, "status": "approved"}):
-        _set(item, "awaiting_approval", "The clip or its text changed after approval: approve it again.",
-             "approval_invalidated", approval={})
-        raise queue.Fail("The approval no longer matches the content")
+    problem = approval_problem({**item, "status": "approved"})
+    if problem:
+        _set(item, "awaiting_approval", f"Needs a new approval: {problem}.", "approval_invalidated", approval={})
+        raise queue.Fail(f"The approval no longer matches the content: {problem}")
     if not item.get("publication_id") and not autopublish.still_covers(item):
         _set(item, "awaiting_approval", "Automatic publishing was turned off or changed: approve it yourself.",
              "approval_invalidated", approval={})

@@ -41,7 +41,9 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
           <label className="row small">{tog("autopilot_tiktok")} TikTok</label>
         </div></Row>
         <Row label="Automatic scheduling" hint="Plan posting times for new packaged clips">{tog("autopilot_auto_schedule")}</Row>
-        <Row label="Dynamic trend replacement" hint="A clearly stronger new opportunity takes the slot of the weakest future post">
+        <Row label="Dynamic trend replacement"
+             hint={"A clearly stronger new opportunity takes the slot of the weakest future post; a slot is swapped " +
+               `at most once every ${s.autopilot_replacement_cooldown_hours ?? 24} hours`}>
           <div className="row">{tog("autopilot_dynamic_replacement")}<span className="small muted">at least</span>{n("autopilot_replacement_threshold", { min: 0, max: 500 })}<span className="small muted">% better</span></div>
         </Row>
         <Row label="Live monitoring" hint="Clip authorized live sources while they run">{tog("autopilot_live_monitoring")}</Row>

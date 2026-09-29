@@ -93,15 +93,10 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 
 ## Where things stand (2026-09-29)
 
-**Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`); PR #1 (plan items 1-7) is
-merged into it. Open, in merge order:
-
-* **PR #3** `claude/project-thread-ipcjyk`: zero-config and hands-off Autopilot.
-* **PR #2** `claude/project-thread-dwhyso`, built on PR #3 and targeting it: NVENC GPU lock, exact Retry-After,
-  confirmed channels. Merge PR #3 first.
-* **PR #4**: the Playwright MCP launcher (`.mcp.json`), kept apart for separate review because it touches `.mcp.json`.
-
-Don't merge between branches unless the user asks.
+**Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
+into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
+Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher) and PR #5 (plan items 10-13). Start new work
+from the default branch; the tested commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
@@ -133,8 +128,28 @@ Don't merge between branches unless the user asks.
 9. **Retry-After is never shortened** (PR #2). Up to 60 s is waited out in place; a longer wait puts the job back
    for exactly that time (Autopilot: `queue.Wait`; manual uploads: a timer that survives restarts) and the same
    upload continues then.
+10. **Replacement cooldown** (`scheduler.replacement_blocked`, table `slot_replacements`). A slot is swapped at most
+    once per `autopilot_replacement_cooldown_hours` (default 24, not on the main settings page). The history
+    follows the slot's time and every post that took part in a swap, survives restarts, and allows one pending
+    proposal per slot; a declined proposal is not made again. Existing databases are backfilled from
+    `replaces`/`replaced_by`.
+11. **Dashboard counts.** `status()["target"]` counts unique clips (`published`, `scheduled`) and platform posts
+    (`published_posts`, `scheduled_posts`, `posts_by_platform`) separately; "today" is the local day, 23 or 25
+    hours long on a daylight-saving change (`scout.day_bounds`).
+12. **Daylight saving.** `tests/test_autopilot_integrity.py` plans and recovers missed posts across both
+    America/Chicago changes.
+13. **Multi-interval plans.** `blueprint.with_middle_cuts` removes up to two weak middle sentences (only filler
+    words, a clear promotional line, or a warm-up phrase with no words of its own) when every safe-cut rule holds:
+    pauses on both sides, complete sentences, the next sentence does not point back at removed words, hook, payoff,
+    questions, first and last sentences stay, at most 35% removed, and the clip keeps `min_duration`. Otherwise the
+    clip stays continuous. The final transcript, captions, packaging and gate follow the cut output.
 14. **Confirmed channels** (PR #2, the owner decided "restrict"). `autopilot/verify.py` asks YouTube (Data API) or
     TikTok (oEmbed) who posted the exact video before a channel rule or ownership applies; see rule 1.
+15. **Approvals bound to the exact file.** An approval records the SHA-256 of the rendered video with the text,
+    privacy, options and render version (`scheduler.APPROVAL_SCHEME = 2`). Changed bytes, even with the same size
+    and time stamp, a missing or unreadable file, or an approval from before the hash was stored all need a new
+    approval; YouTube is approved again automatically only through the automatic-publishing permission and a
+    passing gate report for the new bytes.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
@@ -147,16 +162,12 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
   jobs|learning`); Settings has General and Advanced (`#/settings/advanced`). Keep jargon (worker, feed, provider,
   source, quota) off the main page and General settings; `test_autopilot_simple.py` checks the page text.
 
-**Open, in priority order** (plan items 10–13):
+**Decided:** live monitoring is on by default (owner, 2026-09-29).
 
-* 10: a cooldown between replacements of the same schedule slot. **This is the next task.**
-* 11: show platform publications next to unique clips on the dashboard.
-* 12: a scheduler test across a daylight-saving change in America/Chicago.
-* 13: the Engagement Strategist proposes multi-interval plans (dropping a weak middle sentence). The renderer
-  already supports them.
+**Open decision for the owner:** the TikTok inbox-draft fallback if Direct Post is not granted.
 
-**Open decisions for the owner:** whether live monitoring should stay on by default (PR #3 turned it on), and the
-TikTok inbox-draft fallback if Direct Post is not granted.
+**Next candidates:** multi-cut clips beyond weak sentences (e.g. dropping a tangent), and the checks on the owner's
+PC listed at the end of `IMPLEMENTATION_STATUS.md`.
 
 **Never verified here** (the cloud session has no GPU and no accounts): real CUDA transcription on the RTX 3050,
 real YouTube/TikTok uploads, real Data API and oEmbed answers, and throughput per source. The checklist at the end
@@ -198,7 +209,9 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 
 ## Standing instructions from the owner
 
-* Don't change `.mcp.json` and don't pin Playwright versions.
+* Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):
+  `.mcp.json` starts the Playwright MCP server through `e2e/playwright-mcp.mjs`, which uses the cloud's
+  preinstalled Chromium when it exists.
 * The `e2e/` tests must stay **read-only**: they run against the user's real data. They must never press Create,
   Delete, Save, Approve, Publish, the AUTOPILOT switch or STOP ALL JOBS.
 * Don't upgrade CUDA, CTranslate2, faster-whisper or other GPU dependencies casually.

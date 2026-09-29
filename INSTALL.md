@@ -253,8 +253,30 @@ To back up, copy the `data` folder. Deleting a project in the UI removes its fol
 
 ## Updating
 
-Replace the app files (or `git pull`) but keep `data\`. `start.bat` notices a changed `requirements.txt` and updates
-dependencies automatically.
+**Don't delete the ClipFoundry folder to update.** Unless you set `CLIPFOUNDRY_DATA`, the `data` folder inside it holds
+your database (settings, schedule, approvals, account connections), your projects and clips, and the downloaded
+Whisper models; the `.venv` folder holds Python and the GPU (CUDA) libraries; `tools\ffmpeg` holds FFmpeg if you put
+it there. Deleting the folder deletes all of that.
+
+With `git`: close ClipFoundry, run `git pull` in the folder, start `start.bat`. `data`, `.venv` and `tools\ffmpeg` are
+never touched by git.
+
+With the ZIP (https://github.com/landryschreiner33-coder/ClipForge-AI./archive/refs/heads/claude/wonderful-ritchie-909tq3.zip):
+
+1. Close ClipFoundry (close the `start.bat` window).
+2. Check where your data is: Settings → Advanced → System → *Data folder*. If it is outside the ClipFoundry folder
+   (you set `CLIPFOUNDRY_DATA`), only steps 4-5 and 7 apply.
+3. Back up: copy the `data` folder somewhere else (at least `data\clipfoundry.db`).
+4. Rename the old folder, e.g. `ClipFoundry` → `ClipFoundry-old`.
+5. Unzip the download and rename the unzipped folder to the old name (`ClipFoundry`), in the same place, so the path is
+   exactly the same as before.
+6. Move `data`, `.venv` and `tools` (if they exist) from `ClipFoundry-old` into the new `ClipFoundry` folder. Keeping
+   `.venv` at the same path keeps your working CUDA setup; nothing is downloaded again.
+7. Start `start.bat`. It reinstalls packages only when `requirements.txt` or `requirements-gpu.txt` changed. Check that
+   your projects are there and your accounts are still connected, then delete `ClipFoundry-old`.
+
+Account connections are encrypted for your Windows user on this PC, so they keep working only in the same Windows
+account; the database copy is otherwise complete.
 
 ## Troubleshooting
 

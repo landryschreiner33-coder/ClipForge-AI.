@@ -305,6 +305,10 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
         if problems:
             db.update_clip(row["id"], status="error", error=("Plan rejected: " + "; ".join(problems[:3]))[:500])
             continue
+        heard = blueprint.heard_fields(bp, p.words, row, p.settings)  # weak middle parts cut out
+        if heard:
+            db.update_clip(row["id"], **heard)
+            row = {**row, **heard}
         ok.append(row)
     return ok
 

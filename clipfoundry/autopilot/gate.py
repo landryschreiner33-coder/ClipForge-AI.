@@ -113,6 +113,8 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
     if not path or not Path(path).is_file():
         raise queue.Fail("The rendered clip file is missing", "Render the clip again.")
     existing = report_for(clip)
+    if existing and existing["artifact_sha256"] != artifact.sha256_file(path):
+        existing = None  # same size and time but other bytes (an edit in place): check the file again
     if existing:
         media = {k: existing[k] for k in ("artifact_path", "artifact_sha256", "file_stamp", "checks", "blockers",
                                           "warnings", "bindings", "coverage")}
@@ -136,13 +138,14 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
     return db.insert("quality_reports", fields)
 
 
-def request(clip: dict, priority: int = 0) -> dict | None:
-    """Queue a gate run for the clip's current file and packaging (once per file and packaging)."""
+def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
+    """Queue a gate run for the clip's current file and packaging (once per file and packaging). `sha`: the hash of
+    bytes that were found unchecked although the file's size and time are unchanged, so it is checked once more."""
     path, _, _ = artifact.active(clip)
     if not path or not Path(path).is_file():
         return None
     selected = sorted(filter(None, ((_selected(clip["id"], p) or {}).get("id") for p in ("youtube", "tiktok"))))
-    key = f"quality:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}"
+    key = f"quality:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}" + (f":{sha[:16]}" if sha else "")
     return queue.enqueue("quality_check", {"clip_id": clip["id"]}, idem_key=key, ref=("clip", clip["id"]),
                          priority=priority, timeout_s=1800, message="Waiting for the final quality check")
 
@@ -173,7 +176,8 @@ def verify_file(clip: dict, path: str) -> dict:
     rows = db.select("quality_reports", "clip_id = ? AND artifact_sha256 = ? AND gate_version = ?",
                      (clip["id"], sha, quality.GATE_VERSION), "updated_at DESC", 1)
     if not rows:
-        request(clip, priority=100)
+        stale = report_for(clip)  # checked at this size and time, but those were other bytes: check these ones
+        request(clip, priority=100, sha=sha if stale and stale["artifact_sha256"] != sha else "")
         raise queue.Wait("quality", 60, "Checking the final file before uploading it")
     if rows[0]["status"] != "passed":
         raise queue.Fail("The file did not pass the final quality check: " + "; ".join(rows[0]["blockers"][:2]),

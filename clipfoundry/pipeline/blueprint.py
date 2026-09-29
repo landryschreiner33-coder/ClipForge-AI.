@@ -15,6 +15,9 @@ reversed, overlapping or out of order (the renderer plays the source forwards on
 an option the renderer does not support, emphasis outside the kept intervals, or on-screen text that is not said in
 the clip (no fabricated speech, no changed meaning).
 
+The Strategist plans one continuous range, and cuts weak middle sentences (filler, a promotional aside, a warm-up
+line) out of it only when every rule for a safe cut holds (`middle_cuts`); otherwise the moment stays continuous.
+
 The renderer follows a validated blueprint exactly. Edits made in the editor and alternative versions are applied
 on top of the plan as a new blueprint (`with_edit`), which is stored before that render too, so every rendered file
 is bound to the blueprint it was made from. Manual projects have no plan and render as they always did.
@@ -239,13 +242,174 @@ def errors(issues: list[dict]) -> list[str]:
     return [i["message"] for i in issues if i["level"] == "error"]
 
 
+def heard_text(bp: Blueprint, words: list[dict]) -> str:
+    """What the plan's intervals keep of the clip's words (the text a multi-interval clip is described by)."""
+    return " ".join(w["w"].strip() for w in _heard(words, bp.intervals))
+
+
+def heard_fields(bp: Blueprint, words: list[dict], clip: dict, settings: dict) -> dict:
+    """Clip fields for a plan with middle cuts, so the clip is described by what is heard: its caption text, and
+    its post package written again from the kept sentences when the one written for the whole range uses words that
+    were cut out. {} for a continuous plan."""
+    from . import postpack
+    from .text_utils import build_sentences
+
+    if len(bp.intervals) < 2:
+        return {}
+    sents = [s["text"] for s in build_sentences(_heard(words, bp.intervals))]
+    out: dict = {"caption_text": heard_text(bp, words)}
+    if not clip.get("post") or postpack.checks(clip["post"], " ".join(sents)):
+        post = postpack.generate(sents, clip.get("hook") or "", clip.get("hooks_alt") or [], clip.get("category") or "",
+                                 settings, use_ai=False)
+        out.update(post=post, title=post["title"] or clip.get("title") or "", hashtags=post["hashtags"])
+    return out
+
+
 # ------------------------------------------------------------------ the Engagement Strategist
+MAX_MIDDLE_CUTS = 2   # weak middle parts cut out of one clip at most (more jumps read as choppy)
+MIN_CUT = 1.0         # seconds a cut must save to be worth a jump
+MAX_CUT_SHARE = 0.35  # of the clip; the rest carries the context
+CUT_GAP = 0.08        # seconds of pause needed on both sides of a cut (the renderer snaps cuts to video frames)
+CUT_PAD = 0.15        # seconds of that pause kept next to the words that stay
+# first words that point back at what was just said ("It has ten lessons."): the line before them must stay
+REFERS_BACK = {"it", "it's", "its", "this", "that", "that's", "these", "those", "they", "they're", "them", "their",
+               "he", "she", "him", "her", "his", "which", "there", "such", "same", "both"}
+
+
+# a sentence made only of these says nothing ("Um, you know, like, yeah.")
+FILLER_ONLY = {"um", "uh", "erm", "hmm", "mm", "ah", "like", "yeah", "okay", "ok", "so", "well", "basically",
+               "anyway"}
+FILLER_PAIRS = [("you", "know"), ("i", "mean"), ("kind", "of"), ("sort", "of")]
+# "check out my ..." is left out: it also starts sentences that report something ("check out my results")
+PROMO_CUT = ["subscribe", "sponsor", "in the description", "patreon", "promo code", "discount code", "hit the bell",
+             "smash that like"]
+# words a warm-up line may use besides its phrase and still say nothing ("Welcome back to the channel.")
+WARM_UP_WORDS = {"guys", "everyone", "everybody", "video", "channel", "today", "back", "moving", "move", "start",
+                 "started", "begin", "get", "going"}
+
+
+def _only_filler(text: str) -> bool:
+    from .text_utils import tokens
+
+    toks = tokens(text)
+    rest, k = [], 0
+    while k < len(toks):
+        if tuple(toks[k:k + 2]) in FILLER_PAIRS:
+            k += 2
+            continue
+        rest.append(toks[k])
+        k += 1
+    return len(toks) >= 2 and all(t in FILLER_ONLY for t in rest)
+
+
+def _warm_up(text: str) -> bool:
+    from .text_utils import SLOW_OPEN_PHRASES, TRANSITION_PHRASES, content_tokens, tokens
+
+    low = text.lower()
+    phrases = [p for p in (*SLOW_OPEN_PHRASES, *TRANSITION_PHRASES) if p in low]
+    said = {t for p in phrases for t in tokens(p)} | WARM_UP_WORDS
+    return bool(phrases) and all(t in said for t in content_tokens(text))
+
+
+def _weak(text: str) -> str:
+    """Why a sentence adds nothing to the clip ("" when it does). Conservative on purpose: a sentence is weak only
+    when it is nothing but filler words, a promotional aside, or a warm-up phrase with no words of its own ("Let's
+    talk about pricing." names the topic, so it stays)."""
+    from .text_utils import count_phrases
+
+    if count_phrases(text.lower(), PROMO_CUT):
+        return "a promotional aside"
+    if _only_filler(text):
+        return "filler"
+    if _warm_up(text):
+        return "a warm-up line"
+    return ""
+
+
+def middle_cuts(heard: list[dict], protect: set[int], min_seconds: float) -> list[dict]:
+    """Weak sentences in the middle of a clip that can be cut out without changing what it says. Each cut runs from
+    the end of a complete sentence to the start of the next kept one, with a pause on both sides; the sentence after
+    it does not point back at removed words; the first and last sentences, questions and `protect`ed sentences (hook,
+    payoff) stay; and the clip keeps `min_seconds` and most of its length. Chronological order is never changed.
+    Returns [{"first", "last" (sentence indices), "end", "start" (source times of the kept edges), "why", "text"}]."""
+    from .candidates import sentence_features
+    from .text_utils import build_sentences, ends_sentence, tokens
+
+    sents = build_sentences(heard)
+    if len(sents) < 3:
+        return []
+    feats = sentence_features(sents, heard)
+    weak = {k: _weak(s["text"]) for k, s in enumerate(sents)}
+    runs: list[list[int]] = []
+    for k in range(1, len(sents) - 1):
+        if not weak[k] or k in protect or feats[k]["question"]:
+            continue
+        if runs and runs[-1][-1] == k - 1:
+            runs[-1].append(k)
+        else:
+            runs.append([k])
+    total = sents[-1]["end"] - sents[0]["start"]
+    cuts: list[dict] = []
+    for run in runs:
+        a, b = run[0], run[-1]
+        prev, nxt = sents[a - 1], sents[b + 1]
+        gap1, gap2 = sents[a]["start"] - prev["end"], nxt["start"] - sents[b]["end"]
+        if gap1 < CUT_GAP or gap2 < CUT_GAP:
+            continue  # no pause to cut in: the words run together
+        if not ends_sentence(heard[prev["i1"]]["w"]) or not ends_sentence(heard[sents[b]["i1"]]["w"]):
+            continue  # not at a sentence boundary
+        if sum(feats[k]["content"] for k in run) >= 2 and (tokens(nxt["text"]) or [""])[0] in REFERS_BACK:
+            continue  # "It ..." would now point at something else
+        end, start = prev["end"] + min(CUT_PAD, gap1 / 2), nxt["start"] - min(CUT_PAD, gap2 / 2)
+        removed = start - end + sum(c["start"] - c["end"] for c in cuts)
+        if start - end < MIN_CUT or removed > MAX_CUT_SHARE * total or total - removed < min_seconds:
+            continue
+        cuts.append({"first": a, "last": b, "end": round(end, 3), "start": round(start, 3), "why": weak[a],
+                     "text": " ".join(sents[k]["text"] for k in run)})
+        if len(cuts) >= MAX_MIDDLE_CUTS:
+            break
+    return cuts
+
+
+def _quotes(sentence: str, text: str) -> bool:
+    """Does `text` (the on-screen hook) use this sentence's words, so cutting it would leave the hook unsaid?"""
+    from .text_utils import content_tokens
+
+    mine, theirs = set(content_tokens(sentence)), set(content_tokens(text))
+    return bool(mine & theirs)
+
+
+def with_middle_cuts(bp: Blueprint, heard: list[dict], words: list[dict], min_seconds: float) -> Blueprint:
+    """The plan with its weak middle parts cut out (several intervals, in order), or the continuous plan unchanged
+    when no cut is safe or the cut plan would not pass validation."""
+    from .text_utils import build_sentences
+
+    sents = build_sentences(heard)
+    protect = {k for k, s in enumerate(sents)
+               if (bp.payoff.at is not None and s["start"] - WORD_TOLERANCE <= bp.payoff.at <= s["end"])
+               or (bp.payoff.text and s["text"] in bp.payoff.text) or (bp.hook.text and _quotes(s["text"],
+                                                                                                bp.hook.text))}
+    cuts = middle_cuts(heard, protect, min_seconds)
+    if not cuts:
+        return bp
+    start, end = bp.window()
+    edges = [start, *[x for c in cuts for x in (c["end"], c["start"])], end]
+    new = Blueprint.from_dict(bp.to_dict())
+    new.intervals = [Interval(round(a, 3), round(b, 3)) for a, b in zip(edges[::2], edges[1::2])]
+    new.emphasis = [e for e in bp.emphasis if any(i.start <= e["at"] <= i.end for i in new.intervals)]
+    new.reasons = [*bp.reasons, *(f"cut out {c['why']} in the middle ({c['start'] - c['end']:.1f} s): "
+                                  f"“{c['text'][:80]}”" for c in cuts)]
+    if errors(validate(new, None, words)):
+        return bp  # a safe cut cannot be established: the moment stays continuous
+    return new
+
+
 def build(clip: dict, project: dict, words: list[dict], settings: dict, *, source_id: str = "",
           selection: dict | None = None, video_path: str | None = None, video_offset: float = 0.0) -> Blueprint:
     """The plan for a clip chosen by the analyzer: its range (moved onto a hard scene cut when one is right next to
-    it and no word is lost), the configured look and sound, the words worth stressing, the hook and the payoff.
-    `video_path` is the file to look for scene cuts in; `video_offset` is where it starts in source time (a live
-    window file)."""
+    it and no word is lost), weak middle parts cut out when that is safe (`with_middle_cuts`), the configured look
+    and sound, the words worth stressing, the hook and the payoff. `video_path` is the file to look for scene cuts
+    in; `video_offset` is where it starts in source time (a live window file)."""
     from . import render
     from .postpack import _payoff_sentence  # noqa: PLC2701 - the shared "which line delivers the point" rule
     from .text_utils import build_sentences
@@ -267,7 +431,7 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     payoff_text = _payoff_sentence([s["text"] for s in sents]) if sents else ""
     payoff_at = next((s["start"] for s in sents if payoff_text.startswith(s["text"])), None)
     source_words = [[w["w"], round(w["start"], 3), round(w["end"], 3)] for w in heard]
-    return Blueprint(
+    bp = Blueprint(
         clip_id=clip["id"], project_id=clip.get("project_id") or project.get("id", ""), source_id=source_id,
         input_hash=artifact.sha256_json({"words": source_words, "range": [clip["start"], clip["end"]],
                                          "score": clip.get("score"),
@@ -289,6 +453,8 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
                   seconds=float(opts.get("hook_seconds") or 3.0)),
         payoff=Payoff(text=payoff_text, at=round(payoff_at, 3) if payoff_at is not None else None),
         reasons=reasons)
+    shortest = {**settings, **{k: v for k, v in (project.get("options") or {}).items() if v is not None}}
+    return with_middle_cuts(bp, heard, words, float(shortest.get("min_duration") or 0.0))
 
 
 # ------------------------------------------------------------------ edits and versions on top of the plan

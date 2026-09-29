@@ -256,6 +256,10 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
         db.update_clip(clip["id"], status="error",
                        error=("Plan rejected: " + "; ".join(blueprint.errors(issues)[:3]))[:500])
         return clip
+    heard = blueprint.heard_fields(bp, sess.words, clip, sess.settings)  # weak middle parts cut out
+    if heard:
+        db.update_clip(clip["id"], **heard)
+        clip = {**clip, **heard}
     try:
         out = render.render_clip(proj, {**clip, "start": start - shift, "end": end - shift, "edit": {}}, shifted,
                                  sess.settings, JobContext(None, job.cancelled),
