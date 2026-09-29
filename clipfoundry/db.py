@@ -457,6 +457,18 @@ CREATE TABLE IF NOT EXISTS scheduled_publications (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_publications(status, planned_at);
+-- dynamic replacement history: the cooldown between replacements of a slot reads it (autopilot/scheduler.py)
+CREATE TABLE IF NOT EXISTS slot_replacements (
+    replacement_id TEXT PRIMARY KEY,            -- the stronger post proposed for the slot
+    replaced_id TEXT NOT NULL,                  -- the post whose slot it takes
+    platform TEXT NOT NULL,
+    slot_at REAL NOT NULL,                      -- the slot's time (UTC seconds)
+    clip_id TEXT DEFAULT '',                    -- the replacement's clip
+    status TEXT NOT NULL DEFAULT 'proposed',    -- proposed (waits for approval) replaced
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_slot_replacements ON slot_replacements(platform, slot_at);
 CREATE TABLE IF NOT EXISTS platform_limits (
     platform TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -556,6 +568,7 @@ JSON_FIELDS = {
     "clip_fingerprints": {"text_sig", "phash"},
     "metadata_candidates": {"tags", "hashtags", "components", "problems"},
     "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "audit"},
+    "slot_replacements": set(),
     "platform_limits": set(),
     "learning_metrics": {"data"},
     "quota_usage": set(),
@@ -587,6 +600,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for name, decl in cols.items():
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    # replacements made before the history table existed count for the cooldown too (idempotent: one row per
+    # replacement post)
+    conn.execute(
+        "INSERT OR IGNORE INTO slot_replacements (replacement_id, replaced_id, platform, slot_at, clip_id, status, "
+        "created_at, updated_at) SELECT n.id, w.id, n.platform, COALESCE(w.planned_at, n.planned_at, 0), n.clip_id, "
+        "CASE WHEN w.replaced_by = n.id THEN 'replaced' ELSE 'proposed' END, n.created_at, n.updated_at "
+        "FROM scheduled_publications n JOIN scheduled_publications w ON (n.replaces != '' AND w.id = n.replaces) OR "
+        "(w.replaced_by != '' AND w.replaced_by = n.id)")
 
 
 _ready: set[str] = set()

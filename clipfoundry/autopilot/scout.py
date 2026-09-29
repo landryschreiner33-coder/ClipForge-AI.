@@ -51,6 +51,14 @@ def local_day(settings: dict, now: float | None = None) -> str:
     return dt.datetime.fromtimestamp(now or time.time(), tz(settings)).date().isoformat()
 
 
+def day_bounds(settings: dict, now: float | None = None) -> tuple[float, float]:
+    """(start, end) in UTC seconds of the local day that contains `now`: 23 or 25 hours on daylight-saving days."""
+    zone = tz(settings)
+    day = dt.datetime.fromtimestamp(now or time.time(), zone).date()
+    return (dt.datetime.combine(day, dt.time(0, 0), zone).timestamp(),
+            dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0, 0), zone).timestamp())
+
+
 def topics(settings: dict) -> list[str]:
     return [t.strip() for t in str(settings.get("trend_topics") or "").split(",") if t.strip()]
 

@@ -310,7 +310,12 @@ export interface AutopilotStatus {
   paused: boolean;
   day: string;
   timezone: string;
-  target: { daily: number; published: number; scheduled: number; processed: number; note: string };
+  /** published/scheduled: unique clips today; *_posts: platform posts (one clip on YouTube and TikTok = 2 posts) */
+  target: {
+    daily: number; published: number; scheduled: number; processed: number; note: string;
+    published_posts: number; scheduled_posts: number;
+    posts_by_platform: Record<string, { published: number; scheduled: number }>;
+  };
   sources_today: { selected: number; counted: number; clips: number; busy: number };
   sources_per_day: number;
   next: (ScheduledItemRow & { local: string }) | null;

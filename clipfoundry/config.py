@@ -115,6 +115,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_auto_publish": True,     # publish approved posts at their scheduled time without another click
     "autopilot_dynamic_replacement": True,
     "autopilot_replacement_threshold": 15.0,  # % better than the weakest future item before it is replaced
+    # hours before a slot (or a post that took part in a replacement) can be part of another replacement: at most one
+    # swap a day per slot keeps the plan, and the approvals it needs, from changing back and forth
+    "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
     "autopilot_learning": True,
     "autopilot_timezone": "America/Chicago",
@@ -225,6 +228,7 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
 _RANGES: dict[str, tuple[float, float]] = {
     "autopilot_daily_target": (1, 100), "autopilot_sources_per_day": (1, 30), "autopilot_clips_per_source": (1, 10),
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
+    "autopilot_replacement_cooldown_hours": (0.0, 168.0),
     "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),
     "autopilot_youtube_daily_limit": (0, 100), "autopilot_tiktok_daily_limit": (0, 100),
     "autopilot_upload_lead_minutes": (5, 720), "autopilot_max_source_gb": (0.5, 200.0),

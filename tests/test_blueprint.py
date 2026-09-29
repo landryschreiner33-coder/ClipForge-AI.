@@ -148,3 +148,138 @@ def test_the_render_follows_a_plan_that_cuts_out_a_sentence(data, tmp_path):
     assert rep["passed"], rep["blockers"]
     assert {c["name"]: c["status"] for c in rep["checks"]}["cuts"] == "pass"
     assert rep["bindings"]["blueprint"]["sha256"] == bp.sha256()
+
+
+# ------------------------------------------------------------------ weak middle parts cut out automatically
+TALK = ("Talk to customers before you build anything. Um, you know, like, yeah. Most founders skip this step and "
+        "regret it later. Subscribe to the channel for more. Ask them which problem costs them real money every week.")
+TALK_WORDS = words_from(TALK)  # a 0.1 s pause after every word; the last one ends at 14.9 s
+WITHOUT_WEAK = ("Talk to customers before you build anything. Most founders skip this step and regret it later. "
+                "Ask them which problem costs them real money every week.")
+T, M, A = ("Talk to customers before you build anything. ", "Most founders skip this step and regret it later. ",
+           "Ask them which problem costs them real money every week.")
+
+
+def whole(words: list[dict], **fields) -> bpm.Blueprint:
+    return plan((0.1, words[-1]["end"] + 0.1), **fields)
+
+
+def kept(bp: bpm.Blueprint) -> list[tuple[float, float]]:
+    return [(i.start, i.end) for i in bp.intervals]
+
+
+def test_weak_middle_parts_are_cut_out_in_order_at_sentence_boundaries():
+    base = whole(TALK_WORDS, emphasis=[{"at": 1.0, "word": "customers"}, {"at": 8.6, "word": "Subscribe"}])
+    cut = bpm.with_middle_cuts(base, TALK_WORDS, TALK_WORDS, 5.0)
+    assert kept(cut) == [(0.1, 2.95), (4.95, 8.55), (10.95, 15.0)]  # chronological, never reordered
+    assert bpm.heard_text(cut, TALK_WORDS) == WITHOUT_WEAK
+    assert cut.reasons[-2:] == ["cut out filler in the middle (2.0 s): “Um, you know, like, yeah.”",
+                                "cut out a promotional aside in the middle (2.4 s): “Subscribe to the channel for "
+                                "more.”"]
+    assert cut.emphasis == [{"at": 1.0, "word": "customers"}]  # no stress on a word that is no longer said
+    assert bpm.validate(cut, 16.0, TALK_WORDS) == []
+    for edge in (x for i in cut.intervals for x in (i.start, i.end)):  # every cut lands in a pause
+        assert not any(w["start"] < edge < w["end"] for w in TALK_WORDS)
+    assert base.intervals == [bpm.Interval(0.1, 15.0)]  # the continuous plan itself is not changed
+
+
+@pytest.mark.parametrize("words, min_seconds, fields", [
+    (TALK_WORDS, 15.0, {}),  # the clip would get shorter than the shortest clip allowed
+    (words_from(TALK, step=0.3), 5.0, {}),  # the words run together: no pause to cut in
+    (words_from(T + M + "Subscribe to the channel for more. It shows which problem costs them money. " + A), 5.0,
+     {}),  # "It" would point at something else
+    (words_from(T + "Um, you know, like, right? " + M + A), 5.0, {}),  # questions stay
+    (words_from("Um, you know, like, yeah. " + T + M + A + " Subscribe to the channel for more."), 5.0,
+     {}),  # the first and last sentences are never cut
+    (words_from("Talk to customers first. Um, you know, like, yeah, so, basically, like, you know, um, yeah, so. "
+                "Ask what costs money."), 1.0, {}),  # most of the clip would go
+    (words_from(T + "Um, you know, like, yeah. " + M + A), 5.0,
+     {"payoff": bpm.Payoff(text="Um, you know, like, yeah.")}),  # the payoff line stays
+])
+def test_the_clip_stays_continuous_when_no_cut_is_safe(words, min_seconds, fields):
+    base = whole(words, **fields)
+    assert bpm.with_middle_cuts(base, words, words, min_seconds) is base
+
+
+def test_the_hook_line_stays_and_at_most_two_parts_are_cut():
+    hooked = whole(TALK_WORDS, hook=bpm.Hook(text="Subscribe for more"))
+    assert kept(bpm.with_middle_cuts(hooked, TALK_WORDS, TALK_WORDS, 5.0)) == [(0.1, 2.95), (4.95, 15.0)]
+    words = words_from(T + "Um, you know, like, yeah. " + M + "Subscribe to the channel for more. Most of them say no "
+                       "at first. Uh, like, you know, so. " + A)
+    cut = bpm.with_middle_cuts(whole(words), words, words, 5.0)
+    assert len(cut.intervals) == 3 and "Uh, like, you know, so." in bpm.heard_text(cut, words)
+    assert "Most of them say no at first." in bpm.heard_text(cut, words)
+
+
+@pytest.mark.parametrize("sentence, why", [
+    ("Um, you know, like, yeah.", "filler"),
+    ("Okay, so, I mean, well.", "filler"),
+    ("Hit the bell so you never miss one.", "a promotional aside"),
+    ("So anyway, moving on.", "a warm-up line"),
+    ("It works.", ""),  # short, but it says something
+    ("Most of them say no at first.", ""),
+    ("So, like, you know, the product is great.", ""),
+    ("Let's talk about pricing.", ""),  # names the topic
+    ("Check out my results after a month.", ""),
+])
+def test_only_sentences_that_say_nothing_are_weak(sentence, why):
+    assert bpm._weak(sentence) == why  # noqa: SLF001
+
+
+def test_the_strategist_cuts_only_when_the_clip_stays_long_enough():
+    clip = {"id": "c1", "project_id": "p1", "start": 0.1, "end": 15.0, "score": 0.8, "reason": "advice",
+            "hashtags": ["#customers", "#subscribe"]}
+    short_ok = bpm.build(clip, {"id": "p1", "options": {"min_duration": 5}}, TALK_WORDS, dict(config.DEFAULT_SETTINGS))
+    assert kept(short_ok) == [(0.1, 2.95), (4.95, 8.55), (10.95, 15.0)]
+    assert bpm.validate(short_ok, 16.0, TALK_WORDS) == []
+    assert short_ok.payoff.text == "Ask them which problem costs them real money every week."
+    assert "Subscribe" not in [e["word"] for e in short_ok.emphasis]
+    default = bpm.build(clip, {"id": "p1", "options": {}}, TALK_WORDS, dict(config.DEFAULT_SETTINGS))
+    assert config.DEFAULT_SETTINGS["min_duration"] == 15.0 and kept(default) == [(0.1, 15.0)]
+
+
+def test_a_cut_clip_is_described_by_what_is_heard():
+    bp = bpm.with_middle_cuts(whole(TALK_WORDS), TALK_WORDS, TALK_WORDS, 5.0)
+    promo = {"title": "Subscribe to the channel for more", "caption": "Subscribe to the channel for more",
+             "description": "", "hook": "", "hashtags": ["#subscribe"]}
+    fields = bpm.heard_fields(bp, TALK_WORDS, {"id": "c1", "post": promo, "hook": ""}, dict(config.DEFAULT_SETTINGS))
+    assert fields["caption_text"] == WITHOUT_WEAK
+    assert "subscribe" not in json.dumps(fields["post"]).lower() and fields["title"] == fields["post"]["title"]
+    grounded = {"title": "Talk to customers before you build anything", "caption": "", "description": "", "hook": "",
+                "hashtags": ["#customers"]}
+    assert bpm.heard_fields(bp, TALK_WORDS, {"id": "c1", "post": grounded}, {}) == {"caption_text": WITHOUT_WEAK}
+    assert bpm.heard_fields(whole(TALK_WORDS), TALK_WORDS, {"id": "c1", "post": promo}, {}) == {}
+
+
+@needs_ffmpeg
+def test_a_clip_with_its_weak_parts_cut_out_renders_captions_packages_and_passes_the_gate(data, tmp_path):
+    from clipfoundry.autopilot import packaging
+    from clipfoundry.pipeline import quality
+    from clipfoundry.pipeline.ffmpeg_utils import probe
+
+    src = make_video(tmp_path / "src.mp4", seconds=16.0)
+    meta = probe(src)
+    project = {"id": "p1", "name": "synthetic", "source_path": str(src), "dir": str(tmp_path / "proj"), "info": meta,
+               "options": {"min_duration": 5}, **meta}
+    clip = {"id": "c1", "project_id": "p1", "start": 0.1, "end": 15.0, "hook": "", "edit": {}, "score": 0.8}
+    settings = {**config.DEFAULT_SETTINGS, "encoder": "x264", "x264_preset": "ultrafast"}
+    bp = bpm.build(clip, project, TALK_WORDS, settings)
+    assert len(bp.intervals) == 3 and bpm.validate(bp, meta["duration"], TALK_WORDS) == []
+    out = render.render_clip(project, clip, TALK_WORDS, settings, JobContext(), blueprint=bp)
+
+    info = out["render_info"]
+    art = info["artifact"]
+    expected = sum(i.end - i.start for i in bp.intervals)
+    assert abs(art["duration"] - expected) < 0.15, (art["duration"], expected)
+    assert json.loads(Path(art["transcript"]).read_text())["text"] == WITHOUT_WEAK
+    srt = Path(art["captions"]["srt"]).read_text()
+    assert "Subscribe" not in srt and "yeah" not in srt and "regret" in srt
+    sents, sha = packaging.clip_sentences({**clip, "output_path": art["path"], "render_info": info})
+    assert " ".join(sents) == WITHOUT_WEAK and sha == art["sha256"]
+    chosen = packaging.package({**clip, "output_path": art["path"], "render_info": info, "title": ""}, None,
+                               "youtube", settings)
+    assert "subscribe" not in (chosen["title"] + chosen.get("description", "")).lower()
+    rep = quality.evaluate(art["path"], info, {"edit": {}})
+    assert rep["passed"], rep["blockers"]
+    assert {c["name"]: c["status"] for c in rep["checks"]}["cuts"] == "pass"
+    assert rep["bindings"]["blueprint"]["sha256"] == bp.sha256()

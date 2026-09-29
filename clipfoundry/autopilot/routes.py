@@ -517,18 +517,13 @@ def _local_time(ts: float | None, settings: dict) -> str:
 def status() -> dict:
     """Everything the Autopilot dashboard shows."""
     from ..publish.routes import _tiktok_state, _youtube_state
-    from .scout import local_day, today_counts, tz
+    from .scout import day_bounds, local_day, today_counts
 
     settings = db.get_settings()
     now = time.time()
     day = local_day(settings, now)
-    zone = tz(settings)
-    start = dt.datetime.combine(dt.datetime.now(zone).date(), dt.time(0, 0), zone).timestamp()
-    end = start + 86400
-    rows = db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end))
-    published = {r["clip_id"] for r in rows if r["status"] == "published"}
-    scheduled = {r["clip_id"] for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing",
-                                                                "reconciling")}
+    start, end = day_bounds(settings, now)  # 23 or 25 hours on daylight-saving days
+    counts = today_posts(db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end)), now)
     processed = int(db.scalar("SELECT COUNT(*) FROM clips WHERE status = 'ready' AND created_at >= ? AND project_id IN "
                               "(SELECT id FROM projects WHERE origin IN ('autopilot', 'live'))", (start,)) or 0)
     nxt = db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval', 'publishing') AND "
@@ -540,9 +535,9 @@ def status() -> dict:
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
-        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), "published": len(published),
-                   "scheduled": len(scheduled - published), "processed": processed,
-                   "note": "A target, not a quota: quality, rights and platform limits come first."},
+        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), **counts, "processed": processed,
+                   "note": "A target, not a quota: quality, rights and platform limits come first. It counts unique "
+                           "clips; one clip on YouTube and TikTok is two platform posts."},
         "sources_today": today_counts(settings, now), "sources_per_day": settings.get("autopilot_sources_per_day"),
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
         "queue": {"size": int(db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE status IN ('queued', 'retrying', "
@@ -557,6 +552,21 @@ def status() -> dict:
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
         "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }
+
+
+def today_posts(rows: list[dict], now: float) -> dict:
+    """Today's unique clips and platform posts, published and scheduled. One clip posted to YouTube and TikTok is one
+    clip and two posts. A post counts as published once it is live: a YouTube post uploaded early that goes live
+    later counts as scheduled. A clip counts once, as published if any of its posts is live."""
+    live = [r for r in rows if r["status"] == "published" and (r.get("planned_at") or 0) <= now]
+    waiting = [r for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing", "reconciling") or
+               (r["status"] == "published" and (r.get("planned_at") or 0) > now)]
+    published = {r["clip_id"] for r in live}
+    return {"published": len(published), "scheduled": len({r["clip_id"] for r in waiting} - published),
+            "published_posts": len(live), "scheduled_posts": len(waiting),
+            "posts_by_platform": {p: {"published": sum(r["platform"] == p for r in live),
+                                      "scheduled": sum(r["platform"] == p for r in waiting)}
+                                  for p in ("youtube", "tiktok")}}
 
 
 def _count(table: str, column: str, where: str = "") -> list[dict]:
@@ -585,7 +595,7 @@ def _public_item(item: dict, settings: dict) -> dict:
     from .scheduler import approval_valid
 
     return {**item, "local_time": _local_time(item.get("planned_at"), settings),
-            "approval_valid": approval_valid(item),
+            "approval_valid": approval_valid(item, quick=True),  # display only; decisions hash the file
             "clip": {"id": clip.get("id"), "title": clip.get("title"), "duration": clip.get("duration"),
                      "score": clip.get("score"), "category": clip.get("category"), "status": clip.get("status"),
                      "has_thumbnail": bool(clip.get("thumb_path")), "version_id": version,

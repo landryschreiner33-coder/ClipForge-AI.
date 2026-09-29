@@ -176,7 +176,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
 | Packaging AI | `package_clip` | Writes title/description/caption/hashtag options in six styles from the words heard in the rendered clip (its final transcript), optionally with an AI provider, validates grounding, repetition and duplicates, and scores them. Each option records which render it was written for. |
 | Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
-| Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
+| Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones (a slot is swapped at most once every 24 hours, and it never has more than one swap waiting for your approval), and hands due approved posts to the publisher. |
 | YouTube Quota Manager | (inside every YouTube call) | Counts units and calls per bucket, keeps discovery within its share, and reserves the rest for uploads, statistics and account checks. Resets at midnight Pacific. |
 | Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. If the platform accepted every byte but its answer was lost and it can no longer say what happened, the post is never uploaded again automatically: it becomes *Upload not confirmed* until you check (the video is looked for among the channel's newest uploads first). **Waits** are never shortened: when YouTube or TikTok asks to wait (`Retry-After`, or 60 s for a rate limit that gives no time), up to 60 s is waited out in place; a longer wait puts the post back for exactly that time (no attempt used), holds the platform's other posts until then, and the same upload continues afterwards. |
 | Learning Worker | `learn` | Reads the real results of your posts (snapshot near 48 h), and once there are at least 10, adjusts posting-time lifts, style bonuses, score weights and the retention estimate, using only groups with enough data. |
@@ -197,6 +197,15 @@ options, emphasis outside the kept intervals, on-screen text that is not said in
 does not support are listed as unsupported and left out, never claimed as applied. The renderer follows the plan
 exactly and records the plan's hash with the file; your edits and alternative versions are applied on top as a new,
 stored plan. Manual projects have no plan and render as before.
+
+**Cutting out weak middle parts.** The Strategist may cut up to two weak sentences out of the middle of a clip:
+sentences made only of filler words ("Um, you know, like, yeah."), a clear promotional line ("Subscribe to the
+channel for more.") or a warm-up phrase that says nothing of its own ("So anyway, moving on."). It cuts only when
+every rule for a safe cut holds: a pause on both sides, complete sentences, the next sentence does not point back at
+what was removed ("It has ten lessons."), the hook, payoff, questions and the first and last sentences stay, at most
+35% of the clip goes, and the clip stays at least as long as the shortest clip you allow. Otherwise the clip stays
+one continuous piece. The order never changes. The final transcript, the captions, the post text and the final
+check all follow what is heard in the cut clip, and the plan's reasons say what was cut.
 
 **GPU.** One heavy GPU operation at a time, across processes (a lock file), with a wait for free VRAM
 (Settings → Advanced → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2
@@ -240,8 +249,9 @@ Every scheduled post, in order, with its video, text, platform, rights status, t
 * **Approve**: required for every post by both platforms. For YouTube you confirm the title, description, tags,
   visibility and the made-for-kids answer. For TikTok the dialog reads your creator info first, shows your nickname,
   lets you choose the privacy (never pre-selected), interactions (off by default), the commercial content disclosure,
-  and shows TikTok's Music Usage Confirmation. An approval is bound to the exact video and text: editing either needs a
-  new approval.
+  and shows TikTok's Music Usage Confirmation. An approval is bound to the exact video (its SHA-256, not its size or date) and
+  text: editing either, or a new render, needs a new approval. With automatic publishing on, YouTube posts are
+  approved again by themselves only after the final check passed on the new file; TikTok always asks you.
 * **Edit**, **Reschedule**, **Cancel**, **Retry**, **Publish now**, **Open source**, **Open post**, and **Link TikTok
   post** for inbox drafts finished in the TikTok app.
 * **Upload not confirmed**: the upload may have finished but the platform cannot confirm it (for example STOP ALL

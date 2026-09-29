@@ -263,7 +263,12 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
           <div className="home-cell">
             <span className="home-k">Today</span>
             <div className="home-today"><b>{t.processed}</b> / {t.daily} <span>clips</span></div>
-            <div className="small muted">{t.published} posted · {t.scheduled} scheduled</div>
+            <div className="small muted today-posts">
+              Posted: {count(t.published, "clip")} · {count(t.published_posts, "platform post")}
+            </div>
+            <div className="small muted today-posts">
+              Scheduled: {count(t.scheduled, "clip")} · {count(t.scheduled_posts, "platform post")}
+            </div>
           </div>
           <div className="home-cell">
             <span className="home-k">Currently</span>
@@ -533,12 +538,15 @@ function SystemDetails({ st, refresh }: { st: AutopilotStatus; refresh: () => vo
         <div className="row between wrap">
           <div>
             <div className="target-big"><b>{t.published}</b> / {t.daily} <span>DAILY TARGET</span></div>
-            <div className="small muted">{t.note}</div>
+            <div className="small muted">Unique clips posted today. {t.note}</div>
+            <div className="small muted platform-posts">
+              Platform posts today: {t.published_posts} published, {t.scheduled_posts} scheduled ({perPlatform(t)})
+            </div>
           </div>
           <div className="grid grid-4 target-stats">
             <Stat n={`${st.sources_today.counted} / ${st.sources_per_day}`} label="Sources today" />
             <Stat n={t.processed} label="Clips processed" />
-            <Stat n={t.scheduled} label="Scheduled today" />
+            <Stat n={`${t.scheduled} · ${t.scheduled_posts}`} label="Scheduled today: clips · platform posts" />
             <Stat n={st.queue.size} label="Jobs in queue" />
           </div>
         </div>
@@ -605,6 +613,17 @@ function SystemDetails({ st, refresh }: { st: AutopilotStatus; refresh: () => vo
       <TrendsCard trends={st.trends} providers={st.providers} />
     </>
   );
+}
+
+/** "1 clip", "2 platform posts" */
+const count = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+
+/** "YouTube 1 published, 0 scheduled; TikTok 0 published, 1 scheduled" */
+function perPlatform(t: AutopilotStatus["target"]) {
+  return PLATFORMS.map((p) => {
+    const c = t.posts_by_platform?.[p];
+    return `${PLATFORM_NAME[p]} ${c?.published ?? 0} published, ${c?.scheduled ?? 0} scheduled`;
+  }).join("; ");
 }
 
 function Stat({ n, label }: { n: ReactNode; label: string }) {

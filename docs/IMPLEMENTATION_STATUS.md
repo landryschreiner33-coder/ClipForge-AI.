@@ -11,8 +11,8 @@ from here without repeating the audit.
 | Starting commit | `3be586d` (branch `claude/ecstatic-shannon-wb1zq1`, identical to `claude/wonderful-ritchie-909tq3`) |
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
-| Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3` (PR #1 merged); PR #3 `claude/project-thread-ipcjyk` (zero-config + hands-off Autopilot); PR #2 `claude/project-thread-dwhyso` (NVENC lock, exact Retry-After, confirmed channels; targets PR #3); PR #4 (Playwright MCP launcher, separate review) |
-| Next concrete task | Plan item 10 (replacement cooldown); the user's checklist at the end needs your PC and accounts |
+| Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
+| Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -40,8 +40,9 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Strict-GPU Autopilot: CUDA failure pauses the job; CPU fallback only by explicit setting | `transcribe.transcribe(allow_cpu_fallback=...)`, `GpuTranscriptionFailed`, setting `autopilot_allow_cpu_fallback` (default off), `hunter.gpu_failed` (Wait 30 min + action item), live capture keeps recording and post-live re-transcribes | verified (unit, fake CUDA failures) | `test_gpu::test_strict_gpu_*` (3), `test_autopilot_analysis::test_strict_gpu_pauses_the_hunt_instead_of_using_the_cpu` | confirm on the RTX 3050 | no GPU here |
 | Eleven-factor Viral Potential | `pipeline/virality.py` | verified (unit) | `test_virality` (17) | — | — |
 | Broad candidate pool, staged ranking, boundary optimization, diversity/dedupe | `pipeline/candidates.py`, `deep.py`, `diversity.py`, `fingerprint.py`, `autopilot/hunter.py` | verified (unit + slow end-to-end) | `test_autopilot_analysis` (11) | — | — |
-| Typed, versioned, validated **Clip Blueprint** persisted before rendering and consumed by the renderer | `pipeline/blueprint.py` (`Blueprint`, `build`, `validate`, `with_edit`, `for_render`), `autopilot/hunter.plan_clips` (analyzer and post-live), `live.make_live_clip`, `render.render_clip(blueprint=...)`, table `clip_blueprints` | verified (unit + local pipeline) | `tests/test_blueprint.py` (20, incl. a real two-interval render), `test_clip_hunter_and_analyzer_end_to_end` (slow) | the Strategist plans one interval per clip today (multi-interval plans render correctly but are not generated yet); no reordering (rejected, the renderer plays forwards) | — |
-| Edit-decision time map (source → output) persisted; final transcript in output time | `pipeline/artifact.py` (`edit_decisions`, `final_words`, `record`), written by `render.render_clip` as `edl.json` + `transcript.final.json` | verified (local pipeline, synthetic video) | `test_artifact_quality::test_render_writes_the_artifact_record`, `test_final_transcript_keeps_only_what_is_heard` | multi-interval blueprint cuts (see blueprint row) | — |
+| Typed, versioned, validated **Clip Blueprint** persisted before rendering and consumed by the renderer | `pipeline/blueprint.py` (`Blueprint`, `build`, `validate`, `with_edit`, `for_render`), `autopilot/hunter.plan_clips` (analyzer and post-live), `live.make_live_clip`, `render.render_clip(blueprint=...)`, table `clip_blueprints` | verified (unit + local pipeline) | `tests/test_blueprint.py` (41, incl. two real multi-interval renders), `test_clip_hunter_and_analyzer_end_to_end` (slow) | no reordering (rejected, the renderer plays forwards) | — |
+| Strategist cuts weak middle sentences out (multi-interval plans) only when safe; stays continuous otherwise | `blueprint.middle_cuts`, `with_middle_cuts`, `heard_fields`; `hunter.plan_clips`, `live.make_live_clip` | verified (unit + local pipeline, synthetic transcript) | `test_blueprint`: `weak_middle_parts_are_cut_out_in_order_at_sentence_boundaries`, `the_clip_stays_continuous_when_no_cut_is_safe` (7 cases), `only_sentences_that_say_nothing_are_weak`, `a_clip_with_its_weak_parts_cut_out_renders_captions_packages_and_passes_the_gate` (real render: final transcript, SRT, packaging, gate) | only filler, clear promotion and empty warm-up lines are cut (no tangents); needs a look and a listen on real videos (checklist) | — |
+| Edit-decision time map (source → output) persisted; final transcript in output time | `pipeline/artifact.py` (`edit_decisions`, `final_words`, `record`), written by `render.render_clip` as `edl.json` + `transcript.final.json` | verified (local pipeline, synthetic video) | `test_artifact_quality::test_render_writes_the_artifact_record`, `test_final_transcript_keeps_only_what_is_heard` | — | — |
 | Artifact metadata: path, hash, duration, codecs, dimensions, effective settings, captions, final transcript, blueprint version | `render_info["artifact"]` from `artifact.record` (with the followed blueprint's hash, intervals and unsupported list) | verified (local pipeline) | `test_render_writes_the_artifact_record`, `test_the_render_follows_a_plan_that_cuts_out_a_sentence` | — | — |
 | Atomic artifact finalize | `render.render_clip` (`render.tmp.mp4` → `os.replace`) | verified (source reviewed) | — | — | — |
 | Packaging after render from the edited transcript; several options; ≤3 AI retries; grounded fallback or block | `autopilot/packaging.py` (`clip_sentences` reads the final transcript of the active render; rows carry `artifact_sha256`), `pipeline/postpack.py` | verified (unit + local pipeline) | `test_autopilot_packaging` (6), `test_the_gate_decides_what_is_scheduled_and_uploaded` | a fallback with problems is still stored as selected, but the gate now marks that platform's text failed and it is not scheduled | — |
@@ -81,13 +82,13 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 
 | Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
 | --- | --- | --- | --- | --- | --- |
-| UTC instants, America/Chicago display, active hours, gaps, per-platform limits | `autopilot/scheduler.py` | verified (unit) | `test_autopilot_scheduler` (11) | DST transition test | — |
+| UTC instants, America/Chicago display, active hours, gaps, per-platform limits | `autopilot/scheduler.py` | verified (unit) | `test_autopilot_scheduler` (11), `test_autopilot_integrity::test_planning_across_a_daylight_saving_change`, `missed_posts_are_replanned_once_each_without_a_burst_across_the_change` (both America/Chicago changes) | — | — |
 | Missed slots re-planned without a burst | `scheduler.process_due` (`OVERDUE_MINUTES`) | verified (unit) | `due_processing` | — | — |
 | Cold-start timing labeled; learned timing needs reliable groups | `scheduler.Timing`, `learner` | verified (unit) | `learned_timing_picks_your_best_hour` | — | — |
-| Dynamic replacement: threshold, freeze window, audit; never after approval without re-approval | `scheduler.try_replace`, `approve` | partial | `dynamic_replacement_with_audit_trail`, `approved_posts_are_only_swapped_after_approving_the_replacement` | no cooldown between replacements | — |
-| Approval bound to exact content and visibility | `scheduler.approval_hash`, `approval_valid` | verified (unit) | `approval_rules_and_invalidation` | bind to the artifact content hash (today: size+mtime) | — |
+| Dynamic replacement: threshold, freeze window, audit; never after approval without re-approval | `scheduler.try_replace`, `replacement_blocked`, `approve`; table `slot_replacements` (backfilled on upgrade) | verified (unit) | `dynamic_replacement_with_audit_trail`, `approved_posts_are_only_swapped_after_approving_the_replacement`, `test_autopilot_integrity`: one pending swap per slot, declined swap not proposed again, cooldown follows the slot and its posts, full audit trail, DB upgrade | — | — |
+| Approval bound to exact content and visibility | `scheduler.approval_record`, `approval_problem` (SHA-256 of the video, scheme 2), `publisher` re-check | verified (unit, fake platforms) | `approval_rules_and_invalidation`, `test_autopilot_integrity`: same size and time stamp with other bytes, across restarts, missing/unreadable file, approvals from before the hash, YouTube re-approved only after the gate checked the new bytes, TikTok always asks | — | — |
 | Upload recovery without duplicates; uncertain outcome paused for review | `youtube.upload(on_final_chunk, may_be_complete)` raises `OUTCOME_UNKNOWN` instead of starting a second session once the last bytes may have arrived; `publisher.outcome_unknown` looks for the video among the channel's newest uploads (never an older one with the same title), else status `reconciling` + action item; `POST /api/autopilot/scheduled/{id}/resolve`; Publish Center buttons | verified (unit, fake platform) | `test_autopilot_publish::test_a_lost_answer_after_the_last_bytes_is_found_not_uploaded_twice`, `test_an_upload_that_cannot_be_confirmed_waits_for_you`, `interrupted_upload_resumes_without_a_duplicate` | TikTok: a publish ID is stored right after init, so its outcome is always read back; confirmed with real accounts pending | real accounts |
-| Unique clips and platform publications counted separately | `routes.status` counts unique clips | partial | source reviewed | show publications count too | — |
+| Unique clips and platform publications counted separately | `routes.today_posts`, `scout.day_bounds`; Home and System details | verified (unit + e2e screenshot) | `the_dashboard_counts_unique_clips_and_platform_posts_separately`; sandbox: *Scheduled: 1 clip · 2 platform posts* | — | — |
 | YouTube: OAuth PKCE, resumable upload, made-for-kids, publishAt, locked-private honesty | `publish/youtube.py`, `publish/jobs.py` | unit/contract tested (fake platform) | `test_youtube` (13), `test_autopilot_publish` (8) | real-account check | credentials; audit |
 | TikTok: creator info, no default privacy, interactions, disclosure, music confirmation, inbox fallback | `publish/tiktok.py`, `components/approve.tsx` | unit/contract tested (fake platform) | `test_tiktok` (12) | Direct Post eligibility of a private single-user tool | externally-blocked (see `PLATFORM_CAPABILITIES.md`) |
 | YouTube quota buckets (search.list, videos.insert, other units), reset Pacific, reserves, cache | `autopilot/quota.py` | verified (unit) | `quota_budgets_share_reserve_and_exhaustion` | budgets are settings, not a versioned config | project quota is not readable by API |
@@ -176,11 +177,13 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 7. [x] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
 8. [x] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
 9. [x] Read Retry-After from YouTube/TikTok rate-limit answers and never shorten it; long waits are rescheduled.
-10. [ ] Dynamic replacement: a cooldown between replacements of the same slot.
-11. [ ] Show platform publications next to unique clips on the dashboard (today: unique clips only).
-12. [ ] Scheduler test across a daylight-saving change in America/Chicago.
-13. [ ] Engagement Strategist: propose multi-interval plans (drop a weak middle sentence); the renderer already follows them.
+10. [x] Dynamic replacement: a cooldown between replacements of the same slot (24 h default, persisted, one
+    pending proposal per slot).
+11. [x] Show platform publications next to unique clips on the dashboard.
+12. [x] Scheduler tests across both daylight-saving changes in America/Chicago.
+13. [x] Engagement Strategist: multi-interval plans that drop weak middle sentences when a cut is safe.
 14. [x] Rights: channel rules and ownership only for channels the platform confirmed (your decision: restrict).
+15. [x] Approvals bound to the SHA-256 of the rendered video (not its size and time stamp).
 
 ## Test log
 
@@ -228,6 +231,15 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | confirmed channels + exact waits | `pytest tests/test_autopilot_channels.py` | 7 passed |
 | confirmed channels + exact waits | `pytest -m "not slow"` on PR #3 + this branch combined | 312 passed (214 s) |
 | confirmed channels + exact waits | `pytest -m slow` on the same combined code (ffmpeg, espeak-ng; includes the hands-off discovery-to-YouTube path) | 5 passed (461 s) |
+| items 10-13 | the 14 new `test_autopilot_integrity.py` tests on PR #2's code (`248a664`) | 12 failed, 2 passed (the missed-post recovery across both DST changes already worked) |
+| items 10-13 | `pytest -m "not slow"` on PR #2 + this branch (ffmpeg, espeak-ng; nothing skipped) | 347 passed (207 s) |
+| items 10-13 | `pytest -m slow` on the same code | 5 passed (370 s) |
+| items 10-13 | `npm run build` in `frontend/` | passes; `dist/` rebuilt and committed |
+| items 10-13 | read-only `e2e` suite against a fresh scratch app (disposable data) | 38 passed, 4 skipped (no projects) |
+| items 10-13 | `npm run test:sandbox` (beginner flow, test connections, synthetic transcript) | 1 passed |
+| items 10-13 | read-only `e2e` suite against a sandbox after the beginner flow (it scheduled 1 clip for YouTube and TikTok) | 42 passed; Home shows *Scheduled: 1 clip · 2 platform posts* (screenshot checked) |
+| items 10-13 | database made by the default branch's code (`f7426f0`: settings, a fake account, 4 clips, approved posts, one swap done, one pending), then opened by this code | integrity ok; every row kept; your settings kept, cooldown default 24 h added; both swaps backfilled; the old approval asks again (*approved before ClipFoundry checked the exact video file*); re-approval stores the file hash; second start changes nothing; `/api/autopilot/status` 200 |
+| PR #4 | the old `.mcp.json` command vs `node e2e/playwright-mcp.mjs`, MCP handshake + `browser_navigate` to a local page (cloud container) | old: *Browser "chrome-for-testing" is not installed*; launcher: page title read, exits 0 when the client closes. Windows not run here |
 
 ## Checklist for the user's machine
 
@@ -235,7 +247,7 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 
 | # | Action | Command / where | Expected evidence | Why |
 | --- | --- | --- | --- | --- |
-| 1 | Update and start | `git pull`, then `start.bat` | App opens at http://127.0.0.1:8765; Autopilot page lists 12 workers incl. *Final Quality Gate* | new tables (`quality_reports`, `clip_blueprints`) are created on first start |
+| 1 | Update and start (keep `data`, `.venv`, `tools`; see INSTALL.md → Updating) | `git pull` or the ZIP steps, then `start.bat` | App opens at http://127.0.0.1:8765; your projects, settings and account connections are still there; Autopilot page lists 12 workers incl. *Final Quality Gate* | new tables (`slot_replacements` and earlier ones) are created on first start; posts approved before this version ask for approval once more |
 | 2 | Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16 or int8_float16, speed several times realtime | this environment has no GPU; detection alone is not transcription |
 | 3 | Strict GPU in Autopilot | temporarily break CUDA (e.g. rename the cuBLAS DLL folder), add an owned source | the hunt pauses; action item "Autopilot transcription is paused"; no CPU run; restore and the source continues | proves the pause on real hardware |
 | 4 | Local vertical slice | Autopilot → Sources & rights: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the project; Publish Center shows posts with "Final check passed" and every check listed | the slice ran here only on synthetic espeak video |
@@ -246,3 +258,5 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
+| 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
+| 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
