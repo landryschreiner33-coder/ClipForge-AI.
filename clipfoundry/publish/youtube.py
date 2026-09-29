@@ -21,7 +21,8 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import Cancelled, PublishError, client, network_errors, retry_after, save_tokens, with_retry_after
+from .common import (SHORT_WAIT, Cancelled, PublishError, client, network_errors, retry_after, save_tokens,
+                     sleep_exactly, with_retry_after)
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -185,6 +186,8 @@ def api_error(r: httpx.Response, method: str = "") -> PublishError:
     }
     if reason in known:
         exc = PublishError(*known[reason], code=reason)
+    elif r.status_code == 429:  # too many requests, whatever the body says
+        exc = PublishError(*known["rateLimitExceeded"], code="rateLimitExceeded")
     elif r.status_code == 401:
         exc = PublishError("YouTube did not accept the access token.", RECONNECT_FIX, "reconnect")
     else:
@@ -289,7 +292,7 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
         session = ""
         final_sent = False
         if resume_session:
-            offset, done = _resume_offset(c, resume_session, size, token)
+            offset, done = _resume_offset(c, resume_session, size, token, sleep, cancelled)
             if done is not None:
                 report(1.0)
                 return done
@@ -329,11 +332,14 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 elif r is not None and r.status_code not in (408, 429, 500, 502, 503, 504):
                     raise api_error(r, "videos.insert")
                 failures += 1
+                asked = retry_after(r)
+                if asked is not None and asked > SHORT_WAIT:
+                    raise _wait_error(r)  # the attempt ends; the stored session continues after the wait
                 if failures > 6:
                     raise PublishError("The upload to YouTube kept getting interrupted.",
                                        "Check your internet connection and publish again.")
-                _pause(retry_after(r), min(60.0, 2.0 ** failures), sleep, cancelled)
-                offset, done = _resume_offset(c, session, size, token)
+                _pause(asked, min(60.0, 2.0 ** failures), sleep, cancelled)
+                offset, done = _resume_offset(c, session, size, token, sleep, cancelled)
                 if done is not None:
                     report(1.0)
                     return done
@@ -345,19 +351,19 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                         on_session(session)
 
 
-UPLOAD_PAUSE_MAX = 10 * 60  # the upload session outlives this; a longer Retry-After is shortened to it
-
-
 def _pause(asked: float | None, backoff: float, sleep: Callable[[float], None], cancelled: Callable[[], bool]) -> None:
-    """Wait before the next try: as long as YouTube's Retry-After asked (at most 10 minutes), else the backoff.
-    Waits in short steps, so stopping the upload is not held up by a long pause."""
-    left = min(asked, UPLOAD_PAUSE_MAX) if asked is not None else backoff
-    while left > 0:
-        if cancelled():
-            raise Cancelled()
-        step = min(5.0, left)
-        sleep(step)
-        left -= step
+    """Wait before the next try: exactly as long as YouTube's Retry-After asked (a short wait; a longer one ends the
+    attempt, see _wait_error), else the backoff. Waits in short steps, so stopping the upload is not held up."""
+    sleep_exactly(asked if asked is not None else backoff, cancelled, sleep)
+
+
+def _wait_error(r: httpx.Response) -> PublishError:
+    """YouTube asked for a longer wait than is worth sitting out mid-upload: the job runs again at that time and
+    continues the same upload session (it stays valid for about a week)."""
+    if r.status_code == 429:
+        return api_error(r, "videos.insert")
+    return with_retry_after(PublishError(f"YouTube is busy ({r.status_code}) and asked to wait.", code="busy"), r,
+                            "YouTube")
 
 
 @network_errors("YouTube")
@@ -381,19 +387,28 @@ def _next_offset(r: httpx.Response) -> int:
     return int(m.group(2)) + 1 if m else 0
 
 
-def _resume_offset(c: httpx.Client, session: str, size: int, token: Token) -> tuple[int, dict | None]:
-    """Ask YouTube how much of the file it already has (offset, or the finished video, or -1 if expired)."""
-    try:
-        r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
-                                    "Content-Length": "0"})
-    except httpx.TransportError:
-        return 0, None
-    if r.status_code in (200, 201):
-        return size, _json(r)
-    if r.status_code == 308:
-        return _next_offset(r), None
-    if r.status_code in (404, 410):
-        return -1, None
+def _resume_offset(c: httpx.Client, session: str, size: int, token: Token, sleep: Callable[[float], None] = time.sleep,
+                   cancelled: Callable[[], bool] = lambda: False) -> tuple[int, dict | None]:
+    """Ask YouTube how much of the file it already has (offset, or the finished video, or -1 if expired). When it
+    asks to wait before answering, a short wait is sat out and a longer one ends the attempt (_wait_error)."""
+    for _ in range(3):
+        try:
+            r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
+                                        "Content-Length": "0"})
+        except httpx.TransportError:
+            return 0, None
+        if r.status_code in (200, 201):
+            return size, _json(r)
+        if r.status_code == 308:
+            return _next_offset(r), None
+        if r.status_code in (404, 410):
+            return -1, None
+        asked = retry_after(r) if r.status_code == 429 or r.status_code >= 500 else None
+        if asked is None:
+            return 0, None
+        if asked > SHORT_WAIT:
+            raise _wait_error(r)
+        _pause(asked, 0.0, sleep, cancelled)
     return 0, None
 
 

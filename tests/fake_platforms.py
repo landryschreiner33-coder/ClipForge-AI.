@@ -293,9 +293,11 @@ class FakeTikTok(_Server):
         self.init_status = 403
         self.retry_after = ""       # sent as Retry-After with every error answer
         self.rate_limit_chunks = 0  # answer this many chunk uploads with 429
+        self.rate_limit_status = 0  # answer this many status fetches with 429 rate_limit_exceeded
         self.fail_reason = ""       # makes status/fetch report FAILED
         self.duet_disabled = True
         self.stats: dict[str, dict] = {}   # public post id -> video.query fields
+        self.authors: dict[str, tuple[str, str]] = {}  # public video id -> (author user name, display name): oEmbed
         self.default_stats: dict | None = None
         super().__init__()
 
@@ -318,6 +320,15 @@ class FakeTikTok(_Server):
         u = urlparse(h.path)
         if method == "PUT" and u.path.startswith("/upload/"):
             return self.handle_upload(h, body)
+        if u.path == "/oembed":  # TikTok's public embed API: the real author of a video, found by its number
+            m = re.search(r"/video/(\d+)", parse_qs(u.query).get("url", [""])[0])
+            vid = m.group(1) if m else ""
+            if vid not in self.authors:
+                return h._send(400, {"code": 400, "message": "Something went wrong"})
+            uid, name = self.authors[vid]
+            return h._send(200, {"version": "1.0", "type": "video", "title": "A video", "author_name": name,
+                                 "author_url": f"https://www.tiktok.com/@{uid}", "author_unique_id": uid,
+                                 "embed_product_id": vid, "embed_type": "video", "provider_name": "TikTok"})
         if u.path == "/v2/auth/authorize/":  # a browser test: the user approves on TikTok's page
             q = parse_qs(u.query)
             code = self.approve(h.path)
@@ -377,6 +388,9 @@ class FakeTikTok(_Server):
             return self._ok(h, {"videos": [{"id": i, **self.stats[i]} for i in ids if i in self.stats],
                                 "cursor": 0, "has_more": False})
         if u.path == "/v2/post/publish/status/fetch/":
+            if self.rate_limit_status > 0:
+                self.rate_limit_status -= 1
+                return self._err(h, "rate_limit_exceeded", 429)
             pid = json.loads(body)["publish_id"]
             up = self.uploads[pid]
             n = self.status_calls[pid] = self.status_calls.get(pid, 0) + 1

@@ -22,7 +22,7 @@ from ..jobs import DownloadRefused, download_url
 from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
 from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
-from ..publish.common import client
+from ..publish.common import client, retry_after, wait_text
 from . import access, queue, rights, state
 from .host import Job, handler
 
@@ -75,6 +75,9 @@ def max_source_bytes(settings: dict) -> int:
 def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: dict) -> None:
     """A direct media link, checked against private/local addresses on every redirect and bounded in size."""
     def accept(r) -> None:
+        asked = retry_after(r) if r.status_code in (429, 503) else None
+        if asked is not None:  # the server said when to come back: not sooner (a wait uses no attempt)
+            raise queue.Wait("server", asked, f"The media server asked to wait {wait_text(asked)}")
         if r.status_code != 200:
             raise queue.Retry(f"The media URL answered {r.status_code}", "Check that the link still works.")
         kind = r.headers.get("content-type", "")
@@ -212,6 +215,16 @@ def _guard(fn):
     return run
 
 
+def _not_used(src: dict, r: dict) -> dict:
+    """A source that may not be used (any more) is skipped, not failed: its status and the activity log say why."""
+    status = "blocked" if r["status"] == rights.BLOCKED else "needs_rights"
+    db.update("sources", src["id"], status=status, status_note=f"{r['label']}: {r['basis']}"[:300],
+              rights_status=r["status"], rights_basis=r["basis"], rights_rule_id=r["rule_id"])
+    if src.get("project_id"):
+        db.update_project(src["project_id"], message=f"Stopped: {r['label']} ({r['basis']})"[:300])
+    return {"skipped": True, "message": f"Not used: {r['label']} ({r['basis']})"}
+
+
 @handler("hunt_source")
 @_guard
 def hunt_source(job: Job) -> dict:
@@ -219,12 +232,9 @@ def hunt_source(job: Job) -> dict:
     src = db.fetch("sources", job.payload.get("source_id", ""))
     if not src:
         raise queue.Fail("The source was deleted")
-    try:
-        rights.gate(src, "ingest", settings)
-    except rights.RightsBlocked as exc:
-        db.update("sources", src["id"], status="blocked" if exc.status == rights.BLOCKED else "needs_rights",
-                  status_note=str(exc))
-        raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
+    r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
+    if not r["auto_allowed"]:
+        return _not_used(src, r)
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
     ctx = job.pipeline_ctx(0.0, 1.0)
     try:
@@ -236,6 +246,9 @@ def hunt_source(job: Job) -> dict:
     except gpu.GpuBusy as exc:
         db.update("sources", src["id"], status="queued", status_note=str(exc))
         raise queue.Wait("gpu", 600, f"{exc} Trying again in 10 minutes.") from exc
+    except queue.Wait as w:  # e.g. the media server asked to wait, or the disk is full: its turn comes back then
+        db.update("sources", src["id"], status="queued", status_note=w.message[:300])
+        raise
     except transcribe.GpuTranscriptionFailed as exc:
         db.update("sources", src["id"], status="queued", status_note=f"Paused: GPU transcription failed. {exc}"[:300])
         raise gpu_failed(exc, f"“{src.get('title', '')[:60]}”") from exc
@@ -304,6 +317,9 @@ def analyze_source(job: Job) -> dict:
     p = process.load_prepared(job.payload.get("project_id", ""))
     if not src or not p:
         raise queue.Fail("The source or its transcript is missing", "Start the source again in Autopilot → Sources.")
+    r = rights.recheck(src, settings)  # no clip is rendered from a source that is no longer covered
+    if not r["auto_allowed"]:
+        return _not_used(src, r)
     ctx = job.pipeline_ctx(0.0, 1.0)
     cands = read_json(p.pdir / "candidates.json", []) or []
     db.update_project(p.id, status="processing", message="Autopilot: analyzing candidates")

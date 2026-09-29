@@ -9,6 +9,9 @@ padding the day with weak clips.
 Nothing that is unclear blocks the day. A video no agreement, license or ownership covers, or whose file cannot be
 obtained in an allowed way (access.py), is skipped with its reason (the activity log shows it) and the next best
 video is tried. You are only asked about such videos if you turn that on under Advanced.
+
+A channel a feed names is confirmed with the platform before any channel rule or ownership counts for it
+(verify.py). A video whose channel could not be confirmed is skipped with the reason and never asked about.
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ from zoneinfo import ZoneInfo
 from .. import db
 from ..pipeline import fingerprint
 from ..publish.common import PublishError
-from . import access, providers, quota, rights, state, trends
+from . import access, providers, quota, rights, state, trends, verify
 from .host import MAINTENANCE_STEPS, PERIOD_ADJUST, Job, handler
 from . import queue  # noqa: E402 - after host (registration order does not matter)
 
@@ -68,8 +71,18 @@ def emerging_topics(signals: list[dict], known: list[str]) -> list[str]:
 
 
 # ------------------------------------------------------------------ signals
+def _official(provider: str) -> bool:
+    """A signal built from the platform's own API answer (not a list someone else keeps)."""
+    return provider.startswith("youtube_")
+
+
 def upsert_signal(sig: dict, now: float) -> dict:
     existing = db.select("trend_signals", "platform = ? AND external_id = ?", (sig["platform"], sig["external_id"]))
+    if existing and _official(existing[0].get("provider") or "") and not _official(sig.get("provider") or ""):
+        # a feed row about a video the platform's own API already described: it keeps the video active, but never
+        # replaces what the platform reported (its channel, link, license or made-for-kids flag)
+        db.update("trend_signals", existing[0]["id"], last_checked=now, status="active")
+        return db.fetch("trend_signals", existing[0]["id"]) or existing[0]
     fields = {k: sig.get(k) for k in ("provider", "kind", "title", "url", "channel_id", "channel_title", "category",
                                       "keywords", "query", "region", "language", "published_at", "platform_rank",
                                       "metrics", "raw")}
@@ -165,6 +178,8 @@ def trend_scan(job: Job) -> dict:
     except PublishError as exc:
         yt = None
         statuses["youtube"] = _provider_status("YouTube Data API", "error", str(exc), fix=exc.fix)
+        if exc.retry_after is not None:  # YouTube asked to wait: the next scan is not sooner than that
+            state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
         if exc.code in ("reconnect", "setup"):
             state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                          level="warning")
@@ -396,7 +411,8 @@ def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dic
 def today_counts(settings: dict, now: float | None = None) -> dict:
     day = local_day(settings, now)
     rows = db.select("sources", "selected_day = ?", (day,))
-    counted = [r for r in rows if r["status"] not in ("weak", "failed", "skipped", "needs_file")]
+    counted = [r for r in rows if r["status"] not in ("weak", "failed", "skipped", "needs_file", "needs_rights",
+                                                      "blocked")]
     clips = sum(r.get("clips_selected") or 0 for r in rows)
     return {"day": day, "selected": len(rows), "counted": len(counted), "clips": clips,
             "busy": sum(1 for r in rows if r["status"] in ACTIVE_SOURCE)}
@@ -413,6 +429,7 @@ def source_scout(job: Job) -> dict:
     all_rules = rights.rules()
     signals = db.select("trend_signals", "status = 'active'", (), "score DESC")
     created = 0
+    pending: list[tuple[dict, dict]] = []
     for sig in signals:
         src = source_from_signal(sig)
         if not src:
@@ -424,10 +441,15 @@ def source_scout(job: Job) -> dict:
             if reason:
                 db.update("sources", row["id"], status="skipped", status_note=reason)
                 continue
-            row = rights.apply(row, settings, all_rules)
-            sc = score_source(row, sig, settings, now)
-            db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
-                      components=sc["components"])
+            verify.from_signal(row, sig)  # found through the platform's API: its answer names the channel already
+            pending.append((row, sig))
+    verify.ensure([row for row, _ in pending], settings, now)  # the channels feeds named, 50 videos per lookup
+    job.check()
+    for row, sig in pending:
+        row = rights.apply(row, settings, all_rules)
+        sc = score_source(row, sig, settings, now)
+        db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
+                  components=sc["components"])
     job.check()
     picked = select_for_today(settings, now)
     top = rights_questions(settings, now) if settings.get("rights_ask_per_video") else []
@@ -466,7 +488,8 @@ def rights_questions(settings: dict, now: float | None = None) -> list[dict]:
         return []
     rows = db.select("sources", "status = 'needs_rights' AND source_score >= ? AND expected_clips >= 1",
                      (RIGHTS_MIN_SCORE,), "source_score DESC", 50)
-    return [s for s in rows if _usable_after_yes(s, settings)][:short]
+    # a video whose channel the platform did not confirm is skipped, never asked about
+    return [s for s in rows if _usable_after_yes(s, settings) and not verify.unconfirmed_claim(s)][:short]
 
 
 def _usable_after_yes(src: dict, settings: dict) -> bool:
@@ -486,13 +509,15 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         return picked
     rows = db.select("sources", "status IN ('eligible', 'needs_file') AND kind = 'recorded'", (),
                      "status = 'needs_file', source_score DESC", 80)
+    all_rules = rights.rules()
     for src in rows:
         if len(picked) >= needed:
             break
         if (src.get("expected_clips") or 0) < 1:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
-        if src["status"] == "needs_file" and not rights.evaluate(src, settings)["auto_allowed"]:
+        if not rights.evaluate(src, settings, all_rules)["auto_allowed"]:  # judged again: rules and checks change
+            rights.apply(src, settings, all_rules)
             continue
         found = access.resolve(src, settings)  # getting the file is its own question: skip it, try the next one
         if not found["ok"]:
@@ -512,22 +537,46 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     return picked
 
 
-@handler("rights_check")
-def rights_check(job: Job) -> dict:
-    """Re-apply the rights rules to every source that is not finished (after a rule changed)."""
-    settings = db.get_settings()
-    all_rules = rights.rules()
-    rows = db.select("sources", "status IN ('discovered', 'eligible', 'needs_rights', 'blocked', 'needs_file', "
-                                "'queued')")
+REAPPLY = ("discovered", "eligible", "needs_rights", "blocked", "needs_file", "queued")  # not started yet
+
+
+def reapply(rows: list[dict], settings: dict, all_rules: list[dict] | None = None) -> int:
+    """Apply the rights again to sources that were not started yet. One that was waiting for the Clip Hunter and is
+    no longer covered loses its turn: its queued hunt is canceled, and the activity log says why."""
+    all_rules = rights.rules() if all_rules is None else all_rules
     changed = 0
     for src in rows:
         after = rights.apply(src, settings, all_rules)
         changed += after["rights_status"] != src["rights_status"]
-        if after["rights_status"] == rights.BLOCKED and src["status"] == "queued":
+        if src["status"] == "queued" and after["status"] != "queued":
             for j in queue.jobs(("queued", "retrying", "waiting"), ref=("source", src["id"])):
-                queue.cancel(j["id"], "Rights status changed to Blocked")
+                queue.cancel(j["id"], f"Not used: {after['rights']['label']} ({after['rights']['basis']})"[:300])
+    return changed
+
+
+@handler("rights_check")
+def rights_check(job: Job) -> dict:
+    """Re-apply the rights rules to every source that is not finished (after a rule changed)."""
+    settings = db.get_settings()
+    marks = ",".join("?" * len(REAPPLY))
+    rows = db.select("sources", f"status IN ({marks})", REAPPLY)
+    verify.ensure(rows, settings)  # channels named by feeds that were never confirmed, or are due for another look
+    changed = reapply(rows, settings)
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}", priority=job.row["priority"])
     return {"checked": len(rows), "changed": changed, "message": f"{changed} source(s) changed rights status"}
+
+
+def confirm_channels(job: Job | None = None) -> dict:
+    """Maintenance: ask the platforms about channel claims that are still unanswered: videos found while a platform
+    could not be asked (offline, quota), and work queued before channels were confirmed. A video that is not
+    confirmed loses its turn before any clipping; one already clipped is held back at scheduling and publishing."""
+    settings = db.get_settings()
+    now = time.time()
+    rows = [r for r in db.select("sources", "channel_id != '' AND status NOT IN ('skipped', 'failed')")
+            if verify.due(r, now)]
+    asked = verify.ensure(rows, settings, now)
+    changed = reapply([r for r in rows if r["status"] in REAPPLY], settings) if asked else 0
+    return {"channels_checked": asked, "channels_changed": changed}
 
 
 # ------------------------------------------------------------------ retention (YouTube: refresh or delete in 30 days)
@@ -559,3 +608,4 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
 
 
 MAINTENANCE_STEPS.append(youtube_retention)
+MAINTENANCE_STEPS.append(confirm_channels)

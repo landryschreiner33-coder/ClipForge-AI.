@@ -19,7 +19,9 @@ from fastapi import HTTPException, Request
 from .. import db
 
 LOGIN_TIMEOUT = 15 * 60  # a started "Connect" login is valid for 15 minutes
-MAX_RETRY_AFTER = 6 * 3600  # a longer (or garbled) Retry-After is capped: the post is tried again then
+# A platform's Retry-After is never shortened. A wait up to this long is sat out right there (an upload keeps its
+# connection); a longer one ends the attempt, and the job runs again at the time the platform asked for.
+SHORT_WAIT = 60.0
 RATE_LIMITS = ("rate_limit_exceeded", "rateLimitExceeded", "userRateLimitExceeded")  # TikTok's code, YouTube's reasons
 
 
@@ -36,7 +38,8 @@ class PublishError(RuntimeError):
 
 
 def retry_after(r: httpx.Response | None, now: float | None = None) -> float | None:
-    """The wait a platform's answer asks for (Retry-After: seconds, or an HTTP date), None when it asks for none."""
+    """The wait a platform's answer asks for, in seconds and exactly as asked (Retry-After: seconds, or an HTTP
+    date); None when it asks for none or the value cannot be read."""
     value = (r.headers.get("retry-after") or "").strip() if r is not None else ""
     if not value:
         return None
@@ -52,27 +55,52 @@ def retry_after(r: httpx.Response | None, now: float | None = None) -> float | N
         seconds = when.timestamp() - (time.time() if now is None else now)
     if not math.isfinite(seconds):
         return None
-    return min(max(0.0, seconds), float(MAX_RETRY_AFTER))
+    return max(0.0, seconds)
 
 
 def wait_text(seconds: float) -> str:
+    """A wait in plain words, rounded up (never shown shorter than it is)."""
     if seconds < 90:
-        return f"{max(1, round(seconds))} seconds"
-    if seconds < 90 * 60:
-        return f"{round(seconds / 60)} minutes"
-    return f"{round(seconds / 3600)} hours"
+        n = max(1, math.ceil(seconds))
+        return f"{n} second{'s' if n != 1 else ''}"
+    minutes = math.ceil(seconds / 60)
+    if minutes < 90:
+        return f"{minutes} minutes"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} hour{'s' if hours != 1 else ''}" + (f" {rest} minute{'s' if rest != 1 else ''}" if rest else "")
 
 
 def with_retry_after(exc: PublishError, r: httpx.Response | None, platform: str) -> PublishError:
-    """Attach the platform's Retry-After to an error; for a rate limit the fix then says how long it asked for."""
+    """Attach the platform's Retry-After to an error; for a rate limit or a busy server the fix then says how long it
+    asked to wait."""
     exc.retry_after = retry_after(r)
-    if exc.retry_after is not None and exc.code in RATE_LIMITS:
+    busy = exc.code in RATE_LIMITS or r is None or r.status_code == 429 or r.status_code >= 500
+    if exc.retry_after is not None and busy:
         exc.fix = f"{platform} asked to wait {wait_text(exc.retry_after)} before trying again."
     return exc
 
 
+def asked_to_wait(exc: PublishError) -> float | None:
+    """How long to wait before trying again after this error: the platform's own Retry-After, or a minute for a rate
+    limit that named no time. None for an error that is not about waiting."""
+    if exc.retry_after is not None:
+        return exc.retry_after
+    return 60.0 if exc.code in RATE_LIMITS else None
+
+
 class Cancelled(Exception):
     pass
+
+
+def sleep_exactly(seconds: float, cancelled=lambda: False, sleep=time.sleep) -> None:
+    """Sit out a short wait in steps, so stopping an upload is not held up by it."""
+    left = max(0.0, seconds)
+    while left > 0:
+        if cancelled():
+            raise Cancelled()
+        step = min(5.0, left)
+        sleep(step)
+        left -= step
 
 
 def network_errors(platform: str):

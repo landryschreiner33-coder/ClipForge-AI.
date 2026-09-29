@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import autopublish, gate, home, providers, queue, quota, rights, scout, state
+from . import autopublish, gate, home, providers, queue, quota, rights, scout, state, verify
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -168,8 +168,9 @@ def skip_source(source_id: str) -> dict:
 @router.post("/sources/{source_id}/hunt", dependencies=WRITE)
 def hunt_now(source_id: str) -> dict:
     src = _source_or_404(source_id)
+    verify.ensure([src])  # a channel the feed named is confirmed with the platform first
     try:
-        rights.gate(src, "ingest")
+        rights.gate(db.fetch("sources", source_id) or src, "ingest")
     except rights.RightsBlocked as exc:
         raise HTTPException(409, str(exc)) from exc
     db.update("sources", source_id, status="queued", status_note="Started by you")

@@ -184,6 +184,15 @@ def test_a_reupload_of_a_processed_video_is_skipped(env):
 
 
 # ------------------------------------------------------------------ eligibility: agreements and their conditions
+def _confirm(env, src: dict) -> None:
+    """YouTube's own answer for this video names the channel the source claims (as the Data API reports it)."""
+    from clipfoundry.autopilot import verify
+
+    env["g"].add_video(src["external_id"], src.get("title") or "video", src["channel_id"])
+    verify.ensure([src])
+    assert verify.confirmed(src), src.get("channel_check")
+
+
 def _agreement(client, **kw) -> dict:
     body = {"creator": "Pod Creator", "channels": ["UCpod0000000000001"], "evidence": "Email of 2026-09-01: you may "
             "clip and post my episodes", **kw}
@@ -212,6 +221,7 @@ def test_an_agreement_covers_a_creator_once_with_its_conditions(env, client):
     assert rule["evidence"].startswith("Email of 2026-09-01") and rule["conditions"]["platforms"] == ["tiktok"]
     src = db.insert("sources", {"platform": "youtube", "external_id": "ep1", "title": "Episode 1: the long talk",
                                 "channel_id": "UCpod0000000000001", "url": "https://www.youtube.com/watch?v=ep1"})
+    _confirm(env, src)
     r = rights.evaluate(src)
     assert r["status"] == rights.ALLOWLISTED and r["auto_allowed"] and "Agreement with Pod Creator" in r["basis"]
     assert rights.platform_allowed(src, "tiktok")[0] and not rights.platform_allowed(src, "youtube")[0]
@@ -229,6 +239,7 @@ def test_expired_and_non_commercial_agreements_are_not_used(env, client):
 
     src = db.insert("sources", {"platform": "youtube", "external_id": "ep2", "title": "Episode 2",
                                 "channel_id": "UCpod0000000000001"})
+    _confirm(env, src)
     past = (dt.date.today() - dt.timedelta(days=3)).isoformat()
     _agreement(client, expires=past)
     assert rights.evaluate(src)["status"] == rights.MANUAL  # ended
@@ -256,10 +267,15 @@ def test_a_creator_folder_supplies_the_file_and_it_keeps_its_provenance(env, cli
                                 "channel_id": "UCpod0000000000001", "url": "https://www.youtube.com/watch?v=ytid77aaaaa",
                                 "status": "discovered", "source_score": 80.0, "expected_clips": 3.0,
                                 "duration": 3600})
+    _confirm(env, src)
     found = access.resolve(src, db.get_settings())
     assert found["ok"] and found["method"] == "creator_folder" and found["local_path"] == str(f)
-    elsewhere = {**src, "id": "x", "external_id": "otherid0000", "title": "Episode 78"}
+    elsewhere = db.insert("sources", {"platform": "youtube", "external_id": "otherid0000", "title": "Episode 78",
+                                      "channel_id": "UCpod0000000000001",
+                                      "url": "https://www.youtube.com/watch?v=otherid0000"})
+    _confirm(env, elsewhere)
     assert not access.resolve(elsewhere, db.get_settings())["ok"]  # not in the folder: skipped, not downloaded
+    db.update("sources", elsewhere["id"], status="skipped")
     assert db.select("source_feeds", "kind = 'watch_folder'")  # new files in the folder are found by themselves
     run("rights_check")
     scout.select_for_today(db.get_settings())
@@ -281,8 +297,10 @@ def test_no_allowed_way_to_the_file_skips_to_the_next_video(env):
                                    "channel_id": "UCown0000000000001", "url": "https://www.youtube.com/watch?v=h1",
                                    "status": "eligible", "source_score": 90.0, "expected_clips": 3.0,
                                    "rights_status": rights.ALLOWLISTED})
+    _confirm(env, hosted)
     f = env["tmp"] / "mine.mp4"
     f.write_bytes(os.urandom(500))
+    rights.add_rule("folder", str(env["tmp"]), rights.OWNED, "My recordings")
     mine = db.insert("sources", {"platform": "local", "external_id": "m1", "title": "My talk", "local_path": str(f),
                                  "status": "eligible", "source_score": 50.0, "expected_clips": 3.0,
                                  "rights_status": rights.OWNED})
@@ -499,6 +517,7 @@ def test_music_is_rejected_under_coverage_for_the_creators_own_material(env, cli
     _agreement(client)
     src = db.insert("sources", {"platform": "youtube", "external_id": "ep9", "title": "Episode 9",
                                 "channel_id": "UCpod0000000000001"})
+    _confirm(env, src)
     rights.apply(src)
     project = db.create_project("ep9", status="ready", origin="autopilot", source_id=src["id"])
     clip = db.create_clip(project["id"], start=100, end=130, title="t", status="ready")

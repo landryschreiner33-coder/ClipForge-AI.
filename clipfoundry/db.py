@@ -547,7 +547,7 @@ JSON_FIELDS = {
     "trend_signals": {"keywords", "metrics", "components", "notes", "raw"},
     "trend_history": set(),
     "source_feeds": {"config"},
-    "sources": {"components", "metrics", "rights_info", "access"},
+    "sources": {"components", "metrics", "rights_info", "access", "channel_check"},
     "source_rights": {"conditions"},
     "publish_consents": {"settings"},
     "clip_candidates": {"scores", "rejected"},
@@ -574,8 +574,10 @@ ADDED_COLUMNS = {
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
-    # what the provider reported about a source's license, and how its file was obtained
-    "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'"},
+    # what the provider reported about a source's license, how its file was obtained, and whether the platform
+    # confirmed the channel the source names (autopilot/verify.py)
+    "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
+                "channel_check": "TEXT DEFAULT '{}'"},
 }
 
 
@@ -974,7 +976,8 @@ def interrupted_work() -> dict[str, list]:
 
     Manual projects, renders and versions are resumed by the app's render worker (jobs.py). Autopilot projects are
     resumed by their own durable job (autopilot/queue.py). A manual upload is not restarted without the user: it
-    is marked as interrupted and can be checked and published again.
+    is marked as interrupted and can be checked and published again. An upload that was waiting for the time a
+    platform asked for (`info.retry_at`) keeps waiting (publish/jobs.py starts it at that time).
     """
     with connect() as conn:
         projects = [dict(r) for r in conn.execute(
@@ -985,9 +988,13 @@ def interrupted_work() -> dict[str, list]:
             "'rendering') AND p.status NOT IN ('queued', 'processing')")]
         versions = [r["id"] for r in conn.execute(
             "SELECT id FROM clip_versions WHERE status IN ('queued', 'rendering')")]
+        waiting = [r["id"] for r in conn.execute(
+            "SELECT id, info FROM publications WHERE status = 'queued' AND COALESCE(scheduled_id, '') = ''")
+            if ((_decode("publications", r) or {}).get("info") or {}).get("retry_at")]
+        keep = ",".join("?" * len(waiting)) or "''"
         conn.execute(
             "UPDATE publications SET status = 'failed', error = 'Interrupted (the app was closed) before the upload "
             "was confirmed. Check the platform before publishing again: the upload may or may not have finished.' "
-            "WHERE status IN ('queued', 'uploading') AND COALESCE(scheduled_id, '') = ''"
-        )
+            f"WHERE status IN ('queued', 'uploading') AND COALESCE(scheduled_id, '') = '' AND id NOT IN ({keep})",
+            waiting)
     return {"projects": projects, "clips": clips, "versions": versions}

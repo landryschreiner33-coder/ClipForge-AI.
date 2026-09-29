@@ -10,7 +10,7 @@ from typing import Callable
 from .. import db
 from ..pipeline.common import log
 from . import tiktok, youtube
-from .common import Cancelled, PublishError
+from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_exactly, wait_text
 
 ACTIVE = ("queued", "uploading", "processing")
 
@@ -137,7 +137,15 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     while time.time() < deadline:
         time.sleep(tiktok.POLL_SECONDS)
         current = db.get_publication(pub["id"]) or pub
-        outcome = _tiktok_outcome(current, tiktok.fetch_status(token, init["publish_id"]), username)
+        try:
+            st = tiktok.fetch_status(token, init["publish_id"])
+        except PublishError as exc:  # the video is uploaded: only reading its state has to wait
+            asked = asked_to_wait(exc)
+            if asked is None or asked > SHORT_WAIT:
+                raise
+            sleep_exactly(asked, cancelled)
+            continue
+        outcome = _tiktok_outcome(current, st, username)
         if outcome:
             db.update_publication(pub["id"], **outcome)
             return
@@ -179,11 +187,20 @@ def refresh(pub: dict) -> dict:
     return db.get_publication(pub["id"]) or pub
 
 
+def _clock(ts: float) -> str:
+    return time.strftime("%H:%M", time.localtime(ts))
+
+
 class PublishWorker:
+    """Uploads you start in the Publish Center, one at a time. When a platform asks to wait (Retry-After, or a rate
+    limit), the upload is not failed and not retried sooner: it stays queued with its time (`info.retry_at`) and
+    starts again then, continuing a YouTube upload session where it stopped. The time survives a restart."""
+
     def __init__(self) -> None:
         self.q: queue.Queue = queue.Queue()
         self.cancelled: set[str] = set()
         self.current: str | None = None
+        self.timers: dict[str, threading.Timer] = {}
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
@@ -200,10 +217,42 @@ class PublishWorker:
 
     def cancel(self, pub_id: str) -> None:
         self.cancelled.add(pub_id)
+        timer = self.timers.pop(pub_id, None)
+        if timer:  # waiting for the platform's time: nothing is running, so it is canceled right away
+            timer.cancel()
+            self.cancelled.discard(pub_id)
+            db.update_publication(pub_id, status="cancelled", message="Cancelled while waiting. Nothing was published.")
+
+    def later(self, pub_id: str, at: float) -> None:
+        """Start this upload again at `at` (the time the platform asked for), not before."""
+        old = self.timers.pop(pub_id, None)
+        if old:
+            old.cancel()
+        timer = threading.Timer(max(0.0, at - time.time()), self._due, [pub_id])
+        timer.daemon = True
+        self.timers[pub_id] = timer
+        timer.start()
+
+    def _due(self, pub_id: str) -> None:
+        self.timers.pop(pub_id, None)
+        self.submit(pub_id)
+
+    def resume_waiting(self) -> int:
+        """After a restart: uploads that were waiting for a platform's time start again at that time."""
+        n = 0
+        for pub in db.list_publications():
+            at = (pub.get("info") or {}).get("retry_at")
+            if pub["status"] == "queued" and at and not pub.get("scheduled_id"):
+                self.later(pub["id"], float(at))
+                n += 1
+        return n
 
     def cancel_all(self) -> int:
         """STOP ALL JOBS: queued uploads are canceled, the running one stops at its next chunk."""
         n = 0
+        for pub_id in list(self.timers):
+            self.cancel(pub_id)
+            n += 1
         while True:
             try:
                 pub_id = self.q.get_nowait()
@@ -233,7 +282,7 @@ class PublishWorker:
 
     def _run(self, pub_id: str) -> None:
         pub = db.get_publication(pub_id)
-        if not pub:
+        if not pub or pub["status"] == "cancelled":
             return
         if pub_id in self.cancelled:
             db.update_publication(pub_id, status="cancelled", message="Cancelled before the upload started.")
@@ -247,9 +296,24 @@ class PublishWorker:
         except Cancelled:
             db.update_publication(pub_id, status="cancelled", message="Upload cancelled. Nothing was published.")
         except PublishError as exc:
+            current = db.get_publication(pub_id) or pub
+            name = "YouTube" if pub["platform"] == "youtube" else "TikTok"
+            if current["status"] == "processing":  # uploaded: only reading the outcome failed; never upload it twice
+                db.update_publication(pub_id, message=f"Uploaded; {name} did not say yet whether it is posted ({exc}). "
+                                                      "Use Refresh status later, or check your profile.")
+                return
+            asked = asked_to_wait(exc)
+            if asked is not None:  # the platform asked to wait: start again exactly then, never sooner
+                at = time.time() + asked
+                db.update_publication(pub_id, status="queued", error="", fix="",
+                                      message=f"{name} asked to wait {wait_text(asked)}. The upload starts again "
+                                              f"at {_clock(at)}.",
+                                      info={**(current.get("info") or {}), "retry_at": at, "code": exc.code})
+                self.later(pub_id, at)
+                return
             log.warning("%s publish failed: %s", pub["platform"], exc)
             db.update_publication(pub_id, status="failed", error=str(exc), fix=exc.fix,
-                                  info={**(pub.get("info") or {}), "code": exc.code})
+                                  info={**(current.get("info") or {}), "code": exc.code})
         except Exception as exc:  # noqa: BLE001
             log.exception("%s publish failed", pub["platform"])
             db.update_publication(pub_id, status="failed", error=f"{type(exc).__name__}: {exc}"[:500])

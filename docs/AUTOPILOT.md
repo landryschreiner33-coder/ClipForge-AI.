@@ -110,6 +110,18 @@ the evidence and conditions are stored with it (`autopilot/rights.py`):
 Anything else is skipped and listed in the Activity log. Cropping, captions, a credit or a short duration never make
 something usable, and no score is treated as legal clearance.
 
+**Confirmed channels** (`autopilot/verify.py`). A channel named by a feed, a web search or any list is only a claim.
+Before your own channel (*Owned*) or a channel rule or agreement is applied to a video, the platform itself must
+confirm that this exact video belongs to that channel: YouTube through the Data API (a video Autopilot found through
+the Data API already carries YouTube's answer; any other one costs 1 quota unit per 50 videos), TikTok through its
+embed API (oEmbed), which answers by the video's number whatever name the link shows. The link the file would come
+from must lead to that same video. A confirmed channel still has to match one of your rules or agreements:
+confirmation only says who posted the video. A video that cannot be confirmed (another channel, a link to a different
+video, a platform ClipFoundry cannot ask, YouTube not connected) is skipped with *channel not confirmed* and the
+reason in the Activity log, and asked about again later (after 1 hour if the platform was busy or not connected,
+after 1 day if the video was not found). The check runs again before every stage, so a video queued earlier cannot
+get around it, and a feed can never overwrite what the YouTube API reported about a video.
+
 **Getting the file** (`autopilot/access.py`) is a separate check: a file on this computer, the folder a creator shares
 with you (named in the agreement; the file is found by the video's YouTube ID in its name, or by its title, once it has
 finished syncing), a file link under the address the creator gave you, the library's own download, or a direct link
@@ -122,7 +134,8 @@ Everything from before is still there for advanced users:
 
 * **Where sources come from** (Autopilot → Advanced → Sources & rights): *watch folders* of your own recordings (a
   file that is still growing is treated as a live recording), *YouTube channels* you follow (`UC...`), *stream URLs*
-  you may use (HLS/RTMP/SRT), and *signal feeds* (JSON/CSV) you are authorized to use. Each can carry a rights status.
+  you may use (HLS/RTMP/SRT), and *signal feeds* (JSON/CSV) you are authorized to use. A folder, channel or stream
+  you add can carry a rights status; a feed row's channel is a claim that must be confirmed (above).
 * **Rights rules** (same page): channels whose clipping program you joined (*Allowlisted*), licensed feeds
   (*Licensed*), folders of your own recordings (*Owned*), or anything you must never use (*Blocked*), each with its
   basis. Anything without a rule or an answer waits for you.
@@ -157,7 +170,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | --- | --- | --- |
 | Trend Scout | `trend_scan` | Reads YouTube search/chart results (within its quota share), feeds and watch folders. Stores every signal with its history and a Trend Score. Metrics carry their provenance: *observed*, *estimated* or *unavailable*. |
 | Source Scout | `source_scout`, `feed_scan` | Turns signals into sources, scores them (Source Score, expected strong clips) and picks up to 3 per day, skipping duplicates, weak and unavailable ones. |
-| Rights and Content Safety Gate | `rights_check` | Applies your rules, agreements and licenses. Only *Owned*, *Licensed*, *Allowlisted*, *Creative Commons* (CC BY) and public-domain sources continue automatically (each kind can be turned off under Advanced); everything else is skipped and listed in the Activity log. The gate runs again before scheduling and before publishing, so a later *Blocked* rule stops a post. |
+| Rights and Content Safety Gate | `rights_check` | Applies your rules, agreements and licenses. Only *Owned*, *Licensed*, *Allowlisted*, *Creative Commons* (CC BY) and public-domain sources continue automatically (each kind can be turned off under Advanced); everything else is skipped and listed in the Activity log. The gate runs again before every later stage, before scheduling and before publishing, so a later *Blocked* rule stops a post and a source queued before a check cannot skip it. Channel claims are confirmed first (see *Confirmed channels*). |
 | Live Monitor | `live_watch`, `live_capture`, `post_live` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time), clips strong moments from a rolling 15-minute window, and after the stream ends runs a full pass that can replace weaker live clips that were not published yet. |
 | Clip Hunter | `hunt_source` | Brings the source in (hard link or copy of a local file, a direct media URL, or the URL importer only when allowed), transcribes on the GPU and builds a large candidate pool. |
 | Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |
@@ -165,7 +178,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
 | Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
 | YouTube Quota Manager | (inside every YouTube call) | Counts units and calls per bucket, keeps discovery within its share, and reserves the rest for uploads, statistics and account checks. Resets at midnight Pacific. |
-| Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. If the platform accepted every byte but its answer was lost and it can no longer say what happened, the post is never uploaded again automatically: it becomes *Upload not confirmed* until you check (the video is looked for among the channel's newest uploads first). |
+| Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. If the platform accepted every byte but its answer was lost and it can no longer say what happened, the post is never uploaded again automatically: it becomes *Upload not confirmed* until you check (the video is looked for among the channel's newest uploads first). **Waits** are never shortened: when YouTube or TikTok asks to wait (`Retry-After`, or 60 s for a rate limit that gives no time), up to 60 s is waited out in place; a longer wait puts the post back for exactly that time (no attempt used), holds the platform's other posts until then, and the same upload continues afterwards. |
 | Learning Worker | `learn` | Reads the real results of your posts (snapshot near 48 h), and once there are at least 10, adjusts posting-time lifts, style bonuses, score weights and the retention estimate, using only groups with enough data. |
 | Maintenance | `maintenance`, `selftest` | Recovers stale jobs, applies the YouTube 30-day data rule, cleans caches. |
 

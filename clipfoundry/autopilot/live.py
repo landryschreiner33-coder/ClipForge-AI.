@@ -334,7 +334,11 @@ def live_capture(job: Job) -> dict:
     src = db.fetch("sources", job.payload.get("source_id", ""))
     if not src:
         raise queue.Fail("The live source was deleted")
-    rights.gate(src, "ingest", settings)
+    r = rights.recheck(src, settings)
+    if not r["auto_allowed"]:  # not captured; its status and the activity log say why
+        db.update("sources", src["id"], status="blocked" if r["status"] == rights.BLOCKED else "needs_rights",
+                  status_note=f"{r['label']}: {r['basis']}"[:300])
+        return {"skipped": True, "message": f"Not used: {r['label']} ({r['basis']})"}
     sess = Session(src, settings)
     args = input_args(src, settings)
     cmd = capture_command(sess, args)
