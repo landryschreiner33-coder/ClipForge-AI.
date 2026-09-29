@@ -70,9 +70,10 @@ computer ClipFoundry runs on, so those tests would fail.
 ## The beginner flow (sandbox)
 
 One more test goes through what a new user does: open ClipFoundry, connect YouTube and TikTok, press
-START AUTOPILOT, and watch Autopilot find trending videos, create sources by itself, ask about the rights of
-a strong one (the test answers yes), ask for the video file (the test gives one) and send it on to the Clip
-Hunter. It changes things, so it never runs against your real ClipFoundry: it starts its own **sandbox**
+keep the suggested topics, press START AUTOPILOT, and watch Autopilot find trending videos, create sources by
+itself and skip the ones nothing covers (listed in the activity log, never asked about). The test then records
+one agreement with a creator, naming the folder where they share their raw files, and Autopilot takes that
+creator's video, finds its file in the folder and sends it on to the Clip Hunter by itself. It changes things, so it never runs against your real ClipFoundry: it starts its own **sandbox**
 (`sandbox/run_sandbox.py`) with a temporary data folder, port 8799, **test connections** to local stand-ins
 for Google's and TikTok's sign-in pages and APIs (nothing reaches the real platforms, nothing is posted) and a
 synthetic transcript instead of Whisper (no model download). It needs `start.bat` to have run once (for

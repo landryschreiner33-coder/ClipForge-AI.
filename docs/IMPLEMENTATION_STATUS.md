@@ -135,6 +135,29 @@ under Advanced; ask the user only what really needs them. The backend and worker
 | Manual content stays optional and working | `+ Add content manually` (link, file, folder, upload); **bug fixed:** a source added by hand was never scored and was discarded as "unlikely to contain a strong clip" | verified (unit, failed before the fix) | `adding_content_by_hand_still_works` | — | — |
 | Settings: General (accounts, on/off, daily target, automatic publishing) and Advanced (everything else) | `Settings.tsx`, `autopilotSettings.tsx` | verified (e2e) | `settings.spec.ts` | — | — |
 
+### Hands-off Autopilot (2026-09-29)
+
+Request: discover promising videos, obtain usable files, clip, schedule and publish with as little daily involvement
+as possible; no per-video permission questions; automatic eligibility only from real coverage; access to the file
+decided separately from reuse rights; an explicit automatic-publishing option where the platform allows it. New:
+`autopilot/access.py` (how a file may be obtained), `autopilot/autopublish.py` (the stored permission),
+`rights.add_agreement` (an agreement is stored as rights rules that carry its conditions), table `publish_consents`, `GET/POST/DELETE
+/api/autopilot/agreements`, `GET /api/autopilot/activity`, `GET/POST/DELETE /api/autopilot/auto-publish`.
+
+| Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
+| --- | --- | --- | --- | --- | --- |
+| Discovery every few hours within quotas and a cost limit; originals behind short clips; dedupe of re-uploads | `providers.py` (YouTube originals, Tavily web search, Wikimedia Commons library), `trend_poll_minutes` 180, `discovery_monthly_budget_usd` (0 = never spend) | verified (unit, fake APIs) | `test_autopilot_auto.py` discovery tests (6) | real Tavily and Commons calls | Tavily key (optional) |
+| Web search never invents TikTok statistics; provenance and observation time kept; estimates labeled | `trends.m`, providers | verified (unit) | `web_search_finds_tiktok_links_without_inventing_statistics` | — | — |
+| Eligibility without per-video questions: owned, creator agreements with conditions, CC BY, public domain / CC0; unclear = skipped, activity log | `rights.py` (agreements, licenses, `rights_ask_per_video` off), `home.activity` | verified (unit + sandbox e2e) | agreement, expiry, non-commercial and library tests; beginner flow | — | — |
+| Agreements do not clear third-party music | `gate.sound_rights_check`, `quality.py` | verified (unit) | `music_is_rejected_under_coverage_for_the_creators_own_material` | music detection is an estimate | — |
+| File access separate from reuse rights; provenance stored with each file | `access.resolve` / `record`, `hunter` provenance.json | verified (unit + sandbox e2e) | `a_creator_folder_supplies_the_file_and_it_keeps_its_provenance`, `no_allowed_way_to_the_file_skips_to_the_next_video` | — | — |
+| Framing checked from the render record | `render_info` crop width and layout, `quality.py` | verified (unit) | `framing_is_checked_from_the_render_record` | — | — |
+| Explicit automatic publishing (YouTube): stored wording and settings, posts labeled *approved automatically*, off returns posts to review, held on warnings | `autopublish.py`, `scheduler.py`, `publisher.py`, `components/autoPublish.tsx` | verified (unit) | 5 publishing tests | real upload | Google audit keeps uploads private until then |
+| TikTok: your OK on each post, shown as such | `autopublish.NOT_SUPPORTED` | verified (unit) | `one_complete_path...` (TikTok items wait) | — | TikTok's Content Sharing Guidelines |
+| Posting window 9:00-21:00 America/Chicago, spread; no burst after downtime; DST | `scheduler.py`, `autopilot_active_end` 21 | verified (unit) | `after_downtime_missed_posts_are_spread_out_not_dumped`, DST tests | — | — |
+| One complete path: discover → eligibility → file → render → check → schedule → approved automatically → uploaded and scheduled | all of the above | verified (sandbox: stand-in library and YouTube, synthetic transcript, real ffmpeg renders) | `one_complete_path_from_discovery_to_a_post_scheduled_on_youtube` (slow) | the same on real accounts | accounts |
+| Main page: START / PAUSE, activity, how posts go out, PC-on note; topic step at setup | `Autopilot.tsx`, `home.view` | verified (unit + e2e) | `the_main_page_speaks_plainly_and_needs_no_configuration`, `autopilot.spec.ts`, beginner flow | — | — |
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -191,6 +214,10 @@ under Advanced; ask the user only what really needs them. The backend and worker
 | zero-config UX | `npm run build`; `e2e` beginner flow (`npm run test:sandbox`: sandbox, test connections, synthetic transcript) | build passes; 1 passed (connect both, START, discovery, sources created, rights question, YES, file added, Clip Hunter takes it) |
 | zero-config UX | read-only `e2e` suite against a sandbox after the beginner flow (main page with content, 2 posts awaiting approval) and against a fresh app (first-run screen) | 42 passed; 38 passed, 4 skipped (no projects) |
 | zero-config UX | screenshots of the first-run screen, setup dialog, main page over time (the sandbox rendered, gated and scheduled one clip by itself), Add content dialog, Settings General/Advanced, System details | checked by eye; fixed a CSS clash with the project progress steps, a clip count shown as "No strong moments", "Currently" between two jobs of a video |
+| hands-off | `pytest` (fast and slow together; ffmpeg and espeak-ng installed, nothing skipped) | 299 passed (554 s) |
+| hands-off | `npm run build` in `frontend/` | passes |
+| hands-off | `e2e` beginner flow (`npm run test:sandbox`, updated: uncovered videos skipped, one agreement with a shared folder, its video goes to the Clip Hunter) | 1 passed |
+| hands-off | read-only `e2e` suite against a scratch app: first run, Autopilot on, Autopilot paused | 38 passed, 4 skipped (no projects) each time |
 
 ## Checklist for the user's machine
 

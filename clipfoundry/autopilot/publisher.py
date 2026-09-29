@@ -1,7 +1,8 @@
 """Publisher: uploads approved, due posts through the official YouTube Data API and TikTok Content Posting API.
 
-Before every upload it checks again that the source may be used (rights), that the approval still matches the
-exact content, that the clip was not published already, that the platform accepts posts right now and that the
+Before every upload it checks again that the source may be used (rights, including the platforms its coverage
+allows), that the approval still matches the exact content (and, for a post approved automatically, that your
+automatic-publishing permission is still in force), that the clip was not published already, that the platform accepts posts right now and that the
 account is connected. If the user has to do something (reconnect, approve again, pick another visibility, get the
 app audited), the post stops there with a clear action item.
 
@@ -22,7 +23,7 @@ from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
 from ..publish.common import PublishError, client
-from . import gate, queue, quota, rights, state
+from . import autopublish, gate, queue, quota, rights, state
 from .host import Job, handler
 from .providers import iso_time
 from .scheduler import _audit, active_version_path, approval_valid, block_platform, blocked_until, tz
@@ -210,10 +211,18 @@ def publish(job: Job) -> dict:
     except rights.RightsBlocked as exc:
         _set(item, "blocked", str(exc), "blocked")
         raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
+    allowed, why = rights.platform_allowed(source, item["platform"], settings)
+    if not allowed:
+        _set(item, "blocked", why, "blocked")
+        raise queue.Fail(why, "The agreement for this video does not cover this platform.")
     if not approval_valid({**item, "status": "approved"}):
         _set(item, "awaiting_approval", "The clip or its text changed after approval: approve it again.",
              "approval_invalidated", approval={})
         raise queue.Fail("The approval no longer matches the content")
+    if not item.get("publication_id") and not autopublish.still_covers(item):
+        _set(item, "awaiting_approval", "Automatic publishing was turned off or changed: approve it yourself.",
+             "approval_invalidated", approval={})
+        raise queue.Fail("The automatic-publishing permission that approved this post is no longer in force")
     repeat = "" if settings.get("autopilot_allow_republish") else already_published(item)
     if repeat:
         _set(item, "canceled", f"Not published: {repeat}", "duplicate")

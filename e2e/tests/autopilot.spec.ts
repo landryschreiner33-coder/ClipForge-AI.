@@ -1,6 +1,6 @@
 import { expect, getJson, test } from "../fixtures";
 
-// Looks at Autopilot without operating it: START AUTOPILOT, CONNECT, the AUTOPILOT switch, STOP ALL JOBS, Resume,
+// Looks at Autopilot without operating it: START / PAUSE AUTOPILOT, CONNECT, STOP ALL JOBS, Resume,
 // Learn now, YES/NO, Dismiss, Add, Retry and Cancel are never pressed (Add content manually is opened and canceled),
 // and each test checks that Autopilot's on/off and paused state are the same afterwards.
 
@@ -22,30 +22,33 @@ test.afterEach(async ({ request }) => {
   expect(await onOff(request), "Autopilot's on/off or paused state changed during the test").toEqual(before);
 });
 
-test("the switch (or the first-run steps) and the stop button reflect Autopilot's real state", async ({ page, request }) => {
+test("START / PAUSE (or the first-run steps) and the stop button reflect Autopilot's real state", async ({ page, request }) => {
   const st = await getJson(request, "/api/autopilot/status");
   if (firstRun(st)) {
     await expect(page.getByText("CLIPFOUNDRY AUTOPILOT")).toBeVisible();
     await expect(page.getByRole("button", { name: "START AUTOPILOT" })).toBeVisible();
-    await expect(page.getByRole("switch", { name: /^AUTOPILOT (ON|OFF)$/ })).toHaveCount(0);
-  } else {
-    const sw = page.getByRole("switch", { name: /^AUTOPILOT (ON|OFF)$/ });
-    await expect(sw).toHaveAttribute("aria-checked", String(st.enabled));
-    await expect(sw).toHaveText(st.enabled ? "AUTOPILOT ON" : "AUTOPILOT OFF");
+    await expect(page.locator(".ap-state")).toHaveCount(0);
+  } else if (!st.paused) {
+    await expect(page.locator(".ap-state")).toHaveText(st.enabled ? "AUTOPILOT ON" : "AUTOPILOT PAUSED");
+    const toggle = page.getByRole("button", { name: st.enabled ? "PAUSE AUTOPILOT" : "START AUTOPILOT" });
+    await expect(toggle).toHaveAttribute("aria-pressed", String(st.enabled));
   }
   if (st.paused) {
     await expect(page.getByRole("button", { name: "Resume jobs" })).toBeVisible();
     await expect(page.getByText("All jobs are stopped.")).toBeVisible();
   } else {
+    // STOP ALL JOBS is a technical control: it lives under Advanced, not on the simple page
+    await expect(page.getByRole("button", { name: "STOP ALL JOBS" })).toHaveCount(0);
+    await page.goto("/#/autopilot/system");
     await expect(page.getByRole("button", { name: "STOP ALL JOBS" })).toBeVisible();
   }
-  if (!st.enabled && !st.paused && !firstRun(st)) await expect(page.getByText("Autopilot is off.")).toBeVisible();
+  if (!st.enabled && !st.paused && !firstRun(st)) await expect(page.getByText("Autopilot is paused.")).toBeVisible();
 });
 
 test("the main page is simple: what it is doing, what it found, what needs you", async ({ page, request }) => {
   const st = await getJson(request, "/api/autopilot/status");
   if (firstRun(st)) {
-    for (const step of ["Connect YouTube", "Connect TikTok", "Start Autopilot"]) {
+    for (const step of ["Connect YouTube", "Connect TikTok", "Choose topics", "Start Autopilot"]) {
       await expect(page.locator(".ob-body b", { hasText: step })).toBeVisible();
     }
   } else {

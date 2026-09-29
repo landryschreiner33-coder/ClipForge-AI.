@@ -19,22 +19,30 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 
 | Rule | Source | Effect in ClipFoundry |
 | --- | --- | --- |
-| Users must have final control over data published to YouTube; the app may only *suggest* titles, descriptions and privacy. | YouTube API Services Developer Policies | Every YouTube post waits for your approval in the Publish Center. After you approve it, it is published at its scheduled time without further clicks. |
-| TikTok apps may only upload after the user expressly consents, must show a preview, must let the user edit the text, must read the creator's options before posting and must not pre-select a privacy level. | TikTok Content Sharing Guidelines | Every TikTok post waits for your approval, made on a screen that shows the preview, the creator nickname and TikTok's options (privacy is never pre-selected). |
+| Users must have final control over data published to YouTube and know what the app does in their name. | YouTube API Services Developer Policies | By default every YouTube post waits for your approval in the Publish Center. With **automatic publishing** turned on (an explicit, stored permission: which channel, what content, who can see it, how many a day, when), clips that passed every check are approved by that permission, labeled *Approved automatically*, never as approved by you, and each stays cancellable until it goes out. |
+| TikTok apps may only upload after the user expressly consents, must show a preview, must let the user edit the text, must read the creator's options before posting and must not pre-select a privacy level. | TikTok Content Sharing Guidelines | Every TikTok post waits for your approval, made on a screen that shows the preview, the creator nickname and TikTok's options (privacy is never pre-selected). Automatic publishing is not offered for TikTok, and the app says why. Once approved, a post goes out at its time by itself. |
 | API data must not be used to create derived data or metrics without Google's approval. | YouTube Developer Policies III.E.4; Additional policies for derived metrics | Momentum scores (view velocity, engagement rates) are computed from YouTube data only when you confirm that your Google Cloud project was granted this. Otherwise YouTube results are ranked by YouTube's own order and shown as YouTube reported them. |
 | Stored YouTube API data must be refreshed or deleted within 30 days. Approved projects may keep statistics of the user's own videos (Authorized Data) longer. | YouTube Developer Policies; Additional policies for derived metrics and data storage | A maintenance job deletes YouTube data older than 30 days. With the approval setting on and the channel connected, only the statistics of your own videos are kept longer. |
-| Content may only be downloaded from YouTube through means YouTube authorizes, or with permission from YouTube and the rights holders. | YouTube Terms of Service | Autopilot ingests your own files (watch folders), stream URLs and direct media links you are allowed to use. Downloading platform-hosted videos with the URL importer is off by default and never happens for a source without a passing rights status. |
+| Content may only be downloaded from YouTube through means YouTube authorizes, or with permission from YouTube and the rights holders. | YouTube Terms of Service | Getting the file is decided separately from the right to reuse it (`autopilot/access.py`). Autopilot uses your own files, a folder or file links a creator shares with you under an agreement, a free-license library's own downloads, and direct links you configured. A connected account or a public link is never treated as permission to download. Downloading platform-hosted videos with the URL importer is off by default. |
 | `chart=mostPopular` now covers the Trending Music, Movies and Gaming charts only. | YouTube Data API revision history (July 2025) | Broad discovery uses topic searches (their own 100-call daily quota bucket since June 2026) plus channels you follow. |
 | Google Trends API is an application-gated alpha; TikTok has no trend API for general developers. | Google Search Central; TikTok for Developers | Not used. Shown as unavailable in the UI. ClipFoundry never scrapes either. |
 | Unaudited API projects/apps can only publish privately. | YouTube API audit; TikTok Content Posting API | Shown before scheduling and after each upload. Autopilot never claims a post is public when the platform made it private. |
 
 ## Setting it up
 
-The first time you open Autopilot it shows three steps, and that is all a normal user needs:
+The first time you open Autopilot it shows four steps, and that is all a normal user needs:
 
 1. **Connect YouTube.** Autopilot uses the connected account to find trending videos and to post your Shorts.
 2. **Connect TikTok** (optional: one platform without the other works too).
-3. **START AUTOPILOT.** It turns Autopilot on for the accounts you connected and starts looking right away.
+3. **Choose topics.** A suggestion is filled in; pick or type others if you like.
+4. **START AUTOPILOT.** It turns Autopilot on for the accounts you connected and starts looking right away.
+
+To let YouTube posts go out without reviewing each one, turn on **automatic publishing** afterwards (*Enable
+automatic publishing* on the Autopilot page or Settings → General). It shows exactly what you allow: the channel, what
+gets posted (only clips that passed every check, from videos you own or that an agreement or license covers), who can
+see the posts, made for kids or not, how many a day and between which hours, and you confirm it. Turning it off sends
+every post it approved that has not started uploading back to *waiting for your approval*. Until Google audits your
+YouTube API project, YouTube keeps the uploads private whatever you choose.
 
 Both platforms only let apps like ClipFoundry post through *your own* free developer app, so the first CONNECT on a
 computer asks for that app's two codes once (the steps are shown next to the fields; see also
@@ -44,30 +52,69 @@ You do not add sources, feeds, folders, rules or workers. Behind the scenes Auto
 connected YouTube account for discovery; watch folders and feeds only if you added some; Google Trends and TikTok
 trends are not available to apps and are skipped without bothering you) and these defaults: United States, English,
 all trending categories plus broad topics, 3 videos a day, up to 5 clips each, 15 clips a day as a target, posting times
-chosen for you (America/Chicago, 9:00 to 23:00), dynamic replacement, live monitoring, learning, automatic scheduling
-and automatic publishing of the posts you approved. Settings → General has the three choices most people touch
+chosen for you (America/Chicago, 9:00 to 21:00, spread over the day), a new look for videos every 3 hours, dynamic
+replacement, live monitoring, learning, automatic scheduling and automatic publishing of the posts that are approved. Settings → General has the three choices most people touch
 (Autopilot on/off, daily target, automatic publishing); everything else is under Settings → Advanced.
 
-**The main Autopilot page** shows only: Today (clips made against the target), what Autopilot is doing right now, the
-next post, whether YouTube and TikTok are connected, **Needs you**, the top opportunities it found and the upcoming
-posts. Workers, sources, feeds, rights rules, quota, jobs, scores and learning are under **Advanced** (the link at the
+**The main Autopilot page** shows only: START / PAUSE AUTOPILOT, Today (clips made against the target), what Autopilot
+is doing right now, the next post, whether YouTube and TikTok are connected, **Needs you**, the top opportunities it
+found, the upcoming posts and how they go out, an optional **Activity** log (what it did with each video it found and
+why it skipped any), and a reminder that the PC must be on and awake to find and render clips (a YouTube post that was
+already uploaded goes out at its time even if the PC is off; TikTok posts need the PC on at their time). Workers, sources, feeds, rights rules, quota, jobs, scores and learning are under **Advanced** (the link at the
 bottom), unchanged.
 
 **Needs you** lists only what really needs you, in plain words:
 
 | What | When | Your answer |
 | --- | --- | --- |
-| *ClipFoundry found a strong trending video. Can you use this content?* | Only while today's plan is short of videos you may use, only for strong videos (Source Score 50 or more), at most 3 at a time. Everything else stays in discovery. | **YES, I HAVE PERMISSION** (recorded as *Allowlisted* for that video, with the date), **NO** (*Blocked*, never asked again) or **VIEW SOURCE**. Only say yes when the creator gave you permission; being public or trending is not permission. |
-| *Add the video file* | You said yes to a video hosted on YouTube or another platform: ClipFoundry does not download it by itself (the platforms' terms). | **ADD THE VIDEO FILE** (the original on this computer), or **SKIP THIS VIDEO**. Advanced → Rights has the download setting for sources you have that permission for. |
-| *N posts waiting for your approval* | Always: YouTube and TikTok require your OK on every post. | **REVIEW POSTS** opens the Publish Center. |
+| *ClipFoundry found a strong trending video. Can you use this content?* | **Off by default.** Only with Advanced → *Ask me about strong videos nothing covers* turned on: only while today's plan is short, only for strong videos (Source Score 50 or more), at most 3 at a time. | **YES, I HAVE PERMISSION** (recorded as *Allowlisted* for that video, with the date), **NO** (*Blocked*, never asked again) or **VIEW SOURCE**. Only say yes when the creator gave you permission; being public or trending is not permission. |
+| *N posts waiting for your approval* | TikTok posts always; YouTube posts unless automatic publishing is on (and clips it holds for you because a check noted a possible problem). | **REVIEW POSTS** opens the Publish Center. |
 | *Reconnect YouTube / TikTok* | The platform refused the stored sign-in, or it is not connected while posts are planned there. | **RECONNECT**. |
 | *GPU transcription is not working* | Strict GPU paused transcription. | What to do is shown with it. |
 
-Quota notices resolve themselves and stay under Advanced.
+Quota notices resolve themselves and stay under Advanced. A video nothing covers, or whose file cannot be obtained in
+an allowed way, is not a question: it is skipped, listed in the Activity log with the reason (with *Add the file* when
+you could supply the original), and Autopilot moves on to the next one.
 
 **Adding content by hand** stays possible and optional: *+ Add content manually* on the Autopilot page (paste a link, a
 video on this computer, a folder to watch, or upload a video on the Create page), with one question: is it your own
 content, do you have the creator's permission, or should Autopilot ask later.
+
+### Hands-off discovery, eligibility and files
+
+**Discovery** runs every 3 hours by itself, within the providers' quotas and your cost limit:
+
+* **YouTube** (Data API search and video details, the connected account or an API key): recent popular videos for
+  your topics, and the **original long video behind a popular short clip** when the clip links to it or its channel
+  has it.
+* **Web search** (optional, [Tavily](https://tavily.com), your own API key under Settings → Advanced → Discovery):
+  public TikTok links for your topics and originals behind clips. Web search gives titles and links, never TikTok
+  statistics: those stay *unknown*. It uses the credits your plan includes (the free plan: 1,000 a month) and spends
+  money only up to the monthly cost limit you set (0 by default: never).
+* **A free-license library** (Wikimedia Commons, on by default): videos whose authors released them for reuse.
+
+Duplicates and re-uploads of videos already processed are dropped. Every number keeps where it came from and when it
+was observed; ClipFoundry's own scores are labeled as estimates.
+
+**Eligibility without per-video questions.** A video is used automatically only when something real covers it, and
+the evidence and conditions are stored with it (`autopilot/rights.py`):
+
+* your own content (*Owned*);
+* a **creator agreement** you record once (Advanced → Sources & rights → *Record an agreement*): the creator, their
+  channel IDs or handles, what shows the agreement, and its conditions: credit line, commercial use, which platforms,
+  end date, and whether it also covers other people's music or footage in their videos (by default it does not, and
+  a clip with detected music under such coverage is rejected);
+* a license that allows it: **CC BY** (a credit line is added to the description; share-alike, non-commercial and
+  no-derivatives licenses are never used automatically) or **public domain / CC0**, as the library reports it.
+
+Anything else is skipped and listed in the Activity log. Cropping, captions, a credit or a short duration never make
+something usable, and no score is treated as legal clearance.
+
+**Getting the file** (`autopilot/access.py`) is a separate check: a file on this computer, the folder a creator shares
+with you (named in the agreement; the file is found by the video's YouTube ID in its name, or by its title, once it has
+finished syncing), a file link under the address the creator gave you, the library's own download, or a direct link
+you configured. Each file is stored with a provenance record (where it came from, how it was obtained, the rights and
+evidence, the license and credit). If there is no allowed way, the video is skipped and the next one is tried.
 
 ### Advanced setup (optional)
 
@@ -101,7 +148,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
              │                                                    │
              │                   Smart Scheduler (America/Chicago, limits, replacement)
              │                                                    │
-             │                         Publish Center: YOUR APPROVAL (required by both platforms)
+             │   Approval: yours in the Publish Center, or your automatic-publishing permission (YouTube only)
              │                                                    │
              └────────── Learning Worker <── real results <── Publisher (official APIs, resumable, idempotent)
 ```
@@ -110,7 +157,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | --- | --- | --- |
 | Trend Scout | `trend_scan` | Reads YouTube search/chart results (within its quota share), feeds and watch folders. Stores every signal with its history and a Trend Score. Metrics carry their provenance: *observed*, *estimated* or *unavailable*. |
 | Source Scout | `source_scout`, `feed_scan` | Turns signals into sources, scores them (Source Score, expected strong clips) and picks up to 3 per day, skipping duplicates, weak and unavailable ones. |
-| Rights and Content Safety Gate | `rights_check` | Applies your rules. Only *Owned*, *Licensed*, *Allowlisted* (and *Creative Commons* if you allow it) sources continue automatically; everything else becomes an action item. The gate runs again before scheduling and before publishing, so a later *Blocked* rule stops a post. |
+| Rights and Content Safety Gate | `rights_check` | Applies your rules, agreements and licenses. Only *Owned*, *Licensed*, *Allowlisted*, *Creative Commons* (CC BY) and public-domain sources continue automatically (each kind can be turned off under Advanced); everything else is skipped and listed in the Activity log. The gate runs again before scheduling and before publishing, so a later *Blocked* rule stops a post. |
 | Live Monitor | `live_watch`, `live_capture`, `post_live` | Records authorized live sources in segments, transcribes each segment (one GPU job at a time), clips strong moments from a rolling 15-minute window, and after the stream ends runs a full pass that can replace weaker live clips that were not published yet. |
 | Clip Hunter | `hunt_source` | Brings the source in (hard link or copy of a local file, a direct media URL, or the URL importer only when allowed), transcribes on the GPU and builds a large candidate pool. |
 | Deep Clip Analyzer | `analyze_source` | Fast filter → semantic analysis → deep evaluation (Viral Potential, audio and visual features) → boundary optimization → diversity selection (MinHash text and perceptual video fingerprints against everything already made). Then the **Engagement Strategist** writes a Clip Blueprint for each chosen clip (see below) and the clip is rendered from it. Renders up to 5 clips that pass the quality bar. |

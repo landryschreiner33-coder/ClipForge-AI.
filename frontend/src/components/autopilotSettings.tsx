@@ -13,7 +13,7 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 
 const num = (v: string) => (v === "" ? 0 : +v);
 
-/** Every Autopilot control except the three on Settings → General (on/off, daily target, automatic publishing).
+/** Every Autopilot control except the ones on Settings → General (on/off, daily target, automatic publishing).
  * Saved with the Settings page's Save button. */
 export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) => void }) {
   const tog = (key: string) => <Toggle on={!!s[key]} onChange={(v) => set({ [key]: v })} />;
@@ -26,9 +26,9 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
         <h3>Autopilot details</h3>
         <div className="notice small">
           <div>
-            Autopilot finds, clips, packages and schedules on its own. <b>Every post still needs your approval</b> in the Publish Center:
-            YouTube requires that you have final control over what is published, and TikTok requires your consent and a preview before each
-            upload. Approved posts are published at their time without further clicks.
+            Autopilot finds, clips, packages and schedules on its own. A post goes out only when it is approved: by you in the Publish Center,
+            or, for YouTube, by the automatic-publishing permission you can give on Settings → General. <b>TikTok always needs your OK on each
+            post</b> (its rules require your consent and a preview before each upload). Approved posts are published at their time.
           </div>
         </div>
         <Row label="Sources per day">{n("autopilot_sources_per_day", { min: 1, max: 30 })}</Row>
@@ -58,7 +58,8 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
           <Segmented value={s.autopilot_youtube_privacy} onChange={(v) => set({ autopilot_youtube_privacy: v })}
             options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" }, { value: "private", label: "Private" }]} />
         </Row>
-        <Row label="Upload YouTube posts early" hint="Minutes before the planned time; YouTube publishes at the planned time">{n("autopilot_upload_lead_minutes", { min: 5, max: 720 })}</Row>
+        <Row label="Upload YouTube posts early" hint="Minutes before the planned time; YouTube publishes at the planned time, even if this PC is off by then">{n("autopilot_upload_lead_minutes", { min: 5, max: 720 })}</Row>
+        <Row label="Publish approved posts at their time" hint="Off: approved posts wait for Publish now in the Publish Center">{tog("autopilot_auto_publish")}</Row>
         <Row label="Allow republishing" hint="Post a clip (or the same moment) again on a platform">{tog("autopilot_allow_republish")}</Row>
         <Row label="Worker process" hint="Own process: a crash in a worker cannot take the app down">
           <Segmented value={s.autopilot_process} onChange={(v) => set({ autopilot_process: v })}
@@ -75,7 +76,7 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
         <Row label="Topics" hint="Broad on purpose; searched a few at a time (comma-separated)">
           <textarea rows={2} value={s.trend_topics} onChange={(e) => set({ trend_topics: e.target.value })} />
         </Row>
-        <Row label="Check trends every" hint="Minutes; slowed down automatically near the quota share">{n("trend_poll_minutes", { min: 15, max: 1440 })}</Row>
+        <Row label="Check trends every" hint="Minutes (every 3 hours by default); slowed down automatically near the quota share">{n("trend_poll_minutes", { min: 15, max: 1440 })}</Row>
         <Row label="Consider videos up to" hint="Hours old">{n("trend_max_age_hours", { min: 6, max: 720 })}</Row>
         <Row label="YouTube Data API key" hint="Optional: discovery without a connected account (same project quota)">
           <input type="password" value={s.youtube_api_key} placeholder="AIza..." onChange={(e) => set({ youtube_api_key: e.target.value })} />
@@ -92,17 +93,28 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
             </div>
           </div>
         </Row>
-        <div className="small muted">Not available and never scraped: Google Trends (the official API is an application-gated alpha) and TikTok trends (no trend API for general developers).</div>
+        <Row label="Web search (Tavily) API key" hint="Optional: finds public TikTok links for your topics and the long YouTube videos behind popular clips. Web search gives titles and links, not TikTok statistics">
+          <input type="password" value={s.tavily_api_key} placeholder="tvly-..." onChange={(e) => set({ tavily_api_key: e.target.value })} />
+        </Row>
+        <Row label="Web search credits included" hint="Per month in your Tavily plan (the free plan: 1,000; one search = 1 credit)">{n("tavily_free_credits", { min: 0, max: 1000000 })}</Row>
+        <Row label="Monthly cost limit" hint="US dollars you allow for paid searches beyond the included credits. 0 = never spend money">
+          <div className="row">{n("discovery_monthly_budget_usd", { min: 0, max: 1000, step: 1 })}<span className="small muted">USD a month</span></div>
+        </Row>
+        <Row label="Free-license library" hint="Search Wikimedia Commons for videos their authors released under a free license (public domain, CC0, CC BY)">{tog("library_discovery")}</Row>
+        <div className="small muted">Not available and never scraped: Google Trends (the official API is an application-gated alpha) and a TikTok trend API (TikTok has none for general developers). TikTok numbers are never guessed: without an official source they are shown as unknown.</div>
       </div>
 
       <div className="card">
         <h3>Rights</h3>
         <div className="notice warn small">
-          <div>Discovery is not authorization. Owned sources are always allowed; choose which other statuses may be clipped and published without asking. Blocked and unconfirmed sources never are.</div>
+          <div>Discovery is not authorization. Owned sources are always allowed; choose which other kinds of coverage may be clipped and published without asking. Blocked and uncovered videos never are: Autopilot skips them and keeps looking. Record agreements with creators under Autopilot → Advanced → Sources & rights.</div>
         </div>
         <Row label="Licensed sources">{tog("rights_auto_licensed")}</Row>
-        <Row label="Allowlisted sources" hint="e.g. creators whose clipping program you joined">{tog("rights_auto_allowlisted")}</Row>
-        <Row label="Creative Commons sources" hint="A CC BY credit line is added to the suggested description">{tog("rights_auto_creative_commons")}</Row>
+        <Row label="Allowlisted sources" hint="Creators you have an agreement with, or whose clipping program you joined">{tog("rights_auto_allowlisted")}</Row>
+        <Row label="Creative Commons (CC BY) sources" hint="A credit line is added to the description. Share-alike, non-commercial and no-derivatives licenses are never used automatically">{tog("rights_auto_creative_commons")}</Row>
+        <Row label="Public domain sources" hint="Public domain or CC0, as the library reports it">{tog("rights_auto_public_domain")}</Row>
+        <Row label="My posts are commercial" hint="Monetized, sponsored or promoting a business. On: agreements that exclude commercial use are not used">{tog("autopilot_commercial_use")}</Row>
+        <Row label="Ask me about strong videos nothing covers" hint="Off (recommended): they are skipped and listed in the activity log. On: up to 3 questions at a time, only when today's plan is short">{tog("rights_ask_per_video")}</Row>
         <Row label="Download authorized platform sources" hint="With the URL importer, for sources that pass the rights check">
           <div>
             {tog("rights_allow_remote_download")}

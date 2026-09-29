@@ -16,6 +16,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +26,7 @@ SPEECH = ("Here is the thing nobody tells you about starting a podcast. You do n
           "good question. Ask your guest what they got wrong last year. That answer is always the best part of the "
           "episode. People love honest stories about mistakes. Keep the recording short and cut the slow parts. Your "
           "first ten episodes are practice, so publish them anyway. ")
-TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: they need your OK)
+TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: skipped unless covered)
     ("pod1", "The podcast moment everyone is talking about", "UCpodcast000000001", 950_000, "PT1H10M"),
     ("int1", "Podcast interview: the founder who almost quit", "UCinterview0000001", 610_000, "PT48M"),
     ("pod2", "Podcast debate gets heated over remote work", "UCdebate0000000001", 420_000, "PT55M"),
@@ -65,12 +66,22 @@ def main() -> None:
     # The test connections: the stand-ins' own app codes. A real user pastes their own once (Settings → General).
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
-                      "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast"})
+                      "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast",
+                      "library_discovery": False})  # offline: the free-license library is not searched
 
-    # The original file of a video (what "Add the video file" asks for), a synthetic talk
+    # The original file of a video (what "Add the file" asks for), a synthetic talk
     original = data / "sandbox" / "original.mp4"
     original.parent.mkdir(parents=True)
     make_video(original, seconds=75.0)
+    # A creator's shared folder (a synced Dropbox, say) with the raw file of their trending video, named by its
+    # YouTube ID. The test records an agreement with this creator that names the folder. Older than a minute, so
+    # it does not look like a file still being synced.
+    shared = data / "sandbox" / "Podcast creator shared"
+    shared.mkdir()
+    raw = shared / "episode 112 raw [pod1].mp4"
+    shutil.copyfile(original, raw)
+    old = time.time() - 600
+    os.utime(raw, (old, old))
 
     def synthetic_transcript(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
         text = (SPEECH * 8).split()
