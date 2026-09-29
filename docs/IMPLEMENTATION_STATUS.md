@@ -11,7 +11,7 @@ from here without repeating the audit.
 | Starting commit | `3be586d` (branch `claude/ecstatic-shannon-wb1zq1`, identical to `claude/wonderful-ritchie-909tq3`) |
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
-| Next concrete task | see "Plan" below; the first unchecked item |
+| Next concrete task | Plan item 8 (GPU lock for NVENC encodes); the user's checklist at the end needs your PC and accounts |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -59,7 +59,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Stale workers cannot finalize reclaimed jobs | `queue._finish`/`renew` check the lease owner; `host.WorkerHost._token` gives every claim its own token | verified (unit) | `test_a_recovered_job_cannot_be_finished_by_its_old_thread`, `recovery_after_a_crash` | — | — |
 | Crash between stage output and downstream handoff | handlers enqueue (idempotency keys) before `complete` | partial | source reviewed | replay re-runs the whole stage; `analyze_source` replay deletes and recreates the project's clips | — |
 | Shutdown does not release exclusivity while old workers can still act | `WorkerHost.stop` keeps the host lock until every worker thread has exited | verified (unit) | `test_a_stopping_host_keeps_exclusivity_until_its_threads_are_done` | — | — |
-| STOP ALL JOBS persistent across restart, stops dispatch, signals running work | `state.paused`, `routes.stop_all`, host heartbeat | verified (unit) | `cancel_and_stop_all`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | submitted uploads should show "reconciling", not "cancelled" | — |
+| STOP ALL JOBS persistent across restart, stops dispatch, signals running work | `state.paused`, `routes.stop_all`, host heartbeat | verified (unit) | `cancel_and_stop_all`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything`, `test_an_upload_stopped_halfway_is_reconciled_with_the_platform` (an upload whose job was canceled is checked with the platform, never re-uploaded blindly) | — | — |
 | One heavy GPU operation at a time across processes; recovery | `gpu.GpuManager.heavy`, `locks.FileLock` | verified (unit) | `gpu_lock_serializes_heavy_work`, `gpu_lock_is_shared_with_other_processes` (race in the test fixed) | — | — |
 | GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` does not take the lock | partial | source reviewed | decide: take the lock for NVENC encodes | — |
 | VRAM detection and resource status | `gpu.GpuManager.memory` (nvidia-smi), `status` | implemented-but-unverified | `gpu_waits_for_free_memory_then_gives_up` (fake) | verify on the RTX 3050 | no GPU here |
@@ -84,7 +84,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Cold-start timing labeled; learned timing needs reliable groups | `scheduler.Timing`, `learner` | verified (unit) | `learned_timing_picks_your_best_hour` | — | — |
 | Dynamic replacement: threshold, freeze window, audit; never after approval without re-approval | `scheduler.try_replace`, `approve` | partial | `dynamic_replacement_with_audit_trail`, `approved_posts_are_only_swapped_after_approving_the_replacement` | no cooldown between replacements | — |
 | Approval bound to exact content and visibility | `scheduler.approval_hash`, `approval_valid` | verified (unit) | `approval_rules_and_invalidation` | bind to the artifact content hash (today: size+mtime) | — |
-| Upload recovery without duplicates; uncertain outcome paused for review | `publisher.recover`, `publish/jobs.py` | partial | `interrupted_upload_resumes_without_a_duplicate` (fake platform) | an upload whose outcome cannot be determined resumes instead of pausing for review | — |
+| Upload recovery without duplicates; uncertain outcome paused for review | `youtube.upload(on_final_chunk, may_be_complete)` raises `OUTCOME_UNKNOWN` instead of starting a second session once the last bytes may have arrived; `publisher.outcome_unknown` looks for the video among the channel's newest uploads (never an older one with the same title), else status `reconciling` + action item; `POST /api/autopilot/scheduled/{id}/resolve`; Publish Center buttons | verified (unit, fake platform) | `test_autopilot_publish::test_a_lost_answer_after_the_last_bytes_is_found_not_uploaded_twice`, `test_an_upload_that_cannot_be_confirmed_waits_for_you`, `interrupted_upload_resumes_without_a_duplicate` | TikTok: a publish ID is stored right after init, so its outcome is always read back; confirmed with real accounts pending | real accounts |
 | Unique clips and platform publications counted separately | `routes.status` counts unique clips | partial | source reviewed | show publications count too | — |
 | YouTube: OAuth PKCE, resumable upload, made-for-kids, publishAt, locked-private honesty | `publish/youtube.py`, `publish/jobs.py` | unit/contract tested (fake platform) | `test_youtube` (13), `test_autopilot_publish` (8) | real-account check | credentials; audit |
 | TikTok: creator info, no default privacy, interactions, disclosure, music confirmation, inbox fallback | `publish/tiktok.py`, `components/approve.tsx` | unit/contract tested (fake platform) | `test_tiktok` (12) | Direct Post eligibility of a private single-user tool | externally-blocked (see `PLATFORM_CAPABILITIES.md`) |
@@ -127,7 +127,14 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
    threads run.
 5. [x] Strict-GPU Autopilot setting (pause instead of CPU fallback).
 6. [x] Remote media URL validation (private networks, redirects) and download size caps.
-7. [ ] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
+7. [x] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
+8. [ ] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
+9. [ ] Read Retry-After from YouTube/TikTok rate-limit answers (today a fixed 60 s).
+10. [ ] Dynamic replacement: a cooldown between replacements of the same slot.
+11. [ ] Show platform publications next to unique clips on the dashboard (today: unique clips only).
+12. [ ] Scheduler test across a daylight-saving change in America/Chicago.
+13. [ ] Engagement Strategist: propose multi-interval plans (drop a weak middle sentence); the renderer already follows them.
+14. [ ] Rights: your decision on channel rules (see the Rights row).
 
 ## Test log
 
@@ -152,10 +159,25 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | strict GPU | `pytest -m slow` (Whisper stand-ins now assert that Autopilot asks for strict GPU) | 4 passed (410 s) |
 | network guard | `pytest -m "not slow"` | 262 passed (127 s) |
 | network guard | `pytest -m slow` | 4 passed (409 s) |
+| unconfirmed uploads | the previous uploader vs this one against the fake YouTube with the last chunk's answer lost and the session expired (8 s) | previous: 4 copies of the same video and still uploading (each first chunk reset its failure count, so it never gave up); now: 1 copy and "not uploaded again automatically" |
+| unconfirmed uploads | `pytest -m "not slow"` | 265 passed (141 s) |
+| unconfirmed uploads | `pytest -m slow` | 4 passed (413 s) |
+| unconfirmed uploads | `npm run build`; e2e suite against the scratch app with a passing, a failed and an unconfirmed post | build passes; 39 passed; the unconfirmed post shows *Upload not confirmed* with *It is published* / *Upload again* (screenshot checked) |
 
 ## Checklist for the user's machine
 
-| Action | Command | Expected evidence | Why |
-| --- | --- | --- | --- |
-| Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16/int8_float16, speed ×realtime | this environment has no GPU; detection alone is not transcription |
-| Platform documentation re-check | open the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match the recorded ones | the documentation hosts were blocked from this session |
+Everything below needs your PC, your GPU or your accounts; none of it could be done in the cloud session.
+
+| # | Action | Command / where | Expected evidence | Why |
+| --- | --- | --- | --- | --- |
+| 1 | Update and start | `git pull`, then `start.bat` | App opens at http://127.0.0.1:8765; Autopilot page lists 12 workers incl. *Final Quality Gate* | new tables (`quality_reports`, `clip_blueprints`) are created on first start |
+| 2 | Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16 or int8_float16, speed several times realtime | this environment has no GPU; detection alone is not transcription |
+| 3 | Strict GPU in Autopilot | temporarily break CUDA (e.g. rename the cuBLAS DLL folder), add an owned source | the hunt pauses; action item "Autopilot transcription is paused"; no CPU run; restore and the source continues | proves the pause on real hardware |
+| 4 | Local vertical slice | Autopilot → Sources & rights: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the project; Publish Center shows posts with "Final check passed" and every check listed | the slice ran here only on synthetic espeak video |
+| 5 | Look at and listen to one Autopilot clip | open it from the Publish Center preview | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
+| 6 | Measure throughput | time one 60-minute source through hunt → analyze (worker log `data/logs/workers.log`), watch VRAM in Task Manager | minutes per source, peak VRAM, disk used per source | whether 15 clips/day is plausible must be measured, not assumed |
+| 7 | Browser tests | `e2e\run-tests.bat` with the app running | 39 passed | read-only check of every page against your real data |
+| 8 | YouTube, real account | connect in Settings → Publishing, approve one post as Private | video ID in the Publish Center; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
+| 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
+| 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
+| 11 | Decide on channel rules | see the Rights row above | keep, or restrict channel rules to verified providers | changes rights semantics: your decision |

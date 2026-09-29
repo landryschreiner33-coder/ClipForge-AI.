@@ -385,7 +385,7 @@ def live_capture(job: Job) -> dict:
 
 def _published(clip_id: str) -> bool:
     return bool(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN "
-                          "('publishing', 'published')", (clip_id,))) or bool(db.scalar(
+                          "('publishing', 'reconciling', 'published')", (clip_id,))) or bool(db.scalar(
         "SELECT COUNT(*) FROM publications WHERE clip_id = ? AND status IN ('done', 'action_needed', 'uploading', "
         "'processing', 'queued')", (clip_id,)))
 

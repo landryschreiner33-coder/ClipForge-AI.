@@ -309,3 +309,92 @@ def test_publish_center_api(env):
         assert stop["paused"] and queue.get(queue.jobs(worker="publisher")[0]["id"])["status"] == "canceled"
         assert c.post("/api/autopilot/enable", headers=H, json={"enabled": False}).json()["enabled"] is False
     assert db.get_settings()["autopilot_enabled"] is False
+
+
+def test_a_lost_answer_after_the_last_bytes_is_found_not_uploaded_twice(env):
+    from clipfoundry import db
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    g.drop_final_reply = g.expire_sessions = True  # YouTube created the video, its answer and the session are gone
+    run_publish(item["id"])
+    assert len(g.videos) == 1 and len(g.sessions) == 0  # no second upload session was started
+    row = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(row["publication_id"])
+    assert row["status"] == "published" and pub["remote_id"] == next(iter(g.videos))  # found in the channel's uploads
+
+
+def test_an_upload_that_cannot_be_confirmed_waits_for_you(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import routes, state
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    g.drop_final_reply = g.expire_sessions = g.hide_uploads = True  # and it is not listed yet either
+    out = run_publish(item["id"])
+    row = db.fetch("scheduled_publications", item["id"])
+    assert "Needs your check" in out["message"] and row["status"] == "reconciling" and "YouTube Studio" in row["fix"]
+    assert any(a["key"] == f"review:{item['id']}" for a in state.open_actions())
+    run_publish(item["id"])  # running it again (a retry, a restart) still never uploads a second copy
+    assert len(g.videos) == 1 and db.fetch("scheduled_publications", item["id"])["status"] == "reconciling"
+    vid = next(iter(g.videos))
+    done = routes.resolve_uncertain(item["id"], routes.ResolveBody(published=True,
+                                                                   url=f"https://youtube.com/shorts/{vid}"))
+    assert done["status"] == "published" and done["publication"]["remote_id"] == vid
+    assert not any(a["key"] == f"review:{item['id']}" for a in state.open_actions())
+
+    other = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Another clip entirely.")
+    run_publish(other["id"])
+    assert db.fetch("scheduled_publications", other["id"])["status"] == "reconciling"
+    again = routes.resolve_uncertain(other["id"], routes.ResolveBody(published=False))
+    assert again["status"] == "approved" and again["planned_at"] is None and not again["publication_id"]
+    g.drop_final_reply = g.expire_sessions = g.hide_uploads = False
+    db.update("scheduled_publications", other["id"], planned_at=time.time() + 60)
+    run_publish(other["id"])  # you checked: it was not there, so it is uploaded again
+    assert db.fetch("scheduled_publications", other["id"])["status"] == "published" and len(g.videos) == 3
+
+
+def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+
+    class Crash(BaseException):
+        pass
+
+    real = publish_jobs._progress_writer
+
+    def crashing(pub_id):  # the worker dies after the first chunk
+        write = real(pub_id)
+
+        def w(frac):
+            write(frac)
+            if 0.1 < frac < 1.0:
+                raise Crash()
+        return w
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", crashing)
+    with pytest.raises(Crash):
+        run_publish(item["id"])
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    job = queue.jobs(worker="publisher")[0]
+    queue.cancel(job["id"], "Stopped with STOP ALL JOBS")  # the job is gone; the post still says "publishing"
+    db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
+    never = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Never started.")
+    db.execute("UPDATE scheduled_publications SET status = 'publishing', updated_at = ? WHERE id = ?",
+               (time.time() - 600, never["id"]))
+    assert scheduler.reconcile_orphans(time.time()) == 2
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "reconciling"
+    back = db.fetch("scheduled_publications", never["id"])
+    assert back["status"] == "approved" and back["planned_at"] is None
+    revived = queue.get(job["id"])
+    assert revived["status"] == "queued"  # the same publish job, revived to check with YouTube
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
+    assert len(g.videos) == 1 and len(g.sessions) == 1  # the stored session was continued, nothing uploaded twice

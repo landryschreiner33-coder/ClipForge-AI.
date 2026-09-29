@@ -74,6 +74,9 @@ class FakeGoogle(_Server):
         self.sessions: dict[str, dict] = {}
         self.videos: dict[str, dict] = {}
         self.fail_puts = 0                       # answer this many chunk uploads with 503
+        self.drop_final_reply = False            # create the video on the last chunk, but lose the answer
+        self.expire_sessions = False             # ...and forget the upload session right away
+        self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
         self.lock_private = False                # behave like an unaudited API project
         self.quota_exceeded = False
         self.chunk_delay = 0.0
@@ -163,7 +166,12 @@ class FakeGoogle(_Server):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             channel = "UC" + q["playlistId"][0][2:]
             ids = [v for v, it in self.catalog.items() if it["snippet"]["channelId"] == channel]
-            return h._send(200, {"items": [{"contentDetails": {"videoId": v}} for v in ids]})
+            items = [{"contentDetails": {"videoId": v}} for v in ids]
+            if channel == "UC123" and not self.hide_uploads:  # the connected channel's own uploads, newest first
+                items = [{"snippet": {"title": v["snippet"]["title"], "publishedAt": v["uploaded_at"],
+                                      "resourceId": {"videoId": vid}}, "contentDetails": {"videoId": vid}}
+                         for vid, v in reversed(self.videos.items())] + items
+            return h._send(200, {"items": items})
         if u.path == "/youtube/v3/search":
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
@@ -212,7 +220,9 @@ class FakeGoogle(_Server):
             return h._send(200, {}, {"Location": f"{self.url}/upload-session/{sid}"})
         m = re.match(r"/upload-session/(\w+)", u.path)
         if m and method == "PUT":
-            s = self.sessions[m.group(1)]
+            s = self.sessions.get(m.group(1))
+            if s is None:  # the session expired (or was completed long ago)
+                return h._send(404, {"error": {"code": 404, "message": "upload session not found"}})
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             rng = h.headers["Content-Range"]
@@ -226,6 +236,12 @@ class FakeGoogle(_Server):
             a, b, total = map(int, re.match(r"bytes (\d+)-(\d+)/(\d+)", rng).groups())
             assert a == len(s["data"]) and b - a + 1 == len(body) and total == s["size"]
             s["data"] += body
+            if self.drop_final_reply and len(s["data"]) >= s["size"]:
+                self._progress(None, s)  # YouTube creates the video...
+                if self.expire_sessions:
+                    del self.sessions[m.group(1)]
+                h.close_connection = True  # ...but its answer never arrives
+                return None
             return self._progress(h, s)
         return h._send(404, {"error": {"code": 404, "message": f"no route {u.path}"}})
 
@@ -240,11 +256,14 @@ class FakeGoogle(_Server):
         if s["meta"]["status"].get("publishAt"):
             assert wanted == "private"  # YouTube only accepts publishAt on private videos
             status["publishAt"] = s["meta"]["status"]["publishAt"]
-        video = {"id": vid, "snippet": s["meta"]["snippet"], "status": status, "bytes": bytes(s["data"])}
+        video = {"id": vid, "snippet": s["meta"]["snippet"], "status": status, "bytes": bytes(s["data"]),
+                 "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         if self.default_statistics:
             video["statistics"] = dict(self.default_statistics)
         self.videos[vid] = video
-        return h._send(200, {k: v for k, v in video.items() if k != "bytes"})
+        if h is None:
+            return None
+        return h._send(200, {k: v for k, v in video.items() if k not in ("bytes", "uploaded_at")})
 
 
 class FakeTikTok(_Server):

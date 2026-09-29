@@ -168,6 +168,15 @@ export default function PublishCenter({ view: wanted }: { view?: string }) {
                     if (url) act(() => ap.link(it.id, url), "Linked");
                   }}>Link TikTok post</button>
                 )}
+                {it.status === "reconciling" && it.publication && (
+                  <>
+                    <button className="btn sm" onClick={() => {
+                      const url = window.prompt(`Paste the link of the video on ${it.platform === "youtube" ? "YouTube" : "TikTok"}:`);
+                      if (url) act(() => ap.resolve(it.id, true, url), "Marked as published");
+                    }}><Icon name="check" size={13} /> It is published</button>
+                    <button className="btn sm ghost" onClick={() => window.confirm("You checked and the video is not on the platform: upload it again at a new time?") && act(() => ap.resolve(it.id, false), "It will be uploaded again")}><Icon name="refresh" size={13} /> Upload again</button>
+                  </>
+                )}
                 <a className="btn sm ghost" href={`#/clip/${it.clip.id}`}><Icon name="scissors" size={13} /> Clip</a>
               </div>
             </div>

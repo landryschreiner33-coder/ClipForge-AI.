@@ -224,7 +224,7 @@ export interface ScheduledItemRow {
   privacy: string;
   options: Record<string, any>;
   planned_at: number | null;
-  status: "awaiting_approval" | "approved" | "publishing" | "published" | "failed" | "canceled" | "replaced" | "blocked" | "action_needed";
+  status: "awaiting_approval" | "approved" | "publishing" | "reconciling" | "published" | "failed" | "canceled" | "replaced" | "blocked" | "action_needed";
   status_note: string;
   final_score: number | null;
   scores: Record<string, any>;
@@ -341,6 +341,7 @@ export const ap = {
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),
+  resolve: (id: string, published: boolean, url = "") => req<ScheduledItem>("POST", `${A}/scheduled/${id}/resolve`, { published, url }),
   learning: () => req<LearningStatus>("GET", `${A}/learning`),
 };
 
@@ -360,6 +361,7 @@ export const ITEM_STATUS: Record<string, [string, string]> = {
   awaiting_approval: ["Needs approval", "warn"], approved: ["Approved", "good"], publishing: ["Publishing", "info"],
   published: ["Published", "good"], failed: ["Failed", "bad"], canceled: ["Canceled", ""], replaced: ["Replaced", ""],
   blocked: ["Blocked", "bad"], action_needed: ["Action needed", "bad"],
+  reconciling: ["Upload not confirmed", "warn"],
 };
 
 export function localInput(ts: number | null): string {

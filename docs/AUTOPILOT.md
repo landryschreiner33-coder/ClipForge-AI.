@@ -82,7 +82,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 | Final Quality Gate | `quality_check` | Checks the exact file that would be published: SHA-256 against the render record, streams and codecs, 1080×1920, duration, a full decode (a truncated file still reports its full length), black, frozen and silent stretches judged in context, caption timing, cuts inside words, and the hook/context/payoff estimates. Re-checks each platform's selected text against what is heard in that file. The report is bound to the file's hash, final transcript and time map. Failures keep the clip out of the schedule; warnings are shown with the post. |
 | Smart Scheduler | `schedule_tick` | Places packaged clips whose current file and text passed the Final Quality Gate on each platform's time grid within your active hours and limits, computes the Final Opportunity Score, replaces weaker unpublished posts with clearly stronger new ones, and hands due approved posts to the publisher. |
 | YouTube Quota Manager | (inside every YouTube call) | Counts units and calls per bucket, keeps discovery within its share, and reserves the rest for uploads, statistics and account checks. Resets at midnight Pacific. |
-| Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. |
+| Publisher | `publish` | Hashes the file again and needs a passing Final Quality Gate report for exactly those bytes, then uploads approved posts with the existing YouTube and TikTok code. An interrupted upload resumes its stored session (YouTube) or checks its publish ID (TikTok) instead of posting twice. If the platform accepted every byte but its answer was lost and it can no longer say what happened, the post is never uploaded again automatically: it becomes *Upload not confirmed* until you check (the video is looked for among the channel's newest uploads first). |
 | Learning Worker | `learn` | Reads the real results of your posts (snapshot near 48 h), and once there are at least 10, adjusts posting-time lifts, style bonuses, score weights and the retention estimate, using only groups with enough data. |
 | Maintenance | `maintenance`, `selftest` | Recovers stale jobs, applies the YouTube 30-day data rule, cleans caches. |
 
@@ -148,6 +148,10 @@ Every scheduled post, in order, with its video, text, platform, rights status, t
   new approval.
 * **Edit**, **Reschedule**, **Cancel**, **Retry**, **Publish now**, **Open source**, **Open post**, and **Link TikTok
   post** for inbox drafts finished in the TikTok app.
+* **Upload not confirmed**: the upload may have finished but the platform cannot confirm it (for example STOP ALL
+  JOBS or a crash during the upload). ClipFoundry first checks with the platform; if it still cannot tell, it
+  waits for you: **It is published** (paste the link) or **Upload again** (after you checked that it is not there). It never uploads a
+  second copy on its own.
 * YouTube posts are uploaded early (default 30 minutes) as Private with `publishAt`, so YouTube itself publishes them
   at the planned time.
 * **Final check**: every post shows the Final Quality Gate's verdict on its exact file and text (*passed*, *N warnings*, *failed*, *text needs a fix* or *pending*), with every check listed and marked as measured or as an estimate. A post whose file failed cannot be approved or uploaded; fix the clip and render it again.
