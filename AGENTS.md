@@ -76,8 +76,8 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~FASTCOUNT tests, ~4 min
-.venv/bin/python -m pytest -m slow                # SLOWCOUNT end-to-end renders, ~8 min (needs ffmpeg + espeak-ng)
+.venv/bin/python -m pytest -m "not slow"          # ~310 tests, ~4 min
+.venv/bin/python -m pytest -m slow                # 5 end-to-end renders, ~8 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
 cd e2e && npm install && npm test                 # 42 read-only browser tests against a running app
 cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)

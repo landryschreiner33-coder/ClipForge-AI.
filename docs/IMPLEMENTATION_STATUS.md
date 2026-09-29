@@ -224,6 +224,9 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | Retry-After | the TikTok rate-limit test on the previous `publisher.py` | fails: waits 60 s instead of the asked 240 s |
 | NVENC lock + Retry-After | `pytest -m "not slow"` | 272 passed (162 s) |
 | NVENC lock + Retry-After | `pytest -m slow` | 4 passed (450 s) |
+| confirmed channels | `rights.evaluate` for a YouTube video from another channel whose feed row claims an agreement channel, then your own channel, on PR #3's code (`a7c3ece`) vs this branch | PR #3: *Allowlisted* and *Owned*, both used automatically; now: *Not covered* (channel not confirmed) both times |
+| confirmed channels + exact waits | `pytest tests/test_autopilot_channels.py` | 7 passed |
+| confirmed channels + exact waits | `pytest -m "not slow"` on PR #3 + this branch combined | 312 passed (214 s) |
 
 ## Checklist for the user's machine
 
