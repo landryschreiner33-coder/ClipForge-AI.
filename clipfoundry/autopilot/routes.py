@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import gate, providers, queue, quota, rights, scout, state
+from . import autopublish, gate, home, providers, queue, quota, rights, scout, state
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -90,6 +90,11 @@ def add_source(body: SourceIn) -> dict:
         raise HTTPException(400, "Enter a video file path or an http(s)/rtmp/srt URL")
     existing = db.select("sources", "platform = ? AND external_id = ?", (src["platform"], src["external_id"]))
     row = existing[0] if existing else db.insert("sources", {**src, "status": "discovered"})
+    if row.get("source_score") is None:  # no trend signal scores it: without a score it would never be picked
+        sc = scout.score_source(row, None, db.get_settings(), time.time())
+        db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
+                  components=sc["components"])
+        row = db.fetch("sources", row["id"]) or row
     if body.rights_status:
         try:
             row = rights.confirm(row["id"], body.rights_status, body.basis)
@@ -119,6 +124,19 @@ def confirm_rights(source_id: str, body: RightsIn) -> dict:
 
 class FileIn(BaseModel):
     path: str
+
+
+class PermissionIn(BaseModel):
+    allowed: bool
+
+
+@router.post("/sources/{source_id}/permission", dependencies=WRITE)
+def answer_permission(source_id: str, body: PermissionIn) -> dict:
+    """The one-click answer to "Can you use this content?" on the Autopilot page."""
+    _source_or_404(source_id)
+    row = home.answer_rights(source_id, body.allowed)
+    _manual("source_scout")
+    return _public_source(row)
 
 
 @router.post("/sources/{source_id}/file", dependencies=WRITE)
@@ -193,6 +211,119 @@ def delete_rights_rule(rule_id: str) -> dict:
     rights.remove_rule(rule_id)
     _manual("rights_check")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ creator agreements
+class AgreementIn(BaseModel):
+    creator: str
+    channels: list[str] = []
+    evidence: str = ""
+    evidence_url: str = ""
+    attribution: str = ""
+    commercial: bool = True
+    platforms: list[str] = []
+    third_party: bool = False
+    expires: str = ""                 # YYYY-MM-DD (the agreement ends at the end of that day), or empty
+    media_folder: str = ""
+    media_url_prefix: str = ""
+
+
+@router.get("/agreements", dependencies=READ)
+def agreements_list() -> list[dict]:
+    return rights.agreements()
+
+
+@router.post("/agreements", dependencies=WRITE)
+def add_agreement(body: AgreementIn) -> dict:
+    """Record an agreement with a creator once; every video it covers is used without asking again."""
+    expires = None
+    if body.expires.strip():
+        try:
+            day = dt.date.fromisoformat(body.expires.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "The end date must look like 2026-12-31") from exc
+        zone = scout.tz(db.get_settings())
+        expires = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0, 0), zone).timestamp()
+    folder = body.media_folder.strip()
+    if folder and not Path(folder).expanduser().is_dir():
+        raise HTTPException(400, "That folder does not exist on this computer")
+    try:
+        made = rights.add_agreement(body.creator, body.channels, body.evidence, body.evidence_url,
+                                    attribution=body.attribution, commercial=body.commercial,
+                                    platforms=body.platforms, third_party=body.third_party, expires_at=expires,
+                                    media_folder=folder, media_url_prefix=body.media_url_prefix)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if folder:  # files the creator drops into the shared folder are found by themselves
+        providers.add_feed("watch_folder", f"Files from {body.creator.strip()[:80]}", {"path": folder},
+                           rights.ALLOWLISTED, made[0]["basis"])
+    _manual("rights_check")
+    return next(a for a in rights.agreements() if a["id"] == (made[0]["conditions"] or {}).get("agreement_id"))
+
+
+@router.delete("/agreements/{agreement_id}", dependencies=WRITE)
+def remove_agreement(agreement_id: str) -> dict:
+    if not rights.remove_agreement(agreement_id):
+        raise HTTPException(404, "Agreement not found")
+    _manual("rights_check")
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ the activity log and automatic publishing
+@router.get("/activity", dependencies=READ)
+def activity(limit: int = 60) -> dict:
+    """What Autopilot did with the videos it found, and why it skipped the ones it skipped."""
+    return {"items": home.activity(max(1, min(200, limit))),
+            "events": [e for e in state.events(40) if e["kind"] in (
+                "source_selected", "source_analyzed", "source_failed", "scheduled", "auto_approved", "published",
+                "quality_failed", "agreement", "auto_publish_on", "auto_publish_off", "replaced")]}
+
+
+class AutoPublishIn(BaseModel):
+    platform: str = "youtube"
+    visibility: str = ""
+    made_for_kids: bool | None = None
+    daily_limit: int = 3
+    start_hour: int = 9
+    end_hour: int = 21
+    agreed: bool = False
+
+
+@router.get("/auto-publish", dependencies=READ)
+def auto_publish_view() -> dict:
+    settings = db.get_settings()
+    from ..publish.routes import _youtube_state
+
+    yt = _youtube_state(settings)
+    return {**autopublish.view(settings), "channel": yt.get("name") or yt.get("account_id") or "",
+            "timezone": settings.get("autopilot_timezone"),
+            "defaults": {"daily_limit": min(3, int(settings.get("autopilot_youtube_daily_limit") or 3)),
+                         "start_hour": 9, "end_hour": 21},
+            "preview": autopublish.text_for("youtube", {"visibility": "VISIBILITY", "made_for_kids": False,
+                                                        "daily_limit": 3, "start_hour": 9, "end_hour": 21,
+                                                        "timezone": settings.get("autopilot_timezone")})}
+
+
+@router.post("/auto-publish", dependencies=WRITE)
+def auto_publish_on(body: AutoPublishIn) -> dict:
+    """Turn on automatic publishing for a platform whose rules allow it, with exactly these settings."""
+    from ..publish.routes import _youtube_state
+
+    settings = db.get_settings()
+    yt = _youtube_state(settings)
+    try:
+        autopublish.enable(body.platform, body.visibility, body.made_for_kids, body.daily_limit, body.start_hour,
+                           body.end_hour, body.agreed, yt.get("name") or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _manual("schedule_tick")
+    return auto_publish_view()
+
+
+@router.delete("/auto-publish/{platform}", dependencies=WRITE)
+def auto_publish_off(platform: str) -> dict:
+    back = autopublish.disable(platform)
+    return {**auto_publish_view(), "returned_to_review": back}
 
 
 # ------------------------------------------------------------------ feeds (watch folders, channels, streams)
@@ -357,6 +488,24 @@ def enable(body: EnableBody) -> dict:
     return status()
 
 
+class StartBody(BaseModel):
+    topics: str | None = None
+
+
+@router.post("/start", dependencies=WRITE)
+def start(body: StartBody | None = None) -> dict:
+    """START AUTOPILOT: turn it on with the connected accounts and the topics you chose, and start finding
+    opportunities right away."""
+    from ..publish.routes import _tiktok_state, _youtube_state
+
+    settings = db.get_settings()
+    home.start({"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)},
+               (body.topics if body else None))
+    for kind in ("feed_scan", "trend_scan", "schedule_tick"):
+        _manual(kind)
+    return status()
+
+
 def _local_time(ts: float | None, settings: dict) -> str:
     if not ts:
         return ""
@@ -385,6 +534,8 @@ def status() -> dict:
                                               "planned_at >= ?", (now - 600,), "planned_at", 1)
     rights_counts = {r["rights_status"]: r["n"] for r in _count("sources", "rights_status", "status != 'skipped'")}
     q = quota.status(settings)
+    platforms = {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)}
+    workers_now = workers()
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
@@ -395,15 +546,15 @@ def status() -> dict:
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
         "queue": {"size": int(db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE status IN ('queued', 'retrying', "
                                         "'waiting', 'running')") or 0), "by_worker": queue.counts()},
-        "workers": workers(), "gpu": gpu.manager.status(settings),
-        "platforms": {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)},
+        "workers": workers_now, "gpu": gpu.manager.status(settings), "platforms": platforms,
         "rights": rights_counts, "quota": {"warnings": q["warnings"], "buckets": {k: {kk: v[kk] for kk in (
             "label", "used", "budget", "remaining", "projected", "exhausted")} for k, v in q["buckets"].items()},
             "resets_at": q["resets_at"], "discovery_paused": q["discovery_paused"]},
         "actions": state.open_actions(), "events": state.events(25),
         "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
-        "providers": state.get("providers", {}) or {},
+        "providers": state.get("providers", {}) or {}, "web_search": providers.web_usage(settings),
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
+        "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }
 
 

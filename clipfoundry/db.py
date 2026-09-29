@@ -347,6 +347,15 @@ CREATE TABLE IF NOT EXISTS source_rights (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rights_value ON source_rights(scope, value);
+CREATE TABLE IF NOT EXISTS publish_consents (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,                   -- youtube (TikTok requires your consent for each post)
+    settings TEXT DEFAULT '{}',               -- visibility, made for kids, daily limit, posting window, content rule
+    text TEXT DEFAULT '',                     -- exactly what you agreed to
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    revoked_at REAL
+);
 CREATE TABLE IF NOT EXISTS clip_candidates (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
@@ -538,8 +547,9 @@ JSON_FIELDS = {
     "trend_signals": {"keywords", "metrics", "components", "notes", "raw"},
     "trend_history": set(),
     "source_feeds": {"config"},
-    "sources": {"components", "metrics"},
-    "source_rights": set(),
+    "sources": {"components", "metrics", "rights_info", "access"},
+    "source_rights": {"conditions"},
+    "publish_consents": {"settings"},
     "clip_candidates": {"scores", "rejected"},
     "clip_analysis": {"audio", "visual", "semantic", "boundary", "deep"},
     "clip_scores": {"components", "explanation"},
@@ -562,6 +572,10 @@ ADDED_COLUMNS = {
     "publications": {"scheduled_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
+    # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
+    "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
+    # what the provider reported about a source's license, and how its file was obtained
+    "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'"},
 }
 
 

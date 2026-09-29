@@ -149,7 +149,7 @@ encrypted with Windows DPAPI (only your Windows account on this PC can read them
 3. **OAuth consent screen**: choose *External*, enter an app name and your e-mail, and add your own Google account
    under *Test users*.
 4. **Credentials → Create credentials → OAuth client ID**, application type **Desktop app**. Copy the client ID and
-   secret into **Settings → Publishing → YouTube** and save.
+   secret into **Settings → General → Accounts → YouTube** and click CONNECT YOUTUBE (or use the fields in Settings → Advanced → Publishing).
 5. Click **CONNECT YOUTUBE**, sign in and allow access. The connected channel's name appears in Settings.
 
 Things Google enforces, which ClipFoundry explains on screen:
@@ -175,7 +175,7 @@ developer app. You sign in on TikTok's page; ClipFoundry never sees or stores yo
    to post directly).
 3. Add the scopes `user.info.basic`, `video.upload`, `video.publish` (Direct Post) and `video.list` (statistics). You
    can switch off Direct Post or statistics in Settings if your app does not have them.
-4. Register the redirect URI shown in **Settings → Publishing → TikTok** (for example
+4. Register the redirect URI shown in **Settings → General → Accounts → TikTok** (or Settings → Advanced → Publishing) (for example
    `http://127.0.0.1:8765/api/oauth/tiktok/callback`; use your port if you changed it).
 5. While the app is not reviewed, add your TikTok account as a target user. Paste the client key and secret into
    Settings, save, and click **CONNECT TIKTOK**.
@@ -216,18 +216,19 @@ time next to its real results.
 ## Optional: Autopilot
 
 Autopilot is off until you turn it on. The full guide, including what the platforms allow, is in
-[docs/AUTOPILOT.md](docs/AUTOPILOT.md). The short version:
+[docs/AUTOPILOT.md](docs/AUTOPILOT.md). The short version: open **Autopilot** and follow the three steps.
 
-1. Connect YouTube and/or TikTok as described above.
-2. Autopilot → *Sources & rights*: add a watch folder with your own recordings (or channels, stream URLs and feeds you
-   may use) and record your rights. Sources without a passing rights status are never clipped automatically.
-3. Optional: paste a **YouTube Data API key** from the same Google Cloud project in Settings → Autopilot → Discovery
-   (Google Cloud console → APIs & Services → Credentials → Create credentials → API key; restrict it to the YouTube
-   Data API v3). Enter your project's daily quota there if Google raised it.
-4. Check the time zone (default America/Chicago), active hours and limits in Settings → Autopilot, then switch
-   **AUTOPILOT ON**.
-5. Approve posts in the **Publish Center**. Both platforms require your approval of each post; approved posts are
-   published at their time.
+1. **CONNECT YOUTUBE** (the first time, paste your Google app's client ID and secret; see above).
+2. **CONNECT TIKTOK** (optional).
+3. **START AUTOPILOT**.
+
+Autopilot then finds trending videos by itself; you do not add sources, feeds or rules. It asks you (under
+**Needs you**) only when it must: whether you have permission to use a strong video, for the original file of a
+YouTube-hosted video you said yes to, and to approve posts (both platforms require your approval of each post;
+approved posts are published at their time). Your own videos can be added any time with **+ Add content manually**.
+Everything technical (sources, rights rules, jobs, quota, workers) is under **Advanced** on the Autopilot page and in
+Settings → Advanced, for example a YouTube Data API key (Settings → Advanced → Discovery) or your project's raised
+daily quota.
 
 The workers run in a separate background process that starts and stops with the app. **STOP ALL JOBS** on the
 Autopilot page halts everything until you press *Resume jobs*. GPU transcription is unchanged: Autopilot uses the same

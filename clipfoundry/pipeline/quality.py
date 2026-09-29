@@ -336,6 +336,24 @@ def content_checks(clip: dict) -> list[dict]:
                   "; ".join(notes) or "Hook, context and payoff found (estimate)")]
 
 
+def framing_checks(render_info: dict) -> list[dict]:
+    """Is the subject kept in the vertical frame? A heuristic from the framing plan the renderer used: a centre crop
+    of a wide picture in which no face or subject was tracked can cut people off."""
+    crop, mode = render_info.get("crop_w"), render_info.get("mode")
+    if crop is None or not mode:
+        return [check("framing", "Framing", HEURISTIC, SKIP, "No framing record for this render.")]
+    if float(crop) >= 0.999 or render_info.get("layout") == "fit":
+        return [check("framing", "Framing", HEURISTIC, PASS, "The whole picture is kept (no crop).")]
+    if mode in ("face", "speaker"):
+        n = int(render_info.get("faces") or 0)
+        return [check("framing", "Framing", HEURISTIC, PASS, f"Follows {n} face{'s' if n != 1 else ''} (estimate).")]
+    if mode in ("screen", "manual"):
+        return [check("framing", "Framing", HEURISTIC, PASS, "Follows the screen's action (estimate)." if mode ==
+                      "screen" else "Framed by you.")]
+    return [check("framing", "Framing", HEURISTIC, WARN, "No face or subject was tracked, so the picture is cropped in "
+                                                        "the middle; people at the sides may be cut off.")]
+
+
 # ------------------------------------------------------------------ one file, everything
 def evaluate(path: str | Path, render_info: dict, clip: dict, has_audio: bool = True,
              cancelled: Callable[[], bool] | None = None) -> dict:
@@ -347,7 +365,7 @@ def evaluate(path: str | Path, render_info: dict, clip: dict, has_audio: bool = 
     expected = {"duration": art.get("duration") or render_info.get("duration") or clip.get("duration"),
                 "has_audio": has_audio, "sha256": art.get("sha256"), "transcript": transcript, "edl": edl,
                 "srt": (art.get("captions") or {}).get("srt") or _default_srt(path)}
-    checks = media_checks(path, expected, cancelled) + content_checks(clip)
+    checks = media_checks(path, expected, cancelled) + framing_checks(render_info) + content_checks(clip)
     sha = next((c["values"]["sha256"] for c in checks if c["name"] == "hash"), None) or ""
     st = os.stat(path) if Path(path).exists() else None
     return {
