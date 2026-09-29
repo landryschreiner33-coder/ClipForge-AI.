@@ -131,8 +131,10 @@ def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | 
             conn.execute("COMMIT")
             return None
         bump = 0 if row["status"] == "waiting" else 1  # resuming after a wait is not a new attempt
+        # the time limit counts from this run: a job that waited hours (a platform's Retry-After, the quota, the
+        # GPU) or was revived gets its full time again instead of being stopped as soon as it resumes
         conn.execute("UPDATE worker_jobs SET status = 'running', lease_owner = ?, lease_until = ?, "
-                     "attempts = attempts + ?, started_at = COALESCE(started_at, ?), wait_reason = '', updated_at = ? "
+                     "attempts = attempts + ?, started_at = ?, wait_reason = '', updated_at = ? "
                      "WHERE id = ?", (owner, now + lease_s, bump, now, now, row["id"]))
         conn.execute("COMMIT")
     job = db.fetch("worker_jobs", row["id"])

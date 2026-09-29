@@ -31,6 +31,7 @@ async def lifespan(_: FastAPI):
     worker.resume(db.interrupted_work())
     worker.start()
     publish_jobs.worker.start()
+    publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
     autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
     yield
     autopilot_host.supervisor.stop()

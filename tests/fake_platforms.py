@@ -74,6 +74,8 @@ class FakeGoogle(_Server):
         self.sessions: dict[str, dict] = {}
         self.videos: dict[str, dict] = {}
         self.fail_puts = 0                       # answer this many chunk uploads with 503
+        self.rate_limit_puts = 0                 # answer this many chunk uploads with 429 (+ Retry-After if set)
+        self.retry_after = ""
         self.drop_final_reply = False            # create the video on the last chunk, but lose the answer
         self.expire_sessions = False             # ...and forget the upload session right away
         self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
@@ -234,6 +236,11 @@ class FakeGoogle(_Server):
             if self.fail_puts > 0:
                 self.fail_puts -= 1
                 return h._send(503, {"error": {"code": 503, "message": "backend error"}})
+            if self.rate_limit_puts > 0:
+                self.rate_limit_puts -= 1
+                return h._send(429, {"error": {"code": 429, "message": "rate limited",
+                                               "errors": [{"reason": "rateLimitExceeded"}]}},
+                               {"Retry-After": self.retry_after} if self.retry_after else None)
             a, b, total = map(int, re.match(r"bytes (\d+)-(\d+)/(\d+)", rng).groups())
             assert a == len(s["data"]) and b - a + 1 == len(body) and total == s["size"]
             s["data"] += body
@@ -283,9 +290,14 @@ class FakeTikTok(_Server):
         self.uploads: dict[str, dict] = {}
         self.status_calls: dict[str, int] = {}
         self.init_error = ""        # e.g. unaudited_client_can_only_post_to_private_accounts
+        self.init_status = 403
+        self.retry_after = ""       # sent as Retry-After with every error answer
+        self.rate_limit_chunks = 0  # answer this many chunk uploads with 429
+        self.rate_limit_status = 0  # answer this many status fetches with 429 rate_limit_exceeded
         self.fail_reason = ""       # makes status/fetch report FAILED
         self.duet_disabled = True
         self.stats: dict[str, dict] = {}   # public post id -> video.query fields
+        self.authors: dict[str, tuple[str, str]] = {}  # public video id -> (author user name, display name): oEmbed
         self.default_stats: dict | None = None
         super().__init__()
 
@@ -301,12 +313,22 @@ class FakeTikTok(_Server):
         h._send(code, {"data": data, "error": {"code": "ok", "message": "", "log_id": "log1"}})
 
     def _err(self, h, code: str, status: int = 400) -> None:
-        h._send(status, {"data": {}, "error": {"code": code, "message": code, "log_id": "log1"}})
+        h._send(status, {"data": {}, "error": {"code": code, "message": code, "log_id": "log1"}},
+                {"Retry-After": self.retry_after} if self.retry_after else None)
 
     def handle(self, h, method: str, body: bytes) -> None:
         u = urlparse(h.path)
         if method == "PUT" and u.path.startswith("/upload/"):
             return self.handle_upload(h, body)
+        if u.path == "/oembed":  # TikTok's public embed API: the real author of a video, found by its number
+            m = re.search(r"/video/(\d+)", parse_qs(u.query).get("url", [""])[0])
+            vid = m.group(1) if m else ""
+            if vid not in self.authors:
+                return h._send(400, {"code": 400, "message": "Something went wrong"})
+            uid, name = self.authors[vid]
+            return h._send(200, {"version": "1.0", "type": "video", "title": "A video", "author_name": name,
+                                 "author_url": f"https://www.tiktok.com/@{uid}", "author_unique_id": uid,
+                                 "embed_product_id": vid, "embed_type": "video", "provider_name": "TikTok"})
         if u.path == "/v2/auth/authorize/":  # a browser test: the user approves on TikTok's page
             q = parse_qs(u.query)
             code = self.approve(h.path)
@@ -346,7 +368,7 @@ class FakeTikTok(_Server):
             req = json.loads(body)
             self.inits.append({"path": u.path, **req})
             if self.init_error:
-                return self._err(h, self.init_error, 403)
+                return self._err(h, self.init_error, self.init_status)
             src = req["source_info"]
             size, chunk, total = src["video_size"], src["chunk_size"], src["total_chunk_count"]
             if size < 5 * self.MB:
@@ -366,6 +388,9 @@ class FakeTikTok(_Server):
             return self._ok(h, {"videos": [{"id": i, **self.stats[i]} for i in ids if i in self.stats],
                                 "cursor": 0, "has_more": False})
         if u.path == "/v2/post/publish/status/fetch/":
+            if self.rate_limit_status > 0:
+                self.rate_limit_status -= 1
+                return self._err(h, "rate_limit_exceeded", 429)
             pid = json.loads(body)["publish_id"]
             up = self.uploads[pid]
             n = self.status_calls[pid] = self.status_calls.get(pid, 0) + 1
@@ -382,6 +407,9 @@ class FakeTikTok(_Server):
     def handle_upload(self, h, body: bytes) -> None:
         pid = urlparse(h.path).path.split("/")[-1]
         up = self.uploads[pid]
+        if self.rate_limit_chunks > 0:
+            self.rate_limit_chunks -= 1
+            return h._send(429, None, {"Retry-After": self.retry_after} if self.retry_after else None)
         a, b, total = map(int, re.match(r"bytes (\d+)-(\d+)/(\d+)", h.headers["Content-Range"]).groups())
         assert a == len(up["data"]) and b - a + 1 == len(body) and total == up["size"]
         assert h.headers["Content-Type"] == "video/mp4"

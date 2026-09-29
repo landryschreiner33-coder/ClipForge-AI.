@@ -9,6 +9,9 @@ app audited), the post stops there with a clear action item.
 Uploads are idempotent: the YouTube upload session and the TikTok publish ID are stored as soon as they exist, so
 after a crash or restart the upload is resumed or its outcome is read back, instead of posting the video twice.
 What each platform actually did (public, private, scheduled, sent to the inbox) is recorded as reported.
+
+When a platform asks to wait (its Retry-After, or a rate limit), the wait is never shortened: the job runs again at
+exactly that time and the upload keeps its place (see _platform_wait).
 """
 from __future__ import annotations
 
@@ -22,11 +25,11 @@ from ..pipeline import fingerprint
 from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
-from ..publish.common import PublishError, client
-from . import autopublish, gate, queue, quota, rights, state
+from ..publish.common import SHORT_WAIT, PublishError, asked_to_wait, client, wait_text
+from . import autopublish, gate, queue, quota, rights, state, verify
 from .host import Job, handler
 from .providers import iso_time
-from .scheduler import _audit, active_version_path, approval_valid, block_platform, blocked_until, tz
+from .scheduler import _audit, _label, active_version_path, approval_valid, block_platform, blocked_until, tz
 
 RECONNECT_WAIT = 30 * 60
 
@@ -161,11 +164,33 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     return pub
 
 
+def _platform_wait(item: dict, pub: dict, exc: PublishError, seconds: float, settings: dict) -> None:
+    """The platform asked to wait: the job runs again exactly then (a wait uses no attempt), never sooner, and the
+    upload keeps its place. A YouTube upload continues its stored session, and a TikTok upload that finished is only
+    asked about again (never uploaded twice); an unfinished TikTok upload starts over after the wait (TikTok never
+    posts an unfinished one). A longer wait also holds the platform's other posts until then."""
+    platform = item["platform"]
+    name = "YouTube" if platform == "youtube" else "TikTok"
+    seconds = max(1.0, seconds)
+    until = time.time() + seconds
+    text = f"{name} asked to wait {wait_text(seconds)}. The upload continues at {_label(until, settings)}."
+    if seconds > SHORT_WAIT and until > blocked_until(platform)[0]:
+        block_platform(platform, until, f"{name} asked to wait {wait_text(seconds)} ({exc})")
+    pub = db.get_publication(pub["id"]) or pub
+    if platform == "tiktok" and pub["status"] == "uploading":
+        db.update_publication(pub["id"], status="cancelled", message=f"Stopped: {exc} It starts again after the wait.")
+        db.update("scheduled_publications", item["id"], publication_id="")
+    else:
+        db.update_publication(pub["id"], message=text)
+    _set(item, "publishing", text, "platform_wait", last_error=str(exc), fix=exc.fix)
+    raise queue.Wait("platform_wait", seconds, text)
+
+
 def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> None:
     code = exc.code or ""
     platform = item["platform"]
-    if code in ("network", "rate_limit_exceeded", "internal", "video_pull_failed"):
-        raise queue.Retry(str(exc), exc.fix, delay=60 if code == "rate_limit_exceeded" else None)
+    if code in ("network", "internal", "video_pull_failed"):
+        raise queue.Retry(str(exc), exc.fix)
     if code in ("quota_budget", "quotaExceeded"):
         until = quota.next_reset()
         _set(item, "approved", f"Waiting for the YouTube quota to reset. {exc}", "quota")
@@ -206,6 +231,8 @@ def publish(job: Job) -> dict:
         raise queue.Fail("The clip is missing or not rendered")
     project = db.get_project(clip["project_id"]) or {}
     source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+    if source and verify.ensure([source], settings):  # a channel never confirmed (work from before the check)
+        source = db.fetch("sources", source["id"]) or source
     try:
         rights.gate(source, "publish", settings)
     except rights.RightsBlocked as exc:
@@ -265,6 +292,9 @@ def publish(job: Job) -> dict:
     except PublishError as exc:
         if exc.code == youtube.OUTCOME_UNKNOWN:
             return outcome_unknown(_item(item["id"]) or item, db.get_publication(pub["id"]) or pub, exc)
+        asked = asked_to_wait(exc)
+        if asked is not None:
+            _platform_wait(_item(item["id"]) or item, pub, exc, asked, settings)
         db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix)
         db.update("scheduled_publications", item["id"], publication_id="")
         _handle_error(job, _item(item["id"]) or item, exc, settings)

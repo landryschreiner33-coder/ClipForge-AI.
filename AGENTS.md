@@ -19,9 +19,11 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 There are two ways to use it:
 
 * **Manual:** drop in a video, get ranked clips, edit, export, or publish through the official APIs.
-* **Autopilot:** 12 background workers on a durable SQLite job queue. They find sources the user has rights to,
-  clip and package them, check the final file, schedule posts (America/Chicago) and publish the posts the user
-  approves. Then they learn from the real results.
+* **Autopilot:** 12 background workers on a durable SQLite job queue. Every 3 hours they look for videos the user may
+  use (own content, recorded creator agreements, CC BY, public domain), clip and package them, check the final file,
+  schedule posts (9:00-21:00 America/Chicago) and publish them: YouTube automatically once the user has given that
+  permission, TikTok only after the user's OK on each post. Then they learn from the real results. Nothing asks the
+  user about single videos: what is not covered is skipped and explained in the Activity log.
 
 ## Stack
 
@@ -74,8 +76,8 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~265 tests, ~2.5 min
-.venv/bin/python -m pytest -m slow                # 4 end-to-end renders, ~7 min (needs ffmpeg + espeak-ng)
+.venv/bin/python -m pytest -m "not slow"          # ~310 tests, ~4 min
+.venv/bin/python -m pytest -m slow                # 5 end-to-end renders, ~8 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
 cd e2e && npm install && npm test                 # 42 read-only browser tests against a running app
 cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)
@@ -91,11 +93,17 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 
 ## Where things stand (2026-09-29)
 
-**Branches.** The latest work is on `claude/ecstatic-shannon-wb1zq1`. The user's usual branch
-`claude/wonderful-ritchie-909tq3` is still at `3be586d` and does **not** have this round yet. Don't merge between
-them unless the user asks.
+**Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`); PR #1 (plan items 1-7) is
+merged into it. Open, in merge order:
 
-**Done in this round** (plan items 1–7 in `docs/IMPLEMENTATION_STATUS.md`):
+* **PR #3** `claude/project-thread-ipcjyk`: zero-config and hands-off Autopilot.
+* **PR #2** `claude/project-thread-dwhyso`, built on PR #3 and targeting it: NVENC GPU lock, exact Retry-After,
+  confirmed channels. Merge PR #3 first.
+* **PR #4**: the Playwright MCP launcher (`.mcp.json`), kept apart for separate review because it touches `.mcp.json`.
+
+Don't merge between branches unless the user asks.
+
+**Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
 1. **Render artifact record** (`pipeline/artifact.py`). Every render stores:
    * `edl.json`, the edit time map;
@@ -121,47 +129,61 @@ them unless the user asks.
    * Sources are capped at 8 GB / 240 minutes.
 7. **Never upload twice.** If YouTube accepted every byte but its answer was lost, the post becomes "reconciling"
    ("Upload not confirmed" in the UI) until the user resolves it.
+8. **NVENC encodes take the GPU lock** like transcription does (PR #2).
+9. **Retry-After is never shortened** (PR #2). Up to 60 s is waited out in place; a longer wait puts the job back
+   for exactly that time (Autopilot: `queue.Wait`; manual uploads: a timer that survives restarts) and the same
+   upload continues then.
+14. **Confirmed channels** (PR #2, the owner decided "restrict"). `autopilot/verify.py` asks YouTube (Data API) or
+    TikTok (oEmbed) who posted the exact video before a channel rule or ownership applies; see rule 1.
 
-**Also done: zero-config Autopilot UX** (see the "Zero-config Autopilot UX" table in `IMPLEMENTATION_STATUS.md`).
-The user wants: connect YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
+**Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
+YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
-  empty-state text, setup). `POST /api/autopilot/start` and `POST /api/autopilot/sources/{id}/permission` (Yes =
-  Allowlisted, No = Blocked, for that one video).
-* Rights questions only while today's plan is short (`scout.rights_questions`: Source Score ≥ 50, at most 3).
+  activity, empty-state text, setup). `POST /api/autopilot/start`.
+* No per-video questions by default (`rights_ask_per_video` off). Creator agreements (`rights.add_agreement`), file
+  access (`autopilot/access.py`, separate from reuse rights) and the automatic-publishing permission
+  (`autopilot/autopublish.py`, YouTube only) replace them.
 * UI: `Autopilot.tsx` has the first-run screen, the simple Home and an Advanced area (`#/autopilot/system|sources|
   jobs|learning`); Settings has General and Advanced (`#/settings/advanced`). Keep jargon (worker, feed, provider,
   source, quota) off the main page and General settings; `test_autopilot_simple.py` checks the page text.
 
-**Open, in priority order** (plan items 8–14):
+**Open, in priority order** (plan items 10–13):
 
-* 8: take the GPU lock for NVENC encodes too. **This is the next task.**
-* 9: read `Retry-After` from rate-limit answers (today a fixed 60 s).
-* 10: a cooldown between replacements of the same schedule slot.
+* 10: a cooldown between replacements of the same schedule slot. **This is the next task.**
 * 11: show platform publications next to unique clips on the dashboard.
 * 12: a scheduler test across a daylight-saving change in America/Chicago.
 * 13: the Engagement Strategist proposes multi-interval plans (dropping a weak middle sentence). The renderer
   already supports them.
-* 14: **the user decides** whether channel rights rules should match only sources whose channel ID was verified
-  through the YouTube API. Today a feed row can claim any channel ID. Don't change this without their decision.
+
+**Open decisions for the owner:** whether live monitoring should stay on by default (PR #3 turned it on), and the
+TikTok inbox-draft fallback if Direct Post is not granted.
 
 **Never verified here** (the cloud session has no GPU and no accounts): real CUDA transcription on the RTX 3050,
-real YouTube/TikTok uploads, and throughput per source. The checklist at the end of `IMPLEMENTATION_STATUS.md`
-lists what the user must run on their PC.
+real YouTube/TikTok uploads, real Data API and oEmbed answers, and throughput per source. The checklist at the end
+of `IMPLEMENTATION_STATUS.md` lists what the user must run on their PC.
 
 ## Rules every change must keep
 
 These are product guarantees; tests enforce most of them. Don't weaken them to make something work.
 
-1. **Rights before everything.** Only Owned, Licensed and Allowlisted sources (Creative Commons if enabled)
-   are clipped automatically. Everything else becomes an action item. Rights are re-checked before scheduling
-   and before publishing.
-2. **Human approval for every post.** Both platforms require it. Autopilot never publishes an unapproved post.
+1. **Rights before everything.** Only Owned, Licensed and Allowlisted sources, creator agreements, CC BY and public
+   domain are clipped automatically. Everything else is skipped and explained in the Activity log (no question, no
+   popup). Rights are re-checked before every stage, before scheduling and before publishing, so work queued
+   earlier cannot get around a later answer.
+   * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
+     confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
+     confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.
+2. **Approval for every post.** A post goes out only with the user's approval: their OK on the post, or for YouTube
+   the automatic-publishing permission they turned on (stored with its wording in `publish_consents`). TikTok
+   always needs the OK on each post.
 3. **Publish exactly what was checked.** The publisher re-hashes the file and needs a passing gate report for those
    exact bytes. Any re-render needs a new report.
 4. **No silent CPU fallback in Autopilot.** Manual mode may fall back, but it must say so visibly.
 5. **Every URL from data goes through `netguard`.** Never pass a data-supplied URL straight to httpx, yt-dlp or
    ffmpeg.
 6. **Never post twice.** Uploads are resumable and idempotent. When an outcome is unknown, ask the user; don't retry.
+   * **Never shorten a platform's wait.** Honor `Retry-After` exactly (no cap); reschedule long waits instead of
+     sleeping, and continue the same upload afterwards.
 7. **Grounded text only.** Hooks, titles, captions and hashtags come from words said in the clip. LLM output that
    adds names, numbers or claims is rejected.
 8. **Real numbers only.** Scores are labeled estimates. Platform metrics are never estimated; a missing metric is

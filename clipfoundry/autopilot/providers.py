@@ -41,7 +41,7 @@ import httpx
 
 from .. import config, db, netguard
 from ..publish import youtube
-from ..publish.common import PublishError, client
+from ..publish.common import PublishError, client, retry_after, wait_text
 from . import quota, state, trends
 
 UNAVAILABLE = {
@@ -341,6 +341,10 @@ class WebSearch:
         self.stopped = ""
 
     def search(self, query: str, domains: list[str], max_results: int = 10, time_range: str = "week") -> list[dict]:
+        until = float(state.get("web:wait_until", 0) or 0)
+        if until > time.time():  # Tavily asked to wait: nothing is sent before that time
+            raise Unavailable("quota", "Tavily asked to wait before the next search.",
+                              f"Web search starts again at {time.strftime('%H:%M', time.localtime(until))}.")
         use = web_usage(self.settings)
         if use["used"] + 1 > use["allowed"]:
             raise Unavailable("budget", f"Web search paused for this month: {use['used']} of {use['allowed']} "
@@ -359,7 +363,12 @@ class WebSearch:
             raise Unavailable("error", "Tavily did not accept the API key.",
                               "Check the key in Settings → Advanced → Discovery.")
         if r.status_code == 429:
-            raise Unavailable("quota", "Tavily is rate limiting requests right now.", "It is tried again next scan.")
+            asked = retry_after(r)
+            if asked is not None:
+                state.put("web:wait_until", time.time() + asked)
+            raise Unavailable("quota", "Tavily is rate limiting requests right now.",
+                              f"Tavily asked to wait {wait_text(asked)}; web search starts again then."
+                              if asked is not None else "It is tried again next scan.")
         if r.status_code != 200:
             raise Unavailable("error", f"Tavily answered {r.status_code}.", "It is tried again next scan.")
         state.put(f"cost:tavily:{use['month']}", use["used"] + 1)

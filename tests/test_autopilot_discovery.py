@@ -107,7 +107,7 @@ def test_recurring_topics_across_creators():
 # ------------------------------------------------------------------ rights
 def test_rights_evaluation_order_and_policy(data):
     from clipfoundry import db
-    from clipfoundry.autopilot import rights
+    from clipfoundry.autopilot import rights, verify
 
     settings = db.get_settings()
     src = db.insert("sources", {"platform": "youtube", "external_id": "v1", "title": "t", "channel_id": "UCabc",
@@ -122,6 +122,9 @@ def test_rights_evaluation_order_and_policy(data):
         rights.add_rule("channel", "UCabc", rights.ALLOWLISTED)  # the permission must be recorded
     rights.add_rule("channel", "UCabc", rights.ALLOWLISTED, "Official clipping program, joined 2026-09-01",
                     platform="youtube")
+    r = rights.evaluate(src, settings)  # the channel is only claimed: the rule does not count yet
+    assert r["status"] == rights.MANUAL and r["basis"].startswith("channel not confirmed")
+    src["channel_check"] = verify.judge(src, "UCabc", "ABC", verify.YOUTUBE_DATA)  # as YouTube reports it
     assert rights.evaluate(src, settings)["status"] == rights.ALLOWLISTED
     rights.add_rule("source", src["id"], rights.BLOCKED, "Contains licensed music")
     assert rights.evaluate(src, settings)["status"] == rights.BLOCKED  # BLOCKED always wins
@@ -129,6 +132,8 @@ def test_rights_evaluation_order_and_policy(data):
         rights.gate(src, "publish", settings)
     db.save_account("youtube", tokens={"access_token": "x", "expires_at": 0}, account_id="UCmine")
     mine = {**src, "id": "other", "channel_id": "UCmine"}
+    assert rights.evaluate(mine, settings)["status"] == rights.MANUAL  # YouTube confirmed UCabc, not UCmine
+    mine["channel_check"] = verify.judge(mine, "UCmine", "Me", verify.YOUTUBE_DATA)
     assert rights.evaluate(mine, settings)["status"] == rights.OWNED
 
 

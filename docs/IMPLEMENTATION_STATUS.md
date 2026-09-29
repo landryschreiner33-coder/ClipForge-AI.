@@ -11,7 +11,8 @@ from here without repeating the audit.
 | Starting commit | `3be586d` (branch `claude/ecstatic-shannon-wb1zq1`, identical to `claude/wonderful-ritchie-909tq3`) |
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
-| Next concrete task | Plan item 8 (GPU lock for NVENC encodes); the user's checklist at the end needs your PC and accounts |
+| Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3` (PR #1 merged); PR #3 `claude/project-thread-ipcjyk` (zero-config + hands-off Autopilot); PR #2 `claude/project-thread-dwhyso` (NVENC lock, exact Retry-After, confirmed channels; targets PR #3); PR #4 (Playwright MCP launcher, separate review) |
+| Next concrete task | Plan item 10 (replacement cooldown); the user's checklist at the end needs your PC and accounts |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -52,7 +53,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
 | --- | --- | --- | --- | --- | --- |
 | Durable jobs with states, attempts, capped backoff with jitter | `autopilot/queue.py` | verified (unit) | `test_autopilot_core` (22) | — | — |
-| Retry-After handling | `queue.Retry(delay=...)`; publisher uses a fixed 60 s for rate limits | partial | source reviewed | read Retry-After from platform responses | — |
+| Retry-After handling (never shortened) | `publish.common.retry_after` (seconds or HTTP date, no upper limit) on every YouTube/TikTok API error (`PublishError.retry_after`); `common.asked_to_wait` (the platform's wait, else 60 s for a rate limit without one). Up to `SHORT_WAIT` (60 s) is waited out in place, exactly, in steps STOP can interrupt (`common.sleep_exactly`). Anything longer ends the attempt and the job runs again at exactly that time: in Autopilot `publisher._platform_wait` raises `queue.Wait` (no attempt used) and holds the platform's other posts until then (`block_platform`); a manual upload goes back to *queued* with `info.retry_at` and a timer that survives a restart (`PublishWorker.later` / `resume_waiting`) and can be cancelled. The YouTube upload session is kept, so the same upload continues from the offset YouTube confirms (`_resume_offset`, which also honors Retry-After); a finished TikTok upload is only asked about again, never re-uploaded (a rate-limited status check never starts a second upload). Downloads (`hunter._http_download`), web search (`web:wait_until`) and trend scans (`next:trend_scan`) wait the same way. `queue.claim` restarts the time limit on every run | verified (unit, fake platforms) | `test_youtube::test_retry_after_is_read_in_both_forms`, `test_upload_pauses_wait_exactly_as_asked_and_can_be_stopped`, `test_a_long_youtube_wait_is_not_shortened_and_the_upload_continues_then`, `test_a_waiting_upload_survives_a_restart_and_can_be_cancelled`, `test_tiktok::test_a_rate_limited_chunk_waits_as_long_as_tiktok_asks`, `test_autopilot_publish::test_a_platform_wait_is_never_shortened`, `test_after_a_long_youtube_wait_the_same_upload_continues`, `test_a_rate_limited_status_check_never_uploads_a_second_copy` | real platform answers (header presence is the platforms' choice) | — |
 | Waiting (consent, quota, GPU) does not consume attempts | `queue.claim` (`bump = 0` after `waiting`) | verified (unit) | `waiting_jobs_resume_without_using_an_attempt` | — | — |
 | Atomic claim | `queue.claim` (`BEGIN IMMEDIATE`) | verified (unit) | `idempotent_enqueue_and_priority` | — | — |
 | Autopilot-off priority restriction **inside** the atomic claim | `queue.claim(min_priority=...)` (in the `BEGIN IMMEDIATE` transaction), `host.WorkerHost._claim` | verified (unit) | `test_the_priority_floor_is_part_of_the_claim`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | — | — |
@@ -61,7 +62,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Shutdown does not release exclusivity while old workers can still act | `WorkerHost.stop` keeps the host lock until every worker thread has exited | verified (unit) | `test_a_stopping_host_keeps_exclusivity_until_its_threads_are_done` | — | — |
 | STOP ALL JOBS persistent across restart, stops dispatch, signals running work | `state.paused`, `routes.stop_all`, host heartbeat | verified (unit) | `cancel_and_stop_all`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything`, `test_an_upload_stopped_halfway_is_reconciled_with_the_platform` (an upload whose job was canceled is checked with the platform, never re-uploaded blindly) | — | — |
 | One heavy GPU operation at a time across processes; recovery | `gpu.GpuManager.heavy`, `locks.FileLock` | verified (unit) | `gpu_lock_serializes_heavy_work`, `gpu_lock_is_shared_with_other_processes` (race in the test fixed) | — | — |
-| GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` does not take the lock | partial | source reviewed | decide: take the lock for NVENC encodes | — |
+| GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` holds `gpu.manager.heavy("video encode")` around the decode/encode step when the encoder is `h264_nvenc`; x264 renders never wait; framing analysis and thumbnails stay outside the lock | verified (unit, x264 standing in for NVENC) | `test_artifact_quality::test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, `test_a_cpu_encode_does_not_wait_for_the_gpu` | confirm on the RTX 3050 (checklist 6) | no GPU here |
 | VRAM detection and resource status | `gpu.GpuManager.memory` (nvidia-smi), `status` | implemented-but-unverified | `gpu_waits_for_free_memory_then_gives_up` (fake) | verify on the RTX 3050 | no GPU here |
 | Bounded downloads / source size / duration | `netguard.download(max_bytes=...)`, `hunter.max_source_bytes`, `hunter.check_length`, yt-dlp `max_filesize` + duration filter (`jobs.download_url(max_bytes, max_seconds)`), free-disk reserve before a download; settings `autopilot_max_source_gb` (8) and `autopilot_max_source_minutes` (240) | verified (unit, local HTTP server) | `test_netguard.py` | CPU threads for Whisper are capped at 8 (existing); no global disk quota for renders | — |
 
@@ -71,7 +72,8 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | --- | --- | --- | --- | --- | --- |
 | Pluggable providers (YouTube Data API, watch folders, streams, signal feeds); unavailable ones shown as unavailable | `autopilot/providers.py`, `scout.py` | unit tested (fake API) | `test_autopilot_discovery` (14) | real API call on the user's key | API key; network |
 | Metric provenance (observed / estimated / unavailable), missing = null, velocity needs time-separated observations | `autopilot/trends.py` | verified (unit) | `missing_metrics_are_never_filled_in`, `momentum_beats_size` | — | — |
-| Rights statuses, basis, evidence URL, expiry; recheck at ingest, schedule, publish | `autopilot/rights.py` (`gate` re-evaluates rules each time) | partial | `rights_evaluation_order_and_policy`, `repeats_and_blocked_sources_are_never_scheduled`, `gates_before_every_upload` | allowed platforms, attribution requirements and audio/music restrictions are not modeled per rule. **Found in this audit:** a channel rule without a platform matches any source claiming that channel id, and a signal feed's rows can claim any channel id (and platform), so a feed you added could inherit an Allowlisted channel's status. Proposed: channel rules match only sources whose channel id comes from a verified provider (YouTube API), or require the rule's platform. Not changed yet: it changes rights semantics | — |
+| Rights statuses, basis, evidence URL, expiry; recheck at ingest, schedule, publish | `autopilot/rights.py` (`gate` re-evaluates rules each time) | partial | `rights_evaluation_order_and_policy`, `repeats_and_blocked_sources_are_never_scheduled`, `gates_before_every_upload` | allowed platforms and attribution are modeled for agreements only | — |
+| A channel named by a list is only a claim: channel rules and ownership apply only after the platform confirms the exact video's channel (decided by the owner 2026-09-29: restrict) | `autopilot/verify.py` (YouTube Data API `videos.list`, or the Data API signal that found the video; TikTok oEmbed by video number); the link must lead to the same video; stored per source in `channel_check`, bound to platform, video, channel and link. `rights.evaluate`: Owned only when confirmed, channel rules and platform-host link rules skipped when not; an unconfirmed video is *Not covered* with the reason in the Activity log (no question, no popup) and is asked about again later (busy platform after 1 h, unknown video after 1 day). A confirmed channel still needs a rule or agreement. Checked again before every stage: `rights_check` / `confirm_channels` (maintenance) re-judge sources already queued and cancel their hunt, `select_for_today`, `hunt_source`, `analyze_source`, `live_capture`, *Clip now* and the publisher. A feed row can no longer overwrite what the YouTube API reported about a video | verified (unit, fake platforms) | `test_autopilot_channels.py` (7): false claims of your channel and of an allowed channel on YouTube, TikTok and an unsupported platform, a confirmed channel without a rule, queued-before sources, an unreachable platform, feed overwrites, link parsing | real Data API and oEmbed answers | TikTok oEmbed availability is TikTok's choice |
 | Discovery-only kept separate from media eligibility; no platform downloads by default | `rights.download_allowed`, `rights_allow_remote_download` | verified (unit) | `folder_rules_and_download_policy` | — | — |
 | Remote media URLs and redirects checked against private/internal networks | `netguard.py` (`check`, `open_checked`, `download`, `get_text`, `ffmpeg_input`), used by `hunter._http_download`, `providers.signal_feed`, `live.input_args`; trust from `rights.url_typed_by_user` | verified (unit, local HTTP server, fake DNS) | `test_netguard.py` (18) | ffmpeg resolves stream hosts itself, so live stream URLs are checked but not pinned | — |
 
@@ -172,13 +174,13 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 5. [x] Strict-GPU Autopilot setting (pause instead of CPU fallback).
 6. [x] Remote media URL validation (private networks, redirects) and download size caps.
 7. [x] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
-8. [ ] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
-9. [ ] Read Retry-After from YouTube/TikTok rate-limit answers (today a fixed 60 s).
+8. [x] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
+9. [x] Read Retry-After from YouTube/TikTok rate-limit answers and never shorten it; long waits are rescheduled.
 10. [ ] Dynamic replacement: a cooldown between replacements of the same slot.
 11. [ ] Show platform publications next to unique clips on the dashboard (today: unique clips only).
 12. [ ] Scheduler test across a daylight-saving change in America/Chicago.
 13. [ ] Engagement Strategist: propose multi-interval plans (drop a weak middle sentence); the renderer already follows them.
-14. [ ] Rights: your decision on channel rules (see the Rights row).
+14. [x] Rights: channel rules and ownership only for channels the platform confirmed (your decision: restrict).
 
 ## Test log
 
@@ -218,6 +220,14 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | hands-off | `npm run build` in `frontend/` | passes |
 | hands-off | `e2e` beginner flow (`npm run test:sandbox`, updated: uncovered videos skipped, one agreement with a shared folder, its video goes to the Clip Hunter) | 1 passed |
 | hands-off | read-only `e2e` suite against a scratch app: first run, Autopilot on, Autopilot paused | 38 passed, 4 skipped (no projects) each time |
+| NVENC lock | the new wait test on the previous `render.py` | fails: the encode never waits for the GPU (no "Waiting for the GPU" message) |
+| Retry-After | the TikTok rate-limit test on the previous `publisher.py` | fails: waits 60 s instead of the asked 240 s |
+| NVENC lock + Retry-After | `pytest -m "not slow"` | 272 passed (162 s) |
+| NVENC lock + Retry-After | `pytest -m slow` | 4 passed (450 s) |
+| confirmed channels | `rights.evaluate` for a YouTube video from another channel whose feed row claims an agreement channel, then your own channel, on PR #3's code (`a7c3ece`) vs this branch | PR #3: *Allowlisted* and *Owned*, both used automatically; now: *Not covered* (channel not confirmed) both times |
+| confirmed channels + exact waits | `pytest tests/test_autopilot_channels.py` | 7 passed |
+| confirmed channels + exact waits | `pytest -m "not slow"` on PR #3 + this branch combined | 312 passed (214 s) |
+| confirmed channels + exact waits | `pytest -m slow` on the same combined code (ffmpeg, espeak-ng; includes the hands-off discovery-to-YouTube path) | 5 passed (461 s) |
 
 ## Checklist for the user's machine
 
@@ -235,4 +245,4 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 8 | YouTube, real account | connect in Autopilot (step 1) or Settings → General → Accounts, approve one post as Private | video ID in the Publish Center; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
-| 11 | Decide on channel rules | see the Rights row above | keep, or restrict channel rules to verified providers | changes rights semantics: your decision |
+| 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |

@@ -10,12 +10,13 @@ import os
 import re
 import subprocess
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from .. import config
+from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
 from . import artifact, captions, reframe
 from . import blueprint as blueprint_mod
@@ -352,7 +353,12 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                "-movflags", "+faststart", "-shortest", tmp_out.name]
 
     log_path = out_dir / "render.log"
-    with open(log_path, "wb") as logf:
+    # NVENC encodes on the GPU, so it takes the same lock as transcription and local models: on a 4-8 GB card an
+    # encoder session next to Whisper can fail for lack of memory. An x264 encode runs on the CPU and never waits.
+    hold_gpu = gpu.manager.heavy("video encode", project.get("name") or f"clip {clip['id']}",
+                                 cancelled=ctx.cancelled, on_wait=lambda m: ctx.progress(0.03, m)) \
+        if encoder == "h264_nvenc" else nullcontext()
+    with hold_gpu, open(log_path, "wb") as logf:
         dec = subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
                                bufsize=frame_bytes)
         enc = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,

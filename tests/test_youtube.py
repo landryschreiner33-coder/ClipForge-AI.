@@ -88,6 +88,16 @@ def _wait(client, pub_id: str, until=("done", "failed", "cancelled"), timeout: f
     raise AssertionError(f"publication stuck: {p}")
 
 
+def _wait_until(client, pub_id: str, cond, timeout: float = 20) -> dict:
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        p = client.get(f"/api/publications/{pub_id}").json()
+        if cond(p):
+            return p
+        time.sleep(0.05)
+    raise AssertionError(f"publication never got there: {p}")
+
+
 def _publish(client, clip_id: str, **kw) -> dict:
     body = {"title": "Why do most diets fail?", "description": "Because willpower is a terrible strategy.\n\n#diets",
             "tags": ["#diets", "#willpower"], "privacy": "private", "made_for_kids": False, "confirm": True, **kw}
@@ -139,6 +149,102 @@ def test_upload_is_resumable_and_reports_the_video(app_client, google, clip):
     assert pub["privacy"] == "private" and pub["url"] == f"https://www.youtube.com/shorts/{pub['remote_id']}"
     assert pub["features"]["viral_potential"] == 88.0  # snapshot kept for comparing with real performance later
     assert sum(1 for m, p in google.log if m == "PUT" and "upload-session" in p) >= 4
+
+
+def test_a_rate_limited_upload_waits_as_long_as_youtube_asks(app_client, google, clip, monkeypatch):
+    from clipfoundry.publish import youtube
+
+    asked: list = []
+    real = youtube._pause
+    monkeypatch.setattr(youtube, "_pause", lambda a, backoff, sleep, cancelled: (asked.append(a),
+                                                                                 real(a, backoff, sleep, cancelled)))
+    c, data = clip
+    _connect(app_client, google)
+    google.rate_limit_puts, google.retry_after = 1, "7"
+    pub = _wait(app_client, _publish(app_client, c["id"]).json()["id"])
+    assert pub["status"] == "done" and google.videos[pub["remote_id"]]["bytes"] == data
+    assert asked == [7.0] and len(google.videos) == 1  # YouTube's own wait, then the same session continued
+
+
+def test_retry_after_is_read_in_both_forms():
+    from email.utils import formatdate
+
+    import httpx
+
+    from clipfoundry.publish.common import retry_after, wait_text
+
+    def answer(value):
+        return httpx.Response(429, headers={"Retry-After": value} if value is not None else {})
+
+    assert retry_after(answer("120")) == 120.0
+    assert abs(retry_after(answer(formatdate(1_000_090, usegmt=True)), now=1_000_000) - 90) < 1e-6
+    assert retry_after(answer(formatdate(999_000, usegmt=True)), now=1_000_000) == 0.0  # already past: go now
+    assert retry_after(answer("-5")) == 0.0
+    assert retry_after(answer("999999999")) == 999999999.0  # never shortened, however long
+    assert abs(retry_after(answer(formatdate(1_000_000 + 3 * 86400, usegmt=True)), now=1_000_000) - 3 * 86400) < 1e-6
+    for nothing in (None, "", "soon", "nan", "inf"):
+        assert retry_after(answer(nothing)) is None, nothing
+    assert retry_after(None) is None
+    # the wait is described rounded up, never as shorter than asked
+    assert [wait_text(x) for x in (0.2, 61, 240, 241, 5400, 86400)] == [
+        "1 second", "61 seconds", "4 minutes", "5 minutes", "1 hour 30 minutes", "24 hours"]
+
+
+def test_upload_pauses_wait_exactly_as_asked_and_can_be_stopped():
+    from clipfoundry.publish import youtube
+    from clipfoundry.publish.common import SHORT_WAIT, Cancelled
+
+    slept: list[float] = []
+    youtube._pause(12.0, 2.0, slept.append, lambda: False)
+    assert sum(slept) == 12.0 and max(slept) <= 5.0  # short steps: stopping is never held up for long
+    slept.clear()
+    youtube._pause(None, 2.0, slept.append, lambda: False)
+    assert slept == [2.0]  # no Retry-After: the usual backoff
+    slept.clear()
+    youtube._pause(SHORT_WAIT, 2.0, slept.append, lambda: False)
+    assert sum(slept) == SHORT_WAIT  # the whole wait YouTube asked for, not a shortened one
+    slept.clear()
+    with pytest.raises(Cancelled):
+        youtube._pause(30.0, 2.0, slept.append, lambda: len(slept) >= 2)
+    assert sum(slept) == 10.0
+
+
+def test_a_long_youtube_wait_is_not_shortened_and_the_upload_continues_then(app_client, google, clip):
+    """YouTube asks for two hours in the middle of an upload: nothing is retried sooner, the upload stays queued
+    with its time, a second Publish cannot start a copy meanwhile, and at that time the same session continues."""
+    from clipfoundry.publish import jobs
+
+    c, data = clip
+    _connect(app_client, google)
+    google.rate_limit_puts, google.retry_after = 1, "7200"
+    t0 = time.time()
+    pid = _publish(app_client, c["id"]).json()["id"]
+    pub = _wait_until(app_client, pid, lambda p: (p.get("info") or {}).get("retry_at"))
+    assert pub["status"] == "queued" and pub["info"]["retry_at"] >= t0 + 7200
+    assert "YouTube asked to wait 2 hours" in pub["message"] and pub["info"]["upload_session"]
+    assert pid in jobs.worker.timers and not google.videos
+    assert _publish(app_client, c["id"]).status_code == 409  # still this clip's upload: no second copy
+    jobs.worker.later(pid, time.time())  # the time YouTube asked for has come
+    pub = _wait(app_client, pid)
+    assert pub["status"] == "done" and google.videos[pub["remote_id"]]["bytes"] == data and len(google.videos) == 1
+    assert sum(1 for m, p in google.log if m == "POST" and "uploadType=resumable" in p) == 1  # the same session
+
+
+def test_a_waiting_upload_survives_a_restart_and_can_be_cancelled(app_client, google, clip):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    c, _ = clip
+    _connect(app_client, google)
+    google.rate_limit_puts, google.retry_after = 1, "7200"
+    pid = _publish(app_client, c["id"]).json()["id"]
+    _wait_until(app_client, pid, lambda p: (p.get("info") or {}).get("retry_at"))
+    jobs.worker.timers.pop(pid).cancel()  # the app closes
+    db.interrupted_work()  # the next start: an upload waiting for YouTube's time is not marked as interrupted
+    assert db.get_publication(pid)["status"] == "queued"
+    assert jobs.worker.resume_waiting() == 1 and pid in jobs.worker.timers
+    app_client.post(f"/api/publications/{pid}/cancel", headers=H)
+    assert db.get_publication(pid)["status"] == "cancelled" and pid not in jobs.worker.timers
 
 
 def test_unverified_project_lock_is_explained(app_client, google, clip):

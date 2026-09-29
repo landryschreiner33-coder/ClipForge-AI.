@@ -15,6 +15,11 @@ Being public, trending or downloadable says nothing about whether a video may be
 unknown is MANUAL_CONFIRMATION_REQUIRED, and Autopilot skips it and keeps looking (it is listed in the activity log;
 it only asks about it when you turn that on under Advanced).
 
+A channel named by a feed or list is only a claim. Channel rules (agreements, allowlisted creators) and ownership by
+your connected channel apply only when the platform itself confirmed that this exact video, and the link to it,
+belongs to that channel (verify.py); otherwise the video is skipped with the reason. A confirmed channel still needs
+a rule: confirmation alone never makes a video usable. A block matches the claim whether or not it is confirmed.
+
 Coverage keeps its conditions (a rule's `conditions`, a license's terms): the credit line, whether commercial use is
 allowed, the platforms it covers, and whether it covers other people's material inside the video. An agreement with a
 creator covers the creator's own material only: a video whose title suggests someone else's music or footage (a
@@ -33,7 +38,7 @@ import time
 from urllib.parse import urlparse
 
 from .. import db
-from . import state
+from . import state, verify
 
 OWNED, LICENSED, CC, PD, ALLOWLISTED, MANUAL, BLOCKED = (
     "OWNED", "LICENSED", "CREATIVE_COMMONS", "PUBLIC_DOMAIN", "ALLOWLISTED", "MANUAL_CONFIRMATION_REQUIRED", "BLOCKED")
@@ -212,17 +217,29 @@ def evaluate(source: dict, settings: dict | None = None, all_rules: list[dict] |
         r = by_scope["source"]
         return out(r["status"], r["basis"] or f"{LABELS[r['status']]} (your decision for this source)", r["id"],
                    r.get("conditions") or {})
+    confirmed = verify.confirmed(source)  # the platform confirmed the channel this source names (never a network call)
+    claim_only = False  # an unconfirmed channel claim is what would have covered it
     own = (db.get_account("youtube") or {}).get("account_id")
     if source.get("platform") == "youtube" and own and source.get("channel_id") == own:
-        return out(OWNED, "Uploaded by your connected YouTube channel")
+        if confirmed:
+            return out(OWNED, "Uploaded by your connected YouTube channel")
+        claim_only = True
     for scope in ("channel", "folder", "url_prefix"):
         r = by_scope[scope]
+        # a channel rule, or a link rule on a platform's own site (its links name the account), needs the confirmed
+        # channel of this exact video
+        if r and not confirmed and (scope == "channel" or (scope == "url_prefix" and is_platform_url(r["value"]))):
+            claim_only = True
+            continue
         if r:
             return covered(r["status"], r["basis"] or f"{LABELS[r['status']]} ({scope} rule)", r["id"],
                            r.get("conditions") or {})
     lic = license_status(source)
     if lic:
         return covered(*lic[:2], "", lic[2]) if lic[0] != MANUAL else out(MANUAL, lic[1])
+    if claim_only:
+        why = verify.why_not(source)
+        return out(MANUAL, f"channel not confirmed. {why[:1].upper()}{why[1:]}")
     return out(MANUAL, "No agreement, license or ownership covers this video")
 
 
@@ -237,8 +254,8 @@ def apply(source: dict, settings: dict | None = None, all_rules: list[dict] | No
         fields["status"] = "blocked"
     elif r["auto_allowed"] and status in ("discovered", "needs_rights", "blocked"):
         fields["status"] = "eligible"
-    elif not r["auto_allowed"] and status in ("discovered", "eligible", "blocked"):
-        fields["status"] = "needs_rights"
+    elif not r["auto_allowed"] and status in ("discovered", "eligible", "blocked", "needs_file", "queued"):
+        fields["status"] = "needs_rights"  # a video waiting for its file or its turn that is no longer covered
     if r["status"] != source.get("rights_status"):
         state.event("rights_status", f"{source.get('title', '')[:80]}: {r['label']} ({r['basis']})",
                     ref_type="source", ref_id=source["id"], status=r["status"])
@@ -246,6 +263,15 @@ def apply(source: dict, settings: dict | None = None, all_rules: list[dict] | No
         state.resolve(f"rights:{source['id']}")
     db.update("sources", source["id"], **fields)
     return {**source, **fields, "rights": r}
+
+
+def recheck(source: dict, settings: dict | None = None) -> dict:
+    """Right before work starts on a source: ask the platform about its channel if that never happened (a video
+    queued before channels were confirmed, or one the platform could not be asked about), then evaluate and store
+    its rights again. Returns the evaluation; the stored status says why when it may not be used."""
+    settings = settings if settings is not None else db.get_settings()
+    verify.ensure([source], settings)
+    return apply(db.fetch("sources", source["id"]) or source, settings)["rights"]
 
 
 def confirm(source_id: str, status: str, basis: str) -> dict:
