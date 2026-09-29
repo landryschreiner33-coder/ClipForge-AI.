@@ -62,10 +62,31 @@ computer ClipFoundry runs on, so those tests would fail.
 | `tests/dashboard.spec.ts` | Stat cards and recent projects match the API, System card matches `/api/health` |
 | `tests/create.spec.ts` | CREATE CLIPS only enabled with a video or an http(s) URL, non-video files refused, options start from your saved defaults and changing them does not save anything |
 | `tests/projects.spec.ts` | Library matches the API, Delete asks first (the test says no), a project and a clip editor open, an unknown project shows an error |
-| `tests/autopilot.spec.ts` | Switch and STOP ALL JOBS reflect the real state, Overview cards, tabs and their addresses, Jobs list matches the queue |
+| `tests/autopilot.spec.ts` | First-run steps or the switch, and STOP ALL JOBS, reflect the real state; the main page shows Today, Currently, Next post, Needs you, Top opportunities and Upcoming posts and nothing technical; Add content manually opens and cancels; System details cards, the Advanced tabs and their addresses; Jobs list matches the queue |
 | `tests/publish-center.spec.ts` | Each view matches the queue, approval count, time zone and auto-publish note, each post shows the final quality check of its file |
-| `tests/settings.spec.ts` | All sections, data folder, Save only after a change and nothing saved when you leave, secrets masked |
+| `tests/settings.spec.ts` | General holds only the accounts and the Autopilot basics, Advanced still has every technical section, data folder, Save only after a change (kept across the tabs) and nothing saved when you leave, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
+
+## The beginner flow (sandbox)
+
+One more test goes through what a new user does: open ClipFoundry, connect YouTube and TikTok, press
+START AUTOPILOT, and watch Autopilot find trending videos, create sources by itself, ask about the rights of
+a strong one (the test answers yes), ask for the video file (the test gives one) and send it on to the Clip
+Hunter. It changes things, so it never runs against your real ClipFoundry: it starts its own **sandbox**
+(`sandbox/run_sandbox.py`) with a temporary data folder, port 8799, **test connections** to local stand-ins
+for Google's and TikTok's sign-in pages and APIs (nothing reaches the real platforms, nothing is posted) and a
+synthetic transcript instead of Whisper (no model download). It needs `start.bat` to have run once (for
+`.venv`) and ffmpeg.
+
+Double-click `e2e\run-beginner-test.bat`, or in a terminal:
+
+```bat
+cd e2e
+npm run test:sandbox
+```
+
+`CLIPFOUNDRY_PYTHON` picks another Python (default `..\.venv\Scripts\python.exe`), and
+`CLIPFOUNDRY_SANDBOX_PORT` another port.
 
 ## Maintaining the tests
 

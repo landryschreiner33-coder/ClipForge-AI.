@@ -13,7 +13,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 
 const num = (v: string) => (v === "" ? 0 : +v);
 
-/** Every Autopilot control. Saved with the Settings page's Save button. */
+/** Every Autopilot control except the three on Settings → General (on/off, daily target, automatic publishing).
+ * Saved with the Settings page's Save button. */
 export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) => void }) {
   const tog = (key: string) => <Toggle on={!!s[key]} onChange={(v) => set({ [key]: v })} />;
   const n = (key: string, props: Record<string, number> = {}) => (
@@ -22,7 +23,7 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
   return (
     <>
       <div className="card" id="autopilot">
-        <h3>Autopilot</h3>
+        <h3>Autopilot details</h3>
         <div className="notice small">
           <div>
             Autopilot finds, clips, packages and schedules on its own. <b>Every post still needs your approval</b> in the Publish Center:
@@ -30,8 +31,6 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
             upload. Approved posts are published at their time without further clicks.
           </div>
         </div>
-        <Row label="Autopilot" hint="Off: queued work waits; jobs you start by hand still run">{tog("autopilot_enabled")}</Row>
-        <Row label="Daily target" hint="A target, not a quota: quality, rights and platform limits come first">{n("autopilot_daily_target", { min: 1, max: 100 })}</Row>
         <Row label="Sources per day">{n("autopilot_sources_per_day", { min: 1, max: 30 })}</Row>
         <Row label="Clips per source" hint="At most; a source with fewer strong moments gives fewer clips">{n("autopilot_clips_per_source", { min: 1, max: 10 })}</Row>
         <Row label="Minimum clip quality" hint="Clip Score needed for Autopilot clips">
@@ -42,7 +41,6 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
           <label className="row small">{tog("autopilot_tiktok")} TikTok</label>
         </div></Row>
         <Row label="Automatic scheduling" hint="Plan posting times for new packaged clips">{tog("autopilot_auto_schedule")}</Row>
-        <Row label="Automatic publishing" hint="Publish approved posts at their time (off: they wait for Publish now)">{tog("autopilot_auto_publish")}</Row>
         <Row label="Dynamic trend replacement" hint="A clearly stronger new opportunity takes the slot of the weakest future post">
           <div className="row">{tog("autopilot_dynamic_replacement")}<span className="small muted">at least</span>{n("autopilot_replacement_threshold", { min: 0, max: 500 })}<span className="small muted">% better</span></div>
         </Row>

@@ -312,7 +312,8 @@ def today_counts(settings: dict, now: float | None = None) -> dict:
             "busy": sum(1 for r in rows if r["status"] in ACTIVE_SOURCE)}
 
 
-RIGHTS_QUESTIONS = 5  # open rights questions at a time (the most promising sources)
+RIGHTS_QUESTIONS = 3      # open rights questions at most, however many sources are short
+RIGHTS_MIN_SCORE = 50.0   # below this Source Score a video is not worth asking you about
 
 
 @handler("source_scout")
@@ -339,9 +340,7 @@ def source_scout(job: Job) -> dict:
                       components=sc["components"])
     job.check()
     picked = select_for_today(settings, now)
-    # Ask about rights only for the most promising sources (not every trending video): the open questions are
-    # always the current top 5; the rest stay listed under Autopilot → Sources.
-    top = db.select("sources", "status = 'needs_rights'", (), "source_score DESC", RIGHTS_QUESTIONS)
+    top = rights_questions(settings, now)
     for src in top:
         rights.request_confirmation(src)
     asked = {f"rights:{s['id']}" for s in top}
@@ -352,21 +351,46 @@ def source_scout(job: Job) -> dict:
             "message": f"{created} new source(s); {len(picked)} sent to the Clip Hunter"}
 
 
-def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
-    """Send the best eligible sources to the Clip Hunter, up to today's number of sources.
+def still_needed(settings: dict, now: float | None = None) -> int:
+    """How many more sources today's plan needs.
 
     Weak sources do not count toward the day, so a weak pick is replaced by the next best source. When the day's
     sources are done but the clip target was not reached, one more source is tried at a time (at most three times
     the daily number of sources), never lowering the quality bar.
     """
-    now = now or time.time()
-    day = local_day(settings, now)
     per_day = int(settings.get("autopilot_sources_per_day") or 3)
     counts = today_counts(settings, now)
     needed = per_day - counts["counted"]
     if needed <= 0 and counts["busy"] == 0 and counts["clips"] < int(settings.get("autopilot_daily_target") or 15) \
             and counts["selected"] < 3 * per_day:
         needed = 1
+    return max(0, needed)
+
+
+def rights_questions(settings: dict, now: float | None = None) -> list[dict]:
+    """The sources worth asking you about: only while today's plan is still short after every source that may
+    already be used was picked, only strong ones, and never more than RIGHTS_QUESTIONS. Everything else stays in
+    discovery (listed under Advanced) until it becomes important enough."""
+    short = min(RIGHTS_QUESTIONS, still_needed(settings, now))
+    if short <= 0:
+        return []
+    rows = db.select("sources", "status = 'needs_rights' AND source_score >= ? AND expected_clips >= 1",
+                     (RIGHTS_MIN_SCORE,), "source_score DESC", 50)
+    return [s for s in rows if _usable_after_yes(s, settings)][:short]
+
+
+def _usable_after_yes(src: dict, settings: dict) -> bool:
+    """A platform's live stream can only be recorded with the download setting (there is no file to give): a yes
+    would lead nowhere, so it is not asked about."""
+    return not (src.get("kind") == "live" and rights.is_platform_url(src.get("url") or "")
+                and not settings.get("rights_allow_remote_download"))
+
+
+def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
+    """Send the best eligible sources to the Clip Hunter, up to what today's plan still needs (still_needed)."""
+    now = now or time.time()
+    day = local_day(settings, now)
+    needed = still_needed(settings, now)
     picked: list[dict] = []
     if needed <= 0:
         return picked
@@ -380,7 +404,8 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         if not ok:
             db.update("sources", src["id"], status="needs_file", status_note=why)
             state.action(f"file:{src['id']}", "source_file", f"Add the video file for “{src['title'][:80]}”", why,
-                         "Autopilot → Sources → Add file.", ref_type="source", ref_id=src["id"],
+                         "Add the file on the Autopilot page, or under Autopilot → Advanced → Sources & rights.",
+                         ref_type="source", ref_id=src["id"],
                          snooze_s=rights.ASK_AGAIN_AFTER)
             continue
         db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter")

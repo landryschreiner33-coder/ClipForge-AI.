@@ -77,17 +77,21 @@ python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Window
 .venv/bin/python -m pytest -m "not slow"          # ~265 tests, ~2.5 min
 .venv/bin/python -m pytest -m slow                # 4 end-to-end renders, ~7 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
-cd e2e && npm install && npm test                 # 39 browser tests against a running app
+cd e2e && npm install && npm test                 # 42 read-only browser tests against a running app
+cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)
 ```
 
 * `tests/conftest.py` points `CLIPFOUNDRY_DATA` at a temp folder and sets `CLIPFOUNDRY_WORKERS=off`, so tests never
   touch real data. Tests use fake platforms and synthetic video, never real accounts.
 * Other environment variables: `CLIPFOUNDRY_PORT`, `CLIPFOUNDRY_FFMPEG`, `CLIPFOUNDRY_URL` (e2e), `HF_ENDPOINT`.
-* Last recorded results: 265 fast, 4 slow and 39 e2e, all passing. `npm run build` reproduces the committed `dist/`.
+* `e2e/sandbox/run_sandbox.py` starts a throwaway app (temp data, fake Google/TikTok from `tests/fake_platforms.py`,
+  synthetic transcript instead of Whisper). Use it to try UI changes that write; never point write tests at real data.
+* Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
+  committed `dist/`.
 
 ## Where things stand (2026-09-29)
 
-**Branches.** The latest work is on `claude/ecstatic-shannon-wb1zq1` (HEAD `3e6072b`). The user's usual branch
+**Branches.** The latest work is on `claude/ecstatic-shannon-wb1zq1`. The user's usual branch
 `claude/wonderful-ritchie-909tq3` is still at `3be586d` and does **not** have this round yet. Don't merge between
 them unless the user asks.
 
@@ -117,6 +121,16 @@ them unless the user asks.
    * Sources are capped at 8 GB / 240 minutes.
 7. **Never upload twice.** If YouTube accepted every byte but its answer was lost, the post becomes "reconciling"
    ("Upload not confirmed" in the UI) until the user resolves it.
+
+**Also done: zero-config Autopilot UX** (see the "Zero-config Autopilot UX" table in `IMPLEMENTATION_STATUS.md`).
+The user wants: connect YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
+* `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
+  empty-state text, setup). `POST /api/autopilot/start` and `POST /api/autopilot/sources/{id}/permission` (Yes =
+  Allowlisted, No = Blocked, for that one video).
+* Rights questions only while today's plan is short (`scout.rights_questions`: Source Score ≥ 50, at most 3).
+* UI: `Autopilot.tsx` has the first-run screen, the simple Home and an Advanced area (`#/autopilot/system|sources|
+  jobs|learning`); Settings has General and Advanced (`#/settings/advanced`). Keep jargon (worker, feed, provider,
+  source, quota) off the main page and General settings; `test_autopilot_simple.py` checks the page text.
 
 **Open, in priority order** (plan items 8–14):
 

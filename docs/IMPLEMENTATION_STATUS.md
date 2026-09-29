@@ -100,7 +100,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Secrets: DPAPI on Windows, explicit unencrypted storage elsewhere | `secure.py` | verified (unit, non-Windows path) | `test_youtube::secret_sealing_round_trip` | DPAPI path verified only on Windows | — |
 | YouTube 30-day data rule | `scout.youtube_retention` | verified (unit) | `youtube_data_is_deleted_after_30_days` | — | — |
 | Terms / Privacy templates with placeholders | `docs/legal/` | implemented; not publicly deployed | `legal_pages_are_served` | owner fills placeholders; lawyer review; public hosting | owner decision |
-| UI controls call real backend, correct after refresh | `frontend/src/pages/*` | read-only e2e suite | `e2e/` (38 tests, validated against a scratch app) | — | — |
+| UI controls call real backend, correct after refresh | `frontend/src/pages/*` | read-only e2e suite + sandbox beginner flow | `e2e/tests` (42 read-only tests), `e2e/sandbox/beginner-flow.spec.ts` | — | — |
 
 ### Vertical slice (section 4 of the task)
 
@@ -113,6 +113,27 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Persist publication intent, show in Publish Center | unit tested (`publish_center_api`) |
 | Restart → consistent state → export | export verified in the slice test; restart covered by separate tests (`restarted_host_resumes_interrupted_work`, `manual_work_resumes_after_restart`), not inside the slice test |
 | Whole slice in one test | `test_clip_hunter_and_analyzer_end_to_end` (slow): owned folder → rights rule → hunt (Whisper stand-in: imported transcript) → analyze → plan → render → package → gate → schedule (awaiting approval) → export |
+
+### Zero-config Autopilot UX (2026-09-29)
+
+Request: connect YouTube, connect TikTok, START AUTOPILOT, and ClipFoundry does the rest; technical controls only
+under Advanced; ask the user only what really needs them. The backend and worker system were reused unchanged; new:
+`autopilot/home.py` (plain-language view, START, one-click rights answer), `POST /api/autopilot/start`,
+`POST /api/autopilot/sources/{id}/permission`, `status()["home"]`, `scout.still_needed` / `scout.rights_questions`.
+
+| Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
+| --- | --- | --- | --- | --- | --- |
+| First run: connect YouTube, connect TikTok, START AUTOPILOT (one platform is enough) | `Autopilot.tsx` `Onboarding`, `ConnectAction`, `accounts.SetupAndConnect`; `home.start` (uses the connected platforms) | verified (unit + sandbox e2e) | `test_autopilot_simple::a_fresh_user_connects_youtube_and_starts_without_adding_a_source`, `beginner-flow.spec.ts` | a real account on the user's PC | the user's own Google/TikTok developer app (platform rule, cannot be automatic) |
+| No manual source needed; sources created internally from discovery | `scout.trend_scan` / `source_scout` with the connected account (existing) | verified (unit + sandbox e2e) | `autopilot_discovers_and_creates_sources_by_itself`, beginner flow | — | — |
+| Missing optional providers never stop Autopilot or nag | `providers.UNAVAILABLE`, `home.needs_you` (quota notices stay under Advanced) | verified (unit) | `missing_optional_providers_do_not_stop_autopilot` | Tavily and Metricool do not exist in ClipFoundry (no integration to enable) | — |
+| Defaults: US, English, 3 sources/day, 15/day target, 5 clips/source, replacement, learning, live monitoring, scheduling, publishing of approved posts | `config.DEFAULT_SETTINGS` (live monitoring now on by default) | verified (unit) | first test above checks every value | trend categories: YouTube's chart plus the broad default topics | — |
+| Simple main page: today, currently, next post, accounts, Needs you, top opportunities, upcoming posts; empty states in plain words | `home.view`, `Autopilot.tsx` `Home` | verified (unit + e2e + screenshots) | `the_main_page_speaks_plainly_and_needs_no_configuration` (no jargon in any text), `autopilot.spec.ts` | — | — |
+| Technical detail under Advanced (System details, Sources & rights, Jobs, Learning); old addresses still work | `Autopilot.tsx` `ADVANCED`, `OLD_SLUGS` | verified (e2e) | `autopilot.spec.ts` tabs tests, `advanced_controls_are_all_still_there` | — | — |
+| Rights gate unchanged; questions only when needed | `scout.rights_questions` (only while today's plan is short, Source Score ≥ 50, at most 3, never a platform live stream that could not be recorded); `home.answer_rights` (Yes = Allowlisted for that video, No = Blocked) | verified (unit + sandbox e2e) | `rights_are_still_gated_and_answered_in_one_click`, `you_are_asked_only_about_strong_videos_and_only_when_needed`, `test_trend_and_source_scout` (adjusted: one question when one source is short) | — | — |
+| YouTube-hosted videos are still not downloaded by default | `rights.download_allowed` (unchanged); Needs you → ADD THE VIDEO FILE | verified (unit + sandbox e2e) | same tests | this is the main remaining manual step for other creators' videos: the user's yes, then the original file (or the Advanced download setting, only with YouTube's and the rights holder's permission) | YouTube Terms of Service |
+| Dropped accounts: one plain Needs you message | `home.needs_you` (`needs_reconnect`, or not connected while posts are planned; deduplicated with the publisher's own notice) | verified (unit) | `a_dropped_account_is_one_plain_needs_you_message` | — | — |
+| Manual content stays optional and working | `+ Add content manually` (link, file, folder, upload); **bug fixed:** a source added by hand was never scored and was discarded as "unlikely to contain a strong clip" | verified (unit, failed before the fix) | `adding_content_by_hand_still_works` | — | — |
+| Settings: General (accounts, on/off, daily target, automatic publishing) and Advanced (everything else) | `Settings.tsx`, `autopilotSettings.tsx` | verified (e2e) | `settings.spec.ts` | — | — |
 
 ## Plan (highest priority first)
 
@@ -163,6 +184,13 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | unconfirmed uploads | `pytest -m "not slow"` | 265 passed (141 s) |
 | unconfirmed uploads | `pytest -m slow` | 4 passed (413 s) |
 | unconfirmed uploads | `npm run build`; e2e suite against the scratch app with a passing, a failed and an unconfirmed post | build passes; 39 passed; the unconfirmed post shows *Upload not confirmed* with *It is published* / *Upload again* (screenshot checked) |
+| zero-config UX | `pytest tests/test_autopilot_simple.py` before the manual-source fix | `adding_content_by_hand_still_works` failed ('skipped' == 'queued'): a source added by hand was never scored |
+| zero-config UX | `test_you_are_asked_only_about_strong_videos_and_only_when_needed` with the live-stream filter switched off | fails (the YouTube live stream would be asked about); passes with it |
+| zero-config UX | `pytest -m "not slow"` | 274 passed (152 s) |
+| zero-config UX | `pytest -m slow` | 4 passed (350 s) |
+| zero-config UX | `npm run build`; `e2e` beginner flow (`npm run test:sandbox`: sandbox, test connections, synthetic transcript) | build passes; 1 passed (connect both, START, discovery, sources created, rights question, YES, file added, Clip Hunter takes it) |
+| zero-config UX | read-only `e2e` suite against a sandbox after the beginner flow (main page with content, 2 posts awaiting approval) and against a fresh app (first-run screen) | 42 passed; 38 passed, 4 skipped (no projects) |
+| zero-config UX | screenshots of the first-run screen, setup dialog, main page over time (the sandbox rendered, gated and scheduled one clip by itself), Add content dialog, Settings General/Advanced, System details | checked by eye; fixed a CSS clash with the project progress steps, a clip count shown as "No strong moments", "Currently" between two jobs of a video |
 
 ## Checklist for the user's machine
 
@@ -176,8 +204,8 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 4 | Local vertical slice | Autopilot → Sources & rights: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the project; Publish Center shows posts with "Final check passed" and every check listed | the slice ran here only on synthetic espeak video |
 | 5 | Look at and listen to one Autopilot clip | open it from the Publish Center preview | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
 | 6 | Measure throughput | time one 60-minute source through hunt → analyze (worker log `data/logs/workers.log`), watch VRAM in Task Manager | minutes per source, peak VRAM, disk used per source | whether 15 clips/day is plausible must be measured, not assumed |
-| 7 | Browser tests | `e2e\run-tests.bat` with the app running | 39 passed | read-only check of every page against your real data |
-| 8 | YouTube, real account | connect in Settings → Publishing, approve one post as Private | video ID in the Publish Center; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
+| 7 | Browser tests | `e2e\run-tests.bat` with the app running; `e2e\run-beginner-test.bat` (sandbox, app need not run) | 42 passed (some skipped without projects); beginner flow passed | read-only check of every page against your real data; the beginner flow on Windows |
+| 8 | YouTube, real account | connect in Autopilot (step 1) or Settings → General → Accounts, approve one post as Private | video ID in the Publish Center; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
 | 11 | Decide on channel rules | see the Rights row above | keep, or restrict channel rules to verified providers | changes rights semantics: your decision |

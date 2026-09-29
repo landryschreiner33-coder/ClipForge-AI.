@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Accounts, api, Health, Settings } from "../api";
 import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
-import { AccountBadge, ConnectButton } from "../components/accounts";
+import { AccountBadge, ConnectButton, SetupAndConnect, TikTokSetupSteps, YouTubeSetupSteps } from "../components/accounts";
 import { AutopilotSettings } from "../components/autopilotSettings";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
@@ -15,7 +15,11 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-export default function SettingsPage() {
+const CREDENTIALS = ["youtube_client_id", "youtube_client_secret", "tiktok_client_key", "tiktok_client_secret"];
+
+/** Settings: General (accounts and the three Autopilot choices most people need) and Advanced (everything else). */
+export default function SettingsPage({ tab }: { tab?: string }) {
+  const advanced = tab === "advanced";
   const [s, setS] = useState<Settings | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -50,6 +54,16 @@ export default function SettingsPage() {
   };
 
   const provider = s.ai_provider as string;
+  // An account connected from General saved its app codes directly: take them over, keep your unsaved edits.
+  const accountChanged = async (a: Accounts) => {
+    setAccounts(a);
+    try {
+      const fresh = await api.settings();
+      setS((prev) => prev && { ...prev, ...Object.fromEntries(CREDENTIALS.map((k) => [k, fresh[k]])) });
+    } catch {
+      /* the next page load shows them */
+    }
+  };
 
   return (
     <div className="page" style={{ maxWidth: 980 }}>
@@ -61,6 +75,58 @@ export default function SettingsPage() {
         <button className="btn primary" disabled={!dirty} onClick={() => save()}><Icon name="check" size={16} /> Save settings</button>
       </div>
 
+      <div className="segmented" style={{ marginBottom: 18 }}>
+        <button className={advanced ? "" : "on"} onClick={() => { window.location.hash = "#/settings"; }}>General</button>
+        <button className={advanced ? "on" : ""} onClick={() => { window.location.hash = "#/settings/advanced"; }}>Advanced</button>
+      </div>
+
+      {!advanced && (
+        <>
+          <div className="card" id="accounts">
+            <h3>Accounts</h3>
+            <p className="small muted" style={{ marginTop: -6 }}>
+              Connect the platforms Autopilot should post to. You sign in on Google's or TikTok's own page: ClipFoundry never
+              sees your password. Nothing is posted without your approval.
+            </p>
+            {(["youtube", "tiktok"] as const).map((p) => {
+              const acc = accounts?.[p];
+              return (
+                <div key={p} className="account-block">
+                  <div className="platform-head">
+                    <b>{p === "youtube" ? "YouTube" : "TikTok"}</b>
+                    <AccountBadge platform={p} account={acc} />
+                    <span style={{ flex: 1 }} />
+                    {acc && (acc.configured || acc.connected) && <ConnectButton platform={p} account={acc} onChange={accountChanged} />}
+                  </div>
+                  {acc && !acc.configured && !acc.connected && <SetupAndConnect platform={p} account={acc} onChange={accountChanged} />}
+                  {acc?.connected && acc.restriction && <div className="notice warn small block">{acc.restriction}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="card">
+            <h3>Autopilot</h3>
+            <Row label="Autopilot" hint="Finds content, makes clips and schedules them by itself">
+              <Toggle on={!!s.autopilot_enabled} onChange={(v) => set({ autopilot_enabled: v })} label={s.autopilot_enabled ? "On" : "Off"} />
+            </Row>
+            <Row label="Daily target" hint="Clips per day to aim for. A target, not a quota: quality and your rights come first">
+              <input type="number" min={1} max={100} value={s.autopilot_daily_target} style={{ maxWidth: 140 }}
+                onChange={(e) => set({ autopilot_daily_target: e.target.value === "" ? 1 : +e.target.value })} />
+            </Row>
+            <Row label="Automatic publishing" hint="Approved posts go out at their time by themselves (off: they wait for Publish now)">
+              <Toggle on={!!s.autopilot_auto_publish} onChange={(v) => set({ autopilot_auto_publish: v })} />
+            </Row>
+            <div className="small muted">
+              Everything else has a sensible default (United States, English, 3 videos a day, up to 5 clips each, posting times
+              chosen for you). You can change it under <a href="#/settings/advanced">Advanced</a>, but you don't need to.
+            </div>
+          </div>
+        </>
+      )}
+
+      {advanced && (
+      <>
       <div className="card">
         <h3>Transcription (faster-whisper, local)</h3>
         <Row label="Model" hint="auto = large-v3-turbo on GPU, small on CPU">
@@ -178,18 +244,7 @@ export default function SettingsPage() {
         {accounts?.youtube.restriction && <div className="notice warn small block">{accounts.youtube.restriction}</div>}
         <details className="setup">
           <summary>How to set up YouTube publishing (free, about 10 minutes)</summary>
-          <ol>
-            <li>Open <b>console.cloud.google.com</b> and create a project (any name).</li>
-            <li><b>APIs &amp; Services → Library</b>: enable <b>YouTube Data API v3</b>. Optional: also enable <b>YouTube Analytics API</b> so ClipFoundry can read watch time and retention of your videos.</li>
-            <li><b>OAuth consent screen</b>: choose <i>External</i>, fill in the app name and your e-mail, and add your Google account under <i>Test users</i>.</li>
-            <li><b>Credentials → Create credentials → OAuth client ID</b>, application type <b>Desktop app</b>. Copy the client ID and client secret into the fields above and save.</li>
-            <li>Click <b>CONNECT YOUTUBE</b>, sign in with Google and allow access. Google may show “Google hasn't verified this app”: that is your own app, choose <i>Continue</i>.</li>
-          </ol>
-          <p className="small muted">{accounts?.youtube.testing_note}</p>
-          <p className="small muted">
-            Until Google audits your project, YouTube keeps every upload from it Private. Private uploads are fine for
-            testing. Uploads count against your project's daily YouTube API quota.
-          </p>
+          <YouTubeSetupSteps testingNote={accounts?.youtube.testing_note} />
         </details>
 
         <div className="platform-head">
@@ -233,20 +288,7 @@ export default function SettingsPage() {
         {accounts?.tiktok?.restriction && <div className="notice warn small block">{accounts.tiktok.restriction}</div>}
         <details className="setup">
           <summary>How to set up TikTok publishing (free)</summary>
-          <ol>
-            <li>Sign in at <b>developers.tiktok.com</b> and create an app (any name, category "Video").</li>
-            <li>Add the products <b>Login Kit</b> (platform <i>Desktop</i>) and <b>Content Posting API</b>. In Content Posting API, turn on <b>Direct Post</b> if you want to post directly.</li>
-            <li>Add the scopes <code>user.info.basic</code>, <code>video.upload</code>, <code>video.publish</code> (Direct Post) and <code>video.list</code> (statistics).</li>
-            <li>In Login Kit, register the redirect URI shown above. If you start ClipFoundry on another port, register that port too.</li>
-            <li>Add your TikTok account as a <b>target user</b> (sandbox) while the app is not reviewed, paste the client key and secret above and save.</li>
-            <li>Click <b>CONNECT TIKTOK</b>, sign in on TikTok's page and allow access.</li>
-          </ol>
-          <p className="small muted">
-            Until TikTok audits your app, Direct Post only works when your TikTok account is private, every post is
-            “Only me”, and at most 5 users can post per day. <b>Send to TikTok inbox</b> works without the audit: the
-            video arrives as a draft in the TikTok app and you post it from there. You can also export the clip and
-            upload it on tiktok.com/tiktokstudio/upload.
-          </p>
+          <TikTokSetupSteps />
         </details>
       </div>
 
@@ -310,6 +352,8 @@ export default function SettingsPage() {
             <span className="k">Data folder</span><span>{health.data_dir}</span>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

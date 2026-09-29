@@ -115,7 +115,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_auto_publish": True,     # publish approved posts at their scheduled time without another click
     "autopilot_dynamic_replacement": True,
     "autopilot_replacement_threshold": 15.0,  # % better than the weakest future item before it is replaced
-    "autopilot_live_monitoring": False,
+    "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
     "autopilot_learning": True,
     "autopilot_timezone": "America/Chicago",
     "autopilot_active_start": 9,        # local hour, inclusive

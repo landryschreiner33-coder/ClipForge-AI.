@@ -8,7 +8,9 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
-    "install-browser": "playwright install chromium"
+    "install-browser": "playwright install chromium",
+    "test:sandbox": "playwright test -c playwright.sandbox.config.ts",
+    "test:sandbox:headed": "playwright test -c playwright.sandbox.config.ts --headed"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"

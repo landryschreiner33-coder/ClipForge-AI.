@@ -192,6 +192,40 @@ export interface ProviderStatus {
   at: number;
 }
 
+/** Something that really needs you, in plain words (the simple Autopilot page). */
+export interface NeedsYouItem {
+  key: string;
+  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "other";
+  title: string;
+  detail: string;
+  fix?: string;
+  link?: string;
+  question?: string;
+  platform?: "youtube" | "tiktok";
+  source?: { id: string; title: string; channel: string; url: string; platform: string; kind: string; score: number | null };
+}
+
+export interface Opportunity {
+  id: string;
+  title: string;
+  url: string;
+  channel: string;
+  kind: string;
+  topic: string;
+  score: number;
+  stage: string;
+  source_id: string;
+}
+
+export interface HomeView {
+  setup: { started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean };
+  currently: string;
+  needs_you: NeedsYouItem[];
+  opportunities: Opportunity[];
+  upcoming: { id: string; platform: "youtube" | "tiktok"; title: string; planned_at: number | null; status: string }[];
+  empty: string;
+}
+
 export interface AutopilotStatus {
   enabled: boolean;
   paused: boolean;
@@ -212,6 +246,7 @@ export interface AutopilotStatus {
   trends: TrendSignal[];
   providers: Record<string, ProviderStatus>;
   settings: Record<string, any>;
+  home: HomeView;
 }
 
 export interface ScheduledItemRow {
@@ -309,6 +344,8 @@ const A = "/api/autopilot";
 export const ap = {
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),
+  start: () => req<AutopilotStatus>("POST", `${A}/start`),
+  permission: (id: string, allowed: boolean) => req<Source>("POST", `${A}/sources/${id}/permission`, { allowed }),
   stopAll: () => req<{ canceled: number; stopping: number; manual: number }>("POST", `${A}/stop-all`),
   resume: () => req<{ paused: boolean }>("POST", `${A}/resume`),
   scan: () => req<Job>("POST", `${A}/scan`),

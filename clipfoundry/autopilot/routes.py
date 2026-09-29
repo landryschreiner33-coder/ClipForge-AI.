@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import gate, providers, queue, quota, rights, scout, state
+from . import gate, home, providers, queue, quota, rights, scout, state
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -90,6 +90,11 @@ def add_source(body: SourceIn) -> dict:
         raise HTTPException(400, "Enter a video file path or an http(s)/rtmp/srt URL")
     existing = db.select("sources", "platform = ? AND external_id = ?", (src["platform"], src["external_id"]))
     row = existing[0] if existing else db.insert("sources", {**src, "status": "discovered"})
+    if row.get("source_score") is None:  # no trend signal scores it: without a score it would never be picked
+        sc = scout.score_source(row, None, db.get_settings(), time.time())
+        db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
+                  components=sc["components"])
+        row = db.fetch("sources", row["id"]) or row
     if body.rights_status:
         try:
             row = rights.confirm(row["id"], body.rights_status, body.basis)
@@ -119,6 +124,19 @@ def confirm_rights(source_id: str, body: RightsIn) -> dict:
 
 class FileIn(BaseModel):
     path: str
+
+
+class PermissionIn(BaseModel):
+    allowed: bool
+
+
+@router.post("/sources/{source_id}/permission", dependencies=WRITE)
+def answer_permission(source_id: str, body: PermissionIn) -> dict:
+    """The one-click answer to "Can you use this content?" on the Autopilot page."""
+    _source_or_404(source_id)
+    row = home.answer_rights(source_id, body.allowed)
+    _manual("source_scout")
+    return _public_source(row)
 
 
 @router.post("/sources/{source_id}/file", dependencies=WRITE)
@@ -357,6 +375,18 @@ def enable(body: EnableBody) -> dict:
     return status()
 
 
+@router.post("/start", dependencies=WRITE)
+def start() -> dict:
+    """START AUTOPILOT: turn it on with the connected accounts and start finding opportunities right away."""
+    from ..publish.routes import _tiktok_state, _youtube_state
+
+    settings = db.get_settings()
+    home.start({"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)})
+    for kind in ("feed_scan", "trend_scan", "schedule_tick"):
+        _manual(kind)
+    return status()
+
+
 def _local_time(ts: float | None, settings: dict) -> str:
     if not ts:
         return ""
@@ -385,6 +415,8 @@ def status() -> dict:
                                               "planned_at >= ?", (now - 600,), "planned_at", 1)
     rights_counts = {r["rights_status"]: r["n"] for r in _count("sources", "rights_status", "status != 'skipped'")}
     q = quota.status(settings)
+    platforms = {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)}
+    workers_now = workers()
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
@@ -395,8 +427,7 @@ def status() -> dict:
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
         "queue": {"size": int(db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE status IN ('queued', 'retrying', "
                                         "'waiting', 'running')") or 0), "by_worker": queue.counts()},
-        "workers": workers(), "gpu": gpu.manager.status(settings),
-        "platforms": {"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)},
+        "workers": workers_now, "gpu": gpu.manager.status(settings), "platforms": platforms,
         "rights": rights_counts, "quota": {"warnings": q["warnings"], "buckets": {k: {kk: v[kk] for kk in (
             "label", "used", "budget", "remaining", "projected", "exhausted")} for k, v in q["buckets"].items()},
             "resets_at": q["resets_at"], "discovery_paused": q["discovery_paused"]},
@@ -404,6 +435,7 @@ def status() -> dict:
         "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
         "providers": state.get("providers", {}) or {},
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
+        "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }
 
 

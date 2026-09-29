@@ -30,26 +30,62 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 
 ## Setting it up
 
-1. **Connect the accounts** you want to publish to (Settings → Publishing; see [INSTALL.md](../INSTALL.md)). Autopilot
-   works without them, but then it only prepares posts.
-2. **Tell Autopilot where sources come from** (Autopilot → Sources & rights → *Where sources come from*):
-   * *Watch folder*: a folder with your own recordings. New videos become sources; a file that is still growing is
-     treated as a live recording.
-   * *YouTube channel*: a channel you follow (its channel ID, `UC...`). New uploads become candidate sources.
-   * *Stream URL*: an HLS/RTMP/SRT stream you are allowed to use (for live clipping).
-   * *Signal feed*: a JSON/CSV file or URL of trend signals you are authorized to use.
-   Each feed can carry a rights status for what it finds (for example, a watch folder of your recordings as *Owned*).
-3. **Record your rights** (Autopilot → Sources & rights → *Rights rules*): channels whose clipping program you joined
-   (*Allowlisted*), licensed feeds (*Licensed*), folders of your own recordings (*Owned*), or anything you must never use
-   (*Blocked*). Every rule needs a basis (what gives you the right). Anything without a rule waits for your decision.
-4. **Optional: discovery with the YouTube Data API.** Paste an API key of your Google Cloud project in Settings →
-   Autopilot → Discovery (or just connect YouTube). Set the region, language and topics.
-5. **Check the schedule** in Settings → Autopilot: time zone (default America/Chicago), active hours, the minimum gap
-   between posts, per-platform daily limits and the daily target.
-6. **Turn Autopilot on** (the switch on the Autopilot page or in Settings). Approve posts in the Publish Center as they
-   arrive; approved posts are published at their time.
+The first time you open Autopilot it shows three steps, and that is all a normal user needs:
 
-The worker runs in its own background process by default (Settings → Autopilot → Worker process), so a crash in a
+1. **Connect YouTube.** Autopilot uses the connected account to find trending videos and to post your Shorts.
+2. **Connect TikTok** (optional: one platform without the other works too).
+3. **START AUTOPILOT.** It turns Autopilot on for the accounts you connected and starts looking right away.
+
+Both platforms only let apps like ClipFoundry post through *your own* free developer app, so the first CONNECT on a
+computer asks for that app's two codes once (the steps are shown next to the fields; see also
+[INSTALL.md](../INSTALL.md)). After that, CONNECT is just the platform's own sign-in page.
+
+You do not add sources, feeds, folders, rules or workers. Behind the scenes Autopilot uses whatever is available (the
+connected YouTube account for discovery; watch folders and feeds only if you added some; Google Trends and TikTok
+trends are not available to apps and are skipped without bothering you) and these defaults: United States, English,
+all trending categories plus broad topics, 3 videos a day, up to 5 clips each, 15 clips a day as a target, posting times
+chosen for you (America/Chicago, 9:00 to 23:00), dynamic replacement, live monitoring, learning, automatic scheduling
+and automatic publishing of the posts you approved. Settings → General has the three choices most people touch
+(Autopilot on/off, daily target, automatic publishing); everything else is under Settings → Advanced.
+
+**The main Autopilot page** shows only: Today (clips made against the target), what Autopilot is doing right now, the
+next post, whether YouTube and TikTok are connected, **Needs you**, the top opportunities it found and the upcoming
+posts. Workers, sources, feeds, rights rules, quota, jobs, scores and learning are under **Advanced** (the link at the
+bottom), unchanged.
+
+**Needs you** lists only what really needs you, in plain words:
+
+| What | When | Your answer |
+| --- | --- | --- |
+| *ClipFoundry found a strong trending video. Can you use this content?* | Only while today's plan is short of videos you may use, only for strong videos (Source Score 50 or more), at most 3 at a time. Everything else stays in discovery. | **YES, I HAVE PERMISSION** (recorded as *Allowlisted* for that video, with the date), **NO** (*Blocked*, never asked again) or **VIEW SOURCE**. Only say yes when the creator gave you permission; being public or trending is not permission. |
+| *Add the video file* | You said yes to a video hosted on YouTube or another platform: ClipFoundry does not download it by itself (the platforms' terms). | **ADD THE VIDEO FILE** (the original on this computer), or **SKIP THIS VIDEO**. Advanced → Rights has the download setting for sources you have that permission for. |
+| *N posts waiting for your approval* | Always: YouTube and TikTok require your OK on every post. | **REVIEW POSTS** opens the Publish Center. |
+| *Reconnect YouTube / TikTok* | The platform refused the stored sign-in, or it is not connected while posts are planned there. | **RECONNECT**. |
+| *GPU transcription is not working* | Strict GPU paused transcription. | What to do is shown with it. |
+
+Quota notices resolve themselves and stay under Advanced.
+
+**Adding content by hand** stays possible and optional: *+ Add content manually* on the Autopilot page (paste a link, a
+video on this computer, a folder to watch, or upload a video on the Create page), with one question: is it your own
+content, do you have the creator's permission, or should Autopilot ask later.
+
+### Advanced setup (optional)
+
+Everything from before is still there for advanced users:
+
+* **Where sources come from** (Autopilot → Advanced → Sources & rights): *watch folders* of your own recordings (a
+  file that is still growing is treated as a live recording), *YouTube channels* you follow (`UC...`), *stream URLs*
+  you may use (HLS/RTMP/SRT), and *signal feeds* (JSON/CSV) you are authorized to use. Each can carry a rights status.
+* **Rights rules** (same page): channels whose clipping program you joined (*Allowlisted*), licensed feeds
+  (*Licensed*), folders of your own recordings (*Owned*), or anything you must never use (*Blocked*), each with its
+  basis. Anything without a rule or an answer waits for you.
+* **Discovery** (Settings → Advanced → Discovery): a YouTube Data API key instead of the connected account, region,
+  language, topics, how often to look and how old a video may be.
+* **Schedule and limits** (Settings → Advanced → Autopilot details): time zone, active hours, minimum gap, per-platform
+  daily limits, sources per day, clips per source, minimum quality, platforms, replacement, live monitoring, learning,
+  the worker process, quotas and GPU.
+
+The worker runs in its own background process by default (Settings → Advanced → Autopilot details → Worker process), so a crash in a
 worker cannot take the app down. It is started and stopped with the app: when the app closes, the worker notices the
 missing heartbeat and exits within a minute. It can also be started on its own with `python -m clipfoundry workers`.
 
@@ -103,11 +139,11 @@ exactly and records the plan's hash with the file; your edits and alternative ve
 stored plan. Manual projects have no plan and render as before.
 
 **GPU.** One heavy GPU operation at a time, across processes (a lock file), with a wait for free VRAM
-(Settings → Autopilot → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2
+(Settings → Advanced → *Free GPU memory needed*). Transcription uses exactly the existing faster-whisper/CTranslate2
 CUDA path; Autopilot only waits for its turn. **Strict GPU:** when an NVIDIA GPU is expected and CUDA fails (or the
 GPU is present but unusable), Autopilot does not fall back to the CPU: the job pauses for 30 minutes without using
 an attempt and an action item says what failed and how to fix it. Live capture keeps recording meanwhile; the
-post-live pass transcribes the whole recording again on the GPU. Settings → Autopilot → *Allow CPU transcription*
+post-live pass transcribes the whole recording again on the GPU. Settings → Advanced → *Allow CPU transcription*
 lets it continue on the CPU instead (slower). Manual projects keep their visible CPU fallback. Local AI models (Ollama/LM Studio) share the same lock.
 
 **Downloads and addresses.** Autopilot fetches media and signals from URLs that come from data (a feed's rows, a
@@ -115,7 +151,7 @@ discovered source, a redirect), so every such URL is checked first (`netguard.py
 network stream protocols for live capture (never `file:`, `concat:`, `pipe:` or `data:` in ffmpeg), and the host
 must resolve to public addresses. Addresses you typed yourself (a source added by hand, a stream you configured, a
 signal feed's own URL) may point into your own network. Every redirect is checked, a download connects to exactly the
-address that was checked, and it stops at Settings → Autopilot → *Largest source* (8 GB and 240 minutes by default;
+address that was checked, and it stops at Settings → Advanced → *Largest source* (8 GB and 240 minutes by default;
 longer videos are not processed). A download that would leave less than 2 GB free on the data drive waits with an
 action item.
 
@@ -163,9 +199,10 @@ Every scheduled post, in order, with its video, text, platform, rights status, t
 * **STOP ALL JOBS** (Autopilot page): cancels queued work, asks running jobs to stop at their next safe point
   (including manual renders and uploads) and pauses everything until you press **Resume jobs**. Nothing is published
   while stopped. An upload that is already transferring stops between chunks; check the platform if one was in flight.
-* Per job: **Cancel**, **Retry** and the job **Log** (Autopilot → Jobs).
-* Per source: **Rights**, **Clip now**, **Skip**, **Add file**.
-* Settings → Autopilot has every target, limit and switch described above.
+* Per job: **Cancel**, **Retry** and the job **Log** (Autopilot → Advanced → Jobs).
+* Per source: **Rights**, **Clip now**, **Skip**, **Add file** (Autopilot → Advanced → Sources & rights).
+* Settings → General has on/off, the daily target and automatic publishing; Settings → Advanced has every other target,
+  limit and switch described above.
 
 ## Blocked or limited capabilities
 
@@ -217,16 +254,18 @@ Where they are served:
 
 | Problem | What to do |
 | --- | --- |
-| Workers show *not running* | Check the action items on the Autopilot page. If the worker process cannot start, switch Settings → Autopilot → Worker process to *Inside the app*. |
-| Nothing gets clipped | Sources need a passing rights status (Autopilot → Sources & rights) and a video file or allowed URL. *Needs file* means: add the file (*Add file*) or a watch folder. |
+| "Connect YouTube to start finding content." | Nothing can discover content yet: connect YouTube (or, under Advanced, add an API key, a watch folder or a feed). |
+| "No strong opportunities yet. ClipFoundry is still looking." | Discovery works, but nothing found so far is strong enough. It keeps looking; nothing to do. |
+| Workers show *not running* (Advanced → System details) | Check Needs you. If the worker process cannot start, switch Settings → Advanced → Worker process to *Inside the app*. |
+| Nothing gets clipped | Other creators' videos need your YES (Needs you) and, when they are hosted on YouTube, the original file (*Add the video file*). Your own recordings are clipped without questions when you add them as your own content (*+ Add content manually*). |
 | Jobs wait for the GPU | Another heavy GPU job (or another program) is using it; see the GPU card. Lower *Free GPU memory needed* only if you know the model fits. |
 | "fell back to CPU" on the GPU card | Run `gpu-check.bat` and follow the fix it prints (see INSTALL.md). |
-| "Autopilot transcription is paused: the GPU could not be used" | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can allow CPU transcription in Settings → Autopilot. |
+| "Autopilot transcription is paused: the GPU could not be used" | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can allow CPU transcription in Settings → Advanced → YouTube quota and GPU. |
 | Discovery stopped: quota | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
 | Posts wait in *Needs approval* | That is required by the platforms; approve them in the Publish Center. |
 | YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |
 | TikTok: privacy options disabled | Your TikTok app is not audited; only *Only me* is possible, or use *Send to TikTok inbox*. |
-| Something is running that should not | **STOP ALL JOBS**, then look at Autopilot → Jobs and the job logs. |
+| Something is running that should not | **STOP ALL JOBS**, then look at Autopilot → Advanced → Jobs and the job logs. |
 | After an update | Close the old console window, start again, reload the page (Ctrl+F5). |
 
 ## Phases
