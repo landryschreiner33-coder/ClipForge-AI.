@@ -273,7 +273,7 @@ function YouTubePanel({ duration, accounts, setAccounts, meta, ready, busy, onPu
       <AccountBadge platform="youtube" account={acc} />
       <ConnectButton platform="youtube" account={acc} onChange={setAccounts} />
     </>}>
-      {!acc?.configured && <div className="notice small block">Set up YouTube once in <a href="#/settings"><b>Settings → Publishing</b></a> (your own free Google Cloud app), then connect.</div>}
+      {!acc?.configured && <div className="notice small block">Set up YouTube once in <a href="#/settings"><b>Settings → Accounts</b></a> (your own free Google Cloud app), then connect.</div>}
       <div className="opt-row"><div className="lbl">Privacy</div>
         <div className="segmented">
           {(["public", "unlisted", "private"] as const).map((p) => (
@@ -360,7 +360,7 @@ function TikTokPanel({ duration, accounts, setAccounts, meta, ready, busy, onPub
       <AccountBadge platform="tiktok" account={acc} />
       <ConnectButton platform="tiktok" account={acc} onChange={setAccounts} />
     </>}>
-      {!acc?.configured && <div className="notice small block">Set up TikTok once in <a href="#/settings"><b>Settings → Publishing</b></a> (your own free TikTok developer app), then connect.</div>}
+      {!acc?.configured && <div className="notice small block">Set up TikTok once in <a href="#/settings"><b>Settings → Accounts</b></a> (your own free TikTok developer app), then connect.</div>}
       {connected && creator && (
         <div className="row small" style={{ marginBottom: 8 }}>
           {creator.avatar && <img className="avatar" src={creator.avatar} alt="" referrerPolicy="no-referrer" />}

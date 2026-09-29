@@ -48,7 +48,7 @@ export default function App() {
   else if (section === "project" && parts[1]) page = <ProjectView id={parts[1]} key={parts[1]} />;
   else if (section === "clip" && parts[1]) page = <ClipEditor id={parts[1]} key={parts[1]} />;
   else if (section === "publish" && parts[1]) page = <PublishPage id={parts[1]} key={parts[1]} />;
-  else if (section === "settings") page = <SettingsPage />;
+  else if (section === "settings") page = <SettingsPage tab={parts[1]} />;
   else if (section === "autopilot") page = <AutopilotPage tab={parts[1]} />;
   else if (section === "publish-center") page = <PublishCenter view={parts[1]} />;
   else page = <Dashboard />;

@@ -8,8 +8,11 @@ survives restarts.
   target is never reached by lowering the quality bar.
 * Final Opportunity Score = an explained, weighted mix of the Clip, Packaging, Trend, Source, Diversity, Expected
   Retention and Publish Opportunity scores. Better items get better slots; a trending clip is posted sooner.
-* Every post waits for your approval (YouTube and TikTok require users to control what is published). Approved posts
-  are published at their time without another click.
+* A post goes out only with an approval: yours, or the automatic-publishing permission you gave for a platform whose
+  rules allow it (autopublish.py: YouTube; TikTok requires your OK on each post). A post approved under that
+  permission is marked "approved automatically", never "approved by you", and only clips that passed every check
+  qualify. Approved posts are published at their time without another click.
+* The coverage's conditions are kept: a video an agreement allows only on some platforms is only planned there.
 * Dynamic replacement: a clearly stronger new opportunity takes the slot of the weakest future item that has not
   started. Nothing that is uploading or published is touched; an approved post is only swapped once you approve its
   replacement. Every replacement is written to the item's audit trail.
@@ -25,7 +28,7 @@ from pathlib import Path
 
 from .. import db
 from ..pipeline import artifact, fingerprint
-from . import gate, learner, queue, rights, state
+from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
 
@@ -212,6 +215,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
         for platform in platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
+            if not rights.platform_allowed(source, platform, settings)[0]:
+                continue  # e.g. an agreement that covers TikTok only
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
             if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
@@ -319,6 +324,8 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
                                                                         f"{final:.0f}"}]})
     state.event("scheduled", f"{c['platform']}: “{c['meta']['title'][:60]}” planned for "
                              f"{_label(planned_at, settings)}", ref_type="scheduled", ref_id=item["id"], final=final)
+    if auto_approve(item, settings, now):
+        return db.fetch("scheduled_publications", item["id"]) or item
     return item
 
 
@@ -420,6 +427,79 @@ def check_platform(item: dict, creator: dict | None = None) -> None:
                         float(clip.get("duration") or 0))
 
 
+def _note(item: dict, note: str) -> None:
+    if item.get("status_note") != note:
+        db.update("scheduled_publications", item["id"], status_note=note[:500])
+
+
+def auto_approve(item: dict, settings: dict, now: float) -> bool:
+    """Approve a post under your automatic-publishing permission, if the platform allows it and the clip qualifies.
+    It is recorded as approved automatically (with the permission), never as approved by you."""
+    from ..publish.common import PublishError
+
+    consent = autopublish.active(item["platform"])
+    if not consent or item["status"] != "awaiting_approval" or not item.get("planned_at"):
+        return False
+    if any(a.get("event") == "edited" for a in item.get("audit") or []):
+        return False  # you changed this post yourself: you decide when it is ready
+    cfg = consent.get("settings") or {}
+    clip = db.get_clip(item["clip_id"]) or {}
+    ok, why = autopublish.qualifies(gate.report_for(clip) if clip else None)
+    if not ok:
+        _note(item, f"Held for your review, not published automatically: {why}")
+        return False
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+    try:
+        rights.gate(source, "schedule", settings)
+    except rights.RightsBlocked:
+        return False
+    day = local_day(settings, item["planned_at"])
+    mine = [r for r in db.select("scheduled_publications", "platform = ? AND status IN ('approved', 'publishing', "
+                                                           "'reconciling', 'published') AND planned_at IS NOT NULL",
+                                 (item["platform"],))
+            if (r.get("approval") or {}).get("by") == "automatic" and local_day(settings, r["planned_at"]) == day]
+    if len(mine) >= int(cfg.get("daily_limit") or 0):
+        _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
+                    "is reached")
+        return False
+    updated = {**item, "privacy": cfg.get("visibility") or item.get("privacy"),
+               "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
+    try:
+        check_platform(updated)
+    except PublishError as exc:
+        _note(item, f"Held for your review: {exc}")
+        return False
+    when = autopublish.since(consent, settings)
+    approval = {"at": now, "by": "automatic", "consent_id": consent["id"], "hash": approval_hash(updated)}
+    db.update("scheduled_publications", item["id"], privacy=updated["privacy"], options=updated["options"],
+              status="approved", approval=approval, last_error="", fix="",
+              status_note=f"Approved automatically (automatic publishing, on since {when}). You can cancel it until it "
+                          "goes out.",
+              audit=_audit(item, "auto_approved", f"Approved automatically under the automatic-publishing permission "
+                                                  f"you gave on {when} (not reviewed by you)", consent=consent["id"],
+                           privacy=updated["privacy"]))
+    state.event("auto_approved", f"{item['platform']}: “{item['title'][:60]}” approved automatically",
+                ref_type="scheduled", ref_id=item["id"])
+    if item.get("replaces"):
+        _take_slot(item["id"], updated, now, "approved automatically")
+    return True
+
+
+def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
+    """An approved replacement takes the slot of the weaker post it was proposed for (if that one has not started)."""
+    weak = db.fetch("scheduled_publications", updated["replaces"])
+    if weak and weak["status"] in ("awaiting_approval", "approved") and weak["planned_at"] > now + 60 * LOCK_MINUTES:
+        db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
+                  status_note=f"Replaced by a stronger opportunity ({how})",
+                  audit=_audit(weak, "replaced", f"Replaced by a stronger opportunity ({how})", by=item_id))
+        state.event("replaced", f"“{weak['title'][:60]}” replaced by “{updated['title'][:60]}”",
+                    ref_type="scheduled", ref_id=weak["id"], by=item_id)
+    elif weak and weak["status"] in ACTIVE + DONE:
+        db.update("scheduled_publications", item_id, replaces="", planned_at=None,
+                  status_note="The post it would have replaced already started; a new time will be chosen")
+
+
 def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
     item = db.fetch("scheduled_publications", item_id)
@@ -443,17 +523,7 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
               "Approved: publishing now",
               audit=_audit(item, "approved", "Approved by you", privacy=updated["privacy"]))
     if item.get("replaces"):
-        weak = db.fetch("scheduled_publications", item["replaces"])
-        if weak and weak["status"] in ("awaiting_approval", "approved") and \
-                weak["planned_at"] > now + 60 * LOCK_MINUTES:
-            db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
-                      status_note="Replaced by a stronger opportunity you approved",
-                      audit=_audit(weak, "replaced", "Replaced by an approved, stronger opportunity", by=item_id))
-            state.event("replaced", f"“{weak['title'][:60]}” replaced by “{updated['title'][:60]}”",
-                        ref_type="scheduled", ref_id=weak["id"], by=item_id)
-        elif weak and weak["status"] in ACTIVE + DONE:
-            db.update("scheduled_publications", item_id, replaces="", planned_at=None,
-                      status_note="The post it would have replaced already started; a new time will be chosen")
+        _take_slot(item_id, updated, now, "you approved it")
     state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved", ref_type="scheduled",
                 ref_id=item_id)
     return db.fetch("scheduled_publications", item_id) or item
@@ -506,6 +576,13 @@ def cancel(item_id: str, reason: str = "Canceled by you") -> dict:
     for j in queue.jobs(("queued", "retrying", "waiting"), ref=("scheduled", item_id)):
         queue.cancel(j["id"], reason)
     return db.fetch("scheduled_publications", item_id) or item
+
+
+def _awaiting_by_platform() -> dict[str, int]:
+    with db.connect() as conn:
+        rows = conn.execute("SELECT platform, COUNT(*) AS n FROM scheduled_publications WHERE status = "
+                            "'awaiting_approval' GROUP BY platform").fetchall()
+    return {r["platform"]: r["n"] for r in rows}
 
 
 # ------------------------------------------------------------------ the tick
@@ -566,6 +643,12 @@ def process_due(settings: dict, now: float) -> dict:
                           status_note="The clip or its text changed after approval: approve it again",
                           audit=_audit(item, "approval_invalidated", "Content changed after approval"))
                 continue
+            if not autopublish.still_covers(item):
+                db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
+                          status_note="Automatic publishing was turned off or changed: approve it yourself",
+                          audit=_audit(item, "approval_invalidated", "The automatic-publishing permission that "
+                                                                     "approved it is no longer in force"))
+                continue
             if not settings.get("autopilot_auto_publish"):
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
@@ -576,6 +659,8 @@ def process_due(settings: dict, now: float) -> dict:
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1
+        elif item["planned_at"] > now and auto_approve(item, settings, now):
+            continue
         elif item["planned_at"] < now:
             waiting += 1
             if now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
@@ -598,11 +683,18 @@ def process_due(settings: dict, now: float) -> dict:
             db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1], replaces="",
                       audit=_audit(item, "rescheduled", f"New time {slot[1]['local']}"))
             plan.add({**item, "planned_at": slot[0], "replaces": ""})
-    pending = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE status = 'awaiting_approval'") or 0)
-    if pending:
-        state.action("approvals", "approve", f"{pending} post{'s' if pending != 1 else ''} waiting for your approval",
-                     "YouTube and TikTok require that you approve what is published. Approved posts go out at "
-                     "their time automatically.", "Open the Publish Center, review and approve.")
+    by_platform = _awaiting_by_platform()
+    # posts held back under automatic publishing are there for you to look at, not a problem that needs you
+    need = {p: n for p, n in by_platform.items() if not autopublish.active(p)}
+    pending = sum(by_platform.values())
+    if need:
+        n = sum(need.values())
+        only_tiktok = set(need) == {"tiktok"}
+        state.action("approvals", "approve", f"{n} {'TikTok ' if only_tiktok else ''}post{'s' if n != 1 else ''} "
+                                             "waiting for your OK",
+                     ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
+                     ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "") +
+                     "Approved posts go out at their time automatically.", "Open the Publish Center, review and approve.")
     else:
         state.resolve("approvals")
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,

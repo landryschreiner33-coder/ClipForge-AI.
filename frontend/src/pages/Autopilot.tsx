@@ -1,28 +1,39 @@
 import { ReactNode, useState } from "react";
-import { errorText, timeAgo } from "../api";
+import { Accounts, api, errorText, Platform, PlatformAccount, timeAgo } from "../api";
 import {
-  ActionItem, ap, AutopilotStatus, Feed, Job, Metric, ProviderStatus, RIGHTS_BADGE, RIGHTS_LABEL, RightsRule, Source,
-  TrendSignal, WORKER_BADGE,
+  ActionItem, ActivityItem, Agreement, AgreementIn, ap, AutopilotStatus, Feed, ITEM_STATUS, Job, Metric, NeedsYouItem,
+  ProviderStatus, RIGHTS_BADGE, RIGHTS_LABEL, RightsRule, Source, TrendSignal, WORKER_BADGE,
 } from "../autopilot";
-import { Icon, Modal, toast, Toggle, usePoll } from "../components/ui";
+import { ConnectButton, PLATFORM_NAME, SetupAndConnect } from "../components/accounts";
+import { AutoPublishLine } from "../components/autoPublish";
+import { Icon, Modal, Segmented, toast, Toggle, usePoll } from "../components/ui";
 
-const TABS = [
-  { value: "overview", label: "Overview" },
+/** The technical pages, for advanced users. Normal use needs none of them. */
+const ADVANCED = [
+  { value: "system", label: "System details" },
   { value: "sources", label: "Sources & rights" },
   { value: "jobs", label: "Jobs" },
   { value: "learning", label: "Learning" },
 ];
+const OLD_SLUGS: Record<string, string> = { overview: "system" };
+const PLATFORMS: Platform[] = ["youtube", "tiktok"];
 
-/** Autopilot dashboard: on/off, STOP ALL JOBS, daily target, workers, GPU, platforms, quota, rights and trends. */
+/**
+ * Autopilot. First time: connect YouTube, connect TikTok, choose topics, START AUTOPILOT. After that: a simple page with
+ * START / PAUSE, what it is doing, today's clips, the next posts, the accounts and what needs you. Workers, sources,
+ * rights rules, agreements, jobs and STOP ALL JOBS live under Advanced.
+ */
 export default function AutopilotPage({ tab: wanted }: { tab?: string }) {
-  const tab = TABS.some((x) => x.value === wanted) ? wanted! : "overview";
+  const slug = OLD_SLUGS[wanted || ""] || wanted || "";
+  const advanced = ADVANCED.some((x) => x.value === slug) ? slug : "";
   const setTab = (v: string) => { window.location.hash = `#/autopilot/${v}`; };
   const { data: st, refresh, setData } = usePoll(() => ap.status(), [], 3000, () => true);
+  const [adding, setAdding] = useState(false);
 
   const toggle = async (on: boolean) => {
     try {
       setData(await ap.enable(on));
-      toast(on ? "Autopilot is on" : "Autopilot is off: queued work waits");
+      toast(on ? "Autopilot is on" : "Autopilot is paused: queued work waits");
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -44,45 +55,477 @@ export default function AutopilotPage({ tab: wanted }: { tab?: string }) {
   };
 
   if (!st) return <div className="page"><div className="spinner" /></div>;
-  const t = st.target;
-  const pct = Math.min(100, (100 * t.published) / Math.max(1, t.daily));
+  const firstRun = !advanced && !st.enabled && !st.home.setup.started;
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Autopilot</h1>
-          <p>Discovers opportunities, clips authorized sources, packages and schedules them; publishes the posts you approve; learns from real results.</p>
+          <p>{advanced ? "System details for advanced users. Normal use never needs these." : "Connect your accounts, turn it on, and ClipFoundry does the work."}</p>
         </div>
         <div className="row wrap">
-          <div className={`ap-switch ${st.enabled ? "on" : ""}`}>
-            <Toggle on={st.enabled} onChange={toggle} label={<b>AUTOPILOT {st.enabled ? "ON" : "OFF"}</b>} />
-          </div>
+          {!firstRun && !st.paused && (
+            <>
+              <span className={`badge ap-state ${st.enabled ? "good" : ""}`}>AUTOPILOT {st.enabled ? "ON" : "PAUSED"}</span>
+              {st.enabled
+                ? <button className="btn ap-toggle" aria-pressed="true" onClick={() => toggle(false)}><Icon name="stop" size={12} fill /> PAUSE AUTOPILOT</button>
+                : <button className="btn primary ap-toggle" aria-pressed="false" onClick={() => toggle(true)}><Icon name="play" size={14} /> START AUTOPILOT</button>}
+            </>
+          )}
           {st.paused ? (
             <button className="btn primary" onClick={resume}><Icon name="play" size={14} /> Resume jobs</button>
-          ) : (
+          ) : advanced ? (
             <button className="btn stop" onClick={stopAll}><Icon name="stop" size={14} fill /> STOP ALL JOBS</button>
-          )}
+          ) : null}
         </div>
       </div>
 
       {st.paused && <div className="notice bad"><Icon name="x" size={16} /><div><b>All jobs are stopped.</b> Nothing runs or publishes until you press Resume jobs.</div></div>}
-      {!st.enabled && !st.paused && <div className="notice"><Icon name="cpu" size={16} /><div>Autopilot is off. Queued work waits; jobs you start by hand still run. Settings → Autopilot has the controls.</div></div>}
+      {!st.enabled && !st.paused && !firstRun && <div className="notice"><Icon name="cpu" size={16} /><div>Autopilot is paused. Nothing new is found, clipped or posted until you press START AUTOPILOT; things you start by hand still run.</div></div>}
 
-      <div className="segmented" style={{ marginBottom: 18 }}>
-        {TABS.map((x) => <button key={x.value} className={tab === x.value ? "on" : ""} onClick={() => setTab(x.value)}>{x.label}</button>)}
-      </div>
-
-      {tab === "overview" && <Overview st={st} pct={pct} refresh={refresh} />}
-      {tab === "sources" && <SourcesTab />}
-      {tab === "jobs" && <JobsTab />}
-      {tab === "learning" && <LearningTab />}
+      {advanced ? (
+        <>
+          <a className="btn sm ghost adv-back" href="#/autopilot"><Icon name="back" size={14} /> Back to Autopilot</a>
+          <div className="segmented" style={{ marginBottom: 18 }}>
+            {ADVANCED.map((x) => <button key={x.value} className={advanced === x.value ? "on" : ""} onClick={() => setTab(x.value)}>{x.label}</button>)}
+          </div>
+          {advanced === "system" && <SystemDetails st={st} refresh={refresh} />}
+          {advanced === "sources" && <SourcesTab />}
+          {advanced === "jobs" && <JobsTab />}
+          {advanced === "learning" && <LearningTab />}
+        </>
+      ) : firstRun ? (
+        <Onboarding st={st} refresh={refresh} onStarted={setData} onAddContent={() => setAdding(true)} />
+      ) : (
+        <Home st={st} refresh={refresh} onAddContent={() => setAdding(true)} />
+      )}
+      {adding && <AddContentDialog onClose={() => setAdding(false)} onDone={refresh} />}
     </div>
   );
 }
 
-function Overview({ st, pct, refresh }: { st: AutopilotStatus; pct: number; refresh: () => void }) {
+// ------------------------------------------------------------------ connecting an account
+/** CONNECT: signs in right away when the platform is set up; otherwise asks for your app's two codes first. */
+function ConnectAction({ platform, account, onChange, big }: { platform: Platform; account: PlatformAccount; onChange: (a?: Accounts) => void; big?: boolean }) {
+  const [setup, setSetup] = useState(false);
+  if (account.configured) return <ConnectButton platform={platform} account={account} onChange={onChange} big={big} />;
+  return (
+    <>
+      <button className={`btn primary ${big ? "lg" : ""}`} onClick={() => setSetup(true)}><Icon name="link" size={16} /> CONNECT {PLATFORM_NAME[platform].toUpperCase()}</button>
+      {setup && (
+        <Modal onClose={() => setSetup(false)}>
+          <div className="confirm" style={{ width: "min(620px, 94vw)" }}>
+            <h3 style={{ marginTop: 0 }}>Connect {PLATFORM_NAME[platform]}</h3>
+            <SetupAndConnect platform={platform} account={account} onChange={(a) => { setSetup(false); onChange(a); }} />
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+const connectedOk = (a?: PlatformAccount) => !!a?.connected && !a.needs_reconnect;
+
+// ------------------------------------------------------------------ first run
+const TOPIC_CHOICES = ["podcasts", "interviews", "comedy", "sports", "gaming", "science", "business", "education", "news", "technology"];
+const splitTopics = (t: string) => t.split(",").map((x) => x.trim()).filter(Boolean);
+
+/** The one topic choice: a suggested list you can change by clicking or typing. */
+function TopicChoice({ topics, setTopics }: { topics: string; setTopics: (t: string) => void }) {
+  const list = splitTopics(topics);
+  const has = (t: string) => list.some((x) => x.toLowerCase() === t);
+  const flip = (t: string) => setTopics((has(t) ? list.filter((x) => x.toLowerCase() !== t) : [...list, t]).join(", "));
+  return (
+    <div className="topic-choice">
+      <div className="row wrap">
+        {TOPIC_CHOICES.map((t) => <button key={t} type="button" className={`chip ${has(t) ? "on" : ""}`} aria-pressed={has(t)} onClick={() => flip(t)}>{t}</button>)}
+      </div>
+      <input type="text" className="mt-s" aria-label="Topics" value={topics} onChange={(e) => setTopics(e.target.value)} placeholder="podcasts, interviews, comedy" />
+    </div>
+  );
+}
+
+function Onboarding({ st, refresh, onStarted, onAddContent }: { st: AutopilotStatus; refresh: () => void; onStarted: (s: AutopilotStatus) => void; onAddContent: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [topics, setTopics] = useState(st.home.setup.topics || "podcasts, interviews, comedy");
+  const start = async () => {
+    setBusy(true);
+    try {
+      onStarted(await ap.start(topics));
+      toast("Autopilot is on");
+    } catch (e) {
+      toast(errorText(e), true);
+      setBusy(false);
+    }
+  };
+  const any = st.home.setup.connected.length > 0;
+  const why: Record<Platform, string> = {
+    youtube: "Finds trending videos and posts your YouTube Shorts.",
+    tiktok: "Posts to TikTok. Optional: you can use one platform without the other.",
+  };
+  return (
+    <div className="card onboard">
+      <div className="kicker">CLIPFOUNDRY AUTOPILOT</div>
+      <h2>A few steps. Then ClipFoundry does the work.</h2>
+      <p className="muted">It finds promising videos, keeps only the ones you may use and can get the file for, makes and checks the clips, writes titles and captions and schedules the posts. YouTube can post by itself once you allow it; TikTok asks for your OK on each post (its rules).</p>
+      <div className="ob-steps">
+        {PLATFORMS.map((p, k) => (
+          <div key={p} className="ob-step">
+            <span className={`ob-n ${connectedOk(st.platforms[p]) ? "done" : ""}`}>{connectedOk(st.platforms[p]) ? <Icon name="check" size={16} /> : k + 1}</span>
+            <div className="ob-body">
+              <span className="small muted">Step {k + 1}</span>
+              <b>Connect {PLATFORM_NAME[p]}</b>
+              <div className="small muted">{connectedOk(st.platforms[p]) ? `Connected: ${st.platforms[p].name || st.platforms[p].account_id}` : why[p]}</div>
+            </div>
+            {connectedOk(st.platforms[p]) ? <span className="badge good">Connected</span> : <ConnectAction platform={p} account={st.platforms[p]} onChange={refresh} big />}
+          </div>
+        ))}
+        <div className="ob-step ob-topics">
+          <span className="ob-n">3</span>
+          <div className="ob-body">
+            <span className="small muted">Step 3</span>
+            <b>Choose topics</b>
+            <div className="small muted">What should it look for? A suggestion is filled in; change it if you like.</div>
+            <TopicChoice topics={topics} setTopics={setTopics} />
+          </div>
+        </div>
+        <div className="ob-step">
+          <span className="ob-n">4</span>
+          <div className="ob-body">
+            <span className="small muted">Step 4</span>
+            <b>Start Autopilot</b>
+            <div className="small muted">{any
+              ? "It uses the accounts you connected. To let YouTube posts go out without your review, turn on automatic publishing afterwards (it asks what you allow)."
+              : "Connect YouTube so Autopilot can find trending videos. You can also start now and add your own videos."}</div>
+          </div>
+          <button className="btn primary xl" disabled={busy || !splitTopics(topics).length} onClick={start}>START AUTOPILOT</button>
+        </div>
+      </div>
+      <div className="row wrap mt">
+        <button className="btn sm ghost" onClick={onAddContent}>+ Add content manually</button>
+        <a className="btn sm ghost" href="#/autopilot/system">Advanced</a>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ the simple page
+/** "4:20 PM", "Tomorrow 9:05 AM" or "Fri 9:05 AM", in Autopilot's time zone. */
+function postTime(ts: number | null, tz: string): string {
+  if (!ts) return "Time not chosen yet";
+  const zone = (() => {
+    try {
+      new Intl.DateTimeFormat([], { timeZone: tz });
+      return tz;
+    } catch {
+      return undefined;
+    }
+  })();
+  const d = new Date(ts * 1000);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: zone });
+  const day = (x: Date) => x.toLocaleDateString("en-CA", { timeZone: zone });
+  if (day(d) === day(new Date())) return time;
+  if (day(d) === day(new Date(Date.now() + 86_400_000))) return `Tomorrow ${time}`;
+  return `${d.toLocaleDateString([], { weekday: "short", timeZone: zone })} ${time}`;
+}
+
+function PlatformLine({ platform, st, refresh }: { platform: Platform; st: AutopilotStatus; refresh: () => void }) {
+  const acc = st.platforms[platform];
+  const used = !!st.settings[`autopilot_${platform}`];
+  const use = async () => {
+    try {
+      await api.saveSettings({ [`autopilot_${platform}`]: true });
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    refresh();
+  };
+  let state: ReactNode;
+  if (acc.connected && acc.needs_reconnect) state = <><span className="badge bad">Reconnect needed</span><ConnectButton platform={platform} account={acc} onChange={refresh} /></>;
+  else if (acc.connected) state = used ? <span className="badge good">Connected</span>
+    : <><span className="badge">Connected, not used</span><button className="btn sm" onClick={use}>Use it</button></>;
+  else state = <><span className="badge">Not connected</span><ConnectAction platform={platform} account={acc} onChange={use} /></>;
+  return <div className="home-platform"><b>{PLATFORM_NAME[platform]}</b>{state}</div>;
+}
+
+const STAGE_BADGE = (stage: string) => /needs/i.test(stage) ? "warn" : /made|done/i.test(stage) ? "good"
+  : /next|up next|getting|finding/i.test(stage) ? "info" : /skipped|could not|no strong/i.test(stage) ? "" : "";
+
+function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () => void; onAddContent: () => void }) {
+  const h = st.home;
   const t = st.target;
+  const on = st.enabled && !st.paused;
+  return (
+    <>
+      <div className="card ap-home">
+        <div className="home-grid">
+          <div className="home-cell">
+            <span className="home-k">Today</span>
+            <div className="home-today"><b>{t.processed}</b> / {t.daily} <span>clips</span></div>
+            <div className="small muted">{t.published} posted · {t.scheduled} scheduled</div>
+          </div>
+          <div className="home-cell">
+            <span className="home-k">Currently</span>
+            <div className="home-now">{on && <span className="pulse" />}{h.currently}</div>
+          </div>
+          <div className="home-cell">
+            <span className="home-k">Next post</span>
+            <div className="home-now">{st.next ? postTime(st.next.planned_at, st.timezone) : "Nothing planned yet"}</div>
+            {st.next && <div className="small muted">{PLATFORM_NAME[st.next.platform]} · “{st.next.title.length > 50 ? `${st.next.title.slice(0, 48).trim()}…` : st.next.title}”</div>}
+          </div>
+          <div className="home-cell">
+            {PLATFORMS.map((p) => <PlatformLine key={p} platform={p} st={st} refresh={refresh} />)}
+          </div>
+        </div>
+      </div>
+
+      <NeedsYou items={h.needs_you} platforms={st.platforms} refresh={refresh} />
+
+      <div className="grid grid-2 mt">
+        <div className="card">
+          <h3>Top opportunities</h3>
+          <div className="small muted home-estimate">Scores are ClipFoundry's estimates, not platform numbers.</div>
+          {h.opportunities.length ? (
+            <div className="trends">
+              {h.opportunities.map((o) => (
+                <div key={o.id} className="trend">
+                  <span className={`score ${o.score >= 75 ? "hi" : o.score >= 50 ? "mid" : "lo"}`} title="How strong the opportunity looks (ClipFoundry's estimate)">{o.score}</span>
+                  <div className="trend-body">
+                    <a href={o.url || undefined} target="_blank" rel="noreferrer"><b>{o.title}</b></a>
+                    <div className="small muted">{o.channel}{o.kind === "live" ? " · LIVE" : ""}{o.topic ? ` · ${o.topic}` : ""}</div>
+                  </div>
+                  <span className={`badge ${STAGE_BADGE(o.stage)}`}>{o.stage}</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="muted empty-msg">{h.empty}</p>}
+        </div>
+        <div className="card">
+          <div className="row between"><h3 style={{ margin: 0 }}>Upcoming posts</h3><a className="btn sm" href="#/publish-center">Open Publish Center</a></div>
+          <div className="upcoming mt-s">
+            {h.upcoming.map((u) => {
+              const [label, cls] = u.on_platform ? [`Uploaded: ${PLATFORM_NAME[u.platform]} posts it`, "good"]
+                : u.auto && u.status === "approved" ? ["Approved automatically", "good"] : ITEM_STATUS[u.status] || [u.status, ""];
+              return (
+                <div key={u.id} className="up-row" data-auto={u.auto ? "1" : "0"}>
+                  <span className="up-time">{postTime(u.planned_at, st.timezone)}</span>
+                  <span className="badge">{PLATFORM_NAME[u.platform]}</span>
+                  <span className="up-title">{u.title}</span>
+                  <span className={`badge ${cls}`}>{label}</span>
+                </div>
+              );
+            })}
+            {!h.upcoming.length && <p className="muted">No posts planned yet. Finished clips show up here with their posting time.</p>}
+          </div>
+          <div className="home-publish mt">
+            <span className="home-k">How posts go out</span>
+            <AutoPublishLine onChange={refresh} />
+          </div>
+        </div>
+      </div>
+
+      <ActivityLog skipped={h.skipped_today} refresh={refresh} />
+
+      <div className="notice small mt pc-note"><Icon name="cpu" size={14} /><div>{h.pc_note}</div></div>
+
+      <div className="row wrap mt">
+        <button className="btn" onClick={onAddContent}>+ Add content manually</button>
+        <a className="btn ghost" href="#/autopilot/system"><Icon name="cpu" size={14} /> Advanced</a>
+      </div>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ the activity log (optional reading)
+function ActivityLog({ skipped, refresh }: { skipped: number; refresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<ActivityItem[] | null>(null);
+  const load = async () => {
+    try {
+      setItems((await ap.activity()).items);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
+  const show = () => {
+    setOpen(!open);
+    if (!open) load();
+  };
+  const addFile = async (a: ActivityItem) => {
+    const path = window.prompt("Full path of the video file on this computer (for example C:\\Users\\you\\Videos\\talk.mp4):");
+    if (!path) return;
+    try {
+      await ap.attachFile(a.id, path.trim().replace(/^"|"$/g, ""));
+      toast("File added: Autopilot will clip it");
+      load();
+      refresh();
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+  };
+  return (
+    <div className="card mt activity-log">
+      <div className="row between wrap">
+        <div>
+          <h3 style={{ margin: 0 }}>Activity</h3>
+          <div className="small muted">{skipped
+            ? `${skipped} video${skipped !== 1 ? "s" : ""} skipped in the last 24 hours (not covered, no allowed way to get the file, too short or a repeat). Nothing to do: Autopilot keeps looking.`
+            : "What Autopilot did with the videos it found, and why it skipped any."}</div>
+        </div>
+        <button className="btn sm" aria-expanded={open} onClick={show}>{open ? "Hide activity" : "Show activity"}</button>
+      </div>
+      {open && (
+        <div className="activity mt">
+          {items === null && <div className="spinner" />}
+          {items?.map((a) => (
+            <div key={a.id} className={`activity-row ${a.used ? "used" : "skipped"}`}>
+              <span className={`badge ${a.used ? "good" : ""}`}>{a.used ? a.stage : "Skipped"}</span>
+              <div className="activity-body">
+                <a href={a.url || undefined} target="_blank" rel="noreferrer"><b>{a.title}</b></a>
+                <div className="small muted">{[a.channel, a.rights, a.access].filter(Boolean).join(" · ")}</div>
+                {!a.used && <div className="small">{a.why}</div>}
+              </div>
+              <span className="small muted">{timeAgo(a.at)}</span>
+              {a.can_add_file && <button className="btn sm" onClick={() => addFile(a)}>Add the file</button>}
+            </div>
+          ))}
+          {items && !items.length && <div className="muted small">Nothing yet.</div>}
+          <div className="small muted mt-s">Videos from creators you have an agreement with are used without asking: record agreements under <a href="#/autopilot/sources">Advanced → Sources & rights</a>.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ needs you
+function NeedsYou({ items, platforms, refresh }: { items: NeedsYouItem[]; platforms: AutopilotStatus["platforms"]; refresh: () => void }) {
+  return (
+    <div className="card mt needs-you">
+      <h3>Needs you {items.length > 0 && <span className="badge warn">{items.length}</span>}</h3>
+      {items.length ? <div className="actions">{items.map((i) => <NeedsYouRow key={i.key} item={i} platforms={platforms} refresh={refresh} />)}</div>
+        : <div className="muted">Nothing right now. ClipFoundry asks here only when it really needs you.</div>}
+    </div>
+  );
+}
+
+function NeedsYouRow({ item, platforms, refresh }: { item: NeedsYouItem; platforms: AutopilotStatus["platforms"]; refresh: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const act = async (fn: () => Promise<unknown>, msg: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast(msg);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+    refresh();
+  };
+  const src = item.source;
+  const view = src?.url ? <a className="btn sm ghost" href={src.url} target="_blank" rel="noreferrer">VIEW SOURCE</a> : null;
+  const dismiss = <button className="btn sm ghost" disabled={busy} onClick={() => act(() => ap.dismiss(item.key), "Hidden for now")}>Not now</button>;
+  let buttons: ReactNode;
+  if (item.type === "rights" && src) {
+    buttons = (
+      <>
+        <button className="btn sm primary" disabled={busy} onClick={() => act(() => ap.permission(src.id, true), "Thanks: Autopilot will use it")}>YES, I HAVE PERMISSION</button>
+        <button className="btn sm" disabled={busy} onClick={() => act(() => ap.permission(src.id, false), "Got it: it will not be used")}>NO</button>
+        {view}
+      </>
+    );
+  } else if (item.type === "file" && src) {
+    buttons = (
+      <>
+        <button className="btn sm primary" disabled={busy} onClick={() => {
+          const path = window.prompt("Full path of the video file on this computer (for example C:\\Users\\you\\Videos\\talk.mp4):");
+          if (path) act(() => ap.attachFile(src.id, path.trim().replace(/^"|"$/g, "")), "File added: Autopilot will clip it");
+        }}>ADD THE VIDEO FILE</button>
+        <button className="btn sm" disabled={busy} onClick={() => act(() => ap.skipSource(src.id), "Skipped")}>SKIP THIS VIDEO</button>
+        {view}
+      </>
+    );
+  } else if (item.type === "account" && item.platform) {
+    const again = item.title.startsWith("Reconnect");
+    buttons = <ConnectAction platform={item.platform} account={{ ...platforms[item.platform], connected: false, needs_reconnect: again }} onChange={refresh} />;
+  } else {
+    buttons = <>{item.link && <a className="btn sm" href={item.link}>{item.type === "approve" ? "REVIEW POSTS" : "OPEN"}</a>}{dismiss}</>;
+  }
+  return (
+    <div className={`action ${item.type === "gpu" || item.type === "account" ? "error" : "action"}`} data-type={item.type}>
+      <div>
+        <b>{item.title}</b>
+        {src && item.type === "rights" && <div className="needs-src">“{src.title}”{src.channel ? <span className="muted"> · {src.channel}</span> : null}</div>}
+        {item.question && <div className="needs-q">{item.question}</div>}
+        {item.detail && <div className="small">{item.detail}</div>}
+        {item.fix && <div className="small muted">What to do: {item.fix}</div>}
+      </div>
+      <div className="row wrap needs-buttons">{buttons}</div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ adding content by hand (optional)
+const CAN_USE = [
+  { value: "OWNED", label: "Yes, it's my own content" },
+  { value: "ALLOWLISTED", label: "Yes, I have permission from the creator" },
+  { value: "", label: "Not sure: ask me later" },
+];
+
+function AddContentDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState("link");
+  const [where, setWhere] = useState("");
+  const [title, setTitle] = useState("");
+  const [canUse, setCanUse] = useState<string | null>(null);
+  const basis = canUse === "OWNED" ? "My own content (added by hand)" : "You said you have permission from the creator (added by hand)";
+  const save = async () => {
+    if (mode === "upload") {
+      window.location.hash = "#/create";
+      return;
+    }
+    if (!where.trim()) throw new Error(mode === "link" ? "Paste the link first" : mode === "folder" ? "Enter the folder first" : "Enter the file's path first");
+    if (canUse === null) throw new Error("Say whether ClipFoundry may use it");
+    const path = where.trim().replace(/^"|"$/g, "");
+    if (mode === "folder") {
+      await ap.addFeed({ kind: "watch_folder", name: title || "My videos", config: { path }, rights_status: canUse, rights_basis: canUse ? basis : "" });
+    } else {
+      await ap.addSource({ [mode === "link" ? "url" : "path"]: path, title, rights_status: canUse, basis: canUse ? basis : "" });
+    }
+    toast(canUse ? "Added: Autopilot will pick it up" : "Added: Autopilot will ask you before using it");
+    onDone();
+  };
+  return (
+    <Dialog title="Add content manually" label={mode === "upload" ? "Open Create" : "Add"} onClose={onClose} onSave={save}>
+      <p className="small muted">Optional: Autopilot finds content by itself. Use this for your own videos or links you may use.</p>
+      <Segmented value={mode} onChange={setMode} options={[
+        { value: "link", label: "Paste a link" }, { value: "file", label: "A video on this computer" },
+        { value: "folder", label: "Watch a folder" }, { value: "upload", label: "Upload a video" },
+      ]} />
+      {mode === "upload" ? (
+        <p className="small mt">Upload a video on the Create page and make clips from it yourself.</p>
+      ) : (
+        <>
+          <label className="field mt">{mode === "link" ? "Link to the video" : mode === "folder" ? "Folder on this computer (new videos in it are clipped)" : "Full path of the video file"}
+            <input type="text" value={where} onChange={(e) => setWhere(e.target.value)} placeholder={mode === "link" ? "https://..." : mode === "folder" ? "C:\\Users\\you\\Videos\\Recordings" : "C:\\Users\\you\\Videos\\talk.mp4"} />
+          </label>
+          <label className="field mt-s">Name <span className="small muted">optional</span><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+          <div className="radio-block mt">Can ClipFoundry use it?
+            <div className="radio-list">
+              {CAN_USE.map((c) => (
+                <label key={c.value} className="row small"><input type="radio" name="canuse" checked={canUse === c.value} onChange={() => setCanUse(c.value)} /> {c.label}</label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+// ------------------------------------------------------------------ advanced: system details
+function SystemDetails({ st, refresh }: { st: AutopilotStatus; refresh: () => void }) {
+  const t = st.target;
+  const pct = Math.min(100, (100 * t.published) / Math.max(1, t.daily));
   const nxt = st.next;
   return (
     <>
@@ -108,7 +551,7 @@ function Overview({ st, pct, refresh }: { st: AutopilotStatus; pct: number; refr
 
       {st.actions.length > 0 && (
         <div className="card">
-          <h3>Needs you ({st.actions.length})</h3>
+          <h3>All action items ({st.actions.length})</h3>
           <div className="actions">{st.actions.map((a) => <ActionRow key={a.id} a={a} onDone={refresh} />)}</div>
         </div>
       )}
@@ -297,7 +740,7 @@ export function TrendsCard({ trends, providers }: { trends: TrendSignal[]; provi
             </div>
           </div>
         ))}
-        {!trends.length && <div className="muted small">No signals yet. Add a YouTube API key (Settings → Autopilot → Discovery), a watch folder or a feed.</div>}
+        {!trends.length && <div className="muted small">Nothing found yet. Connect YouTube (Settings → General → Accounts) or add a YouTube API key (Settings → Advanced → Discovery).</div>}
       </div>
       <div className="small muted mt-s">Observed = as the platform reported it · estimated = calculated by ClipFoundry · — = not reported. Scores are ClipFoundry's own, not platform metrics.</div>
     </div>
@@ -313,8 +756,9 @@ function SourcesTab() {
   const { data: sources, refresh } = usePoll(() => ap.sources(filter), [filter], 5000, () => true);
   const { data: rights, refresh: refreshRights } = usePoll(() => ap.rights(), [], 30000, () => false);
   const { data: feeds, refresh: refreshFeeds } = usePoll(() => ap.feeds(), [], 15000, () => true);
+  const { data: agreements, refresh: refreshAgreements } = usePoll(() => ap.agreements(), [], 30000, () => false);
   const [confirming, setConfirming] = useState<Source | null>(null);
-  const [adding, setAdding] = useState<"" | "feed" | "rule" | "source">("");
+  const [adding, setAdding] = useState<"" | "feed" | "rule" | "source" | "agreement">("");
   const act = async (fn: () => Promise<unknown>, msg: string) => {
     try {
       await fn();
@@ -322,13 +766,36 @@ function SourcesTab() {
       refresh();
       refreshRights();
       refreshFeeds();
+      refreshAgreements();
     } catch (e) {
       toast(errorText(e), true);
     }
   };
   return (
     <>
-      <div className="grid grid-2">
+      <div className="card agreements">
+        <div className="row between"><h3 style={{ margin: 0 }}>Creator agreements</h3><button className="btn sm primary" onClick={() => setAdding("agreement")}>+ Record an agreement</button></div>
+        <p className="small muted">A creator who allows you to clip their videos (an agreement, or a clipping program you joined): record it once, with what shows it and its conditions, and every video it covers is used without asking. It covers the creator's own material only, unless you say it also covers other people's music or footage.</p>
+        {(agreements || []).map((a: Agreement) => (
+          <div key={a.id} className="feed">
+            <div>
+              <b>{a.creator}</b> <span className="small muted">{[...a.channels, a.conditions.media_folder && "shared folder", a.conditions.media_url_prefix && "file link"].filter(Boolean).join(" · ")}</span>
+              <div className="small muted">
+                {a.conditions.commercial ? "Commercial use allowed" : "No commercial use"}
+                {a.conditions.platforms?.length ? ` · only on ${a.conditions.platforms.map((p) => PLATFORM_NAME[p as Platform] || p).join(", ")}` : ""}
+                {a.conditions.attribution ? ` · credit: “${a.conditions.attribution}”` : ""}
+                {a.conditions.third_party ? " · also covers other people's material" : ""}
+                {a.expires_at ? ` · ends ${new Date(a.expires_at * 1000 - 1000).toLocaleDateString()}` : ""}
+              </div>
+              <div className="small muted">Evidence: {a.evidence || a.evidence_url}</div>
+            </div>
+            <button className="btn sm ghost danger" onClick={() => window.confirm("Remove this agreement? Videos it covers are no longer used automatically.") && act(() => ap.removeAgreement(a.id), "Agreement removed")}><Icon name="trash" size={12} /></button>
+          </div>
+        ))}
+        {!agreements?.length && <div className="small muted">None yet. Without agreements, Autopilot uses your own videos and videos with a free license (public domain, CC0, CC BY).</div>}
+      </div>
+
+      <div className="grid grid-2 mt">
         <div className="card">
           <div className="row between"><h3 style={{ margin: 0 }}>Where sources come from</h3><button className="btn sm" onClick={() => setAdding("feed")}>+ Add</button></div>
           <p className="small muted">Watch folders (your recordings; a file that is still growing is a live recording), YouTube channels you follow, stream URLs you may use, and signal feeds you are authorized to use.</p>
@@ -354,7 +821,7 @@ function SourcesTab() {
               <button className="btn sm ghost danger" onClick={() => window.confirm("Remove this rule?") && act(() => ap.deleteRule(r.id), "Rule removed")}><Icon name="trash" size={12} /></button>
             </div>
           ))}
-          {!rights?.rules.length && <div className="small muted">No rules yet: every source needs your confirmation.</div>}
+          {!rights?.rules.length && <div className="small muted">No rules yet: videos nothing covers are skipped.</div>}
         </div>
       </div>
 
@@ -405,7 +872,46 @@ function SourcesTab() {
       {adding === "feed" && <AddFeedDialog onClose={() => setAdding("")} onDone={() => { refreshFeeds(); refreshRights(); }} />}
       {adding === "rule" && <AddRuleDialog onClose={() => setAdding("")} onDone={refreshRights} />}
       {adding === "source" && <AddSourceDialog onClose={() => setAdding("")} onDone={refresh} />}
+      {adding === "agreement" && <AgreementDialog onClose={() => setAdding("")} onDone={() => { refreshAgreements(); refreshRights(); refreshFeeds(); refresh(); }} />}
     </>
+  );
+}
+
+function AgreementDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [a, setA] = useState<AgreementIn>({
+    creator: "", channels: [], evidence: "", evidence_url: "", attribution: "", commercial: true, platforms: ["youtube", "tiktok"],
+    third_party: false, expires: "", media_folder: "", media_url_prefix: "",
+  });
+  const [channels, setChannels] = useState("");
+  const set = (p: Partial<AgreementIn>) => setA({ ...a, ...p });
+  const plat = (p: string, on: boolean) => set({ platforms: on ? [...a.platforms.filter((x) => x !== p), p] : a.platforms.filter((x) => x !== p) });
+  return (
+    <Dialog title="Record an agreement with a creator" label="Save agreement" onClose={onClose} onSave={async () => {
+      if (!a.platforms.length) throw new Error("Choose at least one platform it allows");
+      await ap.addAgreement({ ...a, channels: channels.split(/[\s,]+/).filter(Boolean) });
+      toast("Agreement saved: videos it covers are used without asking");
+      onDone();
+    }}>
+      <label className="field">Creator<input type="text" value={a.creator} onChange={(e) => set({ creator: e.target.value })} placeholder="Their name or channel name" /></label>
+      <label className="field mt-s">YouTube channel IDs and TikTok handles <span className="small muted">UC... or @name, separated by commas</span>
+        <input type="text" value={channels} onChange={(e) => setChannels(e.target.value)} placeholder="UCxxxxxxxxxxxxxxxxxxxxxx, @theirname" /></label>
+      <label className="field mt-s">What shows the agreement <span className="small muted">required: where and when they agreed, or the program's terms</span>
+        <textarea rows={2} value={a.evidence} onChange={(e) => set({ evidence: e.target.value })} placeholder="Email from them on 2026-09-01: “You may clip and post my podcast episodes”" /></label>
+      <label className="field mt-s">Link to it <span className="small muted">optional</span><input type="text" value={a.evidence_url} onChange={(e) => set({ evidence_url: e.target.value })} placeholder="https://..." /></label>
+      <label className="field mt-s">Credit line they want <span className="small muted">optional, added to every post</span><input type="text" value={a.attribution} onChange={(e) => set({ attribution: e.target.value })} placeholder="Clip from @theirname's podcast" /></label>
+      <div className="row wrap mt-s" style={{ gap: 18 }}>
+        <label className="row small"><input type="checkbox" checked={a.commercial} onChange={(e) => set({ commercial: e.target.checked })} /> Allows commercial use</label>
+        <label className="row small"><input type="checkbox" checked={a.platforms.includes("youtube")} onChange={(e) => plat("youtube", e.target.checked)} /> YouTube</label>
+        <label className="row small"><input type="checkbox" checked={a.platforms.includes("tiktok")} onChange={(e) => plat("tiktok", e.target.checked)} /> TikTok</label>
+      </div>
+      <label className="field mt-s">Ends on <span className="small muted">optional</span><input type="date" value={a.expires} onChange={(e) => set({ expires: e.target.value })} /></label>
+      <label className="field mt-s">Folder with their files on this computer <span className="small muted">optional, e.g. a Dropbox or Google Drive folder they share</span>
+        <input type="text" value={a.media_folder} onChange={(e) => set({ media_folder: e.target.value })} placeholder="C:\\Users\\you\\Dropbox\\Their raw videos" /></label>
+      <label className="field mt-s">Address of their file links <span className="small muted">optional: direct file links they give you start with this</span>
+        <input type="text" value={a.media_url_prefix} onChange={(e) => set({ media_url_prefix: e.target.value })} placeholder="https://files.example.com/raw/" /></label>
+      <label className="row small mt-s"><input type="checkbox" checked={a.third_party} onChange={(e) => set({ third_party: e.target.checked })} /> It also covers other people's music or footage in their videos <span className="muted">(only if the agreement says so)</span></label>
+      <p className="small muted mt-s">Without a shared folder or file link, their YouTube videos are still skipped: YouTube does not allow downloading its videos without its permission.</p>
+    </Dialog>
   );
 }
 
