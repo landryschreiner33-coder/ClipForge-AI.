@@ -20,4 +20,3 @@ Thumbs.db
 .vscode/
 .idea/
 frontend/*.tsbuildinfo
-.playwright-mcp/
