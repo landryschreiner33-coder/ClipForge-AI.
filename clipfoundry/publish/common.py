@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import base64
+import email.utils
 import functools
 import hashlib
 import html
+import math
 import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import timezone
 
 import httpx
 from fastapi import HTTPException, Request
@@ -16,15 +19,56 @@ from fastapi import HTTPException, Request
 from .. import db
 
 LOGIN_TIMEOUT = 15 * 60  # a started "Connect" login is valid for 15 minutes
+MAX_RETRY_AFTER = 6 * 3600  # a longer (or garbled) Retry-After is capped: the post is tried again then
+RATE_LIMITS = ("rate_limit_exceeded", "rateLimitExceeded", "userRateLimitExceeded")  # TikTok's code, YouTube's reasons
 
 
 class PublishError(RuntimeError):
-    """A publishing problem with a plain-language explanation and, when possible, what to do about it."""
+    """A publishing problem with a plain-language explanation and, when possible, what to do about it.
 
-    def __init__(self, message: str, fix: str = "", code: str = ""):
+    `retry_after`: the seconds the platform asked us to wait before trying again (its Retry-After header), if any."""
+
+    def __init__(self, message: str, fix: str = "", code: str = "", retry_after: float | None = None):
         super().__init__(message)
         self.fix = fix
         self.code = code
+        self.retry_after = retry_after
+
+
+def retry_after(r: httpx.Response | None, now: float | None = None) -> float | None:
+    """The wait a platform's answer asks for (Retry-After: seconds, or an HTTP date), None when it asks for none."""
+    value = (r.headers.get("retry-after") or "").strip() if r is not None else ""
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = email.utils.parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        seconds = when.timestamp() - (time.time() if now is None else now)
+    if not math.isfinite(seconds):
+        return None
+    return min(max(0.0, seconds), float(MAX_RETRY_AFTER))
+
+
+def wait_text(seconds: float) -> str:
+    if seconds < 90:
+        return f"{max(1, round(seconds))} seconds"
+    if seconds < 90 * 60:
+        return f"{round(seconds / 60)} minutes"
+    return f"{round(seconds / 3600)} hours"
+
+
+def with_retry_after(exc: PublishError, r: httpx.Response | None, platform: str) -> PublishError:
+    """Attach the platform's Retry-After to an error; for a rate limit the fix then says how long it asked for."""
+    exc.retry_after = retry_after(r)
+    if exc.retry_after is not None and exc.code in RATE_LIMITS:
+        exc.fix = f"{platform} asked to wait {wait_text(exc.retry_after)} before trying again."
+    return exc
 
 
 class Cancelled(Exception):

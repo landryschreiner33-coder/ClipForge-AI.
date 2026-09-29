@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import Cancelled, PublishError, client, network_errors, save_tokens
+from .common import Cancelled, PublishError, client, network_errors, retry_after, save_tokens, with_retry_after
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -180,12 +180,16 @@ def api_error(r: httpx.Response, method: str = "") -> PublishError:
         "invalidTags": ("YouTube rejected the tags.", "Use fewer or shorter hashtags (500 characters in total)."),
         "accessNotConfigured": ("The YouTube Data API is not enabled in your Google Cloud project.",
                                 "Google Cloud console → APIs & Services → Library → YouTube Data API v3 → Enable."),
+        "rateLimitExceeded": ("YouTube is rate limiting requests right now.", "Wait a minute and try again."),
+        "userRateLimitExceeded": ("YouTube is rate limiting requests right now.", "Wait a minute and try again."),
     }
     if reason in known:
-        return PublishError(*known[reason], code=reason)
-    if r.status_code == 401:
-        return PublishError("YouTube did not accept the access token.", RECONNECT_FIX, "reconnect")
-    return PublishError(f"YouTube API error {r.status_code}: {message or r.text[:200]}", code=reason)
+        exc = PublishError(*known[reason], code=reason)
+    elif r.status_code == 401:
+        exc = PublishError("YouTube did not accept the access token.", RECONNECT_FIX, "reconnect")
+    else:
+        exc = PublishError(f"YouTube API error {r.status_code}: {message or r.text[:200]}", code=reason)
+    return with_retry_after(exc, r, "YouTube")
 
 
 @network_errors("YouTube")
@@ -328,7 +332,7 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 if failures > 6:
                     raise PublishError("The upload to YouTube kept getting interrupted.",
                                        "Check your internet connection and publish again.")
-                sleep(min(60.0, 2.0 ** failures))
+                _pause(retry_after(r), min(60.0, 2.0 ** failures), sleep, cancelled)
                 offset, done = _resume_offset(c, session, size, token)
                 if done is not None:
                     report(1.0)
@@ -339,6 +343,21 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                     session, offset = _start_session(c, body, size, token), 0
                     if on_session:
                         on_session(session)
+
+
+UPLOAD_PAUSE_MAX = 10 * 60  # the upload session outlives this; a longer Retry-After is shortened to it
+
+
+def _pause(asked: float | None, backoff: float, sleep: Callable[[float], None], cancelled: Callable[[], bool]) -> None:
+    """Wait before the next try: as long as YouTube's Retry-After asked (at most 10 minutes), else the backoff.
+    Waits in short steps, so stopping the upload is not held up by a long pause."""
+    left = min(asked, UPLOAD_PAUSE_MAX) if asked is not None else backoff
+    while left > 0:
+        if cancelled():
+            raise Cancelled()
+        step = min(5.0, left)
+        sleep(step)
+        left -= step
 
 
 @network_errors("YouTube")

@@ -3,6 +3,7 @@ synthetic videos (ffmpeg test pattern + tone; transcripts are synthetic and labe
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,63 @@ def test_render_writes_the_artifact_record(data, tmp_path):
     assert first_after_gap["start"] < 4.0
     assert artifact.final_sentences(out["render_info"])[0].startswith("this is a test clip")
     assert artifact.of(out["render_info"]) == art and artifact.of({}) is None
+
+
+# ------------------------------------------------------------------ the GPU lock during encoding
+def _hold_gpu(label: str) -> tuple[threading.Event, threading.Thread]:
+    """Another job (a Whisper stand-in) holds the GPU until the returned event is set."""
+    from clipfoundry import gpu
+
+    held, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with gpu.manager.heavy("transcription", label):
+            held.set()
+            release.wait(30)
+
+    t = threading.Thread(target=hold, daemon=True)
+    t.start()
+    assert held.wait(10)
+    return release, t
+
+
+@needs_ffmpeg
+def test_an_nvenc_encode_waits_while_the_gpu_is_transcribing(data, tmp_path, monkeypatch):
+    # No NVIDIA GPU here: x264 does the encoding, but the render believes it is NVENC (the only thing the lock
+    # decision looks at), so this checks the waiting, not the GPU encoder itself.
+    x264_args, _ = render.video_encoder_args(FAST)
+    monkeypatch.setattr(render, "video_encoder_args", lambda settings: (x264_args, "h264_nvenc"))
+    src = make_video(tmp_path / "src.mp4", seconds=4.0)
+    project = _project(src, tmp_path / "proj")
+    clip = {"id": "c1", "start": 0.1, "end": 3.5, "hook": "", "edit": {"tracking": "center"}}
+    release, holder = _hold_gpu("long interview")
+    messages: list[str] = []
+    result: dict = {}
+    ctx = JobContext(lambda f, m: messages.append(m))
+    worker = threading.Thread(target=lambda: result.update(render.render_clip(
+        project, clip, words_every(3.4), {**config.DEFAULT_SETTINGS, **FAST}, ctx)))
+    worker.start()
+    worker.join(2.5)
+    assert worker.is_alive() and not result, "the encode must not start while the GPU is transcribing"
+    assert "Waiting for the GPU (transcription: long interview)" in messages
+    release.set()
+    holder.join(10)
+    worker.join(120)
+    assert Path(result["output_path"]).exists() and result["render_info"]["encoder"] == "h264_nvenc"
+
+
+@needs_ffmpeg
+def test_a_cpu_encode_does_not_wait_for_the_gpu(data, tmp_path):
+    src = make_video(tmp_path / "src.mp4", seconds=4.0)
+    project = _project(src, tmp_path / "proj")
+    clip = {"id": "c1", "start": 0.1, "end": 3.5, "hook": "", "edit": {"tracking": "center"}}
+    release, holder = _hold_gpu("long interview")
+    try:
+        out = render.render_clip(project, clip, words_every(3.4), {**config.DEFAULT_SETTINGS, **FAST}, JobContext())
+    finally:
+        release.set()
+        holder.join(10)
+    assert out["render_info"]["encoder"] == "libx264" and Path(out["output_path"]).exists()
 
 
 # ------------------------------------------------------------------ final quality gate: media checks

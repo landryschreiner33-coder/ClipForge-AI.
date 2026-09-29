@@ -141,6 +141,59 @@ def test_upload_is_resumable_and_reports_the_video(app_client, google, clip):
     assert sum(1 for m, p in google.log if m == "PUT" and "upload-session" in p) >= 4
 
 
+def test_a_rate_limited_upload_waits_as_long_as_youtube_asks(app_client, google, clip, monkeypatch):
+    from clipfoundry.publish import youtube
+
+    asked: list = []
+    real = youtube._pause
+    monkeypatch.setattr(youtube, "_pause", lambda a, backoff, sleep, cancelled: (asked.append(a),
+                                                                                 real(a, backoff, sleep, cancelled)))
+    c, data = clip
+    _connect(app_client, google)
+    google.rate_limit_puts, google.retry_after = 1, "7"
+    pub = _wait(app_client, _publish(app_client, c["id"]).json()["id"])
+    assert pub["status"] == "done" and google.videos[pub["remote_id"]]["bytes"] == data
+    assert asked == [7.0] and len(google.videos) == 1  # YouTube's own wait, then the same session continued
+
+
+def test_retry_after_is_read_in_both_forms():
+    from email.utils import formatdate
+
+    import httpx
+
+    from clipfoundry.publish.common import MAX_RETRY_AFTER, retry_after
+
+    def answer(value):
+        return httpx.Response(429, headers={"Retry-After": value} if value is not None else {})
+
+    assert retry_after(answer("120")) == 120.0
+    assert abs(retry_after(answer(formatdate(1_000_090, usegmt=True)), now=1_000_000) - 90) < 1e-6
+    assert retry_after(answer(formatdate(999_000, usegmt=True)), now=1_000_000) == 0.0  # already past: go now
+    assert retry_after(answer("-5")) == 0.0 and retry_after(answer("999999999")) == MAX_RETRY_AFTER
+    for nothing in (None, "", "soon", "nan", "inf"):
+        assert retry_after(answer(nothing)) is None, nothing
+    assert retry_after(None) is None
+
+
+def test_upload_pauses_are_bounded_and_can_be_stopped():
+    from clipfoundry.publish import youtube
+    from clipfoundry.publish.common import Cancelled
+
+    slept: list[float] = []
+    youtube._pause(12.0, 2.0, slept.append, lambda: False)
+    assert sum(slept) == 12.0 and max(slept) <= 5.0  # short steps: stopping is never held up for long
+    slept.clear()
+    youtube._pause(None, 2.0, slept.append, lambda: False)
+    assert slept == [2.0]  # no Retry-After: the usual backoff
+    slept.clear()
+    youtube._pause(86400.0, 2.0, slept.append, lambda: False)
+    assert sum(slept) == youtube.UPLOAD_PAUSE_MAX
+    slept.clear()
+    with pytest.raises(Cancelled):
+        youtube._pause(30.0, 2.0, slept.append, lambda: len(slept) >= 2)
+    assert sum(slept) == 10.0
+
+
 def test_unverified_project_lock_is_explained(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)

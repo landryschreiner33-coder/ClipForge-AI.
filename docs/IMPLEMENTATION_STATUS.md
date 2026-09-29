@@ -11,7 +11,7 @@ from here without repeating the audit.
 | Starting commit | `3be586d` (branch `claude/ecstatic-shannon-wb1zq1`, identical to `claude/wonderful-ritchie-909tq3`) |
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
-| Next concrete task | Plan item 8 (GPU lock for NVENC encodes); the user's checklist at the end needs your PC and accounts |
+| Next concrete task | Plan item 10 (replacement cooldown); item 14 waits on the user's decision; the user's checklist at the end needs your PC and accounts |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -52,7 +52,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
 | --- | --- | --- | --- | --- | --- |
 | Durable jobs with states, attempts, capped backoff with jitter | `autopilot/queue.py` | verified (unit) | `test_autopilot_core` (22) | — | — |
-| Retry-After handling | `queue.Retry(delay=...)`; publisher uses a fixed 60 s for rate limits | partial | source reviewed | read Retry-After from platform responses | — |
+| Retry-After handling | `publish.common.retry_after` (seconds or HTTP date, capped at 6 h) on every YouTube/TikTok API error (`PublishError.retry_after`); `publisher._retry_delay` (the platform's wait, else 60 s for a rate limit, else backoff); YouTube chunk retries wait as asked (at most 10 min, in 5 s steps that STOP can interrupt); TikTok chunk retries wait up to 60 s, a longer wait goes back to the job queue; the manual publish error says how long the platform asked | verified (unit, fake platforms) | `test_youtube::test_retry_after_is_read_in_both_forms`, `test_upload_pauses_are_bounded_and_can_be_stopped`, `test_a_rate_limited_upload_waits_as_long_as_youtube_asks`, `test_tiktok::test_a_rate_limited_chunk_waits_as_long_as_tiktok_asks`, `test_autopilot_publish::test_a_rate_limit_waits_as_long_as_the_platform_asks` | real platform answers (header presence is the platforms' choice) | — |
 | Waiting (consent, quota, GPU) does not consume attempts | `queue.claim` (`bump = 0` after `waiting`) | verified (unit) | `waiting_jobs_resume_without_using_an_attempt` | — | — |
 | Atomic claim | `queue.claim` (`BEGIN IMMEDIATE`) | verified (unit) | `idempotent_enqueue_and_priority` | — | — |
 | Autopilot-off priority restriction **inside** the atomic claim | `queue.claim(min_priority=...)` (in the `BEGIN IMMEDIATE` transaction), `host.WorkerHost._claim` | verified (unit) | `test_the_priority_floor_is_part_of_the_claim`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything` | — | — |
@@ -61,7 +61,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Shutdown does not release exclusivity while old workers can still act | `WorkerHost.stop` keeps the host lock until every worker thread has exited | verified (unit) | `test_a_stopping_host_keeps_exclusivity_until_its_threads_are_done` | — | — |
 | STOP ALL JOBS persistent across restart, stops dispatch, signals running work | `state.paused`, `routes.stop_all`, host heartbeat | verified (unit) | `cancel_and_stop_all`, `autopilot_off_only_runs_manual_jobs_and_stop_all_blocks_everything`, `test_an_upload_stopped_halfway_is_reconciled_with_the_platform` (an upload whose job was canceled is checked with the platform, never re-uploaded blindly) | — | — |
 | One heavy GPU operation at a time across processes; recovery | `gpu.GpuManager.heavy`, `locks.FileLock` | verified (unit) | `gpu_lock_serializes_heavy_work`, `gpu_lock_is_shared_with_other_processes` (race in the test fixed) | — | — |
-| GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` does not take the lock | partial | source reviewed | decide: take the lock for NVENC encodes | — |
+| GPU lock also covers GPU-using render steps (NVENC) | `render.render_clip` holds `gpu.manager.heavy("video encode")` around the decode/encode step when the encoder is `h264_nvenc`; x264 renders never wait; framing analysis and thumbnails stay outside the lock | verified (unit, x264 standing in for NVENC) | `test_artifact_quality::test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, `test_a_cpu_encode_does_not_wait_for_the_gpu` | confirm on the RTX 3050 (checklist 6) | no GPU here |
 | VRAM detection and resource status | `gpu.GpuManager.memory` (nvidia-smi), `status` | implemented-but-unverified | `gpu_waits_for_free_memory_then_gives_up` (fake) | verify on the RTX 3050 | no GPU here |
 | Bounded downloads / source size / duration | `netguard.download(max_bytes=...)`, `hunter.max_source_bytes`, `hunter.check_length`, yt-dlp `max_filesize` + duration filter (`jobs.download_url(max_bytes, max_seconds)`), free-disk reserve before a download; settings `autopilot_max_source_gb` (8) and `autopilot_max_source_minutes` (240) | verified (unit, local HTTP server) | `test_netguard.py` | CPU threads for Whisper are capped at 8 (existing); no global disk quota for renders | — |
 
@@ -128,8 +128,8 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 5. [x] Strict-GPU Autopilot setting (pause instead of CPU fallback).
 6. [x] Remote media URL validation (private networks, redirects) and download size caps.
 7. [x] Uncertain upload outcome → pause for review; "reconciling" state in the Publish Center.
-8. [ ] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
-9. [ ] Read Retry-After from YouTube/TikTok rate-limit answers (today a fixed 60 s).
+8. [x] Take the GPU lock for NVENC encodes too (today only transcription and local LLM calls take it).
+9. [x] Read Retry-After from YouTube/TikTok rate-limit answers (today a fixed 60 s).
 10. [ ] Dynamic replacement: a cooldown between replacements of the same slot.
 11. [ ] Show platform publications next to unique clips on the dashboard (today: unique clips only).
 12. [ ] Scheduler test across a daylight-saving change in America/Chicago.
@@ -163,6 +163,10 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | unconfirmed uploads | `pytest -m "not slow"` | 265 passed (141 s) |
 | unconfirmed uploads | `pytest -m slow` | 4 passed (413 s) |
 | unconfirmed uploads | `npm run build`; e2e suite against the scratch app with a passing, a failed and an unconfirmed post | build passes; 39 passed; the unconfirmed post shows *Upload not confirmed* with *It is published* / *Upload again* (screenshot checked) |
+| NVENC lock | the new wait test on the previous `render.py` | fails: the encode never waits for the GPU (no "Waiting for the GPU" message) |
+| Retry-After | the TikTok rate-limit test on the previous `publisher.py` | fails: waits 60 s instead of the asked 240 s |
+| NVENC lock + Retry-After | `pytest -m "not slow"` | 272 passed (162 s) |
+| NVENC lock + Retry-After | `pytest -m slow` | 4 passed (450 s) |
 
 ## Checklist for the user's machine
 

@@ -21,7 +21,7 @@ from ..pipeline import fingerprint
 from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
-from ..publish.common import PublishError, client
+from ..publish.common import RATE_LIMITS, PublishError, client
 from . import gate, queue, quota, rights, state
 from .host import Job, handler
 from .providers import iso_time
@@ -163,8 +163,8 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
 def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> None:
     code = exc.code or ""
     platform = item["platform"]
-    if code in ("network", "rate_limit_exceeded", "internal", "video_pull_failed"):
-        raise queue.Retry(str(exc), exc.fix, delay=60 if code == "rate_limit_exceeded" else None)
+    if code in ("network", "internal", "video_pull_failed", *RATE_LIMITS):
+        raise queue.Retry(str(exc), exc.fix, delay=_retry_delay(exc))
     if code in ("quota_budget", "quotaExceeded"):
         until = quota.next_reset()
         _set(item, "approved", f"Waiting for the YouTube quota to reset. {exc}", "quota")
@@ -188,7 +188,14 @@ def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> No
     if job.row["attempts"] >= job.row["max_attempts"]:
         _set(item, "failed", str(exc), "failed", last_error=str(exc), fix=exc.fix)
         raise queue.Fail(str(exc), exc.fix)
-    raise queue.Retry(str(exc), exc.fix)
+    raise queue.Retry(str(exc), exc.fix, delay=_retry_delay(exc))
+
+
+def _retry_delay(exc: PublishError) -> float | None:
+    """The platform's own Retry-After when it sent one; else a minute for a rate limit, or the normal backoff."""
+    if exc.retry_after is not None:
+        return max(1.0, exc.retry_after)
+    return 60.0 if exc.code in RATE_LIMITS else None
 
 
 @handler("publish")

@@ -141,6 +141,29 @@ def test_tiktok_direct_post_and_unaudited_refusal(env):
     assert any(a["key"] == f"review:{bad['id']}" for a in state.open_actions())
 
 
+def test_a_rate_limit_waits_as_long_as_the_platform_asks(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    t.init_error, t.init_status, t.retry_after = "rate_limit_exceeded", 429, "240"
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    with pytest.raises(queue.Retry) as asked:
+        run_publish(item["id"])
+    assert asked.value.delay == 240.0  # TikTok's Retry-After, not a fixed minute
+    assert "TikTok asked to wait 4 minutes" in asked.value.fix
+    t.retry_after = ""
+    other = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}},
+                      text="Your environment beats your motivation every single time.")
+    with pytest.raises(queue.Retry) as silent:
+        run_publish(other["id"])
+    assert silent.value.delay == 60.0  # no Retry-After: a minute, as before
+    t.init_error = ""
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published" and len(t.uploads) == 1
+
+
 def test_tiktok_inbox_needs_the_app_then_can_be_linked(env):
     from fastapi.testclient import TestClient
 
