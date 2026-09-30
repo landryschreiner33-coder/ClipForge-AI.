@@ -30,12 +30,27 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 
 ## Setting it up
 
-The first time you open Autopilot it shows four steps, and that is all a normal user needs:
+The first time you open Autopilot it shows five steps, and that is all a normal user needs:
 
-1. **Connect YouTube.** Autopilot uses the connected account to find trending videos and to post your Shorts.
+1. **Connect YouTube.** Autopilot uses the connected account to post your Shorts and to look for videos.
 2. **Connect TikTok** (optional: one platform without the other works too).
 3. **Choose topics.** A suggestion is filled in; pick or type others if you like.
-4. **START AUTOPILOT.** It turns Autopilot on for the accounts you connected and starts looking right away.
+4. **Add your videos.** *OPEN MY VIDEOS FOLDER* opens your videos folder (see below); put videos you made in it. You
+   can do this any time later.
+5. **START AUTOPILOT.** It turns Autopilot on for the accounts you connected and starts looking right away.
+
+**Your videos folder.** Videos from other people's channels are never used without an agreement or a license, so
+with only a connected account Autopilot usually finds nothing it may clip. The simplest way to give it work is your
+videos folder: `Videos\ClipFoundry` in your Windows user folder (`ClipFoundry videos` in your user folder if there is no
+Videos folder). START AUTOPILOT creates it and watches it (`autopilot/myvideos.py`). It is outside the ClipFoundry
+folder, so updating ClipFoundry never deletes it. Every video you put there is clipped by itself and counts as your own
+content (*Owned*), like a video uploaded on the Create page, so only put videos there that you made or may use. It is
+an ordinary watch folder under Advanced → Sources & rights: turning it off there keeps it off, and removing it there
+keeps it removed until you press *OPEN MY VIDEOS FOLDER* again.
+
+**Keeping the PC awake.** While Autopilot is on, ClipFoundry asks Windows not to put the PC to sleep (the screen may
+still turn off). The request ends by itself when ClipFoundry closes. A laptop still sleeps when you close its lid.
+Settings → Advanced → Autopilot details → *Keep the PC awake* turns it off. On macOS and Linux nothing is changed.
 
 To let YouTube posts go out without reviewing each one, turn on **automatic publishing** afterwards (*Enable
 automatic publishing* on the Autopilot page or Settings → General). It shows exactly what you allow: the channel, what
@@ -49,7 +64,7 @@ computer asks for that app's two codes once (the steps are shown next to the fie
 [INSTALL.md](../INSTALL.md)). After that, CONNECT is just the platform's own sign-in page.
 
 You do not add sources, feeds, folders, rules or workers. Behind the scenes Autopilot uses whatever is available (the
-connected YouTube account for discovery; watch folders and feeds only if you added some; Google Trends and TikTok
+connected YouTube account for discovery; your videos folder; other watch folders and feeds only if you added some; Google Trends and TikTok
 trends are not available to apps and are skipped without bothering you) and these defaults: United States, English,
 all trending categories plus broad topics, 3 videos a day, up to 5 clips each, 15 clips a day as a target, posting times
 chosen for you (America/Chicago, 9:00 to 21:00, spread over the day), a new look for videos every 3 hours, dynamic
@@ -59,7 +74,9 @@ replacement, live monitoring, learning, automatic scheduling and automatic publi
 **The main Autopilot page** shows only: START / PAUSE AUTOPILOT, Today (clips made against the target), what Autopilot
 is doing right now, the next post, whether YouTube and TikTok are connected, **Needs you**, the top opportunities it
 found, the upcoming posts and how they go out, an optional **Activity** log (what it did with each video it found and
-why it skipped any), and a reminder that the PC must be on and awake to find and render clips (a YouTube post that was
+why it skipped any), **Your videos** (where your videos folder is, how many videos it holds, and *OPEN MY VIDEOS
+FOLDER*), when it next looks for new videos online, and a reminder that the PC must stay on with the ClipFoundry window
+open to find and render clips, and when posts go out (a YouTube post that was
 already uploaded goes out at its time even if the PC is off; TikTok posts need the PC on at their time). Workers, sources, feeds, rights rules, quota, jobs, scores and learning are under **Advanced** (the link at the
 bottom), unchanged.
 
@@ -71,6 +88,7 @@ bottom), unchanged.
 | *N posts waiting for your approval* | TikTok posts always; YouTube posts unless automatic publishing is on (and clips it holds for you because a check noted a possible problem). | **REVIEW POSTS** opens the Publish Center. |
 | *Reconnect YouTube / TikTok* | The platform refused the stored sign-in, or it is not connected while posts are planned there. | **RECONNECT**. |
 | *GPU transcription is not working* | Strict GPU paused transcription. | What to do is shown with it. |
+| *Autopilot needs videos to work with* (or *has used all your videos*) | Autopilot is on and has looked, but nothing it may use is waiting or being clipped, and it made no clip in the last 24 hours. It says how many videos it skipped because they belong to other people. | **OPEN MY VIDEOS FOLDER**, then put videos you made in it. |
 
 Quota notices resolve themselves and stay under Advanced. A video nothing covers, or whose file cannot be obtained in
 an allowed way, is not a question: it is skipped, listed in the Activity log with the reason (with *Add the file* when

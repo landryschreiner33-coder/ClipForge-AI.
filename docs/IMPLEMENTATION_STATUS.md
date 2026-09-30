@@ -161,6 +161,24 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | One complete path: discover → eligibility → file → render → check → schedule → approved automatically → uploaded and scheduled | all of the above | verified (sandbox: stand-in library and YouTube, synthetic transcript, real ffmpeg renders) | `one_complete_path_from_discovery_to_a_post_scheduled_on_youtube` (slow) | the same on real accounts | accounts |
 | Main page: START / PAUSE, activity, how posts go out, PC-on note; topic step at setup | `Autopilot.tsx`, `home.view` | verified (unit + e2e) | `the_main_page_speaks_plainly_and_needs_no_configuration`, `autopilot.spec.ts`, beginner flow | — | — |
 
+### Overnight run did nothing (2026-09-30)
+
+Report: Autopilot was left on overnight and did nothing; make it simple enough for a 10-year-old. Reproduced here with
+a simulated night (fake YouTube/TikTok/Commons, real worker threads, the default settings a new user gets): every
+video discovery found belonged to other creators and was skipped, the free-license library returned only share-alike
+or short videos, and the page said *Needs you: Nothing right now* all along. Nothing on the page said that Autopilot
+had nothing it may use or what would help. Separately, nothing kept Windows from putting the PC to sleep. The logs of
+the real night on the owner's PC were not available to this session.
+
+| Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
+| --- | --- | --- | --- | --- | --- |
+| Say plainly, once, when Autopilot has nothing it may use, and what helps | `home.needs_videos` (Needs you type `videos`) | verified (unit + sandbox e2e) | `a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped`, beginner flow | — | — |
+| One obvious place for your own videos, created and watched on START, outside the app folder, Owned | `autopilot/myvideos.py`, `GET /api/autopilot/my-videos`, `POST /api/autopilot/my-videos/open`, `Autopilot.tsx` (step 4, *Your videos* card) | verified (unit + sandbox) | same test; `the_videos_folder_is_set_up_once_and_a_removal_is_respected`; sandbox: a dropped video was clipped and scheduled | File Explorer opening on Windows | — |
+| Keep the PC awake while Autopilot is on (Windows) | `awake.py`, `host.Supervisor._keep_awake`, setting `autopilot_keep_awake` | verified (unit, fake kernel32) | `the_pc_is_kept_awake_while_autopilot_is_on` | real Windows sleep behavior | — |
+| Show when it looks again and when posts go out; leave the window open | `home.next_look`, `home.pc_note`, `__main__._serve` | verified (unit) | `the_main_page_speaks_plainly_and_needs_no_configuration` | — | — |
+| New posts that need your OK are listed right away (not one tick later) | `scheduler.remind_approvals` | verified (unit) | scheduler suites | — | — |
+| A video that gave clips but fewer than expected is shown as used, with its clip count | `home.activity` | verified (sandbox) | simulated night | — | — |
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -184,6 +202,7 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 13. [x] Engagement Strategist: multi-interval plans that drop weak middle sentences when a cut is safe.
 14. [x] Rights: channel rules and ownership only for channels the platform confirmed (your decision: restrict).
 15. [x] Approvals bound to the SHA-256 of the rendered video (not its size and time stamp).
+16. [x] Overnight run did nothing: your videos folder, a plain *Autopilot needs videos* item, keep the PC awake.
 
 ## Test log
 
@@ -260,3 +279,4 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
 | 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
 | 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
+| 14 | Overnight run | START AUTOPILOT, press *OPEN MY VIDEOS FOLDER*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips on the Autopilot page, posts planned between 9 AM and 9 PM; Autopilot → Advanced → System details events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here |

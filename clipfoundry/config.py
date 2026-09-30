@@ -120,6 +120,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
     "autopilot_learning": True,
+    "autopilot_keep_awake": True,       # Windows: keep the PC from sleeping while Autopilot is on (screen may sleep)
     "autopilot_timezone": "America/Chicago",
     "autopilot_active_start": 9,        # local hour, inclusive
     "autopilot_active_end": 21,         # local hour, exclusive (posting window 9 a.m.-9 p.m.)

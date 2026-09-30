@@ -796,10 +796,16 @@ def process_due(settings: dict, now: float) -> dict:
             db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1], replaces="",
                       audit=_audit(item, "rescheduled", f"New time {slot[1]['local']}"))
             plan.add({**item, "planned_at": slot[0], "replaces": ""})
+    pending = remind_approvals()
+    return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
+            "awaiting_approval": pending, "reconciled": reconciled}
+
+
+def remind_approvals() -> int:
+    """The one "waiting for your OK" item on the Autopilot page, kept in step with the posts that wait for you."""
     by_platform = _awaiting_by_platform()
     # posts held back under automatic publishing are there for you to look at, not a problem that needs you
     need = {p: n for p, n in by_platform.items() if not autopublish.active(p)}
-    pending = sum(by_platform.values())
     if need:
         n = sum(need.values())
         only_tiktok = set(need) == {"tiktok"}
@@ -810,8 +816,7 @@ def process_due(settings: dict, now: float) -> dict:
                      "Approved posts go out at their time automatically.", "Open the Publish Center, review and approve.")
     else:
         state.resolve("approvals")
-    return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
-            "awaiting_approval": pending, "reconciled": reconciled}
+    return sum(by_platform.values())
 
 
 @handler("schedule_tick")
@@ -820,5 +825,7 @@ def schedule_tick(job: Job) -> dict:
     now = _now()
     due = process_due(settings, now)
     planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
+    if planned.get("created"):
+        due["awaiting_approval"] = remind_approvals()  # new posts that need your OK are listed right away
     return {**due, **planned, "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
                                          f"replaced, {due['publishing']} publishing"}

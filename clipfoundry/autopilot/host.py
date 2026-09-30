@@ -15,7 +15,7 @@ import time
 import traceback
 from typing import Callable
 
-from .. import config, db, locks
+from .. import awake, config, db, locks
 from ..pipeline import common as pipeline_common
 from ..pipeline.common import log
 from . import queue, state
@@ -369,6 +369,13 @@ class Supervisor:
         self.mode = os.environ.get("CLIPFOUNDRY_WORKERS") or settings.get("autopilot_process") or "separate"
         if self.mode == "off":
             return
+        if state.enabled(settings):  # Autopilot was on before this update: it gets your videos folder too
+            from . import myvideos
+
+            try:
+                myvideos.ensure()
+            except Exception:  # noqa: BLE001 - never block startup on it
+                log.exception("could not set up your videos folder")
         self._beat()
         if self.mode == "separate" and not self._spawn():
             self.mode = "in_app"
@@ -411,8 +418,26 @@ class Supervisor:
                          f"{exc}. The workers run inside the app instead.", level="warning")
             return False
 
+    def _keep_awake(self) -> None:
+        """While Autopilot is on, the PC must not fall asleep (Windows only; see awake.py). This thread owns the
+        request, so it is asked and given up here."""
+        settings = db.get_settings()
+        want = state.enabled(settings) and bool(settings.get("autopilot_keep_awake", True))
+        was = awake.keeper.holding
+        now = awake.keeper.hold(want)
+        if now != was:
+            state.event("keep_awake", "Keeping this PC awake while Autopilot is on" if now else
+                        "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)")
+
     def _watch(self) -> None:
-        while not self._stop.wait(timeout=5.0):
+        while True:
+            try:
+                self._keep_awake()
+            except Exception:  # noqa: BLE001
+                log.exception("keep-awake check failed")
+            if self._stop.wait(timeout=5.0):
+                awake.keeper.hold(False)
+                break
             try:
                 self._beat()
                 if self.mode == "separate" and self.proc and self.proc.poll() is not None:
@@ -434,7 +459,8 @@ class Supervisor:
         beat = state.get("host_heartbeat") or {}
         alive = time.time() - float(beat.get("at") or 0) < 3 * HEARTBEAT_SECONDS
         return {"mode": self.mode, "alive": alive, "pid": beat.get("pid"), "managed": beat.get("managed"),
-                "process_running": bool(self.proc and self.proc.poll() is None), "last_heartbeat": beat.get("at")}
+                "process_running": bool(self.proc and self.proc.poll() is None), "last_heartbeat": beat.get("at"),
+                "keep_awake": awake.keeper.holding}
 
 
 supervisor = Supervisor()

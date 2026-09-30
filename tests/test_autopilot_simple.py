@@ -4,7 +4,9 @@ asked about, unless you turn the questions on. Against local stand-ins for Googl
 from __future__ import annotations
 
 import os
+import sys
 import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -79,7 +81,7 @@ def words(value) -> str:
     """Every piece of text in a structure (to check what the simple page says)."""
     if isinstance(value, dict):
         return " ".join(words(v) for k, v in value.items() if k not in ("id", "key", "source_id", "url", "platform",
-                                                                           "type", "status", "link", "kind"))
+                                                                           "type", "status", "link", "kind", "path"))
     if isinstance(value, list):
         return " ".join(words(v) for v in value)
     return str(value) if isinstance(value, str) else ""
@@ -107,8 +109,11 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
                           "trend_region": "US", "trend_language": "en"}.get(key, True), key
     kinds = {j["kind"] for j in queue.jobs(("queued",))}
     assert {"trend_scan", "feed_scan", "schedule_tick"} <= kinds  # discovery starts right away
-    assert db.select("source_feeds") == [] and db.select("sources") == [] and db.select("source_rights") == []
+    # nothing to configure: the only thing START sets up is your videos folder (watched, and yours)
+    assert [f["name"] for f in db.select("source_feeds")] == ["Your videos folder"] and db.select("sources") == []
+    assert [(r["scope"], r["status"]) for r in db.select("source_rights")] == [("folder", "OWNED")]
     assert st["home"]["empty"] == "Autopilot is looking for opportunities."
+    assert st["home"]["needs_you"] == []  # it has not looked yet
 
 
 def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
@@ -125,8 +130,10 @@ def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
     assert {s["external_id"] for s in sources} >= set(ids) and all(s["signal_id"] for s in sources)
     home = client.get("/api/autopilot/status").json()["home"]
     # Other creators' videos without an agreement or license are skipped, not asked about: no questions, and the
-    # activity log says why. The empty list of opportunities says so in plain words.
-    assert home["needs_you"] == [] and home["opportunities"] == [] and home["skipped_today"] >= 3
+    # activity log says why. Needs you says once, plainly, that Autopilot has nothing to work with and what helps.
+    assert home["opportunities"] == [] and home["skipped_today"] >= 3
+    assert [(i["type"], i["title"]) for i in home["needs_you"]] == [("videos", "Autopilot needs videos to work with")]
+    assert "belong to other people" in home["needs_you"][0]["detail"]
     assert "not covered by an agreement or license" in home["empty"]
     log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
     for s in sources:
@@ -148,12 +155,14 @@ def test_missing_optional_providers_do_not_stop_autopilot(client, fakes):
     assert provs["google_trends"]["status"] == provs["tiktok_trends"]["status"] == "unavailable"
     assert provs["web_search"]["status"] == "unavailable" and provs["library"]["status"] in ("ok", "error")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["skipped_today"] >= 1 and home["needs_you"] == []
-    # Without any way to discover (YouTube not connected), Autopilot still runs and says what would help.
+    assert home["skipped_today"] >= 1 and [i["type"] for i in home["needs_you"]] == ["videos"]
+    # Without any way to discover online (YouTube not connected), Autopilot still runs, watches your videos folder
+    # and says what would help.
     client.post("/api/publish/youtube/disconnect", headers=H)
     run("trend_scan")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["setup"]["can_discover"] is False and home["needs_you"] == []
+    assert home["setup"]["can_discover"] is True  # your videos folder
+    assert [i["type"] for i in home["needs_you"]] == ["videos"]
     assert client.get("/api/autopilot/status").json()["enabled"]
 
 
@@ -272,9 +281,11 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
-    assert set(home) == {"setup", "currently", "needs_you", "opportunities", "upcoming", "empty", "auto_publish",
-                         "pc_note", "skipped_today"}
+    assert set(home) == {"setup", "currently", "next_look", "needs_you", "opportunities", "upcoming", "empty",
+                         "auto_publish", "pc_note", "skipped_today", "my_videos"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
+    assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
+    assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
     run("trend_scan")
     run("source_scout")
     home = client.get("/api/autopilot/status").json()["home"]
@@ -328,3 +339,110 @@ def test_a_dropped_account_is_one_plain_needs_you_message(client, fakes):
     assert [(i["type"], i["title"]) for i in items] == [("account", "Reconnect YouTube"),
                                                         ("account", "Reconnect TikTok")]
     assert "1 planned post cannot go out" in items[1]["detail"]
+
+
+# ------------------------------------------------------------------ 10: a night with nothing it may use
+def test_a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped(client, fakes):
+    """The overnight report: connected, START AUTOPILOT, walked away, nothing happened. Every video found belonged to
+    other people, so everything was skipped and the page said "Nothing right now". Now Needs you says it plainly,
+    once, and a video put in your videos folder goes to the Clip Hunter by itself."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import myvideos, queue
+
+    g, _ = fakes
+    trending(g, 3)
+    connect(client, g, "youtube")
+    client.post("/api/autopilot/start", headers=H)
+    run("trend_scan")
+    run("source_scout")
+    home = client.get("/api/autopilot/status").json()["home"]
+    item = next(i for i in home["needs_you"] if i["type"] == "videos")
+    assert item["folder"]["path"] == home["my_videos"]["path"] and item["folder"]["videos"] == 0
+    assert home["next_look"] and home["next_look"] > time.time()  # when it looks online again, for the page
+
+    folder = myvideos.folder()
+    assert folder.is_dir() and folder == Path(os.environ["CLIPFOUNDRY_VIDEOS"]).resolve()
+    video = folder / "my skateboard trick.mp4"
+    video.write_bytes(os.urandom(4000))
+    home = client.get("/api/autopilot/status").json()["home"]
+    assert not [i for i in home["needs_you"] if i["type"] == "videos"]  # found: it is picked up at the next check
+    old = time.time() - 600  # finished copying a while ago
+    os.utime(video, (old, old))
+    run("feed_scan")
+    run("source_scout")
+    src = db.select("sources", "platform = 'local'")[0]
+    assert (src["rights_status"], src["status"]) == ("OWNED", "queued") and "videos folder" in src["rights_basis"]
+    assert [j["ref_id"] for j in queue.jobs(worker="clip_hunter")] == [src["id"]]
+    home = client.get("/api/autopilot/status").json()["home"]
+    assert not [i for i in home["needs_you"] if i["type"] == "videos"] and home["my_videos"]["videos"] == 1
+
+    # all of it used and no new clip for a day: it asks for new videos instead
+    db.update("sources", src["id"], status="exhausted")
+    home = client.get("/api/autopilot/status").json()["home"]
+    assert [(i["type"], i["title"]) for i in home["needs_you"]] == [("videos", "Autopilot has used all your videos")]
+
+
+def test_the_videos_folder_is_set_up_once_and_a_removal_is_respected(client, fakes, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import myvideos
+
+    opened = []
+    monkeypatch.setattr(myvideos.subprocess, "Popen", lambda args, **kw: opened.append(args))
+    monkeypatch.setattr(myvideos.sys, "platform", "linux")
+    client.post("/api/autopilot/start", headers=H)
+    client.post("/api/autopilot/enable", headers=H, json={"enabled": True})
+    client.post("/api/autopilot/start", headers=H)
+    feeds = db.select("source_feeds")
+    assert len(feeds) == 1 and feeds[0]["config"]["my_videos"] and len(db.select("source_rights")) == 1
+    assert client.get("/api/autopilot/my-videos").json()["watching"] is True
+    # removed under Advanced: START does not bring it back...
+    client.delete(f"/api/autopilot/feeds/{feeds[0]['id']}", headers=H)
+    client.post("/api/autopilot/start", headers=H)
+    assert db.select("source_feeds") == [] and client.get("/api/autopilot/my-videos").json()["watching"] is False
+    # ...OPEN MY VIDEOS FOLDER does, shows it in the file manager, and looks at it right away
+    out = client.post("/api/autopilot/my-videos/open", headers=H).json()
+    assert out["opened"] and out["watching"] and opened == [["xdg-open", out["path"]]]
+    assert len(db.select("source_feeds")) == 1 and len(db.select("source_rights", "active = 1")) == 1
+    assert client.post("/api/autopilot/my-videos/open").status_code == 403  # only from ClipFoundry's own page
+
+
+# ------------------------------------------------------------------ 11: the PC stays awake while Autopilot is on
+def test_the_pc_is_kept_awake_while_autopilot_is_on(client, monkeypatch):
+    import ctypes
+
+    from clipfoundry import awake, db
+    from clipfoundry.autopilot import host, state
+
+    calls = []
+
+    class Kernel32:
+        @staticmethod
+        def SetThreadExecutionState(flags):  # noqa: N802 - the Windows function's name
+            calls.append(flags)
+            return 0x80000000
+
+    monkeypatch.setattr(ctypes, "windll", type("WinDLL", (), {"kernel32": Kernel32})(), raising=False)
+    keeper = awake.KeepAwake()
+    keeper.supported = True
+    monkeypatch.setattr(awake, "keeper", keeper)
+    sup = host.Supervisor()
+
+    sup._keep_awake()  # Autopilot off: nothing asked
+    assert calls == [] and not keeper.holding
+    client.post("/api/autopilot/start", headers=H)
+    sup._keep_awake()
+    sup._keep_awake()  # asked once, not every few seconds
+    assert calls == [awake.ES_CONTINUOUS | awake.ES_SYSTEM_REQUIRED] and keeper.holding
+    assert "stops the PC from going to sleep" in client.get("/api/autopilot/status").json()["home"]["pc_note"]
+    client.post("/api/autopilot/enable", headers=H, json={"enabled": False})
+    sup._keep_awake()
+    assert calls[-1] == awake.ES_CONTINUOUS and not keeper.holding
+    assert [e["message"] for e in state.events(10, kind="keep_awake")][:2] == [
+        "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)",
+        "Keeping this PC awake while Autopilot is on"]
+    # the setting (Advanced) turns it off, and on other systems nothing is asked at all
+    db.save_settings({"autopilot_enabled": True, "autopilot_keep_awake": False})
+    sup._keep_awake()
+    assert not keeper.holding and len(calls) == 2
+    assert "Turn off sleep" in client.get("/api/autopilot/status").json()["home"]["pc_note"]
+    assert awake.KeepAwake().hold(True) is (sys.platform == "win32")

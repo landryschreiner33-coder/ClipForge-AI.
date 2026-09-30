@@ -48,14 +48,16 @@ test("START / PAUSE (or the first-run steps) and the stop button reflect Autopil
 test("the main page is simple: what it is doing, what it found, what needs you", async ({ page, request }) => {
   const st = await getJson(request, "/api/autopilot/status");
   if (firstRun(st)) {
-    for (const step of ["Connect YouTube", "Connect TikTok", "Choose topics", "Start Autopilot"]) {
+    for (const step of ["Connect YouTube", "Connect TikTok", "Choose topics", "Add your videos", "Start Autopilot"]) {
       await expect(page.locator(".ob-body b", { hasText: step })).toBeVisible();
     }
   } else {
     for (const k of ["Today", "Currently", "Next post"]) await expect(page.locator(".home-k", { hasText: k })).toBeVisible();
     await expect(page.locator(".home-today")).toContainText(`/ ${st.target.daily}`);
     await expect(page.locator(".home-now").first()).not.toBeEmpty();
-    for (const h of [/^Needs you/, /^Top opportunities$/, /^Upcoming posts$/]) await expect(page.getByRole("heading", { name: h })).toBeVisible();
+    for (const h of [/^Needs you/, /^Your videos$/, /^Top opportunities$/, /^Upcoming posts$/]) await expect(page.getByRole("heading", { name: h })).toBeVisible();
+    // Where to put videos, shown (OPEN MY VIDEOS FOLDER is not pressed: it would create the folder)
+    await expect(page.locator(".my-videos-path")).toContainText(st.home.my_videos.path);
     await expect(async () => {
       const home = (await getJson(request, "/api/autopilot/status")).home;
       await expect(page.locator(".needs-you .action")).toHaveCount(home.needs_you.length, { timeout: 1000 });

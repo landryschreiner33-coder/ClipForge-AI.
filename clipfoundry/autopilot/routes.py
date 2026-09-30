@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import autopublish, gate, home, providers, queue, quota, rights, scout, state, verify
+from . import autopublish, gate, home, myvideos, providers, queue, quota, rights, scout, state, verify
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -484,9 +484,24 @@ def enable(body: EnableBody) -> dict:
     state.event("autopilot_on" if body.enabled else "autopilot_off",
                 "Autopilot turned on" if body.enabled else "Autopilot turned off (queued work waits)")
     if body.enabled:
+        myvideos.ensure()
         for kind in ("feed_scan", "trend_scan", "schedule_tick"):
             _manual(kind)
     return status()
+
+
+@router.get("/my-videos", dependencies=READ)
+def my_videos() -> dict:
+    """Your videos folder: where it is, whether Autopilot watches it, and how many videos are in it."""
+    return myvideos.view()
+
+
+@router.post("/my-videos/open", dependencies=WRITE)
+def my_videos_open() -> dict:
+    """OPEN MY VIDEOS FOLDER: create the folder if needed, watch it, show it in File Explorer and look at it now."""
+    out = myvideos.open_in_explorer()
+    _manual("feed_scan")
+    return out
 
 
 class StartBody(BaseModel):

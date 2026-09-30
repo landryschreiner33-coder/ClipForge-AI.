@@ -48,6 +48,7 @@ export function AutopilotSettings({ s, set }: { s: Settings; set: (p: Settings) 
         </Row>
         <Row label="Live monitoring" hint="Clip authorized live sources while they run">{tog("autopilot_live_monitoring")}</Row>
         <Row label="Learning" hint="Use your real results to adjust times, topics and scores">{tog("autopilot_learning")}</Row>
+        <Row label="Keep the PC awake" hint="Windows: the PC does not go to sleep while Autopilot is on (the screen still can)">{tog("autopilot_keep_awake")}</Row>
         <Row label="Time zone"><input type="text" value={s.autopilot_timezone} onChange={(e) => set({ autopilot_timezone: e.target.value })} style={{ maxWidth: 240 }} /></Row>
         <Row label="Active hours" hint="Posts only between these local hours">
           <div className="row">{n("autopilot_active_start", { min: 0, max: 23 })}<span className="muted">to</span>{n("autopilot_active_end", { min: 1, max: 24 })}</div>
