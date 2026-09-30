@@ -19,3 +19,9 @@ def _no_real_discovery_services(monkeypatch):
     monkeypatch.setattr(providers, "COMMONS_API", "http://127.0.0.1:9/w/api.php")
     monkeypatch.setattr(providers, "TAVILY_URL", "http://127.0.0.1:9/search")
     monkeypatch.setattr(tiktok, "OEMBED_URL", "http://127.0.0.1:9/oembed")
+
+
+@pytest.fixture(autouse=True)
+def _own_videos_folder(monkeypatch, tmp_path):
+    """Autopilot's videos folder lives in the user's Videos folder: tests use one of their own instead."""
+    monkeypatch.setenv("CLIPFOUNDRY_VIDEOS", str(tmp_path / "videos folder"))

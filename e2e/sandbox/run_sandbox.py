@@ -42,6 +42,7 @@ def main() -> None:
 
     data = Path(tempfile.mkdtemp(prefix="clipfoundry-sandbox-"))
     os.environ["CLIPFOUNDRY_DATA"] = str(data)
+    os.environ["CLIPFOUNDRY_VIDEOS"] = str(data / "Videos" / "ClipFoundry")  # your videos folder, inside the sandbox
     os.environ["CLIPFOUNDRY_WORKERS"] = "in_app"  # the workers must run here, next to the stand-ins
     for var in ("NO_PROXY", "no_proxy"):
         os.environ[var] = "127.0.0.1,localhost"

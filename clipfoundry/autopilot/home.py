@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import time
 
-from .. import db
-from . import autopublish, queue, rights, state
+from .. import awake, db
+from . import autopublish, myvideos, queue, rights, state
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -46,9 +46,22 @@ STAGE = {
 NOT_OPPORTUNITIES = ("skipped", "blocked", "needs_rights", "needs_file")  # listed in the activity log instead
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
-PC_NOTE = ("Keep this PC on and awake: ClipFoundry finds videos and makes clips only while it runs. YouTube posts that "
-           "were already uploaded go out at their time even if the PC is off (YouTube publishes them); TikTok posts "
-           "need the PC on at their time.")
+PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
+           "{sleep} Posts go out between {start} and {end}. A YouTube post that is already uploaded still goes out if "
+           "the PC is off; TikTok posts need the PC on.")
+SLEEP = {  # by the real state of the keep-awake request (awake.KeepAwake.status), never by the setting alone
+    "on": "ClipFoundry is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
+    "pending": "ClipFoundry is asking Windows to keep this PC from going to sleep.",
+    "failed": "Windows did not let ClipFoundry keep this PC awake, so turn off sleep yourself (see Needs you).",
+    "off": "While Autopilot is on, ClipFoundry keeps this PC from going to sleep.",
+    "setting_off": ("Keep the PC awake is off in Settings, so turn off sleep in the PC's power settings, or Autopilot "
+                    "stops when the PC sleeps."),
+    "unsupported": "Turn off sleep in the PC's power settings, or Autopilot stops when the PC sleeps.",
+}
+SLEEP_FIX = ("Open Windows Settings, then System, then Power & sleep (Windows 10) or Power & battery (Windows 11), "
+             "and set the sleep time for \"When plugged in\" to Never. Keep the PC plugged in and a laptop's lid open. "
+             "ClipFoundry tries again every minute; this message goes away once it works.")
+USABLE = ("eligible", "queued", "ingesting", "analyzing")  # a found video Autopilot may use and has not finished
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
                "Being public or trending does not make a video reusable.")
@@ -73,6 +86,7 @@ def start(platforms: dict, topics: str | None = None) -> dict:
     db.save_settings(patch)
     state.put("setup:started", time.time())
     state.put("setup:platforms", ready)
+    myvideos.ensure()  # the one place to put your own videos, watched from now on
     names = " and ".join(NAME[p] for p in ready) or "no account connected yet"
     state.event("autopilot_on", f"Autopilot started ({names})")
     return {"platforms": ready}
@@ -183,8 +197,40 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
         else:
             items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
                           "link": "#/autopilot/system"})
-    order = {"account": 0, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5, "other": 6}
+    for extra in (needs_sleep_fix(settings), needs_videos(settings)):
+        if extra:
+            items.append(extra)
+    order = {"account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5, "videos": 6,
+             "other": 7}
     return sorted(items, key=lambda i: order.get(i["type"], 9))
+
+
+def needs_videos(settings: dict) -> dict | None:
+    """Autopilot is on and has looked, but has nothing it may clip: nothing it may use is waiting or being worked on,
+    and it made no clip in the last day. Videos from other channels are skipped (the activity log says why), so
+    this is said once, here, with the one thing that helps: your own videos in your videos folder."""
+    if not state.enabled(settings) or not state.get("trend:last_scan"):
+        return None
+    marks = ",".join("?" * len(USABLE))
+    if db.scalar(f"SELECT COUNT(*) FROM sources WHERE status IN ({marks})", USABLE):
+        return None
+    made = db.scalar("SELECT COUNT(*) FROM clips WHERE created_at >= ? AND project_id IN (SELECT id FROM projects "
+                     "WHERE origin IN ('autopilot', 'live'))", (time.time() - 86400,))
+    if made:
+        return None
+    folder = myvideos.view()
+    if folder["watching"] and myvideos.unseen():
+        return None  # a video you just added: the next folder check (every few minutes) picks it up
+    if folder["videos"] and folder["watching"]:
+        title = "Autopilot has used all your videos"
+        detail = "Put new videos in your videos folder to get more clips."
+    else:
+        title = "Autopilot needs videos to work with"
+        skipped = skipped_count()
+        found = (f"The {skipped} video{'s' if skipped != 1 else ''} it found online belong to other people, so it "
+                 "skipped them. ") if skipped else ""
+        detail = (f"{found}Put videos you made in your videos folder, and Autopilot turns them into clips by itself.")
+    return {"key": "videos", "type": "videos", "title": title, "detail": detail, "folder": folder}
 
 
 def opportunities(limit: int = 5) -> list[dict]:
@@ -243,9 +289,12 @@ def activity(limit: int = 40) -> list[dict]:
     rows = db.select("sources", f"status IN ({marks})", ACTIVITY, "updated_at DESC", limit)
     out = []
     for s in rows:
-        used = s["status"] in ("queued", "ingesting", "analyzing", "analyzed", "exhausted")
-        out.append({**_source_view(s), "status": s["status"], "used": used,
-                    "stage": STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped",
+        made = int(s.get("clips_selected") or 0)
+        used = s["status"] in ("queued", "ingesting", "analyzing", "analyzed", "exhausted") or made > 0
+        stage = STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped"
+        if made and s["status"] in ("analyzed", "weak", "exhausted"):
+            stage = f"{made} clip{'s' if made != 1 else ''} made"  # a weak video still gave you these clips
+        out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
                     "can_add_file": s["status"] == "needs_file" and bool(rights.evaluate(s)["auto_allowed"])})
@@ -264,8 +313,9 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Autopilot is looking for opportunities."
     skipped = skipped_count()
     if skipped:
-        return (f"No usable videos yet: the {skipped} found so far are not covered by an agreement or license, or their "
-                "file cannot be obtained. ClipFoundry is still looking (Activity shows why each was skipped).")
+        return (f"Nothing it may use yet: the {skipped} video{'s' if skipped != 1 else ''} it found belong to other "
+                "people (not covered by an agreement or license) or cannot be downloaded. Put your own videos in your "
+                "videos folder. Activity shows why each was skipped.")
     return "No strong opportunities yet. ClipFoundry is still looking."
 
 
@@ -277,16 +327,56 @@ def auto_publish(settings: dict) -> dict:
                 "settings": (v[p]["consent"] or {}).get("settings") or {}} for p in NAME}
 
 
+def pc_note(settings: dict) -> str:
+    def hour(h: int) -> str:
+        return {0: "midnight", 12: "noon", 24: "midnight"}.get(h, f"{h % 12} {'AM' if h < 12 else 'PM'}")
+
+    now = keep_awake(settings)
+    if now == "off" and not settings.get("autopilot_keep_awake", True):
+        now = "setting_off"
+    start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
+    return PC_NOTE.format(sleep=SLEEP[now], start=hour(int(9 if start is None else start)),
+                          end=hour(int(21 if end is None else end)))
+
+
+def keep_awake(settings: dict) -> str:
+    """Whether the PC is really kept awake now: on, pending, failed, off or unsupported (awake.KeepAwake.status)."""
+    return awake.keeper.status(state.enabled(settings) and bool(settings.get("autopilot_keep_awake", True)))
+
+
+def needs_sleep_fix(settings: dict) -> dict | None:
+    """Windows refused to keep the PC awake while Autopilot is on: say so, with what to do instead. Computed from
+    the live state, so it goes away by itself when a retry works or Autopilot or the setting is turned off."""
+    if keep_awake(settings) != "failed":
+        return None
+    return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
+            "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
+                      "Autopilot finds, clips and posts nothing.",
+            "fix": SLEEP_FIX}
+
+
+def next_look(settings: dict) -> float | None:
+    """When Autopilot next looks for new videos online (it checks your videos folder every few minutes)."""
+    if not state.enabled(settings):
+        return None
+    due = float(state.get("next:trend_scan", 0) or 0)
+    if due <= time.time():  # not planned yet (a look you started): the usual interval after the last look
+        last = float((state.get("trend:last_scan") or {}).get("at") or 0)
+        due = last + 60.0 * float(settings.get("trend_poll_minutes") or 180) if last else 0.0
+    return due if due > time.time() else None
+
+
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
     found = opportunities()
     discover = can_discover(settings, platforms)
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or ""},
-            "currently": currently(settings, workers_alive), "needs_you": needs_you(settings, platforms),
+            "currently": currently(settings, workers_alive), "next_look": next_look(settings),
+            "needs_you": needs_you(settings, platforms),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
-            "auto_publish": auto_publish(settings), "pc_note": PC_NOTE,
-            "skipped_today": skipped_count()}
+            "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),
+            "skipped_today": skipped_count(), "my_videos": myvideos.view()}
 
 
 def skipped_count() -> int:

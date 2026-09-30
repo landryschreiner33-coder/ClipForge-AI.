@@ -1,8 +1,8 @@
 import { ReactNode, useState } from "react";
 import { Accounts, api, errorText, Platform, PlatformAccount, timeAgo } from "../api";
 import {
-  ActionItem, ActivityItem, Agreement, AgreementIn, ap, AutopilotStatus, Feed, ITEM_STATUS, Job, Metric, NeedsYouItem,
-  ProviderStatus, RIGHTS_BADGE, RIGHTS_LABEL, RightsRule, Source, TrendSignal, WORKER_BADGE,
+  ActionItem, ActivityItem, Agreement, AgreementIn, ap, AutopilotStatus, Feed, ITEM_STATUS, Job, Metric, MyVideos,
+  NeedsYouItem, ProviderStatus, RIGHTS_BADGE, RIGHTS_LABEL, RightsRule, Source, TrendSignal, WORKER_BADGE,
 } from "../autopilot";
 import { ConnectButton, PLATFORM_NAME, SetupAndConnect } from "../components/accounts";
 import { AutoPublishLine } from "../components/autoPublish";
@@ -161,14 +161,14 @@ function Onboarding({ st, refresh, onStarted, onAddContent }: { st: AutopilotSta
   };
   const any = st.home.setup.connected.length > 0;
   const why: Record<Platform, string> = {
-    youtube: "Finds trending videos and posts your YouTube Shorts.",
+    youtube: "Posts your YouTube Shorts and looks for videos you may use.",
     tiktok: "Posts to TikTok. Optional: you can use one platform without the other.",
   };
   return (
     <div className="card onboard">
       <div className="kicker">CLIPFOUNDRY AUTOPILOT</div>
       <h2>A few steps. Then ClipFoundry does the work.</h2>
-      <p className="muted">It finds promising videos, keeps only the ones you may use and can get the file for, makes and checks the clips, writes titles and captions and schedules the posts. YouTube can post by itself once you allow it; TikTok asks for your OK on each post (its rules).</p>
+      <p className="muted">It makes short clips from videos you are allowed to use: videos you made (put them in your videos folder) and free-to-use videos it finds online. Videos from other people's channels are skipped. Then it writes titles and captions and picks posting times. YouTube can post by itself once you allow it; TikTok asks for your OK on each post (its rules).</p>
       <div className="ob-steps">
         {PLATFORMS.map((p, k) => (
           <div key={p} className="ob-step">
@@ -194,10 +194,19 @@ function Onboarding({ st, refresh, onStarted, onAddContent }: { st: AutopilotSta
           <span className="ob-n">4</span>
           <div className="ob-body">
             <span className="small muted">Step 4</span>
+            <b>Add your videos</b>
+            <div className="small muted">Put videos you made in your videos folder. Autopilot turns them into clips by itself. You can add more any time.</div>
+          </div>
+          <MyVideosButton onDone={refresh} />
+        </div>
+        <div className="ob-step">
+          <span className="ob-n">5</span>
+          <div className="ob-body">
+            <span className="small muted">Step 5</span>
             <b>Start Autopilot</b>
             <div className="small muted">{any
               ? "It uses the accounts you connected. To let YouTube posts go out without your review, turn on automatic publishing afterwards (it asks what you allow)."
-              : "Connect YouTube so Autopilot can find trending videos. You can also start now and add your own videos."}</div>
+              : "Connect YouTube or TikTok so Autopilot can post. You can also start now and connect later."}</div>
           </div>
           <button className="btn primary xl" disabled={busy || !splitTopics(topics).length} onClick={start}>START AUTOPILOT</button>
         </div>
@@ -273,6 +282,7 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
           <div className="home-cell">
             <span className="home-k">Currently</span>
             <div className="home-now">{on && <span className="pulse" />}{h.currently}</div>
+            {on && h.next_look && <div className="small muted next-look">Next look for new videos: {postTime(h.next_look, st.timezone)}</div>}
           </div>
           <div className="home-cell">
             <span className="home-k">Next post</span>
@@ -286,6 +296,8 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
       </div>
 
       <NeedsYou items={h.needs_you} platforms={st.platforms} refresh={refresh} />
+
+      <MyVideosCard folder={h.my_videos} refresh={refresh} />
 
       <div className="grid grid-2 mt">
         <div className="card">
@@ -342,6 +354,39 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
   );
 }
 
+// ------------------------------------------------------------------ your videos folder
+/** OPEN MY VIDEOS FOLDER: creates the folder if needed and shows it in File Explorer. */
+function MyVideosButton({ onDone, primary }: { onDone: () => void; primary?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    try {
+      const f: MyVideos = await ap.openMyVideos();
+      toast(f.opened ? "Your videos folder is open: put videos in it" : `Your videos folder: ${f.path}`);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+    onDone();
+  };
+  return <button className={`btn ${primary ? "primary" : ""}`} disabled={busy} onClick={open}><Icon name="projects" size={14} /> OPEN MY VIDEOS FOLDER</button>;
+}
+
+function MyVideosCard({ folder, refresh }: { folder: MyVideos; refresh: () => void }) {
+  return (
+    <div className="card mt my-videos">
+      <div className="row between wrap">
+        <div>
+          <h3 style={{ margin: 0 }}>Your videos</h3>
+          <div className="small muted">Put videos you made in this folder. Autopilot turns them into clips by itself.</div>
+          <div className="small my-videos-path">{folder.path} · {count(folder.videos, "video")}{folder.watching ? "" : " · not watched (turned off under Advanced)"}</div>
+        </div>
+        <MyVideosButton onDone={refresh} />
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ the activity log (optional reading)
 function ActivityLog({ skipped, refresh }: { skipped: number; refresh: () => void }) {
   const [open, setOpen] = useState(false);
@@ -375,7 +420,7 @@ function ActivityLog({ skipped, refresh }: { skipped: number; refresh: () => voi
         <div>
           <h3 style={{ margin: 0 }}>Activity</h3>
           <div className="small muted">{skipped
-            ? `${skipped} video${skipped !== 1 ? "s" : ""} skipped in the last 24 hours (not covered, no allowed way to get the file, too short or a repeat). Nothing to do: Autopilot keeps looking.`
+            ? `${skipped} video${skipped !== 1 ? "s" : ""} skipped in the last 24 hours (not covered, no allowed way to get the file, too short or a repeat). Autopilot keeps looking.`
             : "What Autopilot did with the videos it found, and why it skipped any."}</div>
         </div>
         <button className="btn sm" aria-expanded={open} onClick={show}>{open ? "Hide activity" : "Show activity"}</button>
@@ -450,6 +495,10 @@ function NeedsYouRow({ item, platforms, refresh }: { item: NeedsYouItem; platfor
         {view}
       </>
     );
+  } else if (item.type === "videos") {
+    buttons = <MyVideosButton onDone={refresh} primary />;
+  } else if (item.type === "sleep") {
+    buttons = null; // goes away by itself once Windows keeps the PC awake, or Autopilot is turned off
   } else if (item.type === "account" && item.platform) {
     const again = item.title.startsWith("Reconnect");
     buttons = <ConnectAction platform={item.platform} account={{ ...platforms[item.platform], connected: false, needs_reconnect: again }} onChange={refresh} />;
@@ -457,7 +506,7 @@ function NeedsYouRow({ item, platforms, refresh }: { item: NeedsYouItem; platfor
     buttons = <>{item.link && <a className="btn sm" href={item.link}>{item.type === "approve" ? "REVIEW POSTS" : "OPEN"}</a>}{dismiss}</>;
   }
   return (
-    <div className={`action ${item.type === "gpu" || item.type === "account" ? "error" : "action"}`} data-type={item.type}>
+    <div className={`action ${["gpu", "account", "sleep"].includes(item.type) ? "error" : "action"}`} data-type={item.type}>
       <div>
         <b>{item.title}</b>
         {src && item.type === "rights" && <div className="needs-src">“{src.title}”{src.channel ? <span className="muted"> · {src.channel}</span> : null}</div>}

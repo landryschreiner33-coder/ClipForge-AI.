@@ -151,6 +151,15 @@ from the default branch; the tested commits are in the test log of `docs/IMPLEME
     approval; YouTube is approved again automatically only through the automatic-publishing permission and a
     passing gate report for the new bytes.
 
+16. **Overnight run fixes (2026-09-30).** A night of Autopilot with only a connected account did nothing: every video
+    it found belonged to other people and was skipped, and the page said "Nothing right now".
+    * **Your videos folder** (`autopilot/myvideos.py`): START creates `Videos\ClipFoundry` in the user folder (outside
+      the app folder) and watches it as an Owned watch folder. `CLIPFOUNDRY_VIDEOS` overrides the path (tests, sandbox).
+    * Needs you shows *Autopilot needs videos to work with* (`home.needs_videos`) with OPEN MY VIDEOS FOLDER.
+    * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
+      The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
+      setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
+
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
