@@ -10,6 +10,7 @@ not a problem that needs you: it is listed in the activity log, with the reason,
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from .. import awake, db
 from . import autopublish, myvideos, queue, rights, state
@@ -366,6 +367,51 @@ def next_look(settings: dict) -> float | None:
     return due if due > time.time() else None
 
 
+def _video_of(ref_type: str, ref_id: str) -> dict | None:
+    """The video a job works on (a found video, a clip or a post of a clip), as the page shows it."""
+    title, project_id = "", ""
+    if ref_type == "source":
+        src = db.fetch("sources", ref_id) or {}
+        title, project_id = src.get("title") or "", src.get("project_id") or ""
+    elif ref_type in ("clip", "scheduled"):
+        clip_id = ref_id if ref_type == "clip" else (db.fetch("scheduled_publications", ref_id) or {}).get("clip_id")
+        clip = db.get_clip(clip_id or "") or {}
+        title, project_id = clip.get("title") or "", clip.get("project_id") or ""
+    if not (title or project_id):
+        return None
+    project = db.get_project(project_id) if project_id else None
+    source = (project or {}).get("source_path")
+    return {"title": title or (project or {}).get("name") or "", "project_id": project_id if project else "",
+            "has_thumbnail": bool(source and (Path(source).parent / "thumb.jpg").exists())}
+
+
+def working(settings: dict) -> dict | None:
+    """What Autopilot is busy with right now and which video it belongs to, for the page's "Working on". The
+    progress is only what the job itself reports (0 to 1), or None; there is never a time estimate."""
+    if state.paused() or not settings.get("autopilot_enabled"):
+        return None
+    order = list(DOING)
+    running = sorted(queue.jobs(("running",), limit=50),
+                     key=lambda j: order.index(j["kind"]) if j["kind"] in order else len(order))
+    for job in running:
+        video = _video_of(job.get("ref_type") or "", job.get("ref_id") or "")
+        if video:
+            progress = float(job.get("progress") or 0)
+            return {**video, "step": DOING.get(job["kind"], "Working"),
+                    "progress": round(min(1.0, progress), 3) if progress > 0 else None}
+    return None
+
+
+def post_counts() -> dict:
+    """Posts waiting for your OK, and posts that need you to settle something (an upload that was not confirmed, or
+    one to finish in the TikTok app), for the sidebar and the Posts tabs."""
+    def n(statuses: tuple[str, ...]) -> int:
+        marks = ",".join("?" * len(statuses))
+        return int(db.scalar(f"SELECT COUNT(*) FROM scheduled_publications WHERE status IN ({marks})", statuses) or 0)
+
+    return {"review": n(("awaiting_approval",)), "fix": n(("reconciling", "action_needed"))}
+
+
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
     found = opportunities()
@@ -373,10 +419,10 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or ""},
             "currently": currently(settings, workers_alive), "next_look": next_look(settings),
-            "needs_you": needs_you(settings, platforms),
+            "working": working(settings), "needs_you": needs_you(settings, platforms),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),
-            "skipped_today": skipped_count(), "my_videos": myvideos.view()}
+            "skipped_today": skipped_count(), "my_videos": myvideos.view(), "posts": post_counts()}
 
 
 def skipped_count() -> int:
