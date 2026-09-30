@@ -49,8 +49,18 @@ ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed"
 PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
            "{sleep} Posts go out between {start} and {end}. A YouTube post that is already uploaded still goes out if "
            "the PC is off; TikTok posts need the PC on.")
-SLEEP_KEPT = "ClipFoundry stops the PC from going to sleep while Autopilot is on (a laptop still sleeps if you close it)."
-SLEEP_YOURS = "Turn off sleep in the PC's power settings, or it stops working when the PC sleeps."
+SLEEP = {  # by the real state of the keep-awake request (awake.KeepAwake.status), never by the setting alone
+    "on": "ClipFoundry is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
+    "pending": "ClipFoundry is asking Windows to keep this PC from going to sleep.",
+    "failed": "Windows did not let ClipFoundry keep this PC awake, so turn off sleep yourself (see Needs you).",
+    "off": "While Autopilot is on, ClipFoundry keeps this PC from going to sleep.",
+    "setting_off": ("Keep the PC awake is off in Settings, so turn off sleep in the PC's power settings, or Autopilot "
+                    "stops when the PC sleeps."),
+    "unsupported": "Turn off sleep in the PC's power settings, or Autopilot stops when the PC sleeps.",
+}
+SLEEP_FIX = ("Open Windows Settings, then System, then Power & sleep (Windows 10) or Power & battery (Windows 11), "
+             "and set the sleep time for \"When plugged in\" to Never. Keep the PC plugged in and a laptop's lid open. "
+             "ClipFoundry tries again every minute; this message goes away once it works.")
 USABLE = ("eligible", "queued", "ingesting", "analyzing")  # a found video Autopilot may use and has not finished
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
@@ -187,10 +197,11 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
         else:
             items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
                           "link": "#/autopilot/system"})
-    videos = needs_videos(settings)
-    if videos:
-        items.append(videos)
-    order = {"account": 0, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5, "videos": 6, "other": 7}
+    for extra in (needs_sleep_fix(settings), needs_videos(settings)):
+        if extra:
+            items.append(extra)
+    order = {"account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5, "videos": 6,
+             "other": 7}
     return sorted(items, key=lambda i: order.get(i["type"], 9))
 
 
@@ -320,10 +331,28 @@ def pc_note(settings: dict) -> str:
     def hour(h: int) -> str:
         return {0: "midnight", 12: "noon", 24: "midnight"}.get(h, f"{h % 12} {'AM' if h < 12 else 'PM'}")
 
-    kept = awake.keeper.supported and bool(settings.get("autopilot_keep_awake", True))
+    now = keep_awake(settings)
+    if now == "off" and not settings.get("autopilot_keep_awake", True):
+        now = "setting_off"
     start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
-    return PC_NOTE.format(sleep=SLEEP_KEPT if kept else SLEEP_YOURS, start=hour(int(9 if start is None else start)),
+    return PC_NOTE.format(sleep=SLEEP[now], start=hour(int(9 if start is None else start)),
                           end=hour(int(21 if end is None else end)))
+
+
+def keep_awake(settings: dict) -> str:
+    """Whether the PC is really kept awake now: on, pending, failed, off or unsupported (awake.KeepAwake.status)."""
+    return awake.keeper.status(state.enabled(settings) and bool(settings.get("autopilot_keep_awake", True)))
+
+
+def needs_sleep_fix(settings: dict) -> dict | None:
+    """Windows refused to keep the PC awake while Autopilot is on: say so, with what to do instead. Computed from
+    the live state, so it goes away by itself when a retry works or Autopilot or the setting is turned off."""
+    if keep_awake(settings) != "failed":
+        return None
+    return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
+            "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
+                      "Autopilot finds, clips and posts nothing.",
+            "fix": SLEEP_FIX}
 
 
 def next_look(settings: dict) -> float | None:
@@ -346,7 +375,7 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
             "currently": currently(settings, workers_alive), "next_look": next_look(settings),
             "needs_you": needs_you(settings, platforms),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
-            "auto_publish": auto_publish(settings), "pc_note": pc_note(settings),
+            "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),
             "skipped_today": skipped_count(), "my_videos": myvideos.view()}
 
 

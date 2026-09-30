@@ -157,6 +157,8 @@ from the default branch; the tested commits are in the test log of `docs/IMPLEME
       the app folder) and watches it as an Owned watch folder. `CLIPFOUNDRY_VIDEOS` overrides the path (tests, sandbox).
     * Needs you shows *Autopilot needs videos to work with* (`home.needs_videos`) with OPEN MY VIDEOS FOLDER.
     * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
+      The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
+      setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -282,7 +283,7 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
     assert set(home) == {"setup", "currently", "next_look", "needs_you", "opportunities", "upcoming", "empty",
-                         "auto_publish", "pc_note", "skipped_today", "my_videos"}
+                         "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
@@ -407,42 +408,170 @@ def test_the_videos_folder_is_set_up_once_and_a_removal_is_respected(client, fak
 
 
 # ------------------------------------------------------------------ 11: the PC stays awake while Autopilot is on
-def test_the_pc_is_kept_awake_while_autopilot_is_on(client, monkeypatch):
+class Kernel32:
+    """Windows' SetThreadExecutionState, faked: records each request and the thread that made it; `answer` is what
+    Windows returns (0 means it refused)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int]] = []
+        self.answer = 0x80000000
+
+    def SetThreadExecutionState(self, flags):  # noqa: N802 - the Windows function's name
+        self.calls.append((flags, threading.get_ident()))
+        return self.answer
+
+
+@pytest.fixture()
+def windows(monkeypatch):
+    """A Windows keep-awake request against a fake kernel32, with a clock the test moves."""
     import ctypes
 
+    from clipfoundry import awake
+
+    k32 = Kernel32()
+    monkeypatch.setattr(ctypes, "windll", type("WinDLL", (), {"kernel32": k32})(), raising=False)
+    keeper = awake.KeepAwake()
+    keeper.supported = True
+    clock = [1000.0]
+    keeper.clock = lambda: clock[0]
+    monkeypatch.setattr(awake, "keeper", keeper)
+    return k32, keeper, clock
+
+
+def home_now(client) -> dict:
+    return client.get("/api/autopilot/status").json()["home"]
+
+
+def sleep_items(home: dict) -> list[dict]:
+    return [i for i in home["needs_you"] if i["type"] == "sleep"]
+
+
+def test_the_pc_is_kept_awake_while_autopilot_is_on(client, windows):
     from clipfoundry import awake, db
     from clipfoundry.autopilot import host, state
 
-    calls = []
-
-    class Kernel32:
-        @staticmethod
-        def SetThreadExecutionState(flags):  # noqa: N802 - the Windows function's name
-            calls.append(flags)
-            return 0x80000000
-
-    monkeypatch.setattr(ctypes, "windll", type("WinDLL", (), {"kernel32": Kernel32})(), raising=False)
-    keeper = awake.KeepAwake()
-    keeper.supported = True
-    monkeypatch.setattr(awake, "keeper", keeper)
+    k32, keeper, _ = windows
     sup = host.Supervisor()
-
     sup._keep_awake()  # Autopilot off: nothing asked
-    assert calls == [] and not keeper.holding
+    assert k32.calls == [] and not keeper.holding
+    assert home_now(client)["keep_awake"] == "off"
+    assert "While Autopilot is on, ClipFoundry keeps this PC from going to sleep" in home_now(client)["pc_note"]
     client.post("/api/autopilot/start", headers=H)
+    home = home_now(client)  # on, but not asked yet: the page does not claim it worked
+    assert home["keep_awake"] == "pending" and "is asking Windows" in home["pc_note"] and not sleep_items(home)
     sup._keep_awake()
     sup._keep_awake()  # asked once, not every few seconds
-    assert calls == [awake.ES_CONTINUOUS | awake.ES_SYSTEM_REQUIRED] and keeper.holding
-    assert "stops the PC from going to sleep" in client.get("/api/autopilot/status").json()["home"]["pc_note"]
+    assert [f for f, _ in k32.calls] == [awake.ES_CONTINUOUS | awake.ES_SYSTEM_REQUIRED] and keeper.holding
+    home = home_now(client)
+    assert home["keep_awake"] == "on" and "is keeping this PC from going to sleep" in home["pc_note"]
     client.post("/api/autopilot/enable", headers=H, json={"enabled": False})
     sup._keep_awake()
-    assert calls[-1] == awake.ES_CONTINUOUS and not keeper.holding
+    assert k32.calls[-1][0] == awake.ES_CONTINUOUS and not keeper.holding
     assert [e["message"] for e in state.events(10, kind="keep_awake")][:2] == [
         "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)",
         "Keeping this PC awake while Autopilot is on"]
     # the setting (Advanced) turns it off, and on other systems nothing is asked at all
     db.save_settings({"autopilot_enabled": True, "autopilot_keep_awake": False})
     sup._keep_awake()
-    assert not keeper.holding and len(calls) == 2
-    assert "Turn off sleep" in client.get("/api/autopilot/status").json()["home"]["pc_note"]
+    assert not keeper.holding and len(k32.calls) == 2
+    home = home_now(client)
+    assert home["keep_awake"] == "off" and "Keep the PC awake is off in Settings" in home["pc_note"]
     assert awake.KeepAwake().hold(True) is (sys.platform == "win32")
+
+
+def test_a_refused_keep_awake_request_is_shown_with_what_to_do_until_a_retry_works(client, windows):
+    from clipfoundry import awake
+    from clipfoundry.autopilot import host, state
+
+    k32, keeper, clock = windows
+    k32.answer = 0  # Windows refuses
+    sup = host.Supervisor()
+    client.post("/api/autopilot/start", headers=H)
+    sup._keep_awake()
+    assert len(k32.calls) == 1 and not keeper.holding and keeper.error
+    home = home_now(client)
+    assert home["keep_awake"] == "failed"
+    assert "did not let ClipFoundry keep this PC awake" in home["pc_note"]
+    assert "keeping this PC from going" not in home["pc_note"]
+    [item] = sleep_items(home)
+    assert item["title"] == "Your PC may go to sleep and stop Autopilot"
+    assert "Power & battery" in item["fix"] and "Never" in item["fix"] and "tries again every minute" in item["fix"]
+    assert home["needs_you"][0]["type"] == "sleep"  # before anything that needs a working PC
+    assert "sleep" not in [e.get("type") for e in home["needs_you"][1:]]
+    assert sup.status()["keep_awake"] is False and sup.status()["keep_awake_error"]
+    # not asked again on every check (every 5 s), and said once in the activity log
+    sup._keep_awake()
+    clock[0] += awake.KeepAwake.retry_seconds - 1
+    sup._keep_awake()
+    assert len(k32.calls) == 1
+    refused = [e for e in state.events(10, kind="keep_awake")]
+    assert len(refused) == 1 and refused[0]["level"] == "warning" and "did not let" in refused[0]["message"]
+    # a minute later it asks again; still refused: still shown, not logged again
+    clock[0] += 1
+    sup._keep_awake()
+    assert len(k32.calls) == 2 and sleep_items(home_now(client)) and len(state.events(10, kind="keep_awake")) == 1
+    # Windows accepts the next try: the warning goes away by itself and the page says it works
+    k32.answer = 0x80000000
+    clock[0] += awake.KeepAwake.retry_seconds
+    sup._keep_awake()
+    assert keeper.holding and not keeper.error
+    home = home_now(client)
+    assert home["keep_awake"] == "on" and not sleep_items(home)
+    assert "is keeping this PC from going to sleep" in home["pc_note"]
+    assert state.events(1, kind="keep_awake")[0]["message"] == "Keeping this PC awake while Autopilot is on"
+    assert len({t for _, t in k32.calls}) == 1  # every try from the thread that now holds the request
+
+
+@pytest.mark.parametrize("turn_off", ["autopilot", "setting"])
+def test_turning_autopilot_or_keep_awake_off_clears_the_sleep_warning(client, windows, turn_off):
+    from clipfoundry import awake, db
+    from clipfoundry.autopilot import host
+
+    k32, keeper, _ = windows
+    k32.answer = 0
+    sup = host.Supervisor()
+    client.post("/api/autopilot/start", headers=H)
+    sup._keep_awake()
+    assert sleep_items(home_now(client))
+    if turn_off == "autopilot":
+        client.post("/api/autopilot/enable", headers=H, json={"enabled": False})
+    else:
+        client.put("/api/settings", headers=H, json={"autopilot_keep_awake": False})
+        assert db.get_settings()["autopilot_keep_awake"] is False
+    home = home_now(client)  # at once, before the next check
+    assert home["keep_awake"] == "off" and not sleep_items(home)
+    assert "did not let" not in home["pc_note"]
+    sup._keep_awake()
+    assert not keeper.error and len(k32.calls) == 1  # nothing to give up: it was never granted
+    # turned on again right away: asked at once (the earlier refusal's wait is forgotten), and Windows says yes now
+    k32.answer = 0x80000000
+    if turn_off == "autopilot":
+        client.post("/api/autopilot/enable", headers=H, json={"enabled": True})
+    else:
+        client.put("/api/settings", headers=H, json={"autopilot_keep_awake": True})
+    assert home_now(client)["keep_awake"] == "pending"
+    sup._keep_awake()
+    assert keeper.holding and k32.calls[-1][0] == awake.ES_CONTINUOUS | awake.ES_SYSTEM_REQUIRED
+    assert home_now(client)["keep_awake"] == "on"
+
+
+def test_the_same_thread_asks_and_gives_up_keeping_the_pc_awake(client, windows):
+    """SetThreadExecutionState is per thread: a request given up from another thread would leave the PC awake."""
+    from clipfoundry import awake
+    from clipfoundry.autopilot import host
+
+    k32, keeper, _ = windows
+    client.post("/api/autopilot/start", headers=H)
+    sup = host.Supervisor()
+    watcher = threading.Thread(target=sup._watch, daemon=True)
+    watcher.start()
+    deadline = time.time() + 10
+    while not keeper.holding and time.time() < deadline:
+        time.sleep(0.05)
+    assert keeper.holding
+    assert keeper.hold(False) is True and len(k32.calls) == 1  # another thread cannot give it up
+    sup._stop.set()
+    watcher.join(timeout=10)
+    assert not watcher.is_alive() and not keeper.holding
+    assert [f for f, _ in k32.calls] == [awake.ES_CONTINUOUS | awake.ES_SYSTEM_REQUIRED, awake.ES_CONTINUOUS]
+    assert k32.calls[0][1] == k32.calls[1][1] == watcher.ident != threading.get_ident()

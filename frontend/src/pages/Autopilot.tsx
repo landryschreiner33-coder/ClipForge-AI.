@@ -497,6 +497,8 @@ function NeedsYouRow({ item, platforms, refresh }: { item: NeedsYouItem; platfor
     );
   } else if (item.type === "videos") {
     buttons = <MyVideosButton onDone={refresh} primary />;
+  } else if (item.type === "sleep") {
+    buttons = null; // goes away by itself once Windows keeps the PC awake, or Autopilot is turned off
   } else if (item.type === "account" && item.platform) {
     const again = item.title.startsWith("Reconnect");
     buttons = <ConnectAction platform={item.platform} account={{ ...platforms[item.platform], connected: false, needs_reconnect: again }} onChange={refresh} />;
@@ -504,7 +506,7 @@ function NeedsYouRow({ item, platforms, refresh }: { item: NeedsYouItem; platfor
     buttons = <>{item.link && <a className="btn sm" href={item.link}>{item.type === "approve" ? "REVIEW POSTS" : "OPEN"}</a>}{dismiss}</>;
   }
   return (
-    <div className={`action ${item.type === "gpu" || item.type === "account" ? "error" : "action"}`} data-type={item.type}>
+    <div className={`action ${["gpu", "account", "sleep"].includes(item.type) ? "error" : "action"}`} data-type={item.type}>
       <div>
         <b>{item.title}</b>
         {src && item.type === "rights" && <div className="needs-src">“{src.title}”{src.channel ? <span className="muted"> · {src.channel}</span> : null}</div>}

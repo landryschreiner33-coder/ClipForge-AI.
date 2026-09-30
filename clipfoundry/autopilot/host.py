@@ -423,11 +423,15 @@ class Supervisor:
         request, so it is asked and given up here."""
         settings = db.get_settings()
         want = state.enabled(settings) and bool(settings.get("autopilot_keep_awake", True))
-        was = awake.keeper.holding
-        now = awake.keeper.hold(want)
+        keeper = awake.keeper
+        was, refused = keeper.holding, bool(keeper.error)
+        now = keeper.hold(want)
         if now != was:
             state.event("keep_awake", "Keeping this PC awake while Autopilot is on" if now else
                         "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)")
+        elif keeper.error and not refused:  # said once; the page shows it until a retry works
+            state.event("keep_awake", "Windows did not let ClipFoundry keep this PC awake. It tries again every "
+                        "minute; until then, turn off sleep in the PC's power settings.", level="warning")
 
     def _watch(self) -> None:
         while True:
@@ -460,7 +464,7 @@ class Supervisor:
         alive = time.time() - float(beat.get("at") or 0) < 3 * HEARTBEAT_SECONDS
         return {"mode": self.mode, "alive": alive, "pid": beat.get("pid"), "managed": beat.get("managed"),
                 "process_running": bool(self.proc and self.proc.poll() is None), "last_heartbeat": beat.get("at"),
-                "keep_awake": awake.keeper.holding}
+                "keep_awake": awake.keeper.holding, "keep_awake_error": awake.keeper.error}
 
 
 supervisor = Supervisor()

@@ -205,7 +205,7 @@ export interface MyVideos {
 /** Something that really needs you, in plain words (the simple Autopilot page). */
 export interface NeedsYouItem {
   key: string;
-  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "videos" | "other";
+  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "sleep" | "videos" | "other";
   folder?: MyVideos;
   title: string;
   detail: string;
@@ -258,6 +258,8 @@ export interface HomeView {
   empty: string;
   auto_publish: { youtube: AutoPublishState; tiktok: AutoPublishState };
   pc_note: string;
+  /** Whether Windows really keeps the PC awake now ("failed": it refused; Needs you says what to do). */
+  keep_awake: "on" | "pending" | "failed" | "off" | "unsupported";
   skipped_today: number;
   my_videos: MyVideos;
 }

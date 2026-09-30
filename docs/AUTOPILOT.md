@@ -51,6 +51,12 @@ keeps it removed until you press *OPEN MY VIDEOS FOLDER* again.
 **Keeping the PC awake.** While Autopilot is on, ClipFoundry asks Windows not to put the PC to sleep (the screen may
 still turn off). The request ends by itself when ClipFoundry closes. A laptop still sleeps when you close its lid.
 Settings → Advanced → Autopilot details → *Keep the PC awake* turns it off. On macOS and Linux nothing is changed.
+The page says what is really happening (`home.keep_awake`, from `awake.KeepAwake.status`), not what the setting
+asks for: *is keeping this PC from going to sleep* only after Windows accepted the request, *is asking Windows* for
+the few seconds before that, and when Windows refuses, *did not let ClipFoundry keep this PC awake* with a Needs you
+item that says how to turn off sleep in Windows' power settings. It asks again every minute (not every few seconds),
+the refusal is logged once in the activity log, and the item goes away by itself when a retry works or Autopilot or
+the setting is turned off. The same app thread asks and gives up the request, because Windows ties it to that thread.
 
 To let YouTube posts go out without reviewing each one, turn on **automatic publishing** afterwards (*Enable
 automatic publishing* on the Autopilot page or Settings → General). It shows exactly what you allow: the channel, what
@@ -88,6 +94,7 @@ bottom), unchanged.
 | *N posts waiting for your approval* | TikTok posts always; YouTube posts unless automatic publishing is on (and clips it holds for you because a check noted a possible problem). | **REVIEW POSTS** opens the Publish Center. |
 | *Reconnect YouTube / TikTok* | The platform refused the stored sign-in, or it is not connected while posts are planned there. | **RECONNECT**. |
 | *GPU transcription is not working* | Strict GPU paused transcription. | What to do is shown with it. |
+| *Your PC may go to sleep and stop Autopilot* | Autopilot and *Keep the PC awake* are on, but Windows refused to keep the PC awake. | Turn off sleep in Windows' power settings (the steps are shown with it). It goes away by itself when ClipFoundry's next try (every minute) works. |
 | *Autopilot needs videos to work with* (or *has used all your videos*) | Autopilot is on and has looked, but nothing it may use is waiting or being clipped, and it made no clip in the last 24 hours. It says how many videos it skipped because they belong to other people. | **OPEN MY VIDEOS FOLDER**, then put videos you made in it. |
 
 Quota notices resolve themselves and stay under Advanced. A video nothing covers, or whose file cannot be obtained in
