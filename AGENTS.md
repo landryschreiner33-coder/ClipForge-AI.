@@ -95,8 +95,9 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
-Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher) and PR #5 (plan items 10-13). Start new work
-from the default branch; the tested commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
+Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13) and PR #6 (overnight
+run fixes, item 16). Start new work from the default branch; the tested commits are in the test log of
+`docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
