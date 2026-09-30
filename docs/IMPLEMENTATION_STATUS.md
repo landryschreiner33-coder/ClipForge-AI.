@@ -12,7 +12,7 @@ from here without repeating the audit.
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
-| Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, draft PR #6 into the default branch (not merged yet) |
+| Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, PR #6, merged into the default branch 2026-09-30 (the owner skipped the separate Windows test) |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
