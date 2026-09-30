@@ -194,10 +194,19 @@ export interface ProviderStatus {
   at: number;
 }
 
+/** The one place to put your own videos: Autopilot watches it and clips what you put there. */
+export interface MyVideos {
+  path: string;
+  watching: boolean;
+  videos: number;
+  opened?: boolean;
+}
+
 /** Something that really needs you, in plain words (the simple Autopilot page). */
 export interface NeedsYouItem {
   key: string;
-  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "other";
+  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "sleep" | "videos" | "other";
+  folder?: MyVideos;
   title: string;
   detail: string;
   fix?: string;
@@ -242,13 +251,17 @@ export interface UpcomingPost {
 export interface HomeView {
   setup: { started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string };
   currently: string;
+  next_look: number | null;
   needs_you: NeedsYouItem[];
   opportunities: Opportunity[];
   upcoming: UpcomingPost[];
   empty: string;
   auto_publish: { youtube: AutoPublishState; tiktok: AutoPublishState };
   pc_note: string;
+  /** Whether Windows really keeps the PC awake now ("failed": it refused; Needs you says what to do). */
+  keep_awake: "on" | "pending" | "failed" | "off" | "unsupported";
   skipped_today: number;
+  my_videos: MyVideos;
 }
 
 /** One found video in the activity log: used, or skipped with the reason. */
@@ -430,6 +443,7 @@ export const ap = {
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),
   start: (topics?: string) => req<AutopilotStatus>("POST", `${A}/start`, topics === undefined ? undefined : { topics }),
+  openMyVideos: () => req<MyVideos>("POST", `${A}/my-videos/open`),
   permission: (id: string, allowed: boolean) => req<Source>("POST", `${A}/sources/${id}/permission`, { allowed }),
   stopAll: () => req<{ canceled: number; stopping: number; manual: number }>("POST", `${A}/stop-all`),
   resume: () => req<{ paused: boolean }>("POST", `${A}/resume`),

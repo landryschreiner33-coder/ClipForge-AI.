@@ -3,9 +3,9 @@ import path from "node:path";
 
 // The whole beginner experience, in the throwaway sandbox (never your real ClipFoundry):
 // open ClipFoundry → connect accounts (test connections) → keep the suggested topics → START AUTOPILOT → no source
-// configuration → trend discovery starts → sources are created internally → videos nothing covers are skipped, not
-// asked about → one agreement with a creator (with the folder they share) → that creator's video goes to the
-// pipeline by itself, with no per-video question.
+// configuration (only your videos folder) → trend discovery starts → sources are created internally → videos nothing
+// covers are skipped, not asked about, and Needs you says Autopilot needs videos → one agreement with a creator (with
+// the folder they share) → that creator's video goes to the pipeline by itself, with no per-video question.
 
 const get = async <T = any>(request: APIRequestContext, url: string): Promise<T> => {
   const res = await request.get(url);
@@ -42,12 +42,15 @@ test("connect accounts, press START AUTOPILOT, and ClipFoundry does the rest", a
   await expect(page.getByRole("heading", { name: "Top opportunities" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Upcoming posts" })).toBeVisible();
   await expect(page.getByText("How posts go out")).toBeVisible();
-  await expect(page.getByText("Keep this PC on and awake", { exact: false })).toBeVisible();
+  await expect(page.getByText("Keep this PC on", { exact: false })).toBeVisible();
   await expect(page.getByText("Workers", { exact: true })).toHaveCount(0);
 
-  // NO SOURCE CONFIGURATION: no feed, folder, rule or source was added by anyone
-  expect(await get(request, "/api/autopilot/feeds")).toEqual([]);
-  expect((await get(request, "/api/autopilot/rights")).rules).toEqual([]);
+  // NO SOURCE CONFIGURATION: nobody added a feed, folder, rule or source; START only set up your videos folder
+  const feeds = await get<any[]>(request, "/api/autopilot/feeds");
+  expect(feeds.map((f) => f.name)).toEqual(["Your videos folder"]);
+  const rules = (await get(request, "/api/autopilot/rights")).rules;
+  expect(rules.map((r: any) => [r.scope, r.status])).toEqual([["folder", "OWNED"]]);
+  await expect(page.getByRole("heading", { name: "Your videos" })).toBeVisible();
 
   // TREND DISCOVERY STARTS AND SOURCES ARE CREATED INTERNALLY, each with its rights checked
   await expect.poll(async () => (await get<any[]>(request, "/api/autopilot/sources")).length, { timeout: 60_000 })
@@ -57,9 +60,13 @@ test("connect accounts, press START AUTOPILOT, and ClipFoundry does the rest", a
   const hunts = await get<any[]>(request, "/api/autopilot/jobs?status=&worker=clip_hunter&limit=50");
   expect(hunts, "nothing uncovered is ever clipped").toEqual([]);
 
-  // NOT COVERED: skipped and listed in the activity log, never asked about
+  // NOT COVERED: skipped and listed in the activity log, never asked about one by one. Needs you says once, plainly,
+  // that Autopilot has nothing it may use and what helps: your own videos in your videos folder.
   await expect(page.getByText(/videos? skipped in the last 24 hours/)).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.needs-you .action[data-type="rights"]')).toHaveCount(0);
+  const needsVideos = page.locator('.needs-you .action[data-type="videos"]');
+  await expect(needsVideos).toContainText("Autopilot needs videos to work with");
+  await expect(needsVideos.getByRole("button", { name: "OPEN MY VIDEOS FOLDER" })).toBeVisible();
   await page.getByRole("button", { name: "Show activity" }).click();
   const skipped = page.locator(".activity-row.skipped", { hasText: "The podcast moment everyone is talking about" });
   await expect(skipped).toContainText("Not covered");
@@ -92,5 +99,6 @@ test("connect accounts, press START AUTOPILOT, and ClipFoundry does the rest", a
 
   await page.goto("/#/autopilot");
   await expect(page.locator('.needs-you .action[data-type="rights"]')).toHaveCount(0);
+  await expect(page.locator('.needs-you .action[data-type="videos"]')).toHaveCount(0);  // it has a video to work on
   await expect(page.locator(".home-now").first()).not.toHaveText("Off");
 });

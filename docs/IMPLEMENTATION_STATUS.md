@@ -12,6 +12,7 @@ from here without repeating the audit.
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
+| Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, PR #6, merged into the default branch 2026-09-30 (the owner skipped the separate Windows test) |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -161,6 +162,25 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | One complete path: discover → eligibility → file → render → check → schedule → approved automatically → uploaded and scheduled | all of the above | verified (sandbox: stand-in library and YouTube, synthetic transcript, real ffmpeg renders) | `one_complete_path_from_discovery_to_a_post_scheduled_on_youtube` (slow) | the same on real accounts | accounts |
 | Main page: START / PAUSE, activity, how posts go out, PC-on note; topic step at setup | `Autopilot.tsx`, `home.view` | verified (unit + e2e) | `the_main_page_speaks_plainly_and_needs_no_configuration`, `autopilot.spec.ts`, beginner flow | — | — |
 
+### Overnight run did nothing (2026-09-30)
+
+Report: Autopilot was left on overnight and did nothing; make it simple enough for a 10-year-old. Reproduced here with
+a simulated night (fake YouTube/TikTok/Commons, real worker threads, the default settings a new user gets): every
+video discovery found belonged to other creators and was skipped, the free-license library returned only share-alike
+or short videos, and the page said *Needs you: Nothing right now* all along. Nothing on the page said that Autopilot
+had nothing it may use or what would help. Separately, nothing kept Windows from putting the PC to sleep. The logs of
+the real night on the owner's PC were not available to this session.
+
+| Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
+| --- | --- | --- | --- | --- | --- |
+| Say plainly, once, when Autopilot has nothing it may use, and what helps | `home.needs_videos` (Needs you type `videos`) | verified (unit + sandbox e2e) | `a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped`, beginner flow | — | — |
+| One obvious place for your own videos, created and watched on START, outside the app folder, Owned | `autopilot/myvideos.py`, `GET /api/autopilot/my-videos`, `POST /api/autopilot/my-videos/open`, `Autopilot.tsx` (step 4, *Your videos* card) | verified (unit + sandbox) | same test; `the_videos_folder_is_set_up_once_and_a_removal_is_respected`; sandbox: a dropped video was clipped and scheduled | File Explorer opening on Windows | — |
+| Keep the PC awake while Autopilot is on (Windows) | `awake.py`, `host.Supervisor._keep_awake`, setting `autopilot_keep_awake` | verified (unit, fake kernel32) | `the_pc_is_kept_awake_while_autopilot_is_on` | real Windows sleep behavior | — |
+| Say whether the PC is really kept awake; when Windows refuses, show it with steps, retry, clear it on success (review finding on `2836a44`) | `awake.KeepAwake.status`/`error`, `home.keep_awake`, `home.needs_sleep_fix` (Needs you type `sleep`), `host.Supervisor._keep_awake` | verified (unit, fake kernel32) | `a_refused_keep_awake_request_is_shown_with_what_to_do_until_a_retry_works`, `turning_autopilot_or_keep_awake_off_clears_the_sleep_warning`, `the_same_thread_asks_and_gives_up_keeping_the_pc_awake` | a real refusal on Windows was not seen | — |
+| Show when it looks again and when posts go out; leave the window open | `home.next_look`, `home.pc_note`, `__main__._serve` | verified (unit) | `the_main_page_speaks_plainly_and_needs_no_configuration` | — | — |
+| New posts that need your OK are listed right away (not one tick later) | `scheduler.remind_approvals` | verified (unit) | scheduler suites | — | — |
+| A video that gave clips but fewer than expected is shown as used, with its clip count | `home.activity` | verified (sandbox) | simulated night | — | — |
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -184,6 +204,7 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 13. [x] Engagement Strategist: multi-interval plans that drop weak middle sentences when a cut is safe.
 14. [x] Rights: channel rules and ownership only for channels the platform confirmed (your decision: restrict).
 15. [x] Approvals bound to the SHA-256 of the rendered video (not its size and time stamp).
+16. [x] Overnight run did nothing: your videos folder, a plain *Autopilot needs videos* item, keep the PC awake.
 
 ## Test log
 
@@ -240,7 +261,22 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | items 10-13 | read-only `e2e` suite against a sandbox after the beginner flow (it scheduled 1 clip for YouTube and TikTok) | 42 passed; Home shows *Scheduled: 1 clip · 2 platform posts* (screenshot checked) |
 | items 10-13 | database made by the default branch's code (`f7426f0`: settings, a fake account, 4 clips, approved posts, one swap done, one pending), then opened by this code | integrity ok; every row kept; your settings kept, cooldown default 24 h added; both swaps backfilled; the old approval asks again (*approved before ClipFoundry checked the exact video file*); re-approval stores the file hash; second start changes nothing; `/api/autopilot/status` 200 |
 | PR #4 | the old `.mcp.json` command vs `node e2e/playwright-mcp.mjs`, MCP handshake + `browser_navigate` to a local page (cloud container) | old: *Browser "chrome-for-testing" is not installed*; launcher: page title read, exits 0 when the client closes. Windows not run here |
-
+| overnight run | simulated night on the default branch (`97b5c9a`): fake YouTube/TikTok/Commons, real worker threads, the settings a new user gets, both accounts connected, START | all 6 videos found were skipped (*Not covered: No agreement, license or ownership covers this video*), nothing usable from the library, *Needs you: Nothing right now* the whole time |
+| overnight run | the same simulation on this branch, then a video dropped into the videos folder | before the drop: *Autopilot needs videos to work with*; the video was picked up at the next folder check (a file must be unchanged for 60 s, the folder is checked every 3 min), used as Owned, clipped, gated and planned for YouTube and TikTok; *2 posts waiting for your OK* showed at once (223 s in all) |
+| overnight run | `pytest -m "not slow"` | 350 passed (246 s) |
+| overnight run | `pytest -m slow` | 5 passed (493 s) |
+| overnight run | `npm run build` in `frontend/` | passes; a second build reproduces the committed `dist/` |
+| overnight run | `npm run test:sandbox` (beginner flow, now with the videos folder and the *needs videos* item) | 1 passed |
+| overnight run | read-only `e2e` suite against a fresh scratch app, Autopilot off and then on | 38 passed, 4 skipped (no projects) each time |
+| sleep-state review | review finding on `2836a44`: Windows refuses `SetThreadExecutionState` (fake kernel32 returning 0), Autopilot on | `2836a44`: not holding, but the page said *ClipFoundry stops the PC from going to sleep*, and nothing in Needs you; now: *Windows did not let ClipFoundry keep this PC awake* and a Needs you item with the power-settings steps |
+| sleep-state review | the 5 new or changed keep-awake tests on `2836a44`'s code | 4 failed (no real state on the page, no refusal shown); the same-thread test passed there too |
+| sleep-state review | `pytest -m "not slow"` | 354 passed (259 s) |
+| sleep-state review | `pytest -m slow` | 5 passed (444 s) |
+| sleep-state review | `npm run build` in `frontend/` | passes; `dist/` rebuilt and committed |
+| sleep-state review | `npm run test:sandbox` (Chromium from `/opt/pw-browsers` via `CLIPFOUNDRY_E2E_CHROMIUM`) | 1 passed |
+| sleep-state review | read-only `e2e` suite against a fresh scratch app, Autopilot off and then on | 38 passed, 4 skipped (no projects) each time |
+| sleep-state review | a scratch app with a refusing fake kernel32, Autopilot page in Chromium | the red *Your PC may go to sleep and stop Autopilot* item with *What to do* steps, first in Needs you; the PC note says Windows refused (screenshot checked) |
+| PC test without posting | the owner's test steps followed here: a "normal" install with both accounts connected (fakes), YouTube automatic publishing on and an approved TikTok post due now; a global `CLIPFOUNDRY_DATA` pointing at it; a separate test copy started with `CLIPFOUNDRY_DATA` and `CLIPFOUNDRY_VIDEOS` set to its own new folders | the test copy showed the first-time setup and no connected account; START, OPEN MY VIDEOS FOLDER and a dropped video gave 2 posts waiting for an OK (44 s); pressing Approve anyway: YouTube *not connected* (nothing sent), TikTok refused; the normal install's 20 files byte-identical afterwards |
 ## Checklist for the user's machine
 
 Everything below needs your PC, your GPU or your accounts; none of it could be done in the cloud session.
@@ -260,3 +296,4 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
 | 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
 | 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
+| 14 | Overnight run | START AUTOPILOT, press *OPEN MY VIDEOS FOLDER*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips on the Autopilot page, posts planned between 9 AM and 9 PM; Autopilot → Advanced → System details events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here. If the page says *Windows did not let ClipFoundry keep this PC awake*, follow its Needs you steps. To try it before merging with no chance of posting, run a separate test copy with its own new data folder (`CLIPFOUNDRY_DATA`) and videos folder (`CLIPFOUNDRY_VIDEOS`), with the normal ClipFoundry closed |

@@ -26,7 +26,8 @@ def _serve(host: str, port: int, open_browser: bool) -> None:
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     _print_transcription_mode()
-    print(f"\n  ClipFoundry is running at {url}\n  Press Ctrl+C to stop.\n")
+    print(f"\n  ClipFoundry is running at {url}\n  Leave this window open: closing it stops ClipFoundry and Autopilot."
+          "\n  Press Ctrl+C to stop.\n")
     uvicorn.run("clipfoundry.api:app", host=host, port=port, log_level="warning")
 
 

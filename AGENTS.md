@@ -95,8 +95,9 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
-Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher) and PR #5 (plan items 10-13). Start new work
-from the default branch; the tested commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
+Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13) and PR #6 (overnight
+run fixes, item 16). Start new work from the default branch; the tested commits are in the test log of
+`docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
@@ -150,6 +151,15 @@ from the default branch; the tested commits are in the test log of `docs/IMPLEME
     and time stamp, a missing or unreadable file, or an approval from before the hash was stored all need a new
     approval; YouTube is approved again automatically only through the automatic-publishing permission and a
     passing gate report for the new bytes.
+
+16. **Overnight run fixes (2026-09-30).** A night of Autopilot with only a connected account did nothing: every video
+    it found belonged to other people and was skipped, and the page said "Nothing right now".
+    * **Your videos folder** (`autopilot/myvideos.py`): START creates `Videos\ClipFoundry` in the user folder (outside
+      the app folder) and watches it as an Owned watch folder. `CLIPFOUNDRY_VIDEOS` overrides the path (tests, sandbox).
+    * Needs you shows *Autopilot needs videos to work with* (`home.needs_videos`) with OPEN MY VIDEOS FOLDER.
+    * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
+      The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
+      setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.

@@ -256,7 +256,8 @@ To back up, copy the `data` folder. Deleting a project in the UI removes its fol
 **Don't delete the ClipFoundry folder to update.** Unless you set `CLIPFOUNDRY_DATA`, the `data` folder inside it holds
 your database (settings, schedule, approvals, account connections), your projects and clips, and the downloaded
 Whisper models; the `.venv` folder holds Python and the GPU (CUDA) libraries; `tools\ffmpeg` holds FFmpeg if you put
-it there. Deleting the folder deletes all of that.
+it there. Deleting the folder deletes all of that. (Your videos folder, `Videos\ClipFoundry` in your user folder, is
+outside the ClipFoundry folder, so the videos you put there are safe either way.)
 
 With `git`: close ClipFoundry, run `git pull` in the folder, start `start.bat`. `data`, `.venv` and `tools\ffmpeg` are
 never touched by git.
