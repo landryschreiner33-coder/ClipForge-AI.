@@ -12,6 +12,7 @@ from here without repeating the audit.
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
+| Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, draft PR #6 into the default branch (not merged yet) |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -259,6 +260,12 @@ the real night on the owner's PC were not available to this session.
 | items 10-13 | read-only `e2e` suite against a sandbox after the beginner flow (it scheduled 1 clip for YouTube and TikTok) | 42 passed; Home shows *Scheduled: 1 clip · 2 platform posts* (screenshot checked) |
 | items 10-13 | database made by the default branch's code (`f7426f0`: settings, a fake account, 4 clips, approved posts, one swap done, one pending), then opened by this code | integrity ok; every row kept; your settings kept, cooldown default 24 h added; both swaps backfilled; the old approval asks again (*approved before ClipFoundry checked the exact video file*); re-approval stores the file hash; second start changes nothing; `/api/autopilot/status` 200 |
 | PR #4 | the old `.mcp.json` command vs `node e2e/playwright-mcp.mjs`, MCP handshake + `browser_navigate` to a local page (cloud container) | old: *Browser "chrome-for-testing" is not installed*; launcher: page title read, exits 0 when the client closes. Windows not run here |
+| overnight run | simulated night on the default branch (`97b5c9a`): fake YouTube/TikTok/Commons, real worker threads, the settings a new user gets, both accounts connected, START | all 6 videos found were skipped (*Not covered: No agreement, license or ownership covers this video*), nothing usable from the library, *Needs you: Nothing right now* the whole time |
+| overnight run | `pytest -m "not slow"` | 350 passed (246 s) |
+| overnight run | `pytest -m slow` | 5 passed (493 s) |
+| overnight run | `npm run build` in `frontend/` | passes; a second build reproduces the committed `dist/` |
+| overnight run | `npm run test:sandbox` (beginner flow, now with the videos folder and the *needs videos* item) | 1 passed |
+| overnight run | read-only `e2e` suite against a fresh scratch app, Autopilot off and then on | 38 passed, 4 skipped (no projects) each time |
 
 ## Checklist for the user's machine
 
