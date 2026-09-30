@@ -460,7 +460,7 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
         run_publish(item["id"])
     monkeypatch.setattr(publish_jobs, "_progress_writer", real)
     job = queue.jobs(worker="publisher")[0]
-    queue.cancel(job["id"], "Stopped with STOP ALL JOBS")  # the job is gone; the post still says "publishing"
+    queue.cancel(job["id"], "Stopped with Stop all jobs")  # the job is gone; the post still says "publishing"
     db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
     never = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Never started.")
     db.execute("UPDATE scheduled_publications SET status = 'publishing', updated_at = ? WHERE id = ?",

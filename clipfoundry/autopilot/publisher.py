@@ -320,7 +320,7 @@ def finish(item: dict, pub: dict) -> dict:
         return {"url": pub.get("url", ""), "message": note}
     if pub["status"] == "action_needed":
         _action_needed(item, f"inbox:{item['id']}", "Finish the TikTok post in the app", pub.get("message", ""),
-                       "Open the TikTok app, finish and post the draft, then link it in the Publish Center.")
+                       "Open the TikTok app, finish and post the draft, then link it in Posts.")
         return {"message": pub.get("message", "")}
     if pub["status"] == "processing":
         _set(item, "publishing", pub.get("message") or "Uploaded; the platform is processing it", "processing")

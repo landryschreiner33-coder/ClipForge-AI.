@@ -461,7 +461,7 @@ def stop_all() -> dict:
     state.put("emergency_stop", True)
     out = queue.cancel_all()
     manual = render_worker.cancel_all() + upload_worker.cancel_all()
-    state.event("emergency_stop", f"STOP ALL JOBS: {out['canceled']} queued job(s) canceled, {out['stopping']} "
+    state.event("emergency_stop", f"Stop all jobs: {out['canceled']} queued job(s) canceled, {out['stopping']} "
                                   f"running job(s) stopping, {manual} render/upload job(s) stopped", "warning")
     return {**out, "manual": manual, "paused": True}
 
@@ -469,7 +469,7 @@ def stop_all() -> dict:
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after STOP ALL JOBS")
+    state.event("resumed", "Jobs allowed again after Stop all jobs")
     return {"paused": False}
 
 

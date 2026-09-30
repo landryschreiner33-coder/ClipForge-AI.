@@ -765,7 +765,7 @@ def process_due(settings: dict, now: float) -> dict:
             if not settings.get("autopilot_auto_publish"):
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
-                             "Publish Center → Publish now.", ref_type="scheduled", ref_id=item["id"])
+                             "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600)
@@ -813,7 +813,7 @@ def remind_approvals() -> int:
                                              "waiting for your OK",
                      ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
                      ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "") +
-                     "Approved posts go out at their time automatically.", "Open the Publish Center, review and approve.")
+                     "Approved posts go out at their time automatically.", "Open Posts, review and approve.")
     else:
         state.resolve("approvals")
     return sum(by_platform.values())

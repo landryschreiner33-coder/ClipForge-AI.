@@ -238,7 +238,7 @@ class WorkerHost:
                 ok, min_priority = self._gate(settings)
                 job_row = self._claim(name, min_priority) if ok else None
                 if job_row is None:
-                    idle = "Stopped (STOP ALL JOBS)" if not ok else (
+                    idle = "Stopped (Stop all jobs)" if not ok else (
                         "Idle" if min_priority == 0 else "Autopilot is off")
                     self._idle(name, idle)
                     self._wake[name].wait(timeout=self.poll)

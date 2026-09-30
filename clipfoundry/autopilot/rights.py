@@ -294,7 +294,7 @@ def request_confirmation(source: dict) -> None:
     state.action(f"rights:{source['id']}", "rights", f"Confirm the rights for “{source.get('title', '')[:80]}”",
                  f"{source.get('channel_title') or source.get('platform')} · {EXPLAIN[MANUAL]}",
                  "Answer on the Autopilot page (Yes, I have permission / No), or set its rights under "
-                 "Autopilot → Advanced → Sources & rights.",
+                 "Autopilot → Permissions & sources.",
                  level="action", ref_type="source", ref_id=source["id"], snooze_s=ASK_AGAIN_AFTER)
 
 
