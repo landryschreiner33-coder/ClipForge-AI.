@@ -142,7 +142,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Learning from real metrics only, minimum samples, shrinkage, frozen features at publish time | `autopilot/learner.py`, `publish/jobs.feature_snapshot`, `publish/stats.py` | verified (unit) | `test_autopilot_learning`, `test_performance` | — | real accounts |
 | Local-only server, app header, DNS-rebinding guard | `api.py` (`local_only`, `app_request`) | verified (unit + e2e) | `test_youtube::publishing_only_from_this_computer_and_this_page`, `e2e/tests/api-guards.spec.ts` | — | — |
 | Secrets: DPAPI on Windows, explicit unencrypted storage elsewhere; every secret setting sealed (AI keys too, older plaintext sealed at start); request addresses (a YouTube API key travels in one) kept out of the logs | `secure.py`, `config.SEALED_KEYS`, `db._migrate`, `__main__.setup_logging` | verified (unit, non-Windows path) | `test_youtube::secret_sealing_round_trip`, `test_autopilot_core::every_secret_setting_is_sealed_at_rest_including_older_saves`, `::request_addresses_stay_out_of_the_log` | DPAPI path verified only on Windows | — |
-| YouTube 30-day data rule (hourly while Autopilot is on, and at every start) | `scout.youtube_retention`, `api._youtube_retention` | verified (unit) | `youtube_data_is_deleted_after_30_days`, `youtube_data_is_deleted_at_start_even_when_autopilot_is_off` | titles, channel and link of used videos, post IDs and the channel name are kept longer (stated on the Privacy Policy; owner to decide before any Google audit) | — |
+| YouTube 30-day data rule (hourly while Autopilot is on, and at every start; a found video's age counts from YouTube's last answer) | `scout.youtube_retention`, `api._youtube_retention` | verified (unit) | `youtube_data_is_deleted_after_30_days`, `youtube_data_age_counts_from_youtubes_last_answer`, `youtube_data_is_deleted_at_start_even_when_autopilot_is_off` | titles, channel and link of used videos, post IDs and the channel name are kept longer (stated on the Privacy Policy; owner to decide before any Google audit) | — |
 | Website: product page, Privacy Policy, Terms (publisher, email and Minnesota law from the owner) | `docs/legal/`, `/legal/` routes | written from a code audit (52 corrections applied); not publicly deployed | `legal_pages_are_served`, `the_website_is_ready_to_publish` | public deployment (owner's OK); no lawyer review | owner decision |
 | UI controls call real backend, correct after refresh | `frontend/src/pages/*` | read-only e2e suite + sandbox beginner flow | `e2e/tests` (42 read-only tests), `e2e/sandbox/beginner-flow.spec.ts` | — | — |
 
@@ -271,7 +271,7 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 17. [x] UI redesign: Home, Autopilot, Library, Posts and Settings from the approved prototype (PR #7).
 18. [x] Idle Autopilot fixes from `codex/fix-autopilot-idle`, brought into the redesigned app (PR #8).
 19. [x] Website and legal pages from a code audit, with the fixes it found: AI keys sealed, request addresses out of
-    the logs, YouTube clean-up at start (PR #9).
+    the logs, YouTube clean-up at start and counted from YouTube's last answer (PR #9).
 20. [ ] Publish the website on GitHub Pages (`gh-pages` branch with only the site files): waits for the owner's OK.
 
 ## Test log

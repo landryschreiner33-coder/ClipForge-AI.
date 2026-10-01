@@ -119,8 +119,9 @@
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
       posts under the automatic-publishing permission you turned on, with their title, description, tags, category,
       privacy, made-for-kids answer and publishing time; requests to read your channel, its newest uploads, and your
-      posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of the
-      YouTube channels you added, your own channel and channels you have an agreement with, to see their new videos;
+      posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of your own
+      channel and of the YouTube channels you added, gave a permission to or have an agreement with, to see their new
+      videos;
       video IDs, to read a video's details and check which channel posted it; and your YouTube API key, if you entered
       one</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
@@ -170,7 +171,7 @@
     channel's newest uploads, and the status and statistics of videos posted with ClipFoundry. If Autopilot is on and
     you have not entered your own YouTube API key, Autopilot also uses this permission to find videos: it searches
     YouTube for your topics, reads YouTube's lists of popular and live videos, lists the new videos of your channel
-    and of channels you added or have an agreement with, reads the public details of the videos it finds, and checks
+    and of channels you added, gave a permission to or have an agreement with, reads the public details of the videos it finds, and checks
     which channel posted a video.</li>
   <li><b>View YouTube Analytics reports</b> (<code>yt-analytics.readonly</code>), for shares, watch time and how much
     of your posts people watched.</li>
@@ -187,9 +188,10 @@
   of the videos it found, and the statistics of your own posts. It does this each time it starts and about once an
   hour while Autopilot is on. Your own posts' statistics are kept longer only if you turn on "Google approved derived
   metrics" in Settings because Google approved your project to keep them, and only while your channel stays connected.
-  Some YouTube information is kept longer: your channel's name and picture link, until you disconnect; the title,
-  channel and link of each video Autopilot worked on, and the ID and link of each of your posts, until you delete the
-  data folder; and video titles in Autopilot's event history (90 days) and in the background log file (until you
+  Some YouTube information is kept longer: your channel's name and picture link, until you disconnect; your channel's
+  name in the saved wording of the automatic-publishing permission (if you ever turned it on), the title, channel and
+  link of each video Autopilot worked on, and the ID and link of each of your posts, until you delete the data
+  folder; and video titles in Autopilot's event history (90 days) and in the background log file (until you
   delete it).
 </p>
 <p>
@@ -239,7 +241,8 @@
 <h2>7. Your choices</h2>
 <ul>
   <li><b>Disconnect an account:</b> Settings → Accounts → Disconnect. ClipFoundry tries to cancel its access on the
-    platform, then deletes the sign-in tokens and the account's ID, name and picture link on your computer. It deletes
+    platform, then deletes the sign-in tokens and the account's ID, name and picture link on your computer. If you turned on
+    automatic publishing, your channel's name stays in that permission's saved wording. It deletes
     them even if cancelling did not work, and it doesn't tell you whether cancelling worked, so to be sure, also
     remove access on the platform (sections 4 and 5). While an account needs to be reconnected, Disconnect is not
     shown; you can still remove access on the platform. Your post history stays until you delete the data folder.
@@ -257,6 +260,9 @@
     ClipFoundry's access on the platform (sections 4 and 5). Then close ClipFoundry and delete its data folder.
     Deleting the folder alone does not cancel ClipFoundry's access to YouTube or TikTok. Your videos folder and any
     files you exported are separate, and stay until you delete them.</li>
+  <li><b>Stop watching a YouTube channel:</b> remove it from the places Autopilot watches, and also remove its
+    permission (Autopilot → Permissions &amp; sources). While the permission stays, Autopilot still looks for that
+    channel's new videos.</li>
   <li><b>Optional services:</b> turn off the free-license library or platform downloads, remove a Tavily key, or set
     AI scoring back to "Local" in Settings → Advanced.</li>
 </ul>

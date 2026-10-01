@@ -687,16 +687,21 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
     keep_own = bool(settings.get("youtube_derived_metrics_approved")) and bool(db.get_account("youtube"))
     now = now or time.time()
     cutoff = now - YOUTUBE_RETENTION_DAYS * 86400
+    # A found video's age counts from when YouTube last returned it (its signal's last_checked): Source Scout copies a
+    # signal's stored numbers into the video's record for as long as the signal stays active, which refreshes
+    # updated_at without asking YouTube again. So these run before the old signals they look at are deleted.
+    stale = ("(updated_at < ? OR signal_id IN (SELECT id FROM trend_signals WHERE platform = 'youtube' AND "
+             "last_checked < ?))")
+    unused = db.execute(f"DELETE FROM sources WHERE platform = 'youtube' AND {stale} AND project_id = '' AND "
+                        "status NOT IN ('queued', 'ingesting', 'analyzing')", (cutoff, cutoff))
+    cleared = db.execute(f"UPDATE sources SET metrics = '{{}}', updated_at = ? WHERE platform = 'youtube' AND {stale} "
+                         "AND metrics != '{}'", (now, cutoff, cutoff))
     old = [r["id"] for r in db.select("trend_signals", "platform = 'youtube' AND last_checked < ?", (cutoff,))]
     for sid in old:
         db.execute("DELETE FROM trend_history WHERE signal_id = ?", (sid,))
         db.execute("DELETE FROM trend_signals WHERE id = ?", (sid,))
     db.execute("DELETE FROM trend_history WHERE at < ? AND signal_id IN (SELECT id FROM trend_signals WHERE "
                "platform = 'youtube')", (cutoff,))
-    unused = db.execute("DELETE FROM sources WHERE platform = 'youtube' AND updated_at < ? AND project_id = '' AND "
-                        "status NOT IN ('queued', 'ingesting', 'analyzing')", (cutoff,))
-    cleared = db.execute("UPDATE sources SET metrics = '{}', updated_at = ? WHERE platform = 'youtube' AND "
-                         "updated_at < ? AND metrics != '{}'", (now, cutoff))
     perf = 0 if keep_own else db.execute("DELETE FROM performance WHERE platform = 'youtube' AND fetched_at < ?",
                                          (cutoff,))
     db.execute("DELETE FROM api_cache WHERE fetched_at < ?", (cutoff,))

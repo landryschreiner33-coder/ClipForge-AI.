@@ -192,7 +192,8 @@ work from the default branch; the tested commits are in the test log of `docs/IM
     Landry Schreiner, contact landryschreiner456@gmail.com, Minnesota law, "All rights reserved". No lawyer has
     reviewed it. It goes public only with the owner's OK, from a `gh-pages` branch holding only those files.
     * The audit's fixes: every secret setting is sealed (the AI keys too), httpx no longer logs request addresses
-      (a YouTube API key travels in one), and the YouTube 30-day clean-up also runs at every start.
+      (a YouTube API key travels in one), and the YouTube 30-day clean-up also runs at every start and counts a
+      found video's age from YouTube's last answer.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.

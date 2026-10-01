@@ -331,6 +331,32 @@ def test_youtube_data_is_deleted_after_30_days(data):
     assert "p5" in {r["id"] for r in db.select("performance")}
 
 
+def test_youtube_data_age_counts_from_youtubes_last_answer(data):
+    # Source Scout keeps copying an active signal's stored numbers into the video's record, which refreshes its
+    # updated_at; the 30 days still count from when YouTube last returned the video.
+    from clipfoundry import db
+    from clipfoundry.autopilot import scout
+
+    now = time.time()
+    old = now - 31 * 86400
+    sig = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v1",
+                                      "first_seen": old, "last_checked": old})
+    db.insert("sources", {"platform": "youtube", "external_id": "v1", "signal_id": sig["id"], "title": "Found",
+                          "metrics": {"views": 5}})
+    sig2 = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v2",
+                                       "first_seen": old, "last_checked": old})
+    used = db.insert("sources", {"platform": "youtube", "external_id": "v2", "signal_id": sig2["id"], "title": "Used",
+                                 "project_id": "p1", "status": "analyzed", "metrics": {"views": 9}})
+    fresh = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v3",
+                                        "first_seen": now, "last_checked": now})
+    db.insert("sources", {"platform": "youtube", "external_id": "v3", "signal_id": fresh["id"], "metrics": {"views": 1}})
+    out = scout.youtube_retention(now=now)
+    assert out["youtube_sources_deleted"] == 1 and out["youtube_sources_cleared"] == 1
+    left = {r["external_id"]: r for r in db.select("sources")}
+    assert set(left) == {"v2", "v3"} and left["v2"]["metrics"] == {} and left["v2"]["title"] == "Used"
+    assert left["v3"]["metrics"] == {"views": 1} and db.fetch("sources", used["id"])
+
+
 def test_youtube_data_is_deleted_at_start_even_when_autopilot_is_off(data):
     # The hourly maintenance only runs while Autopilot is on; YouTube's 30-day rule holds either way.
     from fastapi.testclient import TestClient
