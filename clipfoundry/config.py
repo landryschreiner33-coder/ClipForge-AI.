@@ -169,8 +169,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
                "youtube_api_key", "tavily_api_key"}
-SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret", "youtube_api_key",
-               "tavily_api_key"}  # encrypted at rest (secure.py)
+SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["public", "unlisted", "private"]
 

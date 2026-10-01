@@ -94,6 +94,46 @@ def test_autopilot_settings_are_validated(data):
     assert "AIza-secret" not in raw  # sealed at rest
 
 
+def test_every_secret_setting_is_sealed_at_rest_including_older_saves(data):
+    import json
+
+    from clipfoundry import config, db
+
+    assert config.SEALED_KEYS == config.SECRET_KEYS
+    db.save_settings({"openai_api_key": "sk-new", "anthropic_api_key": "sk-ant-new"})
+    # a key saved by a version that did not seal it yet is sealed the next time the app opens the database
+    with db.connect() as conn:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'openai_api_key'", (json.dumps("sk-old"),))
+    db._ready.clear()
+    with db.connect() as conn:
+        raw = dict(conn.execute("SELECT key, value FROM settings").fetchall())
+    assert "sk-old" not in raw["openai_api_key"] and "sk-ant-new" not in raw["anthropic_api_key"]
+    s = db.get_settings()
+    assert s["openai_api_key"] == "sk-old" and s["anthropic_api_key"] == "sk-ant-new"
+
+
+def test_request_addresses_stay_out_of_the_log(capsys):
+    # A YouTube Data API key travels in the request address (?key=); the worker's output is data/logs/workers.log.
+    import logging
+
+    import httpx
+
+    from clipfoundry.__main__ import setup_logging
+
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    root.handlers = []
+    try:
+        setup_logging()
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
+        with httpx.Client(transport=transport) as client:
+            client.get("https://www.googleapis.com/youtube/v3/videos?id=x&key=AIza-secret")
+    finally:
+        root.handlers, root.level = handlers, level
+        logging.getLogger("httpx").setLevel(logging.NOTSET)
+    assert "AIza-secret" not in capsys.readouterr().err
+
+
 # ------------------------------------------------------------------ queue
 def test_idempotent_enqueue_and_priority(data):
     from clipfoundry.autopilot import queue

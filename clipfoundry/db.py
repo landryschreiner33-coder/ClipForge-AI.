@@ -608,6 +608,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CASE WHEN w.replaced_by = n.id THEN 'replaced' ELSE 'proposed' END, n.created_at, n.updated_at "
         "FROM scheduled_publications n JOIN scheduled_publications w ON (n.replaces != '' AND w.id = n.replaces) OR "
         "(w.replaced_by != '' AND w.replaced_by = n.id)")
+    # secrets saved before they were sealed (the AI service keys until 2026-10-01) are sealed now, not at their next
+    # save, so none stays readable in the database file
+    for row in conn.execute(f"SELECT key, value FROM settings WHERE key IN ({','.join('?' * len(config.SEALED_KEYS))})",
+                            sorted(config.SEALED_KEYS)).fetchall():
+        try:
+            value = json.loads(row["value"])
+        except ValueError:
+            continue
+        if isinstance(value, str) and value and not value.startswith((secure.DPAPI, secure.LOCAL)):
+            conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
 
 
 _ready: set[str] = set()

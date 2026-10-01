@@ -12,7 +12,7 @@ anywhere.
 | FFmpeg | any recent build with libx264 + libass | `winget install Gyan.FFmpeg` |
 | RAM | 8 GB | 16 GB |
 | GPU | not required | NVIDIA RTX (recent driver) for fast transcription and NVENC encoding |
-| Disk | ~3 GB (dependencies + Whisper model) | plus space for your videos |
+| Disk | ~3 GB (dependencies + Whisper model); ~6 GB with an NVIDIA GPU (CUDA libraries + the larger model) | plus space for your videos |
 
 Node.js is **not** required. The UI ships prebuilt in `frontend/dist`.
 
@@ -250,8 +250,8 @@ Autopilot page (under *Pause or stop everything*) halts everything until you pre
 is unchanged: Autopilot uses the same CUDA path and runs one heavy GPU job at a time.
 
 For the Google OAuth consent screen (production) and the TikTok developer app you need public **Terms of Service** and
-**Privacy Policy** URLs. Templates are in `docs\legal`; they require review by a qualified lawyer, and can be published
-with GitHub Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy)).
+**Privacy Policy** URLs. The pages are in `docs\legal` (no lawyer has reviewed them) and are published with GitHub
+Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy)).
 
 ## Where things are stored
 

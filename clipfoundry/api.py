@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -28,6 +29,7 @@ from .autopilot import routes as autopilot_routes
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    _youtube_retention()
     worker.resume(db.interrupted_work())
     worker.start()
     publish_jobs.worker.start()
@@ -35,6 +37,17 @@ async def lifespan(_: FastAPI):
     autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
     yield
     autopilot_host.supervisor.stop()
+
+
+def _youtube_retention() -> None:
+    """YouTube's 30-day storage rule applies whether or not Autopilot runs: its hourly maintenance only runs while
+    Autopilot is on, so the same clean-up also runs at every start."""
+    from .autopilot import scout
+
+    try:
+        scout.youtube_retention()
+    except Exception:  # noqa: BLE001 - a failed clean-up must not stop the app; maintenance tries again
+        logging.getLogger(__name__).exception("YouTube data clean-up at start failed")
 
 
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
@@ -551,8 +564,8 @@ def _publish_error(_, exc: PublishError) -> JSONResponse:
 
 
 # ------------------------------------------------------------------ legal pages
-LEGAL_DIR = config.ROOT_DIR / "docs" / "legal"  # the same files can be published with GitHub Pages
-LEGAL_PAGES = {"": "index.html", "terms": "terms.html", "privacy": "privacy.html"}
+LEGAL_DIR = config.ROOT_DIR / "docs" / "legal"  # the same files are the public website (GitHub Pages)
+LEGAL_PAGES = {"": "index.html", "terms": "terms.html", "privacy": "privacy.html", "site.css": "site.css"}
 
 
 @app.get("/legal", include_in_schema=False)
@@ -566,7 +579,7 @@ def legal(page: str = "") -> FileResponse:
     name = LEGAL_PAGES.get(page.removesuffix(".html").replace("index", ""))
     if not name or not (LEGAL_DIR / name).is_file():
         raise HTTPException(404)
-    return FileResponse(LEGAL_DIR / name, media_type="text/html")
+    return FileResponse(LEGAL_DIR / name, media_type="text/css" if name.endswith(".css") else "text/html")
 
 
 # ------------------------------------------------------------------ UI

@@ -331,6 +331,47 @@ def test_youtube_data_is_deleted_after_30_days(data):
     assert "p5" in {r["id"] for r in db.select("performance")}
 
 
+def test_youtube_data_age_counts_from_youtubes_last_answer(data):
+    # Source Scout keeps copying an active signal's stored numbers into the video's record, which refreshes its
+    # updated_at; the 30 days still count from when YouTube last returned the video.
+    from clipfoundry import db
+    from clipfoundry.autopilot import scout
+
+    now = time.time()
+    old = now - 31 * 86400
+    sig = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v1",
+                                      "first_seen": old, "last_checked": old})
+    db.insert("sources", {"platform": "youtube", "external_id": "v1", "signal_id": sig["id"], "title": "Found",
+                          "metrics": {"views": 5}})
+    sig2 = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v2",
+                                       "first_seen": old, "last_checked": old})
+    used = db.insert("sources", {"platform": "youtube", "external_id": "v2", "signal_id": sig2["id"], "title": "Used",
+                                 "project_id": "p1", "status": "analyzed", "metrics": {"views": 9}})
+    fresh = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v3",
+                                        "first_seen": now, "last_checked": now})
+    db.insert("sources", {"platform": "youtube", "external_id": "v3", "signal_id": fresh["id"], "metrics": {"views": 1}})
+    out = scout.youtube_retention(now=now)
+    assert out["youtube_sources_deleted"] == 1 and out["youtube_sources_cleared"] == 1
+    left = {r["external_id"]: r for r in db.select("sources")}
+    assert set(left) == {"v2", "v3"} and left["v2"]["metrics"] == {} and left["v2"]["title"] == "Used"
+    assert left["v3"]["metrics"] == {"views": 1} and db.fetch("sources", used["id"])
+
+
+def test_youtube_data_is_deleted_at_start_even_when_autopilot_is_off(data):
+    # The hourly maintenance only runs while Autopilot is on; YouTube's 30-day rule holds either way.
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+
+    old = time.time() - 31 * 86400
+    db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "old",
+                                "first_seen": old, "last_checked": old})
+    assert not db.get_settings()["autopilot_enabled"]
+    with TestClient(app, base_url="http://127.0.0.1:8765"):
+        assert db.select("trend_signals") == []
+
+
 # ------------------------------------------------------------------ API
 def test_autopilot_api(data, tmp_path):
     from fastapi.testclient import TestClient
@@ -369,9 +410,31 @@ def test_legal_pages_are_served(data):
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
         for path, text in [("/legal/terms", "Terms of Service"), ("/legal/privacy", "Privacy Policy"),
-                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "ClipFoundry legal")]:
+                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "Turn long videos into")]:
             r = c.get(path)
             assert r.status_code == 200 and r.headers["content-type"].startswith("text/html") and text in r.text
-            assert "qualified lawyer" in r.text and "[CONTACT EMAIL]" in r.text
+            assert 'href="site.css"' in r.text
+        css = c.get("/legal/site.css")
+        assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
         assert c.get("/legal", follow_redirects=False).headers["location"] == "/legal/"
         assert c.get("/legal/x").status_code == 404
+
+
+def test_the_website_is_ready_to_publish():
+    """docs/legal is published as the public website: only these files, no placeholders, nothing loaded from other
+    sites, and the Privacy Policy and Terms linked at the top of every page (TikTok wants them visible without a
+    menu)."""
+    import re
+
+    from clipfoundry.api import LEGAL_DIR
+
+    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == ["index.html", "privacy.html", "site.css", "terms.html"]
+    for page in ("index.html", "privacy.html", "terms.html"):
+        html = (LEGAL_DIR / page).read_text(encoding="utf-8")
+        assert not re.search(r"\{\{|\[[A-Z][A-Z ]+\]", html), f"{page}: unresolved placeholder"
+        assert not re.search(r"<script|<form|<iframe|<img|@import", html, re.I), page
+        assert re.findall(r'<link rel="stylesheet" href="([^"]+)"', html) == ["site.css"], page
+        header = html.split("<main", 1)[0]
+        assert 'href="privacy.html"' in header and 'href="terms.html"' in header, page
+        assert "landryschreiner456@gmail.com" in html and "Landry Schreiner" in html, page
+    assert "url(" not in (LEGAL_DIR / "site.css").read_text(encoding="utf-8")
