@@ -96,7 +96,8 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     g, _ = fakes
     first = client.get("/api/autopilot/status").json()
     assert first["enabled"] is False and first["home"]["setup"]["started"] is False  # the first-run screen shows
-    assert first["home"]["empty"] == "Connect YouTube to start finding content."
+    assert first["home"]["setup"]["can_discover"]  # the free library works before an account is connected
+    assert first["home"]["empty"] == "Turn on Autopilot to start finding opportunities."
     # The way of working chosen in first-time setup is kept with the settings (Home skips its welcome after
     # "I'll make clips myself"); anything else is not stored.
     assert first["home"]["setup"]["mode"] == ""
@@ -165,8 +166,8 @@ def test_missing_optional_providers_do_not_stop_autopilot(client, fakes):
     assert provs["web_search"]["status"] == "unavailable" and provs["library"]["status"] in ("ok", "error")
     home = client.get("/api/autopilot/status").json()["home"]
     assert home["skipped_today"] >= 1 and [i["type"] for i in home["needs_you"]] == ["videos"]
-    # Without any way to discover online (YouTube not connected), Autopilot still runs, watches your videos folder
-    # and says what would help.
+    # Disconnecting YouTube does not stop the free library or your videos folder; Autopilot still runs and says
+    # what would help.
     client.post("/api/publish/youtube/disconnect", headers=H)
     run("trend_scan")
     home = client.get("/api/autopilot/status").json()["home"]
@@ -290,8 +291,9 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
-    assert set(home) == {"setup", "currently", "next_look", "working", "needs_you", "opportunities", "upcoming",
-                         "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos", "posts"}
+    assert set(home) == {"setup", "currently", "next_look", "discovery", "working", "needs_you", "opportunities",
+                         "upcoming", "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos",
+                         "posts"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
@@ -301,7 +303,8 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     text = words(home)
     assert text and not [w for w in JARGON if w.lower() in text.lower()], text
     assert home["currently"] in ("Looking for opportunities", "Starting", "Finding trending videos",
-                                 "Choosing the best videos", "Planning posting times", "Checking your folders")
+                                 "Choosing the best videos", "Planning posting times", "Checking your folders",
+                                 "Waiting for the next search", "No covered videos found yet")
     client.post("/api/autopilot/stop-all", headers=H)
     assert client.get("/api/autopilot/status").json()["home"]["currently"].startswith("Stopped")
     client.post("/api/autopilot/resume", headers=H)

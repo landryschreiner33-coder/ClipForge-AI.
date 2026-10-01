@@ -205,7 +205,7 @@ export interface MyVideos {
 /** Something that really needs you, in plain words (the simple Autopilot page). */
 export interface NeedsYouItem {
   key: string;
-  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "sleep" | "videos" | "other";
+  type: "account" | "rights" | "file" | "approve" | "publish" | "gpu" | "sleep" | "videos" | "stopped" | "other";
   folder?: MyVideos;
   title: string;
   detail: string;
@@ -265,6 +265,11 @@ export interface HomeView {
   };
   currently: string;
   next_look: number | null;
+  /** The last online search, what was found so far by where it stands, and searches that did not work (plain words). */
+  discovery: {
+    last_scan: number | null; next_scan: number | null; found: number; counts: Record<string, number>;
+    problems: { name: string; detail: string; fix: string }[];
+  };
   working: WorkingOn | null;
   /** Posts waiting for your OK, and posts you need to settle (upload not confirmed, finish in the TikTok app). */
   posts: { review: number; fix: number };

@@ -246,6 +246,8 @@ a.textlink { color: var(--primary); text-underline-offset: 3px; }
 .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
 .note { display: flex; gap: var(--s3); align-items: flex-start; font-size: var(--fs-small); color: var(--text-2); }
 .note .icon { margin-top: 2px; color: var(--text-3); }
+.note.search-problems .icon { color: var(--warn); }
+.note.search-problems .stack { gap: var(--s1); }
 
 /* banners (critical, always visible) */
 .banner {

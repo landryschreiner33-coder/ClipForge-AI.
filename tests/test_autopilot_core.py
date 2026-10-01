@@ -45,6 +45,27 @@ def test_all_autopilot_tables_exist(data):
         assert table in names, table
 
 
+def test_deleting_a_video_removes_its_clip_records_but_keeps_post_history(data):
+    """The Privacy Policy says what deleting a video removes: its clips, transcript windows, analysis and post text.
+    What stays is the post history and each clip's fingerprint, which stops the same clip from being posted twice."""
+    from clipfoundry import db
+
+    project = db.create_project("Talk")
+    clip = db.create_clip(project["id"], title="A moment", start=1.0, end=31.0)
+    db.insert("clip_candidates", {"id": f"{project['id']}-1", "project_id": project["id"], "clip_id": clip["id"],
+                                  "start": 1.0, "end": 31.0})
+    db.insert("clip_analysis", {"clip_id": clip["id"], "project_id": project["id"]}, key="clip_id")
+    db.insert("clip_scores", {"clip_id": clip["id"]}, key="clip_id")
+    db.insert("metadata_candidates", {"clip_id": clip["id"], "platform": "youtube", "title": "A moment"})
+    db.insert("clip_fingerprints", {"clip_id": clip["id"]}, key="clip_id")
+    db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "status": "canceled"})
+    db.delete_project(project["id"])
+    for table in ("clips", "clip_candidates", "clip_analysis", "clip_scores", "metadata_candidates"):
+        assert not db.scalar(f"SELECT COUNT(*) FROM {table}"), table
+    assert db.scalar("SELECT COUNT(*) FROM clip_fingerprints") == 1
+    assert db.scalar("SELECT COUNT(*) FROM scheduled_publications") == 1
+
+
 def test_old_database_is_migrated(monkeypatch, tmp_path):
     folder = tmp_path / "old"
     folder.mkdir()

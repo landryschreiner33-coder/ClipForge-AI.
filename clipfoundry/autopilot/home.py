@@ -67,6 +67,18 @@ UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "actio
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
                "Being public or trending does not make a video reusable.")
 QUIET_KINDS = ("quota",)  # informational (resets by itself); shown under Advanced, never as "Needs you"
+BOOT = time.time()  # when this app started: its background work needs a moment before it answers
+STOPPED_AFTER = 60.0  # seconds without an answer from the background work before the page says it stopped
+# The online searches by their key in state "providers" (scout.trend_scan), as the main page names them. A folder's
+# key is "feed:<id>" and is named by the folder.
+SEARCH_NAMES = {"youtube": "YouTube search", "web_search": "Web search", "library": "The free video library"}
+SEARCH_PROBLEMS = {  # a search that did not work last time, by its status: what happened and what to do
+    "error": ("It did not work last time.", "It tries again at the next search."),
+    "quota": ("YouTube's daily limit for searches is used up.",
+              "YouTube searches start again after midnight Pacific time. Your videos folder is still checked."),
+    "budget": ("Web search reached this month's limit.",
+               "It starts again next month. You can change the limit in Settings → Advanced."),
+}
 
 
 # ------------------------------------------------------------------ START AUTOPILOT
@@ -98,11 +110,15 @@ def started_before() -> bool:
 
 
 def can_discover(settings: dict, platforms: dict) -> bool:
-    """Is there anything to find content with? (a connected YouTube account, an API key, or a folder/feed)"""
+    """Include the free library and agreement folders, which do not require a connected account."""
+    from . import scout
+
+    if settings.get("library_discovery", True) or settings.get("tavily_api_key"):
+        return True
     yt = platforms.get("youtube") or {}
     if (yt.get("connected") and not yt.get("needs_reconnect")) or settings.get("youtube_api_key"):
         return True
-    return bool(db.scalar("SELECT COUNT(*) FROM source_feeds WHERE enabled = 1"))
+    return bool(scout.discovery_feeds(settings))
 
 
 # ------------------------------------------------------------------ the answer to a rights question
@@ -117,11 +133,24 @@ def answer_rights(source_id: str, allowed: bool) -> dict:
 
 
 # ------------------------------------------------------------------ what the page shows
-def currently(settings: dict, workers_alive: bool) -> str:
+def workers_stopped(settings: dict, workers_alive: bool) -> bool:
+    """Autopilot is on, but its background work has not answered for a minute, and it is not just starting up (the
+    app and Autopilot were both started more than a minute ago). The app restarts a crashed worker process by itself,
+    so this lasting means it could not."""
+    if workers_alive or state.paused() or not settings.get("autopilot_enabled"):
+        return False
+    started = float(state.get("setup:started", 0) or 0)
+    beat = float((state.get("host_heartbeat") or {}).get("at") or 0)
+    return bool(started or beat) and time.time() - max(started, beat, BOOT) > STOPPED_AFTER
+
+
+def currently(settings: dict, workers_alive: bool, discovery: dict | None = None) -> str:
     if state.paused():
         return "Stopped: all jobs are on hold"
     if not settings.get("autopilot_enabled"):
         return "Off"
+    if not workers_alive:
+        return "Background work has stopped" if workers_stopped(settings, workers_alive) else "Starting"
     kinds = {j["kind"] for j in queue.jobs(("running",), limit=50)}
     for kind, words in DOING.items():
         if kind in kinds:
@@ -129,11 +158,40 @@ def currently(settings: dict, workers_alive: bool) -> str:
     busy = {r["status"] for r in db.select("sources", "status IN ('ingesting', 'analyzing')")}
     if busy:  # between two of a video's jobs nothing runs for a moment, but the video is still being worked on
         return DOING["analyze_source"] if "analyzing" in busy else DOING["hunt_source"]
-    if not workers_alive:
-        return "Starting"
-    if any(j["wait_reason"] == "gpu" for j in queue.jobs(("waiting",), limit=50)):
+    if any(j["wait_reason"] in ("gpu", "gpu_failed") for j in queue.jobs(("waiting",), limit=50)):
         return "Waiting for the GPU"
-    return "Looking for opportunities"
+    discovery = discovery if discovery is not None else discovery_status()
+    counts = discovery["counts"]
+    if not any(counts.get(s) for s in USABLE):  # say why nothing is being clipped, not just "looking"
+        # "yet" is only true while no found video was ever clipped; afterwards skipped finds are normal
+        used = any(counts.get(s) for s in ("analyzed", "weak", "exhausted"))
+        if counts.get("needs_file") and not used:
+            return "No usable video files yet"
+        if (counts.get("needs_rights") or counts.get("blocked")) and not used:
+            return "No covered videos found yet"
+        if discovery["problems"]:
+            return "Some searches did not work"
+    return "Waiting for the next search" if discovery["last_scan"] else "Looking for opportunities"
+
+
+def discovery_status() -> dict:
+    """Enough evidence on the main page to tell an empty search from missing files, videos nobody covers and a search
+    that did not work. Problems are in plain words; the technical detail stays under Advanced → System."""
+    last = state.get("trend:last_scan") or {}
+    with db.connect() as conn:
+        counts = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) AS n FROM sources GROUP BY status")}
+    problems = []
+    for key, p in (state.get("providers") or {}).items():
+        status = p.get("status")
+        if status not in SEARCH_PROBLEMS:
+            continue
+        detail, fix = SEARCH_PROBLEMS[status]
+        if status == "error":
+            detail, fix = p.get("problem") or p.get("detail") or detail, p.get("fix") or fix
+        problems.append({"name": SEARCH_NAMES.get(key) or f"Checking “{p.get('name') or 'a folder'}”",
+                         "detail": detail, "fix": fix})
+    return {"last_scan": last.get("at"), "next_scan": state.get("next:trend_scan"),
+            "found": int(last.get("signals") or 0), "counts": counts, "problems": problems}
 
 
 def _source_view(src: dict) -> dict:
@@ -147,9 +205,16 @@ def _was_connected(platform: str) -> bool:
         db.scalar("SELECT COUNT(*) FROM publications WHERE platform = ?", (platform,)))
 
 
-def needs_you(settings: dict, platforms: dict) -> list[dict]:
+def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> list[dict]:
     """Only what really needs you, in plain words, most urgent first."""
     items: list[dict] = []
+    if workers_stopped(settings, workers_alive):
+        items.append({"key": "workers_stopped", "type": "stopped", "title": "Autopilot's background work has stopped",
+                      "detail": "ClipFoundry is open, but the part that finds, clips and posts videos is not running, "
+                                "so nothing happens.",
+                      "fix": "Close the black ClipFoundry window, then start ClipFoundry again with start.bat. If "
+                             "this keeps happening, see Autopilot → Advanced → System.",
+                      "link": "#/autopilot/system"})
     for p, name in NAME.items():
         acc = platforms.get(p) or {}
         if not settings.get(f"autopilot_{p}"):
@@ -165,7 +230,7 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
             items.append({"key": f"account:{p}", "type": "account", "platform": p, "title": f"{verb} {name}",
                           "detail": f"{name} is not connected, so {planned} planned post{'s' if planned != 1 else ''} "
                                     f"cannot go out."})
-    accounts = {i["platform"] for i in items}
+    accounts = {i["platform"] for i in items if i["type"] == "account"}
     for a in state.open_actions():
         kind, key = a["kind"], a["key"]
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
@@ -202,8 +267,8 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
     for extra in (needs_sleep_fix(settings), needs_videos(settings)):
         if extra:
             items.append(extra)
-    order = {"account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5, "videos": 6,
-             "other": 7}
+    order = {"stopped": 0, "account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5,
+             "videos": 6, "other": 7}
     return sorted(items, key=lambda i: order.get(i["type"], 9))
 
 
@@ -228,9 +293,19 @@ def needs_videos(settings: dict) -> dict | None:
         detail = "Put new videos in your videos folder to get more clips."
     else:
         title = "Autopilot needs videos to work with"
-        skipped = skipped_count()
-        found = (f"The {skipped} video{'s' if skipped != 1 else ''} it found online belong to other people, so it "
-                 "skipped them. ") if skipped else ""
+        since = time.time() - 86400
+        no_file = int(db.scalar("SELECT COUNT(*) FROM sources WHERE status = 'needs_file' AND updated_at > ?",
+                                (since,)) or 0)
+        others = int(db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('needs_rights', 'blocked') AND "
+                               "updated_at > ?", (since,)) or 0)
+        found = ""
+        if no_file:  # e.g. your own YouTube videos: covered, but YouTube does not let apps download them
+            found += (f"{no_file} video{'s' if no_file != 1 else ''} it may use {'have' if no_file != 1 else 'has'} "
+                      "no file it is allowed to download (YouTube doesn't let apps download videos, even your own). ")
+        if others:
+            found += (f"The {others} {'other ' if no_file else ''}video{'s' if others != 1 else ''} it found online "
+                      f"belong{'s' if others == 1 else ''} to other people, so it skipped "
+                      f"{'them' if others != 1 else 'it'}. ")
         detail = (f"{found}Put videos you made in your videos folder, and Autopilot turns them into clips by itself.")
     return {"key": "videos", "type": "videos", "title": title, "detail": detail, "folder": folder}
 
@@ -424,10 +499,12 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
     found = opportunities()
     discover = can_discover(settings, platforms)
+    discovery = discovery_status()
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
-            "currently": currently(settings, workers_alive), "next_look": next_look(settings),
-            "working": working(settings), "needs_you": needs_you(settings, platforms),
+            "currently": currently(settings, workers_alive, discovery), "next_look": next_look(settings),
+            "discovery": discovery, "working": working(settings),
+            "needs_you": needs_you(settings, platforms, workers_alive),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),
             "skipped_today": skipped_count(), "my_videos": myvideos.view(), "posts": post_counts()}

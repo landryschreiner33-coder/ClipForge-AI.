@@ -9,6 +9,7 @@ platform are **separate** checks: passing one says nothing about the others.
 | Source | Date | Note |
 | --- | --- | --- |
 | Official pages listed below | **not re-read in this session** (2026-09-28) | The cloud session's network policy denied `developers.google.com` and `developers.tiktok.com`. Nothing below was re-verified here. |
+| TikTok developer pages (the TikTok rows below) | re-read 2026-10-01 | Reachable from the cloud session that day; the quotes in the TikTok table are from these pages. The YouTube pages were not re-read. |
 | Task specification "Audit, Finish, and Verify" | states it was checked on 2026-09-28 | Source of the TikTok Direct Post eligibility concern and of the three YouTube quota allowances. Recorded as the author's reading, not as this session's. |
 | `docs/AUTOPILOT.md` and the code (`publish/`, `autopilot/quota.py`) | written in earlier phases | What the app currently assumes and enforces. |
 
@@ -19,8 +20,12 @@ saw.
 
 | Topic | URL | Last verified |
 | --- | --- | --- |
-| TikTok Content Sharing Guidelines | https://developers.tiktok.com/doc/content-sharing-guidelines | not in this session |
-| TikTok Content Posting API: get started | https://developers.tiktok.com/doc/content-posting-api-get-started | not in this session |
+| TikTok Content Sharing Guidelines | https://developers.tiktok.com/doc/content-sharing-guidelines | 2026-10-01 |
+| TikTok Content Posting API: get started | https://developers.tiktok.com/doc/content-posting-api-get-started | 2026-10-01 |
+| TikTok app review guidelines | https://developers.tiktok.com/doc/app-review-guidelines | 2026-10-01 |
+| TikTok: register an app (fields, URL verification) | https://developers.tiktok.com/docs/en/getting-started-create-an-app | 2026-10-01 |
+| TikTok sandbox | https://developers.tiktok.com/docs/en/add-a-sandbox | 2026-10-01 |
+| TikTok Login Kit for desktop (redirect URIs) | https://developers.tiktok.com/doc/login-kit-desktop | 2026-10-01 |
 | YouTube Data API: getting started (quota) | https://developers.google.com/youtube/v3/getting-started | not in this session |
 | YouTube quota and compliance audits | https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits | not in this session |
 | YouTube API Services Developer Policies | https://developers.google.com/youtube/terms/developer-policies | not in this session |
@@ -29,13 +34,16 @@ saw.
 
 | Capability | Constraint as recorded | Source | What ClipFoundry does | Status |
 | --- | --- | --- | --- | --- |
-| Direct Post to the profile (`video.publish`) for this app | The Content Sharing Guidelines exclude private/internal account-management utility tools from acceptable Direct Post use, and disallow apps that copy arbitrary third-party platform content. A single-user local tool is squarely in the first category; an audit is not a guaranteed way around it. | Task specification (checked 2026-09-28) | Direct Post code exists and is contract-tested against a fake API. It is used only when the user's own app has the scope; the audit/eligibility decision is TikTok's. The product is **not** turned into a public SaaS to pursue approval. | externally-blocked (eligibility); implemented for eligible apps |
-| Unaudited Direct Post | Private accounts only, "Only me" (SELF_ONLY), few users per day | `publish/tiktok.py` `UNAUDITED_NOTE` (earlier phases) | Explains it before posting; refusal codes map to "Needs you" | implemented, contract-tested |
+| Direct Post to the profile (`video.publish`) for this app | The Content Sharing Guidelines list "A utility tool to help upload contents to the account(s) you or your team manages" and "An app that copies arbitrary contents from other platforms to TikTok" as unacceptable. The app review guidelines reject apps "for private or personal use". A single-user local tool is squarely in the first category; an audit is not a guaranteed way around it. | Content Sharing Guidelines and app review guidelines (re-read 2026-10-01) | Direct Post code exists and is contract-tested against a fake API. It is used only when the user's own app has the scope; the audit/eligibility decision is TikTok's. The product is **not** turned into a public SaaS to pursue approval. | externally-blocked (eligibility); implemented for eligible apps |
+| Unaudited Direct Post | "Unaudited API Clients can only post contents in `SELF_ONLY` viewership", the posting account must be private, and at most 5 users may post in 24 hours | Content Sharing Guidelines (re-read 2026-10-01) | Explains it before posting; refusal codes map to "Needs you" | implemented, contract-tested |
 | Upload to inbox as a draft (`video.upload`) | Works without the audit; the user finishes the post in the TikTok app | `publish/tiktok.py` | Fallback path; the post can then be linked by URL in the Publish Center | implemented, contract-tested |
 | Export and manual upload in TikTok Studio | Always possible | — | Export ZIP / MP4 | verified (local) |
 | Required UX before posting | Read creator info first; show the creator's nickname; privacy chosen by the user with no default; interactions (comment, duet, stitch) off unless enabled and greyed out when the account disables them; commercial content disclosure; Music Usage Confirmation; preview and editable text; explicit consent | `publish/tiktok.py`, `components/approve.tsx` | Implemented in the approval dialog; approval bound to the exact content | contract-tested (fake API); real-account check pending |
 | Trends / discovery API | No trend or search API for general developers (Research API is for approved academic research) | `docs/AUTOPILOT.md` | Shown as unavailable; never scraped | not-supported |
 | Retention metrics | Not available through the API used | `docs/AUTOPILOT.md` | Shown as unavailable | not-supported |
+| Sandbox | Up to 10 of your own TikTok accounts as target users, no app review; "Sandbox mode does not offer access to Content Posting API for public videos" | sandbox page (re-read 2026-10-01) | Nothing special: a sandbox client key and secret are pasted like any other | untested with a real sandbox |
+| App registration | Icon 1024×1024 (JPEG/PNG, up to 5 MB), name, category, description; Terms of Service and Privacy Policy URLs that must be verified (apps created after 2024-09-09), by domain or by URL prefix with a signature file uploaded to that URL; the policies must be on the official website, not hidden behind a menu | register-an-app and app review pages (re-read 2026-10-01) | The website and policies are in `docs/legal/`; publishing them is the owner's decision | owner action |
+| Desktop redirect URI | Only `localhost` or `127.0.0.1`, with a port, HTTP or HTTPS, no query or fragment | Login Kit for desktop (re-read 2026-10-01) | `http://127.0.0.1:<port>/api/oauth/tiktok/callback`, shown in Settings | implemented, contract-tested |
 
 ## YouTube
 
