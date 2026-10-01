@@ -764,7 +764,10 @@ def update_project(project_id: str, **fields: Any) -> None:
     _update("projects", project_id, fields)
 
 
-CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports")
+# Deleted with their clip. Kept on purpose: the post history (publications, scheduled_publications,
+# slot_replacements, performance) and clip_fingerprints, which stop the same clip from being posted twice.
+CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports", "clip_analysis", "clip_scores",
+                 "metadata_candidates")
 
 
 def delete_project(project_id: str) -> None:
@@ -772,6 +775,7 @@ def delete_project(project_id: str) -> None:
         for table in CLIP_CHILDREN:
             conn.execute(f"DELETE FROM {table} WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
                          (project_id,))
+        conn.execute("DELETE FROM clip_candidates WHERE project_id = ?", (project_id,))  # transcript windows
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
