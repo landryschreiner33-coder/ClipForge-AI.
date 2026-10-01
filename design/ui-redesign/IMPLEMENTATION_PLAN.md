@@ -1,8 +1,9 @@
-# Phased implementation plan (not started)
+# Phased implementation plan (done)
 
-**Nothing here is authorized yet.** Each phase needs the owner's go-ahead. Each phase is one pull request from the
-default branch, and each ends with `npm run build`, the committed `frontend/dist`, `pytest -m "not slow"`, the e2e
-suite against the sandbox (`npm run test:sandbox`), and a line in the test log of `docs/IMPLEMENTATION_STATUS.md`.
+**Done (2026-10-01).** The owner approved the design and asked for all of it at once, so the five phases below went
+into one pull request (PR #7) after PR #6 was merged. The test results are in the test log of
+`docs/IMPLEMENTATION_STATUS.md`. Not done from this plan: README screenshots, and checks only the owner's PC can do
+(Windows fonts and display scaling, 200% zoom, a screen reader).
 
 **Order with PR #6.** PR #6 changes `Autopilot.tsx`, `autopilot.ts`, `styles.css` and the status document. Phase 1
 should start only after PR #6 is merged (or closed), so that no thread edits the same files at the same time.

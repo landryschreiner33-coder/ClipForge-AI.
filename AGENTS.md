@@ -57,8 +57,11 @@ clipfoundry/
                    handlers.py (imports every handler module), scout, trends, providers, rights, hunter,
                    live, packaging, gate (Final Quality Gate), scheduler, quota, publisher, learner,
                    routes.py (/api/autopilot)
-frontend/src/      App.tsx, api.ts, autopilot.ts, pages/ (Dashboard, Create, Projects, ProjectView, ClipEditor,
-                   Publish, Autopilot, PublishCenter, Settings), components/
+frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
+                   (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
+                   pages/ (Home, Setup, Autopilot, Library, Create, ProjectView, ClipEditor, Publish, Posts,
+                   PostReview, Settings), components/ (ui.tsx shared controls, page parts)
+design/ui-redesign/ the approved redesign: SPEC.md, ROUTE_MAP.md and the sample-data prototype
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -68,7 +71,7 @@ The Autopilot flow is:
 
 ```
 hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, render follows it)
-  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Publish Center → publish
+  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Posts → publish
 ```
 
 ## Run and test
@@ -76,10 +79,10 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~310 tests, ~4 min
+.venv/bin/python -m pytest -m "not slow"          # ~360 tests, ~4-6 min
 .venv/bin/python -m pytest -m slow                # 5 end-to-end renders, ~8 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
-cd e2e && npm install && npm test                 # 42 read-only browser tests against a running app
+cd e2e && npm install && npm test                 # 60 read-only browser tests against a running app
 cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)
 ```
 
@@ -91,13 +94,13 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Where things stand (2026-09-29)
+## Where things stand (2026-10-01)
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
-Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13) and PR #6 (overnight
-run fixes, item 16). Start new work from the default branch; the tested commits are in the test log of
-`docs/IMPLEMENTATION_STATUS.md`.
+Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13), PR #6 (overnight
+run fixes, item 16) and PR #7 (the UI redesign, item 17). Start new work from the default branch; the tested
+commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
@@ -160,6 +163,19 @@ run fixes, item 16). Start new work from the default branch; the tested commits 
     * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
       The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
       setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
+17. **UI redesign (2026-10-01, PR #7; the owner approved the design).** A "quiet dark studio" look and five places:
+    Home, Autopilot, Library, Posts, then Settings. `design/ui-redesign/` holds the spec, the route map and the
+    prototype it was built from.
+    * Old addresses keep working: `router.ts` replaces them in place (`#/projects` → `#/library`,
+      `#/publish-center/*` → `#/posts/*`, …), so Back never bounces on them.
+    * Home leads with the first Needs you item; first-time setup is `#/setup` (3 steps; the choice is the
+      `setup_mode` setting); Autopilot has Overview, Activity, Permissions & sources and Advanced (System, Jobs,
+      Learning); Posts has tabs and a page per post (`#/post/:id`, `GET /api/autopilot/scheduled/{id}`) that
+      replaces the approval dialog; Settings has Accounts, Defaults and Advanced.
+    * `home.working` (the video being worked on, the job's own progress) and `home.posts` (the sidebar counts, the
+      same rules as the Posts tabs) feed the shell.
+    * The editor asks before leaving unsaved changes (links, Back, closing the window) and says when a save was not
+      rendered. No `window.confirm`/`prompt` is left: dialogs say what will happen.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
@@ -168,9 +184,10 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
 * No per-video questions by default (`rights_ask_per_video` off). Creator agreements (`rights.add_agreement`), file
   access (`autopilot/access.py`, separate from reuse rights) and the automatic-publishing permission
   (`autopilot/autopublish.py`, YouTube only) replace them.
-* UI: `Autopilot.tsx` has the first-run screen, the simple Home and an Advanced area (`#/autopilot/system|sources|
-  jobs|learning`); Settings has General and Advanced (`#/settings/advanced`). Keep jargon (worker, feed, provider,
-  source, quota) off the main page and General settings; `test_autopilot_simple.py` checks the page text.
+* UI (item 17): first-time setup is `Setup.tsx`; the Autopilot overview is plain, and the technical parts live
+  under Autopilot → Advanced (`#/autopilot/system|jobs|learning`) and Settings → Advanced. Keep jargon (worker,
+  feed, provider, source, quota) off Home, the Autopilot overview, Setup and Settings → Accounts/Defaults;
+  `test_autopilot_simple.py` checks the backend's page text.
 
 **Decided:** live monitoring is on by default (owner, 2026-09-29).
 
@@ -222,8 +239,8 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 * Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):
   `.mcp.json` starts the Playwright MCP server through `e2e/playwright-mcp.mjs`, which uses the cloud's
   preinstalled Chromium when it exists.
-* The `e2e/` tests must stay **read-only**: they run against the user's real data. They must never press Create,
-  Delete, Save, Approve, Publish, the AUTOPILOT switch or STOP ALL JOBS.
+* The `e2e/` tests must stay **read-only**: they run against the user's real data. They must never press Make clips,
+  Delete, Save, Approve, Publish, Start or Pause Autopilot, or Stop all jobs.
 * Don't upgrade CUDA, CTranslate2, faster-whisper or other GPU dependencies casually.
 * Without explicit permission, don't:
   * publish real posts, spend money, or change account permissions;

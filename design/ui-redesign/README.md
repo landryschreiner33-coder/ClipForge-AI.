@@ -1,8 +1,9 @@
-# ClipFoundry redesign proposal (prototype only)
+# ClipFoundry redesign (approved and built)
 
-This folder is a **design proposal** for a calmer, simpler ClipFoundry interface. It holds a clickable prototype
-with sample data, the design documents, and nothing else. **It does not change the app.** The app's entry points,
-`frontend/src`, `frontend/dist`, the backend and the tests are untouched.
+This folder holds the design of ClipFoundry's interface: a clickable prototype with sample data and the design
+documents. The owner approved it on 2026-09-30, and the real screens in `frontend/src` were built from it (PR #7,
+see `docs/IMPLEMENTATION_STATUS.md` → *UI redesign*). The prototype itself still uses sample data only; it is the
+reference for how the app should look and behave.
 
 ## Open the prototype
 
