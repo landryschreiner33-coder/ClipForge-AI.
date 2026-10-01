@@ -12,7 +12,7 @@ anywhere.
 | FFmpeg | any recent build with libx264 + libass | `winget install Gyan.FFmpeg` |
 | RAM | 8 GB | 16 GB |
 | GPU | not required | NVIDIA RTX (recent driver) for fast transcription and NVENC encoding |
-| Disk | ~3 GB (dependencies + Whisper model) | plus space for your videos |
+| Disk | ~3 GB (dependencies + Whisper model); ~6 GB with an NVIDIA GPU (CUDA libraries + the larger model) | plus space for your videos |
 
 Node.js is **not** required. The UI ships prebuilt in `frontend/dist`.
 
