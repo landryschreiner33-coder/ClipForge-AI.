@@ -365,6 +365,10 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 | final integration (2026-10-01) | `npm run test:sandbox` (beginner flow, Chromium from `/opt/pw-browsers`) | 1 passed |
 | final integration (2026-10-01) | read-only `e2e` suite against a fresh sandbox | 51 passed, 9 skipped (no videos, no posts, Autopilot never started) |
 | final integration (2026-10-01) | read-only `e2e` suite against a sandbox after the beginner flow and one video dropped into its videos folder (2 posts waiting for an OK) | 60 passed; the dropped copy of an already clipped video gave no new post (repeat stopped); screenshots of Home, Autopilot, Activity and a post's page checked by eye, which found the status line fixed above |
+| website and legal pages (2026-10-01) | three reviewers checked every sentence of the product page, Privacy Policy and Terms against the code and YouTube's and TikTok's rules, each finding re-checked by a second reviewer; then a fresh check of the rewritten pages | 53 corrections, then 5 more; 4 code fixes (AI keys sealed, request addresses out of the logs, YouTube clean-up at start and counted from YouTube's last answer) |
+| website and legal pages (2026-10-01) | `pytest -m "not slow"` on `b8951e1` | 382 passed, 5 slow deselected (227 s) |
+| website and legal pages (2026-10-01) | `pytest -m slow` on `b90981a` (the later commits change only the YouTube clean-up and the pages) | 5 passed (392 s); real ffmpeg and eSpeak NG synthetic speech, fake platforms |
+| website and legal pages (2026-10-01) | `npm run test:sandbox` on `4108a3f` (`CLIPFOUNDRY_E2E_CHROMIUM=/opt/pw-browsers/chromium`) | 1 passed |
 
 ## Checklist for the user's machine
 
