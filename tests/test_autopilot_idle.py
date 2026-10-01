@@ -239,6 +239,17 @@ def test_skipped_videos_are_not_presented_as_an_active_search(data):
     assert view["discovery"]["counts"]["needs_file"] == 1
 
 
+def test_skipped_finds_do_not_hide_videos_that_were_already_clipped(data):
+    """Seen in the sandbox: two posts waited for an OK while the status line said no covered video was found."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import home, state
+
+    state.put("trend:last_scan", {"at": time.time() - 120, "signals": 3, "active": 3})
+    for i, status in enumerate(("needs_rights", "needs_file", "weak")):
+        db.insert("sources", {"platform": "youtube", "external_id": f"v{i}", "status": status})
+    assert home.view(db.get_settings(), {}, True)["currently"] == "Waiting for the next search"
+
+
 def test_provider_failure_is_visible_on_the_main_page(data):
     from clipfoundry import db
     from clipfoundry.autopilot import home, state

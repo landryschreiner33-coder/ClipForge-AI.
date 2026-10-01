@@ -163,9 +163,11 @@ def currently(settings: dict, workers_alive: bool, discovery: dict | None = None
     discovery = discovery if discovery is not None else discovery_status()
     counts = discovery["counts"]
     if not any(counts.get(s) for s in USABLE):  # say why nothing is being clipped, not just "looking"
-        if counts.get("needs_file"):
+        # "yet" is only true while no found video was ever clipped; afterwards skipped finds are normal
+        used = any(counts.get(s) for s in ("analyzed", "weak", "exhausted"))
+        if counts.get("needs_file") and not used:
             return "No usable video files yet"
-        if counts.get("needs_rights") or counts.get("blocked"):
+        if (counts.get("needs_rights") or counts.get("blocked")) and not used:
             return "No covered videos found yet"
         if discovery["problems"]:
             return "Some searches did not work"
