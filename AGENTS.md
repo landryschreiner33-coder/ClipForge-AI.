@@ -187,6 +187,12 @@ work from the default branch; the tested commits are in the test log of `docs/IM
       first minute after the app starts.
     * Deleting a video also deletes its clip scores, analysis and suggested post text (`CLIP_CHILDREN`); the post
       history and clip fingerprints stay.
+19. **Website and legal pages (2026-10-01, PR #9).** `docs/legal` (`index.html`, `privacy.html`, `terms.html`,
+    `site.css`) is the public website, written from an audit of the code; the app serves it at `/legal/`. Publisher
+    Landry Schreiner, contact landryschreiner456@gmail.com, Minnesota law, "All rights reserved". No lawyer has
+    reviewed it. It goes public only with the owner's OK, from a `gh-pages` branch holding only those files.
+    * The audit's fixes: every secret setting is sealed (the AI keys too), httpx no longer logs request addresses
+      (a YouTube API key travels in one), and the YouTube 30-day clean-up also runs at every start.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
@@ -275,6 +281,8 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 * A new setting goes into `config.py` (default and range), plus `frontend/src/components/autopilotSettings.tsx` if the
   user should see it.
 * After frontend changes, run `npm run build` and commit `frontend/dist`.
+* When a change alters what ClipFoundry stores, sends, keeps or deletes, update `docs/legal/privacy.html` (and the
+  Terms or product page if they mention it) in the same change: the pages describe the code exactly.
 * Style: match the surrounding code. Lines are at most 120 characters, and comments explain *why*. UI text is plain
   English for a non-developer and says what to do next. Prefer fakes (`tests/fake_platforms.py`) and synthetic media
   (`tests/synthetic_media.py`) over mocks of internals.
