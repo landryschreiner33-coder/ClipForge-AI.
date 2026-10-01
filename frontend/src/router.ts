@@ -87,30 +87,57 @@ export const setLeaveAsker = (fn: ((target: string) => void) | null) => {
 };
 
 /** Leave after the person chose (Discard and leave, Save and leave): the guard no longer stops this one move. */
-let passing = "";
+let passing: string | null = null;
+/** A held-back Back or Forward: leaving repeats it (history.go) instead of adding an entry. */
+let heldSteps = 0;
 export function leaveTo(target: string) {
   guard = null;
   passing = target;
-  navigate(target);
+  if (heldSteps) history.go(heldSteps);
+  else navigate(target);
+  heldSteps = 0;
 }
 
 // ------------------------------------------------------------------ the current route
+// Each history entry of the app carries its position, so a move the guard holds back can be undone exactly: a link
+// (a new entry) is undone with Back, a Back or Forward with the opposite step. Rewriting the entry instead would
+// leave a duplicate behind, and the next Back would seem to do nothing.
+let position = 0;
+const positionOf = (state: unknown) => (state as { cfPosition?: number } | null)?.cfPosition;
+const mark = (n: number) => history.replaceState({ ...(history.state || {}), cfPosition: n }, "");
+
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => {
     if (!window.location.hash) history.replaceState(history.state, "", "#/");
+    position = positionOf(history.state) ?? 0;
+    mark(position);
     return read();
   });
   useEffect(() => {
     let current = route.path;
+    let undoing = false;
     const change = () => {
+      const known = positionOf(history.state);
+      if (undoing) {
+        // The step back to where the person was, after "Stay" or while they decide: nothing to show.
+        undoing = false;
+        position = known ?? position;
+        return;
+      }
       const next = read();
+      const at = known ?? position + 1;
       if (guard && next.path !== current && passing !== next.path && onAsk) {
-        // Undo the move (a link or Back) while the person decides; it happens only after they choose.
-        history.replaceState(history.state, "", `#/${current}`);
+        // Undo the move (a link, Back or Forward) while the person decides; it happens only after they choose.
+        undoing = true;
+        heldSteps = known === undefined ? 0 : at - position;
+        if (known === undefined) history.back();
+        else history.go(position - at);
         onAsk(next.path);
         return;
       }
-      passing = "";
+      passing = null;
+      position = at;
+      if (known === undefined) mark(at);
       current = next.path;
       setRoute(next);
     };

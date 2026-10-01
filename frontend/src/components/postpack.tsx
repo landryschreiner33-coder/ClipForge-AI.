@@ -1,165 +1,234 @@
-import { useEffect, useState } from "react";
-import { api, Clip, PostPackage } from "../api";
-import { Icon, toast } from "./ui";
+import { useEffect, useId, useState } from "react";
+import { api, Clip, errorText, PostPackage } from "../api";
+import { ConfirmDialog, Icon, Pill, toast } from "./ui";
 
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
 
-function Counter({ n, max }: { n: number; max: number }) {
-  return <span className={`small ${n > max ? "bad-text" : "muted"}`}>{n}/{max}</span>;
+export type PostDraft = Partial<PostPackage>;
+
+/** The editable part of a post package, as the backend accepts it in a clip PATCH (`post`). */
+export function postPatch(pkg: PostDraft) {
+  const { titles, recommended_title, captions, hashtags, description, cta, hook, title, caption } = pkg;
+  return { titles, recommended_title, captions, hashtags, description, cta, hook, title, caption };
+}
+
+export const hasPostText = (pkg: PostDraft) => !!(pkg.titles?.length || pkg.title);
+
+function Counter({ n, max, id }: { n: number; max: number; id: string }) {
+  return (
+    <span id={id} className={`hint tnum ${n > max ? "bad-text" : ""}`}>{n}/{max}{n > max ? " (too long)" : ""}</span>
+  );
 }
 
 function Checks({ notes }: { notes?: string[] }) {
   if (!notes?.length) return null;
-  return <div className="small warn-text">Not found in the clip: {notes.join("; ")}. Fine if intended; it is your text.</div>;
+  return (
+    <p className="tiny warn-text">
+      <Icon name="alert" className="xs" /> Not found in the clip: {notes.join("; ")}. Fine if you meant it: it is
+      your text.
+    </p>
+  );
 }
 
 /**
- * Edit every generated field before publishing. The generated text only uses the clip's own words; what you type
- * is saved as-is (a note appears if it adds numbers, names or claims the clip does not contain).
+ * The post text fields (controlled): title, caption, hashtags, description, call to action and hook text, with the
+ * suggestions written from the clip's own words. A page saves them with its other changes.
+ */
+export function PostTextFields({ pkg, onChange, onUseHook }: {
+  pkg: PostDraft;
+  onChange: (patch: PostDraft) => void;
+  onUseHook?: (hook: string) => void;
+}) {
+  const id = useId();
+  const titles = pkg.titles || [];
+  const captions = pkg.captions || [];
+  // Hashtags are typed as text; keeping the text lets a space separate tags while typing.
+  const [tagText, setTagText] = useState((pkg.hashtags || []).join(" "));
+  useEffect(() => {
+    setTagText((pkg.hashtags || []).join(" "));
+  }, [pkg.generated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const titleLen = (pkg.title || "").length;
+  const captionLen = (pkg.caption || "").length;
+
+  return (
+    <div className="stack-4">
+      {titles.length > 0 && (
+        <fieldset>
+          <legend className="label">Title suggestions</legend>
+          {titles.map((t, i) => (
+            <label key={i} className="hook-opt">
+              <input type="radio" name={`${id}-title`} checked={pkg.title === t}
+                onChange={() => onChange({ title: t })} />
+              <span className="small">
+                {t}{i === pkg.recommended_title && <> <Pill tone="accent" icon="spark">Suggested</Pill></>}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <div className="field">
+        <label htmlFor={`${id}-t`}>Title <Counter n={titleLen} max={TITLE_MAX} id={`${id}-tc`} /></label>
+        <input id={`${id}-t`} type="text" value={pkg.title || ""} aria-invalid={titleLen > TITLE_MAX || undefined}
+          aria-describedby={`${id}-tc`} onChange={(e) => onChange({ title: e.target.value })} />
+        <Checks notes={pkg.checks?.title} />
+      </div>
+
+      {captions.length > 0 && (
+        <fieldset>
+          <legend className="label">Caption suggestions</legend>
+          {captions.map((c, i) => (
+            <label key={i} className="hook-opt">
+              <input type="radio" name={`${id}-cap`} checked={pkg.caption === c}
+                onChange={() => onChange({ caption: c })} />
+              <span className="small">{c}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <div className="field">
+        <label htmlFor={`${id}-c`}>Caption <Counter n={captionLen} max={CAPTION_MAX} id={`${id}-cc`} /></label>
+        <textarea id={`${id}-c`} rows={4} value={pkg.caption || ""} aria-invalid={captionLen > CAPTION_MAX || undefined}
+          aria-describedby={`${id}-cc`} onChange={(e) => onChange({ caption: e.target.value })} />
+        <Checks notes={pkg.checks?.caption} />
+      </div>
+
+      <div className="field">
+        <label htmlFor={`${id}-h`}>Hashtags <span className="hint">separated by spaces</span></label>
+        <input id={`${id}-h`} type="text" value={tagText} onChange={(e) => {
+          setTagText(e.target.value);
+          onChange({
+            hashtags: e.target.value.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`)),
+          });
+        }} />
+        <Checks notes={pkg.checks?.hashtags} />
+      </div>
+
+      <div className="field">
+        <label htmlFor={`${id}-d`}>Short description</label>
+        <textarea id={`${id}-d`} rows={2} value={pkg.description || ""}
+          onChange={(e) => onChange({ description: e.target.value })} />
+        <Checks notes={pkg.checks?.description} />
+      </div>
+
+      <div className="field">
+        <label htmlFor={`${id}-a`}>Call to action <span className="hint">asks viewers to do something</span></label>
+        <div className="row wrap">
+          <input id={`${id}-a`} type="text" className="grow" style={{ flex: "1 1 200px", width: "auto" }}
+            value={pkg.cta || ""} onChange={(e) => onChange({ cta: e.target.value })} />
+          <button type="button" className="btn btn-small"
+            disabled={!pkg.cta || (pkg.caption || "").includes(pkg.cta || "")}
+            onClick={() => onChange({ caption: `${(pkg.caption || "").trim()} ${pkg.cta}`.trim() })}>
+            Add to caption
+          </button>
+        </div>
+      </div>
+
+      <div className="field">
+        <label htmlFor={`${id}-k`}>Hook text</label>
+        <div className="row wrap">
+          <input id={`${id}-k`} type="text" style={{ flex: "1 1 200px", width: "auto" }} value={pkg.hook || ""}
+            onChange={(e) => onChange({ hook: e.target.value })} />
+          {onUseHook && (
+            <button type="button" className="btn btn-small" disabled={!pkg.hook}
+              onClick={() => onUseHook(pkg.hook || "")}>
+              Use as on-screen hook
+            </button>
+          )}
+        </div>
+        <Checks notes={pkg.checks?.hook} />
+      </div>
+
+      <p className="hint">
+        Suggestions come only from this clip's own words: no invented facts, names, numbers or claims. What you type is
+        kept as you wrote it, with a note if it adds something the clip doesn't say. Nothing is posted from here.
+      </p>
+    </div>
+  );
+}
+
+/** Replaces the post text with new suggestions from the transcript, after saying so. */
+export function RewritePostDialog({ clip, edited, onClose, onDone }: {
+  clip: Clip; edited: boolean; onClose: () => void; onDone: (c: Clip) => void;
+}) {
+  return (
+    <ConfirmDialog title="Write new suggestions?" confirmLabel="Write new suggestions" onClose={onClose}
+      onConfirm={async () => {
+        const c = await api.regeneratePost(clip.id);
+        onDone(c);
+        toast("New post text written from the clip's words");
+      }}>
+      <p className="muted">
+        ClipFoundry writes new titles, captions, hashtags, a description and a hook from this clip's own words.
+      </p>
+      {edited && <p className="small"><b>Your edited post text is replaced.</b> The video doesn't change.</p>}
+    </ConfirmDialog>
+  );
+}
+
+/**
+ * Post text on its own, with its own Save: titles, captions, hashtags... written from the clip's own transcript.
+ * (The clip editor uses PostTextFields and saves them with the rest of its changes.)
  */
 export function PostPackageEditor({ clip, onSaved, onUseHook }: {
   clip: Clip;
   onSaved: (c: Clip) => void;
   onUseHook?: (hook: string) => void;
 }) {
-  const [pkg, setPkg] = useState<Partial<PostPackage>>(clip.post || {});
+  const [pkg, setPkg] = useState<PostDraft>(clip.post || {});
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
   useEffect(() => {
     setPkg(clip.post || {});
     setDirty(false);
   }, [clip.id, clip.post?.generated_at]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const set = (patch: Partial<PostPackage>) => {
-    setPkg((p) => ({ ...p, ...patch }));
-    setDirty(true);
-  };
-  const titles = pkg.titles || [];
-  const captions = pkg.captions || [];
-
   const save = async () => {
     setBusy(true);
     try {
-      const { titles, recommended_title, captions, hashtags, description, cta, hook, title, caption } = pkg;
-      const c = await api.patchClip(clip.id, {
-        post: { titles, recommended_title, captions, hashtags, description, cta, hook, title, caption },
-      });
+      const c = await api.patchClip(clip.id, { post: postPatch(pkg) });
       onSaved(c);
       setDirty(false);
-      toast("Post package saved");
+      toast("Post text saved");
     } catch (e) {
-      toast((e as Error).message, true);
+      toast(errorText(e), true);
     } finally {
       setBusy(false);
     }
   };
-  const regenerate = async () => {
-    if ((pkg.edited || dirty) && !window.confirm("Write a new post package from the clip's transcript? Your edits to it are replaced.")) return;
-    setBusy(true);
-    try {
-      const c = await api.regeneratePost(clip.id);
-      onSaved(c);
-      toast("New post package written from the transcript");
-    } catch (e) {
-      toast((e as Error).message, true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!titles.length && !pkg.title) {
-    return (
-      <div className="card">
-        <h3>Post package</h3>
-        <p className="muted small">Titles, captions, hashtags, a short description, a call to action and hook text, written only from this clip's transcript.</p>
-        <button className="btn primary" disabled={busy} onClick={regenerate}><Icon name="spark" size={16} /> {busy ? "Writing..." : "Generate post package"}</button>
-      </div>
-    );
-  }
 
   return (
-    <div className="card postpack">
-      <div className="row between">
-        <h3 style={{ margin: 0 }}>Post package</h3>
-        <span className="small muted">{pkg.source}{pkg.edited ? " · edited" : ""}</span>
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Post text</h2>
+        {pkg.source && <span className="tiny faint">{pkg.source}{pkg.edited ? " · edited" : ""}</span>}
       </div>
-
-      <div className="pp-label">Title <span className="muted small">pick an option or write your own</span></div>
-      <div className="grid" style={{ gap: 6 }}>
-        {titles.map((t, i) => (
-          <label key={i} className={`hook-opt ${pkg.title === t ? "on" : ""}`}>
-            <input type="radio" checked={pkg.title === t} onChange={() => set({ title: t })} />
-            <input type="text" value={t} onChange={(e) => {
-              const next = [...titles];
-              next[i] = e.target.value;
-              set({ titles: next, ...(pkg.title === t ? { title: e.target.value } : {}) });
-            }} />
-            {i === pkg.recommended_title && <span className="badge good">Recommended</span>}
-          </label>
-        ))}
+      {hasPostText(pkg) ? (
+        <PostTextFields pkg={pkg} onUseHook={onUseHook} onChange={(patch) => {
+          setPkg((p) => ({ ...p, ...patch }));
+          setDirty(true);
+        }} />
+      ) : (
+        <p className="muted small">
+          Titles, captions, hashtags, a short description, a call to action and hook text, written only from this
+          clip's words.
+        </p>
+      )}
+      <div className="row wrap" style={{ justifyContent: "flex-end" }}>
+        <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => setAsking(true)}>
+          <Icon name="refresh" />{hasPostText(pkg) ? "Write new suggestions…" : "Write post text…"}
+        </button>
+        {hasPostText(pkg) && (
+          <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}>
+            <Icon name="check" />Save post text
+          </button>
+        )}
       </div>
-      <label className="field mt-s">
-        <span className="row between">Title used for publishing <Counter n={(pkg.title || "").length} max={TITLE_MAX} /></span>
-        <input type="text" value={pkg.title || ""} onChange={(e) => set({ title: e.target.value })} />
-      </label>
-      <Checks notes={pkg.checks?.title} />
-
-      <div className="pp-label mt">Caption / description</div>
-      <div className="grid" style={{ gap: 6 }}>
-        {captions.map((c, i) => (
-          <label key={i} className={`hook-opt ${pkg.caption === c ? "on" : ""}`}>
-            <input type="radio" checked={pkg.caption === c} onChange={() => set({ caption: c })} />
-            <textarea rows={2} value={c} onChange={(e) => {
-              const next = [...captions];
-              next[i] = e.target.value;
-              set({ captions: next, ...(pkg.caption === c ? { caption: e.target.value } : {}) });
-            }} />
-          </label>
-        ))}
-      </div>
-      <label className="field mt-s">
-        <span className="row between">Caption used for publishing <Counter n={(pkg.caption || "").length} max={CAPTION_MAX} /></span>
-        <textarea rows={3} value={pkg.caption || ""} onChange={(e) => set({ caption: e.target.value })} />
-      </label>
-      <Checks notes={pkg.checks?.caption} />
-
-      <label className="field mt">Hashtags
-        <input type="text" value={(pkg.hashtags || []).join(" ")}
-          onChange={(e) => set({ hashtags: e.target.value.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`)) })} />
-      </label>
-      <Checks notes={pkg.checks?.hashtags} />
-
-      <label className="field mt">Short description
-        <textarea rows={2} value={pkg.description || ""} onChange={(e) => set({ description: e.target.value })} />
-      </label>
-      <Checks notes={pkg.checks?.description} />
-
-      <div className="grid grid-2 mt">
-        <label className="field">Call to action
-          <div className="row">
-            <input type="text" value={pkg.cta || ""} onChange={(e) => set({ cta: e.target.value })} />
-            <button className="btn sm" type="button" disabled={!pkg.cta || (pkg.caption || "").includes(pkg.cta || "")}
-              onClick={() => set({ caption: `${(pkg.caption || "").trim()} ${pkg.cta}`.trim() })}>Add to caption</button>
-          </div>
-        </label>
-        <label className="field">Hook text
-          <div className="row">
-            <input type="text" value={pkg.hook || ""} onChange={(e) => set({ hook: e.target.value })} />
-            {onUseHook && <button className="btn sm" type="button" disabled={!pkg.hook} onClick={() => onUseHook(pkg.hook || "")}>Use on screen</button>}
-          </div>
-        </label>
-      </div>
-      <Checks notes={pkg.checks?.hook} />
-
-      <div className="field-hint mt">
-        Generated text only uses words from this clip: no invented facts, names, numbers or claims. The call to action is
-        a suggestion that asks viewers to do something. Nothing is posted until you press a Publish button.
-      </div>
-      <div className="row mt" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" disabled={busy} onClick={regenerate}><Icon name="refresh" size={14} /> Regenerate</button>
-        <button className="btn primary" disabled={busy || !dirty} onClick={save}><Icon name="check" size={16} /> Save post package</button>
-      </div>
-    </div>
+      {asking && (
+        <RewritePostDialog clip={clip} edited={!!pkg.edited || dirty} onClose={() => setAsking(false)}
+          onDone={(c) => onSaved(c)} />
+      )}
+    </section>
   );
 }

@@ -97,6 +97,14 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     first = client.get("/api/autopilot/status").json()
     assert first["enabled"] is False and first["home"]["setup"]["started"] is False  # the first-run screen shows
     assert first["home"]["empty"] == "Connect YouTube to start finding content."
+    # The way of working chosen in first-time setup is kept with the settings (Home skips its welcome after
+    # "I'll make clips myself"); anything else is not stored.
+    assert first["home"]["setup"]["mode"] == ""
+    client.put("/api/settings", json={"setup_mode": "manual"})
+    assert client.get("/api/autopilot/status").json()["home"]["setup"]["mode"] == "manual"
+    client.put("/api/settings", json={"setup_mode": "everything"})
+    assert db.get_settings()["setup_mode"] == "manual"
+    client.put("/api/settings", json={"setup_mode": ""})
 
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()

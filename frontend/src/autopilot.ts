@@ -258,7 +258,11 @@ export interface WorkingOn {
 }
 
 export interface HomeView {
-  setup: { started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string };
+  setup: {
+    started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string;
+    /** The choice made in first-time setup ("manual": you make clips yourself). */
+    mode?: "" | "manual" | "autopilot";
+  };
   currently: string;
   next_look: number | null;
   working: WorkingOn | null;

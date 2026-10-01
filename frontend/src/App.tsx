@@ -57,9 +57,12 @@ function Shell() {
   const route = useRoute();
   const { st, lost, lastOk, refresh } = useStatus();
   const [drawer, setDrawer] = useState(false);
-  const [leaving, setLeaving] = useState("");
+  // Where the person wanted to go when the page had unsaved changes ("" is Home); null while nobody is asked.
+  const [leaving, setLeaving] = useState<string | null>(null);
   const main = useRef<HTMLElement>(null);
-  const first = useRef(true);
+  // The page whose title last got focus: none on first load (focus stays at the top, so Tab reaches the skip link),
+  // and React's development double run of effects must not count as a move.
+  const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
   const active = SECTION_NAV[section] || "home";
 
@@ -73,10 +76,13 @@ function Shell() {
     const title = SECTION_TITLE[section];
     document.title = title ? `${title} · ClipFoundry` : "ClipFoundry";
     setDrawer(false);
-    if (first.current) {
-      first.current = false;
+    const key = `${route.path}|${route.unknown ?? ""}`;
+    const first = shown.current === null;
+    if (first || shown.current === key) {
+      shown.current = key;
       return;
     }
+    shown.current = key;
     window.scrollTo(0, 0);
     const focus = () => {
       const h1 = main.current?.querySelector<HTMLElement>("h1");
@@ -184,7 +190,7 @@ function Shell() {
           {foot}
         </Drawer>
       )}
-      {leaving && <LeaveDialog target={leaving} onClose={() => setLeaving("")} />}
+      {leaving !== null && <LeaveDialog target={leaving} onClose={() => setLeaving(null)} />}
       <ToastHost />
     </ConnectionContext.Provider>
   );

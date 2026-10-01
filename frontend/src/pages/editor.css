@@ -1,0 +1,34 @@
+/* Edit clip. Loaded before styles.css, so rules that change shared classes are scoped to .clip-editor. */
+.clip-editor .player video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.player-msg {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: var(--s3);
+  padding: var(--s4); text-align: center; color: #e8eaed; font-size: var(--fs-small);
+}
+.player-msg .bar { width: min(220px, 80vw); }
+.clip-editor .player-wrap .player-controls { justify-content: center; color: #e8eaed; }
+.clip-editor .player-wrap .player-controls .faint { color: #a9adb3; }
+/* The player area is dark in both themes, so its choice keeps dark-theme colors. */
+.clip-editor .player-wrap .seg { border-color: #3a3f46; }
+.clip-editor .player-wrap .seg label { color: #c9ccd1; }
+.clip-editor .player-wrap .seg label + label { border-left-color: #3a3f46; }
+.clip-editor .player-wrap .seg label:has(input:checked) { color: #fff; background: rgba(255, 255, 255, 0.14); }
+
+/* Transcript words as marks on the source: where speech is, without inventing a waveform. */
+.tl-words { position: absolute; inset: 16px 0; z-index: 1; pointer-events: none; }
+.clip-editor .tl-head { z-index: 2; }
+.tl-words i { position: absolute; top: 0; bottom: 0; background: var(--text-3); opacity: 0.5; border-radius: 1px; }
+.clip-editor .tl-range { pointer-events: none; }
+
+.time-field input { width: 7.5em; min-width: 0; flex: 1 1 5em; text-align: center; }
+.time-field .btn { white-space: nowrap; flex: none; }
+.clip-editor .edit-panel .tabs button { white-space: nowrap; }
+.changed-mark { margin-left: 4px; color: var(--primary); }
+.color-row input[type="color"] { width: 48px; height: 44px; padding: 2px; border-radius: var(--r-control); }
+.hook-row input[type="number"] { width: 90px; }
+.ed-section { display: grid; gap: var(--s4); min-width: 0; }
+
+.savebar-short { display: none; }
+@media (max-width: 640px) {
+  .savebar-short { display: block; }
+  .clip-editor .savebar .btn { flex: 1 1 auto; }
+}

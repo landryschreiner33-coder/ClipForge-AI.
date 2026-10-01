@@ -188,10 +188,11 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
                           "source": _source_view(src)})
         elif kind == "approve":
             items.append({"key": key, "type": "approve", "title": a["title"], "detail": a["detail"],
-                          "link": "#/publish-center"})
+                          "link": "#/posts/review"})
         elif kind == "publish":
             items.append({"key": key, "type": "publish", "title": a["title"], "detail": a["detail"],
-                          "fix": a["fix"], "link": "#/publish-center/problems"})
+                          "fix": a["fix"], "link": f"#/post/{a['ref_id']}" if a.get("ref_type") == "scheduled"
+                          and a.get("ref_id") else "#/posts/scheduled"})
         elif kind == "gpu":
             items.append({"key": key, "type": "gpu", "title": "GPU transcription is not working",
                           "detail": a["detail"], "fix": a["fix"], "link": "#/settings/advanced"})
@@ -417,7 +418,7 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     found = opportunities()
     discover = can_discover(settings, platforms)
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
-                      "topics": settings.get("trend_topics") or ""},
+                      "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
             "currently": currently(settings, workers_alive), "next_look": next_look(settings),
             "working": working(settings), "needs_you": needs_you(settings, platforms),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
