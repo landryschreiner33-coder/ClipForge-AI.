@@ -347,21 +347,24 @@ These are not simulated; the UI shows them as unavailable or explains the restri
 
 ## Legal pages (Terms of Service and Privacy Policy)
 
-Templates live in [`docs/legal/`](legal/): `terms.html`, `privacy.html` and an `index.html`. **They require review by
-a qualified lawyer** and every placeholder must be replaced: `[OWNER NAME]`, `[LEGAL BUSINESS NAME]`,
-`[CONTACT EMAIL]`, `[BUSINESS ADDRESS IF REQUIRED]`, `[GOVERNING LAW JURISDICTION]`, `[LICENSE TERMS]` and `[DATE]`.
-The privacy policy covers what the YouTube API Services and TikTok require (the data accessed, how it is used and
-stored, the 30-day rule, links to the YouTube Terms and Google Privacy Policy, and how to revoke access).
+[`docs/legal/`](legal/) holds the public website: `index.html` (product page), `privacy.html`, `terms.html` and
+`site.css`. The pages were written from an audit of the code (what is stored, what is sent where, how long it is kept,
+disconnecting and deleting) and name the publisher, contact email and governing law. **No lawyer has reviewed them.**
+`tests/test_autopilot_discovery.py` checks that the folder holds only these four files, with no placeholders, scripts,
+forms or outside resources. When a change alters what ClipFoundry stores or sends, update the pages with it.
 
 Where they are served:
 
-* **In the app:** <http://127.0.0.1:8765/legal/terms> and <http://127.0.0.1:8765/legal/privacy> (linked in the sidebar).
-  These are only reachable on your PC, so they are not enough for the developer consoles.
-* **Public URLs (needed for the Google OAuth consent screen and the TikTok developer app):** publish the `docs/legal`
-  folder, for example with GitHub Pages: repository Settings → Pages → *Deploy from a branch* → your branch and the
-  `/docs` folder. The pages are then at `https://<user>.github.io/<repo>/legal/terms.html` and
-  `.../legal/privacy.html`. Any static host works (Netlify, Cloudflare Pages, your own domain). Enter those URLs in
-  Google Cloud (OAuth consent screen → App information) and TikTok for Developers (app details), and keep them online.
+* **In the app:** <http://127.0.0.1:8765/legal/>, `/legal/privacy` and `/legal/terms` (linked at the bottom of the
+  sidebar). These are only reachable on your PC, so they are not enough for the developer consoles.
+* **Public website (needed for the Google OAuth consent screen and the TikTok developer app):** GitHub Pages from a
+  separate `gh-pages` branch that holds only the four files and an empty `.nojekyll`, so nothing else in the
+  repository is published. The addresses are then `https://<user>.github.io/<repo>/`, `.../privacy.html` and
+  `.../terms.html`; open them once before entering them in Google Cloud (OAuth consent screen → App information) and
+  TikTok for Developers (app details). Publishing needs the owner's OK.
+* **Keep the website addresses separate from the sign-in addresses.** The OAuth redirect addresses stay on your own
+  PC (`http://127.0.0.1:8765/api/oauth/youtube/callback` and `.../api/oauth/tiktok/callback`, the TikTok one as
+  Settings → Accounts shows it); the website is never a redirect address.
 
 ## How the existing code is reused
 

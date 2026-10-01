@@ -119,7 +119,7 @@ clipfoundry/            Python backend (FastAPI)
                         scheduler.py, publisher.py, learner.py, routes.py (/api/autopilot)
   secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
-docs/                   AUTOPILOT.md (Autopilot guide) and legal/ (Terms of Service and Privacy Policy templates)
+docs/                   AUTOPILOT.md (Autopilot guide) and legal/ (the website: product page, Privacy Policy, Terms)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)
 tests/                  unit + end-to-end tests
 data/                   created at runtime: clipfoundry.db, projects/<id>/..., models/<model>/ (verified)
@@ -184,13 +184,14 @@ publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, login
 passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you
 have permission to download.
 
-## Legal pages
+## Website and legal pages
 
-Templates of a **Terms of Service** and a **Privacy Policy** are in [`docs/legal/`](docs/legal/) and served by the app
-at `/legal/terms` and `/legal/privacy`. They contain placeholders ([OWNER NAME], [LEGAL BUSINESS NAME],
-[CONTACT EMAIL], [BUSINESS ADDRESS IF REQUIRED], ...) and **require review by a qualified lawyer** before use. For the
-Google OAuth consent screen and the TikTok developer app they must be publicly reachable, for example with GitHub
-Pages; see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy).
+The product page, **Privacy Policy** and **Terms of Service** are in [`docs/legal/`](docs/legal/) (`index.html`,
+`privacy.html`, `terms.html`, `site.css`). They were written from what the code does, and the app serves them at
+`/legal/`, `/legal/privacy` and `/legal/terms`. No lawyer has reviewed them. For the Google OAuth consent screen and the
+TikTok developer app they must be public; see
+[docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy). When the code changes what is
+stored or sent, update these pages in the same change.
 
 ## Third-party assets
 

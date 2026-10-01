@@ -24,12 +24,12 @@
 <section class="hero" aria-labelledby="title">
   <h1 id="title">Turn long videos into short clips, on your own PC</h1>
   <p class="lead">ClipFoundry is a desktop app for Windows. It finds the best moments in a long video and turns them
-    into vertical clips with captions for YouTube Shorts, TikTok and Reels. Your videos stay on your computer.</p>
+    into vertical clips with captions for YouTube Shorts, TikTok and Reels. Your videos stay on your computer. Only the clips you post are uploaded.</p>
   <div class="buttons">
     <a class="btn primary" href="https://github.com/landryschreiner33-coder/ClipForge-AI.">Get ClipFoundry on GitHub</a>
     <a class="btn" href="#how">How it works</a>
   </div>
-  <p class="note">There is no ClipFoundry account and no cloud service: the app runs on your computer and opens in
+  <p class="note">There is no ClipFoundry account and no ClipFoundry cloud service: the app runs on your computer and opens in
     your web browser.</p>
 </section>
 
@@ -47,18 +47,21 @@
     </div>
     <div class="card">
       <h3>Writes titles from the clip</h3>
-      <p>Titles, captions and hashtags come from the words said in the clip. Text that adds names, numbers or claims
-        is thrown out.</p>
+      <p>Titles, captions and hashtags are built from the words said in the clip, and a post can also carry a short
+        call to action and a credit line. AI suggestions that add names or numbers not said in the clip are thrown
+        out. These checks match words automatically and can miss things. Text you type yourself is not removed.</p>
     </div>
     <div class="card">
-      <h3>Posts only with your OK</h3>
-      <p>Publish to YouTube and TikTok through their official APIs after you approve each post, or export the clips
-        and post them yourself.</p>
+      <h3>You decide what gets posted</h3>
+      <p>Publish to YouTube and TikTok through their official APIs after you approve each post, or, for YouTube only,
+        under an automatic-publishing permission you turn on, with a daily limit and posting hours you choose. TikTok
+        always needs your OK on each post. You can also export the clips and post them yourself.</p>
     </div>
     <div class="card">
       <h3>Autopilot, if you want it</h3>
-      <p>It clips the videos you put in your videos folder and videos it may use (public domain, Creative Commons
-        Attribution, or agreements you recorded). Everything else is skipped, and it tells you why.</p>
+      <p>It clips the videos you put in your videos folder, and videos covered by an agreement you recorded or by a
+        public domain or Creative Commons Attribution license that the source reports. Everything else is skipped, and
+        it tells you why. You are responsible for having the right to use each video.</p>
     </div>
     <div class="card">
       <h3>Real numbers only</h3>
@@ -77,8 +80,9 @@
     <li><b>Add a video.</b> Choose a file, or put your videos in your <code>Videos\ClipFoundry</code> folder for
       Autopilot.</li>
     <li><b>Check the clips.</b> Watch them, trim them or change the captions, then export them.</li>
-    <li><b>Post, if you like.</b> Connect YouTube or TikTok and approve each post. ClipFoundry checks the exact final
-      file before anything goes out.</li>
+    <li><b>Post, if you like.</b> Connect YouTube or TikTok, then approve each post, or turn on automatic publishing
+      for YouTube in Autopilot. Before Autopilot posts a clip, ClipFoundry checks the exact final file. A clip you post
+      yourself from its Prepare post page is uploaded when you confirm.</li>
   </ol>
 </section>
 
@@ -86,8 +90,12 @@
   <h2 id="accounts">Connecting YouTube and TikTok</h2>
   <ul>
     <li>You sign in on Google's or TikTok's own page. ClipFoundry never sees or stores your password.</li>
-    <li>It asks only for what posting needs: to upload the videos you approve, to show your account's name and picture,
-      and to read the results of your own posts.</li>
+    <li>On YouTube it asks to manage your videos (it only uploads them), to see your YouTube account and to see YouTube
+      Analytics reports. It uses them to upload your posts, to show your channel's name and picture, and to read the
+      status and results of your posts. If you use Autopilot without your own YouTube API key, it also uses your
+      YouTube sign-in to find videos and to check which channel posted them.</li>
+    <li>On TikTok it asks to show your name and picture, to post videos or send them to your TikTok inbox, and to read
+      the results of your posts.</li>
     <li>Before a TikTok post you choose who can see it, whether people can comment, duet or stitch, and whether it is
       promotional, and you confirm TikTok's music rules. TikTok always needs your OK on each post.</li>
     <li>The platforms' own limits apply. For example, TikTok only allows private posts from apps it has not
@@ -118,7 +126,7 @@
   </p>
   <p>
     You can also report a problem on <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./issues">GitHub</a>, or read the
-    <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./blob/claude/wonderful-ritchie-909tq3/docs/AUTOPILOT.md#troubleshooting">troubleshooting guide</a>.
+    <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./blob/claude/wonderful-ritchie-909tq3/INSTALL.md#troubleshooting">troubleshooting guide</a>.
   </p>
   <p class="note">ClipFoundry is made by Landry Schreiner. It is not affiliated with or endorsed by YouTube, Google or
     TikTok.</p>

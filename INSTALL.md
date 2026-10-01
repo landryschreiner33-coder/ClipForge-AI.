@@ -250,8 +250,8 @@ Autopilot page (under *Pause or stop everything*) halts everything until you pre
 is unchanged: Autopilot uses the same CUDA path and runs one heavy GPU job at a time.
 
 For the Google OAuth consent screen (production) and the TikTok developer app you need public **Terms of Service** and
-**Privacy Policy** URLs. Templates are in `docs\legal`; they require review by a qualified lawyer, and can be published
-with GitHub Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy)).
+**Privacy Policy** URLs. The pages are in `docs\legal` (no lawyer has reviewed them) and are published with GitHub
+Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy)).
 
 ## Where things are stored
 
