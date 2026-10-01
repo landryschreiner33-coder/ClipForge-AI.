@@ -1,0 +1,64 @@
+/* ClipFoundry website: the product page, Privacy Policy and Terms of Service. No web fonts, no scripts, nothing
+   loaded from other sites. Light by default, dark when the device asks for it. */
+:root {
+  color-scheme: light dark;
+  --text: #1b1b22; --muted: #575768; --bg: #ffffff; --panel: #f5f5f8; --line: #e1e1e9;
+  --link: #b33a0b; --accent: #ff6a2b; --accent-text: #ffffff; --ink: #14131b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --text: #ececf3; --muted: #a6a6b8; --bg: #111117; --panel: #1b1b23; --line: #2d2d3b;
+    --link: #ff9a66; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --text: #ececf3; --muted: #a6a6b8; --bg: #111117; --panel: #1b1b23; --line: #2d2d3b;
+  --link: #ff9a66; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 17px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+a { color: var(--link); text-underline-offset: 2px; }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.wrap { max-width: 880px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+.top { border-bottom: 1px solid var(--line); }
+.top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-top: 12px; padding-bottom: 12px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; color: var(--text);
+  font-weight: 700; font-size: 18px; text-decoration: none; }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 15px; }
+.links a[aria-current="page"] { color: var(--text); font-weight: 600; text-decoration: none; }
+main { padding-top: 28px; padding-bottom: 64px; }
+h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+h2 { font-size: 22px; line-height: 1.3; margin: 36px 0 8px; }
+h3 { font-size: 18px; line-height: 1.35; margin: 22px 0 4px; }
+.doc h2 { padding-top: 16px; border-top: 1px solid var(--line); }
+.meta { color: var(--muted); font-size: 15px; margin: 0 0 18px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 20px; margin: 16px 0; }
+.doc .box h2 { border: 0; padding-top: 0; margin-top: 14px; }
+li { margin: 6px 0; }
+.table { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { background: var(--panel); }
+code { font-size: 14px; overflow-wrap: anywhere; }
+.lead { font-size: 20px; color: var(--muted); max-width: 640px; }
+.hero { padding: 36px 0 12px; }
+.hero h1 { font-size: 40px; max-width: 700px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 6px; }
+.btn { display: inline-block; padding: 11px 18px; border-radius: 10px; border: 1px solid var(--line);
+  color: var(--text); text-decoration: none; font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 14px 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.card h3 { margin-top: 4px; }
+.card p { margin: 6px 0; }
+.flow { font-family: Consolas, "Courier New", monospace; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+ol.steps li { margin: 10px 0; }
+.note { color: var(--muted); font-size: 15px; }
+footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+footer .top-in { padding-top: 18px; padding-bottom: 32px; }
+@media (max-width: 560px) {
+  body { font-size: 16px; }
+  h1, .hero h1 { font-size: 29px; }
+  .lead { font-size: 18px; }
+  .brand { margin-right: 0; width: 100%; }
+}
+footer .owner { margin-right: auto; }

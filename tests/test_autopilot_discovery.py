@@ -369,9 +369,31 @@ def test_legal_pages_are_served(data):
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
         for path, text in [("/legal/terms", "Terms of Service"), ("/legal/privacy", "Privacy Policy"),
-                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "ClipFoundry legal")]:
+                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "Turn long videos into")]:
             r = c.get(path)
             assert r.status_code == 200 and r.headers["content-type"].startswith("text/html") and text in r.text
-            assert "qualified lawyer" in r.text and "[CONTACT EMAIL]" in r.text
+            assert 'href="site.css"' in r.text
+        css = c.get("/legal/site.css")
+        assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
         assert c.get("/legal", follow_redirects=False).headers["location"] == "/legal/"
         assert c.get("/legal/x").status_code == 404
+
+
+def test_the_website_is_ready_to_publish():
+    """docs/legal is published as the public website: only these files, no placeholders, nothing loaded from other
+    sites, and the Privacy Policy and Terms linked at the top of every page (TikTok wants them visible without a
+    menu)."""
+    import re
+
+    from clipfoundry.api import LEGAL_DIR
+
+    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == ["index.html", "privacy.html", "site.css", "terms.html"]
+    for page in ("index.html", "privacy.html", "terms.html"):
+        html = (LEGAL_DIR / page).read_text(encoding="utf-8")
+        assert not re.search(r"\{\{|\[[A-Z][A-Z ]+\]", html), f"{page}: unresolved placeholder"
+        assert not re.search(r"<script|<form|<iframe|<img|@import", html, re.I), page
+        assert re.findall(r'<link rel="stylesheet" href="([^"]+)"', html) == ["site.css"], page
+        header = html.split("<main", 1)[0]
+        assert 'href="privacy.html"' in header and 'href="terms.html"' in header, page
+        assert "landryschreiner456@gmail.com" in html and "Landry Schreiner" in html, page
+    assert "url(" not in (LEGAL_DIR / "site.css").read_text(encoding="utf-8")

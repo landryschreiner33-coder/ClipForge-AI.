@@ -551,8 +551,8 @@ def _publish_error(_, exc: PublishError) -> JSONResponse:
 
 
 # ------------------------------------------------------------------ legal pages
-LEGAL_DIR = config.ROOT_DIR / "docs" / "legal"  # the same files can be published with GitHub Pages
-LEGAL_PAGES = {"": "index.html", "terms": "terms.html", "privacy": "privacy.html"}
+LEGAL_DIR = config.ROOT_DIR / "docs" / "legal"  # the same files are the public website (GitHub Pages)
+LEGAL_PAGES = {"": "index.html", "terms": "terms.html", "privacy": "privacy.html", "site.css": "site.css"}
 
 
 @app.get("/legal", include_in_schema=False)
@@ -566,7 +566,7 @@ def legal(page: str = "") -> FileResponse:
     name = LEGAL_PAGES.get(page.removesuffix(".html").replace("index", ""))
     if not name or not (LEGAL_DIR / name).is_file():
         raise HTTPException(404)
-    return FileResponse(LEGAL_DIR / name, media_type="text/html")
+    return FileResponse(LEGAL_DIR / name, media_type="text/css" if name.endswith(".css") else "text/html")
 
 
 # ------------------------------------------------------------------ UI
