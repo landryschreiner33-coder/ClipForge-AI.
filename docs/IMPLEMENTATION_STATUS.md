@@ -12,7 +12,8 @@ from here without repeating the audit.
 | Work branch | `claude/ecstatic-shannon-wb1zq1` |
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
-| Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
+| Latest follow-up (2026-09-30) | Overnight-idle fixes on `codex/fix-autopilot-idle`, based on merged `97b5c9a`; see the regression section below. The exact cause on the owner's PC still requires its Activity/log evidence. |
+| Next concrete task | Install the reviewed fixes while preserving the existing data, then check the real PC's Activity and worker status. Real GPU/account checks and the TikTok inbox-draft decision remain. |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -25,6 +26,31 @@ always labeled as such.
 | --- | --- |
 | `python -m pytest -m "not slow"` | 207 passed. One earlier run failed `test_gpu_lock_is_shared_with_other_processes` (cold start); reproduced as a test race and fixed (see below). |
 | `python -m pytest -m slow` | 4 passed in 404 s (synthetic espeak video, imported transcripts, real ffmpeg renders) |
+
+## Overnight-idle regressions (2026-09-30)
+
+The owner reported no visible progress overnight. The PC's database, Windows power state and logs are not accessible
+in this session, so these are reproduced code defects, not a claim that the precise overnight cause is known.
+
+Integration note (2026-10-01): this work was built and tested on `97b5c9a`. During the audit, the default branch
+advanced to `05ffea7` with PR #6 (overnight setup/keep-awake) and PR #7 (UI redesign). This branch is a tested
+checkpoint, not an update to install over that redesign. Reconcile its remaining discovery/recovery fixes and
+status information with the current default branch before integration; preserve the new UI and keep-awake work.
+
+| Defect | Fix / evidence |
+| --- | --- |
+| Discovery only checked manually configured channels, even after an account or creator agreement was added | `scout.discovery_channels` also checks the connected YouTube channel and active, unexpired channel permissions. Every found video still needs platform-confirmed ownership/coverage and an allowed file-access method. |
+| A shared folder recorded in an agreement was never scanned unless separately configured as a watch folder | `scout.discovery_feeds` scans agreement folders on the existing free folder cadence, deduplicates explicitly watched paths, and does not create extra persistent feeds or rights rules. |
+| A known file becoming available (or stopping growth) did not trigger selection unless a new signal ID arrived | `feed_scan` rechecks existing entries and waiting files every three minutes, without extra web-search calls. |
+| The first 80 missing files could permanently hide a later available file | Source selection examines the remaining candidates until the daily slots are filled, instead of repeatedly considering only those 80. |
+| Crash recovery/cancellation could leave a source permanently ingesting/analyzing and consuming a daily slot | `reconcile_sources` marks a stopped source/project accurately after its job ends, under a transaction. Active leases/retries/waits are preserved; canceled jobs are not silently restarted. |
+| A YouTube search API error discarded previously found chart results and skipped channel uploads | Per-call discovery errors preserve completed results. Requested Retry-After/network/auth stops prevent further calls; the wait remains durable. |
+| Malformed Tavily replies and HTTP-200 Commons API errors looked like successful empty searches | Provider adapters report a failed search, allowing other discovery results to survive and exposing the problem. |
+| The main page could say Starting/Looking indefinitely; it did not recognize library-only discovery | Main-page status now includes stopped background work, missing files/coverage, last/next search and search problems. Free library and agreement folders count as discovery options. |
+
+Focused coverage: `tests/test_autopilot_idle.py` uses isolated databases and local HTTP platform stand-ins. The first
+10 regressions failed against the original code; the search-limit and terminal-job cases also failed before their
+fixes. No real publishing, account changes, GPU dependency changes or changes to `.mcp.json` were made.
 
 ## Requirement matrix
 
@@ -240,6 +266,12 @@ decided separately from reuse rights; an explicit automatic-publishing option wh
 | items 10-13 | read-only `e2e` suite against a sandbox after the beginner flow (it scheduled 1 clip for YouTube and TikTok) | 42 passed; Home shows *Scheduled: 1 clip · 2 platform posts* (screenshot checked) |
 | items 10-13 | database made by the default branch's code (`f7426f0`: settings, a fake account, 4 clips, approved posts, one swap done, one pending), then opened by this code | integrity ok; every row kept; your settings kept, cooldown default 24 h added; both swaps backfilled; the old approval asks again (*approved before ClipFoundry checked the exact video file*); re-approval stores the file hash; second start changes nothing; `/api/autopilot/status` 200 |
 | PR #4 | the old `.mcp.json` command vs `node e2e/playwright-mcp.mjs`, MCP handshake + `browser_navigate` to a local page (cloud container) | old: *Browser "chrome-for-testing" is not installed*; launcher: page title read, exits 0 when the client closes. Windows not run here |
+| overnight-idle checkpoint | `pytest tests/test_autopilot_idle.py` | 16 passed; isolated databases and fake platforms |
+| overnight-idle checkpoint | `pytest -m "not slow"` | 363 passed, 5 slow deselected (196 s) |
+| overnight-idle checkpoint | `pytest -m slow` | 5 passed (247 s); real ffmpeg and eSpeak NG synthetic speech, imported transcripts and fake platforms; no NVIDIA GPU or real account validation |
+| overnight-idle checkpoint | `npm run build` in `frontend/` | passes; committed bundle rebuilt |
+| overnight-idle checkpoint | `npm run test:sandbox` | 1 passed (12 s); disposable data, fake platform connections, synthetic transcript |
+| overnight-idle checkpoint | read-only `e2e` suite against a fresh disposable app | 38 passed, 4 skipped (no projects), 14 s |
 
 ## Checklist for the user's machine
 

@@ -322,17 +322,28 @@ Where they are served:
 
 ## Troubleshooting
 
+If Autopilot ran overnight without making clips, first look at **Currently**, **Last search**, **Next search**,
+the search problems on the main page, and **Activity**. Posting hours limit when posts go out; they do not prevent
+discovery or clipping overnight. A connected account alone does not supply downloadable original files. Discovery
+also checks your connected YouTube channel, channels covered by active recorded permissions, and shared folders in
+creator agreements. These still pass the same channel, rights, file-access and final-quality checks.
+
 | Problem | What to do |
 | --- | --- |
-| "Connect YouTube to start finding content." | Nothing can discover content yet: connect YouTube (or, under Advanced, add an API key, a watch folder or a feed). |
+| "Connect YouTube to start finding content." | No discovery option is enabled. Connect YouTube, enable the free-license library, or add your recordings or a creator agreement with a shared folder. The free library does not require a YouTube account. |
+| "Background work has stopped" | Restart with `start.bat` and reload the page. If it happens again, check Advanced → System details and `data/logs/workers.log` (under the configured data folder). |
+| "No usable video files yet" | Some videos are covered, but their original files are unavailable. Use a creator's shared folder or **+ Add content manually**. Activity explains each skipped video. A public link or account connection is not a video download. |
+| "No covered videos found yet" | The videos found so far do not pass your recorded permissions or supported licenses. Record an agreement you actually have, or provide your own recordings. |
+| "Waiting for the next search" | The previous search finished; the next search time is shown. Known folders and waiting files are checked every three minutes while Autopilot is running. |
+| A search problem is shown | Follow its displayed fix. Other working discovery options continue; results already found are kept. A rate limit keeps the platform's requested wait. |
 | "No strong opportunities yet. ClipFoundry is still looking." | Discovery works, but nothing found so far is strong enough. It keeps looking; nothing to do. |
 | Workers show *not running* (Advanced → System details) | Check Needs you. If the worker process cannot start, switch Settings → Advanced → Worker process to *Inside the app*. |
-| Nothing gets clipped | Other creators' videos need your YES (Needs you) and, when they are hosted on YouTube, the original file (*Add the video file*). Your own recordings are clipped without questions when you add them as your own content (*+ Add content manually*). |
+| Nothing gets clipped | Check Activity for rights, missing files, short videos, processing failures or quality holds. Unknown rights are skipped without per-video questions by default. Original files must be available through an allowed access method. |
 | Jobs wait for the GPU | Another heavy GPU job (or another program) is using it; see the GPU card. Lower *Free GPU memory needed* only if you know the model fits. |
 | "fell back to CPU" on the GPU card | Run `gpu-check.bat` and follow the fix it prints (see INSTALL.md). |
 | "Autopilot transcription is paused: the GPU could not be used" | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can allow CPU transcription in Settings → Advanced → YouTube quota and GPU. |
 | Discovery stopped: quota | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
-| Posts wait in *Needs approval* | That is required by the platforms; approve them in the Publish Center. |
+| Posts wait in *Needs approval* | Approve them in the Publish Center. YouTube can use the automatic-publishing permission you explicitly enable; TikTok still requires approval for each post. |
 | YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |
 | TikTok: privacy options disabled | Your TikTok app is not audited; only *Only me* is possible, or use *Send to TikTok inbox*. |
 | Something is running that should not | **STOP ALL JOBS**, then look at Autopilot → Advanced → Jobs and the job logs. |

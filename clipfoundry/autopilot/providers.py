@@ -109,6 +109,7 @@ class YouTubeDiscovery:
         self.calls = 0
         self.cache_hits = 0
         self.denied: list[str] = []
+        self.errors: list[PublishError] = []
 
     def _get(self, method: str, path: str, params: dict, ttl: float) -> dict:
         def fetch() -> dict:
@@ -128,7 +129,14 @@ class YouTubeDiscovery:
             self.calls += 1
             if r.status_code != 200:
                 raise youtube.api_error(r, method)
-            return r.json()
+            try:
+                data = r.json()
+                if not isinstance(data, dict) or not isinstance(data.get("items", []), list):
+                    raise ValueError("invalid video list")
+                return data
+            except ValueError as exc:
+                raise PublishError("YouTube returned an unreadable answer.", "It is tried again next scan.",
+                                   "response") from exc
 
         data, hit = quota.cached(["youtube", path, params], ttl, fetch, method)
         self.cache_hits += int(hit)
@@ -178,12 +186,22 @@ class YouTubeDiscovery:
         lang = self.settings.get("trend_language") or "en"
         since = time.time() - 3600 * float(self.settings.get("trend_max_age_hours") or 72)
         ranked: dict[str, tuple[str, int, int, str]] = {}  # id -> (provider, rank, list size, query)
+        failed_calls: set[str] = set()
 
         def attempt(fn, *args, **kw):
+            if fn.__name__ in failed_calls or any(e.retry_after is not None or e.code in ("network", "setup", "reconnect")
+                                                 for e in self.errors):
+                return None
             try:
                 return fn(*args, **kw)
             except quota.QuotaDenied as exc:
                 self.denied.append(str(exc))
+                return None
+            except PublishError as exc:
+                # Keep results already obtained. An exhausted search API must not erase the chart or prevent
+                # a creator's upload list from being checked; a Retry-After or connection problem stops all calls.
+                self.errors.append(exc)
+                failed_calls.add(fn.__name__)
                 return None
 
         popular = attempt(self.most_popular, region)
@@ -374,9 +392,13 @@ class WebSearch:
         state.put(f"cost:tavily:{use['month']}", use["used"] + 1)
         self.calls += 1
         try:
-            results = r.json().get("results") or []
-        except ValueError:
-            return []
+            data = r.json()
+            results = data.get("results") if isinstance(data, dict) else None
+            if not isinstance(results, list):
+                raise ValueError("missing results list")
+        except ValueError as exc:
+            raise Unavailable("error", "Tavily returned an unreadable search result.",
+                              "It is tried again next scan.") from exc
         return [x for x in results if isinstance(x, dict)]
 
     def discover(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
@@ -471,7 +493,19 @@ class Library:
         if r.status_code != 200:
             raise Unavailable("error", f"Wikimedia Commons answered {r.status_code}.", "It is tried again next scan.")
         self.calls += 1
-        pages = ((r.json() or {}).get("query") or {}).get("pages") or []
+        try:
+            data = r.json()
+            if not isinstance(data, dict):
+                raise ValueError("expected an object")
+        except ValueError as exc:
+            raise Unavailable("error", "Wikimedia Commons returned an unreadable search result.",
+                              "It is tried again next scan.") from exc
+        if data.get("error"):
+            error = data["error"]
+            code = error.get("code", "unknown") if isinstance(error, dict) else "unknown"
+            raise Unavailable("error", f"Wikimedia Commons could not search ({str(code)[:80]}).",
+                              "It is tried again next scan.")
+        pages = (data.get("query") or {}).get("pages") or []
         if isinstance(pages, dict):  # formatversion 1
             pages = list(pages.values())
         now = time.time()

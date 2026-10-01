@@ -272,7 +272,13 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
           </div>
           <div className="home-cell">
             <span className="home-k">Currently</span>
-            <div className="home-now">{on && <span className="pulse" />}{h.currently}</div>
+            <div className="home-now">{on && st.workers.host.alive && <span className="pulse" />}{h.currently}</div>
+            {h.discovery.last_scan && <div className="small muted">
+              Last search: {postTime(h.discovery.last_scan, st.timezone)} · {count(h.discovery.found, "video")} found
+            </div>}
+            {on && h.discovery.next_scan && <div className="small muted">
+              Next search: {postTime(h.discovery.next_scan, st.timezone)}
+            </div>}
           </div>
           <div className="home-cell">
             <span className="home-k">Next post</span>
@@ -286,6 +292,12 @@ function Home({ st, refresh, onAddContent }: { st: AutopilotStatus; refresh: () 
       </div>
 
       <NeedsYou items={h.needs_you} platforms={st.platforms} refresh={refresh} />
+      {on && !st.workers.host.alive && h.currently === "Background work has stopped" && <div className="notice mt">
+        Background work has stopped. Restart ClipFoundry with start.bat, then check this page again.
+      </div>}
+      {on && h.discovery.problems.map((problem, i) => <div className="notice mt" key={`${problem.name}:${i}`}>
+        <b>{problem.name}: </b>{problem.detail} {problem.fix}
+      </div>)}
 
       <div className="grid grid-2 mt">
         <div className="card">

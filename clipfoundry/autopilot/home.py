@@ -83,11 +83,15 @@ def started_before() -> bool:
 
 
 def can_discover(settings: dict, platforms: dict) -> bool:
-    """Is there anything to find content with? (a connected YouTube account, an API key, or a folder/feed)"""
+    """Include the free library and agreement folders, which do not require a connected account."""
+    from . import scout
+
+    if settings.get("library_discovery", True) or settings.get("tavily_api_key"):
+        return True
     yt = platforms.get("youtube") or {}
     if (yt.get("connected") and not yt.get("needs_reconnect")) or settings.get("youtube_api_key"):
         return True
-    return bool(db.scalar("SELECT COUNT(*) FROM source_feeds WHERE enabled = 1"))
+    return bool(scout.discovery_feeds(settings))
 
 
 # ------------------------------------------------------------------ the answer to a rights question
@@ -102,11 +106,15 @@ def answer_rights(source_id: str, allowed: bool) -> dict:
 
 
 # ------------------------------------------------------------------ what the page shows
-def currently(settings: dict, workers_alive: bool) -> str:
+def currently(settings: dict, workers_alive: bool, discovery: dict | None = None) -> str:
     if state.paused():
         return "Stopped: all jobs are on hold"
     if not settings.get("autopilot_enabled"):
         return "Off"
+    if not workers_alive:
+        started = float(state.get("setup:started", 0) or 0)
+        beat = float((state.get("host_heartbeat") or {}).get("at") or 0)
+        return "Background work has stopped" if (started or beat) and time.time() - max(started, beat) > 60 else "Starting"
     kinds = {j["kind"] for j in queue.jobs(("running",), limit=50)}
     for kind, words in DOING.items():
         if kind in kinds:
@@ -114,11 +122,30 @@ def currently(settings: dict, workers_alive: bool) -> str:
     busy = {r["status"] for r in db.select("sources", "status IN ('ingesting', 'analyzing')")}
     if busy:  # between two of a video's jobs nothing runs for a moment, but the video is still being worked on
         return DOING["analyze_source"] if "analyzing" in busy else DOING["hunt_source"]
-    if not workers_alive:
-        return "Starting"
-    if any(j["wait_reason"] == "gpu" for j in queue.jobs(("waiting",), limit=50)):
+    if any(j["wait_reason"] in ("gpu", "gpu_failed") for j in queue.jobs(("waiting",), limit=50)):
         return "Waiting for the GPU"
-    return "Looking for opportunities"
+    discovery = discovery if discovery is not None else discovery_status()
+    counts = discovery["counts"]
+    if not any(counts.get(s) for s in ("eligible", "queued", "ingesting", "analyzing")):
+        if counts.get("needs_file"):
+            return "No usable video files yet"
+        if counts.get("needs_rights") or counts.get("blocked"):
+            return "No covered videos found yet"
+        if discovery["problems"]:
+            return "Some searches are unavailable"
+    return "Waiting for the next search" if discovery["last_scan"] else "Looking for opportunities"
+
+
+def discovery_status() -> dict:
+    """Enough evidence on the main page to distinguish an empty search, missing files and broken discovery."""
+    last = state.get("trend:last_scan") or {}
+    with db.connect() as conn:
+        counts = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) AS n FROM sources GROUP BY status")}
+    problems = [{"name": p.get("name") or "Search", "detail": p.get("detail") or "Search is unavailable",
+                 "fix": p.get("fix") or "It will try again on the next search."}
+                for p in (state.get("providers") or {}).values() if p.get("status") in ("error", "quota", "budget")]
+    return {"last_scan": last.get("at"), "next_scan": state.get("next:trend_scan"),
+            "found": int(last.get("signals") or 0), "counts": counts, "problems": problems}
 
 
 def _source_view(src: dict) -> dict:
@@ -281,9 +308,11 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
     found = opportunities()
     discover = can_discover(settings, platforms)
+    discovery = discovery_status()
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or ""},
-            "currently": currently(settings, workers_alive), "needs_you": needs_you(settings, platforms),
+            "currently": currently(settings, workers_alive, discovery), "needs_you": needs_you(settings, platforms),
+            "discovery": discovery,
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": PC_NOTE,
             "skipped_today": skipped_count()}

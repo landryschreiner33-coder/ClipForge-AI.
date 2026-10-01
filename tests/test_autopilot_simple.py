@@ -93,7 +93,8 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     g, _ = fakes
     first = client.get("/api/autopilot/status").json()
     assert first["enabled"] is False and first["home"]["setup"]["started"] is False  # the first-run screen shows
-    assert first["home"]["empty"] == "Connect YouTube to start finding content."
+    assert first["home"]["setup"]["can_discover"]  # the free library works before an account is connected
+    assert first["home"]["empty"] == "Turn on Autopilot to start finding opportunities."
 
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
@@ -149,11 +150,11 @@ def test_missing_optional_providers_do_not_stop_autopilot(client, fakes):
     assert provs["web_search"]["status"] == "unavailable" and provs["library"]["status"] in ("ok", "error")
     home = client.get("/api/autopilot/status").json()["home"]
     assert home["skipped_today"] >= 1 and home["needs_you"] == []
-    # Without any way to discover (YouTube not connected), Autopilot still runs and says what would help.
+    # Disconnecting YouTube does not disable the free library.
     client.post("/api/publish/youtube/disconnect", headers=H)
     run("trend_scan")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["setup"]["can_discover"] is False and home["needs_you"] == []
+    assert home["setup"]["can_discover"] is True and home["needs_you"] == []
     assert client.get("/api/autopilot/status").json()["enabled"]
 
 
@@ -273,7 +274,7 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
     assert set(home) == {"setup", "currently", "needs_you", "opportunities", "upcoming", "empty", "auto_publish",
-                         "pc_note", "skipped_today"}
+                         "pc_note", "skipped_today", "discovery"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     run("trend_scan")
     run("source_scout")

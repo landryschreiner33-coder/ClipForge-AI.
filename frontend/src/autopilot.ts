@@ -242,6 +242,8 @@ export interface UpcomingPost {
 export interface HomeView {
   setup: { started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string };
   currently: string;
+  discovery: { last_scan: number | null; next_scan: number | null; found: number; counts: Record<string, number>;
+    problems: { name: string; detail: string; fix: string }[] };
   needs_you: NeedsYouItem[];
   opportunities: Opportunity[];
   upcoming: UpcomingPost[];

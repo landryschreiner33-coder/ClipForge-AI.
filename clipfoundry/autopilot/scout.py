@@ -134,20 +134,56 @@ def _provider_status(name: str, status: str, detail: str = "", count: int = 0, f
     return {"name": name, "status": status, "detail": detail, "count": count, "fix": fix, "at": time.time()}
 
 
+def discovery_rules(settings: dict) -> list[dict]:
+    """Recorded, active permissions also tell discovery where to look; every video still passes the rights gate."""
+    now = time.time()
+    return [r for r in rights.rules() if rights.auto_allowed(r["status"], settings)
+            and (not r.get("expires_at") or r["expires_at"] > now)]
+
+
+def discovery_channels(settings: dict) -> list[dict]:
+    channels = {f["config"]["channel_id"]: f.get("name") for f in providers.feeds("youtube_channel")
+                if f["config"].get("channel_id")}
+    account = db.get_account("youtube") or {}
+    if account.get("has_tokens") and account.get("account_id"):
+        channels.setdefault(account["account_id"], account.get("display_name") or "Your channel")
+    for rule in discovery_rules(settings):
+        if rule["scope"] == "channel" and rule.get("platform") in ("", "youtube") and rule["value"].startswith("UC"):
+            channels.setdefault(rule["value"], rule.get("label") or rule["value"])
+    return [{"channel_id": channel, "name": name} for channel, name in channels.items()]
+
+
+def discovery_feeds(settings: dict) -> list[dict]:
+    feeds = providers.feeds()
+    folders = {rights.normalize_path(f["config"].get("path") or "") for f in feeds if f["kind"] == "watch_folder"}
+    for rule in discovery_rules(settings):
+        if rule["scope"] != "folder" or (rule.get("conditions") or {}).get("kind") != "agreement":
+            continue
+        path = rights.normalize_path(rule["value"])
+        if path in folders:
+            continue
+        folders.add(path)
+        feeds.append({"id": f"agreement:{rule['id']}", "kind": "watch_folder", "name": rule.get("label") or
+                      "Creator's shared folder", "config": {"path": path, "recursive": True}, "implicit": True})
+    return feeds
+
+
 def collect_feeds(job: Job | None, statuses: dict) -> list[dict]:
     out: list[dict] = []
-    for feed in providers.feeds():
+    for feed in discovery_feeds(db.get_settings()):
         scan = providers.FEED_SCANNERS.get(feed["kind"])
         if not scan:
             continue
         try:
             sigs = scan(feed)
-            db.update("source_feeds", feed["id"], last_checked=time.time(), last_error="")
+            if not feed.get("implicit"):
+                db.update("source_feeds", feed["id"], last_checked=time.time(), last_error="")
             out += sigs
             statuses[f"feed:{feed['id']}"] = _provider_status(feed.get("name") or feed["kind"], "ok",
                                                                f"{len(sigs)} item(s)", len(sigs))
         except Exception as exc:  # noqa: BLE001 - one broken feed must not stop discovery
-            db.update("source_feeds", feed["id"], last_checked=time.time(), last_error=str(exc)[:500])
+            if not feed.get("implicit"):
+                db.update("source_feeds", feed["id"], last_checked=time.time(), last_error=str(exc)[:500])
             statuses[f"feed:{feed['id']}"] = _provider_status(feed.get("name") or feed["kind"], "error", str(exc))
         if job:
             job.check()
@@ -171,16 +207,28 @@ def trend_scan(job: Job) -> dict:
     job.progress(0.05, "Asking YouTube for trending and recent videos", stage="youtube")
     try:
         yt = providers.YouTubeDiscovery(settings)
-        channels = [{"channel_id": f["config"].get("channel_id"), "name": f.get("name")}
-                    for f in providers.feeds("youtube_channel")]
+        channels = discovery_channels(settings)
         include_live = bool(int(state.get("trend:scans", 0) or 0) % 2 == 0)
         sigs = yt.discover(chosen, channels, include_live, job)
         collected += sigs
         detail = f"{len(sigs)} videos · {yt.calls} API calls · {yt.cache_hits} from cache"
         if yt.denied:
             detail += f" · stopped early: {yt.denied[0]}"
-        statuses["youtube"] = _provider_status("YouTube Data API", "quota" if yt.denied and not sigs else "ok", detail,
-                                               len(sigs))
+        status = "quota" if yt.denied and not sigs else "ok"
+        fix = ""
+        if yt.errors:
+            status, fix = "error", yt.errors[0].fix
+            detail += f" · {yt.errors[0]}"
+            for exc in yt.errors:
+                if exc.retry_after is not None:
+                    state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
+                if exc.code in ("reconnect", "setup"):
+                    state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
+                                 level="warning")
+            yt = None  # optional searches must not reuse this client to bypass a platform's wait
+        else:
+            state.resolve("youtube:discovery")
+        statuses["youtube"] = _provider_status("YouTube Data API", status, detail, len(sigs), fix)
     except providers.Unavailable as exc:
         statuses["youtube"] = _provider_status("YouTube Data API", exc.status, str(exc), fix=exc.fix)
     except PublishError as exc:
@@ -254,6 +302,7 @@ def feed_scan(job: Job) -> dict:
     """Frequent, free check of watch folders and stream/signal feeds (no API quota)."""
     statuses: dict = dict(state.get("providers", {}) or {})
     now = time.time()
+    reconcile_sources(now)
     sigs = collect_feeds(job, statuses)
     state.put("providers", statuses)
     new = 0
@@ -263,10 +312,39 @@ def feed_scan(job: Job) -> dict:
         new += not before
     if sigs:
         rescore(db.get_settings(), now)
-    if new:
+    # A known recording can stop growing, or a creator's missing original can arrive, without a new signal ID.
+    # Check these on the free folder cadence instead of waiting for another (possibly quota-delayed) web scan.
+    if sigs or db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('eligible', 'needs_file')"):
         queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}",
                       priority=job.row["priority"])
     return {"signals": len(sigs), "new": new, "message": f"{new} new item(s) in watch folders and feeds"}
+
+
+def reconcile_sources(now: float | None = None) -> int:
+    """A canceled/timed-out/crashed handler may never run its source cleanup. Release that source's daily slot.
+    Leave active leases, retries and waits alone, and never restart work the user canceled."""
+    now = time.time() if now is None else now
+    changed = 0
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT s.id, s.project_id, j.status, j.error, j.message FROM sources s JOIN worker_jobs j ON j.id = "
+            "(SELECT id FROM worker_jobs WHERE ref_type = 'source' AND ref_id = s.id AND kind IN "
+            "('hunt_source', 'analyze_source') ORDER BY created_at DESC LIMIT 1) "
+            "WHERE s.kind = 'recorded' AND s.status IN ('queued', 'ingesting', 'analyzing') AND s.updated_at < ? "
+            "AND j.status IN ('failed', 'canceled') AND NOT EXISTS "
+            "(SELECT 1 FROM worker_jobs a WHERE a.ref_type = 'source' AND a.ref_id = s.id "
+            "AND a.status IN ('queued', 'running', 'waiting', 'retrying'))", (now - 60,)).fetchall()
+        for row in rows:
+            detail = (row["error"] or row["message"] or row["status"])[:400]
+            note = f"Processing stopped: {detail}"
+            conn.execute("UPDATE sources SET status = 'failed', error = ?, status_note = ?, updated_at = ? WHERE id = ?",
+                         (detail, note, now, row["id"]))
+            if row["project_id"]:
+                conn.execute("UPDATE projects SET status = 'error', error = ?, message = ?, updated_at = ? WHERE id = ?",
+                             (detail, note, now, row["project_id"]))
+            changed += 1
+    return changed
 
 
 def _period(settings: dict, period: float) -> float:
@@ -434,6 +512,7 @@ RIGHTS_MIN_SCORE = 50.0   # below this Source Score a video is not worth asking 
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
     now = time.time()
+    reconcile_sources(now)
     all_rules = rights.rules()
     signals = db.select("trend_signals", "status = 'active'", (), "score DESC")
     created = 0
@@ -516,7 +595,7 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     if needed <= 0:
         return picked
     rows = db.select("sources", "status IN ('eligible', 'needs_file') AND kind = 'recorded'", (),
-                     "status = 'needs_file', source_score DESC", 80)
+                     "status = 'needs_file', source_score DESC")
     all_rules = rights.rules()
     for src in rows:
         if len(picked) >= needed:
