@@ -43,6 +43,14 @@ not shown in the first minute after the app starts; *Needs videos* no longer say
 other people" when they only lack a downloadable file; YouTube's daily limit is reported as such, not as an error. The
 older screens of that branch were not used.
 
+Found while checking the combined app (2026-10-01):
+* With two posts waiting for an OK, the status line said *No covered videos found yet* because the latest finds were
+  not covered. *No covered videos found yet* and *No usable video files yet* now show only while no found video was
+  ever clipped (`test_skipped_finds_do_not_hide_videos_that_were_already_clipped`).
+* Deleting a video left its clip scores, analysis, suggested post text and transcript windows in the database. They are
+  now in `CLIP_CHILDREN`; the post history and clip fingerprints stay on purpose (they stop the same clip from being
+  posted twice).
+
 | Defect | Fix / evidence |
 | --- | --- |
 | Discovery only checked manually configured channels, even after an account or creator agreement was added | `scout.discovery_channels` also checks the connected YouTube channel and active, unexpired channel permissions. Every found video still needs platform-confirmed ownership/coverage and an allowed file-access method. |
@@ -346,6 +354,12 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 | Codex checkpoint (on `97b5c9a`) | `npm run build` in `frontend/` | passes; committed bundle rebuilt |
 | Codex checkpoint (on `97b5c9a`) | `npm run test:sandbox` | 1 passed (12 s); disposable data, fake platform connections, synthetic transcript |
 | Codex checkpoint (on `97b5c9a`) | read-only `e2e` suite against a fresh disposable app | 38 passed, 4 skipped (no projects), 14 s |
+| final integration (2026-10-01) | `pytest -m "not slow"` on the combined code (redesign + Codex fixes + the two fixes above) | 377 passed, 5 slow deselected (237 s) |
+| final integration (2026-10-01) | `pytest -m slow` | 5 passed (402 s); real ffmpeg and eSpeak NG synthetic speech, fake platforms; no NVIDIA GPU or real account |
+| final integration (2026-10-01) | `npm run build` in `frontend/` | passes; `dist/` rebuilt and committed; a second build reproduces it |
+| final integration (2026-10-01) | `npm run test:sandbox` (beginner flow, Chromium from `/opt/pw-browsers`) | 1 passed |
+| final integration (2026-10-01) | read-only `e2e` suite against a fresh sandbox | 51 passed, 9 skipped (no videos, no posts, Autopilot never started) |
+| final integration (2026-10-01) | read-only `e2e` suite against a sandbox after the beginner flow and one video dropped into its videos folder (2 posts waiting for an OK) | 60 passed; the dropped copy of an already clipped video gave no new post (repeat stopped); screenshots of Home, Autopilot, Activity and a post's page checked by eye, which found the status line fixed above |
 
 ## Checklist for the user's machine
 

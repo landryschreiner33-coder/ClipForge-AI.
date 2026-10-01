@@ -99,8 +99,8 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
 Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13), PR #6 (overnight
-run fixes, item 16) and PR #7 (the UI redesign, item 17). Start new work from the default branch; the tested
-commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
+run fixes, item 16), PR #7 (the UI redesign, item 17) and PR #8 (Codex's idle-Autopilot fixes, item 18). Start new
+work from the default branch; the tested commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
@@ -176,6 +176,17 @@ commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
       same rules as the Posts tabs) feed the shell.
     * The editor asks before leaving unsaved changes (links, Back, closing the window) and says when a save was not
       rendered. No `window.confirm`/`prompt` is left: dialogs say what will happen.
+18. **Idle Autopilot fixes (2026-10-01, PR #8; from `codex/fix-autopilot-idle`, brought into the redesign).**
+    * Discovery also checks the connected YouTube channel and active channel agreements, scans agreement folders like
+      watch folders, rechecks waiting files at every folder check, and frees the daily slot of a stopped video
+      (`scout.reconcile_sources`).
+    * A failed search keeps what the other searches found and honors Retry-After; a malformed Tavily or Commons answer
+      counts as a failed search, not an empty one.
+    * `home.discovery` (last and next search, what was found, search problems in plain words) and `home.currently`
+      say why an idle Autopilot is idle. Stopped background work is a Needs you item (`stopped`), not shown in the
+      first minute after the app starts.
+    * Deleting a video also deletes its clip scores, analysis and suggested post text (`CLIP_CHILDREN`); the post
+      history and clip fingerprints stay.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
