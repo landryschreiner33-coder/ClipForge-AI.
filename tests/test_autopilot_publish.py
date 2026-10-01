@@ -366,6 +366,9 @@ def test_publish_center_api(env):
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H, json={"privacy": "SELF_ONLY",
                                                                                    "confirm": True})
         assert r.status_code == 200 and r.json()["status"] == "approved" and r.json()["approval_valid"]
+        one = c.get(f"/api/autopilot/scheduled/{tt['id']}").json()  # the post page reads one post the same way
+        assert one["item"]["id"] == tt["id"] and one["item"]["approval_valid"] and one["timezone"]
+        assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
         assert r.json()["privacy"] == "unlisted"

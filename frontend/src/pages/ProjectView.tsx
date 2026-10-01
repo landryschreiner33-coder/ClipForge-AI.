@@ -243,7 +243,7 @@ export default function ProjectView({ id }: { id: string }) {
           </button>}>
           <p>
             ClipFoundry doesn't pad the results with weak clips. Try a different clip length with “Make clips again”, or
-            lower the minimum Viral Potential in <a className="textlink" href="#/settings/defaults">Settings</a> to
+            lower the minimum Viral Potential in <a className="textlink" href="#/settings/advanced">Settings</a> to
             see weaker moments too.
           </p>
         </EmptyState>

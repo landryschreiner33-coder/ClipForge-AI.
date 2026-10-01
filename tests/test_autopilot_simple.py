@@ -343,10 +343,14 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     queue.progress(job["id"], 0.46)
     assert client.get("/api/autopilot/status").json()["home"]["working"]["progress"] == 0.46
 
-    for status in ("awaiting_approval", "awaiting_approval", "reconciling", "action_needed", "failed", "published"):
+    for status in ("awaiting_approval", "awaiting_approval", "reconciling", "action_needed", "failed", "blocked",
+                   "published"):
         db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube",
                                              "status": status})
-    assert client.get("/api/autopilot/status").json()["home"]["posts"] == {"review": 2, "fix": 2}
+    # an OK from before ClipFoundry checked the exact file no longer covers the post: it waits for you again
+    db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube", "status": "approved",
+                                         "approval": {"hash": "old", "scheme": 1}})
+    assert client.get("/api/autopilot/status").json()["home"]["posts"] == {"review": 3, "fix": 4}
 
     client.post("/api/autopilot/stop-all", headers=H)  # stopped: nothing is being worked on
     assert client.get("/api/autopilot/status").json()["home"]["working"] is None

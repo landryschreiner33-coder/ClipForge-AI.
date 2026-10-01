@@ -649,6 +649,14 @@ def _item_or_404(item_id: str) -> dict:
     return item
 
 
+@router.get("/scheduled/{item_id}", dependencies=READ)
+def scheduled_item(item_id: str) -> dict:
+    """One post, as the list shows it (the post page: also an old post beyond the newest the lists return)."""
+    settings = db.get_settings()
+    return {"item": _public_item(_item_or_404(item_id), settings), "timezone": settings.get("autopilot_timezone"),
+            "auto_publish": bool(settings.get("autopilot_auto_publish"))}
+
+
 class ApproveBody(BaseModel):
     title: str | None = None
     description: str | None = None

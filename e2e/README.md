@@ -1,16 +1,16 @@
 # ClipFoundry browser tests (Playwright)
 
 End-to-end tests that open ClipFoundry in a real Chromium on **your own PC** and check that every page
-works: Dashboard, Create, Projects and the clip editor, Autopilot, Publish Center and Settings. They also
-check that Autopilot and publishing refuse requests that do not come from the app itself.
+works: Home, Autopilot, the Library (Add video, the source video page and the clip editor), Posts and
+Settings. They also check that Autopilot and publishing refuse requests that do not come from the app itself.
 
 They test the ClipFoundry that is **already running** on your computer, with your real data. That is why
 they are **read-only**:
 
 - Any request from the page that could change something (anything except reading from `/api/`) is
   blocked before it reaches ClipFoundry. A test that tries one fails and names the request.
-- The tests never press CREATE CLIPS, Delete, Save, Approve, Publish now, the AUTOPILOT switch,
-  STOP ALL JOBS, or any other button that starts or changes something.
+- The tests never press Make clips, Delete, Save, Approve, Publish now, Start or Pause Autopilot,
+  Stop all jobs, or any other button that starts or changes something. Dialogs they open are canceled.
 - The Autopilot tests check that Autopilot's on/off and paused state are the same before and after.
 - Tests that need a project or a ready clip are skipped when your library has none.
 
@@ -38,7 +38,7 @@ npm test
 | `npm run test:headed` | Same, with the browser window visible |
 | `npm run test:ui` | Playwright's UI mode: pick tests, watch them step by step |
 | `npx playwright test tests/create.spec.ts` | One file |
-| `npx playwright test -g "Publish Center"` | Tests whose name matches |
+| `npx playwright test -g "Posts"` | Tests whose name matches |
 | `npm run report` | Open the last HTML report |
 
 ### Another address or port
@@ -58,20 +58,20 @@ computer ClipFoundry runs on, so those tests would fail.
 
 | File | Checks |
 | --- | --- |
-| `tests/app-shell.spec.ts` | Health API, the built UI is served, sidebar navigation to every page, unknown addresses, Terms and Privacy |
-| `tests/dashboard.spec.ts` | Stat cards and recent projects match the API, System card matches `/api/health` |
-| `tests/create.spec.ts` | CREATE CLIPS only enabled with a video or an http(s) URL, non-video files refused, options start from your saved defaults and changing them does not save anything |
-| `tests/projects.spec.ts` | Library matches the API, Delete asks first (the test says no), a project and a clip editor open, an unknown project shows an error |
-| `tests/autopilot.spec.ts` | First-run steps or the switch, and STOP ALL JOBS, reflect the real state; the main page shows Today, Currently, Next post, Needs you, Top opportunities and Upcoming posts and nothing technical; Add content manually opens and cancels; System details cards, the Advanced tabs and their addresses; Jobs list matches the queue |
-| `tests/publish-center.spec.ts` | Each view matches the queue, approval count, time zone and auto-publish note, each post shows the final quality check of its file |
-| `tests/settings.spec.ts` | General holds only the accounts and the Autopilot basics, Advanced still has every technical section, data folder, Save only after a change (kept across the tabs) and nothing saved when you leave, secrets masked |
+| `tests/app-shell.spec.ts` | Health API, the built UI is served, the sidebar reaches Home, Autopilot, Library, Posts and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/projects`, `#/publish-center/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
+| `tests/home.spec.ts` | The next step comes from the real state (Needs you, welcome, current work), the Autopilot status line, Recent videos and clips and Coming up match the API, no stats or system details, Add video |
+| `tests/autopilot.spec.ts` | The overview shows the real state and Stop all jobs asks first (the test cancels), the facts (this PC kept awake, processing, your videos folder) match the API, Needs you, nothing technical on the overview; Activity; Permissions & sources and its add dialogs (opened and canceled); System, Jobs and Learning under Advanced; section addresses |
+| `tests/create.spec.ts` | Make clips only enabled with a video or an http(s) link, non-video files refused, a chosen video can be swapped, options start from your saved defaults and changing them does not save anything |
+| `tests/library.spec.ts` | The Library matches the API, the name filter and chips, Delete and Make clips again ask first (the test cancels), a video and a clip open, leaving the editor with an unsaved change asks first, an unknown video or clip shows a message |
+| `tests/posts.spec.ts` | Each tab lists the posts it should, tab counts, the time zone stated once, old Publish Center addresses, a post's row and page show the same status, Publish now only on an approved post, Cancel this post asks first (the test keeps the post), Results show real numbers or a dash with the reason, an unknown post |
+| `tests/settings.spec.ts` | Accounts first, Defaults and Advanced sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
 
 ## The beginner flow (sandbox)
 
-One more test goes through what a new user does: open ClipFoundry, connect YouTube and TikTok, press
-keep the suggested topics, press START AUTOPILOT, and watch Autopilot find trending videos, create sources by
-itself and skip the ones nothing covers (listed in the activity log, never asked about). The test then records
+One more test goes through what a new user does: open ClipFoundry, press Get started on Home, choose
+Autopilot and keep the suggested topics, connect YouTube and TikTok, press Start Autopilot, and watch Autopilot find
+trending videos, create sources by itself and skip the ones nothing covers (listed in Activity, never asked about). The test then records
 one agreement with a creator, naming the folder where they share their raw files, and Autopilot takes that
 creator's video, finds its file in the folder and sends it on to the Clip Hunter by itself. It changes things, so it never runs against your real ClipFoundry: it starts its own **sandbox**
 (`sandbox/run_sandbox.py`) with a temporary data folder, port 8799, **test connections** to local stand-ins

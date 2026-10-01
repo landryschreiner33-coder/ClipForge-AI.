@@ -88,14 +88,14 @@ export const setLeaveAsker = (fn: ((target: string) => void) | null) => {
 
 /** Leave after the person chose (Discard and leave, Save and leave): the guard no longer stops this one move. */
 let passing: string | null = null;
-/** A held-back Back or Forward: leaving repeats it (history.go) instead of adding an entry. */
-let heldSteps = 0;
+/** A held-back Back or Forward: leaving to where it led repeats it (history.go) instead of adding an entry. */
+let held: { steps: number; path: string } | null = null;
 export function leaveTo(target: string) {
   guard = null;
-  passing = target;
-  if (heldSteps) history.go(heldSteps);
+  passing = target.replace(/^#?\/?/, "").replace(/\/+$/, "");
+  if (held && held.path === passing) history.go(held.steps);
   else navigate(target);
-  heldSteps = 0;
+  held = null;
 }
 
 // ------------------------------------------------------------------ the current route
@@ -129,7 +129,7 @@ export function useRoute(): Route {
       if (guard && next.path !== current && passing !== next.path && onAsk) {
         // Undo the move (a link, Back or Forward) while the person decides; it happens only after they choose.
         undoing = true;
-        heldSteps = known === undefined ? 0 : at - position;
+        held = known === undefined ? null : { steps: at - position, path: next.path };
         if (known === undefined) history.back();
         else history.go(position - at);
         onAsk(next.path);

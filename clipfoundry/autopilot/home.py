@@ -404,13 +404,20 @@ def working(settings: dict) -> dict | None:
 
 
 def post_counts() -> dict:
-    """Posts waiting for your OK, and posts that need you to settle something (an upload that was not confirmed, or
-    one to finish in the TikTok app), for the sidebar and the Posts tabs."""
+    """The sidebar's counts, the same as the Posts tabs: posts waiting for your OK (including approved posts whose
+    video changed since, so the OK no longer covers it), and posts with a problem (an upload that was not confirmed,
+    one to finish in the TikTok app, a failed or blocked one)."""
+    from .scheduler import approval_valid
+
     def n(statuses: tuple[str, ...]) -> int:
         marks = ",".join("?" * len(statuses))
         return int(db.scalar(f"SELECT COUNT(*) FROM scheduled_publications WHERE status IN ({marks})", statuses) or 0)
 
-    return {"review": n(("awaiting_approval",)), "fix": n(("reconciling", "action_needed"))}
+    # quick: compared with the stored hash, as the Posts list does (display only; publishing hashes the file)
+    outdated = sum(1 for i in db.select("scheduled_publications", "status = 'approved'")
+                   if not approval_valid(i, quick=True))
+    return {"review": n(("awaiting_approval",)) + outdated,
+            "fix": n(("reconciling", "action_needed", "failed", "blocked"))}
 
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:

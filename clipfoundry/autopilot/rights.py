@@ -202,7 +202,7 @@ def evaluate(source: dict, settings: dict | None = None, all_rules: list[dict] |
         if status in (LICENSED, ALLOWLISTED, CC, PD):
             if conds.get("commercial") is False and settings.get("autopilot_commercial_use", True):
                 return out(MANUAL, f"{basis}: commercial use is not allowed, and your posts count as commercial "
-                                   "(Settings → Advanced → Rights)", rule_id, conds)
+                                   "(Settings → Advanced → Discovery and rights)", rule_id, conds)
             risk = "" if conds.get("third_party") else third_party_risk(source)
             if risk:
                 return out(MANUAL, f"Not used: {risk}, and {basis[:1].lower() + basis[1:]} covers only the "
