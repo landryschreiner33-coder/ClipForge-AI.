@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -28,6 +29,7 @@ from .autopilot import routes as autopilot_routes
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    _youtube_retention()
     worker.resume(db.interrupted_work())
     worker.start()
     publish_jobs.worker.start()
@@ -35,6 +37,17 @@ async def lifespan(_: FastAPI):
     autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
     yield
     autopilot_host.supervisor.stop()
+
+
+def _youtube_retention() -> None:
+    """YouTube's 30-day storage rule applies whether or not Autopilot runs: its hourly maintenance only runs while
+    Autopilot is on, so the same clean-up also runs at every start."""
+    from .autopilot import scout
+
+    try:
+        scout.youtube_retention()
+    except Exception:  # noqa: BLE001 - a failed clean-up must not stop the app; maintenance tries again
+        logging.getLogger(__name__).exception("YouTube data clean-up at start failed")
 
 
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)

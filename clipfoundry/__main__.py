@@ -99,8 +99,15 @@ def _process(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> int:
+def setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # httpx logs every request address at INFO; a YouTube Data API key travels in the address (?key=), and the
+    # worker's output goes to data/logs/workers.log, so those lines stay off
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def main() -> int:
+    setup_logging()
     parser = argparse.ArgumentParser(prog="clipfoundry", description="ClipFoundry local AI clipper")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_PORT", 8765)))

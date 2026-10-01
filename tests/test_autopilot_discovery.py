@@ -331,6 +331,21 @@ def test_youtube_data_is_deleted_after_30_days(data):
     assert "p5" in {r["id"] for r in db.select("performance")}
 
 
+def test_youtube_data_is_deleted_at_start_even_when_autopilot_is_off(data):
+    # The hourly maintenance only runs while Autopilot is on; YouTube's 30-day rule holds either way.
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+
+    old = time.time() - 31 * 86400
+    db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "old",
+                                "first_seen": old, "last_checked": old})
+    assert not db.get_settings()["autopilot_enabled"]
+    with TestClient(app, base_url="http://127.0.0.1:8765"):
+        assert db.select("trend_signals") == []
+
+
 # ------------------------------------------------------------------ API
 def test_autopilot_api(data, tmp_path):
     from fastapi.testclient import TestClient
