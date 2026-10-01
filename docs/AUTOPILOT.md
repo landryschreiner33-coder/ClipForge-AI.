@@ -377,17 +377,29 @@ Where they are served:
 
 ## Troubleshooting
 
+If Autopilot ran overnight without making clips, first look at Autopilot → Overview: the line under the headline
+(what it is doing, or why nothing is being clipped), *Next online search* (with the last search), any search that did
+not work, **Needs you**, and **Activity**. Posting hours limit when posts go out; they do not prevent
+discovery or clipping overnight. A connected account alone does not supply downloadable original files. Discovery
+also checks your connected YouTube channel, channels covered by active recorded permissions, and shared folders in
+creator agreements. These still pass the same channel, rights, file-access and final-quality checks.
+
 | Problem | What to do |
 | --- | --- |
-| "Connect YouTube to start finding content." (Autopilot → Activity) | Nothing can discover content yet: connect YouTube (or add an API key in Settings → Advanced → Discovery and rights, or a watch folder or a feed under Autopilot → Permissions & sources). |
+| "Connect YouTube to start finding content." (Autopilot → Activity) | No way to find videos is on: the free-license library is off, YouTube is not connected and no folder is watched. Connect YouTube, turn the library back on (Settings → Advanced → Discovery and rights), or add a folder or a creator agreement with a shared folder under Autopilot → Permissions & sources. |
+| "Autopilot's background work has stopped" (Needs you; *Background work has stopped* on Overview) | The app answers, but its workers have not for over a minute and could not be restarted. Close the black ClipFoundry window and start ClipFoundry again with `start.bat`. If it happens again, see Autopilot → Advanced → System and `data/logs/workers.log`. |
+| "No usable video files yet" (Overview) | Videos it may use were found, but there is no file it is allowed to get (YouTube does not let apps download videos, even your own). Put the original in your videos folder, use a creator's shared folder, or **Add the file** in Activity. |
+| "No covered videos found yet" (Overview) | The videos found so far belong to other people and no agreement or license covers them. Put your own videos in your videos folder, or record an agreement you really have. |
+| "Waiting for the next search" (Overview) | The last online search finished; *Next online search* shows when the next one is. Your videos folder and waiting files are checked every 3 minutes meanwhile. |
+| "Some searches did not work" (Overview, with the search and what to do) | Follow its fix. The other searches keep working and what was already found is kept. A platform's wait (Retry-After) is never shortened. |
 | "No strong opportunities yet. ClipFoundry is still looking." | Discovery works, but nothing found so far is strong enough. It keeps looking; nothing to do. |
 | Workers show *Not running* (Autopilot → Advanced → System) | Check Needs you. If the worker process cannot start, switch Settings → Advanced → Autopilot details → *Worker process* to *Inside the app*. |
-| Nothing gets clipped | Other creators' videos need your **Yes, I have permission…** (Needs you) and, when they are hosted on YouTube, the original file (**Add the video file…**). Your own recordings are clipped without questions when you add them as your own content (your videos folder, or *Add…* → *A video, link or folder of yours…* under Autopilot → Permissions & sources). |
+| Nothing gets clipped | Check Activity: it says for each video why it was skipped (not covered, no allowed way to get the file, too short, a repeat) or where it stopped. Unknown rights are skipped without questions by default. Your own recordings are clipped without questions when you add them as your own content (your videos folder, or *Add…* → *A video, link or folder of yours…* under Autopilot → Permissions & sources). |
 | Jobs wait for the GPU | Another heavy GPU job (or another program) is using it; see the *GPU* panel (Autopilot → Advanced → System). Lower *Free GPU memory needed* (Settings → Advanced → Transcription and GPU) only if you know the model fits. |
 | "Ran on the CPU instead of the GPU" in the *GPU* panel (or *CPU (slower) for the last video* on Autopilot → Overview) | Run `gpu-check.bat` and follow the fix it prints (see INSTALL.md). |
 | "GPU transcription is not working" (Needs you), or "Autopilot transcription is paused: the GPU could not be used" (Autopilot → Advanced → System) | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can turn on *Allow CPU transcription in Autopilot* in Settings → Advanced → Transcription and GPU. |
-| Discovery stopped: quota | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
-| Posts wait in *Needs review* (*Needs your OK*) | That is required by the platforms; open each one in Posts and approve it (**Approve for YouTube** / **Approve for TikTok**). |
+| Discovery stopped: quota ("YouTube's daily limit for searches is used up" on Overview) | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
+| Posts wait in *Needs review* (*Needs your OK*) | Open each one in Posts and approve it (**Approve for YouTube** / **Approve for TikTok**). YouTube can instead use the automatic-publishing permission you turned on; TikTok always needs your OK on each post. |
 | YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |
 | TikTok: privacy options disabled | Your TikTok app is not audited; only *Only me* is possible, or use *Send to TikTok inbox*. |
 | Something is running that should not | **Stop all jobs…** (Autopilot → Overview), then look at Autopilot → Advanced → Jobs and the job logs. |

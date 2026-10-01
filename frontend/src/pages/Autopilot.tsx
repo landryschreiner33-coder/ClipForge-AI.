@@ -186,6 +186,9 @@ function Overview({ st, lost, since, refresh, setData }: {
   const [t2, i2, v2, d2] = gpuFact(st, lost, since);
   const searchEvery = every(Number(st.settings.trend_poll_minutes) || 180);
   const folder = h.my_videos;
+  const d = h.discovery;
+  const lastSearch = d.last_scan ? `Last search ${when(d.last_scan, st.timezone).replace(/^Today, /, "")}: `
+    + `${plural(d.found, "video")} found. ` : "";
 
   return (
     <>
@@ -209,7 +212,7 @@ function Overview({ st, lost, since, refresh, setData }: {
           <Fact label="Next online search" tone="neutral" icon="clock"
             value={lost ? "Unknown" : on && h.next_look ? when(h.next_look, st.timezone).replace(/^Today, /, "")
               : on ? "Not planned yet" : "Not planned"}
-            desc={on || lost ? `Looks online for videos it may use (${searchEvery}).`
+            desc={on || lost ? `${lost ? "" : lastSearch}Looks online for videos it may use (${searchEvery}).`
               : "Only while Autopilot is on."} />
           <Fact label="Your videos folder" tone={!lost && on && !folder.watching ? "warn" : "neutral"} icon="folder"
             value={lost ? "Unknown" : !on ? "Not being checked"
@@ -218,6 +221,18 @@ function Overview({ st, lost, since, refresh, setData }: {
               : folder.watching ? "New videos you put there are picked up by themselves."
                 : "Turn it on under Permissions & sources, or press Open videos folder."} />
         </div>
+        {on && d.problems.length > 0 && (
+          <div className="note search-problems" role="status">
+            <Icon name="alert" />
+            <div className="stack">
+              <span>Some online searches did not work last time. The others keep going, and what was already found
+                is kept.</span>
+              {d.problems.map((p, i) => (
+                <span key={`${p.name}:${i}`} className="small"><b>{p.name}:</b> {p.detail} {p.fix}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <p className="note pc-note"><Icon name="info" /><span>{h.pc_note}</span></p>
       </section>
 
@@ -319,14 +334,22 @@ const FLOW: [string, string][] = [
   ["Publishing a post", "Post"],
 ];
 
+/** What autopilot/home.py `currently` says when nothing is being worked on. */
+const IDLE = ["Looking for opportunities", "Starting", "Waiting for the next search", "No usable video files yet",
+  "No covered videos found yet", "Some searches did not work"];
+
 function WorkingOn({ st, searchEvery }: { st: AutopilotStatus; searchEvery: string }) {
   const h = st.home;
   const w = h.working;
   const on = st.enabled && !st.paused;
   if (!on) return <p className="muted">Nothing: Autopilot is {st.paused ? "stopped" : "paused"}.</p>;
   if (!w) {
-    const idle = ["Looking for opportunities", "Starting"].includes(h.currently);
+    // Nothing runs: the line at the top already says why (no usable files, nothing covered, a search that failed).
+    const idle = IDLE.includes(h.currently);
     if (h.currently === "Waiting for the GPU") return <p><Pill tone="warn" icon="clock">Waiting for the GPU</Pill></p>;
+    if (h.currently === "Background work has stopped") {
+      return <p className="muted">Nothing: Autopilot's background work has stopped. See Needs you.</p>;
+    }
     return idle
       ? <p className="muted">Nothing right now. It checks your videos folder {FOLDER_CHECK} and looks online
         {" "}{searchEvery}.</p>

@@ -14,6 +14,7 @@ from here without repeating the audit.
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
 | Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, PR #6, merged into the default branch 2026-09-30 (the owner skipped the separate Windows test) |
 | UI redesign (2026-10-01) | branch `claude/ui-redesign-prototype-f47izp`, PR #7: the owner approved the prototype (2026-09-30) and asked for the real screens, tested and merged into the default branch |
+| Codex follow-up (2026-10-01) | `codex/fix-autopilot-idle` (one commit, `519c25f`, built on `97b5c9a`), integrated into the redesigned app on `claude/finish-clipfoundry-knj4r4`; see *Overnight-idle regressions* below |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -27,6 +28,35 @@ always labeled as such.
 | --- | --- |
 | `python -m pytest -m "not slow"` | 207 passed. One earlier run failed `test_gpu_lock_is_shared_with_other_processes` (cold start); reproduced as a test race and fixed (see below). |
 | `python -m pytest -m slow` | 4 passed in 404 s (synthetic espeak video, imported transcripts, real ffmpeg renders) |
+
+## Overnight-idle regressions (2026-09-30)
+
+The owner reported no visible progress overnight. The PC's database, Windows power state and logs are not accessible
+in this session, so these are reproduced code defects, not a claim that the precise overnight cause is known.
+
+Integration (2026-10-01): this work was built and tested on `97b5c9a` as `codex/fix-autopilot-idle`. It was then
+brought into the redesigned app (PR #6's videos folder and keep-awake, PR #7's screens) on
+`claude/finish-clipfoundry-knj4r4`. The backend fixes below were kept as they were. What changed in the integration:
+search problems are in plain words on Autopilot → Overview (no "API calls", provider names or "quota"; the technical
+line stays under Advanced → System); stopped background work is a Needs you item (first on Home) with what to do, and
+not shown in the first minute after the app starts; *Needs videos* no longer says your own YouTube videos "belong to
+other people" when they only lack a downloadable file; YouTube's daily limit is reported as such, not as an error. The
+older screens of that branch were not used.
+
+| Defect | Fix / evidence |
+| --- | --- |
+| Discovery only checked manually configured channels, even after an account or creator agreement was added | `scout.discovery_channels` also checks the connected YouTube channel and active, unexpired channel permissions. Every found video still needs platform-confirmed ownership/coverage and an allowed file-access method. |
+| A shared folder recorded in an agreement was never scanned unless separately configured as a watch folder | `scout.discovery_feeds` scans agreement folders on the existing free folder cadence, deduplicates explicitly watched paths, and does not create extra persistent feeds or rights rules. |
+| A known file becoming available (or stopping growth) did not trigger selection unless a new signal ID arrived | `feed_scan` rechecks existing entries and waiting files every three minutes, without extra web-search calls. |
+| The first 80 missing files could permanently hide a later available file | Source selection examines the remaining candidates until the daily slots are filled, instead of repeatedly considering only those 80. |
+| Crash recovery/cancellation could leave a source permanently ingesting/analyzing and consuming a daily slot | `reconcile_sources` marks a stopped source/project accurately after its job ends, under a transaction. Active leases/retries/waits are preserved; canceled jobs are not silently restarted. |
+| A YouTube search API error discarded previously found chart results and skipped channel uploads | Per-call discovery errors preserve completed results. Requested Retry-After/network/auth stops prevent further calls; the wait remains durable. |
+| Malformed Tavily replies and HTTP-200 Commons API errors looked like successful empty searches | Provider adapters report a failed search, allowing other discovery results to survive and exposing the problem. |
+| The main page could say Starting/Looking indefinitely; it did not recognize library-only discovery | Main-page status now includes stopped background work, missing files/coverage, last/next search and search problems. Free library and agreement folders count as discovery options. |
+
+Focused coverage: `tests/test_autopilot_idle.py` uses isolated databases and local HTTP platform stand-ins. The first
+10 regressions failed against the original code; the search-limit and terminal-job cases also failed before their
+fixes. No real publishing, account changes, GPU dependency changes or changes to `.mcp.json` were made.
 
 ## Requirement matrix
 
@@ -310,6 +340,12 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 | UI redesign | every address (28, incl. each tab, a post, an unknown post and an unknown address) at 1440×900, 1366×768, 768×1024 and 390×844, filled-in sandbox; axe-core WCAG 2.1 AA | no sideways scrolling, one title per page, no "undefined"/"NaN", no console errors, 0 serious or critical findings |
 | UI redesign | unsaved change in the editor, then a link Home → *Stay* → browser Back → *Discard and leave* → Forward | asked both times (Home was let through before the fix), Back after *Stay* was not a dead press, Discard went back one step |
 | UI redesign | ClipFoundry stops answering (API refused for 8 s) on Home and Autopilot | *ClipFoundry is not answering* banner, Autopilot state *Unknown*, no green status left on screen |
+| Codex checkpoint (on `97b5c9a`) | `pytest tests/test_autopilot_idle.py` | 16 passed; isolated databases and fake platforms |
+| Codex checkpoint (on `97b5c9a`) | `pytest -m "not slow"` | 363 passed, 5 slow deselected (196 s) |
+| Codex checkpoint (on `97b5c9a`) | `pytest -m slow` | 5 passed (247 s); real ffmpeg and eSpeak NG synthetic speech, imported transcripts and fake platforms; no NVIDIA GPU or real account validation |
+| Codex checkpoint (on `97b5c9a`) | `npm run build` in `frontend/` | passes; committed bundle rebuilt |
+| Codex checkpoint (on `97b5c9a`) | `npm run test:sandbox` | 1 passed (12 s); disposable data, fake platform connections, synthetic transcript |
+| Codex checkpoint (on `97b5c9a`) | read-only `e2e` suite against a fresh disposable app | 38 passed, 4 skipped (no projects), 14 s |
 
 ## Checklist for the user's machine
 

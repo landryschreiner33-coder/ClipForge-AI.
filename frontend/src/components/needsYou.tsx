@@ -6,7 +6,7 @@ import { ConfirmDialog, Icon, IconName, TextPromptDialog, toast } from "./ui";
 
 /**
  * What needs you, as Autopilot reports it (autopilot/home.py `needs_you`, already in the order that matters:
- * account > sleep and GPU > rights > file > approve > publish > needs videos). Home shows the first one as its lead
+ * stopped background work and account > sleep and GPU > rights > file > approve > publish > needs videos). Home shows the first one as its lead
  * card; Autopilot lists them all. Each item says what happened, what to do, and has its button when one exists.
  */
 
@@ -14,7 +14,7 @@ export type NeedTone = "bad" | "warn" | "info";
 const LOOK: Record<NeedsYouItem["type"], [NeedTone, IconName]> = {
   account: ["bad", "link"], sleep: ["bad", "moon"], gpu: ["bad", "cpu"], rights: ["warn", "question"],
   file: ["warn", "folder"], approve: ["warn", "clock"], publish: ["warn", "alert"], videos: ["info", "folder"],
-  other: ["warn", "alert"],
+  stopped: ["bad", "stop"], other: ["warn", "alert"],
 };
 export const needLook = (i: NeedsYouItem): [NeedTone, IconName] => LOOK[i.type] || ["warn", "alert"];
 
@@ -29,7 +29,8 @@ const address = (link?: string) => {
   return link;
 };
 const LINK_LABEL: Partial<Record<NeedsYouItem["type"], string>> = {
-  approve: "Review posts", publish: "Open problems", gpu: "Open GPU settings", other: "See details",
+  approve: "Review posts", publish: "Open problems", gpu: "Open GPU settings", stopped: "See details",
+  other: "See details",
 };
 
 const PATH_HINT = "For example C:\\Users\\you\\Videos\\talk.mp4";
