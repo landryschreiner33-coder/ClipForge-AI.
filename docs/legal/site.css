@@ -39,6 +39,7 @@ table { border-collapse: collapse; width: 100%; min-width: 540px; font-size: 15p
 th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 th { background: var(--panel); }
 code { font-size: 14px; overflow-wrap: anywhere; }
+.doc a { overflow-wrap: anywhere; }  /* long addresses, such as the Google permissions page, wrap on a phone */
 .lead { font-size: 20px; color: var(--muted); max-width: 640px; }
 .hero { padding: 36px 0 12px; }
 .hero h1 { font-size: 40px; max-width: 700px; }
