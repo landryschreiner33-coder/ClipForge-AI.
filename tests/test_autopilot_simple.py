@@ -97,6 +97,14 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     first = client.get("/api/autopilot/status").json()
     assert first["enabled"] is False and first["home"]["setup"]["started"] is False  # the first-run screen shows
     assert first["home"]["empty"] == "Connect YouTube to start finding content."
+    # The way of working chosen in first-time setup is kept with the settings (Home skips its welcome after
+    # "I'll make clips myself"); anything else is not stored.
+    assert first["home"]["setup"]["mode"] == ""
+    client.put("/api/settings", json={"setup_mode": "manual"})
+    assert client.get("/api/autopilot/status").json()["home"]["setup"]["mode"] == "manual"
+    client.put("/api/settings", json={"setup_mode": "everything"})
+    assert db.get_settings()["setup_mode"] == "manual"
+    client.put("/api/settings", json={"setup_mode": ""})
 
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
@@ -282,8 +290,8 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
-    assert set(home) == {"setup", "currently", "next_look", "needs_you", "opportunities", "upcoming", "empty",
-                         "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos"}
+    assert set(home) == {"setup", "currently", "next_look", "working", "needs_you", "opportunities", "upcoming",
+                         "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos", "posts"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
@@ -310,6 +318,43 @@ def test_advanced_controls_are_all_still_there(client, fakes):
     s = client.put("/api/settings", json={"trend_topics": "chess", "youtube_quota_default": 20000,
                                           "autopilot_process": "in_app", "rights_auto_creative_commons": True}).json()
     assert (s["trend_topics"], s["youtube_quota_default"], s["autopilot_process"]) == ("chess", 20000, "in_app")
+
+
+def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, fakes):
+    """The redesigned Home and Autopilot pages show which video Autopilot works on (its thumbnail, the step and the
+    job's own progress, never an estimate) and how many posts wait for your OK or for you to settle something."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, _ = fakes
+    connect(client, g, "youtube")
+    client.post("/api/autopilot/start", headers=H)
+    home = client.get("/api/autopilot/status").json()["home"]
+    assert home["working"] is None and home["posts"] == {"review": 0, "fix": 0}
+
+    project = db.create_project("Morning show episode 12")
+    src = db.insert("sources", {"id": db.new_id(), "platform": "local", "external_id": "ep12", "title": "Morning show",
+                                "status": "analyzing", "project_id": project["id"]})
+    job = queue.enqueue("analyze_source", {"source_id": src["id"]}, ref=("source", src["id"]))
+    db.update("worker_jobs", job["id"], status="running")
+    home = client.get("/api/autopilot/status").json()["home"]
+    assert home["working"] == {"title": "Morning show", "project_id": project["id"], "has_thumbnail": False,
+                               "step": "Finding the best moments", "progress": None}
+    queue.progress(job["id"], 0.46)
+    assert client.get("/api/autopilot/status").json()["home"]["working"]["progress"] == 0.46
+
+    for status in ("awaiting_approval", "awaiting_approval", "reconciling", "action_needed", "failed", "blocked",
+                   "published"):
+        db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube",
+                                             "status": status})
+    # an OK from before ClipFoundry checked the exact file no longer covers the post: it waits for you again
+    db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube", "status": "approved",
+                                         "approval": {"hash": "old", "scheme": 1}})
+    assert client.get("/api/autopilot/status").json()["home"]["posts"] == {"review": 3, "fix": 4}
+
+    client.post("/api/autopilot/stop-all", headers=H)  # stopped: nothing is being worked on
+    assert client.get("/api/autopilot/status").json()["home"]["working"] is None
+    client.post("/api/autopilot/resume", headers=H)
 
 
 # ------------------------------------------------------------------ 9: accounts that drop

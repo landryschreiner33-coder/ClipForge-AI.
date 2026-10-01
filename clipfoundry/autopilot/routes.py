@@ -461,7 +461,7 @@ def stop_all() -> dict:
     state.put("emergency_stop", True)
     out = queue.cancel_all()
     manual = render_worker.cancel_all() + upload_worker.cancel_all()
-    state.event("emergency_stop", f"STOP ALL JOBS: {out['canceled']} queued job(s) canceled, {out['stopping']} "
+    state.event("emergency_stop", f"Stop all jobs: {out['canceled']} queued job(s) canceled, {out['stopping']} "
                                   f"running job(s) stopping, {manual} render/upload job(s) stopped", "warning")
     return {**out, "manual": manual, "paused": True}
 
@@ -469,7 +469,7 @@ def stop_all() -> dict:
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after STOP ALL JOBS")
+    state.event("resumed", "Jobs allowed again after Stop all jobs")
     return {"paused": False}
 
 
@@ -647,6 +647,14 @@ def _item_or_404(item_id: str) -> dict:
     if not item:
         raise HTTPException(404, "Scheduled post not found")
     return item
+
+
+@router.get("/scheduled/{item_id}", dependencies=READ)
+def scheduled_item(item_id: str) -> dict:
+    """One post, as the list shows it (the post page: also an old post beyond the newest the lists return)."""
+    settings = db.get_settings()
+    return {"item": _public_item(_item_or_404(item_id), settings), "timezone": settings.get("autopilot_timezone"),
+            "auto_publish": bool(settings.get("autopilot_auto_publish"))}
 
 
 class ApproveBody(BaseModel):

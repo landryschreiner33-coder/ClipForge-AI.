@@ -335,8 +335,8 @@ class WebSearch:
         self.key = settings.get("tavily_api_key") or ""
         if not self.key:
             raise Unavailable("not_configured", "Web search is off (no Tavily API key).",
-                              "Optional: Settings → Advanced → Discovery, paste a Tavily API key (the free plan "
-                              "includes 1,000 searches a month).")
+                              "Optional: Settings → Advanced → Discovery and rights, paste a Tavily API key "
+                              "(the free plan includes 1,000 searches a month).")
         self.calls = 0
         self.stopped = ""
 
@@ -349,8 +349,8 @@ class WebSearch:
         if use["used"] + 1 > use["allowed"]:
             raise Unavailable("budget", f"Web search paused for this month: {use['used']} of {use['allowed']} "
                                         "credits used.",
-                              "It starts again next month, or raise the monthly cost limit in Settings → Advanced → "
-                              "Discovery.")
+                              "It starts again next month, or raise the Monthly cost limit in Settings → Advanced → "
+                              "Discovery and rights.")
         body = {"query": query[:380], "search_depth": "basic", "topic": "general", "max_results": max_results,
                 "include_domains": domains, "time_range": time_range}
         try:
@@ -361,7 +361,7 @@ class WebSearch:
                               "Check the internet connection.") from exc
         if r.status_code in (401, 403):
             raise Unavailable("error", "Tavily did not accept the API key.",
-                              "Check the key in Settings → Advanced → Discovery.")
+                              "Check the key in Settings → Advanced → Discovery and rights.")
         if r.status_code == 429:
             asked = retry_after(r)
             if asked is not None:
@@ -452,7 +452,7 @@ class Library:
     def __init__(self, settings: dict):
         if not settings.get("library_discovery", True):
             raise Unavailable("off", "The free-license library search is off.",
-                              "Settings → Advanced → Discovery → Free-license library.")
+                              "Settings → Advanced → Discovery and rights → Free-license library.")
         self.settings = settings
         self.calls = 0
 

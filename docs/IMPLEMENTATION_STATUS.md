@@ -13,6 +13,7 @@ from here without repeating the audit.
 | Environment of this session | Linux cloud container, Python 3.11, ffmpeg 6.1.1 (apt), espeak-ng, **no NVIDIA GPU**, Hugging Face blocked (no Whisper model download), `developers.google.com` / `developers.tiktok.com` blocked by the network policy |
 | Branches (2026-09-29) | default `claude/wonderful-ritchie-909tq3`; PRs #1, #3, #2, #4 and #5 (`claude/finish-integrate-clipfoundry-zuf1xx`, plan items 10-13) merged into it |
 | Overnight fix (2026-09-30) | branch `claude/fix-overnight-run-simplify-81jehi`, PR #6, merged into the default branch 2026-09-30 (the owner skipped the separate Windows test) |
+| UI redesign (2026-10-01) | branch `claude/ui-redesign-prototype-f47izp`, PR #7: the owner approved the prototype (2026-09-30) and asked for the real screens, tested and merged into the default branch |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -181,6 +182,29 @@ the real night on the owner's PC were not available to this session.
 | New posts that need your OK are listed right away (not one tick later) | `scheduler.remind_approvals` | verified (unit) | scheduler suites | — | — |
 | A video that gave clips but fewer than expected is shown as used, with its clip count | `home.activity` | verified (sandbox) | simulated night | — | — |
 
+### UI redesign (2026-10-01)
+
+Request: a calm, simple look ("quiet dark studio") with four places (Home, Autopilot, Library, Posts) plus Settings,
+built from the approved prototype in `design/ui-redesign/` (SPEC.md, ROUTE_MAP.md), keeping every feature, saved
+data and publishing permission. Every row was checked in Chromium on Linux against the sandbox (fake YouTube and
+TikTok, synthetic transcript); Windows rendering was not seen.
+
+| Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
+| --- | --- | --- | --- | --- | --- |
+| Five places in the sidebar, a Menu drawer on narrow windows, skip link, focus on the page title after moving | `App.tsx` | verified (e2e) | `app-shell.spec.ts` | look on Windows (checklist 15) | — |
+| Old addresses keep working and Back does not bounce on them | `router.ts` `ALIASES` (replaceState) | verified (e2e) | `old addresses open the new pages…` | — | — |
+| Leaving unsaved changes asks (links, Back, closing the window); Stay keeps history usable; going Home asks too | `router.ts` `useLeaveGuard`, `leaveTo`, `App.tsx` `LeaveDialog` | verified (e2e + browser script) | `library.spec.ts` (editor), `settings.spec.ts`; link → Stay → Back asks again → Discard goes back once | — | — |
+| One shared status poll; a lost connection shows no green state | `status.tsx`, `ConnectionContext` | verified (browser script) | API refused for 8 s on Home and Autopilot: *ClipFoundry is not answering* shown, state *Unknown*, no green pill (4 before) | — | — |
+| Home leads with the first Needs you item; welcome on first use; recent videos and clips; coming up | `Home.tsx`, `needsYou.tsx` | verified (e2e) | `home.spec.ts` | — | — |
+| First-time setup in 3 steps; the choice is kept with the settings | `Setup.tsx`, setting `setup_mode`, `home.setup.mode` | verified (unit + sandbox e2e) | `a_fresh_user_connects_youtube…`, beginner flow | — | — |
+| Autopilot overview with honest facts (kept awake only when Windows agreed, GPU vs the real mode), the video being worked on with the job's own progress | `Autopilot.tsx`, `home.working` | verified (unit + e2e) | `the_page_shows_the_video_being_worked_on…`, `autopilot.spec.ts` | real keep-awake and GPU states on Windows | — |
+| Sidebar counts equal the Posts tabs (outdated approvals wait for review; failed and blocked are problems) | `home.post_counts` | verified (unit) | `the_page_shows_the_video_being_worked_on…` | — | — |
+| Posts tabs and a page per post replacing the approval dialog (checkbox, every platform field, Publish now only when approved, unconfirmed uploads resolved by hand) | `Posts.tsx`, `PostReview.tsx`, `postShared.tsx`, `GET /api/autopilot/scheduled/{id}` | verified (unit + e2e) | `test_publish_center_api`, `posts.spec.ts` | real accounts | accounts |
+| An approval made before a re-render asks again, in plain words | `postShared.tsx` (reads `approval_valid`, `approval.video_sha256`, `approval_invalidated`) | verified (sandbox) | post pages in the sandbox | — | — |
+| Add video, Library (filter, chips, delete asks), source video page, clip editor (5 groups, versions, save does not render) | `Create.tsx`, `Library.tsx`, `ProjectView.tsx`, `ClipEditor.tsx` | verified (e2e + sandbox) | `create.spec.ts`, `library.spec.ts`; Save sends no render request | video playback (headless Chromium here cannot play H.264) | — |
+| Settings: Accounts, Defaults, Advanced; every setting has a place; secrets masked with Replace | `Settings.tsx`, `settingsFields.tsx` | verified (e2e) | `settings.spec.ts` | — | — |
+| Every page at 1440, 1366, 768 and 390 px: no sideways scrolling, one title, no "undefined", no serious axe finding | all pages | verified (browser script, axe-core) | 28 addresses × 4 sizes, 0 problems | 200% zoom and a screen reader | — |
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -205,6 +229,7 @@ the real night on the owner's PC were not available to this session.
 14. [x] Rights: channel rules and ownership only for channels the platform confirmed (your decision: restrict).
 15. [x] Approvals bound to the SHA-256 of the rendered video (not its size and time stamp).
 16. [x] Overnight run did nothing: your videos folder, a plain *Autopilot needs videos* item, keep the PC awake.
+17. [x] UI redesign: Home, Autopilot, Library, Posts and Settings from the approved prototype (PR #7).
 
 ## Test log
 
@@ -277,23 +302,33 @@ the real night on the owner's PC were not available to this session.
 | sleep-state review | read-only `e2e` suite against a fresh scratch app, Autopilot off and then on | 38 passed, 4 skipped (no projects) each time |
 | sleep-state review | a scratch app with a refusing fake kernel32, Autopilot page in Chromium | the red *Your PC may go to sleep and stop Autopilot* item with *What to do* steps, first in Needs you; the PC note says Windows refused (screenshot checked) |
 | PC test without posting | the owner's test steps followed here: a "normal" install with both accounts connected (fakes), YouTube automatic publishing on and an approved TikTok post due now; a global `CLIPFOUNDRY_DATA` pointing at it; a separate test copy started with `CLIPFOUNDRY_DATA` and `CLIPFOUNDRY_VIDEOS` set to its own new folders | the test copy showed the first-time setup and no connected account; START, OPEN MY VIDEOS FOLDER and a dropped video gave 2 posts waiting for an OK (44 s); pressing Approve anyway: YouTube *not connected* (nothing sent), TikTok refused; the normal install's 20 files byte-identical afterwards |
+| UI redesign | `pytest` (fast and slow together; ffmpeg and espeak-ng installed, nothing skipped) | 360 passed (591 s) |
+| UI redesign | `npm run build` in `frontend/` (tsc + vite) | passes; `dist/` rebuilt and committed |
+| UI redesign | `npm run test:sandbox` (beginner flow, now through Home → *Get started* → setup → *Start Autopilot*) | 1 passed |
+| UI redesign | read-only `e2e` suite against a fresh sandbox | 51 passed, 9 skipped (no videos, no posts, Autopilot never started) |
+| UI redesign | read-only `e2e` suite against a sandbox after the beginner flow and one added video (2 posts waiting for an OK) | 60 passed |
+| UI redesign | every address (28, incl. each tab, a post, an unknown post and an unknown address) at 1440×900, 1366×768, 768×1024 and 390×844, filled-in sandbox; axe-core WCAG 2.1 AA | no sideways scrolling, one title per page, no "undefined"/"NaN", no console errors, 0 serious or critical findings |
+| UI redesign | unsaved change in the editor, then a link Home → *Stay* → browser Back → *Discard and leave* → Forward | asked both times (Home was let through before the fix), Back after *Stay* was not a dead press, Discard went back one step |
+| UI redesign | ClipFoundry stops answering (API refused for 8 s) on Home and Autopilot | *ClipFoundry is not answering* banner, Autopilot state *Unknown*, no green status left on screen |
+
 ## Checklist for the user's machine
 
 Everything below needs your PC, your GPU or your accounts; none of it could be done in the cloud session.
 
 | # | Action | Command / where | Expected evidence | Why |
 | --- | --- | --- | --- | --- |
-| 1 | Update and start (keep `data`, `.venv`, `tools`; see INSTALL.md → Updating) | `git pull` or the ZIP steps, then `start.bat` | App opens at http://127.0.0.1:8765; your projects, settings and account connections are still there; Autopilot page lists 12 workers incl. *Final Quality Gate* | new tables (`slot_replacements` and earlier ones) are created on first start; posts approved before this version ask for approval once more |
+| 1 | Update and start (keep `data`, `.venv`, `tools`; see INSTALL.md → Updating) | `git pull` or the ZIP steps, then `start.bat` | App opens at http://127.0.0.1:8765; your videos (Library), settings and account connections are still there; Autopilot → Advanced → System lists 12 workers incl. *Final Quality Gate* | new tables (`slot_replacements` and earlier ones) are created on first start; posts approved before this version ask for approval once more |
 | 2 | Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16 or int8_float16, speed several times realtime | this environment has no GPU; detection alone is not transcription |
 | 3 | Strict GPU in Autopilot | temporarily break CUDA (e.g. rename the cuBLAS DLL folder), add an owned source | the hunt pauses; action item "Autopilot transcription is paused"; no CPU run; restore and the source continues | proves the pause on real hardware |
-| 4 | Local vertical slice | Autopilot → Sources & rights: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the project; Publish Center shows posts with "Final check passed" and every check listed | the slice ran here only on synthetic espeak video |
-| 5 | Look at and listen to one Autopilot clip | open it from the Publish Center preview | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
+| 4 | Local vertical slice | Autopilot → Permissions & sources: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the Library; Posts → Needs review shows the posts, and each post's page shows *Final check* with every check listed | the slice ran here only on synthetic espeak video |
+| 5 | Look at and listen to one Autopilot clip | open it from a post's page in Posts | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
 | 6 | Measure throughput | time one 60-minute source through hunt → analyze (worker log `data/logs/workers.log`), watch VRAM in Task Manager | minutes per source, peak VRAM, disk used per source | whether 15 clips/day is plausible must be measured, not assumed |
-| 7 | Browser tests | `e2e\run-tests.bat` with the app running; `e2e\run-beginner-test.bat` (sandbox, app need not run) | 42 passed (some skipped without projects); beginner flow passed | read-only check of every page against your real data; the beginner flow on Windows |
-| 8 | YouTube, real account | connect in Autopilot (step 1) or Settings → General → Accounts, approve one post as Private | video ID in the Publish Center; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
+| 7 | Browser tests | `e2e\run-tests.bat` with the app running; `e2e\run-beginner-test.bat` (sandbox, app need not run) | 60 passed (some skipped without videos or posts); beginner flow passed | read-only check of every page against your real data; the beginner flow on Windows |
+| 8 | YouTube, real account | connect in first-time setup (step 3) or Settings → Accounts, approve one post as Private | the post's page in Posts shows it published with its link; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
 | 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
 | 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
-| 14 | Overnight run | START AUTOPILOT, press *OPEN MY VIDEOS FOLDER*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips on the Autopilot page, posts planned between 9 AM and 9 PM; Autopilot → Advanced → System details events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here. If the page says *Windows did not let ClipFoundry keep this PC awake*, follow its Needs you steps. To try it before merging with no chance of posting, run a separate test copy with its own new data folder (`CLIPFOUNDRY_DATA`) and videos folder (`CLIPFOUNDRY_VIDEOS`), with the normal ClipFoundry closed |
+| 14 | Overnight run | *Start Autopilot*, press *Open videos folder*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips in the Library, posts planned between 9 AM and 9 PM in Posts; the Autopilot overview's *This PC* says *Kept awake*, and Autopilot → Advanced → System events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here. If the page says *Windows did not let ClipFoundry keep this PC awake*, follow its Needs you steps. To try it before merging with no chance of posting, run a separate test copy with its own new data folder (`CLIPFOUNDRY_DATA`) and videos folder (`CLIPFOUNDRY_VIDEOS`), with the normal ClipFoundry closed |
+| 15 | Look at the new screens on Windows | open Home, Autopilot, Library, a clip in the editor, Posts and Settings; make the window narrow | text fits, nothing scrolls sideways, the Menu button appears on a narrow window, your old bookmarks (`#/projects`, `#/publish-center`) open the new pages | the redesign was checked here in Chromium on Linux only (other fonts, no Windows display scaling) |

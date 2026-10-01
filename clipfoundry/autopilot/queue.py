@@ -243,7 +243,7 @@ def cancel(job_id: str, message: str = "Canceled by you") -> dict | None:
     return db.fetch("worker_jobs", job_id)
 
 
-def cancel_all(message: str = "Stopped with STOP ALL JOBS", workers: tuple[str, ...] | None = None) -> dict:
+def cancel_all(message: str = "Stopped with Stop all jobs", workers: tuple[str, ...] | None = None) -> dict:
     now = _now()
     scope, args = "", []
     if workers:

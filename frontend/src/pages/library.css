@@ -1,0 +1,41 @@
+/* Library, Source video and Add video: only what styles.css doesn't already have. */
+.lib-filters { gap: var(--s3); }
+.lib-search { width: min(320px, 100%); }
+
+/* clip cards: never wider than their column; the buttons stack when two don't fit side by side */
+.ccard { grid-template-columns: minmax(0, 1fr); }
+.ccard .ccard-actions { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+
+/* source video page: the picture and its facts side by side, stacked on narrow windows */
+.src-top { display: flex; flex-wrap: wrap; gap: var(--s5); align-items: flex-start; }
+.src-top > .src-pic { width: min(360px, 100%); flex: none; }
+.src-top > .src-facts { flex: 1 1 260px; min-width: 0; display: grid; gap: var(--s3); }
+.ccard .thumb-button {
+  display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; color: inherit;
+}
+.ccard .thumb-button:disabled { cursor: default; }
+.ccard .thumb-button .play-hint {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(8, 9, 10, 0.72); display: grid; place-items: center; opacity: 0; transition: opacity 0.15s;
+}
+.ccard .thumb-button:hover .play-hint, .ccard .thumb-button:focus-visible .play-hint { opacity: 1; }
+.ccard .posts-line { display: flex; flex-wrap: wrap; gap: 2px var(--s2); }
+.ccard .bad-line { color: var(--bad); }
+
+/* clip preview dialog */
+.preview { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: var(--s5); align-items: start; }
+.preview video {
+  display: block; height: min(70vh, 640px); aspect-ratio: 9 / 16; max-width: 100%;
+  background: #000; border-radius: 10px;
+}
+.preview .preview-side { display: grid; gap: var(--s3); min-width: 0; }
+.dialog.preview-dialog { width: min(980px, 100%); }
+@media (max-width: 760px) {
+  .preview { grid-template-columns: minmax(0, 1fr); }
+  .preview video { height: auto; width: 100%; max-height: 70vh; }
+}
+
+/* add video */
+.drop-actions { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: center; }
+.next-line { flex: 1 1 260px; }

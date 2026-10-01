@@ -1,361 +1,644 @@
-import { ReactNode, useEffect, useState } from "react";
-import { Accounts, api, Health, Settings } from "../api";
-import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
-import { AccountBadge, ConnectButton, SetupAndConnect, TikTokSetupSteps, YouTubeSetupSteps } from "../components/accounts";
-import { AutopilotSettings } from "../components/autopilotSettings";
+import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
+import { navigate, useLeaveGuard } from "../router";
+import { useStatus } from "../status";
+import {
+  AccountBadge, ConnectButton, PLATFORM_NAME, TikTokSetupSteps, YouTubeSetupSteps,
+} from "../components/accounts";
+import { AutopilotSettings, Errors } from "../components/autopilotSettings";
 import { AutoPublishLine } from "../components/autoPublish";
+import {
+  Check, FieldCtx, fieldId, FIELDS, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, SettingsTab, Switch,
+  TextInput, validate,
+} from "../components/settingsFields";
+import {
+  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPage, PageHead, Pill, StylePicker, toast, TRACKING,
+} from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
+const TAB_NAME: Record<SettingsTab, string> = { accounts: "Accounts", defaults: "Defaults", advanced: "Advanced" };
+const TAB_HREF: Record<SettingsTab, string> = {
+  accounts: "#/settings", defaults: "#/settings/defaults", advanced: "#/settings/advanced",
+};
+const ACCOUNT_KEYS: Record<Platform, string[]> = {
+  youtube: ["youtube_client_id", "youtube_client_secret", "youtube_project_verified"],
+  tiktok: ["tiktok_client_key", "tiktok_client_secret", "tiktok_direct_post", "tiktok_read_stats",
+    "tiktok_app_audited"],
+};
+const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
+  "youtube_api_key", "tavily_api_key"]);
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+/**
+ * Settings: Accounts (connect, app codes, how posts get approved), Defaults (new clips, the daily target, posting
+ * hours, topics) and Advanced (everything else). One sticky save bar for all three: it names the unsaved changes,
+ * and a field error blocks saving and points at the field. Secrets are never sent to the page: they show as
+ * "•••••••• (saved)" with Replace.
+ */
+export default function SettingsPage({ tab }: { tab?: string }) {
+  const t: SettingsTab = tab === "defaults" || tab === "advanced" ? tab : "accounts";
+  const { st } = useStatus();
+  const [saved, setSaved] = useState<Settings | null>(null);
+  const [draft, setDraft] = useState<Settings | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [health, setHealth] = useState<Health | null>(null);
+  const [accounts, setAccounts] = useState<Accounts | null>(null);
+  const [form, setForm] = useState(0); // remount key: resets the secret boxes after a save or discard
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [saveError, setSaveError] = useState("");
+  const [focusKey, setFocusKey] = useState("");
+  const [goingTo, setGoingTo] = useState(""); // a tab being opened (see switchTab)
+
+  const load = () => {
+    api.settings()
+      .then((s) => { setSaved(s); setDraft(s); setLoadError(""); })
+      .catch((e) => setLoadError(errorText(e)));
+    api.health().then(setHealth).catch(() => undefined);
+    api.accounts().then(setAccounts).catch(() => undefined);
+  };
+  useEffect(load, []);
+
+  const changed = draft && saved ? Object.keys(FIELDS).filter((k) => k in draft && !same(draft[k], saved[k])) : [];
+  const errors = useMemo(() => (draft ? validate(draft) : {}), [draft]);
+  const errorKeys = Object.keys(FIELDS).filter((k) => errors[k]);
+  const set = (patch: Settings) => {
+    setDraft((d) => d && { ...d, ...patch });
+    setJustSaved(false);
+    setSaveError("");
+  };
+
+  // After moving to the tab of an invalid field, put the focus on it.
+  useEffect(() => {
+    if (!focusKey) return;
+    const el = document.getElementById(fieldId(focusKey));
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      el.focus();
+      setFocusKey("");
+    }
+  });
+  const goToField = (k: string) => {
+    const where = FIELDS[k]?.tab || t;
+    setFocusKey(k);
+    if (where !== t) switchTab(TAB_HREF[where]);
+  };
+
+  /** Save the changed settings only. Resolves false when nothing was saved (the page then stays). */
+  const save = async (keys = changed): Promise<boolean> => {
+    if (!draft || !saved) return false;
+    if (!keys.length) return true;
+    if (errorKeys.length) {
+      goToField(errorKeys[0]);
+      return false;
+    }
+    const patch = Object.fromEntries(keys.map((k) => [k, draft[k]]));
+    setSaving(true);
+    setSaveError("");
+    try {
+      const out = await api.saveSettings(patch);
+      // The server keeps a value it can't use (a range or an unknown name): say so instead of pretending it saved.
+      const kept = keys.filter((k) => !SECRETS.has(k) && !same(out[k], patch[k]))
+        .map((k) => `${FIELDS[k].label} was saved as ${String(out[k])}.`);
+      const fresh = { ...out };
+      setSaved(fresh);
+      setDraft((d) => (d ? { ...d, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) } : fresh));
+      setForm((f) => f + 1);
+      setNotes(kept);
+      setJustSaved(true);
+      toast(keys.length === changed.length ? "Settings saved" : "Saved");
+      api.health().then(setHealth).catch(() => undefined);
+      api.accounts().then(setAccounts).catch(() => undefined);
+      return true;
+    } catch (e) {
+      setSaveError(errorText(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const discard = () => {
+    setDraft(saved);
+    setForm((f) => f + 1);
+    setSaveError("");
+  };
+
+  const labels = changed.map((k) => FIELDS[k].label);
+  const what = labels.length > 4 ? `${labels.slice(0, 4).join(", ")} and ${labels.length - 4} more` : labels.join(", ");
+  // Leaving Settings with unsaved changes asks first. Switching tabs doesn't: the three tabs are one page with one
+  // draft. For that one move the guard is lifted (goingTo), and it comes back once the new tab shows. (Not
+  // router.leaveTo: after a held-back Back and "Stay" it repeats that Back instead of opening the tab.)
+  const guard = useMemo(() => (changed.length && !goingTo ? {
+    what, save: () => saveRef.current(), discard: () => { setDraft(saved); setForm((f) => f + 1); },
+  } : null), [what, t, saved, goingTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLeaveGuard(guard);
+  useEffect(() => setGoingTo(""), [t]);
+  useEffect(() => {
+    if (goingTo) navigate(goingTo);
+  }, [goingTo]);
+  function switchTab(href: string) {
+    if (href !== TAB_HREF[t]) setGoingTo(href);
+  }
+  const tabClick = (e: MouseEvent) => {
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a || !changed.length) return;
+    e.preventDefault();
+    switchTab(a.getAttribute("href") || "#/settings");
+  };
+
+  if (loadError) {
+    return (
+      <div className="page narrow">
+        <PageHead title="Settings" />
+        <EmptyState icon="alert" title="Settings could not be loaded"
+          actions={<button type="button" className="btn" onClick={load}><Icon name="refresh" />Try again</button>}>
+          {loadError}
+        </EmptyState>
+      </div>
+    );
+  }
+  if (!draft || !saved) return <LoadingPage label="Loading settings" />;
+
+  const c: FieldCtx = { s: draft, set, errors, saved };
+  const expired = (["youtube", "tiktok"] as const).filter((p) => accounts?.[p]?.needs_reconnect);
+  const gpuProblem = st?.gpu?.problem || health?.whisper.problem || "";
+  const gpuFix = st?.gpu?.fix || health?.whisper.fix || "";
+  const firstError = errorKeys[0];
   return (
-    <div className="opt-row">
-      <div className="lbl">{label}{hint && <small>{hint}</small>}</div>
-      <div>{children}</div>
+    <div className="page narrow">
+      <PageHead title="Settings"
+        sub={<>
+          Stored on this computer, in ClipFoundry's data folder
+          {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
+        </>} />
+      {expired.length > 0 && t !== "accounts" && (
+        <Banner tone="bad" icon="link"
+          title={`${expired.map((p) => PLATFORM_NAME[p]).join(" and ")} ${expired.length > 1 ? "need" : "needs"} you `
+            + "to sign in again."}
+          actions={<a className="btn btn-small" href="#/settings" onClick={tabClick}>Open Accounts</a>}>
+          Planned posts there wait until you connect again.
+        </Banner>
+      )}
+      {gpuProblem && t !== "advanced" && (
+        <Banner tone="bad" icon="cpu" title="GPU transcription is not working."
+          actions={<a className="btn btn-small" href="#/settings/advanced" onClick={tabClick}>Open GPU settings</a>}>
+          {gpuProblem}{gpuFix ? <> <b>What to do:</b> {gpuFix}</> : null}
+        </Banner>
+      )}
+      <div onClickCapture={tabClick}>
+        <LinkTabs label="Settings sections" current={t} tabs={[
+          { id: "accounts", href: "#/settings", label: "Accounts" },
+          { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
+          { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
+        ]} />
+      </div>
+      {notes.length > 0 && (
+        <Banner tone="warn" title="Some values were adjusted when saving">
+          {notes.join(" ")}
+        </Banner>
+      )}
+
+      <div key={form} className="stack-4">
+        {t === "accounts" && (
+          <AccountsTab c={c} accounts={accounts} setAccounts={setAccounts} changed={changed}
+            saveKeys={(keys) => saveRef.current(keys)} />
+        )}
+        {t === "defaults" && (
+          <DefaultsTab c={c} autopilotOn={st?.enabled ?? !!saved.autopilot_enabled}
+            tz={String(saved.autopilot_timezone || "")} />
+        )}
+        {t === "advanced" && <AdvancedTab c={c} health={health} st={st} />}
+      </div>
+
+      <section className="savebar" aria-label="Save settings">
+        <div className="grow">
+          <b className="small">{changed.length ? `Unsaved changes: ${what}` : justSaved ? "Saved" : "No changes"}</b>
+          {changed.length > 0 && firstError && (
+            <span className="error-text" role="alert">
+              <Icon name="alert" className="sm" />
+              <span>
+                Fix the field marked{" "}
+                {FIELDS[firstError].tab === t ? "below" : `on ${TAB_NAME[FIELDS[firstError].tab]}`} before saving:{" "}
+                {FIELDS[firstError].label}.{" "}
+                <button type="button" className="textlink" onClick={() => goToField(firstError)}>Go to it</button>
+              </span>
+            </span>
+          )}
+          {saveError && (
+            <span className="error-text" role="alert"><Icon name="alert" className="sm" />{saveError}</span>
+          )}
+        </div>
+        <button type="button" className="btn btn-quiet" disabled={!changed.length || saving} onClick={discard}>
+          Discard
+        </button>
+        <button type="button" className="btn btn-primary" disabled={!changed.length || saving} onClick={() => save()}>
+          {saving && <span className="inline-spinner" aria-hidden="true" />}Save settings
+        </button>
+      </section>
     </div>
   );
 }
 
-const CREDENTIALS = ["youtube_client_id", "youtube_client_secret", "tiktok_client_key", "tiktok_client_secret"];
-
-/** Settings: General (accounts and the three Autopilot choices most people need) and Advanced (everything else). */
-export default function SettingsPage({ tab }: { tab?: string }) {
-  const advanced = tab === "advanced";
-  const [s, setS] = useState<Settings | null>(null);
-  const [health, setHealth] = useState<Health | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [check, setCheck] = useState<{ ok: boolean; detail: string } | null>(null);
-  const [accounts, setAccounts] = useState<Accounts | null>(null);
-
-  useEffect(() => {
-    api.settings().then(setS);
-    api.health().then(setHealth).catch(() => undefined);
-    api.accounts().then(setAccounts).catch(() => undefined);
-  }, []);
-  if (!s) return <div className="page"><div className="spinner" /></div>;
-
-  const set = (patch: Settings) => {
-    setS({ ...s, ...patch });
-    setDirty(true);
-  };
-  const save = async (quiet = false) => {
-    try {
-      setS(await api.saveSettings(s));
-      setDirty(false);
-      setHealth(await api.health());
-      setAccounts(await api.accounts());
-      if (!quiet) toast("Settings saved");
-    } catch (e) {
-      toast((e as Error).message, true);
-    }
-  };
-  const testAi = async () => {
-    if (dirty) await save();
-    setCheck(await api.checkAi());
-  };
-
-  const provider = s.ai_provider as string;
-  // An account connected from General saved its app codes directly: take them over, keep your unsaved edits.
-  const accountChanged = async (a: Accounts) => {
-    setAccounts(a);
-    try {
-      const fresh = await api.settings();
-      setS((prev) => prev && { ...prev, ...Object.fromEntries(CREDENTIALS.map((k) => [k, fresh[k]])) });
-    } catch {
-      /* the next page load shows them */
-    }
-  };
-
+// ------------------------------------------------------------------ Accounts
+function AccountsTab({ c, accounts, setAccounts, changed, saveKeys }: {
+  c: FieldCtx; accounts: Accounts | null; setAccounts: (a: Accounts) => void; changed: string[];
+  saveKeys: (keys: string[]) => Promise<boolean>;
+}) {
   return (
-    <div className="page" style={{ maxWidth: 980 }}>
-      <div className="page-head">
-        <div>
-          <h1>Settings</h1>
-          <p>Defaults for new projects. Everything is stored locally in <code>{health?.data_dir || "data/"}</code>.</p>
+    <>
+      <p className="small muted">
+        Connect the platforms you want to post to. You sign in on Google's or TikTok's own page; ClipFoundry never sees
+        your password. <b>Connecting an account doesn't let ClipFoundry post by itself.</b>
+      </p>
+      {(["youtube", "tiktok"] as const).map((p) => (
+        <AccountPanel key={p} platform={p} c={c} account={accounts?.[p]} setAccounts={setAccounts}
+          changed={changed.filter((k) => ACCOUNT_KEYS[p].includes(k))} saveKeys={saveKeys} />
+      ))}
+      {accounts?.protection && <p className="tiny faint">Sign-ins and app secrets are {accounts.protection}.</p>}
+    </>
+  );
+}
+
+function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: {
+  platform: Platform; c: FieldCtx; account?: PlatformAccount; setAccounts: (a: Accounts) => void; changed: string[];
+  saveKeys: (keys: string[]) => Promise<boolean>;
+}) {
+  const yt = platform === "youtube";
+  const name = PLATFORM_NAME[platform];
+  const s = c.s;
+  const idKey = yt ? "youtube_client_id" : "tiktok_client_key";
+  const secretKey = yt ? "youtube_client_secret" : "tiktok_client_secret";
+  const hasCodes = !!String(s[idKey] || "").trim() && !!String(s[secretKey] || "");
+  const connected = !!account?.connected && !account.needs_reconnect;
+  // Connecting uses the saved codes: save this account's changed fields first.
+  const beforeConnect = hasCodes ? async () => {
+    if (changed.length && !(await saveKeys(changed))) {
+      throw new Error(`Save your ${name} app codes first: fix the field marked below.`);
+    }
+  } : undefined;
+  const redirect = account?.redirect_uri || `${window.location.origin}/api/oauth/tiktok/callback`;
+  const copy = () => {
+    if (!navigator.clipboard) {
+      toast("Copying is not available in this browser. Select the address and copy it.", true);
+      return;
+    }
+    navigator.clipboard.writeText(redirect).then(() => toast("Redirect address copied"),
+      () => toast("The address could not be copied. Select it and copy it.", true));
+  };
+  return (
+    <section className="panel" aria-labelledby={`acc-${platform}`}>
+      <div className="panel-head">
+        <h2 id={`acc-${platform}`}>{name}</h2>
+        <div className="row wrap">
+          <AccountBadge platform={platform} account={account} />
+          {account && (
+            <ConnectButton platform={platform} account={account} onChange={setAccounts} beforeConnect={beforeConnect} />
+          )}
         </div>
-        <button className="btn primary" disabled={!dirty} onClick={() => save()}><Icon name="check" size={16} /> Save settings</button>
       </div>
-
-      <div className="segmented" style={{ marginBottom: 18 }}>
-        <button className={advanced ? "" : "on"} onClick={() => { window.location.hash = "#/settings"; }}>General</button>
-        <button className={advanced ? "on" : ""} onClick={() => { window.location.hash = "#/settings/advanced"; }}>Advanced</button>
-      </div>
-
-      {!advanced && (
-        <>
-          <div className="card" id="accounts">
-            <h3>Accounts</h3>
-            <p className="small muted" style={{ marginTop: -6 }}>
-              Connect the platforms Autopilot should post to. You sign in on Google's or TikTok's own page: ClipFoundry never
-              sees your password. Nothing is posted without your approval.
-            </p>
-            {(["youtube", "tiktok"] as const).map((p) => {
-              const acc = accounts?.[p];
-              return (
-                <div key={p} className="account-block">
-                  <div className="platform-head">
-                    <b>{p === "youtube" ? "YouTube" : "TikTok"}</b>
-                    <AccountBadge platform={p} account={acc} />
-                    <span style={{ flex: 1 }} />
-                    {acc && (acc.configured || acc.connected) && <ConnectButton platform={p} account={acc} onChange={accountChanged} />}
-                  </div>
-                  {acc && !acc.configured && !acc.connected && <SetupAndConnect platform={p} account={acc} onChange={accountChanged} />}
-                  {acc?.connected && acc.restriction && <div className="notice warn small block">{acc.restriction}</div>}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="card">
-            <h3>Autopilot</h3>
-            <Row label="Autopilot" hint="Finds content, makes clips and schedules them by itself">
-              <Toggle on={!!s.autopilot_enabled} onChange={(v) => set({ autopilot_enabled: v })} label={s.autopilot_enabled ? "On" : "Off"} />
-            </Row>
-            <Row label="Daily target" hint="Clips per day to aim for. A target, not a quota: quality and your rights come first">
-              <input type="number" min={1} max={100} value={s.autopilot_daily_target} style={{ maxWidth: 140 }}
-                onChange={(e) => set({ autopilot_daily_target: e.target.value === "" ? 1 : +e.target.value })} />
-            </Row>
-            <Row label="Automatic publishing" hint="Post finished clips without asking you about each one, where the platform allows it">
-              <AutoPublishLine />
-            </Row>
-            <div className="small muted">
-              Everything else has a sensible default (United States, English, 3 videos a day, up to 5 clips each, posts spread between
-              9 a.m. and 9 p.m. Central time). You can change it under <a href="#/settings/advanced">Advanced</a>, but you don't need to.
-            </div>
-          </div>
-        </>
+      {account?.needs_reconnect && (
+        <p className="small">
+          {name} stopped accepting ClipFoundry's sign-in. Sign in again to keep posting. Planned posts wait until then.
+        </p>
       )}
-
-      {advanced && (
-      <>
-      <div className="card">
-        <h3>Transcription (faster-whisper, local)</h3>
-        <Row label="Model" hint="auto = large-v3-turbo on GPU, small on CPU">
-          <select value={s.whisper_model} onChange={(e) => set({ whisper_model: e.target.value })}>
-            {WHISPER_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </Row>
-        <Row label="Device" hint={health ? (health.whisper.mode === "gpu"
-          ? `GPU mode: ${health.gpu.name} (CUDA, ${health.whisper.compute_type})`
-          : `CPU mode: ${health.whisper.reason}`) : ""}>
-          <Segmented value={s.whisper_device} onChange={(v) => set({ whisper_device: v })}
-            options={[{ value: "auto", label: "Auto" }, { value: "cuda", label: "GPU (CUDA)" }, { value: "cpu", label: "CPU" }]} />
-        </Row>
-        <Row label="Compute type">
-          <select value={s.whisper_compute_type} onChange={(e) => set({ whisper_compute_type: e.target.value })}>
-            {["auto", "float16", "int8_float16", "int8", "float32"].map((m) => <option key={m}>{m}</option>)}
-          </select>
-        </Row>
-        <Row label="Language" hint="Leave empty to auto-detect">
-          <input type="text" placeholder="e.g. en, es, de" value={s.language} onChange={(e) => set({ language: e.target.value })} />
-        </Row>
-      </div>
-
-      <div className="card">
-        <h3>Clip discovery</h3>
-        <Row label="Clips per video" hint="Maximum; weaker moments are dropped">
-          <Segmented value={s.clip_count} onChange={(v) => set({ clip_count: v })} options={[3, 5, 10].map((n) => ({ value: n, label: n }))} />
-        </Row>
-        <Row label="Clip length (seconds)">
-          <div className="row">
-            <input type="number" value={s.min_duration} onChange={(e) => set({ min_duration: +e.target.value })} />
-            <span className="muted">to</span>
-            <input type="number" value={s.max_duration} onChange={(e) => set({ max_duration: +e.target.value })} />
-            <span className="muted">target</span>
-            <input type="number" value={s.target_duration} onChange={(e) => set({ target_duration: +e.target.value })} />
-          </div>
-        </Row>
-        <Row label="Minimum Viral Potential" hint="Only clips at or above this (and without blocking problems such as a misleading cut) are shown. No filler is added.">
-          <div className="row"><input type="range" min={0} max={90} step={5} value={s.min_score} onChange={(e) => set({ min_score: +e.target.value })} /><b style={{ width: 30 }}>{s.min_score}</b></div>
-        </Row>
-      </div>
-
-      <div className="card">
-        <h3>AI scoring (Stage 2)</h3>
-        <div className="notice">
-          <Icon name="cpu" size={16} />
-          <div>
-            Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. <b>Local heuristic</b> is free and
-            offline; <b>Ollama</b> / <b>LM Studio</b> run a local LLM for free; <b>Claude API</b> is optional and paid per use.
-          </div>
+      {account?.restriction && account.configured && (
+        <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {account.restriction}</p>
+      )}
+      {yt ? (
+        <div className="stack">
+          <span className="small strong">How posts get approved</span>
+          <AutoPublishLine platform="youtube" />
         </div>
-        <Row label="Provider">
-          <select value={provider} onChange={(e) => { set({ ai_provider: e.target.value }); setCheck(null); }}>
-            <option value="heuristic">Local heuristic (offline, free)</option>
-            <option value="ollama">Ollama (local LLM, free)</option>
-            <option value="openai_compatible">LM Studio / OpenAI-compatible local server</option>
-            <option value="anthropic">Claude API (optional, paid)</option>
-          </select>
-        </Row>
+      ) : (
+        <p className="small">
+          How posts get approved: <b>your OK on each post</b>. TikTok's rules require a preview and your consent for
+          every upload.
+          {connected && account && <> Permissions: {account.can_direct_post ? "Direct Post" : "no Direct Post"} ·{" "}
+            {account.can_inbox ? "send to inbox" : "no inbox"} ·{" "}
+            {account.can_read_stats ? "video statistics" : "no video statistics"}.</>}
+        </p>
+      )}
+      <Disclosure plain open={!!account && !account.configured}
+        summary={`Your ${name} app codes${account?.configured ? "" : " (needed once)"}`}>
+        <div className="stack-3">
+          <p className="small muted">
+            {name} only lets apps like ClipFoundry post through your own free developer app. Paste its two codes once.
+          </p>
+          <div className="field">
+            <label htmlFor={fieldId(idKey)}>{yt ? "OAuth client ID" : "Client key"}</label>
+            <TextInput k={idKey} c={c} placeholder={yt ? "1234567890-abc.apps.googleusercontent.com" : ""} />
+          </div>
+          <div className="field">
+            <label htmlFor={fieldId(secretKey)}>
+              Client secret <span className="hint">never shown again after saving</span>
+            </label>
+            <SecretField k={secretKey} c={c} />
+          </div>
+          {!yt && (
+            <>
+              <div className="field">
+                <span className="label">Redirect address to register in your TikTok app</span>
+                <div className="row wrap">
+                  <code className="uri break grow">{redirect}</code>
+                  <button type="button" className="btn btn-small" onClick={copy}><Icon name="copy" />Copy</button>
+                </div>
+              </div>
+              <fieldset>
+                <legend className="label">
+                  Permissions to ask TikTok for <span className="hint">(used the next time you connect)</span>
+                </legend>
+                <Check k="tiktok_direct_post" c={c}>Direct Post (video.publish)</Check>
+                <Check k="tiktok_read_stats" c={c}>Video statistics (video.list)</Check>
+              </fieldset>
+            </>
+          )}
+          <Check k={yt ? "youtube_project_verified" : "tiktok_app_audited"} c={c}>
+            {yt ? "My Google Cloud project passed YouTube's API audit (tick only after Google approved it)"
+              : "My TikTok app passed TikTok's Content Posting audit (tick only after TikTok approved it)"}
+          </Check>
+          {changed.length > 0 && (
+            <p className="tiny muted">Not saved yet. Save with the bar below, or press Connect: it saves them first.</p>
+          )}
+          <Disclosure plain summary="How to get these codes (free, about 10 minutes)">
+            {yt ? <YouTubeSetupSteps testingNote={account?.testing_note} /> : <TikTokSetupSteps />}
+          </Disclosure>
+        </div>
+      </Disclosure>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ Defaults
+function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean; tz: string }) {
+  const { s, set, errors } = c;
+  // A count saved from elsewhere (Add video, More options) stays choosable instead of showing nothing selected.
+  const counts = [3, 5, 10].includes(Number(s.clip_count)) ? [3, 5, 10]
+    : [3, 5, 10, Number(s.clip_count)].sort((a, b) => a - b);
+  return (
+    <>
+      <SettingsPanel id="def-clips" title="New clips"
+        intro="Used for every new video. You can change them per video under Add video, More options.">
+        <SettingRow k="clip_count" label="Clips per video" hint="At most; weak moments are skipped" group
+          errors={errors}>
+          <Seg k="clip_count" c={c} options={counts.map((n) => ({ value: n, label: String(n) }))} />
+        </SettingRow>
+        <SettingRow label="Clip length" hint="Seconds: the shortest, the longest, and the length to aim for" group>
+          <div className="inline-fields small">
+            <NumInput k="min_duration" c={c} label="Shortest clip in seconds" width={90} />
+            <span>to</span>
+            <NumInput k="max_duration" c={c} label="Longest clip in seconds" width={90} />
+            <span>seconds, ideally</span>
+            <NumInput k="target_duration" c={c} label="Ideal clip length in seconds" width={90} />
+          </div>
+          <Errors keys={["min_duration", "max_duration", "target_duration"]} errors={errors} />
+        </SettingRow>
+        <SettingRow label="Caption style" group>
+          <StylePicker value={String(s.caption_style)} onChange={(v) => set({ caption_style: v })} />
+        </SettingRow>
+        <SettingRow k="caption_position" label="Caption position" group>
+          <Seg k="caption_position" c={c}
+            options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" },
+              { value: "bottom", label: "Bottom" }]} />
+        </SettingRow>
+        <SettingRow k="tracking" label="Framing" hint="How the 9:16 crop follows the action">
+          <Select k="tracking" c={c} options={TRACKING.map((x) => ({ value: x.value, label: x.label }))} />
+        </SettingRow>
+        <SettingRow k="layout" label="Layout" group>
+          <Seg k="layout" c={c}
+            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
+        </SettingRow>
+        <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
+          <Seg k="silence" c={c}
+            options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },
+              { value: "aggressive", label: "Strong" }]} />
+        </SettingRow>
+        <SettingRow label="Extras" group>
+          <div className="stack" style={{ gap: 0 }}>
+            <Check k="highlight_words" c={c}>Highlight each word as it's spoken</Check>
+            <Check k="auto_zoom" c={c}>Auto-zoom on emphasized sentences</Check>
+            <Check k="remove_fillers" c={c}>Cut filler words (with silence cleanup)</Check>
+            <Check k="caption_emphasis" c={c}>Emphasize key words in their own color</Check>
+            <Check k="hook_overlay" c={c}>Hook on screen at the start</Check>
+            <Check k="normalize_audio" c={c}>Normalize loudness</Check>
+          </div>
+        </SettingRow>
+      </SettingsPanel>
+
+      <SettingsPanel id="def-ap" title="Autopilot">
+        <SettingRow label="Autopilot" hint="Turned on and off on the Autopilot page" group>
+          <span className="small">
+            <Pill tone={autopilotOn ? "good" : "neutral"} icon={autopilotOn ? "check" : "dot"}>
+              {autopilotOn ? "On" : "Off"}
+            </Pill>{" "}
+            <a className="textlink" href="#/autopilot">Open Autopilot</a>
+          </span>
+        </SettingRow>
+        <SettingRow k="autopilot_daily_target" label="Daily target"
+          hint="Clips a day to aim for. A target, not a quota: quality and your rights come first" errors={errors}>
+          <NumInput k="autopilot_daily_target" c={c} />
+        </SettingRow>
+        <SettingRow label="Posting hours" hint={`Posts only between these hours${tz ? ` (${tz})` : ""}`} group>
+          <div className="inline-fields small">
+            <NumInput k="autopilot_active_start" c={c} label="Posting hours from (0 to 23)" width={90} />
+            <span>to</span>
+            <NumInput k="autopilot_active_end" c={c} label="Posting hours to (1 to 24)" width={90} />
+            <span>o'clock</span>
+          </div>
+          <Errors keys={["autopilot_active_start", "autopilot_active_end"]} errors={errors} />
+        </SettingRow>
+        <SettingRow k="trend_topics" label="Topics to look for online"
+          hint="Broad on purpose; a few are searched at a time (separate them with commas)">
+          <textarea id={fieldId("trend_topics")} rows={3} value={String(s.trend_topics ?? "")}
+            onChange={(e) => set({ trend_topics: e.target.value })} />
+        </SettingRow>
+        <p className="small muted">
+          Everything else has a sensible default. It's under Advanced, but you don't need to change it.
+        </p>
+      </SettingsPanel>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ Advanced
+function AdvancedTab({ c, health, st }: {
+  c: FieldCtx; health: Health | null; st: ReturnType<typeof useStatus>["st"];
+}) {
+  const { s, set, errors } = c;
+  const [check, setCheck] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const g = st?.gpu;
+  const provider = String(s.ai_provider);
+  const aiDirty = ["ai_provider", "ollama_url", "ollama_model", "openai_url", "openai_model", "openai_api_key",
+    "anthropic_api_key", "anthropic_model"].some((k) => !same(s[k], c.saved?.[k]));
+  const testAi = async () => {
+    setChecking(true);
+    try {
+      setCheck(await api.checkAi());
+    } catch (e) {
+      setCheck({ ok: false, detail: errorText(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+  const problem = g?.problem || health?.whisper.problem;
+  const fix = g?.fix || health?.whisper.fix;
+  const vram = g?.vram_mb ? ` · ${Math.round(g.vram_mb / 1024)} GB` : "";
+  return (
+    <>
+      <SettingsPanel id="adv-gpu" title="Transcription and GPU">
+        <div id="gpu" className="stack-3">
+          {problem && (
+            <Banner tone="bad" icon="cpu" title="GPU transcription is not working">
+              {problem}{fix ? <> <b>What to do:</b> {fix}</> : null}
+            </Banner>
+          )}
+          <dl className="kv">
+            <dt>GPU</dt>
+            <dd>{g ? (g.available ? `${g.name}${vram}` : "No NVIDIA GPU found")
+              : health ? (health.cuda ? health.gpu.name : "No NVIDIA GPU found") : "Checking…"}</dd>
+            <dt>Transcription now</dt>
+            <dd>{health ? (health.whisper.mode === "gpu"
+              ? `On the GPU (${health.whisper.model}, ${health.whisper.compute_type})`
+              : `On the CPU: ${health.whisper.reason}`) : "Checking…"}</dd>
+            {g?.last_transcription && (
+              <><dt>Last transcription</dt><dd>{g.last_transcription.device.toUpperCase()}, {g.last_transcription.model}
+                {g.last_transcription.warning ? ` · ${g.last_transcription.warning}` : ""}</dd></>
+            )}
+          </dl>
+        </div>
+        <SettingRow k="whisper_model" label="Whisper model" hint="auto = large-v3-turbo on the GPU, small on the CPU">
+          <Select k="whisper_model" c={c} options={WHISPER_MODELS} />
+        </SettingRow>
+        <SettingRow k="whisper_device" label="Device" group>
+          <Seg k="whisper_device" c={c}
+            options={[{ value: "auto", label: "Auto" }, { value: "cuda", label: "GPU (CUDA)" },
+              { value: "cpu", label: "CPU" }]} />
+        </SettingRow>
+        <SettingRow k="whisper_compute_type" label="Compute type">
+          <Select k="whisper_compute_type" c={c} options={["auto", "float16", "int8_float16", "int8", "float32"]} />
+        </SettingRow>
+        <SettingRow k="whisper_beam_size" label="Beam size"
+          hint="0 = automatic (5 on the GPU, 1 on the CPU). Higher is slower and slightly more accurate" errors={errors}
+        >
+          <NumInput k="whisper_beam_size" c={c} />
+        </SettingRow>
+        <SettingRow k="language" label="Language" hint="Leave empty to detect it">
+          <TextInput k="language" c={c} placeholder="For example en, es, de" width={200} />
+        </SettingRow>
+        <SettingRow k="autopilot_allow_cpu_fallback" label="Allow CPU transcription in Autopilot"
+          hint={"Off: if the GPU fails, Autopilot pauses and tells you why. Videos you add yourself always fall back "
+            + "to the CPU, and say so"}>
+          <Switch k="autopilot_allow_cpu_fallback" c={c} />
+        </SettingRow>
+        <SettingRow k="gpu_min_free_vram_mb" label="Free GPU memory needed"
+          hint="Autopilot waits for this much free VRAM before transcribing (MB)" errors={errors}>
+          <NumInput k="gpu_min_free_vram_mb" c={c} />
+        </SettingRow>
+        <SettingRow k="gpu_wait_minutes" label="Wait for the GPU up to"
+          hint="Minutes; then the job waits and tries later" errors={errors}>
+          <NumInput k="gpu_wait_minutes" c={c} />
+        </SettingRow>
+      </SettingsPanel>
+
+      <AutopilotSettings s={s} set={set} errors={errors} saved={c.saved} />
+
+      <SettingsPanel id="adv-render" title="Rendering, AI scoring and system">
+        <SettingRow k="encoder" label="Video encoder"
+          hint={health ? (health.nvenc ? "NVENC is available" : "NVENC is not available on this PC") : undefined} group>
+          <Seg k="encoder" c={c}
+            options={[{ value: "auto", label: "Auto" }, { value: "nvenc", label: "NVIDIA NVENC" },
+              { value: "x264", label: "x264 (CPU)" }]} />
+        </SettingRow>
+        <SettingRow k="crf" label="Quality (CRF)" hint="Lower = better quality and bigger files (10 to 35)"
+          errors={errors}>
+          <NumInput k="crf" c={c} />
+        </SettingRow>
+        <SettingRow k="x264_preset" label="x264 preset">
+          <Select k="x264_preset" c={c}
+            options={["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"]} />
+        </SettingRow>
+        <SettingRow k="max_fps" label="Max frame rate" group>
+          <Seg k="max_fps" c={c} options={[{ value: 30, label: "30" }, { value: 60, label: "60" }]} />
+        </SettingRow>
+        <SettingRow k="ffmpeg_path" label="FFmpeg location" hint="Optional: the folder or path of ffmpeg.exe">
+          <TextInput k="ffmpeg_path" c={c}
+            placeholder={health?.ffmpeg || "Found automatically (PATH or tools/ffmpeg/bin)"} />
+        </SettingRow>
+        <SettingRow k="min_score" label="Minimum Viral Potential" errors={errors}
+          hint={"Only clips at or above this estimate (0 to 100), and without blocking problems such as a misleading "
+            + "cut, are shown. No filler is added"}>
+          <NumInput k="min_score" c={c} />
+        </SettingRow>
+        <SettingRow k="hook_seconds" label="Hook length" hint="Seconds the hook stays on screen at the start (0 to 10)"
+          errors={errors}>
+          <NumInput k="hook_seconds" c={c} step={0.5} />
+        </SettingRow>
+        <SettingRow k="ai_provider" label="AI scoring"
+          hint={"Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. Ollama and LM Studio "
+            + "are free; the Claude API is paid per use"}>
+          <Select k="ai_provider" c={c} options={[
+            { value: "heuristic", label: "Local heuristic (offline, free)" },
+            { value: "ollama", label: "Ollama (local AI, free)" },
+            { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
+            { value: "anthropic", label: "Claude API (optional, paid)" },
+          ]} />
+        </SettingRow>
         {provider === "ollama" && (
           <>
-            <Row label="Ollama URL"><input type="text" value={s.ollama_url} onChange={(e) => set({ ollama_url: e.target.value })} /></Row>
-            <Row label="Model" hint="e.g. llama3.1:8b, qwen2.5:7b"><input type="text" value={s.ollama_model} onChange={(e) => set({ ollama_model: e.target.value })} /></Row>
+            <SettingRow k="ollama_url" label="Ollama address"><TextInput k="ollama_url" c={c} /></SettingRow>
+            <SettingRow k="ollama_model" label="Ollama model" hint="For example llama3.1:8b or qwen2.5:7b">
+              <TextInput k="ollama_model" c={c} />
+            </SettingRow>
           </>
         )}
         {provider === "openai_compatible" && (
           <>
-            <Row label="Server URL"><input type="text" value={s.openai_url} onChange={(e) => set({ openai_url: e.target.value })} /></Row>
-            <Row label="Model"><input type="text" value={s.openai_model} onChange={(e) => set({ openai_model: e.target.value })} /></Row>
-            <Row label="API key" hint="Usually not needed for local servers"><input type="password" value={s.openai_api_key} onChange={(e) => set({ openai_api_key: e.target.value })} /></Row>
+            <SettingRow k="openai_url" label="Server address"><TextInput k="openai_url" c={c} /></SettingRow>
+            <SettingRow k="openai_model" label="Server model"><TextInput k="openai_model" c={c} /></SettingRow>
+            <SettingRow k="openai_api_key" label="Server API key" hint="Usually not needed for local servers">
+              <SecretField k="openai_api_key" c={c} removable />
+            </SettingRow>
           </>
         )}
         {provider === "anthropic" && (
           <>
-            <Row label="API key" hint="Stored locally in your SQLite database"><input type="password" value={s.anthropic_api_key} onChange={(e) => set({ anthropic_api_key: e.target.value })} /></Row>
-            <Row label="Model" hint="e.g. claude-opus-5, claude-sonnet-5, claude-haiku-4-5 (cheapest)"><input type="text" value={s.anthropic_model} onChange={(e) => set({ anthropic_model: e.target.value })} /></Row>
-            <Row label="Max candidates" hint="Caps paid calls per video"><input type="number" min={1} max={30} value={s.ai_max_candidates} onChange={(e) => set({ ai_max_candidates: +e.target.value })} /></Row>
+            <SettingRow k="anthropic_api_key" label="Claude API key" hint="Paid per use; stored on this PC only">
+              <SecretField k="anthropic_api_key" c={c} removable placeholder="sk-ant-…" />
+            </SettingRow>
+            <SettingRow k="anthropic_model" label="Claude model"
+              hint="For example claude-opus-5, claude-sonnet-5, or claude-haiku-4-5 (cheapest)">
+              <TextInput k="anthropic_model" c={c} />
+            </SettingRow>
           </>
         )}
-        <div className="row mt">
-          <button className="btn" onClick={testAi}><Icon name="refresh" size={14} /> Test connection</button>
-          {check && <span className={`badge ${check.ok ? "good" : "bad"}`}>{check.detail}</span>}
+        <SettingRow k="ai_max_candidates" label="Max candidates"
+          hint="How many candidates per video stage 2 re-scores; caps paid calls (1 to 30)" errors={errors}>
+          <NumInput k="ai_max_candidates" c={c} />
+        </SettingRow>
+        <div className="row wrap" style={{ paddingBottom: 8 }}>
+          <button type="button" className="btn" aria-disabled={aiDirty || checking || undefined}
+            onClick={() => (aiDirty ? toast("Save the AI scoring settings first: the test uses the saved ones.", true)
+              : !checking && testAi())}>
+            {checking ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="refresh" />}Test connection
+          </button>
+          {aiDirty && <span className="tiny muted">Save first: the test uses the saved settings.</span>}
+          {check && <Pill tone={check.ok ? "good" : "bad"} icon={check.ok ? "check" : "alert"}>{check.detail}</Pill>}
         </div>
-      </div>
-
-      <div className="card" id="publishing">
-        <h3>Publishing (YouTube Shorts and TikTok)</h3>
-        <div className="notice">
-          <Icon name="link" size={16} />
-          <div>
-            ClipFoundry publishes only through the official YouTube Data API and TikTok Content Posting API, with your own
-            free developer apps. You sign in on Google's or TikTok's own page: ClipFoundry never sees or stores your
-            password. The access tokens it receives are {accounts?.protection || "stored locally"}. Nothing is posted
-            until you press a Publish button and confirm.
-          </div>
-        </div>
-
-        <div className="platform-head">
-          <b>YouTube Shorts</b>
-          <AccountBadge platform="youtube" account={accounts?.youtube} />
-          <span style={{ flex: 1 }} />
-          <ConnectButton platform="youtube" account={accounts?.youtube} onChange={setAccounts}
-            beforeConnect={s.youtube_client_id && s.youtube_client_secret ? (dirty ? () => save(true) : async () => undefined) : undefined} />
-        </div>
-        <Row label="OAuth client ID" hint="Google Cloud → Credentials → OAuth client (Desktop app)">
-          <input type="text" placeholder="1234567890-abc.apps.googleusercontent.com" value={s.youtube_client_id} onChange={(e) => set({ youtube_client_id: e.target.value })} />
-        </Row>
-        <Row label="OAuth client secret" hint="Stored encrypted on Windows">
-          <input type="password" value={s.youtube_client_secret} onChange={(e) => set({ youtube_client_secret: e.target.value })} />
-        </Row>
-        <Row label="API audit" hint="Only tick this after Google approved your project">
-          <Toggle on={!!s.youtube_project_verified} onChange={(v) => set({ youtube_project_verified: v })}
-            label="My Google Cloud project passed YouTube's API audit (public uploads allowed)" />
-        </Row>
-        {accounts?.youtube.restriction && <div className="notice warn small block">{accounts.youtube.restriction}</div>}
-        <details className="setup">
-          <summary>How to set up YouTube publishing (free, about 10 minutes)</summary>
-          <YouTubeSetupSteps testingNote={accounts?.youtube.testing_note} />
-        </details>
-
-        <div className="platform-head">
-          <b>TikTok</b>
-          <AccountBadge platform="tiktok" account={accounts?.tiktok} />
-          <span style={{ flex: 1 }} />
-          <ConnectButton platform="tiktok" account={accounts?.tiktok} onChange={setAccounts}
-            beforeConnect={s.tiktok_client_key && s.tiktok_client_secret ? (dirty ? () => save(true) : async () => undefined) : undefined} />
-        </div>
-        {accounts?.tiktok?.connected && (
-          <div className="small muted" style={{ marginBottom: 6 }}>
-            Permissions: {accounts.tiktok.can_direct_post ? "Direct Post" : "no Direct Post"} ·{" "}
-            {accounts.tiktok.can_inbox ? "upload to inbox" : "no inbox upload"} ·{" "}
-            {accounts.tiktok.can_read_stats ? "video statistics" : "no statistics"}
-          </div>
-        )}
-        <Row label="Client key" hint="developers.tiktok.com → your app">
-          <input type="text" value={s.tiktok_client_key} onChange={(e) => set({ tiktok_client_key: e.target.value })} />
-        </Row>
-        <Row label="Client secret" hint="Stored encrypted on Windows">
-          <input type="password" value={s.tiktok_client_secret} onChange={(e) => set({ tiktok_client_secret: e.target.value })} />
-        </Row>
-        <Row label="Redirect URI" hint="Register exactly this in your TikTok app (Login Kit → Desktop)">
-          <div className="row">
-            <code className="uri">{accounts?.tiktok?.redirect_uri || "http://127.0.0.1:8765/api/oauth/tiktok/callback"}</code>
-            <button className="btn sm" type="button" onClick={() => {
-              navigator.clipboard?.writeText(accounts?.tiktok?.redirect_uri || "").then(() => toast("Redirect URI copied"));
-            }}>Copy</button>
-          </div>
-        </Row>
-        <Row label="Permissions to request" hint="Each must be enabled for your TikTok app">
-          <div className="row wrap" style={{ gap: 18 }}>
-            <Toggle on={!!s.tiktok_direct_post} onChange={(v) => set({ tiktok_direct_post: v })} label="Direct Post (video.publish)" />
-            <Toggle on={!!s.tiktok_read_stats} onChange={(v) => set({ tiktok_read_stats: v })} label="Video statistics (video.list)" />
-          </div>
-        </Row>
-        <Row label="App audit" hint="Only tick this after TikTok approved your app">
-          <Toggle on={!!s.tiktok_app_audited} onChange={(v) => set({ tiktok_app_audited: v })}
-            label="My TikTok app passed TikTok's Content Posting audit" />
-        </Row>
-        {accounts?.tiktok?.restriction && <div className="notice warn small block">{accounts.tiktok.restriction}</div>}
-        <details className="setup">
-          <summary>How to set up TikTok publishing (free)</summary>
-          <TikTokSetupSteps />
-        </details>
-      </div>
-
-      <div className="card">
-        <h3>Rendering defaults</h3>
-        <Row label="Caption style"><StylePicker value={s.caption_style} onChange={(v) => set({ caption_style: v })} /></Row>
-        <Row label="Caption position">
-          <Segmented value={s.caption_position} onChange={(v) => set({ caption_position: v })}
-            options={[{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }]} />
-        </Row>
-        <Row label="Word highlight"><Toggle on={s.highlight_words} onChange={(v) => set({ highlight_words: v })} /></Row>
-        <Row label="Tracking">
-          <select value={s.tracking} onChange={(e) => set({ tracking: e.target.value })}>
-            {TRACKING.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </Row>
-        <Row label="Layout">
-          <Segmented value={s.layout} onChange={(v) => set({ layout: v })}
-            options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred bg)" }]} />
-        </Row>
-        <Row label="Silence cleanup">
-          <Segmented value={s.silence} onChange={(v) => set({ silence: v })}
-            options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" }, { value: "aggressive", label: "Aggressive" }]} />
-        </Row>
-        <Row label="Extras">
-          <div className="row wrap" style={{ gap: 20 }}>
-            <Toggle on={s.auto_zoom} onChange={(v) => set({ auto_zoom: v })} label="Auto-zoom" />
-            <Toggle on={s.remove_fillers} onChange={(v) => set({ remove_fillers: v })} label="Cut filler words" />
-            <Toggle on={s.caption_emphasis} onChange={(v) => set({ caption_emphasis: v })} label="Emphasize key words" />
-            <Toggle on={s.hook_overlay} onChange={(v) => set({ hook_overlay: v })} label="Hook overlay" />
-            <Toggle on={s.normalize_audio} onChange={(v) => set({ normalize_audio: v })} label="Normalize audio" />
-          </div>
-        </Row>
-        <Row label="Video encoder" hint={health ? (health.nvenc ? "NVENC available" : "NVENC not available") : ""}>
-          <Segmented value={s.encoder} onChange={(v) => set({ encoder: v })}
-            options={[{ value: "auto", label: "Auto" }, { value: "nvenc", label: "NVIDIA NVENC" }, { value: "x264", label: "x264 (CPU)" }]} />
-        </Row>
-        <Row label="Quality (CRF)" hint="Lower = better quality, bigger files">
-          <div className="row"><input type="range" min={14} max={30} value={s.crf} onChange={(e) => set({ crf: +e.target.value })} /><b style={{ width: 30 }}>{s.crf}</b></div>
-        </Row>
-        <Row label="x264 preset">
-          <select value={s.x264_preset} onChange={(e) => set({ x264_preset: e.target.value })}>
-            {["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"].map((p) => <option key={p}>{p}</option>)}
-          </select>
-        </Row>
-        <Row label="Max frame rate"><Segmented value={s.max_fps} onChange={(v) => set({ max_fps: v })} options={[{ value: 30, label: "30" }, { value: 60, label: "60" }]} /></Row>
-        <Row label="FFmpeg location" hint="Optional: folder or path of ffmpeg.exe">
-          <input type="text" placeholder={health?.ffmpeg || "auto-detect (PATH or tools/ffmpeg/bin)"} value={s.ffmpeg_path} onChange={(e) => set({ ffmpeg_path: e.target.value })} />
-        </Row>
-      </div>
-
-      <AutopilotSettings s={s} set={set} />
-
-      {health && (
-        <div className="card">
-          <h3>System</h3>
-          <div className="kv">
-            <span className="k">Version</span><span>{health.version}</span>
-            <span className="k">FFmpeg</span><span>{health.ffmpeg || "not found"}</span>
-            <span className="k">Whisper</span><span>{health.whisper.model} · {health.whisper.device} · {health.whisper.compute_type} {health.whisper.cached ? "(downloaded)" : "(downloads on first use)"}</span>
-            <span className="k">Data folder</span><span>{health.data_dir}</span>
-          </div>
-        </div>
-      )}
-      </>
-      )}
-    </div>
+        <h3 style={{ fontSize: "var(--fs-h3)", paddingTop: 8 }}>System</h3>
+        {health ? (
+          <dl className="kv">
+            <dt>Version</dt><dd>{health.version}</dd>
+            <dt>FFmpeg</dt><dd>{health.ffmpeg || "Not found"}</dd>
+            <dt>Whisper</dt>
+            <dd>{health.whisper.model} · {health.whisper.device} · {health.whisper.compute_type}{" "}
+              {health.whisper.cached ? "(downloaded)" : "(downloads on first use)"}</dd>
+            <dt>Data folder</dt><dd><code className="break">{health.data_dir}</code></dd>
+          </dl>
+        ) : <p className="small muted">Reading the system details…</p>}
+      </SettingsPanel>
+    </>
   );
 }

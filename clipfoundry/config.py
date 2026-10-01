@@ -104,6 +104,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
     # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
     "autopilot_enabled": False,
+    "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
     "autopilot_daily_target": 15,       # a target, never a quota: quality, rights and platform limits come first
     "autopilot_sources_per_day": 3,
@@ -214,6 +215,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key in _RANGES:
             lo, hi = _RANGES[key]
             v = type(v)(max(lo, min(hi, v)))
+        elif key == "setup_mode" and v not in {"", "manual", "autopilot"}:
+            continue
         elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
             continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:

@@ -1,0 +1,66 @@
+/*
+ * ClipFoundry "quiet dark studio" design tokens (proposal, prototype only).
+ * Layout concept: a calm dark workspace where the videos carry the color; one warm orange action per view.
+ * Contrast (WCAG 2.x, measured): text 15.5:1 and supporting text 9.5:1 on surface; primary button text 8.9:1;
+ * status colors ≥ 6.6:1 on every surface; control borders 4.0:1 on surface; decorative separators are not
+ * relied on to identify controls. See ../SPEC.md for the full table.
+ */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --canvas: #101214;
+  --surface: #191c20;
+  --raised: #22262c;
+  --hover: #2a2f36;
+  --border: #343941;          /* separators only */
+  --control-border: #737b87;  /* inputs, toggles, secondary buttons (≥ 3:1) */
+
+  /* text */
+  --text: #f3f4f6;
+  --text-2: #bbc2cc;
+  --text-3: #9aa3ae;          /* captions, timestamps (≥ 5.9:1 on raised) */
+
+  /* the one accent */
+  --primary: #ff9c64;
+  --primary-hover: #ffb088;
+  --on-primary: #201008;
+  --primary-tint: #2a1e17;
+  --focus: #ffb088;
+
+  /* status: always paired with an icon and a word */
+  --good: #5bd39a;   --good-tint: #16261e;
+  --warn: #f2c055;   --warn-tint: #2a2415;
+  --bad: #ff8a80;    --bad-tint: #2e1c1c;
+  --info: #7db7ff;   --info-tint: #18222f;
+  --neutral: #bbc2cc; --neutral-tint: #22262c;
+
+  /* prototype-only chrome (never part of the proposed app) */
+  --demo: #c9b6ff;
+  --demo-tint: #211c2e;
+
+  /* type: the system font the app already uses on Windows; no web font download */
+  --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --fs-title: 1.875rem;   /* 30px page title */
+  --fs-h2: 1.25rem;       /* 20px section title */
+  --fs-h3: 1.0625rem;     /* 17px card title */
+  --fs-body: 1rem;        /* 16px */
+  --fs-small: 0.875rem;   /* 14px supporting text */
+  --fs-tiny: 0.8125rem;   /* 13px timestamps, counters */
+  --lh: 1.5;
+
+  /* spacing scale */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+
+  /* shape */
+  --r-panel: 12px;
+  --r-control: 8px;
+  --r-pill: 999px;
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+
+  /* sizes */
+  --target: 44px;         /* minimum click target */
+  --sidebar: 232px;
+  --content-max: 1200px;
+}

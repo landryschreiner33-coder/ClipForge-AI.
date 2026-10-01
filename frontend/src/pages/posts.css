@@ -1,0 +1,3 @@
+/* Posts, Post review and Prepare post: the few styles not in styles.css. */
+/* A long post or clip title in the breadcrumb is cut with "…" instead of widening the page on a phone. */
+.crumb-title { display: inline-block; max-width: min(50ch, 62vw); vertical-align: bottom; }

@@ -366,6 +366,9 @@ def test_publish_center_api(env):
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H, json={"privacy": "SELF_ONLY",
                                                                                    "confirm": True})
         assert r.status_code == 200 and r.json()["status"] == "approved" and r.json()["approval_valid"]
+        one = c.get(f"/api/autopilot/scheduled/{tt['id']}").json()  # the post page reads one post the same way
+        assert one["item"]["id"] == tt["id"] and one["item"]["approval_valid"] and one["timezone"]
+        assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
         assert r.json()["privacy"] == "unlisted"
@@ -460,7 +463,7 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
         run_publish(item["id"])
     monkeypatch.setattr(publish_jobs, "_progress_writer", real)
     job = queue.jobs(worker="publisher")[0]
-    queue.cancel(job["id"], "Stopped with STOP ALL JOBS")  # the job is gone; the post still says "publishing"
+    queue.cancel(job["id"], "Stopped with Stop all jobs")  # the job is gone; the post still says "publishing"
     db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
     never = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Never started.")
     db.execute("UPDATE scheduled_publications SET status = 'publishing', updated_at = ? WHERE id = ?",

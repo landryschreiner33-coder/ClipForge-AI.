@@ -202,7 +202,7 @@ def evaluate(source: dict, settings: dict | None = None, all_rules: list[dict] |
         if status in (LICENSED, ALLOWLISTED, CC, PD):
             if conds.get("commercial") is False and settings.get("autopilot_commercial_use", True):
                 return out(MANUAL, f"{basis}: commercial use is not allowed, and your posts count as commercial "
-                                   "(Settings → Advanced → Rights)", rule_id, conds)
+                                   "(Settings → Advanced → Discovery and rights)", rule_id, conds)
             risk = "" if conds.get("third_party") else third_party_risk(source)
             if risk:
                 return out(MANUAL, f"Not used: {risk}, and {basis[:1].lower() + basis[1:]} covers only the "
@@ -294,7 +294,7 @@ def request_confirmation(source: dict) -> None:
     state.action(f"rights:{source['id']}", "rights", f"Confirm the rights for “{source.get('title', '')[:80]}”",
                  f"{source.get('channel_title') or source.get('platform')} · {EXPLAIN[MANUAL]}",
                  "Answer on the Autopilot page (Yes, I have permission / No), or set its rights under "
-                 "Autopilot → Advanced → Sources & rights.",
+                 "Autopilot → Permissions & sources.",
                  level="action", ref_type="source", ref_id=source["id"], snooze_s=ASK_AGAIN_AFTER)
 
 

@@ -248,10 +248,26 @@ export interface UpcomingPost {
   on_platform: boolean;
 }
 
+/** The video Autopilot works on now. `progress` is the job's own report (0 to 1), or null: never an estimate. */
+export interface WorkingOn {
+  title: string;
+  project_id: string;
+  has_thumbnail: boolean;
+  step: string;
+  progress: number | null;
+}
+
 export interface HomeView {
-  setup: { started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string };
+  setup: {
+    started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string;
+    /** The choice made in first-time setup ("manual": you make clips yourself). */
+    mode?: "" | "manual" | "autopilot";
+  };
   currently: string;
   next_look: number | null;
+  working: WorkingOn | null;
+  /** Posts waiting for your OK, and posts you need to settle (upload not confirmed, finish in the TikTok app). */
+  posts: { review: number; fix: number };
   needs_you: NeedsYouItem[];
   opportunities: Opportunity[];
   upcoming: UpcomingPost[];

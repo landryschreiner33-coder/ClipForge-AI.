@@ -259,7 +259,7 @@ class PublishWorker:
             except queue.Empty:
                 break
             self.cancelled.add(pub_id)
-            db.update_publication(pub_id, status="cancelled", message="Stopped with STOP ALL JOBS")
+            db.update_publication(pub_id, status="cancelled", message="Stopped with Stop all jobs")
             self.q.task_done()
             n += 1
         if self.current:

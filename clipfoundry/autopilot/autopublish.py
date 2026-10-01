@@ -32,8 +32,7 @@ SUPPORTED = {
 }
 NOT_SUPPORTED = {
     "tiktok": "TikTok's rules for apps require your OK on each post (with a preview and your own privacy choice), so "
-              "TikTok posts wait for you in the Publish Center. Approved posts then go out at their time by "
-              "themselves.",
+              "TikTok posts wait for you in Posts. Approved posts then go out at their time by themselves."
 }
 # final-check warnings that hold a clip for your review instead of publishing it automatically ("frozen" is left
 # out: a still picture over speech is normal for a podcast with a cover image)
