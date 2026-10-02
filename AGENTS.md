@@ -94,13 +94,15 @@ cd e2e && npm run test:sandbox                    # beginner, motion, robot and 
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Where things stand (2026-10-01)
+## Where things stand (2026-10-02)
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
 Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13), PR #6 (overnight
-run fixes, item 16), PR #7 (the UI redesign, item 17) and PR #8 (Codex's idle-Autopilot fixes, item 18). Start new
-work from the default branch; the tested commits are in the test log of `docs/IMPLEMENTATION_STATUS.md`.
+run fixes, item 16), PR #7 (the UI redesign, item 17), PR #8 (Codex's idle-Autopilot fixes, item 18), PR #9 and
+#10 (website, item 19), PR #11 (ChatGPT's link intake and retro robot studio, item 20) and PR #12 (the final review's
+fixes to it). Start new work from the default branch; the tested commits are in the test log of
+`docs/IMPLEMENTATION_STATUS.md`.
 
 **Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
@@ -159,7 +161,9 @@ work from the default branch; the tested commits are in the test log of `docs/IM
     it found belonged to other people and was skipped, and the page said "Nothing right now".
     * **Your videos folder** (`autopilot/myvideos.py`): START creates `Videos\ClipFoundry` in the user folder (outside
       the app folder) and watches it as an Owned watch folder. `CLIPFOUNDRY_VIDEOS` overrides the path (tests, sandbox).
-    * Needs you shows *Autopilot needs videos to work with* (`home.needs_videos`) with OPEN MY VIDEOS FOLDER.
+    * Needs you showed *Autopilot needs videos to work with* (`home.needs_videos`). Since item 20 a lack of videos
+      is not a Needs you item: Home says *Nothing needs you. Add a video to make clips.* and the overview's *Your
+      videos* panel keeps OPEN VIDEOS FOLDER.
     * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
       The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
       setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
@@ -194,6 +198,17 @@ work from the default branch; the tested commits are in the test log of `docs/IM
     * The audit's fixes: every secret setting is sealed (the AI keys too), httpx no longer logs request addresses
       (a YouTube API key travels in one), and the YouTube 30-day clean-up also runs at every start and counts a
       found video's age from YouTube's last answer.
+20. **Link intake and retro robot studio (2026-10-02, PR #11 by ChatGPT/Codex from the owner's briefs; PR #12 the final
+    review).** Paste a public video or stream link in Autopilot → *Add a video or stream* (`autopilot/intake.py`,
+    job `identify_link`); it is processed locally even when reuse permission is unknown (rule 1). Live HTTP/HLS goes
+    through `autopilot/stream_access.py`. Failed or weak videos release their turn (`scout.refill`), automatic clips
+    get at most two fresh renders after a broken file (`gate.regenerate_clip`), and closing the app keeps an upload's
+    session. The look is the retro robot studio (`design/retro-studio/SPEC.md`): four stations that follow the real
+    workers, a Reduce motion preference in this browser.
+    * PR #12: an interrupted live recording (app closed, Autopilot paused) waits and records on instead of ending;
+      Stop all jobs is a hold, so its canceled work is queued again when asked for after Resume jobs (a job you
+      cancel yourself stays canceled, `queue.STOP_ALL`); a due or *Publish now* post runs its canceled upload job
+      again; the overview names searches that did not work again.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
@@ -217,15 +232,6 @@ PC listed at the end of `IMPLEMENTATION_STATUS.md`.
 **Never verified here** (the cloud session has no GPU and no accounts): real CUDA transcription on the RTX 3050,
 real YouTube/TikTok uploads, real Data API and oEmbed answers, and throughput per source. The checklist at the end
 of `IMPLEMENTATION_STATUS.md` lists what the user must run on their PC.
-
-## Current implementation branch (2026-10-02)
-
-`codex/retro-robot-autopilot` builds on verified default commit `992431e`; it is not merged into the default yet.
-It adds durable public link intake and recovery, guarded HTTP/HLS capture, local processing intent separated from
-reuse/publishing rights, and the owner's retro robot UI. `design/retro-studio/SPEC.md` maps the four visible stations
-to the existing twelve workers. They share the status poll and animate only fresh active jobs. Browser-local
-Reduce motion and the OS preference stop motion; hidden tabs pause decoration. `docs/IMPLEMENTATION_STATUS.md`
-records the completed validation and actual disposable-data screenshots. CUDA dependencies are unchanged.
 
 ## Rules every change must keep
 

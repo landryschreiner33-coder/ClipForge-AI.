@@ -17,7 +17,7 @@ from here without repeating the audit.
 | Codex follow-up (2026-10-01) | `codex/fix-autopilot-idle` (one commit, `519c25f`, built on `97b5c9a`), integrated into the redesigned app on `claude/finish-clipfoundry-knj4r4`; see *Overnight-idle regressions* below |
 | Website and legal pages (2026-10-01) | branch `claude/finish-clipfoundry-knj4r4`, PR #9: `docs/legal` is the public website (product page, Privacy Policy, Terms) written from a code audit, plus three fixes the audit found; public deployment waits for the owner's OK |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
-| Current delivery (2026-10-02) | `codex/retro-robot-autopilot`, based on verified remote default `992431e`; durable link intake and original retro robot studio, not merged into default. Python 3.12, Node 24, FFmpeg 7.1.5, system Chromium; no NVIDIA GPU or real platform accounts. |
+| Link intake and retro studio (2026-10-02) | `codex/retro-robot-autopilot` (PR #11, ChatGPT/Codex, based on `992431e`): durable link intake and the retro robot studio. Final review on `claude/final-review-6u6bvj` (PR #12): PR #11's commit plus four fixes, see *Final review* below; both merged into the default branch |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -214,7 +214,7 @@ the real night on the owner's PC were not available to this session.
 
 | Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
 | --- | --- | --- | --- | --- | --- |
-| Say plainly, once, when Autopilot has nothing it may use, and what helps | `home.needs_videos` (Needs you type `videos`) | verified (unit + sandbox e2e) | `a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped`, beginner flow | — | — |
+| Say plainly, once, when Autopilot has nothing it may use, and what helps | `home.needs_videos` (Needs you type `videos`); since PR #11 Home's lead (*Nothing needs you. Add a video to make clips.*), the overview's *Now* line and *Your videos* panel instead of a Needs you item | verified (unit + sandbox e2e) | `a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped`, beginner flow | — | — |
 | One obvious place for your own videos, created and watched on START, outside the app folder, Owned | `autopilot/myvideos.py`, `GET /api/autopilot/my-videos`, `POST /api/autopilot/my-videos/open`, `Autopilot.tsx` (step 4, *Your videos* card) | verified (unit + sandbox) | same test; `the_videos_folder_is_set_up_once_and_a_removal_is_respected`; sandbox: a dropped video was clipped and scheduled | File Explorer opening on Windows | — |
 | Keep the PC awake while Autopilot is on (Windows) | `awake.py`, `host.Supervisor._keep_awake`, setting `autopilot_keep_awake` | verified (unit, fake kernel32) | `the_pc_is_kept_awake_while_autopilot_is_on` | real Windows sleep behavior | — |
 | Say whether the PC is really kept awake; when Windows refuses, show it with steps, retry, clear it on success (review finding on `2836a44`) | `awake.KeepAwake.status`/`error`, `home.keep_awake`, `home.needs_sleep_fix` (Needs you type `sleep`), `host.Supervisor._keep_awake` | verified (unit, fake kernel32) | `a_refused_keep_awake_request_is_shown_with_what_to_do_until_a_retry_works`, `turning_autopilot_or_keep_awake_off_clears_the_sleep_warning`, `the_same_thread_asks_and_gives_up_keeping_the_pc_awake` | a real refusal on Windows was not seen | — |
@@ -291,6 +291,21 @@ The cloud has no NVIDIA GPU or Windows. Platform APIs, OAuth and metrics in thes
 transcripts are synthetic/imported and encoding/decoding/hash checks are real FFmpeg work. The evidence does not
 claim real accounts, CUDA transcription, Windows keep-awake, human semantic quality or real-PC throughput.
 
+### Final review (2026-10-02, PR #12)
+
+A review of PR #11 (its code, Codex's two review comments and every test suite) found three defects and one dropped
+feature. Each defect was reproduced with a failing test first.
+
+| Finding | Fix | Test |
+| --- | --- | --- |
+| Codex P1: closing the app or pausing Autopilot while a live turn runs stopped the recorder, and the turn then either ended the broadcast (joined the recording, started the post-live analysis; ffmpeg exit 0) or used up an attempt as "interrupted" (exit 255 or 1) | `live.live_capture`: a recorder stopped for `restart` or `paused` raises `Wait`; the next turn records on after the saved minutes | `test_closing_or_pausing_during_a_turn_keeps_the_broadcast_open` (4 cases) |
+| PR #11 made every canceled job final, so after **Stop all jobs** and **Resume jobs** a clip's check or package never ran again, and an approved post looped forever between "approved" and "publishing" without uploading; the same after canceling a waiting upload job, and *Publish now* did nothing | `queue.cancel_all` marks its jobs `wait_reason = 'stop_all'`, and `enqueue` revives those when asked again; a cancel by you stays final. `scheduler.process_due` and *Publish now* pass `revive_canceled` (the post decides; the publisher never uploads twice) | `test_work_held_by_stop_all_continues_after_resume_but_a_cancel_by_you_stays`, `test_an_approved_post_whose_upload_job_was_stopped_goes_out_at_its_new_time` (2 cases) |
+| The complete-loop slow test checked the publish job right after the publication turned done; the job completes a moment later, so it failed by timing | the test waits for the publish job to complete | `test_worker_host_runs_complete_loop_and_repeats_after_restart` |
+| PR #11 dropped the overview's note naming online searches that did not work (item 18) | restored under the overview's facts | read-only e2e `the overview has simple facts…` |
+
+Kept as PR #11 built it (the owner's brief): Codex P2, a lack of videos is not a Needs you item (Home and the overview
+say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to Autopilot → Advanced → System.
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -324,6 +339,8 @@ claim real accounts, CUDA transcription, Windows keep-awake, human semantic qual
     restart-safe live recording and verified repeated complete-loop sandbox.
 22. [x] Retro robot studio across the working app: original artwork, real worker animation, motion preference,
     local-day Posts agenda, preserved editor controls and committed frontend bundle.
+23. [x] Final review of PR #11: interrupted live recordings, work after Stop all jobs, a due post's canceled upload
+    job, search problems on the overview (PR #12).
 
 ## Test log
 
@@ -433,6 +450,16 @@ claim real accounts, CUDA transcription, Windows keep-awake, human semantic qual
 | website and legal pages (2026-10-01) | `pytest -m "not slow"` on `b8951e1` | 382 passed, 5 slow deselected (227 s) |
 | website and legal pages (2026-10-01) | `pytest -m slow` on `b90981a` (the later commits change only the YouTube clean-up and the pages) | 5 passed (392 s); real ffmpeg and eSpeak NG synthetic speech, fake platforms |
 | website and legal pages (2026-10-01) | `npm run test:sandbox` on `4108a3f` (`CLIPFOUNDRY_E2E_CHROMIUM=/opt/pw-browsers/chromium`) | 1 passed |
+| final review (2026-10-02) | `pytest -m "not slow"` on PR #11 as delivered (`639c674`) | 468 passed, 7 slow deselected |
+| final review (2026-10-02) | the new tests for the three defects, run on `639c674`'s code first | each failed there (the broadcast ended or used an attempt; the post never uploaded after Stop all jobs) |
+| final review (2026-10-02) | `pytest -m "not slow"` on `478bde3` | 475 passed, 7 slow deselected (233 s) |
+| final review (2026-10-02) | `pytest -m slow` on `e81cd76` | 6 passed, 1 failed: the complete-loop test checked the publish job a moment too early (fixed in the test, `478bde3`) |
+| final review (2026-10-02) | `pytest -m slow` on `478bde3` | 7 passed (674 s); real ffmpeg and eSpeak NG synthetic speech, fake platforms; no NVIDIA GPU or real account |
+| final review (2026-10-02) | `npm run build` in `frontend/` | passes; `dist/` rebuilt and committed |
+| final review (2026-10-02) | `npm run test:sandbox` on `478bde3` (`CLIPFOUNDRY_E2E_CHROMIUM=/opt/pw-browsers/chromium`) | 8 passed (6.8 min), incl. the beginner flow, reduced motion, the robot studio and the complete loop |
+| final review (2026-10-02) | read-only `e2e` suite against a fresh sandbox | 52 passed, 9 skipped (no videos, no posts, Autopilot never started) |
+| final review (2026-10-02) | read-only `e2e` suite against a sandbox after the beginner flow and one video dropped into its videos folder (4 posts waiting for an OK) | 61 passed |
+| final review (2026-10-02) | a database made by `992431e` (settings, a source, a clip, a job) opened by `478bde3` | starts; settings, the clip and the job kept; the old source reads as not user-added; status, stats and Posts answer 200 |
 
 ## Checklist for the user's machine
 
