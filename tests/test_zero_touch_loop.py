@@ -69,6 +69,8 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert worker.start()
             until(fixture, lambda: db.select("sources", "external_id = ? AND status = 'failed'", (BROKEN,)))
             until(fixture, lambda: len([p for p in db.list_publications() if p["status"] == "done"]) == 1)
+            # The upload marks its publication done before the handler returns; the job completes a moment later
+            until(fixture, lambda: db.select("worker_jobs", "kind = 'publish' AND status = 'completed'"))
             assert len(google.videos) == 1
             first = db.select("sources", "external_id = ?", (FIRST,))[0]
             assert first["clips_selected"] >= 1 and first["id"] in fixture.transcriptions
