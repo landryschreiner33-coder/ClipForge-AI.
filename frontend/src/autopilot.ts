@@ -96,6 +96,9 @@ export interface Feed {
 }
 
 export interface WorkerRow {
+  /** Current active job; stale or terminal progress is never displayed. */
+  job_kind?: string;
+  progress?: number | null;
   name: string;
   label: string;
   status: "idle" | "working" | "waiting" | "completed" | "failed";
@@ -202,6 +205,27 @@ export interface MyVideos {
   opened?: boolean;
 }
 
+/** A video or stream added directly to Autopilot, with the backend's current plain-language status. */
+export interface AutopilotLink {
+  id: string;
+  title: string;
+  url: string;
+  platform: string;
+  kind: string;
+  live_status: string;
+  status: string;
+  status_label: string;
+  detail: string;
+  progress: number;
+  project_id: string;
+  added_at: number;
+  scheduled_at: number | null;
+  can_remove: boolean;
+  can_cancel: boolean;
+  can_retry: boolean;
+  can_prioritize: boolean;
+}
+
 /** Something that really needs you, in plain words (the simple Autopilot page). */
 export interface NeedsYouItem {
   key: string;
@@ -255,6 +279,7 @@ export interface WorkingOn {
   has_thumbnail: boolean;
   step: string;
   progress: number | null;
+  message?: string;
 }
 
 export interface HomeView {
@@ -264,6 +289,7 @@ export interface HomeView {
     mode?: "" | "manual" | "autopilot";
   };
   currently: string;
+  next?: string;
   next_look: number | null;
   /** The last online search, what was found so far by where it stands, and searches that did not work (plain words). */
   discovery: {
@@ -272,7 +298,7 @@ export interface HomeView {
   };
   working: WorkingOn | null;
   /** Posts waiting for your OK, and posts you need to settle (upload not confirmed, finish in the TikTok app). */
-  posts: { review: number; fix: number };
+  posts: { review: number; fix: number; ready?: number; scheduled?: number };
   needs_you: NeedsYouItem[];
   opportunities: Opportunity[];
   upcoming: UpcomingPost[];
@@ -461,6 +487,10 @@ export interface LearningStatus {
 
 const A = "/api/autopilot";
 export const ap = {
+  links: () => req<AutopilotLink[]>("GET", `${A}/links`),
+  addLink: (url: string) => req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url }),
+  linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove") =>
+    req<AutopilotLink>("POST", `${A}/links/${id}/${action}`),
   status: () => req<AutopilotStatus>("GET", `${A}/status`),
   enable: (enabled: boolean) => req<AutopilotStatus>("POST", `${A}/enable`, { enabled }),
   start: (topics?: string) => req<AutopilotStatus>("POST", `${A}/start`, topics === undefined ? undefined : { topics }),

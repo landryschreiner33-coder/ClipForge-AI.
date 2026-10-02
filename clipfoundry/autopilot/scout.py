@@ -122,7 +122,12 @@ def rescore(settings: dict, now: float | None = None) -> int:
     active = db.select("trend_signals", "status = 'active'")
     rec = trends.recurrence(active)
     for s in active:
-        r = trends.score(s, history(s["id"]), settings, rec[s["id"]], now)
+        try:
+            r = trends.score(s, history(s["id"]), settings, rec[s["id"]], now)
+        except Exception as exc:  # noqa: BLE001 - one unreadable discovery row never blocks the rest
+            db.update("trend_signals", s["id"], status="expired")
+            state.event("discovery_skipped", f"Skipped an unreadable video description: {exc}", "warning")
+            continue
         db.update("trend_signals", s["id"], score=r["score"], score_mode=r["mode"], components=r["components"],
                   notes=r["notes"], topic=trends.topic_label(s, active) or s.get("topic") or "")
         db.execute("UPDATE trend_history SET score = ? WHERE id = (SELECT MAX(id) FROM trend_history WHERE "
@@ -136,6 +141,15 @@ def _provider_status(name: str, status: str, detail: str = "", count: int = 0, f
     (the main page, home.discovery_status)."""
     return {"name": name, "status": status, "detail": detail, "count": count, "fix": fix, "problem": problem,
             "at": time.time()}
+
+
+def _search_error(name: str, exc: Exception) -> dict:
+    """Keep a temporary failure local to one search; later periodic scans always get a fresh attempt."""
+    asked = getattr(exc, "retry_after", None)
+    if asked is not None:
+        state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), time.time() + float(asked)))
+    return _provider_status(name, "error", str(exc), problem=f"{name} did not work last time.",
+                            fix="ClipFoundry will try again automatically.")
 
 
 QUOTA_CODES = ("quotaExceeded", "dailyLimitExceeded")  # YouTube's daily allowance: it resets by itself
@@ -249,6 +263,11 @@ def trend_scan(job: Job) -> dict:
         if exc.code in ("reconnect", "setup"):
             state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                          level="warning")
+    except queue.Canceled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the free library and folders still work while YouTube is unavailable
+        yt = None
+        statuses["youtube"] = _search_error("YouTube search", exc)
     state.put("trend:scans", int(state.get("trend:scans", 0) or 0) + 1)
     job.check()
     job.progress(0.3, "Searching the web for public TikTok links", stage="web")
@@ -260,11 +279,17 @@ def trend_scan(job: Job) -> dict:
     for key, (name, detail) in providers.UNAVAILABLE.items():
         statuses[key] = _provider_status(name, "unavailable", detail)
     state.put("providers", statuses)
+    accepted = 0
     for sig in collected:
-        upsert_signal(sig, now)
+        job.check()
+        try:
+            upsert_signal(sig, now)
+            accepted += 1
+        except Exception as exc:  # noqa: BLE001 - malformed result is skipped, other searches are retained
+            state.event("discovery_skipped", f"Skipped an unreadable video description: {exc}", "warning")
     job.progress(0.8, "Scoring trends", stage="score")
     active = rescore(settings, now)
-    state.put("trend:last_scan", {"at": now, "signals": len(collected), "active": active})
+    state.put("trend:last_scan", {"at": now, "signals": accepted, "active": active})
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}", priority=job.row["priority"])
     return {"signals": len(collected), "active": active, "topics": chosen,
             "message": f"{len(collected)} signals checked, {active} active"}
@@ -281,6 +306,11 @@ def web_search(settings: dict, chosen: list[str], yt: providers.YouTubeDiscovery
     except providers.Unavailable as exc:
         statuses["web_search"] = _provider_status(name, "unavailable" if exc.status == "not_configured" else
                                                   exc.status, str(exc), fix=exc.fix)
+        return []
+    except queue.Canceled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - optional search must not prevent other discovery
+        statuses["web_search"] = _search_error("Web search", exc)
         return []
     use = providers.web_usage(settings)
     tiktok = [s for s in sigs if s["platform"] == "tiktok"]
@@ -303,6 +333,11 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
     except (ValueError, TypeError) as exc:  # an answer in an unexpected shape: skip it this time
         statuses["library"] = _provider_status(name, "error", f"Unexpected answer: {exc}",
                                                problem="Wikimedia Commons sent an answer ClipFoundry could not read.")
+        return []
+    except queue.Canceled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - folders are still checked when the library is offline
+        statuses["library"] = _search_error("The free video library", exc)
         return []
     statuses["library"] = _provider_status(name, "ok", f"{len(sigs)} videos with a license", len(sigs))
     return sigs
@@ -342,10 +377,10 @@ def reconcile_sources(now: float | None = None) -> int:
             "SELECT s.id, s.project_id, j.status, j.error, j.message FROM sources s JOIN worker_jobs j ON j.id = "
             "(SELECT id FROM worker_jobs WHERE ref_type = 'source' AND ref_id = s.id AND kind IN "
             "('hunt_source', 'analyze_source') ORDER BY created_at DESC LIMIT 1) "
-            "WHERE s.kind = 'recorded' AND s.status IN ('queued', 'ingesting', 'analyzing') AND s.updated_at < ? "
+            "WHERE s.kind = 'recorded' AND s.status IN ('queued', 'ingesting', 'analyzing') "
             "AND j.status IN ('failed', 'canceled') AND NOT EXISTS "
             "(SELECT 1 FROM worker_jobs a WHERE a.ref_type = 'source' AND a.ref_id = s.id "
-            "AND a.status IN ('queued', 'running', 'waiting', 'retrying'))", (now - 60,)).fetchall()
+            "AND a.status IN ('queued', 'running', 'waiting', 'retrying'))").fetchall()
         for row in rows:
             detail = (row["error"] or row["message"] or row["status"])[:400]
             note = f"Processing stopped: {detail}"
@@ -356,6 +391,17 @@ def reconcile_sources(now: float | None = None) -> int:
                              (detail, note, now, row["project_id"]))
             changed += 1
     return changed
+
+
+def refill(item: dict) -> dict | None:
+    """A failed or weak video releases its turn immediately; select another without waiting for the next search.
+    Explicit cancellation remains final for that video. The replacement is separate, ordinary discovery work."""
+    if not state.enabled():
+        return None
+    key = item.get("ref_id") or item.get("id") or "recovery"
+    return queue.enqueue("source_scout", {"reason": "replacement"},
+                         idem_key=f"refill:{key}:{item.get('updated_at') or item.get('finished_at') or ''}",
+                         revive=False, message="Choosing another video")
 
 
 def _period(settings: dict, period: float) -> float:
@@ -411,7 +457,7 @@ def skip_reason(src: dict, sig: dict | None, settings: dict | None = None) -> st
     raw = (sig or {}).get("raw") or {}
     if raw.get("made_for_kids"):
         return "Made for kids: not used (content safety)"
-    if src["platform"] in ("youtube", "commons") and src.get("kind") != "live":
+    if not src.get("user_added") and src["platform"] in ("youtube", "commons") and src.get("kind") != "live":
         dur = src.get("duration")
         if dur is not None and dur < MIN_SOURCE_SECONDS:
             return f"Too short to clip from ({dur:.0f} s)"
@@ -508,9 +554,17 @@ def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dic
 def today_counts(settings: dict, now: float | None = None) -> dict:
     day = local_day(settings, now)
     rows = db.select("sources", "selected_day = ?", (day,))
-    counted = [r for r in rows if r["status"] not in ("weak", "failed", "skipped", "needs_file", "needs_rights",
-                                                      "blocked")]
+    counted = [r for r in rows if not r.get("user_added") and r["status"] not in
+               ("weak", "failed", "skipped", "needs_file", "needs_rights", "blocked", "canceled", "removed")]
     clips = sum(r.get("clips_selected") or 0 for r in rows)
+    from . import gate
+
+    for row in rows:
+        if not row.get("project_id"):
+            continue
+        failed = sum(1 for c in db.list_clips(row["project_id"])
+                     if (gate.report_for(c) or {}).get("status") == "failed")
+        clips -= min(int(row.get("clips_selected") or 0), failed)
     return {"day": day, "selected": len(rows), "counted": len(counted), "clips": clips,
             "busy": sum(1 for r in rows if r["status"] in ACTIVE_SOURCE)}
 
@@ -565,14 +619,13 @@ def still_needed(settings: dict, now: float | None = None) -> int:
     """How many more sources today's plan needs.
 
     Weak sources do not count toward the day, so a weak pick is replaced by the next best source. When the day's
-    sources are done but the clip target was not reached, one more source is tried at a time (at most three times
-    the daily number of sources), never lowering the quality bar.
+    sources are done but the clip target was not reached, one more source is tried at a time, never lowering the
+    quality bar or permanently exhausting discovery after a series of weak results.
     """
     per_day = int(settings.get("autopilot_sources_per_day") or 3)
     counts = today_counts(settings, now)
     needed = per_day - counts["counted"]
-    if needed <= 0 and counts["busy"] == 0 and counts["clips"] < int(settings.get("autopilot_daily_target") or 15) \
-            and counts["selected"] < 3 * per_day:
+    if needed <= 0 and counts["busy"] == 0 and counts["clips"] < int(settings.get("autopilot_daily_target") or 15):
         needed = 1
     return max(0, needed)
 
@@ -603,21 +656,29 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     day = local_day(settings, now)
     needed = still_needed(settings, now)
     picked: list[dict] = []
-    if needed <= 0:
-        return picked
     rows = db.select("sources", "status IN ('eligible', 'needs_file') AND kind = 'recorded'", (),
-                     "status = 'needs_file', source_score DESC")
+                     "user_added DESC, status = 'needs_file', source_score DESC")
     all_rules = rights.rules()
+    automatic_picks = 0
     for src in rows:
-        if len(picked) >= needed:
-            break
-        if (src.get("expected_clips") or 0) < 1:
+        if not src.get("user_added") and automatic_picks >= needed:
+            continue
+        if not src.get("user_added") and (src.get("expected_clips") or 0) < 1:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
-        if not rights.evaluate(src, settings, all_rules)["auto_allowed"]:  # judged again: rules and checks change
+        if not rights.local_allowed(src, rights.evaluate(src, settings, all_rules), settings):
             rights.apply(src, settings, all_rules)
             continue
-        found = access.resolve(src, settings)  # getting the file is its own question: skip it, try the next one
+        try:
+            found = access.resolve(src, settings)  # one bad file cannot stop other useful videos
+        except queue.Canceled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - failed access is scoped to this video
+            db.update("sources", src["id"], status="failed", error=str(exc)[:500],
+                      status_note=f"Could not access video: {exc}"[:300])
+            state.event("source_failed", f"Skipped “{src['title'][:80]}”: {exc}", "warning",
+                        ref_type="source", ref_id=src["id"])
+            continue
         if not found["ok"]:
             if src["status"] != "needs_file" or src.get("status_note") != found["detail"]:
                 db.update("sources", src["id"], status="needs_file", status_note=found["detail"],
@@ -627,11 +688,13 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter",
                   access=access.record(src, found))
         queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
+                      priority=queue.source_priority(src) if src.get("user_added") else 0, revive=False,
                       max_attempts=3, timeout_s=6 * 3600)
         state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}, "
                                        f"about {src['expected_clips']:.1f} strong clips expected)",
                     ref_type="source", ref_id=src["id"])
         picked.append(src)
+        automatic_picks += not src.get("user_added")
     return picked
 
 

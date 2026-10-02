@@ -13,7 +13,8 @@ test("the next step comes from Autopilot's and the library's real state", async 
   await expect(async () => {
     const [st, stats] = await Promise.all([getJson(request, "/api/autopilot/status"), getJson(request, "/api/stats")]);
     const title = lead.locator("#lead-title");
-    const failed = stats.recent.filter((p: any) => p.status === "error");
+    const failed = stats.recent.filter((p: any) => p.status === "error"
+      && !["autopilot", "live"].includes(p.origin || ""));
     if (!st.home.setup.started && stats.recent.length === 0) {
       // First use (this browser never chose to make clips by hand): a welcome with the two ways to start
       await expect(title).toHaveText(/^Start by adding a video you made/, { timeout: 1000 });

@@ -355,6 +355,8 @@ def package_clip(job: Job) -> dict:
         raise queue.Fail("The clip is missing or not rendered")
     project = db.get_project(clip["project_id"]) or {}
     source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+    if source and not rights.local_allowed(source, settings=settings):
+        return {"message": "No further automatic work on this video; keeping its local clips"}
     chosen = {}
     for platform in platforms(settings):
         job.check()

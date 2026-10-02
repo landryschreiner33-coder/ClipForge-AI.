@@ -285,6 +285,13 @@ def publish(job: Job) -> dict:
             runner = publish_jobs.RUNNERS[item["platform"]]
             runner(pub, job.cancelled)
     except (queue.Canceled, UploadCancelled):
+        if job.host and job.host._stop.is_set() and not state.paused() \
+                and not (queue.get(job.id) or {}).get("cancel_requested"):
+            # Closing the app preserves this exact upload record and its session/final-byte marker. A restart
+            # checks or resumes it; clearing the record here could start a second upload of the same video.
+            db.update_publication(pub["id"], message="App closed; checking the existing upload when it starts again")
+            _set(item, "reconciling", "App closed; the existing upload will continue safely on restart", "interrupted")
+            raise queue.Canceled()
         db.update_publication(pub["id"], status="cancelled", message="Stopped before the upload finished")
         _set(item, "approved", "Stopped before the upload finished; it will get a new time.", "stopped",
              planned_at=None, publication_id="")

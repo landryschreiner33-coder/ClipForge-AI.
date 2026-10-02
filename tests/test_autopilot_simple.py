@@ -140,10 +140,9 @@ def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
     assert {s["external_id"] for s in sources} >= set(ids) and all(s["signal_id"] for s in sources)
     home = client.get("/api/autopilot/status").json()["home"]
     # Other creators' videos without an agreement or license are skipped, not asked about: no questions, and the
-    # activity log says why. Needs you says once, plainly, that Autopilot has nothing to work with and what helps.
+    # activity log says why. Lack of a usable find is normal discovery work, never a Needs you interruption.
     assert home["opportunities"] == [] and home["skipped_today"] >= 3
-    assert [(i["type"], i["title"]) for i in home["needs_you"]] == [("videos", "Autopilot needs videos to work with")]
-    assert "belong to other people" in home["needs_you"][0]["detail"]
+    assert home["needs_you"] == []
     assert "not covered by an agreement or license" in home["empty"]
     log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
     for s in sources:
@@ -165,14 +164,14 @@ def test_missing_optional_providers_do_not_stop_autopilot(client, fakes):
     assert provs["google_trends"]["status"] == provs["tiktok_trends"]["status"] == "unavailable"
     assert provs["web_search"]["status"] == "unavailable" and provs["library"]["status"] in ("ok", "error")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["skipped_today"] >= 1 and [i["type"] for i in home["needs_you"]] == ["videos"]
+    assert home["skipped_today"] >= 1 and home["needs_you"] == []
     # Disconnecting YouTube does not stop the free library or your videos folder; Autopilot still runs and says
     # what would help.
     client.post("/api/publish/youtube/disconnect", headers=H)
     run("trend_scan")
     home = client.get("/api/autopilot/status").json()["home"]
     assert home["setup"]["can_discover"] is True  # your videos folder
-    assert [i["type"] for i in home["needs_you"]] == ["videos"]
+    assert home["needs_you"] == []
     assert client.get("/api/autopilot/status").json()["enabled"]
 
 
@@ -293,7 +292,7 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     home = st["home"]
     assert set(home) == {"setup", "currently", "next_look", "discovery", "working", "needs_you", "opportunities",
                          "upcoming", "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos",
-                         "posts"}
+                         "posts", "next"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
@@ -333,7 +332,7 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["working"] is None and home["posts"] == {"review": 0, "fix": 0}
+    assert home["working"] is None and home["posts"] == {"review": 0, "fix": 0, "ready": 0, "scheduled": 0}
 
     project = db.create_project("Morning show episode 12")
     src = db.insert("sources", {"id": db.new_id(), "platform": "local", "external_id": "ep12", "title": "Morning show",
@@ -342,7 +341,7 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     db.update("worker_jobs", job["id"], status="running")
     home = client.get("/api/autopilot/status").json()["home"]
     assert home["working"] == {"title": "Morning show", "project_id": project["id"], "has_thumbnail": False,
-                               "step": "Finding the best moments", "progress": None}
+                               "step": "Finding the best moments", "progress": None, "message": "Waiting in queue"}
     queue.progress(job["id"], 0.46)
     assert client.get("/api/autopilot/status").json()["home"]["working"]["progress"] == 0.46
 
@@ -353,7 +352,8 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     # an OK from before ClipFoundry checked the exact file no longer covers the post: it waits for you again
     db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube", "status": "approved",
                                          "approval": {"hash": "old", "scheme": 1}})
-    assert client.get("/api/autopilot/status").json()["home"]["posts"] == {"review": 3, "fix": 4}
+    assert client.get("/api/autopilot/status").json()["home"]["posts"] == {
+        "review": 3, "fix": 4, "ready": 0, "scheduled": 0}
 
     client.post("/api/autopilot/stop-all", headers=H)  # stopped: nothing is being worked on
     assert client.get("/api/autopilot/status").json()["home"]["working"] is None
@@ -393,8 +393,8 @@ def test_a_dropped_account_is_one_plain_needs_you_message(client, fakes):
 # ------------------------------------------------------------------ 10: a night with nothing it may use
 def test_a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped(client, fakes):
     """The overnight report: connected, START AUTOPILOT, walked away, nothing happened. Every video found belonged to
-    other people, so everything was skipped and the page said "Nothing right now". Now Needs you says it plainly,
-    once, and a video put in your videos folder goes to the Clip Hunter by itself."""
+    other people, so everything was skipped. The page explains discovery's state without asking for help, and a
+    video put in your videos folder goes to the Clip Hunter by itself."""
     from clipfoundry import db
     from clipfoundry.autopilot import myvideos, queue
 
@@ -405,8 +405,8 @@ def test_a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped(c
     run("trend_scan")
     run("source_scout")
     home = client.get("/api/autopilot/status").json()["home"]
-    item = next(i for i in home["needs_you"] if i["type"] == "videos")
-    assert item["folder"]["path"] == home["my_videos"]["path"] and item["folder"]["videos"] == 0
+    assert home["needs_you"] == [] and home["my_videos"]["videos"] == 0
+    assert "not covered by an agreement or license" in home["empty"]
     assert home["next_look"] and home["next_look"] > time.time()  # when it looks online again, for the page
 
     folder = myvideos.folder()
@@ -425,10 +425,11 @@ def test_a_night_of_other_peoples_videos_says_so_and_your_own_video_is_clipped(c
     home = client.get("/api/autopilot/status").json()["home"]
     assert not [i for i in home["needs_you"] if i["type"] == "videos"] and home["my_videos"]["videos"] == 1
 
-    # all of it used and no new clip for a day: it asks for new videos instead
+    # All of it used: discovery keeps looking without asking for more videos.
     db.update("sources", src["id"], status="exhausted")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert [(i["type"], i["title"]) for i in home["needs_you"]] == [("videos", "Autopilot has used all your videos")]
+    assert home["needs_you"] == []
+    assert home["next"] and "queue" not in home["next"].lower()
 
 
 def test_the_videos_folder_is_set_up_once_and_a_removal_is_respected(client, fakes, monkeypatch):

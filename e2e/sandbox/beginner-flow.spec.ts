@@ -4,8 +4,8 @@ import path from "node:path";
 // The whole beginner experience, in the throwaway sandbox (never your real ClipFoundry):
 // open ClipFoundry → Get started → choose Autopilot and keep the suggested topics → connect accounts (test
 // connections) → Start Autopilot → no source configuration (only your videos folder) → trend discovery starts →
-// sources are created internally → videos nothing covers are skipped, not asked about, and Needs you says Autopilot
-// needs videos → one agreement with a creator (with the folder they share) → that creator's video goes to the
+// sources are created internally → videos nothing covers are skipped, not asked about → one agreement with a
+// creator (with the folder they share) → that creator's video goes to the
 // pipeline by itself, with no per-video question.
 
 const get = async <T = any>(request: APIRequestContext, url: string): Promise<T> => {
@@ -82,23 +82,24 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     const hunts = await get<any[]>(request, "/api/autopilot/jobs?status=&worker=clip_hunter&limit=50");
     expect(hunts, "nothing uncovered is ever clipped").toEqual([]);
 
-    // NOT COVERED: skipped and listed in Activity, never asked about one by one. Needs you says once, plainly, that
-    // Autopilot has nothing it may use and what helps: your own videos in your videos folder.
+    // NOT COVERED: skipped and listed in Activity, never asked about one by one. Empty discovery is an ordinary
+    // waiting state, while Your videos still explains how the owner can supply useful material.
     await expect(page.getByText(/videos? skipped in the last 24 hours/)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.needs-you .need[data-type="rights"]')).toHaveCount(0);
-    const needsVideos = page.locator('.needs-you .need[data-type="videos"]');
-    await expect(needsVideos).toContainText("Autopilot needs videos to work with");
-    await expect(needsVideos.getByRole("button", { name: "Open videos folder" })).toBeVisible();
+    await expect(page.locator('.needs-you .need[data-type="videos"]')).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Working on" }).getByRole("button", { name: "Open videos folder" }))
+      .toBeVisible();
     await page.getByRole("link", { name: "See Activity" }).click();
     await expect(page).toHaveURL(/#\/autopilot\/activity$/);
     const skipped = page.locator(".activity-row.skipped", { hasText: "The podcast moment everyone is talking about" });
     await expect(skipped).toContainText("Skipped");
     await expect(skipped).toContainText("Not covered");
 
-    // HOME SAYS THE SAME, as its one next step
+    // HOME SAYS THE SAME: waiting is visible, without a normal question in Needs you.
     await page.goto("/#/");
-    await expect(lead.locator("#lead-title")).toHaveText("Autopilot needs videos to work with");
-    await expect(lead.getByRole("button", { name: "Open videos folder" })).toBeVisible();
+    await expect(lead.locator("#lead-title")).toHaveText("Nothing needs you. Add a video to make clips.");
+    expect((await get(request, "/api/autopilot/status")).home.needs_you
+      .filter((need: any) => ["videos", "rights"].includes(need.type))).toEqual([]);
 
     // ONE AGREEMENT, RECORDED ONCE: the creator allows clipping and shares their raw files in a folder
     const health = await get(request, "/api/health");

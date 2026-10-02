@@ -307,9 +307,8 @@ def test_stopped_background_work_is_a_needs_you_item_but_not_right_after_start(d
     assert not home.workers_stopped(settings, False)
 
 
-def test_needs_videos_says_when_your_own_videos_have_no_file(data):
-    """A connected channel's own uploads are found and covered, but YouTube does not let apps download them: Needs
-    you must not say they belong to other people."""
+def test_unusable_discovery_finds_are_information_instead_of_needs_you(data):
+    """A missing original or unknown rights does not stop other discovery work or create a routine question."""
     from clipfoundry import db
     from clipfoundry.autopilot import home, state
 
@@ -318,9 +317,11 @@ def test_needs_videos_says_when_your_own_videos_have_no_file(data):
                           "updated_at": time.time()})
     db.insert("sources", {"platform": "youtube", "external_id": "other1", "status": "needs_rights",
                           "updated_at": time.time()})
-    item = [i for i in home.view(db.get_settings(), {}, True)["needs_you"] if i["type"] == "videos"][0]
-    assert "1 video it may use has no file it is allowed to download" in item["detail"]
-    assert "The 1 other video it found online belongs to other people" in item["detail"]
+    view = home.view(db.get_settings(), {}, True)
+    assert view["needs_you"] == []
+    assert view["currently"] == "No usable video files yet"
+    assert view["discovery"]["counts"] == {"needs_file": 1, "needs_rights": 1}
+    assert view["next"] == "Check for more trending videos"
 
 
 def test_library_api_errors_are_not_reported_as_a_successful_empty_scan(data, monkeypatch):

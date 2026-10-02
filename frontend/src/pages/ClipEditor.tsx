@@ -690,6 +690,12 @@ export default function ClipEditor({ id }: { id: string }) {
       <div className="editor">
         <div className="stage-area">
           <div className="player-wrap">
+            <div className="editor-preview-head">
+              <h2><Icon name="film" />Preview</h2>
+              {!busy && (videoDirty || savedNotRendered) && (
+                <Pill tone="warn" icon="edit">Changes not rendered</Pill>
+              )}
+            </div>
             <Segmented label="Preview" value={view} onChange={(v) => setView(v)}
               options={[{ value: "clip", label: "Rendered clip" }, { value: "source", label: "Source range" }]} />
             <div className={`player ${view === "source" ? "wide" : ""}`}>
@@ -764,6 +770,13 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
 
         <section className="edit-panel" aria-label="Edit">
+          <div className="editor-desk-head">
+            <span className="editor-desk-mark" aria-hidden="true"><Icon name="edit" /></span>
+            <div>
+              <h2>Editing desk</h2>
+              <p className="small muted">Shape the video, then save and render.</p>
+            </div>
+          </div>
           <Tabs label="Edit groups" idPrefix="ed" current={tab} onChange={setTab}
             tabs={GROUPS.map((g) => ({
               id: g.id,

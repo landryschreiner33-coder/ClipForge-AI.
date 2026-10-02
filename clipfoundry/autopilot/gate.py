@@ -14,13 +14,19 @@ its final transcript, time map and blueprint.
 """
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 
 from .. import db
-from ..pipeline import artifact, quality
+from ..pipeline import artifact, process, quality
 from . import packaging, queue, rights, state
 from .host import Job, handler
+
+MAX_REGENERATIONS = 2
+# Re-encoding the same approved plan can fix output corruption and rendering defects. It cannot fix a weak moment,
+# absent source sound, reuse terms, or a bad creative decision, so those checks never trigger an automatic edit.
+REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "captions", "cuts"}
 
 
 def _source(clip: dict) -> dict | None:
@@ -142,12 +148,174 @@ def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
     """Queue a gate run for the clip's current file and packaging (once per file and packaging). `sha`: the hash of
     bytes that were found unchecked although the file's size and time are unchanged, so it is checked once more."""
     path, _, _ = artifact.active(clip)
+    source = _source(clip)
+    if source:
+        priority = queue.source_priority(source, priority)
     if not path or not Path(path).is_file():
-        return None
+        return repair_media(clip, priority=priority)
     selected = sorted(filter(None, ((_selected(clip["id"], p) or {}).get("id") for p in ("youtube", "tiktok"))))
     key = f"quality:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}" + (f":{sha[:16]}" if sha else "")
     return queue.enqueue("quality_check", {"clip_id": clip["id"]}, idem_key=key, ref=("clip", clip["id"]),
                          priority=priority, timeout_s=1800, message="Waiting for the final quality check")
+
+
+def _render_identity(clip: dict) -> str:
+    return artifact.sha256_json({k: clip.get(k) for k in ("edit", "start", "end", "active_version",
+                                                        "output_path", "render_info")})
+
+
+ORIGINAL_FIELDS = ("status", "progress", "error", "output_path", "render_info", "duration")
+
+
+def _edit_identity(clip: dict) -> str:
+    return artifact.sha256_json({k: clip.get(k) for k in ("edit", "start", "end", "active_version")})
+
+
+def repair_media(clip: dict, report: dict | None = None, priority: int = 0) -> dict | None:
+    """At most two durable attempts to regenerate an automatic clip from the unchanged plan. Local output remains
+    available when repair is impossible; a canceled repair and edits made after it was queued are respected."""
+    project = db.get_project(clip["project_id"]) or {}
+    source = _source(clip)
+    if project.get("origin") not in ("autopilot", "live") or clip.get("active_version") or not source \
+            or source.get("status") in ("canceled", "removed"):
+        return None
+    if not Path(project.get("source_path") or "").is_file():
+        return None
+    failed = {c["name"] for c in (report or {}).get("checks", []) if c["status"] == quality.FAIL}
+    if report and (not failed or not failed <= REGENERATABLE):
+        return None
+    if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN "
+                 "('publishing', 'reconciling', 'published')", (clip["id"],)):
+        return None  # preserve the exact file of an upload that may already have reached the platform
+    jobs = [j for j in queue.jobs(ref=("clip", clip["id"]), limit=100) if j["kind"] == "regenerate_clip"]
+    active = next((j for j in jobs if j["status"] in queue.ACTIVE), None)
+    if active:
+        return active
+    if len(jobs) >= MAX_REGENERATIONS or any(j["status"] == "canceled" for j in jobs):
+        return None
+    count = len(jobs) + 1
+    return queue.enqueue("regenerate_clip", {"clip_id": clip["id"], "render_identity": _render_identity(clip),
+                                              "edit_identity": _edit_identity(clip),
+                                              "original_clip": {k: clip.get(k) for k in ORIGINAL_FIELDS}},
+                         idem_key=f"regenerate:{clip['id']}:{count}", ref=("clip", clip["id"]),
+                         priority=queue.source_priority(source, max(10, priority)),
+                         max_attempts=1, timeout_s=1800, revive=False,
+                         message="Making a fresh copy after the final check")
+
+
+def recover_regenerations() -> int:
+    """Restore a saved local output after the app died inside an automatic rerender. The queue has already
+    recovered the abandoned lease; live jobs and an intentional change to the edit are left alone."""
+    restored = 0
+    for row in db.select("worker_jobs", "kind = 'regenerate_clip' AND status IN ('failed', 'canceled')"):
+        payload = row.get("payload") or {}
+        clip = db.get_clip(payload.get("clip_id") or "")
+        before = payload.get("original_clip") or {}
+        path = before.get("output_path") or ""
+        if not clip or not path or _edit_identity(clip) != payload.get("edit_identity"):
+            continue
+        if (clip.get("render_info") or {}).get("manual_render_pending"):
+            continue  # the explicit editor render owns this file, even when the edit itself did not change
+        original = Path(path)
+        backup = original.with_name(f"{original.name}.regeneration-{row['id']}.bak")
+        if not backup.is_file():
+            continue
+        if clip.get("status") == "ready" and Path(clip.get("output_path") or "").is_file() \
+                and _render_identity(clip) != payload.get("render_identity"):
+            # A later attempt (or this attempt just before a crash) completed the new file. The saved older
+            # output must never replace it; finish its normal file/text checks instead.
+            try:
+                backup.unlink()
+            except OSError:
+                continue
+            queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
+                          idem_key=f"package:regeneration-recovered:{row['id']}", priority=row["priority"], revive=False)
+            continue
+        if db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind = 'regenerate_clip' AND ref_id = ? "
+                     "AND status IN ('queued', 'running', 'waiting', 'retrying')", (clip["id"],)):
+            continue
+        try:
+            shutil.copy2(backup, original)
+            db.update_clip(clip["id"], **{k: before.get(k) for k in ORIGINAL_FIELDS})
+            backup.unlink()
+        except OSError as exc:
+            state.event("quality_recovery_failed", f"Could not restore this saved clip: {exc}", "warning",
+                        ref_type="clip", ref_id=clip["id"])
+            continue  # a damaged or inaccessible clip must not stop every worker at startup
+        restored += 1
+        state.event("quality_recovered", "Restored the saved clip after an interrupted fresh copy",
+                    ref_type="clip", ref_id=clip["id"])
+        if row["status"] == "failed":
+            repair_media(db.get_clip(clip["id"]), priority=row["priority"])
+    return restored
+
+
+def repair_text(clip: dict, rep: dict, priority: int) -> dict | None:
+    """Missing, stale or rejected generated text is safely regenerated without changing the video."""
+    key = f"quality_text:{clip['id']}:{rep['artifact_sha256']}"
+    attempts = int(state.get(key, 0) or 0)
+    if attempts >= MAX_REGENERATIONS:
+        return None
+    previous = db.fetch("worker_jobs", f"repair_text:{key}:{attempts}", "idem_key") if attempts else None
+    if previous and previous["status"] in queue.ACTIVE:
+        return previous
+    if previous and previous["status"] == "canceled":
+        return None
+    attempts += 1
+    state.put(key, attempts)
+    source = _source(clip)
+    if source:
+        priority = queue.source_priority(source, priority)
+    return queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
+                         idem_key=f"repair_text:{key}:{attempts}", priority=max(10, priority), revive=False)
+
+
+@handler("regenerate_clip")
+def regenerate_clip(job: Job) -> dict:
+    clip = db.get_clip(job.payload.get("clip_id") or "")
+    if not clip:
+        raise queue.Fail("The clip was removed")
+    if _render_identity(clip) != job.payload.get("render_identity"):
+        if clip.get("status") == "ready":
+            queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
+                          idem_key=f"package:regenerated:{job.id}", priority=job.row["priority"], revive=False)
+        return {"message": "The clip changed; keeping the newer edit"}
+    source = _source(clip)
+    settings = db.get_settings()
+    if not source or not rights.local_allowed(source, rights.recheck(source, settings), settings):
+        return {"message": "This video can no longer be processed; keeping the saved clip"}
+    job.progress(0.1, "Making a fresh copy of the same clip", stage="render")
+    original = Path(clip.get("output_path") or "")
+    backup = original.with_name(f"{original.name}.regeneration-{job.id}.bak") if original.is_file() else None
+    if backup and not backup.exists():
+        pending = backup.with_name(f"{backup.name}.partial")
+        try:
+            shutil.copy2(original, pending)
+            pending.replace(backup)
+        finally:
+            pending.unlink(missing_ok=True)
+    release_backup = False
+    try:
+        process.render_single(clip["id"], job.pipeline_ctx(0.1, 0.9))
+        job.check()
+        updated = db.get_clip(clip["id"]) or {}
+        if updated.get("status") != "ready":
+            raise queue.Fail(updated.get("error") or "The new copy could not be rendered")
+        release_backup = True
+    except Exception:
+        if backup and backup.is_file():
+            shutil.copy2(backup, original)
+            db.update_clip(clip["id"], **{k: clip.get(k) for k in ORIGINAL_FIELDS})
+            release_backup = True
+        raise
+    finally:
+        if release_backup and backup and backup.exists():
+            backup.unlink()
+    queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
+                  idem_key=f"package:regenerated:{job.id}", priority=job.row["priority"], revive=False)
+    state.event("quality_regenerated", "Made a fresh copy; checking its file and text again",
+                ref_type="clip", ref_id=clip["id"])
+    return {"message": "Fresh copy ready for the final check"}
 
 
 def schedulable(clip: dict, platform: str, metadata_id: str) -> tuple[bool, str]:
@@ -161,8 +329,7 @@ def schedulable(clip: dict, platform: str, metadata_id: str) -> tuple[bool, str]
         return False, "failed the final quality check: " + "; ".join(rep["blockers"][:2])
     if md.get("status") != "passed":
         if md.get("stale"):
-            queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
-                          idem_key=f"package:{clip['id']}:{rep['artifact_sha256'][:16]}")
+            repair_text(clip, rep, 10)
         return False, "its text did not pass the final check: " + "; ".join(md.get("problems", [])[:2])
     return True, ""
 
@@ -204,22 +371,32 @@ def quality_check(job: Job) -> dict:
     if not clip or clip["status"] != "ready":
         raise queue.Fail("The clip is missing or not rendered")
     job.progress(0.1, "Checking the rendered file", stage="quality")
-    rep = run(clip, settings, job.cancelled)
+    try:
+        rep = run(clip, settings, job.cancelled)
+    except queue.Fail:
+        if repair_media(clip, priority=job.row["priority"]):
+            return {"status": "repairing", "message": "Making a fresh copy before checking it again"}
+        raise
     job.check()
     title = (clip.get("title") or "")[:80]
     if rep["status"] != "passed":
         state.event("quality_failed", f"“{title}” did not pass the final quality check: {rep['blockers'][0]}",
                     "warning", ref_type="clip", ref_id=clip["id"], blockers=rep["blockers"])
+        if repair_media(clip, rep, job.row["priority"]):
+            return {"status": "repairing", "message": "Making a fresh copy after the final check"}
+        from . import scout
+
+        scout.refill(_source(clip) or {})
         return {"status": "failed", "blockers": len(rep["blockers"]), "message": "Did not pass: " + rep["blockers"][0]}
     stale = [p for p, m in rep["metadata"].items() if m.get("stale")]
     if stale:  # packaging written for an earlier render: write it again for this one, then check again
-        queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
-                      idem_key=f"package:{clip['id']}:{rep['artifact_sha256'][:16]}", priority=job.row["priority"])
+        repair_text(clip, rep, job.row["priority"])
     ok = [p for p, m in rep["metadata"].items() if m["status"] == "passed"]
     bad = {p: m["problems"] for p, m in rep["metadata"].items() if m["status"] != "passed" and not m.get("stale")}
     if bad:
         state.event("quality_text", f"“{title}”: packaging not usable for " + ", ".join(
             f"{p} ({'; '.join(v[:2])})" for p, v in bad.items()), "warning", ref_type="clip", ref_id=clip["id"])
+        repair_text(clip, rep, job.row["priority"])
     if ok:
         queue.enqueue("schedule_tick", {"reason": "quality"}, idem_key=f"schedule_tick:{int(time.time() // 60)}")
     warn = f", {len(rep['warnings'])} warning(s)" if rep["warnings"] else ""

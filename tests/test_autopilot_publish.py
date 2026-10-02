@@ -477,3 +477,45 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
     run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
     assert len(g.videos) == 1 and len(g.sessions) == 1  # the stored session was continued, nothing uploaded twice
+
+
+def test_closing_the_app_mid_upload_resumes_the_exact_session_after_restart(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    old_host = host.WorkerHost(periodic=False)
+    job = queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                        ref=("scheduled", item["id"]))
+    real = publish_jobs._progress_writer
+
+    def closing(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if 0.1 < frac < 1.0:
+                old_host._stop.set()
+                old_host.running()[job["id"]].cancel_event.set()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", closing)
+    old_host._run("publisher", queue.claim("publisher", "before-close"))
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    pending = queue.get(job["id"])
+    assert saved["status"] == "reconciling" and pub["info"]["upload_session"]
+    assert pending["status"] == "waiting" and pending["wait_reason"] == "restart"
+    assert len(g.sessions) == 1 and not g.videos
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    new_host = host.WorkerHost(periodic=False)
+    new_host._run("publisher", queue.claim("publisher", "after-restart", now=pending["run_after"] + 1))
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(g.sessions) == 1 and len(g.videos) == 1
+    assert queue.get(job["id"])["status"] == "completed"

@@ -277,6 +277,23 @@ outside the ClipFoundry folder, so the videos you put there are safe either way.
 With `git`: close ClipFoundry, run `git pull` in the folder, start `start.bat`. `data`, `.venv` and `tools\ffmpeg` are
 never touched by git.
 
+To use the retro studio and durable link intake on the implementation branch, close ClipFoundry and run these
+commands in the existing app folder:
+
+```powershell
+git fetch origin
+git switch codex/retro-robot-autopilot
+git pull --ff-only
+.\start.bat
+```
+
+Git keeps the ignored data, models, `.venv` and bundled tools. If it reports conflicting local code changes, keep
+those changes and resolve them before switching; do not reset or delete your app folder. This branch changes no
+CUDA dependency files. After this work is merged, updating the default branch normally includes it too.
+
+For a ZIP installation, use [this implementation branch archive](https://github.com/landryschreiner33-coder/ClipForge-AI./archive/refs/heads/codex/retro-robot-autopilot.zip)
+and follow the data-preserving ZIP steps below.
+
 With the ZIP (https://github.com/landryschreiner33-coder/ClipForge-AI./archive/refs/heads/claude/wonderful-ritchie-909tq3.zip):
 
 1. Close ClipFoundry (close the `start.bat` window).

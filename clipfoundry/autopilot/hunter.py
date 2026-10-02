@@ -198,6 +198,9 @@ def _source_failed(job: Job, exc: Exception) -> None:
             db.update_project(src["project_id"], status="error", error=str(exc)[:500], message="Failed")
         state.event("source_failed", f"“{src['title'][:80]}” failed: {exc}", "error", ref_type="source",
                     ref_id=src["id"])
+        from . import scout
+
+        scout.refill(src)
     else:
         db.update("sources", src["id"], status_note=f"Retrying after: {exc}"[:300])
 
@@ -232,8 +235,10 @@ def hunt_source(job: Job) -> dict:
     src = db.fetch("sources", job.payload.get("source_id", ""))
     if not src:
         raise queue.Fail("The source was deleted")
+    if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
+        return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
-    if not r["auto_allowed"]:
+    if not rights.local_allowed(src, r, settings):
         return _not_used(src, r)
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
     ctx = job.pipeline_ctx(0.0, 1.0)
@@ -267,7 +272,8 @@ def hunt_source(job: Job) -> dict:
               status_note=f"{len(cands)} candidate moments found; waiting for the analyzer")
     db.update_project(p.id, message=f"{len(cands)} candidate moments; analyzing")
     queue.enqueue("analyze_source", {"source_id": src["id"], "project_id": p.id},
-                  idem_key=f"analyze:{src['id']}:{p.id}", ref=("source", src["id"]), priority=job.row["priority"],
+                  idem_key=f"analyze:{src['id']}:{p.id}", ref=("source", src["id"]),
+                  priority=queue.source_priority(src, job.row["priority"]),
                   timeout_s=4 * 3600)
     return {"project_id": p.id, "candidates": len(cands), "message": f"{len(cands)} candidate moments found"}
 
@@ -297,6 +303,9 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
     A clip whose plan is rejected is not rendered; the reasons are kept on the clip."""
     ok = []
     for row, r in zip(rows, chosen):
+        if row["status"] == "ready" and row.get("output_path") and Path(row["output_path"]).is_file():
+            ok.append(row)  # restart recovery preserves the exact completed clip and its publishing bindings
+            continue
         bp = blueprint.build(row, p.project, p.words, p.settings, source_id=source_id, selection=r,
                              video_path=p.project.get("source_path"))
         issues = blueprint.validate(bp, p.meta.get("duration"), p.words)
@@ -313,6 +322,26 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
     return ok
 
 
+def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict) -> None:
+    """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
+    The durable selection and stable clip IDs let this handler resume only the remaining renders."""
+    total = max(1, len(planned))
+    for index, row in enumerate(planned):
+        job.check()
+        current = db.get_clip(row["id"]) or row
+        if current["status"] == "ready" and Path(current.get("output_path") or "").is_file():
+            continue
+        priority = queue.source_priority(src, job.row.get("priority") or 0)
+        if queue.has_higher_priority_work(job.row, priority):
+            db.update_project(p.id, message="Saved progress; working on your higher-priority video first")
+            raise queue.Wait("priority", 2, "Saved progress; your higher-priority video is next")
+        lo, hi = 0.6 + 0.35 * index / total, 0.6 + 0.35 * (index + 1) / total
+        step = f"Making clip {index + 1} of {len(planned)}"
+        job.progress(lo, step, stage="render")
+        sub = JobContext(lambda fraction, message, step=step: ctx.progress(fraction, step), ctx.cancelled)
+        process.render_clips(p, [current], sub, lo=lo, hi_total=hi)
+
+
 @handler("analyze_source")
 @_guard
 def analyze_source(job: Job) -> dict:
@@ -321,8 +350,10 @@ def analyze_source(job: Job) -> dict:
     p = process.load_prepared(job.payload.get("project_id", ""))
     if not src or not p:
         raise queue.Fail("The source or its transcript is missing", "Start the source again in Autopilot → Sources.")
+    if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
+        return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # no clip is rendered from a source that is no longer covered
-    if not r["auto_allowed"]:
+    if not rights.local_allowed(src, r, settings):
         return _not_used(src, r)
     ctx = job.pipeline_ctx(0.0, 1.0)
     cands = read_json(p.pdir / "candidates.json", []) or []
@@ -330,11 +361,15 @@ def analyze_source(job: Job) -> dict:
     job.progress(0.05, f"Analyzing {len(cands)} candidates", stage="analyze")
     signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
     trend_kw = (signal or {}).get("keywords") or []
-    chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+    selection_path = p.pdir / "autopilot-selection.json"
+    chosen = read_json(selection_path, None)
+    if chosen is None:
+        chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+        write_json(selection_path, chosen)  # resume this exact selection after an interrupted render
     for c in p.info.get("candidates", []):
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
     job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
-    rows = process.create_clips(p, chosen, ctx)
+    rows = process.create_clips(p, chosen, ctx, durable=True)
     planned = plan_clips(p, rows, chosen, src["id"])
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
@@ -353,7 +388,7 @@ def analyze_source(job: Job) -> dict:
                                   "components": {"viral_potential": r["score"], "subscores": sub,
                                                  "diversity": r.get("diversity") or {}},
                                   "explanation": r.get("explanation") or []}, key="clip_id", replace=True)
-    process.render_clips(p, planned, ctx, lo=0.6, hi_total=0.95)
+    render_in_priority_order(p, planned, ctx, job, src)
     ready = [c for c in db.list_clips(p.id) if c["status"] == "ready"]
     for clip in ready:
         job.check()
@@ -373,6 +408,6 @@ def analyze_source(job: Job) -> dict:
                 ref_type="source", ref_id=src["id"], clips=len(ready))
     for clip in ready:
         queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": src["id"]}, idem_key=f"package:{clip['id']}",
-                      ref=("clip", clip["id"]), priority=job.row["priority"])
+                      ref=("clip", clip["id"]), priority=queue.source_priority(src, job.row["priority"]))
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}")
     return {"clips": len(ready), "weak": weak, "message": note}

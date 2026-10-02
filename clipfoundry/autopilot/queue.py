@@ -31,11 +31,11 @@ LEASE_SECONDS = 90.0
 # worker name -> (label, job kinds it runs)
 WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "trend_scout": ("Trend Scout", ("trend_scan",)),
-    "source_scout": ("Source Scout", ("source_scout", "feed_scan")),
+    "source_scout": ("Source Scout", ("source_scout", "feed_scan", "identify_link")),
     "rights_gate": ("Rights Gate", ("rights_check",)),
     "live_monitor": ("Live Monitor", ("live_watch", "live_capture", "post_live")),
     "clip_hunter": ("Clip Hunter", ("hunt_source",)),
-    "analyzer": ("Deep Clip Analyzer", ("analyze_source",)),
+    "analyzer": ("Deep Clip Analyzer", ("analyze_source", "regenerate_clip")),
     "packager": ("Packaging AI", ("package_clip",)),
     "quality_gate": ("Final Quality Gate", ("quality_check",)),
     "scheduler": ("Smart Scheduler", ("schedule_tick",)),
@@ -44,6 +44,46 @@ WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "maintenance": ("Maintenance", ("maintenance", "selftest")),
 }
 KIND_WORKER = {kind: name for name, (_, kinds) in WORKERS.items() for kind in kinds}
+
+
+def source_priority(source: dict | str, base: int = 0) -> int:
+    """Keep a user's latest move-to-top order across stage handoffs, including already running jobs."""
+    row = db.fetch("sources", source if isinstance(source, str) else source["id"]) or {}
+    if row.get("user_added") and base < 100:
+        return max(10, int((row.get("intake") or {}).get("priority") or 80))
+    return max(10, base)
+
+
+def has_higher_priority_work(current: dict, priority: int, now: float | None = None) -> bool:
+    """Yield only to actionable heavy work. A future stream, a sign-in wait, and a recorder listening for moments
+    must not hold ordinary rendering indefinitely. The current encode/transcription always finishes first."""
+    now = _now() if now is None else now
+    kinds = ("hunt_source", "analyze_source", "regenerate_clip", "post_live")
+    marks = ",".join("?" * len(kinds))
+    for row in db.select("worker_jobs", f"id != ? AND kind IN ({marks}) AND cancel_requested = 0 AND "
+                         "(status = 'running' OR (status IN ('queued', 'retrying') AND run_after <= ?))",
+                         (current["id"], *kinds, now)):
+        source_id = (row.get("payload") or {}).get("source_id")
+        if not source_id and row.get("ref_type") == "source":
+            source_id = row.get("ref_id")
+        if not source_id and row.get("ref_type") == "clip":
+            clip = db.get_clip(row.get("ref_id") or "") or {}
+            source_id = (db.get_project(clip.get("project_id") or "") or {}).get("source_id")
+        effective = source_priority(source_id, row["priority"]) if source_id else row["priority"]
+        if effective > priority:
+            return True
+    if priority >= 100:
+        return False
+    # Manual work uses the original app worker, not worker_jobs. Its durable visible state crosses processes.
+    project_id = (current.get("payload") or {}).get("project_id") or ""
+    if any((clip.get("render_info") or {}).get("manual_render_pending")
+           for clip in db.select("clips", "status IN ('queued', 'rendering')")):
+        return True
+    return bool(db.scalar("SELECT COUNT(*) FROM clip_versions WHERE status IN ('queued', 'rendering')") or
+                db.scalar("SELECT COUNT(*) FROM projects WHERE origin = 'manual' AND id != ? "
+                          "AND status IN ('queued', 'processing')", (project_id,)) or
+                db.scalar("SELECT COUNT(*) FROM clips c JOIN projects p ON p.id = c.project_id "
+                          "WHERE p.origin = 'manual' AND c.status IN ('queued', 'rendering')"))
 
 
 class JobError(Exception):
@@ -89,13 +129,14 @@ def enqueue(kind: str, payload: dict | None = None, *, priority: int = 0, idem_k
             delay: float = 0.0, max_attempts: int = 3, timeout_s: float = 3600.0, ref: tuple[str, str] = ("", ""),
             parent_id: str = "", message: str = "Waiting in queue", revive: bool = True) -> dict:
     """Add a job. With an idempotency key, an existing job with that key is returned instead of adding another
-    (a failed or canceled one is queued again when `revive` is set)."""
+    (a failed one is queued again when `revive` is set). Cancellation is durable: only an explicit user retry
+    may reset a canceled row."""
     worker = KIND_WORKER[kind]
     now = _now()
     if idem_key:
         existing = db.fetch("worker_jobs", idem_key, "idem_key")
         if existing:
-            if revive and existing["status"] in ("failed", "canceled"):
+            if revive and existing["status"] == "failed":
                 db.update("worker_jobs", existing["id"], status="queued", attempts=0, run_after=now + delay, error="",
                           fix="", cancel_requested=0, message="Queued again", payload=payload or existing["payload"],
                           finished_at=None)

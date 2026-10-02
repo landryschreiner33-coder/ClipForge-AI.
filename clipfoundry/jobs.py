@@ -37,7 +37,9 @@ class Worker:
 
     def submit_render(self, clip_id: str) -> None:
         self.cancelled.discard(clip_id)
-        db.update_clip(clip_id, status="queued", progress=0, error="")
+        clip = db.get_clip(clip_id) or {}
+        info = {**(clip.get("render_info") or {}), "manual_render_pending": True}
+        db.update_clip(clip_id, status="queued", progress=0, error="", render_info=info)
         self.q.put(("render", clip_id, None))
         self.start()
 
@@ -162,6 +164,10 @@ class Worker:
         except Cancelled:
             pass
         finally:
+            clip = db.get_clip(clip_id) or {}
+            info = dict(clip.get("render_info") or {})
+            if info.pop("manual_render_pending", False):
+                db.update_clip(clip_id, render_info=info)
             self.cancelled.discard(clip_id)
 
     def _run_version(self, version_id: str) -> None:

@@ -17,6 +17,7 @@ from here without repeating the audit.
 | Codex follow-up (2026-10-01) | `codex/fix-autopilot-idle` (one commit, `519c25f`, built on `97b5c9a`), integrated into the redesigned app on `claude/finish-clipfoundry-knj4r4`; see *Overnight-idle regressions* below |
 | Website and legal pages (2026-10-01) | branch `claude/finish-clipfoundry-knj4r4`, PR #9: `docs/legal` is the public website (product page, Privacy Policy, Terms) written from a code audit, plus three fixes the audit found; public deployment waits for the owner's OK |
 | Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
+| Current delivery (2026-10-02) | `codex/retro-robot-autopilot`, based on verified remote default `992431e`; durable link intake and original retro robot studio, not merged into default. Python 3.12, Node 24, FFmpeg 7.1.5, system Chromium; no NVIDIA GPU or real platform accounts. |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
 (pytest with fakes or fixtures), **local pipeline verified** (real ffmpeg render through the actual pipeline here),
@@ -244,6 +245,52 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 | Settings: Accounts, Defaults, Advanced; every setting has a place; secrets masked with Replace | `Settings.tsx`, `settingsFields.tsx` | verified (e2e) | `settings.spec.ts` | — | — |
 | Every page at 1440, 1366, 768 and 390 px: no sideways scrolling, one title, no "undefined", no serious axe finding | all pages | verified (browser script, axe-core) | 28 addresses × 4 sizes, 0 problems | 200% zoom and a screen reader | — |
 
+## Durable Autopilot and retro robot studio (2026-10-02)
+
+Built from verified remote default `992431e` on `codex/retro-robot-autopilot`; the default branch is unchanged.
+The owner's two coding briefs replace ordinary per-video Autopilot interruptions with continued work and add a
+retro studio across the working app. [Design and original assets](../design/retro-studio/SPEC.md) and
+[actual sandbox screenshots](../design/retro-studio/screenshots/) document the result.
+
+| Requirement | Implementation | Verification | Remaining external checks |
+| --- | --- | --- | --- |
+| Durable public video/stream intake, canonical duplicates, move-to-top, cancel/remove/retry | `autopilot/intake.py`, additive sources columns, identify_link job, apLinkIntake.tsx | intake/local-rights contracts; real manual-link browser intake | Real platform metadata/media access |
+| Local retention without unknown reuse granting publishing permission | `rights.local_allowed`, fresh cancel/block gates, hunter/live/packaging | Explicit block/cancellation and fresh publishing tests; local unknown-rights clip passes gate without creating posts | Owner's real source permissions |
+| Continue after ordinary failures; refill selection; preserve pause/stop; resume after crash | scout/queue/host/home, durable selection and stable clip IDs | Failed source followed by real checked upload; restart and second discovery; cancellation/recovery regressions | Overnight run on owner's PC |
+| User links and manual work precede ordinary pending renders at safe boundaries | fresh source priority, queue.has_higher_priority_work, hunter.render_in_priority_order; post-live uses the same helper | Higher-priority work arrives after the first clip; continuation keeps its exact bytes and renders only the remainder without using another attempt | Hardware scheduling and latency on owner's PC |
+| Closing the app preserves an in-progress upload and resumes the same session | publisher cooperative-shutdown guard + host restart Wait | Fake YouTube accepts the first chunk, host closes and resumes the same publication/session; exactly one uploaded video | Real account/network interruption |
+| Manual startup recovery leaves automatic/live work to its durable owner | db.interrupted_work + explicit manual_render_pending provenance | Live/automatic pending clips, canceled work and explicit manual rerenders tested; manual versions preserved | Restart on owner's saved database |
+| Failed restoration retains the last saved media; recovery preserves newer completed output | gate backup retention and render identity guards | ENOSPC copy failure retains backup; later restoration succeeds; completed renders at the same/new location survive recovery | Real disk/device failure |
+| Live recording fairness, crash-safe segments/words, post-live reuse and graceful recorder ownership | `live.py`, bounded processing turns and OS source locks | Actual growing-file and upcoming→live→ended FFmpeg tests; wrapper EOF/normal exit regressions | Actual live server and RTX 3050 |
+| Public HTTP/HLS checked redirects and nested resources | `stream_access.PublicStream`, pinned netguard relay | Security contracts plus actual encrypted HLS consumed by FFmpeg; bounded resources and durable Retry-After | DASH and pasted non-HTTP streams explicitly unsupported |
+| Bounded automatic quality/text repair without changing the checked publishing artifact | gate regeneration/text repair, exact-file reports/consent retained | Recovery and artifact tests; sandbox upload SHA-256 equals passing report and approval | Real platform upload |
+| True repeated loop through discovery, processing, quality, schedule, upload, results, learning | `tests/zero_touch_support.py`, `test_zero_touch_loop.py`, browser sandbox | Real local pipeline and scheduler; fake platform receives exact bytes and scheduled publishAt; learner observes 2/10 samples and invents no weights | CUDA Whisper and real platform metrics |
+| Consistent cozy navy/slate/cream/amber screens, original robots and heading font | Shared tokens; Home/Autopilot/Library/source/editor/Posts/Settings/setup/dialog styles | Actual populated and empty/error captures, laptop and 200%-equivalent layout; 13-screen axe scan has zero WCAG violations | Physical 200% browser zoom and screen reader on Windows |
+| Real simultaneous activity; brief attention/completion gestures; truthful progress and stopped states | Shared polling + current job_kind/fresh progress; RobotOffice.tsx | Worker API contracts and six motion/state browser checks; real pipeline activity capture | Real PC performance |
+| Persistent Reduce motion; OS preference; hidden-tab pause | motion.tsx + Settings Defaults Appearance; browser local storage only | Keyboard, reload, cross-tab, OS changes, denied storage, hidden-tab checks | — |
+| Existing navigation/routes/Back/unsaved editor guard, original video appearance and posting safeguards | Existing router and APIs preserved; grouped local-day agenda; exact render validity retained | 60 populated read-only browser checks, 1 fixture-dependent skip; source/editor/post-review captures | Owner's playback/hardware |
+
+The first broad slow run caught a recorder wrapper shutdown defect (buffered stdin in a daemon thread). Raw
+`os.read` fixed it and the original real growing-file capture/render case passed. The same early run imported stale
+fixture adapters and a discovery slot shorter than production's idempotency period; correcting the adapters and
+accelerating only the fake upstream cadence made both complete-loop tests pass. Browser setup navigation and
+render-ready versus quality-ready waits were also corrected without relaxing outcome assertions.
+The browser's real live case then exposed a production launch error when the recorder child started outside the
+repository directory. The child now receives the trusted package root in `PYTHONPATH`; a real subprocess
+regression and the fresh eight-test browser suite pass. Stream addresses still enter the child through stdin.
+Automatic regeneration saves the original artifact and restores it after failure or an abandoned lease; bounded
+repair never turns an uncertain upload into a new upload.
+Final review reproduced and fixed two additional recovery defects: live projects were handed to the original manual
+worker during app startup, and a failed restore could delete the saved backup. Explicit manual-render provenance
+keeps manual work recoverable without reviving canceled automatic clips. A backup stays available if restoration
+fails and cannot overwrite a newer completed render or an active manual rerender. Independent review repeated the
+original reproductions successfully after the fixes.
+
+No original user media, connections, settings, models, `.mcp.json` or GPU dependency declarations were changed.
+The cloud has no NVIDIA GPU or Windows. Platform APIs, OAuth and metrics in these tests are local stand-ins;
+transcripts are synthetic/imported and encoding/decoding/hash checks are real FFmpeg work. The evidence does not
+claim real accounts, CUDA transcription, Windows keep-awake, human semantic quality or real-PC throughput.
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -273,11 +320,28 @@ TikTok, synthetic transcript); Windows rendering was not seen.
 19. [x] Website and legal pages from a code audit, with the fixes it found: AI keys sealed, request addresses out of
     the logs, YouTube clean-up at start and counted from YouTube's last answer (PR #9).
 20. [ ] Publish the website on GitHub Pages (`gh-pages` branch with only the site files): waits for the owner's OK.
+21. [x] Durable zero-touch Autopilot: direct link queue, lawful local retention, ordinary failure recovery,
+    restart-safe live recording and verified repeated complete-loop sandbox.
+22. [x] Retro robot studio across the working app: original artwork, real worker animation, motion preference,
+    local-day Posts agenda, preserved editor controls and committed frontend bundle.
 
 ## Test log
 
 | When | Command | Result |
 | --- | --- | --- |
+| Delivery media (2026-10-02) | `.venv/bin/python -m pytest -m slow -v` | 7 passed, 466 deselected (654.47 s), including repeated complete-loop upload/results and upcoming→restart→live→post-live. Collected before the final 2 manual-owner guard cases were added; both guards passed separately and in the final 468-test backend run. Clean log: `/workspace/scratch/retro-media-delivery-final.log`. |
+| Delivery backend (2026-10-02) | `.venv/bin/python -m pytest -m "not slow" -q` | 468 passed, 7 deselected (209.74 s); includes the final startup/manual-ownership, restore failure, newer-file and active-manual-render guards. Clean log: `/workspace/scratch/backend-delivery-final.log`. |
+| Independent recovery review | Targeted reproductions after startup and backup fixes | 7 passed (0.66 s); original live/manual-owner and ENOSPC backup-loss defects reproduced as resolved. The last queued/rendering manual-owner guard adds 2 passing cases (0.43 s), then the full 468-test backend run above. |
+| Retro / durable Autopilot checkpoint (2026-10-02) | `.venv/bin/python -m pytest -m "not slow"` after intake deduplication | 453 passed, 7 deselected (214.53 s); later cooperative-priority/restart changes covered by the delivery runs above |
+| Safe priority / upload restart checkpoint | `.venv/bin/python -m pytest -m "not slow"` | 459 passed, 7 deselected (215.31 s), including the exact-session fake YouTube upload restart; final review then added startup ownership and backup-restore error regressions |
+| Full media checkpoint | `.venv/bin/python -m pytest -m slow -q` | 7 passed, 459 deselected (645.11 s); all original manual/Autopilot/live renders plus the two complete-loop cases. Follow-up startup and backup recovery validation above. |
+| Retro / durable Autopilot media checkpoint | `pytest -m slow`, followed by the corrected growing-file test and `pytest tests/test_zero_touch_loop.py` | All 7 cases verified across runs: 4 unaffected cases, growing-file capture/post-live (191.01 s), 2 repeated-loop/live cases (344.14 s). Initial wrapper and fixture failures described above; not a claim that the initial broad run passed. |
+| Retro build | `cd frontend && npm run build` | TypeScript and Vite passed; committed local font 8.41 KB, CSS 63.33 KB (12.64 KB gzip), JS 516.37 KB (153.53 KB gzip). No dependency changes. |
+| Retro populated read-only browser | `CLIPFOUNDRY_URL=http://127.0.0.1:8814 npm test` in `e2e` | 60 passed, 1 fixture-dependent skip (53.9 s); isolated copied sandbox data, all API writes rejected by test fixture |
+| Retro motion / activity contracts | `npx playwright test --config=playwright.sandbox.config.ts sandbox/motion.spec.ts sandbox/robot-office.spec.ts --project=chromium` | 6 passed (23.9 s); controlled status responses cover simultaneous jobs, reported percentage, completion, stale/stopped/attention states; motion checks cover keyboard, storage, OS preference and hidden tabs |
+| Fresh complete-loop browser | `cd e2e && npm run test:sandbox` with system Chromium and local eSpeak wrapper | 8 passed (7.5 min), including the 6.5-min real-render repeated discovery/upload/results loop, upcoming stream, restart, segmented capture, post-live quality, local-only added link and saved Pause. Fake platform accounts and imported transcripts; actual artifact/byte/hash checks. |
+| Retro accessibility and layout | axe-core WCAG 2 A/AA and 2.1 A/AA scans on 13 actual pages; 1366×768 and 683×384 CSS viewport inspection | Zero automated violations and no horizontal page overflow; 683×384 represents 200%-zoom layout, not physical Windows browser zoom or screen-reader validation |
+| Cloud startup smoke | `/api/health`, `/api/projects`, served index on port 8765; `.venv/bin/python -m pip check`; `git diff --check` | Healthy CPU app, FFmpeg/FFprobe found, empty disposable development library, built interface served, installed dependencies consistent, no whitespace errors. Reusable cloud startup instructions saved. |
 | baseline | `pytest -m "not slow"` | 207 passed (1 flaky failure seen once, see below) |
 | baseline | `pytest tests/test_autopilot_core.py::test_gpu_lock_is_shared_with_other_processes` ×6 | 6 passed |
 | baseline | `pytest -m slow` | 4 passed (404 s) |

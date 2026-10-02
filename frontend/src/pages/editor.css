@@ -1,4 +1,39 @@
 /* Edit clip. Loaded before styles.css, so rules that change shared classes are scoped to .clip-editor. */
+.clip-editor .editor {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: var(--s5);
+}
+.clip-editor .stage-area { gap: var(--s5); }
+.clip-editor .player-wrap {
+  padding: var(--s5);
+  background: #101c2d;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 3px 0 #07101b;
+}
+.editor-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  width: 100%;
+}
+.editor-preview-head h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-pixel, var(--mono));
+  font-size: var(--fs-h3);
+}
+.editor-preview-head h2 .icon { color: var(--primary); }
+.clip-editor .player {
+  height: min(64vh, 600px);
+  border: 1px solid #3b4960;
+  border-radius: 4px;
+  box-shadow: 0 0 0 4px #07101b;
+}
+.clip-editor .player.wide { height: auto; }
 .clip-editor .player video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .player-msg {
   position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: var(--s3);
@@ -7,6 +42,12 @@
 .player-msg .bar { width: min(220px, 80vw); }
 .clip-editor .player-wrap .player-controls { justify-content: center; color: #e8eaed; }
 .clip-editor .player-wrap .player-controls .faint { color: #a9adb3; }
+.clip-editor .player-controls .grow { flex-basis: 100%; text-align: center; }
+.clip-editor .player .badge-version {
+  color: #f4ebd7;
+  border: 1px solid #596170;
+  border-radius: 2px;
+}
 /* The player area is dark in both themes, so its choice keeps dark-theme colors. */
 .clip-editor .player-wrap .seg { border-color: #3a3f46; }
 .clip-editor .player-wrap .seg label { color: #c9ccd1; }
@@ -18,6 +59,80 @@
 .clip-editor .tl-head { z-index: 2; }
 .tl-words i { position: absolute; top: 0; bottom: 0; background: var(--text-3); opacity: 0.5; border-radius: 1px; }
 .clip-editor .tl-range { pointer-events: none; }
+.clip-editor .timeline {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: var(--s5);
+  box-shadow: 0 3px 0 #07101b;
+}
+.clip-editor .timeline h2 {
+  font-family: var(--font-pixel, var(--mono));
+  color: var(--text);
+}
+.clip-editor .tl-track {
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--canvas);
+}
+.clip-editor .tl-range { background: rgba(245, 185, 76, 0.15); }
+.clip-editor .tl-head { box-shadow: 0 0 0 1px var(--canvas); }
+.clip-editor .words {
+  padding: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--canvas);
+}
+.clip-editor .words button { border-radius: 2px; }
+.clip-editor .version { border-radius: 3px; }
+.clip-editor .version.on { box-shadow: inset 3px 0 0 var(--primary); }
+
+.clip-editor .edit-panel {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 3px 0 #07101b;
+}
+.editor-desk-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s5);
+  border-bottom: 1px solid var(--border);
+}
+.editor-desk-head h2 {
+  margin-bottom: var(--s2);
+  font-family: var(--font-pixel, var(--mono));
+  font-size: var(--fs-h3);
+}
+.editor-desk-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 1px solid var(--primary);
+  background: var(--primary-tint);
+  color: var(--primary);
+  box-shadow: 2px 2px 0 #07101b;
+}
+.clip-editor .edit-panel .tabs {
+  flex-wrap: wrap;
+  gap: 0;
+  padding: var(--s2);
+  background: var(--canvas);
+}
+.clip-editor .edit-panel .tabs button { flex: 1 1 auto; }
+.clip-editor .edit-panel .tabs button[aria-selected="true"] {
+  color: var(--primary);
+  background: var(--primary-tint);
+}
+.clip-editor .edit-panel .tabpanel { padding: var(--s5); }
+.clip-editor .savebar {
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--primary);
+  border-radius: 4px;
+}
 
 .time-field input { width: 7.5em; min-width: 0; flex: 1 1 5em; text-align: center; }
 .time-field .btn { white-space: nowrap; flex: none; }
@@ -28,7 +143,14 @@
 .ed-section { display: grid; gap: var(--s4); min-width: 0; }
 
 .savebar-short { display: none; }
+@media (max-width: 1080px) {
+  .clip-editor .editor { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 640px) {
   .savebar-short { display: block; }
+  .clip-editor .player-wrap, .clip-editor .timeline,
+  .clip-editor .edit-panel .tabpanel, .editor-desk-head { padding: var(--s4); }
+  .clip-editor .savebar { position: static; }
+  .clip-editor .savebar .grow > .tiny { display: block; }
   .clip-editor .savebar .btn { flex: 1 1 auto; }
 }

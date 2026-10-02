@@ -1,3 +1,4 @@
+import RobotOffice from "../components/RobotOffice";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, Clip, clipThumbUrl, Project, projectThumbUrl, timeAgo } from "../api";
 import { NeedsYouItem } from "../autopilot";
@@ -85,9 +86,10 @@ export default function Home() {
   const h = st?.home;
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
 
-  // What needs you: Autopilot's list, then any of the newest videos that could not be made into clips.
+  // Automatic failures stay in Recent videos; only genuine exceptions from Autopilot ask for attention.
   const items: NeedsYouItem[] = lost ? [] : h?.needs_you || [];
-  const failed = (projects || []).filter((p) => p.status === "error");
+  const failed = (projects || []).filter((p) => p.status === "error"
+    && !["autopilot", "live"].includes(p.origin || ""));
   const firstUse = !!st && !lost && !st.home.setup.started && projects !== null && projects.length === 0
     && st.home.setup.mode !== "manual";
   const busyProject = (projects || []).find((p) => BUSY.includes(p.status));
@@ -241,6 +243,8 @@ export default function Home() {
           <Skel className="skel-line" style={{ width: "60%" }} />
         </section>
       )}
+
+      <RobotOffice compact />
 
       <div className="cols-main">
         <section className="panel" aria-labelledby="recent-title">

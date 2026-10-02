@@ -64,19 +64,13 @@ export function Icon({ name, size, fill = false, className = "" }: { name: IconN
 }
 
 export function Logo({ size = 32 }: { size?: number }) {
-  const id = useId().replace(/:/g, "");
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-      <defs>
-        <linearGradient id={`lg${id}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ffb13b" />
-          <stop offset=".55" stopColor="#ff6a2b" />
-          <stop offset="1" stopColor="#ff3d7f" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="16" fill="#1b1c21" />
-      <path d="M22 14h20a4 4 0 0 1 4 4v28a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4z" fill="none" stroke={`url(#lg${id})`} strokeWidth="4" />
-      <path d="M28 25l11 7-11 7z" fill={`url(#lg${id})`} />
+    <svg width={size} height={size} viewBox="0 0 32 32" shapeRendering="crispEdges"
+      aria-hidden="true" focusable="false">
+      <path d="M4 0h24v4h4v24h-4v4H4v-4H0V4h4z" fill="#26384c" />
+      <path d="M14 3h4v5h-4zM7 9h18v3h3v12h-3v3H7v-3H4V12h3z" fill="#f4ebd7" />
+      <path d="M8 13h16v9H8z" fill="#0b1421" />
+      <path d="M10 15h3v4h-3zM19 15h3v4h-3zM14 24h4v2h-4z" fill="#f5b94c" />
     </svg>
   );
 }

@@ -77,6 +77,7 @@ def test_render_writes_the_artifact_record(data, tmp_path):
     assert art["path"] == str(mp4) and art["sha256"] == artifact.sha256_file(mp4) and art["size"] == mp4.stat().st_size
     assert (art["probe"]["width"], art["probe"]["height"]) == (1080, 1920)
     assert art["probe"]["video_codec"] == "h264" and art["probe"]["audio_codec"] == "aac"
+    assert abs(art["probe"]["duration"] - out["duration"]) < 0.1
     assert art["settings"]["silence"] == "light" and art["settings"]["tracking"] == "center"
 
     edl = json.loads(Path(art["edl"]).read_text())

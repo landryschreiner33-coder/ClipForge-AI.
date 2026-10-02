@@ -60,14 +60,14 @@ computer ClipFoundry runs on, so those tests would fail.
 | --- | --- |
 | `tests/app-shell.spec.ts` | Health API, the built UI is served, the sidebar reaches Home, Autopilot, Library, Posts and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/projects`, `#/publish-center/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
 | `tests/home.spec.ts` | The next step comes from the real state (Needs you, welcome, current work), the Autopilot status line, Recent videos and clips and Coming up match the API, no stats or system details, Add video |
-| `tests/autopilot.spec.ts` | The overview shows the real state and Stop all jobs asks first (the test cancels), the facts (this PC kept awake, processing, your videos folder) match the API, Needs you, nothing technical on the overview; Activity; Permissions & sources and its add dialogs (opened and canceled); System, Jobs and Learning under Advanced; section addresses |
+| `tests/autopilot.spec.ts` | The overview shows the real state and Stop all jobs asks first (the test cancels), Now, Progress, Next, Posts and This PC match the API, link intake and Needs you; Activity; Permissions & sources and its add dialogs (opened and canceled); System, Jobs and Learning under Advanced; section addresses |
 | `tests/create.spec.ts` | Make clips only enabled with a video or an http(s) link, non-video files refused, a chosen video can be swapped, options start from your saved defaults and changing them does not save anything |
 | `tests/library.spec.ts` | The Library matches the API, the name filter and chips, Delete and Make clips again ask first (the test cancels), a video and a clip open, leaving the editor with an unsaved change asks first, an unknown video or clip shows a message |
 | `tests/posts.spec.ts` | Each tab lists the posts it should, tab counts, the time zone stated once, old Publish Center addresses, a post's row and page show the same status, Publish now only on an approved post, Cancel this post asks first (the test keeps the post), Results show real numbers or a dash with the reason, an unknown post |
 | `tests/settings.spec.ts` | Accounts first, Defaults and Advanced sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
 
-## The beginner flow (sandbox)
+## Beginner flow and complete Autopilot loop (sandbox)
 
 One more test goes through what a new user does: open ClipFoundry, press Get started on Home, choose
 Autopilot and keep the suggested topics, connect YouTube and TikTok, press Start Autopilot, and watch Autopilot find
@@ -76,8 +76,24 @@ one agreement with a creator, naming the folder where they share their raw files
 creator's video, finds its file in the folder and sends it on to the Clip Hunter by itself. It changes things, so it never runs against your real ClipFoundry: it starts its own **sandbox**
 (`sandbox/run_sandbox.py`) with a temporary data folder, port 8799, **test connections** to local stand-ins
 for Google's and TikTok's sign-in pages and APIs (nothing reaches the real platforms, nothing is posted) and a
-synthetic transcript instead of Whisper (no model download). It needs `start.bat` to have run once (for
-`.venv`) and ffmpeg.
+synthetic transcript instead of Whisper (no model download).
+
+A second isolated sandbox on port 8800 proves the full automatic loop: discovery, an unreadable source followed by
+the next usable source, real audio extraction and captioned vertical renders, packaging, the full quality check,
+scheduling, automatic YouTube upload to the fake platform, collection of its reported metrics, learning, and a
+second discovery after the worker host restarts. Upload bytes must match the checked artifact's SHA-256. The test
+also pastes a link through the page, pastes its alternate address to check duplicate handling, and keeps its locally
+completed clip when publishing permission is unknown. An upcoming stream waits across another restart before real
+segmented capture and post-live clipping finish it. It never approves an individual post or retries a failed job.
+
+The full sandbox replaces external account APIs, fixture DNS, original-file access and Whisper. Rendering, quality
+checks, approvals, queue dispatch, uploads and learning use the application itself. Small generated originals stand
+in for the longer episodes described by the fake catalog. Simulated result age avoids waiting a day; metrics still
+come from the fake platform, and two posts correctly leave learning below its ten-post threshold. Fixture controls
+under `/sandbox/` exist only in the sandbox executable. They are absent from the ordinary app.
+
+The tests need `start.bat` to have run once (for `.venv`), ffmpeg/ffprobe, and **espeak-ng** or **espeak** on PATH to
+generate speech with a matching transcript. They use CPU encoding and do not verify CUDA or real account uploads.
 
 Double-click `e2e\run-beginner-test.bat`, or in a terminal:
 
@@ -87,7 +103,16 @@ npm run test:sandbox
 ```
 
 `CLIPFOUNDRY_PYTHON` picks another Python (default `..\.venv\Scripts\python.exe`), and
-`CLIPFOUNDRY_SANDBOX_PORT` another port.
+`CLIPFOUNDRY_SANDBOX_PORT` another port; its successor is used by the complete-loop sandbox.
+Screenshots of actual working, waiting, restart and paused states are saved under
+`design/retro-studio/screenshots/`, separately from Playwright's temporary test results.
+
+The corresponding Python integration checks include an upcoming stream waiting across a worker restart, followed
+by real segmented capture and post-live clipping when the fake platform reports it live:
+
+```bat
+.venv\Scripts\python.exe -m pytest tests/test_zero_touch_loop.py
+```
 
 ## Maintaining the tests
 

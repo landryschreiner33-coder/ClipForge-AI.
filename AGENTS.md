@@ -79,11 +79,11 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~360 tests, ~4-6 min
-.venv/bin/python -m pytest -m slow                # 5 end-to-end renders, ~8 min (needs ffmpeg + espeak-ng)
+.venv/bin/python -m pytest -m "not slow"          # ~470 tests, ~4-6 min
+.venv/bin/python -m pytest -m slow                # 7 real-media cases, ~10-12 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
 cd e2e && npm install && npm test                 # 60 read-only browser tests against a running app
-cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)
+cd e2e && npm run test:sandbox                    # beginner, motion, robot and complete-loop checks (ports 8799/8800)
 ```
 
 * `tests/conftest.py` points `CLIPFOUNDRY_DATA` at a temp folder and sets `CLIPFOUNDRY_WORKERS=off`, so tests never
@@ -218,14 +218,24 @@ PC listed at the end of `IMPLEMENTATION_STATUS.md`.
 real YouTube/TikTok uploads, real Data API and oEmbed answers, and throughput per source. The checklist at the end
 of `IMPLEMENTATION_STATUS.md` lists what the user must run on their PC.
 
+## Current implementation branch (2026-10-02)
+
+`codex/retro-robot-autopilot` builds on verified default commit `992431e`; it is not merged into the default yet.
+It adds durable public link intake and recovery, guarded HTTP/HLS capture, local processing intent separated from
+reuse/publishing rights, and the owner's retro robot UI. `design/retro-studio/SPEC.md` maps the four visible stations
+to the existing twelve workers. They share the status poll and animate only fresh active jobs. Browser-local
+Reduce motion and the OS preference stop motion; hidden tabs pause decoration. `docs/IMPLEMENTATION_STATUS.md`
+records the completed validation and actual disposable-data screenshots. CUDA dependencies are unchanged.
+
 ## Rules every change must keep
 
 These are product guarantees; tests enforce most of them. Don't weaken them to make something work.
 
-1. **Rights before everything.** Only Owned, Licensed and Allowlisted sources, creator agreements, CC BY and public
-   domain are clipped automatically. Everything else is skipped and explained in the Activity log (no question, no
-   popup). Rights are re-checked before every stage, before scheduling and before publishing, so work queued
-   earlier cannot get around a later answer.
+1. **Separate local intent from reuse rights.** Only Owned, Licensed and Allowlisted sources, creator agreements,
+   CC BY and public domain are selected automatically from discovery. Public links explicitly submitted in
+   Autopilot may be processed locally through supported media access even when reuse permission is unknown;
+   explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
+   re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
    * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
      confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
      confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.

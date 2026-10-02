@@ -74,6 +74,19 @@ def auto_allowed(status: str, settings: dict) -> bool:
             PD: bool(settings.get("rights_auto_public_domain", True))}.get(status, False)
 
 
+def local_allowed(source: dict, evaluation: dict | None = None, settings: dict | None = None) -> bool:
+    """A user-submitted, accessible video may be clipped locally without a publishing grant.
+
+    This never changes its reuse status: scheduling and publishing still require auto_allowed.
+    Explicit blocks remain binding, and access.resolve separately decides whether media can be obtained.
+    """
+    intake = source.get("intake") or {}
+    if intake.get("canceled") or intake.get("removed") or source.get("status") in ("canceled", "removed"):
+        return False
+    r = evaluation if evaluation is not None else evaluate(source, settings)
+    return bool(r["auto_allowed"] or (source.get("user_added") and r["status"] != BLOCKED))
+
+
 # What a title says about material that is not the creator's own (music, broadcasts, films). A heuristic: it can
 # miss things, so an agreement also never covers clips with long stretches of sound without speech (gate.py).
 THIRD_PARTY = [
@@ -252,9 +265,9 @@ def apply(source: dict, settings: dict | None = None, all_rules: list[dict] | No
     status = source.get("status") or "discovered"
     if r["status"] == BLOCKED and status not in ("analyzed", "weak", "exhausted"):
         fields["status"] = "blocked"
-    elif r["auto_allowed"] and status in ("discovered", "needs_rights", "blocked"):
+    elif local_allowed(source, r, settings) and status in ("discovered", "needs_rights", "blocked"):
         fields["status"] = "eligible"
-    elif not r["auto_allowed"] and status in ("discovered", "eligible", "blocked", "needs_file", "queued"):
+    elif not local_allowed(source, r, settings) and status in ("discovered", "eligible", "blocked", "needs_file", "queued"):
         fields["status"] = "needs_rights"  # a video waiting for its file or its turn that is no longer covered
     if r["status"] != source.get("rights_status"):
         state.event("rights_status", f"{source.get('title', '')[:80]}: {r['label']} ({r['basis']})",
@@ -384,6 +397,11 @@ def gate(source: dict | None, stage: str, settings: dict | None = None) -> dict:
     Re-evaluates the rules each time, so a rule added later (e.g. Blocked) takes effect immediately."""
     if source is None:
         return {"status": OWNED, "auto_allowed": True, "basis": "Manual project"}
+    if source.get("id"):
+        source = db.fetch("sources", source["id"]) or source
+    intake = source.get("intake") or {}
+    if source.get("status") in ("canceled", "removed") or intake.get("canceled") or intake.get("removed"):
+        raise RightsBlocked("Canceled by you: no further automatic posts will be made from this video.", BLOCKED)
     settings = settings if settings is not None else db.get_settings()
     r = evaluate(source, settings)
     if not r["auto_allowed"]:
@@ -408,6 +426,8 @@ def download_allowed(source: dict, settings: dict) -> tuple[bool, str]:
 def url_typed_by_user(source: dict) -> bool:
     """Was this source's URL typed by you (added by hand, or a stream you configured)? Only then may it point into
     your own network; URLs that came from a feed's rows or from discovery must be public (netguard.py)."""
+    if source.get("user_added"):
+        return False  # public-link intake stays public on every redirect, including later pipeline steps
     if not source.get("signal_id"):
         return True
     signal = db.fetch("trend_signals", source["signal_id"]) or {}
