@@ -226,6 +226,65 @@ def test_ended_stream_drains_old_csv_and_posts_once_with_parent_priority(data, m
     assert len(posts) == 1 and posts[0]["priority"] == 90
 
 
+@pytest.mark.parametrize("reason", ["restart", "paused"])
+@pytest.mark.parametrize("returncode", [0, 255])
+def test_closing_or_pausing_during_a_turn_keeps_the_broadcast_open(data, monkeypatch, reason, returncode):
+    """The recorder stops when the app closes or Autopilot is paused while a turn runs. The broadcast has not
+    ended: the turn waits without using an attempt, and the next one starts a new recorder after the saved minutes
+    instead of joining the recording and starting the post-live analysis."""
+    from clipfoundry import config, db
+    from clipfoundry.pipeline.common import read_json
+    from clipfoundry.autopilot import live, queue
+
+    made = []
+
+    class Interrupted:
+        def __init__(self, sess, job, args, relays=None):
+            self.sess, self.job_id, self.host = sess, job.id, job.host
+            self.stopped_reason = ""
+            self.relays = []
+            self.proc = SimpleNamespace(returncode=None)
+            self.proc.poll = lambda: self.proc.returncode
+            sess.listfile.write_text(f"r{sess.run:03d}_00000.mkv,0,60\n")
+            made.append(self)
+
+        def stop(self, why=""):
+            self.stopped_reason = self.stopped_reason or why
+
+        def error(self):
+            return ""
+
+    def segment_then_stop(sess, name, duration, job):
+        record_segment(sess, name, duration, job)
+        recorder = made[-1]
+        recorder.stop(reason)  # the host's stop_captures or the watchdog, while this turn transcribes
+        recorder.proc.returncode = returncode  # the recorder exits (ffmpeg's code after a stop signal, or 0)
+
+    monkeypatch.setattr(live, "Capture", Interrupted)
+    monkeypatch.setattr(live, "process_segment", segment_then_stop)
+    monkeypatch.setattr(live, "detect", lambda sess, job: None)
+    monkeypatch.setattr(live, "input_args", lambda src, settings, **kw: [])
+    monkeypatch.setattr(live, "finalize", lambda s: s.pdir / "source.mkv")
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    src = source(data)
+    job = context(src, host)
+    with pytest.raises(queue.Wait) as waiting:
+        live.live_capture(job)
+    assert waiting.value.reason == reason
+    assert db.fetch("sources", src["id"])["live_status"] != "ended"
+    assert not [row for row in queue.jobs(worker="live_monitor") if row["kind"] == "post_live"]
+    assert not live._captures
+    project = db.fetch("sources", src["id"])["project_id"]
+    saved = read_json(config.projects_dir() / project / "live" / "state.json", {})
+    assert saved["offset"] == 60 and not saved["capture_complete"]
+
+    # The next turn records again, after the minute that was already saved
+    monkeypatch.setattr(live, "process_segment", record_segment)
+    with pytest.raises(queue.Wait, match="Watching live"):
+        live.live_capture(job)
+    assert len(made) == 2 and made[1].sess.run == 2 and made[1].sess.offset == 120
+
+
 def test_server_wait_survives_recording_restart(data, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import live, queue

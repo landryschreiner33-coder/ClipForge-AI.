@@ -701,6 +701,10 @@ def live_capture(job: Job) -> dict:
     capture.stop()
     with _capture_lock:
         _captures.pop(key, None)
+    if capture.stopped_reason in ("restart", "paused"):
+        # The app closed or Autopilot was paused during this turn: the broadcast did not end. The next turn starts
+        # a new recorder after the saved minutes, without using an attempt or finishing the recording here.
+        raise queue.Wait(capture.stopped_reason, TURN_SECONDS, "Recording paused; it continues when Autopilot runs")
     err = capture.error()
     retry_at = float((read_json(sess.segdir / "server-wait.json", {}) or {}).get("until") or 0)
     if retry_at > time.time():
