@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { zoneLine } from "../format";
+import { plural, zoneLine } from "../format";
 import { useStatus } from "../status";
 import {
   checkSummary, inInbox, loadPosts, mainAction, okOutdated, Post, PostAction, PostActionDialog, postStatus, timeLabel,
@@ -9,6 +9,7 @@ import { PostResults } from "../components/postResults";
 import {
   EmptyState, Icon, LinkTabs, MenuItem, MoreMenu, PageHead, Pill, PLATFORM_LABEL, PlatformName, Skel, Thumb, usePoll,
 } from "../components/ui";
+import "./posts.css";
 
 const VIEWS = ["review", "scheduled", "published", "history", "problems", "results"];
 
@@ -26,6 +27,10 @@ const EMPTY: Record<string, [string, string]> = {
   published: ["Nothing published yet", "Posts appear here once they are live."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
+};
+const VIEW_TITLE: Record<string, string> = {
+  review: "Ready for your review", scheduled: "Your posting agenda", published: "Out in the world",
+  history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
 };
 
 // Problems, grouped by what you do about them (one section each).
@@ -66,12 +71,19 @@ export default function Posts({ view }: { view?: string }) {
   };
 
   return (
-    <div className="page">
+    <div className="page posts-page">
       <PageHead title="Posts"
         sub={<>
           Every planned and published post. One clip can have a YouTube post and a TikTok post. {zoneLine(tz)}
         </>} />
       <LinkTabs label="Posts" tabs={tabs} current={v === "history" ? "published" : v} />
+      <div className="post-ledger-heading">
+        <div className="stack">
+          <span className="kind-label">Posting desk</span>
+          <h2>{VIEW_TITLE[v]}</h2>
+        </div>
+        {data && v !== "results" && <span className="small muted">{plural(count(v), "post")}</span>}
+      </div>
       {v === "results" ? <PostResults posts={items} /> : !data ? (
         error ? (
           <EmptyState icon="alert" title="Posts could not be loaded"
@@ -111,7 +123,7 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction
   const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} onAction={onAction} />;
   return (
     <>
-      <p className="small muted">{intro}</p>
+      <p className="small muted post-list-intro">{intro}</p>
       {(view === "published" || history) && (
         <label className="choice">
           <input type="checkbox" checked={history} onChange={(e) => {
@@ -131,22 +143,65 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction
           const list = items.filter(g.test);
           if (!list.length) return null;
           return (
-            <section key={g.id} className="panel tight" aria-labelledby={`grp-${g.id}`}>
+            <section key={g.id} className="panel tight post-problem-group" aria-labelledby={`grp-${g.id}`}>
               <h2 id={`grp-${g.id}`} style={{ fontSize: "var(--fs-h3)" }}>{g.label} ({list.length})</h2>
               <div className="rows">{list.map(row)}</div>
             </section>
           );
         })
       ) : (
-        <section className="panel tight" aria-label="Posts">
-          <div className="rows">{items.map(row)}</div>
-        </section>
+        <div className="post-agenda" aria-label="Posts grouped by local day">
+          {agendaDays(items, tz, history || view === "published").map((day) => (
+            <section key={day.key} className="panel post-agenda-day" aria-labelledby={`post-day-${day.key}`}>
+              <div className="panel-head post-day-heading">
+                <h2 id={`post-day-${day.key}`}>{day.label}</h2>
+                <span className="tiny muted">{plural(day.items.length, "post")}</span>
+              </div>
+              <div className="rows">{day.items.map(row)}</div>
+            </section>
+          ))}
+        </div>
       )}
       {capped && (view === "published" || history) && (
         <p className="tiny faint">Showing the newest 500 finished posts. Older ones are kept but not listed here.</p>
       )}
     </>
   );
+}
+
+/** Use the configured calendar day, so late-evening posts stay with their actual local posting date. */
+function agendaDays(items: Post[], tz?: string, newestFirst = false) {
+  let timezone = tz;
+  try {
+    new Intl.DateTimeFormat([], { timeZone: timezone });
+  } catch {
+    timezone = undefined;
+  }
+  const calendar = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const label = new Intl.DateTimeFormat([], {
+    timeZone: timezone, weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+  const keyOf = (date: Date) => {
+    const parts = calendar.formatToParts(date);
+    return ["year", "month", "day"].map((kind) => parts.find((part) => part.type === kind)?.value || "")
+      .join("-");
+  };
+  const today = keyOf(new Date());
+  const groups = new Map<string, { key: string; label: string; items: Post[] }>();
+  for (const post of items) {
+    const date = post.planned_at ? new Date(post.planned_at * 1000) : null;
+    const key = date ? keyOf(date) : "unplanned";
+    if (!groups.has(key)) groups.set(key, { key,
+      label: date ? `${key === today ? "Today · " : ""}${label.format(date)}` : "Time not chosen yet", items: [] });
+    groups.get(key)!.items.push(post);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === "unplanned") return 1;
+    if (b.key === "unplanned") return -1;
+    return newestFirst ? b.key.localeCompare(a.key) : a.key.localeCompare(b.key);
+  });
 }
 
 function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: PostAction, p: Post) => void }) {
@@ -178,6 +233,7 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
         <div className="post-meta">
           <PlatformName platform={p.platform} extra={account ? `· ${account}` : undefined} />
           <span className="tnum">{timeLabel(p.planned_at, tz)}</span>
+          {p.privacy && <span className="post-privacy">{privacyLabel(p.publication?.privacy || p.privacy)}</span>}
           <Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
           {p.replaces && p.status === "awaiting_approval" && <span className="tag">Replaces a weaker post</span>}
         </div>
@@ -198,4 +254,12 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
       </div>
     </div>
   );
+}
+
+function privacyLabel(privacy: string): string {
+  const labels: Record<string, string> = {
+    public: "Public", private: "Private", unlisted: "Unlisted", PUBLIC_TO_EVERYONE: "Public",
+    SELF_ONLY: "Only you", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers",
+  };
+  return labels[privacy] || privacy;
 }

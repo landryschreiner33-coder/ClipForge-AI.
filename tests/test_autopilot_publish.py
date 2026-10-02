@@ -477,3 +477,79 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
     run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
     assert len(g.videos) == 1 and len(g.sessions) == 1  # the stored session was continued, nothing uploaded twice
+
+
+@pytest.mark.parametrize("how", ["stop_all", "canceled_by_you"])
+def test_an_approved_post_whose_upload_job_was_stopped_goes_out_at_its_new_time(env, how):
+    """Stop all jobs (then Resume jobs), or canceling the waiting upload job, puts the approved post back with a new
+    time. When that time comes its upload is queued again, and it is uploaded once."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler, state
+
+    g, t, tmp = env
+    connect(g, t)
+    db.save_settings({"autopilot_auto_publish": True})
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+
+    def due() -> None:
+        db.execute("UPDATE scheduled_publications SET planned_at = ? WHERE id = ?", (time.time() + 60, item["id"]))
+        scheduler.process_due(db.get_settings(), time.time())
+
+    due()
+    job = queue.jobs(worker="publisher")[0]
+    assert job["status"] == "queued" and db.fetch("scheduled_publications", item["id"])["status"] == "publishing"
+    if how == "stop_all":
+        queue.cancel_all()
+        state.put("emergency_stop", False)  # Resume jobs
+    else:
+        queue.cancel(job["id"])
+    db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
+    scheduler.reconcile_orphans(time.time())
+    back = db.fetch("scheduled_publications", item["id"])
+    assert back["status"] == "approved" and back["planned_at"] is None  # the upload never started: a new time
+    due()  # the new time came
+    assert queue.get(job["id"])["status"] == "queued"
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published" and len(g.videos) == 1
+
+
+def test_closing_the_app_mid_upload_resumes_the_exact_session_after_restart(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    old_host = host.WorkerHost(periodic=False)
+    job = queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                        ref=("scheduled", item["id"]))
+    real = publish_jobs._progress_writer
+
+    def closing(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if 0.1 < frac < 1.0:
+                old_host._stop.set()
+                old_host.running()[job["id"]].cancel_event.set()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", closing)
+    old_host._run("publisher", queue.claim("publisher", "before-close"))
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    pending = queue.get(job["id"])
+    assert saved["status"] == "reconciling" and pub["info"]["upload_session"]
+    assert pending["status"] == "waiting" and pending["wait_reason"] == "restart"
+    assert len(g.sessions) == 1 and not g.videos
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    new_host = host.WorkerHost(periodic=False)
+    new_host._run("publisher", queue.claim("publisher", "after-restart", now=pending["run_after"] + 1))
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(g.sessions) == 1 and len(g.videos) == 1
+    assert queue.get(job["id"])["status"] == "completed"

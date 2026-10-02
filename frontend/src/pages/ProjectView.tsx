@@ -129,7 +129,7 @@ export default function ProjectView({ id }: { id: string }) {
   });
 
   return (
-    <div className="page">
+    <div className="page source-video-page">
       <PageHead crumbs={[{ label: "Library", href: "#/library" }, { label: p.name }]} kind="Source video" title={p.name}
         sub={facts}
         actions={<>
@@ -175,7 +175,8 @@ export default function ProjectView({ id }: { id: string }) {
             <Thumb src={p.has_thumbnail ? projectThumbUrl(p) : null} duration={p.duration} />
           </div>
           <div className="src-facts">
-            <h2 id="src-h" className="sr-only">About this video</h2>
+            <span className="kind-label">Original video</span>
+            <h2 id="src-h">About this video</h2>
             {busy && <Working p={p} />}
             {(transcript || language) && (
               <dl className="kv">
@@ -327,6 +328,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
         )}
       </div>
       <div className="ccard-body">
+        <span className="kind-label">Generated clip · 9:16</span>
         <h3 className="clamp-2" id={`cc-${c.id}`} style={{ fontSize: "var(--fs-body)" }}>{c.title}</h3>
         <span className="score" title={ESTIMATE_NOTE}><b>{Math.round(c.score)}</b>Viral Potential (estimate)</span>
         <span className="tiny faint">

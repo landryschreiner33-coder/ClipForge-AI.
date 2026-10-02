@@ -4,6 +4,7 @@ import { ap } from "./autopilot";
 import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost } from "./components/ui";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
+import { MotionProvider } from "./motion";
 import Home from "./pages/Home";
 import Setup from "./pages/Setup";
 import Create from "./pages/Create";
@@ -47,9 +48,9 @@ function page(route: Route) {
 
 export default function App() {
   return (
-    <StatusProvider>
-      <Shell />
-    </StatusProvider>
+    <MotionProvider>
+      <StatusProvider><Shell /></StatusProvider>
+    </MotionProvider>
   );
 }
 

@@ -722,6 +722,14 @@ def reconcile_orphans(now: float) -> int:
                       status_note="Checking with the platform whether the upload finished",
                       audit=_audit(item, "reconciling", "The upload job stopped before it finished; checking with the "
                                                         "platform what happened"))
+            old = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+            if old and old["status"] == "canceled":
+                # The post already has an upload record. Reconcile that same session after work resumes; this is
+                # the narrowly scoped exception to cancellation, never permission to start a second upload.
+                db.update("worker_jobs", old["id"], status="queued", cancel_requested=0, attempts=0, run_after=now,
+                          lease_owner="", lease_until=0, finished_at=None, error="", fix="",
+                          message="Checking what happened to the upload")
+                queue.log_line(old["id"], old["worker"], "info", "reconcile", "Checking the existing upload")
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600,
                           message="Checking what happened to the upload")
@@ -767,8 +775,10 @@ def process_due(settings: dict, now: float) -> dict:
                              "Automatic publishing is off, so approved posts wait for you at their time.",
                              "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
+            # The approved post decides, not an earlier upload job: one canceled before its upload started (the
+            # post came back with a new time) runs again now. The publisher itself never uploads a video twice.
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
-                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600)
+                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1

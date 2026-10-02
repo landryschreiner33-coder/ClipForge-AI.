@@ -73,7 +73,7 @@ test("the overview shows Autopilot's real state, and Stop all jobs asks first", 
   }
 });
 
-test("the facts tell the truth: kept awake, processing, your videos folder", async ({ page, request }) => {
+test("the overview has simple facts and reports the real keep-awake state", async ({ page, request }) => {
   const first = await getJson(request, "/api/autopilot/status");
   test.skip(notSetUp(first), "Autopilot was never started here: the overview shows Set up Autopilot instead");
   // Kept awake only when Windows agreed (the real state, never the setting alone)
@@ -87,25 +87,59 @@ test("the facts tell the truth: kept awake, processing, your videos folder", asy
     await expect(fact(page, "This PC")).toHaveText(word, { timeout: 1000 });
     await expect(page.locator(".pc-note")).toHaveText(st.home.pc_note, { timeout: 1000 });
   }).toPass();
-  // Processing: the CPU is never shown as the GPU
-  const st = await getJson(request, "/api/autopilot/status");
-  const last = st.gpu.last_transcription;
-  const processing = fact(page, "Processing");
-  if (st.gpu.mode !== "gpu") await expect(processing).toContainText("CPU");
-  else if (st.home.needs_you.some((i: any) => i.type === "gpu")) {
-    await expect(processing).toHaveText("GPU found, transcription not working");
-  } else if (last && last.requested_device === "cuda" && last.device !== "cuda") {
-    await expect(processing).toHaveText("CPU (slower) for the last video");
-  } else {
-    await expect(processing).toContainText("GPU");
-  }
+  for (const label of ["Now", "Progress", "Next", "Posts"]) await expect(fact(page, label)).toBeVisible();
+  await expect(fact(page, "Processing")).toHaveCount(0);
+  await expect(async () => {
+    const st = await getJson(request, "/api/autopilot/status");
+    const posts = st.home.posts;
+    await expect(fact(page, "Posts")).toHaveText(`${posts.ready ?? 0} ready · ${posts.scheduled
+      ?? st.target.scheduled_posts} scheduled · ${posts.review} need your OK`, { timeout: 1000 });
+  }).toPass();
+  // A search that did not work is named with what to do, while the other searches go on
+  await expect(async () => {
+    const st = await getJson(request, "/api/autopilot/status");
+    const problems = st.enabled && !st.paused ? st.home.discovery.problems : [];
+    const note = page.locator(".search-problems");
+    await expect(note).toHaveCount(problems.length ? 1 : 0, { timeout: 1000 });
+    for (const p of problems) await expect(note).toContainText(`${p.name}: ${p.detail}`, { timeout: 1000 });
+  }).toPass();
   // Your videos folder: where it is (Open videos folder is not pressed: it would create and watch the folder)
+  const st = await getJson(request, "/api/autopilot/status");
   await expect(page.getByRole("heading", { name: "Your videos", exact: true })).toBeVisible();
   await expect(page.locator(".my-videos-path")).toHaveText(st.home.my_videos.path);
   await expect(page.locator(".my-videos").getByRole("button", { name: "Open videos folder" })).toBeVisible();
   for (const h of ["Working on", "Coming up", "How posts go out"]) {
     await expect(page.getByRole("heading", { name: h, exact: true })).toBeVisible();
   }
+});
+
+test("video and stream intake is available without configuring a source", async ({ page, request }) => {
+  await expect(page.getByRole("heading", { name: "Add a video or stream", exact: true })).toBeVisible();
+  const input = page.getByLabel("Paste a video or stream link", { exact: true });
+  const add = page.getByRole("button", { name: "ADD", exact: true });
+  await expect(input).toBeVisible();
+  await expect(add).toBeDisabled();
+  // Typing alone is read-only; ADD and the item actions are never pressed against the user's data.
+  await input.fill("https://example.com/video.mp4");
+  await expect(add).toBeEnabled();
+  await input.fill("");
+  await expect(add).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "Added by you", exact: true })).toBeVisible();
+  await expect(async () => {
+    const links = await getJson<any[]>(request, "/api/autopilot/links");
+    const rows = page.locator(".ap-link-row");
+    await expect(rows).toHaveCount(links.length, { timeout: 1000 });
+    for (const item of links) {
+      const row = rows.filter({ has: page.locator(`[id="ap-link-title-${item.id}"]`) });
+      await expect(row).toContainText(item.title || "Video or stream", { timeout: 1000 });
+      await expect(row).toContainText(item.status_label, { timeout: 1000 });
+      for (const [field, action] of [["can_remove", "Remove"], ["can_cancel", "Cancel"],
+        ["can_retry", "Retry"], ["can_prioritize", "Move to top"]]) {
+        await expect(row.getByRole("button", { name: new RegExp(`^${action}:`) }))
+          .toHaveCount(item[field] ? 1 : 0, { timeout: 1000 });
+      }
+    }
+  }).toPass();
 });
 
 test("Needs you lists exactly what Autopilot reports", async ({ page, request }) => {
@@ -116,7 +150,7 @@ test("Needs you lists exactly what Autopilot reports", async ({ page, request })
     const home = (await getJson(request, "/api/autopilot/status")).home;
     const rows = page.locator(".needs-you .need");
     await expect(rows).toHaveCount(home.needs_you.length, { timeout: 1000 });
-    if (!home.needs_you.length) await expect(page.getByText("Nothing right now.")).toBeVisible({ timeout: 1000 });
+    if (!home.needs_you.length) await expect(page.locator(".needs-you").getByText("Nothing right now.")).toBeVisible({ timeout: 1000 });
     for (const [i, item] of home.needs_you.slice(0, 5).entries()) {
       await expect(rows.nth(i)).toHaveAttribute("data-type", item.type, { timeout: 1000 });
       await expect(rows.nth(i)).toContainText(item.title, { timeout: 1000 });

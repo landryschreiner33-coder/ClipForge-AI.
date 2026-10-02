@@ -1,6 +1,36 @@
 /* Library, Source video and Add video: only what styles.css doesn't already have. */
 .lib-filters { gap: var(--s3); }
 .lib-search { width: min(320px, 100%); }
+.library-page .library-shelf { gap: var(--s3); }
+.library-shelf h2, .source-video-page .src-facts h2 {
+  font-family: var(--font-pixel, var(--mono)); font-weight: 400; line-height: 1.4;
+}
+.library-page .lib-search { flex: 1 1 240px; width: auto; max-width: 390px; }
+.library-page .pcard {
+  background: var(--surface); border: 2px solid var(--border); border-radius: var(--r-panel);
+  box-shadow: 3px 3px 0 var(--canvas); gap: 0;
+}
+.library-page .pcard > .thumb {
+  border-radius: var(--r-panel) var(--r-panel) 0 0; border-bottom: 2px solid var(--border);
+}
+.library-card-body { padding: var(--s4); gap: var(--s3); }
+.library-card-kind { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--s2); }
+.library-card-kind .kind-label { display: flex; align-items: center; gap: 5px; }
+.library-source { min-height: 1.4em; }
+.library-page .pcard-foot { border-top: 1px solid var(--border); padding-top: var(--s2); }
+.library-page .pcard .title-link:focus-visible { outline-offset: 3px; }
+.library-page .pcard .title-link::after { inset: 0 0 72px; }
+.source-video-page .src-facts h2 { font-size: var(--fs-h3); }
+.source-video-page .clip-grid { gap: var(--s5); }
+.source-video-page .ccard { border: 2px solid var(--border); box-shadow: 3px 3px 0 var(--canvas); }
+.source-video-page .ccard .ccard-body { border-top: 2px solid var(--border); gap: var(--s3); }
+.library-page .thumb img, .source-video-page .thumb img { image-rendering: auto; }
+@media (max-width: 620px) {
+  .library-page .grid-cards { grid-template-columns: minmax(0, 1fr); }
+  .library-page .library-shelf .panel-head { align-items: flex-start; }
+  .library-page .lib-search { max-width: none; }
+  .library-page .lib-filters .chips { width: 100%; }
+}
 
 /* clip cards: never wider than their column; the buttons stack when two don't fit side by side */
 .ccard { grid-template-columns: minmax(0, 1fr); }

@@ -350,7 +350,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
                "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
                *enc_args, "-r", f"{fps}", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000",
-               "-movflags", "+faststart", "-shortest", tmp_out.name]
+               # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
+               # video pipe early when concatenated audio is buffered, dropping frames after a silence cut.
+               "-movflags", "+faststart", "-t", f"{tl.duration:.6f}", tmp_out.name]
 
     log_path = out_dir / "render.log"
     # NVENC encodes on the GPU, so it takes the same lock as transcription and local models: on a 4-8 GB card an

@@ -82,7 +82,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
         <dt>What gets posted</dt>
         <dd>
           Only clips that passed every automatic check (file, sound, captions, framing, text), from videos you own or
-          that an agreement or license covers. A clip with a possible problem waits for you instead.
+          that an agreement or license covers. Clips that do not pass stay in your Library and are not posted.
         </dd>
         <dt><label htmlFor={`${id}-vis`}>Who can see them</label></dt>
         <dd>

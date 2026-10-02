@@ -559,7 +559,7 @@ JSON_FIELDS = {
     "trend_signals": {"keywords", "metrics", "components", "notes", "raw"},
     "trend_history": set(),
     "source_feeds": {"config"},
-    "sources": {"components", "metrics", "rights_info", "access", "channel_check"},
+    "sources": {"components", "metrics", "rights_info", "access", "channel_check", "intake"},
     "source_rights": {"conditions"},
     "publish_consents": {"settings"},
     "clip_candidates": {"scores", "rejected"},
@@ -590,7 +590,8 @@ ADDED_COLUMNS = {
     # what the provider reported about a source's license, how its file was obtained, and whether the platform
     # confirmed the channel the source names (autopilot/verify.py)
     "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
-                "channel_check": "TEXT DEFAULT '{}'"},
+                "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
+                "intake": "TEXT DEFAULT '{}'"},
 }
 
 
@@ -1017,10 +1018,15 @@ def interrupted_work() -> dict[str, list]:
     with connect() as conn:
         projects = [dict(r) for r in conn.execute(
             "SELECT id, source_path, source_url, info FROM projects WHERE status IN ('queued', 'processing') "
-            "AND COALESCE(origin, 'manual') != 'autopilot'")]
-        clips = [r["id"] for r in conn.execute(
-            "SELECT c.id FROM clips c JOIN projects p ON p.id = c.project_id WHERE c.status IN ('queued', "
-            "'rendering') AND p.status NOT IN ('queued', 'processing')")]
+            "AND COALESCE(origin, 'manual') NOT IN ('autopilot', 'live')")]
+        clips = []
+        for row in conn.execute("SELECT c.id, c.render_info, p.origin, p.status AS project_status FROM clips c "
+                                "JOIN projects p ON p.id = c.project_id WHERE c.status IN ('queued', 'rendering')"):
+            info = (_decode("clips", row) or {}).get("render_info") or {}
+            explicit = bool(info.get("manual_render_pending"))
+            manual = (row["origin"] or "manual") == "manual" and row["project_status"] not in ("queued", "processing")
+            if explicit or manual:
+                clips.append(row["id"])
         versions = [r["id"] for r in conn.execute(
             "SELECT id FROM clip_versions WHERE status IN ('queued', 'rendering')")]
         waiting = [r["id"] for r in conn.execute(

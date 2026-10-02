@@ -179,7 +179,9 @@ for exercising the whole pipeline.
 ## Responsible use
 
 Only process videos you own or have permission to use. Finding a video (trending, public or downloadable) does not
-make it reusable; Autopilot clips only sources whose rights status allows it. The optional URL import uses yt-dlp for
+make it reusable. Automatically discovered sources need reuse rights before clipping. Links you paste into
+Autopilot may be clipped locally when the file can be obtained through supported access; this supplies no reuse or
+publishing permission. Explicitly blocked videos are never processed. The optional URL import uses yt-dlp for
 publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never
 passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you
 have permission to download.
@@ -192,6 +194,13 @@ The product page, **Privacy Policy** and **Terms of Service** are in [`docs/lega
 TikTok developer app they must be public; see
 [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy). When the code changes what is
 stored or sent, update these pages in the same change.
+
+## Retro robot studio
+
+The working app uses original pixel robots and a local heading font, with readable controls and original video
+previews. Autopilot's four stations follow real activity; selecting one shows its task and reported progress.
+Settings → Defaults → Appearance saves Reduce motion in this browser and also respects the operating system.
+See [the design and actual screenshots](design/retro-studio/SPEC.md) and [Windows update steps](INSTALL.md#updating).
 
 ## Third-party assets
 

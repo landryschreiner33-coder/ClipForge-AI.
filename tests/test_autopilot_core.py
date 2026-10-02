@@ -232,6 +232,29 @@ def test_cancel_and_stop_all(data):
     assert queue.get(c["id"])["status"] == "canceled" and queue.get(b["id"])["cancel_requested"] == 1
 
 
+def test_work_held_by_stop_all_continues_after_resume_but_a_cancel_by_you_stays(data):
+    """Stop all jobs is an emergency hold: after Resume jobs, Autopilot queues the same work again when it asks for
+    it (a clip's check, a due post). A job you canceled yourself stays canceled."""
+    from clipfoundry.autopilot import queue
+
+    running = queue.enqueue("selftest", idem_key="check:running")
+    row = queue.claim("maintenance", "w")
+    assert row["id"] == running["id"]
+    waiting = queue.enqueue("selftest", idem_key="check:waiting")
+    mine = queue.enqueue("selftest", idem_key="check:mine")
+    queue.cancel(mine["id"])
+    queue.cancel_all()
+    assert queue.mark_canceled(row, "w")  # the running job reached its next check
+    for job in (running, waiting, mine):
+        assert queue.get(job["id"])["status"] == "canceled"
+
+    for job in (running, waiting):  # resumed: asked for again, the same job runs again
+        again = queue.enqueue("selftest", idem_key=job["idem_key"])
+        assert again["id"] == job["id"] and again["status"] == "queued" and again["wait_reason"] == ""
+    assert queue.enqueue("selftest", idem_key="check:mine")["status"] == "canceled"
+    assert queue.enqueue("selftest", idem_key="check:mine", revive_canceled=True)["status"] == "queued"
+
+
 # ------------------------------------------------------------------ host
 @pytest.fixture()
 def host(data):

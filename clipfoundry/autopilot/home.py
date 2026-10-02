@@ -25,6 +25,7 @@ DOING = {
     "hunt_source": "Getting a video ready",
     "post_live": "Finishing a live stream",
     "quality_check": "Checking a finished clip",
+    "regenerate_clip": "Making a fresh copy of a clip",
     "package_clip": "Writing titles and captions",
     "trend_scan": "Finding trending videos",
     "source_scout": "Choosing the best videos",
@@ -66,7 +67,7 @@ USABLE = ("eligible", "queued", "ingesting", "analyzing")  # a found video Autop
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
                "Being public or trending does not make a video reusable.")
-QUIET_KINDS = ("quota",)  # informational (resets by itself); shown under Advanced, never as "Needs you"
+QUIET_KINDS = ("quota", "job", "retry", "provider", "source")  # normal failures are handled in the background
 BOOT = time.time()  # when this app started: its background work needs a moment before it answers
 STOPPED_AFTER = 60.0  # seconds without an answer from the background work before the page says it stopped
 # The online searches by their key in state "providers" (scout.trend_scan), as the main page names them. A folder's
@@ -235,15 +236,18 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
         kind, key = a["kind"], a["key"]
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
+        if kind == "workers" and workers_alive:
+            continue  # the automatic in-app fallback already recovered this problem
         if kind == "rights":
             src = db.fetch("sources", a["ref_id"]) if a["ref_id"] else None
-            if not src or src["status"] != "needs_rights":
+            if not settings.get("rights_ask_per_video") or not src or src["status"] != "needs_rights" \
+                    or src.get("user_added"):
                 continue
             items.append({"key": key, "type": "rights", "title": "ClipFoundry found a strong trending video",
                           "question": "Can you use this content?", "detail": RIGHTS_NOTE, "source": _source_view(src)})
         elif kind == "source_file":
             src = db.fetch("sources", a["ref_id"]) if a["ref_id"] else None
-            if not src or src["status"] != "needs_file":
+            if not src or src["status"] != "needs_file" or not src.get("user_added"):
                 continue
             hosted = rights.is_platform_url(src.get("url") or "")
             items.append({"key": key, "type": "file", "title": f"Add the video file for “{src['title'][:80]}”",
@@ -264,7 +268,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
         else:
             items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
                           "link": "#/autopilot/system"})
-    for extra in (needs_sleep_fix(settings), needs_videos(settings)):
+    for extra in (needs_sleep_fix(settings),):
         if extra:
             items.append(extra)
     order = {"stopped": 0, "account": 0, "sleep": 1, "gpu": 1, "rights": 2, "file": 3, "approve": 4, "publish": 5,
@@ -474,7 +478,8 @@ def working(settings: dict) -> dict | None:
         if video:
             progress = float(job.get("progress") or 0)
             return {**video, "step": DOING.get(job["kind"], "Working"),
-                    "progress": round(min(1.0, progress), 3) if progress > 0 else None}
+                    "progress": round(min(1.0, progress), 3) if progress > 0 else None,
+                    "message": job.get("message") or DOING.get(job["kind"], "Working")}
     return None
 
 
@@ -491,8 +496,34 @@ def post_counts() -> dict:
     # quick: compared with the stored hash, as the Posts list does (display only; publishing hashes the file)
     outdated = sum(1 for i in db.select("scheduled_publications", "status = 'approved'")
                    if not approval_valid(i, quick=True))
+    from . import gate
+
+    ready = 0
+    for clip in db.select("clips", "status = 'ready' AND id NOT IN (SELECT clip_id FROM scheduled_publications "
+                                   "WHERE status IN ('awaiting_approval', 'approved', 'publishing', 'reconciling', "
+                                   "'published'))"):
+        rep = gate.report_for(clip)
+        if rep and rep["status"] == "passed":
+            ready += 1
     return {"review": n(("awaiting_approval",)) + outdated,
-            "fix": n(("reconciling", "action_needed", "failed", "blocked"))}
+            "fix": n(("reconciling", "action_needed", "failed", "blocked")), "ready": ready,
+            "scheduled": n(("approved", "publishing")) - outdated}
+
+
+def next_step(settings: dict) -> str:
+    """The next useful activity, without internal job names or time estimates."""
+    if state.paused():
+        return "Continue when you start Autopilot again"
+    if not settings.get("autopilot_enabled"):
+        return "Start Autopilot to continue"
+    pending = queue.jobs(("queued", "retrying", "waiting"), limit=100)
+    due = [j for j in pending if float(j.get("run_after") or 0) <= time.time()]
+    if due:
+        job = max(due, key=lambda j: (j.get("priority") or 0, -(j.get("created_at") or 0)))
+        return DOING.get(job["kind"], "Continue preparing videos")
+    if any(j["kind"] == "live_capture" for j in pending):
+        return "Listen for more good moments"
+    return "Check for more trending videos"
 
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
@@ -503,6 +534,7 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
             "currently": currently(settings, workers_alive, discovery), "next_look": next_look(settings),
+            "next": next_step(settings),
             "discovery": discovery, "working": working(settings),
             "needs_you": needs_you(settings, platforms, workers_alive),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),

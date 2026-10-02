@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorText, Project, projectThumbUrl } from "../api";
 import { ap } from "../autopilot";
+import { plural } from "../format";
 import {
   addedLine, cancelProcessing, DeleteProjectDialog, isWorking, LibProject, projectMenu, ProjectStatus,
 } from "../components/libParts";
@@ -40,7 +41,7 @@ export default function Library() {
 
   if (!data) {
     return (
-      <div className="page">
+      <div className="page library-page">
         {head}
         {error ? (
           <Banner tone="bad" title="The library didn't load"
@@ -62,26 +63,42 @@ export default function Library() {
   }
 
   const q = query.trim().toLowerCase();
-  const list = data.filter((p) => MATCH[filter](p) && (!q || p.name.toLowerCase().includes(q)));
+  const list = data.filter((p) => MATCH[filter](p) && (!q
+    || [p.name, p.source_filename, p.source_url].filter(Boolean).join(" ").toLowerCase().includes(q)));
+  const clipCount = data.reduce((sum, p) => sum + (p.clip_count || 0), 0);
   return (
-    <div className="page">
+    <div className="page library-page">
       {head}
+      {error && <Banner tone="warn" title="The library couldn't refresh"
+        actions={<button type="button" className="btn btn-small" onClick={refresh}>Try again</button>}>
+        The last loaded videos are still shown. {error}
+      </Banner>}
       {data.length === 0 ? <EmptyLibrary /> : (
         <>
-          <div className="row wrap lib-filters">
-            <div className="field lib-search">
-              <label htmlFor="lib-q" className="sr-only">Find a video by name</label>
-              <input id="lib-q" type="search" placeholder="Find a video by name" value={query}
-                onChange={(e) => setQuery(e.target.value)} />
+          <section className="panel library-shelf" aria-labelledby="library-sources">
+            <div className="panel-head">
+              <div className="stack">
+                <span className="kind-label">Your video shelf</span>
+                <h2 id="library-sources">Source videos</h2>
+              </div>
+              <span className="small muted">{plural(data.length, "original video")} · {plural(clipCount,
+                "generated clip")}</span>
             </div>
-            <div className="chips" role="group" aria-label="Show">
-              {FILTERS.map(([k, label]) => (
-                <button key={k} type="button" className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                  {label} ({data.filter(MATCH[k]).length})
-                </button>
-              ))}
+            <p className="small muted">Open an original to find its clips, choose versions, edit, and export.</p>
+            <div className="row wrap lib-filters">
+              <div className="field lib-search">
+                <label htmlFor="lib-q" className="sr-only">Find a video by name</label>
+                <input id="lib-q" type="search" placeholder="Find a video by name" value={query}
+                  onChange={(e) => setQuery(e.target.value)} />
+              </div>
+              <div className="chips" role="group" aria-label="Show">
+                {FILTERS.map(([k, label]) => (
+                  <button key={k} type="button" className="chip" aria-pressed={filter === k}
+                    onClick={() => setFilter(k)}>{label} ({data.filter(MATCH[k]).length})</button>
+                ))}
+              </div>
             </div>
-          </div>
+          </section>
           {list.length ? (
             <div className="grid-cards">
               {list.map((p) => <LibraryCard key={p.id} p={p} onChanged={refresh} onDelete={() => setDeleting(p)} />)}
@@ -116,8 +133,13 @@ function LibraryCard({ p, onChanged, onDelete }: { p: LibProject; onChanged: () 
           </span>
         )}
       </Thumb>
-      <div className="stack">
+      <div className="stack library-card-body">
+        <div className="library-card-kind">
+          <span className="kind-label"><Icon name="film" size={14} />Source video</span>
+          <span className="tiny muted">{plural(p.clip_count || 0, "generated clip")}</span>
+        </div>
         <a className="title-link clamp-2" id={`pc-${p.id}`} href={`#/project/${p.id}`}>{p.name}</a>
+        <span className="tiny muted break library-source">{sourceName(p)}</span>
         <div className="pcard-meta"><ProjectStatus p={p} /></div>
         <div className="pcard-foot">
           <span className="tiny faint">{addedLine(p)}</span>
@@ -127,6 +149,15 @@ function LibraryCard({ p, onChanged, onDelete }: { p: LibProject; onChanged: () 
       </div>
     </article>
   );
+}
+
+function sourceName(p: LibProject): string {
+  if (!p.source_url) return p.source_filename || "Local video";
+  try {
+    return new URL(p.source_url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Imported video";
+  }
 }
 
 /** First use: why it is empty, and the two ways to fill it. */

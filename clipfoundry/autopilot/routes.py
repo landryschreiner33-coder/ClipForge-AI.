@@ -6,12 +6,13 @@ import re
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import autopublish, gate, home, myvideos, providers, queue, quota, rights, scout, state, verify
+from . import autopublish, gate, home, intake, myvideos, providers, queue, quota, rights, scout, state, verify
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -23,6 +24,33 @@ def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", 
     """A job the user started: runs even while Autopilot is off (but never during STOP ALL JOBS)."""
     return queue.enqueue(kind, payload or {}, priority=MANUAL_PRIORITY, ref=ref, message="Started by you",
                          idem_key=f"manual:{kind}:{ref[1]}:{int(time.time())}")
+
+
+class LinkIn(BaseModel):
+    url: str
+
+
+@router.get("/links", dependencies=READ)
+def links_list() -> list[dict]:
+    return intake.links()
+
+
+@router.post("/links", dependencies=WRITE)
+def add_link(body: LinkIn) -> dict:
+    try:
+        return intake.add(body.url)
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/links/{source_id}/{operation}", dependencies=WRITE)
+def link_action(source_id: str, operation: str) -> dict:
+    try:
+        return intake.action(source_id, operation)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 # ------------------------------------------------------------------ trends and sources
@@ -397,9 +425,15 @@ def workers() -> dict:
     for name, (label, kinds) in queue.WORKERS.items():
         row = rows.get(name) or {"status": "idle", "message": "Not started"}
         stale = time.time() - float(row.get("heartbeat") or 0) > 90
+        job = queue.get(row.get("job_id") or "") if row.get("job_id") else None
+        matching = bool(job and job["worker"] == name)
+        active = bool(matching and job["status"] in queue.ACTIVE)
+        progress = job.get("progress") if active and not stale else None
         out.append({"name": name, "label": label, "kinds": list(kinds), **row,
-                    "status": "idle" if stale and row.get("status") == "working" else row.get("status", "idle"),
-                    "stale": stale, "queue": counts.get(name, {})})
+                    "status": "idle" if row.get("status") == "working" and (stale or not active) else
+                    row.get("status", "idle"),
+                    "stale": stale, "queue": counts.get(name, {}),
+                    "job_kind": job["kind"] if matching else "", "progress": progress})
     return {"workers": out, "host": supervisor.status(), "paused": state.paused()}
 
 
@@ -802,7 +836,7 @@ def publish_now(item_id: str) -> dict:
     db.update("scheduled_publications", item_id, planned_at=time.time() + 30, status="publishing",
               status_note="Publishing now (started by you)", audit=_audit(item, "publish_now", "Publish now: by you"))
     queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}", priority=MANUAL_PRIORITY,
-                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600)
+                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
     state.resolve(f"publish:{item_id}")
     return _public_item(_item_or_404(item_id), db.get_settings())
 

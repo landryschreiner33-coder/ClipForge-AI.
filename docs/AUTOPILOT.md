@@ -30,6 +30,26 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 
 ## Setting it up
 
+### Adding a video or stream while Autopilot runs
+
+On Overview, paste a public link into **Add a video or stream** and press **ADD**. **Added by you** shows its durable
+status immediately. No feed configuration is needed. The same video's supported URL aliases return **Already added**
+and point to the existing item. Submitted links have priority over discovered work after the current safe step;
+manual **Clip now** remains first. You can cancel, retry, move an item to the top, or remove it before processing.
+Completed clips remain in the Library. Discovery keeps running alongside submitted work.
+
+Upcoming streams wait without consuming a processing turn; live streams capture and search recorded segments,
+then analyze the recording after the stream ends. Queue records, finished clips and stream state survive app
+restarts. Autopilot resumes automatically when it was on; an intentional pause or Stop all jobs stays in effect.
+Temporary failures wait and retry, unusable or weak videos release their turn, and ordinary failures stay in
+Activity. **Needs you** is reserved for missing account access, required approvals, resource problems and outcomes
+that cannot safely be decided automatically.
+
+Submitting a link expresses local processing intent. If supported access is available, its clips can be saved and
+quality-checked even when reuse permission is unknown. An explicit block still wins. Publishing requires its own
+rights, quality, account and approval checks. Platform downloads remain subject to the existing download setting;
+the app never uses cookies or credentials to bypass private content, DRM, paywalls or authentication.
+
 The first time, **Get started** on Home (or **Set up Autopilot** on the Autopilot page) opens a setup in three steps
 (`#/setup`), and that is all a normal user needs:
 

@@ -1,8 +1,10 @@
+import RobotOffice from "../components/RobotOffice";
 import { useState } from "react";
 import { api, errorText, Platform, Project, projectThumbUrl, timeAgo } from "../api";
 import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
 import { PLATFORM_NAME } from "../components/accounts";
 import AdvancedView from "../components/apAdvanced";
+import LinkIntake from "../components/apLinkIntake";
 import { ConnectAction, OpenVideosFolder, PLATFORMS, UpcomingRow } from "../components/apShared";
 import SourcesView from "../components/apSources";
 import { AutoPublishLine } from "../components/autoPublish";
@@ -11,7 +13,7 @@ import {
   Banner, ConfirmDialog, Disclosure, Fact, Icon, IconName, LinkTabs, LoadingPage, PageHead, PlatformName, Pill,
   ProgressBar, Skel, TextPromptDialog, Thumb, toast, Tone, usePoll,
 } from "../components/ui";
-import { plural, when, zoneLine } from "../format";
+import { plural, zoneLine } from "../format";
 import { useStatus } from "../status";
 
 /**
@@ -98,43 +100,6 @@ function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue
   }
 }
 
-const shortGpu = (name: string) => name.replace(/^NVIDIA\s+(GeForce\s+)?/i, "") || "NVIDIA GPU";
-
-/** Processing: the GPU, and what the last transcription really ran on. The CPU is never shown as the GPU. */
-function gpuFact(st: AutopilotStatus, lost: boolean, since: string): FactValue {
-  if (lost) return ["neutral", "offline", "Unknown", noAnswer(since)];
-  const g = st.gpu;
-  const last = g.last_transcription;
-  const cpuAllowed = !!st.settings.autopilot_allow_cpu_fallback;
-  const broken = st.home.needs_you.some((i) => i.type === "gpu");
-  if (g.mode === "gpu") {
-    if (broken) {
-      return ["bad", "alert", "GPU found, transcription not working", cpuAllowed
-        ? "Autopilot may use the slower CPU instead (allowed in Settings). See Needs you."
-        : "Autopilot pauses instead of switching to the slower CPU. See Needs you."];
-    }
-    if (last && last.requested_device === "cuda" && last.device !== "cuda") {
-      return ["warn", "cpu", "CPU (slower) for the last video", `${last.warning || "CUDA could not start."} `
-        + (cpuAllowed ? "Autopilot may do this too (allowed in Settings)."
-          : "Manual videos may do this; Autopilot waits instead.")];
-    }
-    if (g.problem) return ["warn", "alert", `GPU · ${shortGpu(g.name)}, may not work`, g.problem];
-    if (last && last.device === "cuda") {
-      return ["good", "cpu", `GPU · ${shortGpu(g.name)}`,
-        `Transcription runs on the GPU (${last.model || g.whisper.model}).`];
-    }
-    if (last) {
-      // The CPU had been chosen for that video (not a fallback): say so rather than imply the GPU did it.
-      return ["neutral", "cpu", `GPU · ${shortGpu(g.name)}`,
-        "The last video was transcribed on the CPU, as set then. New videos use the GPU."];
-    }
-    return ["neutral", "cpu", `GPU · ${shortGpu(g.name)}`,
-      `Found. Nothing was transcribed on it yet (${g.whisper.model}).`];
-  }
-  if (g.available) return ["neutral", "cpu", "CPU (chosen in Settings)", g.whisper.reason];
-  return ["neutral", "cpu", "CPU (no NVIDIA GPU found)", "Transcription works, more slowly."];
-}
-
 const every = (minutes: number) => minutes % 60 === 0 ? `every ${plural(minutes / 60, "hour")}`
   : `every ${minutes} minutes`;
 
@@ -147,15 +112,21 @@ function Overview({ st, lost, since, refresh, setData }: {
   const [stopping, setStopping] = useState(false);
   if (!st.enabled && !h.setup.started) {
     return (
-      <section className="panel" aria-labelledby="ap-off">
-        <h2 id="ap-off">Autopilot is not set up</h2>
-        <p className="muted">Autopilot clips videos you made (from your videos folder) and videos it may use, like
-          public-domain ones. It skips other people's videos. Nothing is posted without your OK.</p>
-        <div className="row wrap">
-          <a className="btn btn-primary" href="#/setup/mode">Set up Autopilot</a>
-          <a className="btn" href="#/create">Make clips yourself instead</a>
+      <>
+        <section className="panel" aria-labelledby="ap-off">
+          <h2 id="ap-off">Autopilot is not set up</h2>
+          <p className="muted">Autopilot finds videos it may use and makes local clips from links you add. It keeps
+            looking and working by itself. Posting needs your OK or the permission you give for YouTube.</p>
+          <div className="row wrap">
+            <a className="btn btn-primary" href="#/setup/mode">Set up Autopilot</a>
+            <a className="btn" href="#/create">Make clips yourself instead</a>
+          </div>
+        </section>
+        <div className="ap-control-room">
+          <RobotOffice />
+          <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
         </div>
-      </section>
+      </>
     );
   }
 
@@ -183,12 +154,12 @@ function Overview({ st, lost, since, refresh, setData }: {
       : !st.enabled ? "Nothing new is found, clipped or posted. Things you start yourself still run."
         : `${h.currently}${w?.title ? ` in “${w.title}”` : ""}`;
   const [t1, i1, v1, d1] = sleepFact(st, lost, since);
-  const [t2, i2, v2, d2] = gpuFact(st, lost, since);
   const searchEvery = every(Number(st.settings.trend_poll_minutes) || 180);
   const folder = h.my_videos;
-  const d = h.discovery;
-  const lastSearch = d.last_scan ? `Last search ${when(d.last_scan, st.timezone).replace(/^Today, /, "")}: `
-    + `${plural(d.found, "video")} found. ` : "";
+  const progress = lost ? "Unknown" : !on ? "Waiting" : w?.message || (w?.progress != null
+    ? `${Math.round(w.progress * 100)}% of this step` : w ? w.step : "No video being processed right now");
+  const next = lost ? "Unknown" : !on ? "Waiting until Autopilot resumes"
+    : h.next || "Checking for more videos";
 
   return (
     <>
@@ -206,33 +177,35 @@ function Overview({ st, lost, since, refresh, setData }: {
               <Icon name="play" />Start Autopilot</button>
           ))}
         </div>
-        <div className="facts">
-          <Fact label="This PC" tone={t1} icon={i1} value={v1} desc={d1} />
-          <Fact label="Processing" tone={t2} icon={i2} value={v2} desc={d2} />
-          <Fact label="Next online search" tone="neutral" icon="clock"
-            value={lost ? "Unknown" : on && h.next_look ? when(h.next_look, st.timezone).replace(/^Today, /, "")
-              : on ? "Not planned yet" : "Not planned"}
-            desc={on || lost ? `${lost ? "" : lastSearch}Looks online for videos it may use (${searchEvery}).`
-              : "Only while Autopilot is on."} />
-          <Fact label="Your videos folder" tone={!lost && on && !folder.watching ? "warn" : "neutral"} icon="folder"
-            value={lost ? "Unknown" : !on ? "Not being checked"
-              : folder.watching ? `Checked ${FOLDER_CHECK}` : "Not watched"}
-            desc={lost ? noAnswer(since) : !on ? "Only while Autopilot is on."
-              : folder.watching ? "New videos you put there are picked up by themselves."
-                : "Turn it on under Permissions & sources, or press Open videos folder."} />
+      </section>
+
+      <div className="ap-control-room">
+        <RobotOffice />
+        <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
+      </div>
+
+      <section className="panel ap-facts-panel" aria-label="Autopilot progress">
+        <div className="facts ap-summary">
+          <Fact label="Now" tone="neutral" icon="film" value={line} />
+          <Fact label="Progress" tone="neutral" icon="refresh" value={progress} />
+          <Fact label="Next" tone="neutral" icon="clock" value={next} />
+          <Fact label="Posts" tone="neutral" icon="posts"
+            value={lost ? "Unknown" : `${h.posts.ready ?? 0} ready · ${h.posts.scheduled
+              ?? st.target.scheduled_posts} scheduled · ${h.posts.review} need your OK`} />
         </div>
-        {on && d.problems.length > 0 && (
+        {on && h.discovery.problems.length > 0 && (
           <div className="note search-problems" role="status">
             <Icon name="alert" />
             <div className="stack">
               <span>Some online searches did not work last time. The others keep going, and what was already found
                 is kept.</span>
-              {d.problems.map((p, i) => (
+              {h.discovery.problems.map((p, i) => (
                 <span key={`${p.name}:${i}`} className="small"><b>{p.name}:</b> {p.detail} {p.fix}</span>
               ))}
             </div>
           </div>
         )}
+        <Fact label="This PC" tone={t1} icon={i1} value={v1} desc={d1} />
         <p className="note pc-note"><Icon name="info" /><span>{h.pc_note}</span></p>
       </section>
 

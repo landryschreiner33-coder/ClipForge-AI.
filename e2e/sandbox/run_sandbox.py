@@ -36,6 +36,7 @@ TRENDING = [  # what the stand-in for YouTube reports as trending (other creator
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_SANDBOX_PORT", 8799)))
+    parser.add_argument("--scenario", choices=("beginner", "zero-touch"), default="beginner")
     args = parser.parse_args()
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         sys.exit("The sandbox needs ffmpeg and ffprobe on the PATH (winget install Gyan.FFmpeg).")
@@ -58,6 +59,7 @@ def main() -> None:
     for name, path in (("AUTH_URL", "/o/oauth2/v2/auth"), ("TOKEN_URL", "/token"), ("REVOKE_URL", "/revoke"),
                        ("API_URL", "/youtube/v3"), ("UPLOAD_URL", "/upload/youtube/v3/videos")):
         setattr(youtube, name, google.url + path)
+    youtube.ANALYTICS_URL = f"{google.url}/v2/reports"
     tiktok.AUTH_URL, tiktok.API_URL = f"{tt.url}/v2/auth/authorize/", f"{tt.url}/v2"
     for vid, title, channel, views, duration in TRENDING:
         google.add_video(vid, title, channel, views=views, age_hours=5, duration=duration)
@@ -98,12 +100,66 @@ def main() -> None:
 
     from clipfoundry.api import app
 
+    scenario = None
+    if args.scenario == "zero-touch":
+        from zero_touch_support import CompleteLoopFixture
+
+        google.catalog.clear()
+        scenario = CompleteLoopFixture(data, google, setattr)
+
+        # These controls exist only in this executable and are served only on its own loopback port. They
+        # expose fixture observations or change external inputs/time; no production API has reset/test routes.
+        @app.get("/sandbox/state")
+        def sandbox_state():
+            return scenario.snapshot()
+
+        @app.post("/sandbox/next-video")
+        def sandbox_next_video():
+            scenario.repeat()
+            return {"ok": True}
+
+        @app.post("/sandbox/age-results")
+        def sandbox_age_results():
+            scenario.age_results()
+            return {"ok": True}
+
+        @app.post("/sandbox/upcoming-stream")
+        def sandbox_upcoming_stream():
+            return {"url": scenario.upcoming_stream()}
+
+        @app.post("/sandbox/start-stream")
+        def sandbox_start_stream():
+            scenario.start_stream()
+            return {"ok": True}
+
+        @app.post("/sandbox/restart-workers")
+        def sandbox_restart_workers():
+            from clipfoundry.autopilot import host
+
+            old = host.supervisor.host
+            if old:
+                old.stop(timeout=30)
+            replacement = host.WorkerHost(poll=0.1)
+            if not replacement.start(wait_for_lock=10):
+                raise RuntimeError("The previous worker host has not finished its safe step")
+            host.supervisor.host = replacement
+            return {"ok": True, "owner": replacement.owner, "enabled": db.get_settings()["autopilot_enabled"]}
+
+        # api.py's SPA fallback was registered before this executable's fixture routes. Put only these sandbox
+        # routes before that fallback so requests receive observations rather than the frontend's index.html.
+        fixture_routes = [route for route in app.router.routes if getattr(route, "path", "").startswith("/sandbox/")]
+        for route in fixture_routes:
+            app.router.routes.remove(route)
+        app.router.routes[:0] = fixture_routes
+
     print(f"\n  ClipFoundry sandbox at http://127.0.0.1:{args.port}  (data: {data})\n", flush=True)
     try:
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
         google.stop()
         tt.stop()
+        if scenario:
+            scenario.stop()
         shutil.rmtree(data, ignore_errors=True)
 
 
