@@ -77,7 +77,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Requirement | Existing file / symbol | Status | Evidence / test | Remaining work | External blocker |
 | --- | --- | --- | --- | --- | --- |
 | Manual workflow upload → transcribe → discover → edit → render → preview → export/publish | `api.py`, `jobs.py`, `pipeline/process.run_project`, `pipeline/export.py` | verified (local pipeline, synthetic espeak video) | `test_integration::full_api_flow` (slow), `test_editing`, `test_postpack` | keep green | — |
-| CUDA faster-whisper transcription, model cache, word timestamps | `pipeline/transcribe.py`, `pipeline/cuda.py`, `pipeline/models.py` | implemented-but-unverified on hardware (unit tested with fakes) | `test_gpu` (24), `test_models` (10) | run `gpu-check.bat` on the RTX 3050 | no GPU here |
+| CUDA faster-whisper transcription, model cache, word timestamps | `pipeline/transcribe.py`, `pipeline/cuda.py`, `pipeline/models.py`, `pipeline/audio.read_samples` (Whisper gets samples, not a path: PyAV 19 broke faster-whisper's decoder) | implemented-but-unverified on hardware (unit tested with fakes) | `test_gpu` (30), `test_models` (10) | run `gpu-check.bat` on the RTX 3050 | no GPU here |
 | Visible CPU fallback in manual mode | `transcribe.transcribe` attempt list, `gpu.GpuManager.record_transcription` | verified (unit) | `test_gpu::cuda_failure_falls_back_to_cpu_loudly`, `test_autopilot_core::cpu_fallback_is_never_silent` | — | — |
 | Strict-GPU Autopilot: CUDA failure pauses the job; CPU fallback only by explicit setting | `transcribe.transcribe(allow_cpu_fallback=...)`, `GpuTranscriptionFailed`, setting `autopilot_allow_cpu_fallback` (default off), `hunter.gpu_failed` (Wait 30 min + action item), live capture keeps recording and post-live re-transcribes | verified (unit, fake CUDA failures) | `test_gpu::test_strict_gpu_*` (3), `test_autopilot_analysis::test_strict_gpu_pauses_the_hunt_instead_of_using_the_cpu` | confirm on the RTX 3050 | no GPU here |
 | Eleven-factor Viral Potential | `pipeline/virality.py` | verified (unit) | `test_virality` (17) | — | — |
@@ -341,6 +341,11 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
     local-day Posts agenda, preserved editor controls and committed frontend bundle.
 23. [x] Final review of PR #11: interrupted live recordings, work after Stop all jobs, a due post's canceled upload
     job, search problems on the overview (PR #12).
+24. [x] Transcription on a fresh install (2026-10-02, found by the owner on the PC): faster-whisper 1.2.1 decodes a
+    file path with PyAV and passes `metadata_errors`, which PyAV 19.0.0 removed, so every transcription failed with
+    *open() got an unexpected keyword argument 'metadata_errors'*. The app now reads its own 16 kHz mono WAV
+    (`audio.read_samples`) and hands Whisper the samples, the same values faster-whisper's decoder produced.
+    Requirements are unchanged; an existing install can also run `pip install "av<19"`.
 
 ## Test log
 
@@ -460,6 +465,11 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
 | final review (2026-10-02) | read-only `e2e` suite against a fresh sandbox | 52 passed, 9 skipped (no videos, no posts, Autopilot never started) |
 | final review (2026-10-02) | read-only `e2e` suite against a sandbox after the beginner flow and one video dropped into its videos folder (4 posts waiting for an OK) | 61 passed |
 | final review (2026-10-02) | a database made by `992431e` (settings, a source, a clip, a job) opened by `478bde3` | starts; settings, the clip and the job kept; the old source reads as not user-added; status, stats and Posts answer 200 |
+| PyAV 19 fix (2026-10-02) | `test_whisper_gets_the_samples_so_a_newer_pyav_cannot_break_transcription` on `0aac33f`'s code (faster-whisper 1.2.1, PyAV 19.0.0 installed) | failed with the owner's error: *open() got an unexpected keyword argument 'metadata_errors'* |
+| PyAV 19 fix (2026-10-02) | faster-whisper's own `decode_audio` with PyAV 13.1, 14.0, 15.1, 16.1, 17.0, 18.0, 18.1 and 19.0 | works up to 18.1; 19.0 refuses `metadata_errors` |
+| PyAV 19 fix (2026-10-02) | `audio.read_samples` against faster-whisper's `decode_audio` (PyAV 18.0) on a WAV made by `extract_audio` from a synthetic video | identical float32 samples (320171, max difference 0) |
+| PyAV 19 fix (2026-10-02) | `pytest -m "not slow"` on `d4f100c` | 478 passed, 7 slow deselected (242 s) |
+| PyAV 19 fix (2026-10-02) | `pytest -m slow` on `d4f100c` | 7 passed (685 s); imported transcripts, so no real Whisper model (Hugging Face is blocked here) |
 
 ## Checklist for the user's machine
 

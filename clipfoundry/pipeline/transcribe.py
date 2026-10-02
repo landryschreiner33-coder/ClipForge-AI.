@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .. import config
-from . import cuda, models
+from . import audio, cuda, models
 from .common import Cancelled, JobContext, log, read_json
 
 
@@ -280,7 +280,9 @@ def run_model(model, loaded: dict, audio_path: Path, duration: float, settings: 
     opts = transcribe_options(settings, device, vad)
     where = f"{'GPU' if device == 'cuda' else 'CPU'} ({device}, {compute})"
     t0, cpu0 = time.time(), time.process_time()
-    segments, info = model.transcribe(str(audio_path), **opts)  # type: ignore[attr-defined]
+    samples = audio.read_samples(Path(audio_path))  # not the path: faster-whisper's PyAV decode breaks on PyAV 19
+    segments, info = model.transcribe(samples, **opts)  # type: ignore[attr-defined]
+    del samples  # a 4-hour source is ~1 GB of samples: don't hold it here while the segments decode
     total = duration or float(getattr(info, "duration", 0) or 0) or 1.0
     label = f"Transcribing on {where}, {model_name}"
     out_segments = []

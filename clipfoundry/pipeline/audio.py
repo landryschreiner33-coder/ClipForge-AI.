@@ -1,4 +1,4 @@
-"""Loudness envelope of the extracted 16 kHz mono track (fast, streaming)."""
+"""The extracted 16 kHz mono track: its loudness envelope (fast, streaming) and its samples for Whisper."""
 from __future__ import annotations
 
 import wave
@@ -7,6 +7,20 @@ from pathlib import Path
 import numpy as np
 
 HOP = 0.1  # seconds per envelope frame
+WHISPER_RATE = 16000
+
+
+def read_samples(wav_path: Path) -> np.ndarray:
+    """The extracted track as the float32 samples Whisper takes, scaled like faster-whisper's own decoder.
+
+    Whisper gets samples rather than the path because faster-whisper decodes a path with PyAV, and its call passes
+    an argument (`metadata_errors`) that PyAV 19 removed; a fresh install gets both newest versions.
+    """
+    with wave.open(str(wav_path), "rb") as wf:
+        if wf.getnchannels() != 1 or wf.getframerate() != WHISPER_RATE or wf.getsampwidth() != 2:
+            raise ValueError(f"{wav_path.name} is not 16 kHz mono 16-bit audio, which transcription needs")
+        raw = wf.readframes(wf.getnframes())
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
 def loudness_envelope(wav_path: Path, hop: float = HOP) -> dict:
