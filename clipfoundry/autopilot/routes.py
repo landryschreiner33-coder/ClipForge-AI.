@@ -836,7 +836,7 @@ def publish_now(item_id: str) -> dict:
     db.update("scheduled_publications", item_id, planned_at=time.time() + 30, status="publishing",
               status_note="Publishing now (started by you)", audit=_audit(item, "publish_now", "Publish now: by you"))
     queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}", priority=MANUAL_PRIORITY,
-                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600)
+                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
     state.resolve(f"publish:{item_id}")
     return _public_item(_item_or_404(item_id), db.get_settings())
 

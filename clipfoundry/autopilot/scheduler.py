@@ -775,8 +775,10 @@ def process_due(settings: dict, now: float) -> dict:
                              "Automatic publishing is off, so approved posts wait for you at their time.",
                              "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
+            # The approved post decides, not an earlier upload job: one canceled before its upload started (the
+            # post came back with a new time) runs again now. The publisher itself never uploads a video twice.
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
-                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600)
+                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1

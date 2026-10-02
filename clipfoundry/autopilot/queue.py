@@ -27,6 +27,7 @@ from ..pipeline.common import Cancelled, log
 ACTIVE = ("queued", "running", "waiting", "retrying")
 TERMINAL = ("completed", "failed", "canceled")
 LEASE_SECONDS = 90.0
+STOP_ALL = "stop_all"  # wait_reason of a job canceled by Stop all jobs: a hold, so asking again after Resume revives it
 
 # worker name -> (label, job kinds it runs)
 WORKERS: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -127,19 +128,22 @@ def _now() -> float:
 # ------------------------------------------------------------------ enqueue
 def enqueue(kind: str, payload: dict | None = None, *, priority: int = 0, idem_key: str | None = None,
             delay: float = 0.0, max_attempts: int = 3, timeout_s: float = 3600.0, ref: tuple[str, str] = ("", ""),
-            parent_id: str = "", message: str = "Waiting in queue", revive: bool = True) -> dict:
+            parent_id: str = "", message: str = "Waiting in queue", revive: bool = True,
+            revive_canceled: bool = False) -> dict:
     """Add a job. With an idempotency key, an existing job with that key is returned instead of adding another
     (a failed one is queued again when `revive` is set). Cancellation is durable: only an explicit user retry
-    may reset a canceled row."""
+    (`revive_canceled`) may reset a canceled row. Stop all jobs is a hold, not a cancel of each item: after Resume
+    jobs, work it canceled is queued again when Autopilot asks for it."""
     worker = KIND_WORKER[kind]
     now = _now()
     if idem_key:
         existing = db.fetch("worker_jobs", idem_key, "idem_key")
         if existing:
-            if revive and existing["status"] == "failed":
+            canceled = existing["status"] == "canceled" and (revive_canceled or existing["wait_reason"] == STOP_ALL)
+            if revive and (existing["status"] == "failed" or canceled):
                 db.update("worker_jobs", existing["id"], status="queued", attempts=0, run_after=now + delay, error="",
                           fix="", cancel_requested=0, message="Queued again", payload=payload or existing["payload"],
-                          finished_at=None)
+                          finished_at=None, wait_reason="")
                 log_line(existing["id"], worker, "info", "requeued", "Queued again")
                 return db.fetch("worker_jobs", existing["id"]) or existing
             return existing
@@ -276,10 +280,11 @@ def cancel(job_id: str, message: str = "Canceled by you") -> dict | None:
     """Cancel a job: at once if it is not running, at its next check if it is."""
     now = _now()
     with db.connect() as conn:
-        conn.execute("UPDATE worker_jobs SET status = 'canceled', message = ?, finished_at = ?, updated_at = ? "
-                     "WHERE id = ? AND status IN ('queued', 'retrying', 'waiting')", (message, now, now, job_id))
-        conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ? "
-                     "WHERE id = ? AND status = 'running'", (now, job_id))
+        conn.execute("UPDATE worker_jobs SET status = 'canceled', message = ?, finished_at = ?, updated_at = ?, "
+                     "wait_reason = '' WHERE id = ? AND status IN ('queued', 'retrying', 'waiting')",
+                     (message, now, now, job_id))
+        conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ?, "
+                     "wait_reason = '' WHERE id = ? AND status = 'running'", (now, job_id))
     log_line(job_id, "", "info", "cancel_requested", message)
     return db.fetch("worker_jobs", job_id)
 
@@ -292,10 +297,11 @@ def cancel_all(message: str = "Stopped with Stop all jobs", workers: tuple[str, 
         args = list(workers)
     with db.connect() as conn:
         pending = conn.execute("UPDATE worker_jobs SET status = 'canceled', message = ?, finished_at = ?, "
-                               "updated_at = ? WHERE status IN ('queued', 'retrying', 'waiting')" + scope,
-                               [message, now, now, *args]).rowcount
-        running = conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ? "
-                               "WHERE status = 'running'" + scope, [now, *args]).rowcount
+                               "updated_at = ?, wait_reason = ? WHERE status IN ('queued', 'retrying', 'waiting')"
+                               + scope, [message, now, now, STOP_ALL, *args]).rowcount
+        # The marker survives the running job's own cancel (mark_canceled keeps wait_reason)
+        running = conn.execute("UPDATE worker_jobs SET cancel_requested = 1, message = 'Stopping...', updated_at = ?, "
+                               "wait_reason = ? WHERE status = 'running'" + scope, [now, STOP_ALL, *args]).rowcount
     log_line("", "", "warning", "cancel_all", message, pending=pending, running=running)
     return {"canceled": pending, "stopping": running}
 
