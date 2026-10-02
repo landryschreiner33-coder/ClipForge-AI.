@@ -95,6 +95,14 @@ test("the overview has simple facts and reports the real keep-awake state", asyn
     await expect(fact(page, "Posts")).toHaveText(`${posts.ready ?? 0} ready · ${posts.scheduled
       ?? st.target.scheduled_posts} scheduled · ${posts.review} need your OK`, { timeout: 1000 });
   }).toPass();
+  // A search that did not work is named with what to do, while the other searches go on
+  await expect(async () => {
+    const st = await getJson(request, "/api/autopilot/status");
+    const problems = st.enabled && !st.paused ? st.home.discovery.problems : [];
+    const note = page.locator(".search-problems");
+    await expect(note).toHaveCount(problems.length ? 1 : 0, { timeout: 1000 });
+    for (const p of problems) await expect(note).toContainText(`${p.name}: ${p.detail}`, { timeout: 1000 });
+  }).toPass();
   // Your videos folder: where it is (Open videos folder is not pressed: it would create and watch the folder)
   const st = await getJson(request, "/api/autopilot/status");
   await expect(page.getByRole("heading", { name: "Your videos", exact: true })).toBeVisible();

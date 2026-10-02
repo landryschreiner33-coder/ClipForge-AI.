@@ -193,6 +193,18 @@ function Overview({ st, lost, since, refresh, setData }: {
             value={lost ? "Unknown" : `${h.posts.ready ?? 0} ready · ${h.posts.scheduled
               ?? st.target.scheduled_posts} scheduled · ${h.posts.review} need your OK`} />
         </div>
+        {on && h.discovery.problems.length > 0 && (
+          <div className="note search-problems" role="status">
+            <Icon name="alert" />
+            <div className="stack">
+              <span>Some online searches did not work last time. The others keep going, and what was already found
+                is kept.</span>
+              {h.discovery.problems.map((p, i) => (
+                <span key={`${p.name}:${i}`} className="small"><b>{p.name}:</b> {p.detail} {p.fix}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <Fact label="This PC" tone={t1} icon={i1} value={v1} desc={d1} />
         <p className="note pc-note"><Icon name="info" /><span>{h.pc_note}</span></p>
       </section>
