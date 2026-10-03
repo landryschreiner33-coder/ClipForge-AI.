@@ -481,7 +481,10 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
 | Post a pasted video (2026-10-03) | `pytest -m "not slow"` | 480 passed, 7 slow deselected (296 s), incl. the 2 new posting tests |
 | Post a pasted video (2026-10-03) | `npm run build` in `frontend/` | passes; `dist/` rebuilt |
 | Post a pasted video (2026-10-03) | sandbox click-through (tick, ADD, Stop posting, Post the clips) at 1366×900 and 390×844 | works; no console errors, no sideways scrolling |
-| Post a pasted video (2026-10-03) | `npm run test:sandbox`, run at the same time as `pytest -m slow` | 7 passed, 1 failed: the complete loop's second upload after the worker restart did not arrive within 240 s (1 of 2); its pasted-link steps, including "no post without permission", passed. Rerun alone below |
+| Post a pasted video (2026-10-03) | `npm run test:sandbox`, run at the same time as `pytest -m slow` | 7 passed, 1 failed: the complete loop's second upload after the worker restart did not arrive within 240 s (1 of 2); its pasted-link steps, including "no post without permission", passed |
+| Post a pasted video (2026-10-03) | `pytest -m slow` (05:20 UTC) | 6 passed, 1 failed: `test_worker_host_runs_complete_loop_and_repeats_after_restart`, same symptom |
+| Complete-loop timing (2026-10-03) | that test alone on this branch and on the unchanged default branch `56955df` (05:38 and 05:45 UTC) | failed on both: not caused by this change. Its database: the second post was planned 13.8 h ahead (the day's slots at 10:50 and 14:40 Chicago time), beyond the fixture's 12 h upload lead (the setting's maximum), so its upload never started. The test depended on the time of day; it passed on 2026-10-02 in the afternoon |
+| Complete-loop timing (2026-10-03) | fix: `zero_touch_support.CompleteLoopFixture` uploads every planned YouTube post at once (`scheduler.lead_seconds` patched to 48 h, test only); then `pytest tests/test_zero_touch_loop.py` (13:27 UTC) and the sandbox `complete-loop` project | 2 passed (370 s); 1 passed (6.8 min). Those runs were in the morning, so they did not reach a >12 h slot themselves; the fix removes the dependency |
 
 ## Checklist for the user's machine
 

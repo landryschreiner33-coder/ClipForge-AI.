@@ -106,11 +106,15 @@ class CompleteLoopFixture:
 
     def __init__(self, data: Path, google, patch):
         from clipfoundry import db
-        from clipfoundry.autopilot import access, host, live, providers
+        from clipfoundry.autopilot import access, host, live, providers, scheduler
         from clipfoundry.pipeline import transcribe
         from clipfoundry.publish import youtube
 
         self.data, self.google = data, google
+        # Upload every planned YouTube post at once (YouTube publishes it at its time), so the loop's uploads happen
+        # during the run whatever the time of day. The setting's maximum lead (12 hours) was not enough: run at
+        # night, the day's second slot was 13.8 hours away and its upload never started (2026-10-03).
+        patch(scheduler, "lead_seconds", lambda item, settings: 48 * 3600.0 if item["platform"] == "youtube" else 0.0)
         self.transcriptions: list[str] = []
         self.first, self.first_srt = build_speech_video(data / "sandbox" / "business", BUSINESS)
         self.second, self.second_srt = build_speech_video(data / "sandbox" / "story", STORY, flip=True)
