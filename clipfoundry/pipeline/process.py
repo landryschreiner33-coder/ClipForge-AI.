@@ -1,6 +1,7 @@
 """Project pipeline: VIDEO -> TRANSCRIPT -> BEST MOMENTS -> CLIPS -> 9:16 -> CAPTIONS -> HOOKS -> EXPORT."""
 from __future__ import annotations
 
+import hashlib
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -210,15 +211,17 @@ def evaluate_select(p: Prepared, cands: list[dict], ctx: JobContext, trend_keywo
     return chosen
 
 
-def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_existing: bool = True) -> list[dict]:
+def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_existing: bool = True,
+                 durable: bool = False) -> list[dict]:
     """Stage 6: one clip per chosen moment, each with its post package written from its own words.
     `replace_existing=False` adds to the project's clips (post-live analysis next to the live clips)."""
     first_rank = 0
-    if replace_existing:
+    if replace_existing and not durable:
         db.delete_clips(p.id)
-    else:
+    elif not durable:
         first_rank = len(db.list_clips(p.id))
     rows = []
+    retained = db.list_clips(p.id) if durable and replace_existing else []
     df = scoring.document_frequencies(p.sentences)
     for rank, r in enumerate(chosen, first_rank):
         ctx.check()
@@ -228,6 +231,17 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             start, end = cand_mod.refine_bounds(r, p.sentences, p.meta["duration"])
         else:
             start, end = r["start"], r["end"]
+        stable = {}
+        if durable:
+            clip_id = hashlib.sha256(f"autopilot:{p.id}:{rank}:{start:.6f}:{end:.6f}".encode()).hexdigest()[:32]
+            existing = db.get_clip(clip_id)
+            if existing is None:
+                existing = next((c for c in retained if c["rank"] == rank and
+                                 abs(c["start"] - start) < 1e-6 and abs(c["end"] - end) < 1e-6), None)
+            if existing is not None:
+                rows.append(existing)
+                continue
+            stable = {"id": clip_id}
         ctx.progress(P_SCORE, f"Writing post package {rank - first_rank + 1} of {len(chosen)}")
         sents = [p.sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
         post = postpack.generate(sents, r["hook"], r["hooks_alt"], r["category"], p.opts, df,
@@ -237,7 +251,7 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
             reason=r["reason"], analysis=virality.summary(r["analysis"]), post=post, edit={}, status="queued",
-            duration=round(end - start, 2),
+            duration=round(end - start, 2), **stable,
         ))
     return rows
 

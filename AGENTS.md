@@ -19,9 +19,11 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 There are two ways to use it:
 
 * **Manual:** drop in a video, get ranked clips, edit, export, or publish through the official APIs.
-* **Autopilot:** 12 background workers on a durable SQLite job queue. They find sources the user has rights to,
-  clip and package them, check the final file, schedule posts (America/Chicago) and publish the posts the user
-  approves. Then they learn from the real results.
+* **Autopilot:** 12 background workers on a durable SQLite job queue. Every 3 hours they look for videos the user may
+  use (own content, recorded creator agreements, CC BY, public domain), clip and package them, check the final file,
+  schedule posts (9:00-21:00 America/Chicago) and publish them: YouTube automatically once the user has given that
+  permission, TikTok only after the user's OK on each post. Then they learn from the real results. Nothing asks the
+  user about single videos: what is not covered is skipped and explained in the Activity log.
 
 ## Stack
 
@@ -55,8 +57,11 @@ clipfoundry/
                    handlers.py (imports every handler module), scout, trends, providers, rights, hunter,
                    live, packaging, gate (Final Quality Gate), scheduler, quota, publisher, learner,
                    routes.py (/api/autopilot)
-frontend/src/      App.tsx, api.ts, autopilot.ts, pages/ (Dashboard, Create, Projects, ProjectView, ClipEditor,
-                   Publish, Autopilot, PublishCenter, Settings), components/
+frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
+                   (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
+                   pages/ (Home, Setup, Autopilot, Library, Create, ProjectView, ClipEditor, Publish, Posts,
+                   PostReview, Settings), components/ (ui.tsx shared controls, page parts)
+design/ui-redesign/ the approved redesign: SPEC.md, ROUTE_MAP.md and the sample-data prototype
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -66,7 +71,7 @@ The Autopilot flow is:
 
 ```
 hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, render follows it)
-  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Publish Center → publish
+  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Posts → publish
 ```
 
 ## Run and test
@@ -74,11 +79,11 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~265 tests, ~2.5 min
-.venv/bin/python -m pytest -m slow                # 4 end-to-end renders, ~7 min (needs ffmpeg + espeak-ng)
+.venv/bin/python -m pytest -m "not slow"          # ~470 tests, ~4-6 min
+.venv/bin/python -m pytest -m slow                # 7 real-media cases, ~10-12 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
-cd e2e && npm install && npm test                 # 42 read-only browser tests against a running app
-cd e2e && npm run test:sandbox                    # beginner flow in a throwaway sandbox (test connections, port 8799)
+cd e2e && npm install && npm test                 # 60 read-only browser tests against a running app
+cd e2e && npm run test:sandbox                    # beginner, motion, robot and complete-loop checks (ports 8799/8800)
 ```
 
 * `tests/conftest.py` points `CLIPFOUNDRY_DATA` at a temp folder and sets `CLIPFOUNDRY_WORKERS=off`, so tests never
@@ -89,13 +94,17 @@ cd e2e && npm run test:sandbox                    # beginner flow in a throwaway
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Where things stand (2026-09-29)
+## Where things stand (2026-10-02)
 
-**Branches.** The latest work is on `claude/ecstatic-shannon-wb1zq1`. The user's usual branch
-`claude/wonderful-ritchie-909tq3` is still at `3be586d` and does **not** have this round yet. Don't merge between
-them unless the user asks.
+**Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
+into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
+Retry-After, confirmed channels), PR #4 (the Playwright MCP launcher), PR #5 (plan items 10-13), PR #6 (overnight
+run fixes, item 16), PR #7 (the UI redesign, item 17), PR #8 (Codex's idle-Autopilot fixes, item 18), PR #9 and
+#10 (website, item 19), PR #11 (ChatGPT's link intake and retro robot studio, item 20) and PR #12 (the final review's
+fixes to it). Start new work from the default branch; the tested commits are in the test log of
+`docs/IMPLEMENTATION_STATUS.md`.
 
-**Done in this round** (plan items 1–7 in `docs/IMPLEMENTATION_STATUS.md`):
+**Done** (plan in `docs/IMPLEMENTATION_STATUS.md`):
 
 1. **Render artifact record** (`pipeline/artifact.py`). Every render stores:
    * `edl.json`, the edit time map;
@@ -121,47 +130,132 @@ them unless the user asks.
    * Sources are capped at 8 GB / 240 minutes.
 7. **Never upload twice.** If YouTube accepted every byte but its answer was lost, the post becomes "reconciling"
    ("Upload not confirmed" in the UI) until the user resolves it.
+8. **NVENC encodes take the GPU lock** like transcription does (PR #2).
+9. **Retry-After is never shortened** (PR #2). Up to 60 s is waited out in place; a longer wait puts the job back
+   for exactly that time (Autopilot: `queue.Wait`; manual uploads: a timer that survives restarts) and the same
+   upload continues then.
+10. **Replacement cooldown** (`scheduler.replacement_blocked`, table `slot_replacements`). A slot is swapped at most
+    once per `autopilot_replacement_cooldown_hours` (default 24, not on the main settings page). The history
+    follows the slot's time and every post that took part in a swap, survives restarts, and allows one pending
+    proposal per slot; a declined proposal is not made again. Existing databases are backfilled from
+    `replaces`/`replaced_by`.
+11. **Dashboard counts.** `status()["target"]` counts unique clips (`published`, `scheduled`) and platform posts
+    (`published_posts`, `scheduled_posts`, `posts_by_platform`) separately; "today" is the local day, 23 or 25
+    hours long on a daylight-saving change (`scout.day_bounds`).
+12. **Daylight saving.** `tests/test_autopilot_integrity.py` plans and recovers missed posts across both
+    America/Chicago changes.
+13. **Multi-interval plans.** `blueprint.with_middle_cuts` removes up to two weak middle sentences (only filler
+    words, a clear promotional line, or a warm-up phrase with no words of its own) when every safe-cut rule holds:
+    pauses on both sides, complete sentences, the next sentence does not point back at removed words, hook, payoff,
+    questions, first and last sentences stay, at most 35% removed, and the clip keeps `min_duration`. Otherwise the
+    clip stays continuous. The final transcript, captions, packaging and gate follow the cut output.
+14. **Confirmed channels** (PR #2, the owner decided "restrict"). `autopilot/verify.py` asks YouTube (Data API) or
+    TikTok (oEmbed) who posted the exact video before a channel rule or ownership applies; see rule 1.
+15. **Approvals bound to the exact file.** An approval records the SHA-256 of the rendered video with the text,
+    privacy, options and render version (`scheduler.APPROVAL_SCHEME = 2`). Changed bytes, even with the same size
+    and time stamp, a missing or unreadable file, or an approval from before the hash was stored all need a new
+    approval; YouTube is approved again automatically only through the automatic-publishing permission and a
+    passing gate report for the new bytes.
 
-**Also done: zero-config Autopilot UX** (see the "Zero-config Autopilot UX" table in `IMPLEMENTATION_STATUS.md`).
-The user wants: connect YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
+16. **Overnight run fixes (2026-09-30).** A night of Autopilot with only a connected account did nothing: every video
+    it found belonged to other people and was skipped, and the page said "Nothing right now".
+    * **Your videos folder** (`autopilot/myvideos.py`): START creates `Videos\ClipFoundry` in the user folder (outside
+      the app folder) and watches it as an Owned watch folder. `CLIPFOUNDRY_VIDEOS` overrides the path (tests, sandbox).
+    * Needs you showed *Autopilot needs videos to work with* (`home.needs_videos`). Since item 20 a lack of videos
+      is not a Needs you item: Home says *Nothing needs you. Add a video to make clips.* and the overview's *Your
+      videos* panel keeps OPEN VIDEOS FOLDER.
+    * `awake.py`: while Autopilot is on, the app asks Windows not to sleep (`autopilot_keep_awake`, default on).
+      The page reports the real state (`home.keep_awake`: on, pending, failed, off, unsupported), never the
+      setting alone; a refusal is a Needs you item (`sleep`) with the power-settings steps, retried every minute.
+17. **UI redesign (2026-10-01, PR #7; the owner approved the design).** A "quiet dark studio" look and five places:
+    Home, Autopilot, Library, Posts, then Settings. `design/ui-redesign/` holds the spec, the route map and the
+    prototype it was built from.
+    * Old addresses keep working: `router.ts` replaces them in place (`#/projects` → `#/library`,
+      `#/publish-center/*` → `#/posts/*`, …), so Back never bounces on them.
+    * Home leads with the first Needs you item; first-time setup is `#/setup` (3 steps; the choice is the
+      `setup_mode` setting); Autopilot has Overview, Activity, Permissions & sources and Advanced (System, Jobs,
+      Learning); Posts has tabs and a page per post (`#/post/:id`, `GET /api/autopilot/scheduled/{id}`) that
+      replaces the approval dialog; Settings has Accounts, Defaults and Advanced.
+    * `home.working` (the video being worked on, the job's own progress) and `home.posts` (the sidebar counts, the
+      same rules as the Posts tabs) feed the shell.
+    * The editor asks before leaving unsaved changes (links, Back, closing the window) and says when a save was not
+      rendered. No `window.confirm`/`prompt` is left: dialogs say what will happen.
+18. **Idle Autopilot fixes (2026-10-01, PR #8; from `codex/fix-autopilot-idle`, brought into the redesign).**
+    * Discovery also checks the connected YouTube channel and active channel agreements, scans agreement folders like
+      watch folders, rechecks waiting files at every folder check, and frees the daily slot of a stopped video
+      (`scout.reconcile_sources`).
+    * A failed search keeps what the other searches found and honors Retry-After; a malformed Tavily or Commons answer
+      counts as a failed search, not an empty one.
+    * `home.discovery` (last and next search, what was found, search problems in plain words) and `home.currently`
+      say why an idle Autopilot is idle. Stopped background work is a Needs you item (`stopped`), not shown in the
+      first minute after the app starts.
+    * Deleting a video also deletes its clip scores, analysis and suggested post text (`CLIP_CHILDREN`); the post
+      history and clip fingerprints stay.
+19. **Website and legal pages (2026-10-01, PR #9).** `docs/legal` (`index.html`, `privacy.html`, `terms.html`,
+    `site.css`) is the public website, written from an audit of the code; the app serves it at `/legal/`. Publisher
+    Landry Schreiner, contact landryschreiner456@gmail.com, Minnesota law, "All rights reserved". No lawyer has
+    reviewed it. It goes public only with the owner's OK, from a `gh-pages` branch holding only those files.
+    * The audit's fixes: every secret setting is sealed (the AI keys too), httpx no longer logs request addresses
+      (a YouTube API key travels in one), and the YouTube 30-day clean-up also runs at every start and counts a
+      found video's age from YouTube's last answer.
+20. **Link intake and retro robot studio (2026-10-02, PR #11 by ChatGPT/Codex from the owner's briefs; PR #12 the final
+    review).** Paste a public video or stream link in Autopilot → *Add a video or stream* (`autopilot/intake.py`,
+    job `identify_link`); it is processed locally even when reuse permission is unknown (rule 1). Live HTTP/HLS goes
+    through `autopilot/stream_access.py`. Failed or weak videos release their turn (`scout.refill`), automatic clips
+    get at most two fresh renders after a broken file (`gate.regenerate_clip`), and closing the app keeps an upload's
+    session. The look is the retro robot studio (`design/retro-studio/SPEC.md`): four stations that follow the real
+    workers, a Reduce motion preference in this browser.
+    * PR #12: an interrupted live recording (app closed, Autopilot paused) waits and records on instead of ending;
+      Stop all jobs is a hold, so its canceled work is queued again when asked for after Resume jobs (a job you
+      cancel yourself stays canceled, `queue.STOP_ALL`); a due or *Publish now* post runs its canceled upload job
+      again; the overview names searches that did not work again.
+
+**Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
+YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
-  empty-state text, setup). `POST /api/autopilot/start` and `POST /api/autopilot/sources/{id}/permission` (Yes =
-  Allowlisted, No = Blocked, for that one video).
-* Rights questions only while today's plan is short (`scout.rights_questions`: Source Score ≥ 50, at most 3).
-* UI: `Autopilot.tsx` has the first-run screen, the simple Home and an Advanced area (`#/autopilot/system|sources|
-  jobs|learning`); Settings has General and Advanced (`#/settings/advanced`). Keep jargon (worker, feed, provider,
-  source, quota) off the main page and General settings; `test_autopilot_simple.py` checks the page text.
+  activity, empty-state text, setup). `POST /api/autopilot/start`.
+* No per-video questions by default (`rights_ask_per_video` off). Creator agreements (`rights.add_agreement`), file
+  access (`autopilot/access.py`, separate from reuse rights) and the automatic-publishing permission
+  (`autopilot/autopublish.py`, YouTube only) replace them.
+* UI (item 17): first-time setup is `Setup.tsx`; the Autopilot overview is plain, and the technical parts live
+  under Autopilot → Advanced (`#/autopilot/system|jobs|learning`) and Settings → Advanced. Keep jargon (worker,
+  feed, provider, source, quota) off Home, the Autopilot overview, Setup and Settings → Accounts/Defaults;
+  `test_autopilot_simple.py` checks the backend's page text.
 
-**Open, in priority order** (plan items 8–14):
+**Decided:** live monitoring is on by default (owner, 2026-09-29).
 
-* 8: take the GPU lock for NVENC encodes too. **This is the next task.**
-* 9: read `Retry-After` from rate-limit answers (today a fixed 60 s).
-* 10: a cooldown between replacements of the same schedule slot.
-* 11: show platform publications next to unique clips on the dashboard.
-* 12: a scheduler test across a daylight-saving change in America/Chicago.
-* 13: the Engagement Strategist proposes multi-interval plans (dropping a weak middle sentence). The renderer
-  already supports them.
-* 14: **the user decides** whether channel rights rules should match only sources whose channel ID was verified
-  through the YouTube API. Today a feed row can claim any channel ID. Don't change this without their decision.
+**Open decision for the owner:** the TikTok inbox-draft fallback if Direct Post is not granted.
+
+**Next candidates:** multi-cut clips beyond weak sentences (e.g. dropping a tangent), and the checks on the owner's
+PC listed at the end of `IMPLEMENTATION_STATUS.md`.
 
 **Never verified here** (the cloud session has no GPU and no accounts): real CUDA transcription on the RTX 3050,
-real YouTube/TikTok uploads, and throughput per source. The checklist at the end of `IMPLEMENTATION_STATUS.md`
-lists what the user must run on their PC.
+real YouTube/TikTok uploads, real Data API and oEmbed answers, and throughput per source. The checklist at the end
+of `IMPLEMENTATION_STATUS.md` lists what the user must run on their PC.
 
 ## Rules every change must keep
 
 These are product guarantees; tests enforce most of them. Don't weaken them to make something work.
 
-1. **Rights before everything.** Only Owned, Licensed and Allowlisted sources (Creative Commons if enabled)
-   are clipped automatically. Everything else becomes an action item. Rights are re-checked before scheduling
-   and before publishing.
-2. **Human approval for every post.** Both platforms require it. Autopilot never publishes an unapproved post.
+1. **Separate local intent from reuse rights.** Only Owned, Licensed and Allowlisted sources, creator agreements,
+   CC BY and public domain are selected automatically from discovery. Public links explicitly submitted in
+   Autopilot may be processed locally through supported media access even when reuse permission is unknown;
+   explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
+   re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
+   * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
+     confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
+     confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.
+2. **Approval for every post.** A post goes out only with the user's approval: their OK on the post, or for YouTube
+   the automatic-publishing permission they turned on (stored with its wording in `publish_consents`). TikTok
+   always needs the OK on each post.
 3. **Publish exactly what was checked.** The publisher re-hashes the file and needs a passing gate report for those
    exact bytes. Any re-render needs a new report.
 4. **No silent CPU fallback in Autopilot.** Manual mode may fall back, but it must say so visibly.
 5. **Every URL from data goes through `netguard`.** Never pass a data-supplied URL straight to httpx, yt-dlp or
    ffmpeg.
 6. **Never post twice.** Uploads are resumable and idempotent. When an outcome is unknown, ask the user; don't retry.
+   * **Never shorten a platform's wait.** Honor `Retry-After` exactly (no cap); reschedule long waits instead of
+     sleeping, and continue the same upload afterwards.
 7. **Grounded text only.** Hooks, titles, captions and hashtags come from words said in the clip. LLM output that
    adds names, numbers or claims is rejected.
 8. **Real numbers only.** Scores are labeled estimates. Platform metrics are never estimated; a missing metric is
@@ -176,9 +270,11 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 
 ## Standing instructions from the owner
 
-* Don't change `.mcp.json` and don't pin Playwright versions.
-* The `e2e/` tests must stay **read-only**: they run against the user's real data. They must never press Create,
-  Delete, Save, Approve, Publish, the AUTOPILOT switch or STOP ALL JOBS.
+* Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):
+  `.mcp.json` starts the Playwright MCP server through `e2e/playwright-mcp.mjs`, which uses the cloud's
+  preinstalled Chromium when it exists.
+* The `e2e/` tests must stay **read-only**: they run against the user's real data. They must never press Make clips,
+  Delete, Save, Approve, Publish, Start or Pause Autopilot, or Stop all jobs.
 * Don't upgrade CUDA, CTranslate2, faster-whisper or other GPU dependencies casually.
 * Without explicit permission, don't:
   * publish real posts, spend money, or change account permissions;
@@ -202,6 +298,8 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 * A new setting goes into `config.py` (default and range), plus `frontend/src/components/autopilotSettings.tsx` if the
   user should see it.
 * After frontend changes, run `npm run build` and commit `frontend/dist`.
+* When a change alters what ClipFoundry stores, sends, keeps or deletes, update `docs/legal/privacy.html` (and the
+  Terms or product page if they mention it) in the same change: the pages describe the code exactly.
 * Style: match the surrounding code. Lines are at most 120 characters, and comments explain *why*. UI text is plain
   English for a non-developer and says what to do next. Prefer fakes (`tests/fake_platforms.py`) and synthetic media
   (`tests/synthetic_media.py`) over mocks of internals.

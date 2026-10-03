@@ -6,12 +6,13 @@ import re
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
-from . import gate, home, providers, queue, quota, rights, scout, state
+from . import autopublish, gate, home, intake, myvideos, providers, queue, quota, rights, scout, state, verify
 from .host import MANUAL_PRIORITY, supervisor
 
 router = APIRouter(prefix="/api/autopilot")
@@ -23,6 +24,33 @@ def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", 
     """A job the user started: runs even while Autopilot is off (but never during STOP ALL JOBS)."""
     return queue.enqueue(kind, payload or {}, priority=MANUAL_PRIORITY, ref=ref, message="Started by you",
                          idem_key=f"manual:{kind}:{ref[1]}:{int(time.time())}")
+
+
+class LinkIn(BaseModel):
+    url: str
+
+
+@router.get("/links", dependencies=READ)
+def links_list() -> list[dict]:
+    return intake.links()
+
+
+@router.post("/links", dependencies=WRITE)
+def add_link(body: LinkIn) -> dict:
+    try:
+        return intake.add(body.url)
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/links/{source_id}/{operation}", dependencies=WRITE)
+def link_action(source_id: str, operation: str) -> dict:
+    try:
+        return intake.action(source_id, operation)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 # ------------------------------------------------------------------ trends and sources
@@ -168,8 +196,9 @@ def skip_source(source_id: str) -> dict:
 @router.post("/sources/{source_id}/hunt", dependencies=WRITE)
 def hunt_now(source_id: str) -> dict:
     src = _source_or_404(source_id)
+    verify.ensure([src])  # a channel the feed named is confirmed with the platform first
     try:
-        rights.gate(src, "ingest")
+        rights.gate(db.fetch("sources", source_id) or src, "ingest")
     except rights.RightsBlocked as exc:
         raise HTTPException(409, str(exc)) from exc
     db.update("sources", source_id, status="queued", status_note="Started by you")
@@ -211,6 +240,119 @@ def delete_rights_rule(rule_id: str) -> dict:
     rights.remove_rule(rule_id)
     _manual("rights_check")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ creator agreements
+class AgreementIn(BaseModel):
+    creator: str
+    channels: list[str] = []
+    evidence: str = ""
+    evidence_url: str = ""
+    attribution: str = ""
+    commercial: bool = True
+    platforms: list[str] = []
+    third_party: bool = False
+    expires: str = ""                 # YYYY-MM-DD (the agreement ends at the end of that day), or empty
+    media_folder: str = ""
+    media_url_prefix: str = ""
+
+
+@router.get("/agreements", dependencies=READ)
+def agreements_list() -> list[dict]:
+    return rights.agreements()
+
+
+@router.post("/agreements", dependencies=WRITE)
+def add_agreement(body: AgreementIn) -> dict:
+    """Record an agreement with a creator once; every video it covers is used without asking again."""
+    expires = None
+    if body.expires.strip():
+        try:
+            day = dt.date.fromisoformat(body.expires.strip())
+        except ValueError as exc:
+            raise HTTPException(400, "The end date must look like 2026-12-31") from exc
+        zone = scout.tz(db.get_settings())
+        expires = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0, 0), zone).timestamp()
+    folder = body.media_folder.strip()
+    if folder and not Path(folder).expanduser().is_dir():
+        raise HTTPException(400, "That folder does not exist on this computer")
+    try:
+        made = rights.add_agreement(body.creator, body.channels, body.evidence, body.evidence_url,
+                                    attribution=body.attribution, commercial=body.commercial,
+                                    platforms=body.platforms, third_party=body.third_party, expires_at=expires,
+                                    media_folder=folder, media_url_prefix=body.media_url_prefix)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if folder:  # files the creator drops into the shared folder are found by themselves
+        providers.add_feed("watch_folder", f"Files from {body.creator.strip()[:80]}", {"path": folder},
+                           rights.ALLOWLISTED, made[0]["basis"])
+    _manual("rights_check")
+    return next(a for a in rights.agreements() if a["id"] == (made[0]["conditions"] or {}).get("agreement_id"))
+
+
+@router.delete("/agreements/{agreement_id}", dependencies=WRITE)
+def remove_agreement(agreement_id: str) -> dict:
+    if not rights.remove_agreement(agreement_id):
+        raise HTTPException(404, "Agreement not found")
+    _manual("rights_check")
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ the activity log and automatic publishing
+@router.get("/activity", dependencies=READ)
+def activity(limit: int = 60) -> dict:
+    """What Autopilot did with the videos it found, and why it skipped the ones it skipped."""
+    return {"items": home.activity(max(1, min(200, limit))),
+            "events": [e for e in state.events(40) if e["kind"] in (
+                "source_selected", "source_analyzed", "source_failed", "scheduled", "auto_approved", "published",
+                "quality_failed", "agreement", "auto_publish_on", "auto_publish_off", "replaced")]}
+
+
+class AutoPublishIn(BaseModel):
+    platform: str = "youtube"
+    visibility: str = ""
+    made_for_kids: bool | None = None
+    daily_limit: int = 3
+    start_hour: int = 9
+    end_hour: int = 21
+    agreed: bool = False
+
+
+@router.get("/auto-publish", dependencies=READ)
+def auto_publish_view() -> dict:
+    settings = db.get_settings()
+    from ..publish.routes import _youtube_state
+
+    yt = _youtube_state(settings)
+    return {**autopublish.view(settings), "channel": yt.get("name") or yt.get("account_id") or "",
+            "timezone": settings.get("autopilot_timezone"),
+            "defaults": {"daily_limit": min(3, int(settings.get("autopilot_youtube_daily_limit") or 3)),
+                         "start_hour": 9, "end_hour": 21},
+            "preview": autopublish.text_for("youtube", {"visibility": "VISIBILITY", "made_for_kids": False,
+                                                        "daily_limit": 3, "start_hour": 9, "end_hour": 21,
+                                                        "timezone": settings.get("autopilot_timezone")})}
+
+
+@router.post("/auto-publish", dependencies=WRITE)
+def auto_publish_on(body: AutoPublishIn) -> dict:
+    """Turn on automatic publishing for a platform whose rules allow it, with exactly these settings."""
+    from ..publish.routes import _youtube_state
+
+    settings = db.get_settings()
+    yt = _youtube_state(settings)
+    try:
+        autopublish.enable(body.platform, body.visibility, body.made_for_kids, body.daily_limit, body.start_hour,
+                           body.end_hour, body.agreed, yt.get("name") or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _manual("schedule_tick")
+    return auto_publish_view()
+
+
+@router.delete("/auto-publish/{platform}", dependencies=WRITE)
+def auto_publish_off(platform: str) -> dict:
+    back = autopublish.disable(platform)
+    return {**auto_publish_view(), "returned_to_review": back}
 
 
 # ------------------------------------------------------------------ feeds (watch folders, channels, streams)
@@ -283,9 +425,15 @@ def workers() -> dict:
     for name, (label, kinds) in queue.WORKERS.items():
         row = rows.get(name) or {"status": "idle", "message": "Not started"}
         stale = time.time() - float(row.get("heartbeat") or 0) > 90
+        job = queue.get(row.get("job_id") or "") if row.get("job_id") else None
+        matching = bool(job and job["worker"] == name)
+        active = bool(matching and job["status"] in queue.ACTIVE)
+        progress = job.get("progress") if active and not stale else None
         out.append({"name": name, "label": label, "kinds": list(kinds), **row,
-                    "status": "idle" if stale and row.get("status") == "working" else row.get("status", "idle"),
-                    "stale": stale, "queue": counts.get(name, {})})
+                    "status": "idle" if row.get("status") == "working" and (stale or not active) else
+                    row.get("status", "idle"),
+                    "stale": stale, "queue": counts.get(name, {}),
+                    "job_kind": job["kind"] if matching else "", "progress": progress})
     return {"workers": out, "host": supervisor.status(), "paused": state.paused()}
 
 
@@ -347,7 +495,7 @@ def stop_all() -> dict:
     state.put("emergency_stop", True)
     out = queue.cancel_all()
     manual = render_worker.cancel_all() + upload_worker.cancel_all()
-    state.event("emergency_stop", f"STOP ALL JOBS: {out['canceled']} queued job(s) canceled, {out['stopping']} "
+    state.event("emergency_stop", f"Stop all jobs: {out['canceled']} queued job(s) canceled, {out['stopping']} "
                                   f"running job(s) stopping, {manual} render/upload job(s) stopped", "warning")
     return {**out, "manual": manual, "paused": True}
 
@@ -355,7 +503,7 @@ def stop_all() -> dict:
 @router.post("/resume", dependencies=WRITE)
 def resume() -> dict:
     state.put("emergency_stop", False)
-    state.event("resumed", "Jobs allowed again after STOP ALL JOBS")
+    state.event("resumed", "Jobs allowed again after Stop all jobs")
     return {"paused": False}
 
 
@@ -370,18 +518,39 @@ def enable(body: EnableBody) -> dict:
     state.event("autopilot_on" if body.enabled else "autopilot_off",
                 "Autopilot turned on" if body.enabled else "Autopilot turned off (queued work waits)")
     if body.enabled:
+        myvideos.ensure()
         for kind in ("feed_scan", "trend_scan", "schedule_tick"):
             _manual(kind)
     return status()
 
 
+@router.get("/my-videos", dependencies=READ)
+def my_videos() -> dict:
+    """Your videos folder: where it is, whether Autopilot watches it, and how many videos are in it."""
+    return myvideos.view()
+
+
+@router.post("/my-videos/open", dependencies=WRITE)
+def my_videos_open() -> dict:
+    """OPEN MY VIDEOS FOLDER: create the folder if needed, watch it, show it in File Explorer and look at it now."""
+    out = myvideos.open_in_explorer()
+    _manual("feed_scan")
+    return out
+
+
+class StartBody(BaseModel):
+    topics: str | None = None
+
+
 @router.post("/start", dependencies=WRITE)
-def start() -> dict:
-    """START AUTOPILOT: turn it on with the connected accounts and start finding opportunities right away."""
+def start(body: StartBody | None = None) -> dict:
+    """START AUTOPILOT: turn it on with the connected accounts and the topics you chose, and start finding
+    opportunities right away."""
     from ..publish.routes import _tiktok_state, _youtube_state
 
     settings = db.get_settings()
-    home.start({"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)})
+    home.start({"youtube": _youtube_state(settings), "tiktok": _tiktok_state(settings, None)},
+               (body.topics if body else None))
     for kind in ("feed_scan", "trend_scan", "schedule_tick"):
         _manual(kind)
     return status()
@@ -397,18 +566,13 @@ def _local_time(ts: float | None, settings: dict) -> str:
 def status() -> dict:
     """Everything the Autopilot dashboard shows."""
     from ..publish.routes import _tiktok_state, _youtube_state
-    from .scout import local_day, today_counts, tz
+    from .scout import day_bounds, local_day, today_counts
 
     settings = db.get_settings()
     now = time.time()
     day = local_day(settings, now)
-    zone = tz(settings)
-    start = dt.datetime.combine(dt.datetime.now(zone).date(), dt.time(0, 0), zone).timestamp()
-    end = start + 86400
-    rows = db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end))
-    published = {r["clip_id"] for r in rows if r["status"] == "published"}
-    scheduled = {r["clip_id"] for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing",
-                                                                "reconciling")}
+    start, end = day_bounds(settings, now)  # 23 or 25 hours on daylight-saving days
+    counts = today_posts(db.select("scheduled_publications", "planned_at >= ? AND planned_at < ?", (start, end)), now)
     processed = int(db.scalar("SELECT COUNT(*) FROM clips WHERE status = 'ready' AND created_at >= ? AND project_id IN "
                               "(SELECT id FROM projects WHERE origin IN ('autopilot', 'live'))", (start,)) or 0)
     nxt = db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval', 'publishing') AND "
@@ -420,9 +584,9 @@ def status() -> dict:
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
-        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), "published": len(published),
-                   "scheduled": len(scheduled - published), "processed": processed,
-                   "note": "A target, not a quota: quality, rights and platform limits come first."},
+        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), **counts, "processed": processed,
+                   "note": "A target, not a quota: quality, rights and platform limits come first. It counts unique "
+                           "clips; one clip on YouTube and TikTok is two platform posts."},
         "sources_today": today_counts(settings, now), "sources_per_day": settings.get("autopilot_sources_per_day"),
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
         "queue": {"size": int(db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE status IN ('queued', 'retrying', "
@@ -433,10 +597,25 @@ def status() -> dict:
             "resets_at": q["resets_at"], "discovery_paused": q["discovery_paused"]},
         "actions": state.open_actions(), "events": state.events(25),
         "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
-        "providers": state.get("providers", {}) or {},
+        "providers": state.get("providers", {}) or {}, "web_search": providers.web_usage(settings),
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
         "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }
+
+
+def today_posts(rows: list[dict], now: float) -> dict:
+    """Today's unique clips and platform posts, published and scheduled. One clip posted to YouTube and TikTok is one
+    clip and two posts. A post counts as published once it is live: a YouTube post uploaded early that goes live
+    later counts as scheduled. A clip counts once, as published if any of its posts is live."""
+    live = [r for r in rows if r["status"] == "published" and (r.get("planned_at") or 0) <= now]
+    waiting = [r for r in rows if r["status"] in ("awaiting_approval", "approved", "publishing", "reconciling") or
+               (r["status"] == "published" and (r.get("planned_at") or 0) > now)]
+    published = {r["clip_id"] for r in live}
+    return {"published": len(published), "scheduled": len({r["clip_id"] for r in waiting} - published),
+            "published_posts": len(live), "scheduled_posts": len(waiting),
+            "posts_by_platform": {p: {"published": sum(r["platform"] == p for r in live),
+                                      "scheduled": sum(r["platform"] == p for r in waiting)}
+                                  for p in ("youtube", "tiktok")}}
 
 
 def _count(table: str, column: str, where: str = "") -> list[dict]:
@@ -465,7 +644,7 @@ def _public_item(item: dict, settings: dict) -> dict:
     from .scheduler import approval_valid
 
     return {**item, "local_time": _local_time(item.get("planned_at"), settings),
-            "approval_valid": approval_valid(item),
+            "approval_valid": approval_valid(item, quick=True),  # display only; decisions hash the file
             "clip": {"id": clip.get("id"), "title": clip.get("title"), "duration": clip.get("duration"),
                      "score": clip.get("score"), "category": clip.get("category"), "status": clip.get("status"),
                      "has_thumbnail": bool(clip.get("thumb_path")), "version_id": version,
@@ -502,6 +681,14 @@ def _item_or_404(item_id: str) -> dict:
     if not item:
         raise HTTPException(404, "Scheduled post not found")
     return item
+
+
+@router.get("/scheduled/{item_id}", dependencies=READ)
+def scheduled_item(item_id: str) -> dict:
+    """One post, as the list shows it (the post page: also an old post beyond the newest the lists return)."""
+    settings = db.get_settings()
+    return {"item": _public_item(_item_or_404(item_id), settings), "timezone": settings.get("autopilot_timezone"),
+            "auto_publish": bool(settings.get("autopilot_auto_publish"))}
 
 
 class ApproveBody(BaseModel):
@@ -649,7 +836,7 @@ def publish_now(item_id: str) -> dict:
     db.update("scheduled_publications", item_id, planned_at=time.time() + 30, status="publishing",
               status_note="Publishing now (started by you)", audit=_audit(item, "publish_now", "Publish now: by you"))
     queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}", priority=MANUAL_PRIORITY,
-                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600)
+                  ref=("scheduled", item_id), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
     state.resolve(f"publish:{item_id}")
     return _public_item(_item_or_404(item_id), db.get_settings())
 

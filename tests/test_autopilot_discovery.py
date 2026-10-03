@@ -107,7 +107,7 @@ def test_recurring_topics_across_creators():
 # ------------------------------------------------------------------ rights
 def test_rights_evaluation_order_and_policy(data):
     from clipfoundry import db
-    from clipfoundry.autopilot import rights
+    from clipfoundry.autopilot import rights, verify
 
     settings = db.get_settings()
     src = db.insert("sources", {"platform": "youtube", "external_id": "v1", "title": "t", "channel_id": "UCabc",
@@ -115,11 +115,16 @@ def test_rights_evaluation_order_and_policy(data):
     r = rights.evaluate(src, settings)
     assert r["status"] == rights.MANUAL and not r["auto_allowed"]  # public/trending is not authorization
     cc = rights.evaluate({**src, "license": "creativeCommon"}, settings)
-    assert cc["status"] == rights.CC and not cc["auto_allowed"]  # CC needs opting in
+    assert cc["status"] == rights.CC and cc["auto_allowed"]  # a CC BY license allows reuse (credit added)
+    assert not rights.evaluate({**src, "license": "creativeCommon"}, {**settings, "rights_auto_creative_commons":
+                                                                        False})["auto_allowed"]  # ...unless turned off
     with pytest.raises(ValueError):
         rights.add_rule("channel", "UCabc", rights.ALLOWLISTED)  # the permission must be recorded
     rights.add_rule("channel", "UCabc", rights.ALLOWLISTED, "Official clipping program, joined 2026-09-01",
                     platform="youtube")
+    r = rights.evaluate(src, settings)  # the channel is only claimed: the rule does not count yet
+    assert r["status"] == rights.MANUAL and r["basis"].startswith("channel not confirmed")
+    src["channel_check"] = verify.judge(src, "UCabc", "ABC", verify.YOUTUBE_DATA)  # as YouTube reports it
     assert rights.evaluate(src, settings)["status"] == rights.ALLOWLISTED
     rights.add_rule("source", src["id"], rights.BLOCKED, "Contains licensed music")
     assert rights.evaluate(src, settings)["status"] == rights.BLOCKED  # BLOCKED always wins
@@ -127,6 +132,8 @@ def test_rights_evaluation_order_and_policy(data):
         rights.gate(src, "publish", settings)
     db.save_account("youtube", tokens={"access_token": "x", "expires_at": 0}, account_id="UCmine")
     mine = {**src, "id": "other", "channel_id": "UCmine"}
+    assert rights.evaluate(mine, settings)["status"] == rights.MANUAL  # YouTube confirmed UCabc, not UCmine
+    mine["channel_check"] = verify.judge(mine, "UCmine", "Me", verify.YOUTUBE_DATA)
     assert rights.evaluate(mine, settings)["status"] == rights.OWNED
 
 
@@ -235,13 +242,20 @@ def test_trend_and_source_scout(google, data, tmp_path, monkeypatch):
     local = next(s for s in src.values() if s["platform"] == "local")
     assert local["rights_status"] == rights.OWNED and local["status"] == "queued" and local["selected_day"]
     keys = {a["key"] for a in state.open_actions()}
-    # Today is one source short (2 per day, 1 queued), so there is exactly one rights question: about the strongest
-    # video that needs it (not the YouTube live stream: without the download setting a yes could not be used). The
-    # other unconfirmed videos stay in discovery without bothering you.
+    # By default nothing is asked: videos nothing covers, and a covered video whose file cannot be obtained, are
+    # skipped (the activity log says why) and the next best video is tried.
+    assert not [k for k in keys if k.startswith(("rights:", "file:"))]
+    assert "YouTube does not allow downloading" in src["pod1"]["status_note"]
+    # With "Ask me about strong videos nothing covers" on: today is one source short (2 per day, 1 queued), so there
+    # is exactly one rights question, about the strongest video that needs it (not the YouTube live stream: without
+    # the download setting a yes could not be used).
+    db.save_settings({"rights_ask_per_video": True})
+    run("source_scout")
+    keys = {a["key"] for a in state.open_actions()}
     asked = sorted(k for k in keys if k.startswith("rights:"))
     strongest = max((s for s in src.values() if s["status"] == "needs_rights" and s["kind"] != "live"),
                     key=lambda s: s["source_score"])
-    assert asked == [f"rights:{strongest['id']}"] and f"file:{src['pod1']['id']}" in keys
+    assert asked == [f"rights:{strongest['id']}"] and not [k for k in keys if k.startswith("file:")]
     from clipfoundry.autopilot import queue
 
     hunts = queue.jobs(worker="clip_hunter")
@@ -317,6 +331,47 @@ def test_youtube_data_is_deleted_after_30_days(data):
     assert "p5" in {r["id"] for r in db.select("performance")}
 
 
+def test_youtube_data_age_counts_from_youtubes_last_answer(data):
+    # Source Scout keeps copying an active signal's stored numbers into the video's record, which refreshes its
+    # updated_at; the 30 days still count from when YouTube last returned the video.
+    from clipfoundry import db
+    from clipfoundry.autopilot import scout
+
+    now = time.time()
+    old = now - 31 * 86400
+    sig = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v1",
+                                      "first_seen": old, "last_checked": old})
+    db.insert("sources", {"platform": "youtube", "external_id": "v1", "signal_id": sig["id"], "title": "Found",
+                          "metrics": {"views": 5}})
+    sig2 = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v2",
+                                       "first_seen": old, "last_checked": old})
+    used = db.insert("sources", {"platform": "youtube", "external_id": "v2", "signal_id": sig2["id"], "title": "Used",
+                                 "project_id": "p1", "status": "analyzed", "metrics": {"views": 9}})
+    fresh = db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "v3",
+                                        "first_seen": now, "last_checked": now})
+    db.insert("sources", {"platform": "youtube", "external_id": "v3", "signal_id": fresh["id"], "metrics": {"views": 1}})
+    out = scout.youtube_retention(now=now)
+    assert out["youtube_sources_deleted"] == 1 and out["youtube_sources_cleared"] == 1
+    left = {r["external_id"]: r for r in db.select("sources")}
+    assert set(left) == {"v2", "v3"} and left["v2"]["metrics"] == {} and left["v2"]["title"] == "Used"
+    assert left["v3"]["metrics"] == {"views": 1} and db.fetch("sources", used["id"])
+
+
+def test_youtube_data_is_deleted_at_start_even_when_autopilot_is_off(data):
+    # The hourly maintenance only runs while Autopilot is on; YouTube's 30-day rule holds either way.
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+
+    old = time.time() - 31 * 86400
+    db.insert("trend_signals", {"provider": "youtube_search", "platform": "youtube", "external_id": "old",
+                                "first_seen": old, "last_checked": old})
+    assert not db.get_settings()["autopilot_enabled"]
+    with TestClient(app, base_url="http://127.0.0.1:8765"):
+        assert db.select("trend_signals") == []
+
+
 # ------------------------------------------------------------------ API
 def test_autopilot_api(data, tmp_path):
     from fastapi.testclient import TestClient
@@ -355,9 +410,31 @@ def test_legal_pages_are_served(data):
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
         for path, text in [("/legal/terms", "Terms of Service"), ("/legal/privacy", "Privacy Policy"),
-                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "ClipFoundry legal")]:
+                           ("/legal/privacy.html", "YouTube API Services"), ("/legal/", "Turn long videos into")]:
             r = c.get(path)
             assert r.status_code == 200 and r.headers["content-type"].startswith("text/html") and text in r.text
-            assert "qualified lawyer" in r.text and "[CONTACT EMAIL]" in r.text
+            assert 'href="site.css"' in r.text
+        css = c.get("/legal/site.css")
+        assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
         assert c.get("/legal", follow_redirects=False).headers["location"] == "/legal/"
         assert c.get("/legal/x").status_code == 404
+
+
+def test_the_website_is_ready_to_publish():
+    """docs/legal is published as the public website: only these files, no placeholders, nothing loaded from other
+    sites, and the Privacy Policy and Terms linked at the top of every page (TikTok wants them visible without a
+    menu)."""
+    import re
+
+    from clipfoundry.api import LEGAL_DIR
+
+    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == ["index.html", "privacy.html", "site.css", "terms.html"]
+    for page in ("index.html", "privacy.html", "terms.html"):
+        html = (LEGAL_DIR / page).read_text(encoding="utf-8")
+        assert not re.search(r"\{\{|\[[A-Z][A-Z ]+\]", html), f"{page}: unresolved placeholder"
+        assert not re.search(r"<script|<form|<iframe|<img|@import", html, re.I), page
+        assert re.findall(r'<link rel="stylesheet" href="([^"]+)"', html) == ["site.css"], page
+        header = html.split("<main", 1)[0]
+        assert 'href="privacy.html"' in header and 'href="terms.html"' in header, page
+        assert "landryschreiner456@gmail.com" in html and "Landry Schreiner" in html, page
+    assert "url(" not in (LEGAL_DIR / "site.css").read_text(encoding="utf-8")

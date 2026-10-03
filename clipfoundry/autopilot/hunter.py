@@ -20,14 +20,14 @@ from pathlib import Path
 from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
 from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
-from ..pipeline.common import JobContext, read_json
+from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
-from ..publish.common import client
-from . import queue, rights, state
+from ..publish.common import client, retry_after, wait_text
+from . import access, queue, rights, state
 from .host import Job, handler
 
 POOL_SIZE = 60
-DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
+DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ogv")
 
 
 GPU_PAUSE_SECONDS = 1800
@@ -75,10 +75,13 @@ def max_source_bytes(settings: dict) -> int:
 def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: dict) -> None:
     """A direct media link, checked against private/local addresses on every redirect and bounded in size."""
     def accept(r) -> None:
+        asked = retry_after(r) if r.status_code in (429, 503) else None
+        if asked is not None:  # the server said when to come back: not sooner (a wait uses no attempt)
+            raise queue.Wait("server", asked, f"The media server asked to wait {wait_text(asked)}")
         if r.status_code != 200:
             raise queue.Retry(f"The media URL answered {r.status_code}", "Check that the link still works.")
         kind = r.headers.get("content-type", "")
-        if not kind.startswith(("video/", "application/octet-stream", "binary/")):
+        if not kind.startswith(("video/", "application/octet-stream", "binary/", "application/ogg")):
             raise queue.Fail(f"The URL is not a video file ({kind or 'unknown type'})",
                              "Use a direct link to the video file, or add the file itself.")
         need = int(r.headers.get("content-length") or 0) + MIN_FREE_DISK
@@ -104,6 +107,24 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
     state.resolve("disk:space")
 
 
+def write_provenance(pdir: Path, src: dict, found: dict, settings: dict) -> None:
+    """Keep the file together with where it came from and why it may be used: the source, the rights decision with
+    its conditions and evidence, the license the provider reported, and how the file was obtained."""
+    r = rights.evaluate(src, settings)
+    rule = db.fetch("source_rights", r["rule_id"]) if r.get("rule_id") else None
+    f = next((p for p in pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS), None)
+    write_json(pdir / "provenance.json", {
+        "source": {k: src.get(k) for k in ("id", "platform", "external_id", "title", "url", "channel_id",
+                                           "channel_title", "published_at", "signal_id")},
+        "rights": {k: r.get(k) for k in ("status", "label", "basis", "rule_id", "conditions")},
+        "evidence": {"text": (rule or {}).get("evidence", ""), "url": (rule or {}).get("evidence_url", "")},
+        "license": src.get("rights_info") or {},
+        "attribution": rights.attribution({**src, "rights_status": r["status"], "rights_rule_id": r["rule_id"]}),
+        "access": {k: found.get(k) for k in ("method", "label", "detail", "local_path", "url")},
+        "file": {"name": f.name, "bytes": f.stat().st_size} if f else None,
+        "obtained_at": time.time()})
+
+
 def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
     """The project that holds this source's video (created once; re-used when the job is retried)."""
     project = db.get_project(src.get("project_id") or "") if src.get("project_id") else None
@@ -117,31 +138,39 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
     existing = next((p for p in pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS), None)
     if existing:
         dst = existing
-    elif src.get("local_path"):
-        local = Path(src["local_path"])
-        if not local.exists():
-            raise queue.Fail("The source file no longer exists", "Add the file again in Autopilot → Sources.")
-        dst = pdir / f"source{local.suffix.lower()}"
-        _link_or_copy(local, dst)
     else:
-        ok, why = rights.download_allowed(src, settings)
-        if not ok:
-            raise queue.Fail(why, "Add the original file in Autopilot → Sources.")
-        url = src.get("url") or ""
-        if url.lower().split("?")[0].endswith(DIRECT_MEDIA) or not rights.is_platform_url(url):
-            dst = pdir / "source.mp4"
-            _http_download(url, dst, ctx, src, settings)
+        found = access.resolve(src, settings)  # how the file may be obtained, apart from the right to reuse it
+        db.update("sources", src["id"], access=access.record(src, found))
+        if not found["ok"]:
+            raise queue.Fail(found["detail"], "Add the original file on the Autopilot page (Activity).")
+        if found.get("local_path"):
+            local = Path(found["local_path"])
+            if not local.exists():
+                raise queue.Fail("The source file no longer exists", "Add the file again in Autopilot → Sources.")
+            dst = pdir / f"source{local.suffix.lower()}"
+            _link_or_copy(local, dst)
+        elif found["method"] != "platform" or (found.get("url") or "").lower().split("?")[0].endswith(DIRECT_MEDIA):
+            dst = pdir / f"source{_suffix(found['url'])}"
+            _http_download(found["url"], dst, ctx, src, settings)
         else:
             db.update_project(project["id"], source_path=str(pdir / "source.mp4"))
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
-                download_url(project["id"], url, ctx, max_bytes=max_source_bytes(settings),
+                download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
                              max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
             except DownloadRefused as exc:
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
+            write_provenance(pdir, src, found, settings)
             return db.get_project(project["id"]) or project
+        write_provenance(pdir, src, found, settings)
     db.update_project(project["id"], source_path=str(dst), source_filename=dst.name)
     return db.get_project(project["id"]) or project
+
+
+def _suffix(url: str) -> str:
+    """The downloaded file keeps its container's extension (a library serves WebM or Ogg as often as MP4)."""
+    ext = Path(url.split("?")[0].split("#")[0]).suffix.lower()
+    return ext if ext in config.VIDEO_EXTENSIONS else ".mp4"
 
 
 def check_length(project: dict, settings: dict) -> None:
@@ -169,6 +198,9 @@ def _source_failed(job: Job, exc: Exception) -> None:
             db.update_project(src["project_id"], status="error", error=str(exc)[:500], message="Failed")
         state.event("source_failed", f"“{src['title'][:80]}” failed: {exc}", "error", ref_type="source",
                     ref_id=src["id"])
+        from . import scout
+
+        scout.refill(src)
     else:
         db.update("sources", src["id"], status_note=f"Retrying after: {exc}"[:300])
 
@@ -186,6 +218,16 @@ def _guard(fn):
     return run
 
 
+def _not_used(src: dict, r: dict) -> dict:
+    """A source that may not be used (any more) is skipped, not failed: its status and the activity log say why."""
+    status = "blocked" if r["status"] == rights.BLOCKED else "needs_rights"
+    db.update("sources", src["id"], status=status, status_note=f"{r['label']}: {r['basis']}"[:300],
+              rights_status=r["status"], rights_basis=r["basis"], rights_rule_id=r["rule_id"])
+    if src.get("project_id"):
+        db.update_project(src["project_id"], message=f"Stopped: {r['label']} ({r['basis']})"[:300])
+    return {"skipped": True, "message": f"Not used: {r['label']} ({r['basis']})"}
+
+
 @handler("hunt_source")
 @_guard
 def hunt_source(job: Job) -> dict:
@@ -193,12 +235,11 @@ def hunt_source(job: Job) -> dict:
     src = db.fetch("sources", job.payload.get("source_id", ""))
     if not src:
         raise queue.Fail("The source was deleted")
-    try:
-        rights.gate(src, "ingest", settings)
-    except rights.RightsBlocked as exc:
-        db.update("sources", src["id"], status="blocked" if exc.status == rights.BLOCKED else "needs_rights",
-                  status_note=str(exc))
-        raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
+    if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
+        return {"skipped": True, "message": "Canceled by you"}
+    r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
+    if not rights.local_allowed(src, r, settings):
+        return _not_used(src, r)
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
     ctx = job.pipeline_ctx(0.0, 1.0)
     try:
@@ -210,6 +251,9 @@ def hunt_source(job: Job) -> dict:
     except gpu.GpuBusy as exc:
         db.update("sources", src["id"], status="queued", status_note=str(exc))
         raise queue.Wait("gpu", 600, f"{exc} Trying again in 10 minutes.") from exc
+    except queue.Wait as w:  # e.g. the media server asked to wait, or the disk is full: its turn comes back then
+        db.update("sources", src["id"], status="queued", status_note=w.message[:300])
+        raise
     except transcribe.GpuTranscriptionFailed as exc:
         db.update("sources", src["id"], status="queued", status_note=f"Paused: GPU transcription failed. {exc}"[:300])
         raise gpu_failed(exc, f"“{src.get('title', '')[:60]}”") from exc
@@ -228,7 +272,8 @@ def hunt_source(job: Job) -> dict:
               status_note=f"{len(cands)} candidate moments found; waiting for the analyzer")
     db.update_project(p.id, message=f"{len(cands)} candidate moments; analyzing")
     queue.enqueue("analyze_source", {"source_id": src["id"], "project_id": p.id},
-                  idem_key=f"analyze:{src['id']}:{p.id}", ref=("source", src["id"]), priority=job.row["priority"],
+                  idem_key=f"analyze:{src['id']}:{p.id}", ref=("source", src["id"]),
+                  priority=queue.source_priority(src, job.row["priority"]),
                   timeout_s=4 * 3600)
     return {"project_id": p.id, "candidates": len(cands), "message": f"{len(cands)} candidate moments found"}
 
@@ -258,6 +303,9 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
     A clip whose plan is rejected is not rendered; the reasons are kept on the clip."""
     ok = []
     for row, r in zip(rows, chosen):
+        if row["status"] == "ready" and row.get("output_path") and Path(row["output_path"]).is_file():
+            ok.append(row)  # restart recovery preserves the exact completed clip and its publishing bindings
+            continue
         bp = blueprint.build(row, p.project, p.words, p.settings, source_id=source_id, selection=r,
                              video_path=p.project.get("source_path"))
         issues = blueprint.validate(bp, p.meta.get("duration"), p.words)
@@ -266,8 +314,32 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
         if problems:
             db.update_clip(row["id"], status="error", error=("Plan rejected: " + "; ".join(problems[:3]))[:500])
             continue
+        heard = blueprint.heard_fields(bp, p.words, row, p.settings)  # weak middle parts cut out
+        if heard:
+            db.update_clip(row["id"], **heard)
+            row = {**row, **heard}
         ok.append(row)
     return ok
+
+
+def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict) -> None:
+    """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
+    The durable selection and stable clip IDs let this handler resume only the remaining renders."""
+    total = max(1, len(planned))
+    for index, row in enumerate(planned):
+        job.check()
+        current = db.get_clip(row["id"]) or row
+        if current["status"] == "ready" and Path(current.get("output_path") or "").is_file():
+            continue
+        priority = queue.source_priority(src, job.row.get("priority") or 0)
+        if queue.has_higher_priority_work(job.row, priority):
+            db.update_project(p.id, message="Saved progress; working on your higher-priority video first")
+            raise queue.Wait("priority", 2, "Saved progress; your higher-priority video is next")
+        lo, hi = 0.6 + 0.35 * index / total, 0.6 + 0.35 * (index + 1) / total
+        step = f"Making clip {index + 1} of {len(planned)}"
+        job.progress(lo, step, stage="render")
+        sub = JobContext(lambda fraction, message, step=step: ctx.progress(fraction, step), ctx.cancelled)
+        process.render_clips(p, [current], sub, lo=lo, hi_total=hi)
 
 
 @handler("analyze_source")
@@ -278,17 +350,26 @@ def analyze_source(job: Job) -> dict:
     p = process.load_prepared(job.payload.get("project_id", ""))
     if not src or not p:
         raise queue.Fail("The source or its transcript is missing", "Start the source again in Autopilot → Sources.")
+    if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
+        return {"skipped": True, "message": "Canceled by you"}
+    r = rights.recheck(src, settings)  # no clip is rendered from a source that is no longer covered
+    if not rights.local_allowed(src, r, settings):
+        return _not_used(src, r)
     ctx = job.pipeline_ctx(0.0, 1.0)
     cands = read_json(p.pdir / "candidates.json", []) or []
     db.update_project(p.id, status="processing", message="Autopilot: analyzing candidates")
     job.progress(0.05, f"Analyzing {len(cands)} candidates", stage="analyze")
     signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
     trend_kw = (signal or {}).get("keywords") or []
-    chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+    selection_path = p.pdir / "autopilot-selection.json"
+    chosen = read_json(selection_path, None)
+    if chosen is None:
+        chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+        write_json(selection_path, chosen)  # resume this exact selection after an interrupted render
     for c in p.info.get("candidates", []):
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
     job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
-    rows = process.create_clips(p, chosen, ctx)
+    rows = process.create_clips(p, chosen, ctx, durable=True)
     planned = plan_clips(p, rows, chosen, src["id"])
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
@@ -307,7 +388,7 @@ def analyze_source(job: Job) -> dict:
                                   "components": {"viral_potential": r["score"], "subscores": sub,
                                                  "diversity": r.get("diversity") or {}},
                                   "explanation": r.get("explanation") or []}, key="clip_id", replace=True)
-    process.render_clips(p, planned, ctx, lo=0.6, hi_total=0.95)
+    render_in_priority_order(p, planned, ctx, job, src)
     ready = [c for c in db.list_clips(p.id) if c["status"] == "ready"]
     for clip in ready:
         job.check()
@@ -327,6 +408,6 @@ def analyze_source(job: Job) -> dict:
                 ref_type="source", ref_id=src["id"], clips=len(ready))
     for clip in ready:
         queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": src["id"]}, idem_key=f"package:{clip['id']}",
-                      ref=("clip", clip["id"]), priority=job.row["priority"])
+                      ref=("clip", clip["id"]), priority=queue.source_priority(src, job.row["priority"]))
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}")
     return {"clips": len(ready), "weak": weak, "message": note}

@@ -26,10 +26,12 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import Cancelled, PublishError, client, network_errors, save_tokens
+from .common import (SHORT_WAIT, Cancelled, PublishError, client, network_errors, retry_after, save_tokens,
+                     sleep_exactly, with_retry_after)
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 API_URL = "https://open.tiktokapis.com/v2"
+OEMBED_URL = "https://www.tiktok.com/oembed"  # public embed API: a video's author, used to confirm channel claims
 MIN_CHUNK = 5 * 1024 * 1024
 CHUNK = 10 * 1024 * 1024  # between TikTok's 5 MB minimum and 64 MB maximum
 POLL_SECONDS = 3.0
@@ -207,7 +209,9 @@ def _call(token: Token, path: str, body: dict | None = None, method: str = "POST
                 continue
             break
     if r.status_code != 200 or code != "ok":
-        raise api_error(code, (data.get("error") or {}).get("message", "") or r.text[:200], r.status_code)
+        raise with_retry_after(api_error(code or ("rate_limit_exceeded" if r.status_code == 429 else ""),
+                                         (data.get("error") or {}).get("message", "") or r.text[:200], r.status_code),
+                               r, "TikTok")
     return data.get("data") or {}
 
 
@@ -219,7 +223,7 @@ def user_info(access_token: str) -> dict:
     data = _json(r)
     if r.status_code != 200 or (data.get("error") or {}).get("code", "ok") != "ok":
         err = data.get("error") or {}
-        raise api_error(err.get("code", ""), err.get("message", ""), r.status_code)
+        raise with_retry_after(api_error(err.get("code", ""), err.get("message", ""), r.status_code), r, "TikTok")
     return (data.get("data") or {}).get("user") or {}
 
 
@@ -296,8 +300,15 @@ def init_upload(token: Token, mode: str, size: int, caption: str = "", privacy: 
     return _call(token, "/post/publish/inbox/video/init/", {"source_info": source})
 
 
+def _busy(r: httpx.Response) -> PublishError:
+    """TikTok asked to wait (Retry-After) before the next chunk: a rate limit, or a busy server."""
+    return with_retry_after(api_error("rate_limit_exceeded" if r.status_code == 429 else "internal"), r, "TikTok")
+
+
 def upload_chunks(upload_url: str, path: str, progress: Callable[[float], None],
                   cancelled: Callable[[], bool]) -> None:
+    """Upload the file in chunks. A short Retry-After is waited out exactly; a longer one ends the attempt with its
+    wait attached (the job queue runs it again at that time; TikTok never posts an unfinished upload)."""
     size = os.path.getsize(path)
     chunk, total = chunking(size)
     with client(300) as c, open(path, "rb") as fh:
@@ -316,9 +327,14 @@ def upload_chunks(upload_url: str, path: str, progress: Callable[[float], None],
                     r = None
                 if r is not None and r.status_code in (200, 201, 206):
                     break
-                if r is not None and r.status_code < 500:
+                if r is not None and r.status_code < 500 and r.status_code != 429:
                     raise PublishError(f"TikTok rejected the upload ({r.status_code}).", "Publish again.")
-                time.sleep(2 ** attempt)
+                asked = retry_after(r)
+                if r is not None and ((asked is not None and asked > SHORT_WAIT) or attempt == 2 and
+                                      (asked is not None or r.status_code == 429)):
+                    raise _busy(r)  # a long wait (or the last try) goes back to the job queue with TikTok's time
+                if attempt < 2:
+                    sleep_exactly(asked if asked is not None else 2 ** attempt, cancelled)
             else:
                 raise PublishError("The upload to TikTok kept failing.", "Check your connection and publish again.")
             progress((end + 1) / size)

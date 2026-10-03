@@ -213,6 +213,16 @@ def test_probe_without_gpu_is_cpu_mode():
     assert transcribe.whisper_plan({}, st)["mode"] == "cpu"
 
 
+def silent_wav(path: Path, frames: int = 1600) -> Path:
+    """A WAV like the one ffmpeg_utils.extract_audio writes (16 kHz, mono, 16-bit)."""
+    import wave
+
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000)
+        w.writeframes(b"\0\0" * frames)
+    return path
+
+
 def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog, tmp_path):
     import types
 
@@ -237,7 +247,7 @@ def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog, tmp_pa
     monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
     msgs: list[str] = []
     with caplog.at_level("INFO", logger="clipfoundry"):
-        out = transcribe._run_whisper(Path("a.wav"), 30.0, {}, "large-v3-turbo", "cuda", "float16",
+        out = transcribe._run_whisper(silent_wav(tmp_path / "a.wav"), 30.0, {}, "large-v3-turbo", "cuda", "float16",
                                       JobContext(lambda f, m: msgs.append(m)), 0.0, 1.0, vad=False)
     assert seen["device"] == "cuda" and seen["compute_type"] == "float16" and seen["beam_size"] == 5
     assert seen["path"] == str(tmp_path)  # WhisperModel only ever gets the verified local folder
@@ -247,6 +257,64 @@ def test_run_whisper_reports_what_ctranslate2_loaded(monkeypatch, caplog, tmp_pa
     rt = out["runtime"]
     assert rt["device"] == "cuda" and rt["compute_type"] == "float16" and rt["audio_seconds"] == 30.0
     assert out["segments"][0]["words"][0]["w"] == "hello"
+
+
+def test_whisper_gets_the_samples_so_a_newer_pyav_cannot_break_transcription(monkeypatch, tmp_path):
+    """faster-whisper decodes a file path with PyAV and passes `metadata_errors`, which PyAV 19 removed: every
+    transcription on a fresh install failed with "open() got an unexpected keyword argument 'metadata_errors'".
+    The app reads its own 16 kHz mono WAV and hands Whisper the samples, so PyAV is never used for it."""
+    import types
+    import wave
+
+    import faster_whisper
+    import numpy as np
+
+    from clipfoundry.pipeline import models
+
+    pcm = (np.sin(np.linspace(0, 200 * np.pi, 16000)) * 12000).astype(np.int16)
+    wav = tmp_path / "audio.wav"
+    with wave.open(str(wav), "wb") as w:  # what ffmpeg_utils.extract_audio writes: 16 kHz, mono, 16-bit
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000)
+        w.writeframes(pcm.tobytes())
+    monkeypatch.setattr(models, "ensure_model", lambda name, progress=None: tmp_path)
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, path, device, compute_type, cpu_threads):
+            self.model = types.SimpleNamespace(device=device, compute_type=compute_type)
+
+        def transcribe(self, audio, **kw):
+            seen["audio"] = audio
+            if not isinstance(audio, np.ndarray):  # what faster-whisper does with a path
+                audio = faster_whisper.audio.decode_audio(audio)
+            return iter([]), types.SimpleNamespace(language="en", duration=len(audio) / 16000)
+
+    def pyav_19_open(*args, **kwargs):
+        if "metadata_errors" in kwargs:
+            raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
+        raise AssertionError("PyAV should not be needed to read the app's own WAV")
+
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    monkeypatch.setattr(faster_whisper.audio.av, "open", pyav_19_open)
+    out = transcribe._run_whisper(wav, 1.0, {}, "small", "cpu", "int8", JobContext(lambda f, m: None), 0.0, 1.0)
+    audio = seen["audio"]
+    assert isinstance(audio, np.ndarray) and audio.dtype == np.float32 and audio.shape == (16000,)
+    assert np.array_equal(audio, pcm.astype(np.float32) / 32768.0)  # the same scaling as faster-whisper's decoder
+    assert out["segments"] == [] and out["runtime"]["audio_seconds"] == 1.0
+
+
+@pytest.mark.parametrize("channels,rate", [(2, 16000), (1, 44100)])
+def test_a_wav_whisper_cannot_take_as_is_is_refused_plainly(tmp_path, channels, rate):
+    import wave
+
+    from clipfoundry.pipeline import audio
+
+    wav = tmp_path / "audio.wav"
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(channels), w.setsampwidth(2), w.setframerate(rate)
+        w.writeframes(b"\0\0" * channels * 100)
+    with pytest.raises(ValueError, match="16 kHz mono"):
+        audio.read_samples(wav)
 
 
 ROOT = Path(__file__).resolve().parent.parent

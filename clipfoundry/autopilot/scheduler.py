@@ -8,8 +8,11 @@ survives restarts.
   target is never reached by lowering the quality bar.
 * Final Opportunity Score = an explained, weighted mix of the Clip, Packaging, Trend, Source, Diversity, Expected
   Retention and Publish Opportunity scores. Better items get better slots; a trending clip is posted sooner.
-* Every post waits for your approval (YouTube and TikTok require users to control what is published). Approved posts
-  are published at their time without another click.
+* A post goes out only with an approval: yours, or the automatic-publishing permission you gave for a platform whose
+  rules allow it (autopublish.py: YouTube; TikTok requires your OK on each post). A post approved under that
+  permission is marked "approved automatically", never "approved by you", and only clips that passed every check
+  qualify. Approved posts are published at their time without another click.
+* The coverage's conditions are kept: a video an agreement allows only on some platforms is only planned there.
 * Dynamic replacement: a clearly stronger new opportunity takes the slot of the weakest future item that has not
   started. Nothing that is uploading or published is touched; an approved post is only swapped once you approve its
   replacement. Every replacement is written to the item's audit trail.
@@ -17,15 +20,13 @@ survives restarts.
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
-import json
 import math
 import time
 from pathlib import Path
 
 from .. import db
 from ..pipeline import artifact, fingerprint
-from . import gate, learner, queue, rights, state
+from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
 
@@ -34,6 +35,7 @@ LOCK_MINUTES = 20          # this close to its time an item is never moved or re
 HORIZON_DAYS = 2           # plan today and the next two days
 MISSED_GRACE_HOURS = 48    # an unapproved item that missed its slot this long ago is retired
 OVERDUE_MINUTES = 15       # an approved item this late (app was off) gets a new slot instead of posting late
+REPLACEMENT_COOLDOWN_HOURS = 24  # a slot takes part in at most one replacement a day (setting overrides it)
 ACTIVE = ("awaiting_approval", "approved", "publishing", "reconciling")  # reconciling: may already be live
 DONE = ("published",)
 FINAL_WEIGHTS = {"clip": 0.35, "packaging": 0.15, "trend": 0.15, "source": 0.10, "diversity": 0.10,
@@ -212,6 +214,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
         for platform in platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
+            if not rights.platform_allowed(source, platform, settings)[0]:
+                continue  # e.g. an agreement that covers TikTok only
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
             if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
@@ -237,6 +241,7 @@ class Plan:
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
                                                          "'reconciling', 'published') AND planned_at IS NOT NULL")
         self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
+        self.held = 0  # replacements held back by the cooldown
 
     def occupies(self, item: dict) -> bool:
         """A pending swap shares its slot with the item it would replace, so it takes no slot of its own."""
@@ -319,34 +324,78 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
                                                                         f"{final:.0f}"}]})
     state.event("scheduled", f"{c['platform']}: “{c['meta']['title'][:60]}” planned for "
                              f"{_label(planned_at, settings)}", ref_type="scheduled", ref_id=item["id"], final=final)
+    if auto_approve(item, settings, now):
+        return db.fetch("scheduled_publications", item["id"]) or item
     return item
 
 
+def replaceable(platform: str, now: float) -> list[dict]:
+    """Future posts that dynamic replacement may swap out, weakest first (outside the freeze window, not a swap
+    themselves, and without a stronger post already proposed for their slot)."""
+    return db.select("scheduled_publications", "platform = ? AND status IN ('awaiting_approval', 'approved') AND "
+                                                "planned_at > ? AND replaced_by = '' AND replaces = '' AND id NOT IN "
+                                                "(SELECT replaces FROM scheduled_publications WHERE replaces != '' AND "
+                                                "status IN ('awaiting_approval', 'approved', 'publishing', "
+                                                "'reconciling'))",
+                     (platform, now + 60 * LOCK_MINUTES), "final_score ASC")
+
+
 def weakest_replaceable(platform: str, now: float) -> dict | None:
-    rows = db.select("scheduled_publications", "platform = ? AND status IN ('awaiting_approval', 'approved') AND "
-                                               "planned_at > ? AND replaced_by = '' AND replaces = ''",
-                     (platform, now + 60 * LOCK_MINUTES), "final_score ASC", 1)
+    rows = replaceable(platform, now)
     return rows[0] if rows else None
 
 
+def cooldown_hours(settings: dict) -> float:
+    return float(settings.get("autopilot_replacement_cooldown_hours", REPLACEMENT_COOLDOWN_HOURS) or 0)
+
+
+def replacement_blocked(weak: dict, clip_id: str, settings: dict, now: float) -> str:
+    """Why this post's slot is not replaced now ("" when it may be). The replacement history is stored
+    (slot_replacements), so the cooldown holds across restarts: a slot, or a post that took part in a replacement,
+    is not part of another one until the cooldown has passed, and a clip is proposed for the same post only once."""
+    if db.scalar("SELECT COUNT(*) FROM slot_replacements WHERE replaced_id = ? AND clip_id = ?", (weak["id"], clip_id)):
+        return "this clip was already proposed for this slot"
+    hours = cooldown_hours(settings)
+    last = db.scalar("SELECT MAX(created_at) FROM slot_replacements WHERE platform = ? AND (ABS(slot_at - ?) < 60 OR "
+                     "replaced_id = ? OR replacement_id = ?)", (weak["platform"], weak["planned_at"], weak["id"],
+                                                                weak["id"]))
+    if hours and last and now - float(last) < hours * 3600:
+        return f"its slot was part of a replacement less than {hours:g} hours ago"
+    return ""
+
+
 def try_replace(c: dict, settings: dict, now: float, plan: Plan) -> dict | None:
-    """Dynamic replacement: a clearly stronger opportunity takes the weakest future slot."""
+    """Dynamic replacement: a clearly stronger opportunity takes the weakest future slot that may be replaced."""
     if not settings.get("autopilot_dynamic_replacement"):
         return None
-    weak = weakest_replaceable(c["platform"], now)
-    if not weak:
-        return None
-    probe = final_score({**c["scores"], "publish_opportunity": (weak.get("scores") or {}).get("publish_opportunity")},
-                        learner.weights())
     threshold = float(settings.get("autopilot_replacement_threshold") or 15)
-    if probe[0] < (weak["final_score"] or 0) * (1 + threshold / 100):
-        return None
-    reason = (f"Final Opportunity Score {probe[0]:.0f} vs {weak['final_score']:.0f} (needs {threshold:.0f}% better)")
+    for weak in replaceable(c["platform"], now):
+        probe = final_score({**c["scores"], "publish_opportunity": (weak.get("scores") or {}).get(
+            "publish_opportunity")}, learner.weights())
+        if probe[0] < (weak["final_score"] or 0) * (1 + threshold / 100):
+            return None  # weakest first: the stronger posts after it would not be beaten either
+        if replacement_blocked(weak, c["clip"]["id"], settings, now):
+            plan.held += 1
+            continue
+        return _replace(c, weak, probe[0], threshold, settings, now, plan)
+    return None
+
+
+def _replace(c: dict, weak: dict, score: float, threshold: float, settings: dict, now: float, plan: Plan) -> dict:
+    reason = (f"Final Opportunity Score {score:.0f} vs {weak['final_score']:.0f} (needs {threshold:.0f}% better)")
     slot = weak.get("slot") or {"quality": 0.5, "note": "", "local": _local(weak["planned_at"], settings).isoformat()}
     new = create_item(c, weak["planned_at"], slot, settings, now, replaces=weak["id"],
                       audit=[{"at": now, "event": "replacement", "detail": f"Takes the slot of “{weak['title'][:60]}”: "
                                                                             f"{reason}", "replaces": weak["id"]}])
-    if weak["status"] == "approved":
+    weak = db.fetch("scheduled_publications", weak["id"]) or weak  # an automatic approval may have taken the slot
+    db.insert("slot_replacements", {"replacement_id": new["id"], "platform": c["platform"],
+                                    "slot_at": weak["planned_at"], "replaced_id": weak["id"],
+                                    "clip_id": c["clip"]["id"], "created_at": now,
+                                    "status": "proposed" if weak["status"] == "approved" else "replaced"},
+              key="replacement_id")
+    if weak["status"] == "replaced":
+        pass  # approved automatically and swapped in already (_take_slot wrote the audit trail)
+    elif weak["status"] == "approved":
         db.update("scheduled_publications", new["id"], status_note="Approve it to replace the weaker approved post in "
                                                                   "this slot; until then that post stays scheduled.")
         db.update("scheduled_publications", weak["id"], audit=_audit(weak, "replacement_proposed",
@@ -379,26 +428,79 @@ def plan_new(settings: dict, now: float) -> dict:
             replaced += 1
         else:
             no_slot += 1
-    return {"created": created, "replaced": replaced, "waiting_for_slot": no_slot}
+    return {"created": created, "replaced": replaced, "waiting_for_slot": no_slot, "replacement_cooldown": plan.held}
 
 
 # ------------------------------------------------------------------ approvals
-def approval_hash(item: dict) -> str:
+# An approval is bound to the SHA-256 of the video's bytes, plus the post's text, visibility, platform options and
+# the render version. Scheme 1 (older versions) used the file's size and modification time, which a re-render or
+# an edit in place can keep; such approvals are never trusted, the post is approved again (YouTube automatically
+# only under a permission still in force and a final check of these exact bytes; TikTok by you).
+APPROVAL_SCHEME = 2
+_sha_memo: dict[str, tuple[tuple, str]] = {}  # path -> (stat key, SHA-256): only for the quick display check
+
+
+def video_sha256(path: str, quick: bool = False) -> str:
+    """SHA-256 of the file's bytes, "" when it is missing or unreadable. `quick` reuses the last hash while the file's
+    size, times and identity are unchanged: for what the Publish Center shows every few seconds, never for a
+    decision (an edit in place can keep all of them on Windows)."""
+    try:
+        st = Path(path).stat() if path else None
+    except OSError:
+        return ""
+    if st is None or not Path(path).is_file():
+        return ""
+    key = (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_dev)
+    if quick and _sha_memo.get(path, ((), ""))[0] == key:
+        return _sha_memo[path][1]
+    try:
+        sha = artifact.sha256_file(path)
+    except OSError:
+        return ""
+    _sha_memo[path] = (key, sha)
+    return sha
+
+
+def approval_basis(item: dict, quick: bool = False) -> dict | None:
+    """What an approval covers, or None when the video that would be published is missing or unreadable."""
     clip = db.get_clip(item["clip_id"]) or {}
     path, version = active_version_path(clip)
-    try:
-        st = Path(path).stat()
-        video = f"{path}:{st.st_size}:{int(st.st_mtime)}"
-    except OSError:
-        video = path
+    sha = video_sha256(path, quick)
+    if not sha:
+        return None
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
-    data.update(video=video, version=version)
-    return hashlib.sha1(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
+    return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME}
 
 
-def approval_valid(item: dict) -> bool:
-    return item["status"] in ("approved", "publishing") and (item.get("approval") or {}).get("hash") == \
-        approval_hash(item)
+def approval_hash(item: dict, quick: bool = False) -> str:
+    basis = approval_basis(item, quick)
+    return artifact.sha256_json(basis) if basis else ""
+
+
+def approval_record(item: dict, **fields: object) -> dict | None:
+    """The approval to store for exactly this content, or None when its video is missing or unreadable."""
+    basis = approval_basis(item)
+    if not basis:
+        return None
+    return {**fields, "hash": artifact.sha256_json(basis), "scheme": APPROVAL_SCHEME,
+            "video_sha256": basis["video_sha256"]}
+
+
+def approval_problem(item: dict, quick: bool = False) -> str:
+    """Why the stored approval does not cover what would be published now ("" when it does)."""
+    appr = item.get("approval") or {}
+    if not appr.get("hash"):
+        return "not approved"
+    if appr.get("scheme") != APPROVAL_SCHEME:
+        return "approved before ClipFoundry checked the exact video file"
+    current = approval_hash(item, quick)
+    if not current:
+        return "the video file is missing or cannot be read"
+    return "" if appr["hash"] == current else "the clip or its text changed after approval"
+
+
+def approval_valid(item: dict, quick: bool = False) -> bool:
+    return item["status"] in ("approved", "publishing") and not approval_problem(item, quick)
 
 
 def check_platform(item: dict, creator: dict | None = None) -> None:
@@ -420,6 +522,92 @@ def check_platform(item: dict, creator: dict | None = None) -> None:
                         float(clip.get("duration") or 0))
 
 
+def _note(item: dict, note: str) -> None:
+    if item.get("status_note") != note:
+        db.update("scheduled_publications", item["id"], status_note=note[:500])
+
+
+def auto_approve(item: dict, settings: dict, now: float) -> bool:
+    """Approve a post under your automatic-publishing permission, if the platform allows it and the clip qualifies.
+    It is recorded as approved automatically (with the permission), never as approved by you."""
+    from ..publish.common import PublishError
+
+    consent = autopublish.active(item["platform"])
+    if not consent or item["status"] != "awaiting_approval" or not item.get("planned_at"):
+        return False
+    if any(a.get("event") == "edited" for a in item.get("audit") or []):
+        return False  # you changed this post yourself: you decide when it is ready
+    cfg = consent.get("settings") or {}
+    clip = db.get_clip(item["clip_id"]) or {}
+    report = gate.report_for(clip) if clip else None
+    sha = video_sha256(active_version_path(clip)[0]) if clip else ""
+    if not sha:
+        _note(item, "Held for your review, not published automatically: the video file is missing or cannot be read")
+        return False
+    if report and report.get("artifact_sha256") != sha:  # same size and time, other bytes: check these ones
+        gate.request(clip, sha=sha)
+        report = None
+    ok, why = autopublish.qualifies(report)
+    if not ok:
+        _note(item, f"Held for your review, not published automatically: {why}")
+        return False
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+    try:
+        rights.gate(source, "schedule", settings)
+    except rights.RightsBlocked:
+        return False
+    day = local_day(settings, item["planned_at"])
+    mine = [r for r in db.select("scheduled_publications", "platform = ? AND status IN ('approved', 'publishing', "
+                                                           "'reconciling', 'published') AND planned_at IS NOT NULL",
+                                 (item["platform"],))
+            if (r.get("approval") or {}).get("by") == "automatic" and local_day(settings, r["planned_at"]) == day]
+    if len(mine) >= int(cfg.get("daily_limit") or 0):
+        _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
+                    "is reached")
+        return False
+    updated = {**item, "privacy": cfg.get("visibility") or item.get("privacy"),
+               "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
+    try:
+        check_platform(updated)
+    except PublishError as exc:
+        _note(item, f"Held for your review: {exc}")
+        return False
+    when = autopublish.since(consent, settings)
+    approval = approval_record(updated, at=now, by="automatic", consent_id=consent["id"])
+    if not approval or approval["video_sha256"] != sha:  # the file changed while this was being decided
+        _note(item, "Held for your review, not published automatically: the video file changed; it is checked again")
+        return False
+    db.update("scheduled_publications", item["id"], privacy=updated["privacy"], options=updated["options"],
+              status="approved", approval=approval, last_error="", fix="",
+              status_note=f"Approved automatically (automatic publishing, on since {when}). You can cancel it until it "
+                          "goes out.",
+              audit=_audit(item, "auto_approved", f"Approved automatically under the automatic-publishing permission "
+                                                  f"you gave on {when} (not reviewed by you)", consent=consent["id"],
+                           privacy=updated["privacy"]))
+    state.event("auto_approved", f"{item['platform']}: “{item['title'][:60]}” approved automatically",
+                ref_type="scheduled", ref_id=item["id"])
+    if item.get("replaces"):
+        _take_slot(item["id"], updated, now, "approved automatically")
+    return True
+
+
+def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
+    """An approved replacement takes the slot of the weaker post it was proposed for (if that one has not started)."""
+    weak = db.fetch("scheduled_publications", updated["replaces"])
+    if weak and weak["status"] in ("awaiting_approval", "approved") and weak["planned_at"] > now + 60 * LOCK_MINUTES:
+        db.execute("UPDATE slot_replacements SET status = 'replaced', updated_at = ? WHERE replacement_id = ?",
+                   (now, item_id))
+        db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
+                  status_note=f"Replaced by a stronger opportunity ({how})",
+                  audit=_audit(weak, "replaced", f"Replaced by a stronger opportunity ({how})", by=item_id))
+        state.event("replaced", f"“{weak['title'][:60]}” replaced by “{updated['title'][:60]}”",
+                    ref_type="scheduled", ref_id=weak["id"], by=item_id)
+    elif weak and weak["status"] in ACTIVE + DONE:
+        db.update("scheduled_publications", item_id, replaces="", planned_at=None,
+                  status_note="The post it would have replaced already started; a new time will be chosen")
+
+
 def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
     item = db.fetch("scheduled_publications", item_id)
@@ -435,7 +623,10 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
         raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
                          + "). Fix the clip and render it again before approving it.")
     now = _now()
-    approval = {"at": now, "by": "you", "hash": approval_hash(updated)}
+    approval = approval_record(updated, at=now, by="you")
+    if not approval:
+        raise ValueError("The clip's video file is missing or cannot be read. Render the clip again before approving "
+                         "it.")
     db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
                                                                              "options")},
               status="approved", approval=approval, last_error="", fix="",
@@ -443,17 +634,7 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
               "Approved: publishing now",
               audit=_audit(item, "approved", "Approved by you", privacy=updated["privacy"]))
     if item.get("replaces"):
-        weak = db.fetch("scheduled_publications", item["replaces"])
-        if weak and weak["status"] in ("awaiting_approval", "approved") and \
-                weak["planned_at"] > now + 60 * LOCK_MINUTES:
-            db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
-                      status_note="Replaced by a stronger opportunity you approved",
-                      audit=_audit(weak, "replaced", "Replaced by an approved, stronger opportunity", by=item_id))
-            state.event("replaced", f"“{weak['title'][:60]}” replaced by “{updated['title'][:60]}”",
-                        ref_type="scheduled", ref_id=weak["id"], by=item_id)
-        elif weak and weak["status"] in ACTIVE + DONE:
-            db.update("scheduled_publications", item_id, replaces="", planned_at=None,
-                      status_note="The post it would have replaced already started; a new time will be chosen")
+        _take_slot(item_id, updated, now, "you approved it")
     state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved", ref_type="scheduled",
                 ref_id=item_id)
     return db.fetch("scheduled_publications", item_id) or item
@@ -508,6 +689,13 @@ def cancel(item_id: str, reason: str = "Canceled by you") -> dict:
     return db.fetch("scheduled_publications", item_id) or item
 
 
+def _awaiting_by_platform() -> dict[str, int]:
+    with db.connect() as conn:
+        rows = conn.execute("SELECT platform, COUNT(*) AS n FROM scheduled_publications WHERE status = "
+                            "'awaiting_approval' GROUP BY platform").fetchall()
+    return {r["platform"]: r["n"] for r in rows}
+
+
 # ------------------------------------------------------------------ the tick
 def lead_seconds(item: dict, settings: dict) -> float:
     """YouTube posts are uploaded early and published by YouTube at the planned time (publishAt)."""
@@ -534,6 +722,14 @@ def reconcile_orphans(now: float) -> int:
                       status_note="Checking with the platform whether the upload finished",
                       audit=_audit(item, "reconciling", "The upload job stopped before it finished; checking with the "
                                                         "platform what happened"))
+            old = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+            if old and old["status"] == "canceled":
+                # The post already has an upload record. Reconcile that same session after work resumes; this is
+                # the narrowly scoped exception to cancellation, never permission to start a second upload.
+                db.update("worker_jobs", old["id"], status="queued", cancel_requested=0, attempts=0, run_after=now,
+                          lease_owner="", lease_until=0, finished_at=None, error="", fix="",
+                          message="Checking what happened to the upload")
+                queue.log_line(old["id"], old["worker"], "info", "reconcile", "Checking the existing upload")
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600,
                           message="Checking what happened to the upload")
@@ -561,21 +757,33 @@ def process_due(settings: dict, now: float) -> dict:
                                                         "time will be chosen (still approved)"))
                 moved += 1
                 continue
-            if not approval_valid(item):
+            problem = approval_problem(item)
+            if problem:
                 db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
-                          status_note="The clip or its text changed after approval: approve it again",
-                          audit=_audit(item, "approval_invalidated", "Content changed after approval"))
+                          status_note=f"Needs a new approval: {problem}",
+                          audit=_audit(item, "approval_invalidated", problem[:1].upper() + problem[1:],
+                                       approved_sha256=(item.get("approval") or {}).get("video_sha256", "")))
+                continue
+            if not autopublish.still_covers(item):
+                db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
+                          status_note="Automatic publishing was turned off or changed: approve it yourself",
+                          audit=_audit(item, "approval_invalidated", "The automatic-publishing permission that "
+                                                                     "approved it is no longer in force"))
                 continue
             if not settings.get("autopilot_auto_publish"):
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
-                             "Publish Center → Publish now.", ref_type="scheduled", ref_id=item["id"])
+                             "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
+            # The approved post decides, not an earlier upload job: one canceled before its upload started (the
+            # post came back with a new time) runs again now. The publisher itself never uploads a video twice.
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
-                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600)
+                          ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1
+        elif item["planned_at"] > now and auto_approve(item, settings, now):
+            continue
         elif item["planned_at"] < now:
             waiting += 1
             if now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
@@ -598,15 +806,27 @@ def process_due(settings: dict, now: float) -> dict:
             db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1], replaces="",
                       audit=_audit(item, "rescheduled", f"New time {slot[1]['local']}"))
             plan.add({**item, "planned_at": slot[0], "replaces": ""})
-    pending = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE status = 'awaiting_approval'") or 0)
-    if pending:
-        state.action("approvals", "approve", f"{pending} post{'s' if pending != 1 else ''} waiting for your approval",
-                     "YouTube and TikTok require that you approve what is published. Approved posts go out at "
-                     "their time automatically.", "Open the Publish Center, review and approve.")
-    else:
-        state.resolve("approvals")
+    pending = remind_approvals()
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
             "awaiting_approval": pending, "reconciled": reconciled}
+
+
+def remind_approvals() -> int:
+    """The one "waiting for your OK" item on the Autopilot page, kept in step with the posts that wait for you."""
+    by_platform = _awaiting_by_platform()
+    # posts held back under automatic publishing are there for you to look at, not a problem that needs you
+    need = {p: n for p, n in by_platform.items() if not autopublish.active(p)}
+    if need:
+        n = sum(need.values())
+        only_tiktok = set(need) == {"tiktok"}
+        state.action("approvals", "approve", f"{n} {'TikTok ' if only_tiktok else ''}post{'s' if n != 1 else ''} "
+                                             "waiting for your OK",
+                     ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
+                     ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "") +
+                     "Approved posts go out at their time automatically.", "Open Posts, review and approve.")
+    else:
+        state.resolve("approvals")
+    return sum(by_platform.values())
 
 
 @handler("schedule_tick")
@@ -615,5 +835,7 @@ def schedule_tick(job: Job) -> dict:
     now = _now()
     due = process_due(settings, now)
     planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
+    if planned.get("created"):
+        due["awaiting_approval"] = remind_approvals()  # new posts that need your OK are listed right away
     return {**due, **planned, "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
                                          f"replaced, {due['publishing']} publishing"}

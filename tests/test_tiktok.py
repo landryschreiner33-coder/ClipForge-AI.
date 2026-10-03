@@ -112,6 +112,31 @@ def test_direct_post_uploads_in_chunks_and_polls_until_posted(app_client, tt, cl
                                  "brand_content_toggle": False, "brand_organic_toggle": False}
 
 
+def test_a_rate_limited_chunk_waits_as_long_as_tiktok_asks(app_client, tt, clip):
+    c, data = clip
+    _connect(app_client, tt)
+    tt.rate_limit_chunks, tt.retry_after = 1, "1"  # a short wait: the chunk is sent again after it
+    t0 = time.time()
+    pub = _wait(app_client, _post(app_client, c["id"]).json()["id"])
+    assert pub["status"] == "done" and bytes(tt.uploads[pub["remote_id"]]["data"]) == data
+    assert time.time() - t0 >= 1.0
+    # a long wait is not spent inside the upload, and not shortened: the post waits for TikTok's time, then starts
+    # again (TikTok never posts the unfinished upload)
+    tt.rate_limit_chunks, tt.retry_after = 1, "600"
+    t1 = time.time()
+    pid = _post(app_client, c["id"]).json()["id"]
+    pub = _wait(app_client, pid, until=("queued",))
+    while not (pub.get("info") or {}).get("retry_at"):
+        pub = _wait(app_client, pid, until=("queued",))
+    assert pub["info"]["retry_at"] >= t1 + 600 and "TikTok asked to wait 10 minutes" in pub["message"]
+    from clipfoundry.publish import jobs
+
+    assert pid in jobs.worker.timers
+    jobs.worker.later(pid, time.time())  # the time TikTok asked for has come
+    pub = _wait(app_client, pid)
+    assert pub["status"] == "done" and bytes(tt.uploads[pub["remote_id"]]["data"]) == data
+
+
 def test_public_post_after_audit_links_to_the_video(app_client, tt, clip):
     c, _ = clip
     _connect(app_client, tt, audited=True)

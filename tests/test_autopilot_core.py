@@ -45,6 +45,27 @@ def test_all_autopilot_tables_exist(data):
         assert table in names, table
 
 
+def test_deleting_a_video_removes_its_clip_records_but_keeps_post_history(data):
+    """The Privacy Policy says what deleting a video removes: its clips, transcript windows, analysis and post text.
+    What stays is the post history and each clip's fingerprint, which stops the same clip from being posted twice."""
+    from clipfoundry import db
+
+    project = db.create_project("Talk")
+    clip = db.create_clip(project["id"], title="A moment", start=1.0, end=31.0)
+    db.insert("clip_candidates", {"id": f"{project['id']}-1", "project_id": project["id"], "clip_id": clip["id"],
+                                  "start": 1.0, "end": 31.0})
+    db.insert("clip_analysis", {"clip_id": clip["id"], "project_id": project["id"]}, key="clip_id")
+    db.insert("clip_scores", {"clip_id": clip["id"]}, key="clip_id")
+    db.insert("metadata_candidates", {"clip_id": clip["id"], "platform": "youtube", "title": "A moment"})
+    db.insert("clip_fingerprints", {"clip_id": clip["id"]}, key="clip_id")
+    db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "status": "canceled"})
+    db.delete_project(project["id"])
+    for table in ("clips", "clip_candidates", "clip_analysis", "clip_scores", "metadata_candidates"):
+        assert not db.scalar(f"SELECT COUNT(*) FROM {table}"), table
+    assert db.scalar("SELECT COUNT(*) FROM clip_fingerprints") == 1
+    assert db.scalar("SELECT COUNT(*) FROM scheduled_publications") == 1
+
+
 def test_old_database_is_migrated(monkeypatch, tmp_path):
     folder = tmp_path / "old"
     folder.mkdir()
@@ -71,6 +92,46 @@ def test_autopilot_settings_are_validated(data):
     with db.connect() as conn:
         raw = conn.execute("SELECT value FROM settings WHERE key = 'youtube_api_key'").fetchone()[0]
     assert "AIza-secret" not in raw  # sealed at rest
+
+
+def test_every_secret_setting_is_sealed_at_rest_including_older_saves(data):
+    import json
+
+    from clipfoundry import config, db
+
+    assert config.SEALED_KEYS == config.SECRET_KEYS
+    db.save_settings({"openai_api_key": "sk-new", "anthropic_api_key": "sk-ant-new"})
+    # a key saved by a version that did not seal it yet is sealed the next time the app opens the database
+    with db.connect() as conn:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'openai_api_key'", (json.dumps("sk-old"),))
+    db._ready.clear()
+    with db.connect() as conn:
+        raw = dict(conn.execute("SELECT key, value FROM settings").fetchall())
+    assert "sk-old" not in raw["openai_api_key"] and "sk-ant-new" not in raw["anthropic_api_key"]
+    s = db.get_settings()
+    assert s["openai_api_key"] == "sk-old" and s["anthropic_api_key"] == "sk-ant-new"
+
+
+def test_request_addresses_stay_out_of_the_log(capsys):
+    # A YouTube Data API key travels in the request address (?key=); the worker's output is data/logs/workers.log.
+    import logging
+
+    import httpx
+
+    from clipfoundry.__main__ import setup_logging
+
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    root.handlers = []
+    try:
+        setup_logging()
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
+        with httpx.Client(transport=transport) as client:
+            client.get("https://www.googleapis.com/youtube/v3/videos?id=x&key=AIza-secret")
+    finally:
+        root.handlers, root.level = handlers, level
+        logging.getLogger("httpx").setLevel(logging.NOTSET)
+    assert "AIza-secret" not in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ queue
@@ -169,6 +230,29 @@ def test_cancel_and_stop_all(data):
     out = queue.cancel_all()
     assert out == {"canceled": 1, "stopping": 1}
     assert queue.get(c["id"])["status"] == "canceled" and queue.get(b["id"])["cancel_requested"] == 1
+
+
+def test_work_held_by_stop_all_continues_after_resume_but_a_cancel_by_you_stays(data):
+    """Stop all jobs is an emergency hold: after Resume jobs, Autopilot queues the same work again when it asks for
+    it (a clip's check, a due post). A job you canceled yourself stays canceled."""
+    from clipfoundry.autopilot import queue
+
+    running = queue.enqueue("selftest", idem_key="check:running")
+    row = queue.claim("maintenance", "w")
+    assert row["id"] == running["id"]
+    waiting = queue.enqueue("selftest", idem_key="check:waiting")
+    mine = queue.enqueue("selftest", idem_key="check:mine")
+    queue.cancel(mine["id"])
+    queue.cancel_all()
+    assert queue.mark_canceled(row, "w")  # the running job reached its next check
+    for job in (running, waiting, mine):
+        assert queue.get(job["id"])["status"] == "canceled"
+
+    for job in (running, waiting):  # resumed: asked for again, the same job runs again
+        again = queue.enqueue("selftest", idem_key=job["idem_key"])
+        assert again["id"] == job["id"] and again["status"] == "queued" and again["wait_reason"] == ""
+    assert queue.enqueue("selftest", idem_key="check:mine")["status"] == "canceled"
+    assert queue.enqueue("selftest", idem_key="check:mine", revive_canceled=True)["status"] == "queued"
 
 
 # ------------------------------------------------------------------ host

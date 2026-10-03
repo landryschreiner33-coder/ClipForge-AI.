@@ -15,7 +15,7 @@ import time
 import traceback
 from typing import Callable
 
-from .. import config, db, locks
+from .. import awake, config, db, locks
 from ..pipeline import common as pipeline_common
 from ..pipeline.common import log
 from . import queue, state
@@ -109,6 +109,9 @@ def run_periodic(settings: dict, now: float | None = None) -> list[str]:
         due = float(state.get(f"next:{kind}", 0) or 0)
         if now < due:
             continue
+        if db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind = ? AND status IN "
+                     "('queued', 'running', 'retrying', 'waiting')", (kind,)):
+            continue  # a Retry-After wait must not be bypassed by a fresh periodic run of the same search
         queue.enqueue(kind, {"periodic": True}, idem_key=f"{kind}:{int(now // period)}", max_attempts=2,
                       timeout_s=max(600.0, period * 4), message="Scheduled run")
         state.put(f"next:{kind}", now + period)
@@ -145,6 +148,9 @@ class WorkerHost:
         self.started = True
         db.init()
         queue.recover()
+        from . import gate
+
+        gate.recover_regenerations()
         for name in self.names:
             self.set_state(name, "idle", message="Ready")
             t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
@@ -161,6 +167,9 @@ class WorkerHost:
         if not self.started:
             return
         self._stop.set()
+        from . import live
+
+        live.stop_captures(self)
         for ev in self._wake.values():
             ev.set()
         with self._lock:
@@ -238,7 +247,7 @@ class WorkerHost:
                 ok, min_priority = self._gate(settings)
                 job_row = self._claim(name, min_priority) if ok else None
                 if job_row is None:
-                    idle = "Stopped (STOP ALL JOBS)" if not ok else (
+                    idle = "Stopped (Stop all jobs)" if not ok else (
                         "Idle" if min_priority == 0 else "Autopilot is off")
                     self._idle(name, idle)
                     self._wake[name].wait(timeout=self.poll)
@@ -282,7 +291,7 @@ class WorkerHost:
             result = fn(job) or {}
             job.check()
             queue.complete(row, token, result, str(result.get("message") or "Done"))
-            self.set_state(name, "completed", None, message=str(result.get("message") or f"{row['kind']} done"))
+            self.set_state(name, "completed", job, message=str(result.get("message") or f"{row['kind']} done"))
         except queue.Wait as w:
             queue.wait(row, token, w.reason, w.seconds, w.message)
             self.set_state(name, "waiting", job, message=w.message)
@@ -291,6 +300,11 @@ class WorkerHost:
                 queue.fail(row, token, f"Stopped after the {int(row['timeout_s'] // 60)} min time limit",
                            "It will run again on the next cycle; check the log if this repeats.")
                 self.set_state(name, "failed", None, message="Timed out", error="time limit reached")
+            elif self._stop.is_set() and not state.paused() and not (queue.get(job.id) or {}).get("cancel_requested"):
+                # Closing the app is an interruption, not the user's decision to cancel this item. A waiting job
+                # resumes without consuming another attempt when the next host starts.
+                queue.wait(row, token, "restart", 1, "App closed; continuing when it starts again")
+                self.set_state(name, "idle", None, message="Saved for restart")
             else:
                 queue.mark_canceled(row, token, "Canceled")
                 self.set_state(name, "idle", None, message="Canceled")
@@ -310,6 +324,21 @@ class WorkerHost:
         finally:
             with self._lock:
                 self._running.pop(job.id, None)
+            outcome = queue.get(job.id) or {}
+            if outcome.get("status") in ("failed", "canceled") and row["kind"] in ("hunt_source", "analyze_source"):
+                from . import scout
+
+                scout.reconcile_sources()
+                scout.refill(row)
+            elif outcome.get("status") == "failed" and row["kind"] == "regenerate_clip":
+                from . import gate
+
+                clip = db.get_clip(job.payload.get("clip_id") or "")
+                if clip:
+                    gate.repair_media(clip, priority=row["priority"])
+                    from . import scout
+
+                    scout.refill(gate._source(clip) or {})
 
     def _supervise(self) -> None:
         last_recover = 0.0
@@ -321,6 +350,11 @@ class WorkerHost:
                 if now - last_recover > 30:
                     queue.expire_timeouts(now)
                     queue.recover(now)
+                    from . import gate, scout
+
+                    gate.recover_regenerations()
+                    if scout.reconcile_sources(now):
+                        scout.refill({"id": f"recovery:{int(now // 30)}"})
                     last_recover = now
                 settings = db.get_settings()
                 if self.periodic and not state.paused():
@@ -369,6 +403,13 @@ class Supervisor:
         self.mode = os.environ.get("CLIPFOUNDRY_WORKERS") or settings.get("autopilot_process") or "separate"
         if self.mode == "off":
             return
+        if state.enabled(settings):  # Autopilot was on before this update: it gets your videos folder too
+            from . import myvideos
+
+            try:
+                myvideos.ensure()
+            except Exception:  # noqa: BLE001 - never block startup on it
+                log.exception("could not set up your videos folder")
         self._beat()
         if self.mode == "separate" and not self._spawn():
             self.mode = "in_app"
@@ -407,26 +448,55 @@ class Supervisor:
             state.event("host_spawned", "Started the autopilot worker process", pid=self.proc.pid)
             return True
         except OSError as exc:
-            state.action("workers:spawn", "workers", "The autopilot worker process could not be started",
-                         f"{exc}. The workers run inside the app instead.", level="warning")
+            state.event("workers_fallback", "Background work continues inside the app because a separate process "
+                        f"could not start: {exc}", level="warning")
             return False
 
+    def _keep_awake(self) -> None:
+        """While Autopilot is on, the PC must not fall asleep (Windows only; see awake.py). This thread owns the
+        request, so it is asked and given up here."""
+        settings = db.get_settings()
+        want = state.enabled(settings) and bool(settings.get("autopilot_keep_awake", True))
+        keeper = awake.keeper
+        was, refused = keeper.holding, bool(keeper.error)
+        now = keeper.hold(want)
+        if now != was:
+            state.event("keep_awake", "Keeping this PC awake while Autopilot is on" if now else
+                        "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)")
+        elif keeper.error and not refused:  # said once; the page shows it until a retry works
+            state.event("keep_awake", "Windows did not let ClipFoundry keep this PC awake. It tries again every "
+                        "minute; until then, turn off sleep in the PC's power settings.", level="warning")
+
     def _watch(self) -> None:
-        while not self._stop.wait(timeout=5.0):
+        while True:
+            try:
+                self._keep_awake()
+            except Exception:  # noqa: BLE001
+                log.exception("keep-awake check failed")
+            if self._stop.wait(timeout=5.0):
+                awake.keeper.hold(False)
+                break
             try:
                 self._beat()
                 if self.mode == "separate" and self.proc and self.proc.poll() is not None:
                     now = time.time()
                     self.restarts = [t for t in self.restarts if now - t < 600] + [now]
                     if len(self.restarts) > 5:
-                        state.action("workers:crashing", "workers", "The autopilot worker process keeps stopping",
-                                     "It stopped more than 5 times in 10 minutes; the workers now run inside the "
-                                     "app. See data/logs/workers.log.", level="error")
+                        state.event("workers_fallback", "Background work continues inside the app after repeated "
+                                    "process restarts. See data/logs/workers.log.", level="warning")
                         self.mode = "in_app"
                         self.host = WorkerHost()
                         self.host.start(wait_for_lock=15)
                     else:
-                        self._spawn()
+                        if not self._spawn():
+                            self.mode = "in_app"
+                            self.host = WorkerHost()
+                            self.host.start(wait_for_lock=15)
+                elif self.mode == "in_app" and (not self.host or not self.host.started):
+                    self.host = WorkerHost()
+                    self.host.start(wait_for_lock=1)
+                if self.host and self.host.started or self.proc and self.proc.poll() is None:
+                    state.resolve_prefix("workers:")
             except Exception:  # noqa: BLE001
                 log.exception("worker supervisor (app side) error")
 
@@ -434,7 +504,8 @@ class Supervisor:
         beat = state.get("host_heartbeat") or {}
         alive = time.time() - float(beat.get("at") or 0) < 3 * HEARTBEAT_SECONDS
         return {"mode": self.mode, "alive": alive, "pid": beat.get("pid"), "managed": beat.get("managed"),
-                "process_running": bool(self.proc and self.proc.poll() is None), "last_heartbeat": beat.get("at")}
+                "process_running": bool(self.proc and self.proc.poll() is None), "last_heartbeat": beat.get("at"),
+                "keep_awake": awake.keeper.holding, "keep_awake_error": awake.keeper.error}
 
 
 supervisor = Supervisor()

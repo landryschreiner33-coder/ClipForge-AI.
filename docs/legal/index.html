@@ -3,34 +3,145 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClipFoundry Legal</title>
-<meta name="robots" content="index,follow">
-<style>
-  :root { color-scheme: light dark; --text: #1c1c24; --muted: #5d5d70; --bg: #ffffff; --line: #e3e3ea; --warn-bg: #fff6e0; --warn-line: #f2c14e; --link: #c2410c; }
-  @media (prefers-color-scheme: dark) { :root { --text: #ececf3; --muted: #a0a0b4; --bg: #0f0f15; --line: #2a2a3a; --warn-bg: #2a2210; --warn-line: #a57a17; --link: #ff8a50; } }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 80px; }
-  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; }
-  h2 { font-size: 20px; margin: 34px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
-  a { color: var(--link); }
-  .meta { color: var(--muted); font-size: 14px; }
-  .review { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 12px 16px; margin: 20px 0; font-size: 15px; }
-  nav { font-size: 14px; margin-bottom: 18px; }
-  li { margin: 4px 0; }
-</style>
+<title>ClipFoundry · Short clips from long videos, on your own PC</title>
+<meta name="description" content="ClipFoundry is a Windows desktop app that turns long videos into captioned vertical clips for YouTube Shorts, TikTok and Reels, on your own computer.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23ffb13b'/><stop offset='.55' stop-color='%23ff6a2b'/><stop offset='1' stop-color='%23ff3d7f'/></linearGradient></defs><rect width='64' height='64' rx='16' fill='%2314131b'/><path d='M22 14h20a4 4 0 0 1 4 4v28a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4z' fill='none' stroke='url(%23g)' stroke-width='4'/><path d='M28 25l11 7-11 7z' fill='url(%23g)'/></svg>">
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
-<main>
-<h1>ClipFoundry legal</h1>
-<div class="review">
-  <b>Templates, not legal advice.</b> Both documents require review by a qualified lawyer, and every placeholder in
-  [BRACKETS] must be replaced, before they are published or entered in the Google Cloud or TikTok developer consoles.
-</div>
-<ul>
-  <li><a href="terms.html">Terms of Service</a></li>
-  <li><a href="privacy.html">Privacy Policy</a></li>
-</ul>
-<p class="meta">ClipFoundry is local-first software provided by [LEGAL BUSINESS NAME]. Contact: [CONTACT EMAIL].</p>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="index.html" aria-current="page"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb13b"/><stop offset=".55" stop-color="#ff6a2b"/><stop offset="1" stop-color="#ff3d7f"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#14131b"/><path d="M22 14h20a4 4 0 0 1 4 4v28a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4z" fill="none" stroke="url(#g)" stroke-width="4"/><path d="M28 25l11 7-11 7z" fill="url(#g)"/></svg>ClipFoundry</a>
+    <nav class="links" aria-label="Site">
+      <a href="#how">How it works</a>
+      <a href="privacy.html">Privacy Policy</a>
+      <a href="terms.html">Terms of Service</a>
+      <a href="#support">Support</a>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+<section class="hero" aria-labelledby="title">
+  <h1 id="title">Turn long videos into short clips, on your own PC</h1>
+  <p class="lead">ClipFoundry is a desktop app for Windows. It finds the best moments in a long video and turns them
+    into vertical clips with captions for YouTube Shorts, TikTok and Reels. Your videos stay on your computer. Only the clips you post are uploaded.</p>
+  <div class="buttons">
+    <a class="btn primary" href="https://github.com/landryschreiner33-coder/ClipForge-AI.">Get ClipFoundry on GitHub</a>
+    <a class="btn" href="#how">How it works</a>
+  </div>
+  <p class="note">There is no ClipFoundry account and no ClipFoundry cloud service: the app runs on your computer and opens in
+    your web browser.</p>
+</section>
+
+<section aria-labelledby="what">
+  <h2 id="what">What it does</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Finds the best moments</h3>
+      <p>It writes down what is said in your video, on your PC (fast with an NVIDIA graphics card), and picks moments
+        that start strong and end on a payoff.</p>
+    </div>
+    <div class="card">
+      <h3>Makes vertical clips</h3>
+      <p>9:16 framing that follows faces or the person talking, with word-by-word captions in a few clean styles.</p>
+    </div>
+    <div class="card">
+      <h3>Writes titles from the clip</h3>
+      <p>Titles, captions and hashtags are built from the words said in the clip, and a post can also carry a short
+        call to action and a credit line. AI suggestions that add names or numbers not said in the clip are thrown
+        out. These checks match words automatically and can miss things. Text you type yourself is not removed.</p>
+    </div>
+    <div class="card">
+      <h3>You decide what gets posted</h3>
+      <p>Publish to YouTube and TikTok through their official APIs after you approve each post, or, for YouTube only,
+        under an automatic-publishing permission you turn on, with a daily limit and posting hours you choose. TikTok
+        always needs your OK on each post. You can also export the clips and post them yourself.</p>
+    </div>
+    <div class="card">
+      <h3>Autopilot, if you want it</h3>
+      <p>It clips the videos you put in your videos folder, and videos covered by an agreement you recorded or by a
+        public domain or Creative Commons Attribution license that the source reports. Everything else is skipped, and
+        it tells you why. You are responsible for having the right to use each video.</p>
+    </div>
+    <div class="card">
+      <h3>Real numbers only</h3>
+      <p>Results show the views and likes YouTube and TikTok report. Scores are marked as estimates, and nothing is
+        made up.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="how">
+  <h2 id="how">How it works</h2>
+  <p class="flow">VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → TITLES → CHECK → POST OR EXPORT</p>
+  <ol class="steps">
+    <li><b>Install it and start it.</b> Download ClipFoundry, then double-click <code>start.bat</code>. It opens in
+      your browser at <code>127.0.0.1</code>, an address only your own computer can reach.</li>
+    <li><b>Add a video.</b> Choose a file, or put your videos in your <code>Videos\ClipFoundry</code> folder for
+      Autopilot.</li>
+    <li><b>Check the clips.</b> Watch them, trim them or change the captions, then export them.</li>
+    <li><b>Post, if you like.</b> Connect YouTube or TikTok, then approve each post, or turn on automatic publishing
+      for YouTube in Autopilot. Before Autopilot posts a clip, ClipFoundry checks the exact final file. A clip you post
+      yourself from its Prepare post page is uploaded when you confirm.</li>
+  </ol>
+</section>
+
+<section aria-labelledby="accounts">
+  <h2 id="accounts">Connecting YouTube and TikTok</h2>
+  <ul>
+    <li>You sign in on Google's or TikTok's own page. ClipFoundry never sees or stores your password.</li>
+    <li>On YouTube it asks to manage your videos (it only uploads them), to see your YouTube account and to see YouTube
+      Analytics reports. It uses them to upload your posts, to show your channel's name and picture, and to read the
+      status and results of your posts. If you use Autopilot without your own YouTube API key, it also uses your
+      YouTube sign-in to find videos and to check which channel posted them.</li>
+    <li>On TikTok it asks to show your name and picture, to post videos or send them to your TikTok inbox, and to read
+      the results of your posts.</li>
+    <li>Before a TikTok post you choose who can see it, whether people can comment, duet or stitch, and whether it is
+      promotional, and you confirm TikTok's music rules. TikTok always needs your OK on each post.</li>
+    <li>The platforms' own limits apply. For example, until TikTok audits the app, posts sent straight to TikTok can
+      only be seen by you. ClipFoundry tells you so instead of working around it, and can send the video to your
+      TikTok inbox instead, where you finish and post it in the TikTok app.</li>
+    <li>You can disconnect an account at any time, in ClipFoundry or in your Google or TikTok settings.</li>
+  </ul>
+  <p>Read exactly what is stored and sent in the <a href="privacy.html">Privacy Policy</a>.</p>
+</section>
+
+<section aria-labelledby="needs">
+  <h2 id="needs">What you need</h2>
+  <ul>
+    <li>A Windows 10 or 11 PC (64-bit), with 8 GB of memory or more.</li>
+    <li>Python 3.11 or 3.12, and FFmpeg. The setup guide shows how to install both.</li>
+    <li>An NVIDIA graphics card is optional. Without one, transcription works, just more slowly.</li>
+    <li>About 3 GB of free disk space (about 6 GB with an NVIDIA graphics card), plus room for your videos.</li>
+    <li>To post from the app: your own YouTube channel and Google Cloud project, and your own TikTok developer app.
+      Exporting clips needs no account at all.</li>
+  </ul>
+  <p>Step-by-step setup: <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./blob/claude/wonderful-ritchie-909tq3/INSTALL.md">INSTALL.md</a> on GitHub.</p>
+</section>
+
+<section aria-labelledby="support">
+  <h2 id="support">Support</h2>
+  <p>
+    Email <a href="mailto:landryschreiner456@gmail.com">landryschreiner456@gmail.com</a>. Say what you did, what you expected and what
+    happened, and which ClipFoundry version you use. Please don't send passwords, sign-in codes or private videos.
+  </p>
+  <p>
+    You can also report a problem on <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./issues">GitHub</a>, or read the
+    <a href="https://github.com/landryschreiner33-coder/ClipForge-AI./blob/claude/wonderful-ritchie-909tq3/INSTALL.md#troubleshooting">troubleshooting guide</a>.
+  </p>
+  <p class="note">ClipFoundry is made by Landry Schreiner. It is not affiliated with or endorsed by YouTube, Google or
+    TikTok.</p>
+</section>
 </main>
+<footer>
+  <div class="wrap top-in">
+    <span class="owner">© 2026 Landry Schreiner</span>
+    <nav class="links" aria-label="Legal">
+      <a href="privacy.html">Privacy Policy</a>
+      <a href="terms.html">Terms of Service</a>
+      <a href="index.html#support">Support</a>
+    </nav>
+  </div>
+</footer>
 </body>
 </html>

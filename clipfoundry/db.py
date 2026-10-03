@@ -347,6 +347,15 @@ CREATE TABLE IF NOT EXISTS source_rights (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rights_value ON source_rights(scope, value);
+CREATE TABLE IF NOT EXISTS publish_consents (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,                   -- youtube (TikTok requires your consent for each post)
+    settings TEXT DEFAULT '{}',               -- visibility, made for kids, daily limit, posting window, content rule
+    text TEXT DEFAULT '',                     -- exactly what you agreed to
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    revoked_at REAL
+);
 CREATE TABLE IF NOT EXISTS clip_candidates (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
@@ -448,6 +457,18 @@ CREATE TABLE IF NOT EXISTS scheduled_publications (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_publications(status, planned_at);
+-- dynamic replacement history: the cooldown between replacements of a slot reads it (autopilot/scheduler.py)
+CREATE TABLE IF NOT EXISTS slot_replacements (
+    replacement_id TEXT PRIMARY KEY,            -- the stronger post proposed for the slot
+    replaced_id TEXT NOT NULL,                  -- the post whose slot it takes
+    platform TEXT NOT NULL,
+    slot_at REAL NOT NULL,                      -- the slot's time (UTC seconds)
+    clip_id TEXT DEFAULT '',                    -- the replacement's clip
+    status TEXT NOT NULL DEFAULT 'proposed',    -- proposed (waits for approval) replaced
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_slot_replacements ON slot_replacements(platform, slot_at);
 CREATE TABLE IF NOT EXISTS platform_limits (
     platform TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -538,14 +559,16 @@ JSON_FIELDS = {
     "trend_signals": {"keywords", "metrics", "components", "notes", "raw"},
     "trend_history": set(),
     "source_feeds": {"config"},
-    "sources": {"components", "metrics"},
-    "source_rights": set(),
+    "sources": {"components", "metrics", "rights_info", "access", "channel_check", "intake"},
+    "source_rights": {"conditions"},
+    "publish_consents": {"settings"},
     "clip_candidates": {"scores", "rejected"},
     "clip_analysis": {"audio", "visual", "semantic", "boundary", "deep"},
     "clip_scores": {"components", "explanation"},
     "clip_fingerprints": {"text_sig", "phash"},
     "metadata_candidates": {"tags", "hashtags", "components", "problems"},
     "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "audit"},
+    "slot_replacements": set(),
     "platform_limits": set(),
     "learning_metrics": {"data"},
     "quota_usage": set(),
@@ -562,6 +585,13 @@ ADDED_COLUMNS = {
     "publications": {"scheduled_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
+    # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
+    "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
+    # what the provider reported about a source's license, how its file was obtained, and whether the platform
+    # confirmed the channel the source names (autopilot/verify.py)
+    "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
+                "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
+                "intake": "TEXT DEFAULT '{}'"},
 }
 
 
@@ -571,6 +601,24 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for name, decl in cols.items():
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    # replacements made before the history table existed count for the cooldown too (idempotent: one row per
+    # replacement post)
+    conn.execute(
+        "INSERT OR IGNORE INTO slot_replacements (replacement_id, replaced_id, platform, slot_at, clip_id, status, "
+        "created_at, updated_at) SELECT n.id, w.id, n.platform, COALESCE(w.planned_at, n.planned_at, 0), n.clip_id, "
+        "CASE WHEN w.replaced_by = n.id THEN 'replaced' ELSE 'proposed' END, n.created_at, n.updated_at "
+        "FROM scheduled_publications n JOIN scheduled_publications w ON (n.replaces != '' AND w.id = n.replaces) OR "
+        "(w.replaced_by != '' AND w.replaced_by = n.id)")
+    # secrets saved before they were sealed (the AI service keys until 2026-10-01) are sealed now, not at their next
+    # save, so none stays readable in the database file
+    for row in conn.execute(f"SELECT key, value FROM settings WHERE key IN ({','.join('?' * len(config.SEALED_KEYS))})",
+                            sorted(config.SEALED_KEYS)).fetchall():
+        try:
+            value = json.loads(row["value"])
+        except ValueError:
+            continue
+        if isinstance(value, str) and value and not value.startswith((secure.DPAPI, secure.LOCAL)):
+            conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
 
 
 _ready: set[str] = set()
@@ -727,7 +775,10 @@ def update_project(project_id: str, **fields: Any) -> None:
     _update("projects", project_id, fields)
 
 
-CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports")
+# Deleted with their clip. Kept on purpose: the post history (publications, scheduled_publications,
+# slot_replacements, performance) and clip_fingerprints, which stop the same clip from being posted twice.
+CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports", "clip_analysis", "clip_scores",
+                 "metadata_candidates")
 
 
 def delete_project(project_id: str) -> None:
@@ -735,6 +786,7 @@ def delete_project(project_id: str) -> None:
         for table in CLIP_CHILDREN:
             conn.execute(f"DELETE FROM {table} WHERE clip_id IN (SELECT id FROM clips WHERE project_id = ?)",
                          (project_id,))
+        conn.execute("DELETE FROM clip_candidates WHERE project_id = ?", (project_id,))  # transcript windows
         conn.execute("DELETE FROM clips WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
@@ -960,20 +1012,30 @@ def interrupted_work() -> dict[str, list]:
 
     Manual projects, renders and versions are resumed by the app's render worker (jobs.py). Autopilot projects are
     resumed by their own durable job (autopilot/queue.py). A manual upload is not restarted without the user: it
-    is marked as interrupted and can be checked and published again.
+    is marked as interrupted and can be checked and published again. An upload that was waiting for the time a
+    platform asked for (`info.retry_at`) keeps waiting (publish/jobs.py starts it at that time).
     """
     with connect() as conn:
         projects = [dict(r) for r in conn.execute(
             "SELECT id, source_path, source_url, info FROM projects WHERE status IN ('queued', 'processing') "
-            "AND COALESCE(origin, 'manual') != 'autopilot'")]
-        clips = [r["id"] for r in conn.execute(
-            "SELECT c.id FROM clips c JOIN projects p ON p.id = c.project_id WHERE c.status IN ('queued', "
-            "'rendering') AND p.status NOT IN ('queued', 'processing')")]
+            "AND COALESCE(origin, 'manual') NOT IN ('autopilot', 'live')")]
+        clips = []
+        for row in conn.execute("SELECT c.id, c.render_info, p.origin, p.status AS project_status FROM clips c "
+                                "JOIN projects p ON p.id = c.project_id WHERE c.status IN ('queued', 'rendering')"):
+            info = (_decode("clips", row) or {}).get("render_info") or {}
+            explicit = bool(info.get("manual_render_pending"))
+            manual = (row["origin"] or "manual") == "manual" and row["project_status"] not in ("queued", "processing")
+            if explicit or manual:
+                clips.append(row["id"])
         versions = [r["id"] for r in conn.execute(
             "SELECT id FROM clip_versions WHERE status IN ('queued', 'rendering')")]
+        waiting = [r["id"] for r in conn.execute(
+            "SELECT id, info FROM publications WHERE status = 'queued' AND COALESCE(scheduled_id, '') = ''")
+            if ((_decode("publications", r) or {}).get("info") or {}).get("retry_at")]
+        keep = ",".join("?" * len(waiting)) or "''"
         conn.execute(
             "UPDATE publications SET status = 'failed', error = 'Interrupted (the app was closed) before the upload "
             "was confirmed. Check the platform before publishing again: the upload may or may not have finished.' "
-            "WHERE status IN ('queued', 'uploading') AND COALESCE(scheduled_id, '') = ''"
-        )
+            f"WHERE status IN ('queued', 'uploading') AND COALESCE(scheduled_id, '') = '' AND id NOT IN ({keep})",
+            waiting)
     return {"projects": projects, "clips": clips, "versions": versions}

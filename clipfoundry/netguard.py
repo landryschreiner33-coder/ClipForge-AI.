@@ -15,8 +15,9 @@ page, another app's local API, a cloud metadata address) or read local files thr
 * Downloads are bounded: at most `max_bytes`, and a declared size above it is refused before anything is written.
 * ffmpeg gets network protocols only (`-protocol_whitelist`), never `file`, `pipe`, `concat` or `data` for a URL.
 
-Remaining limit: ffmpeg resolves stream host names itself, so a live stream URL is checked before capture but the
-connection is not pinned to the checked address.
+Public HTTP live capture uses autopilot.stream_access: ffmpeg receives opaque loopback addresses, and this guard
+checks and pins each actual upstream resource, including HLS playlists, keys and segments. Standalone ffmpeg_input
+only checks the initial stream address; explicitly configured private streams retain that transport limitation.
 """
 from __future__ import annotations
 
@@ -91,12 +92,13 @@ def _pinned(url: str, ip: Address) -> tuple[str, dict, dict]:
     return urlunsplit((parts.scheme, netloc, parts.path or "/", parts.query, "")), headers, ext
 
 
-def open_checked(client: httpx.Client, url: str, *, allow_private: bool = False) -> httpx.Response:
+def open_checked(client: httpx.Client, url: str, *, allow_private: bool = False,
+                 headers: dict[str, str] | None = None) -> httpx.Response:
     """GET `url` (streaming), following redirects one checked hop at a time. The caller closes the response."""
     for _ in range(MAX_REDIRECTS + 1):
         ip = check(url, allow_private=allow_private)[0]
-        target, headers, ext = _pinned(url, ip)
-        req = client.build_request("GET", target, headers=headers, extensions=ext)
+        target, pinned_headers, ext = _pinned(url, ip)
+        req = client.build_request("GET", target, headers={**(headers or {}), **pinned_headers}, extensions=ext)
         resp = client.send(req, stream=True, follow_redirects=False)
         if resp.is_redirect and resp.headers.get("location"):
             resp.close()

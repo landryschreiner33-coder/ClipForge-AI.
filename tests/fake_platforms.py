@@ -74,6 +74,8 @@ class FakeGoogle(_Server):
         self.sessions: dict[str, dict] = {}
         self.videos: dict[str, dict] = {}
         self.fail_puts = 0                       # answer this many chunk uploads with 503
+        self.rate_limit_puts = 0                 # answer this many chunk uploads with 429 (+ Retry-After if set)
+        self.retry_after = ""
         self.drop_final_reply = False            # create the video on the last chunk, but lose the answer
         self.expire_sessions = False             # ...and forget the upload session right away
         self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
@@ -95,13 +97,14 @@ class FakeGoogle(_Server):
     def add_video(self, vid: str, title: str, channel: str = "UCother0000000000", views: int | None = 1000,
                   likes: int | None = 50, comments: int | None = 5, age_hours: float = 10.0, duration: str = "PT25M",
                   live_viewers: int | None = None, license_: str = "youtube", category: str = "22",
-                  made_for_kids: bool = False, tags: list | None = None) -> dict:
+                  made_for_kids: bool = False, tags: list | None = None, description: str = "") -> dict:
         import datetime as _dt
         published = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=age_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         stats = {k: str(v) for k, v in (("viewCount", views), ("likeCount", likes), ("commentCount", comments))
                  if v is not None}
         item = {"id": vid, "snippet": {"title": title, "channelId": channel, "channelTitle": f"Channel {channel[-4:]}",
                                        "publishedAt": published, "categoryId": category, "tags": tags or [],
+                                       "description": description,
                                        "liveBroadcastContent": "live" if live_viewers is not None else "none"},
                 "statistics": stats, "contentDetails": {"duration": duration},
                 "status": {"license": license_, "madeForKids": made_for_kids, "privacyStatus": "public"}}
@@ -233,6 +236,11 @@ class FakeGoogle(_Server):
             if self.fail_puts > 0:
                 self.fail_puts -= 1
                 return h._send(503, {"error": {"code": 503, "message": "backend error"}})
+            if self.rate_limit_puts > 0:
+                self.rate_limit_puts -= 1
+                return h._send(429, {"error": {"code": 429, "message": "rate limited",
+                                               "errors": [{"reason": "rateLimitExceeded"}]}},
+                               {"Retry-After": self.retry_after} if self.retry_after else None)
             a, b, total = map(int, re.match(r"bytes (\d+)-(\d+)/(\d+)", rng).groups())
             assert a == len(s["data"]) and b - a + 1 == len(body) and total == s["size"]
             s["data"] += body
@@ -282,9 +290,14 @@ class FakeTikTok(_Server):
         self.uploads: dict[str, dict] = {}
         self.status_calls: dict[str, int] = {}
         self.init_error = ""        # e.g. unaudited_client_can_only_post_to_private_accounts
+        self.init_status = 403
+        self.retry_after = ""       # sent as Retry-After with every error answer
+        self.rate_limit_chunks = 0  # answer this many chunk uploads with 429
+        self.rate_limit_status = 0  # answer this many status fetches with 429 rate_limit_exceeded
         self.fail_reason = ""       # makes status/fetch report FAILED
         self.duet_disabled = True
         self.stats: dict[str, dict] = {}   # public post id -> video.query fields
+        self.authors: dict[str, tuple[str, str]] = {}  # public video id -> (author user name, display name): oEmbed
         self.default_stats: dict | None = None
         super().__init__()
 
@@ -300,12 +313,22 @@ class FakeTikTok(_Server):
         h._send(code, {"data": data, "error": {"code": "ok", "message": "", "log_id": "log1"}})
 
     def _err(self, h, code: str, status: int = 400) -> None:
-        h._send(status, {"data": {}, "error": {"code": code, "message": code, "log_id": "log1"}})
+        h._send(status, {"data": {}, "error": {"code": code, "message": code, "log_id": "log1"}},
+                {"Retry-After": self.retry_after} if self.retry_after else None)
 
     def handle(self, h, method: str, body: bytes) -> None:
         u = urlparse(h.path)
         if method == "PUT" and u.path.startswith("/upload/"):
             return self.handle_upload(h, body)
+        if u.path == "/oembed":  # TikTok's public embed API: the real author of a video, found by its number
+            m = re.search(r"/video/(\d+)", parse_qs(u.query).get("url", [""])[0])
+            vid = m.group(1) if m else ""
+            if vid not in self.authors:
+                return h._send(400, {"code": 400, "message": "Something went wrong"})
+            uid, name = self.authors[vid]
+            return h._send(200, {"version": "1.0", "type": "video", "title": "A video", "author_name": name,
+                                 "author_url": f"https://www.tiktok.com/@{uid}", "author_unique_id": uid,
+                                 "embed_product_id": vid, "embed_type": "video", "provider_name": "TikTok"})
         if u.path == "/v2/auth/authorize/":  # a browser test: the user approves on TikTok's page
             q = parse_qs(u.query)
             code = self.approve(h.path)
@@ -345,7 +368,7 @@ class FakeTikTok(_Server):
             req = json.loads(body)
             self.inits.append({"path": u.path, **req})
             if self.init_error:
-                return self._err(h, self.init_error, 403)
+                return self._err(h, self.init_error, self.init_status)
             src = req["source_info"]
             size, chunk, total = src["video_size"], src["chunk_size"], src["total_chunk_count"]
             if size < 5 * self.MB:
@@ -365,6 +388,9 @@ class FakeTikTok(_Server):
             return self._ok(h, {"videos": [{"id": i, **self.stats[i]} for i in ids if i in self.stats],
                                 "cursor": 0, "has_more": False})
         if u.path == "/v2/post/publish/status/fetch/":
+            if self.rate_limit_status > 0:
+                self.rate_limit_status -= 1
+                return self._err(h, "rate_limit_exceeded", 429)
             pid = json.loads(body)["publish_id"]
             up = self.uploads[pid]
             n = self.status_calls[pid] = self.status_calls.get(pid, 0) + 1
@@ -381,9 +407,88 @@ class FakeTikTok(_Server):
     def handle_upload(self, h, body: bytes) -> None:
         pid = urlparse(h.path).path.split("/")[-1]
         up = self.uploads[pid]
+        if self.rate_limit_chunks > 0:
+            self.rate_limit_chunks -= 1
+            return h._send(429, None, {"Retry-After": self.retry_after} if self.retry_after else None)
         a, b, total = map(int, re.match(r"bytes (\d+)-(\d+)/(\d+)", h.headers["Content-Range"]).groups())
         assert a == len(up["data"]) and b - a + 1 == len(body) and total == up["size"]
         assert h.headers["Content-Type"] == "video/mp4"
         up["data"] += body
         h._send(201 if len(up["data"]) == up["size"] else 206, None)
 
+
+
+class FakeTavily(_Server):
+    """Tavily's search endpoint: web results (title, link, snippet), filtered by the requested domains."""
+
+    def __init__(self) -> None:
+        self.key = "tvly-test-key"
+        self.pages: list[dict] = []
+        self.requests: list[dict] = []
+        self.fail = 0                            # answer this many searches with 500
+        super().__init__()
+
+    def add(self, url: str, title: str, score: float = 0.9, published_date: str | None = None) -> None:
+        self.pages.append({"url": url, "title": title, "content": f"{title} ...", "score": score,
+                           "published_date": published_date})
+
+    def handle(self, h, method: str, body: bytes) -> None:
+        if urlparse(h.path).path != "/search" or method != "POST":
+            return h._send(404, {"detail": "not found"})
+        if h.headers.get("Authorization") != f"Bearer {self.key}":
+            return h._send(401, {"detail": {"error": "Unauthorized: missing or invalid API key."}})
+        req = json.loads(body or b"{}")
+        self.requests.append(req)
+        if self.fail > 0:
+            self.fail -= 1
+            return h._send(500, {"detail": {"error": "Internal error"}})
+        domains = req.get("include_domains") or []
+        words = [w for w in re.findall(r"\w+", str(req.get("query", "")).lower()) if len(w) > 2]
+        hits = [p for p in self.pages if (not domains or any(d in p["url"] for d in domains))
+                and any(w in p["title"].lower() for w in words)]
+        return h._send(200, {"query": req.get("query"), "results": hits[: int(req.get("max_results") or 5)],
+                             "response_time": 0.01})
+
+
+class FakeCommons(_Server):
+    """Wikimedia Commons' MediaWiki API (search of video files with their license metadata) and its file server."""
+
+    def __init__(self) -> None:
+        self.pages: list[dict] = []
+        self.files: dict[str, tuple[bytes, str]] = {}
+        self.user_agents: list[str] = []
+        super().__init__()
+
+    def add(self, name: str, title: str, license_: str, license_name: str, artist: str = "Jane Doe",
+            data: bytes = b"", mime: str = "video/mp4", length: float | None = 1800.0, restrictions: str = "",
+            attribution_required: bool = True) -> dict:
+        url = f"{self.url}/files/{name}"
+        self.files[name] = (data or b"x" * 1000, mime)
+        meta = [{"name": "length", "value": length}] if length is not None else []
+        page = {"pageid": 1000 + len(self.pages), "ns": 6, "title": f"File:{name}", "index": len(self.pages) + 1,
+                "imageinfo": [{"url": url, "descriptionurl": f"{self.url}/wiki/File:{name}",
+                               "size": len(self.files[name][0]), "mime": mime, "metadata": meta,
+                               "extmetadata": {
+                                   "License": {"value": license_}, "LicenseShortName": {"value": license_name},
+                                   "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0"},
+                                   "Artist": {"value": f"<a href=\"https://example.org\">{artist}</a>"},
+                                   "AttributionRequired": {"value": "true" if attribution_required else "false"},
+                                   "Restrictions": {"value": restrictions}, "ObjectName": {"value": title}}}]}
+        self.pages.append(page)
+        return page
+
+    def handle(self, h, method: str, body: bytes) -> None:
+        u = urlparse(h.path)
+        q = parse_qs(u.query)
+        if u.path == "/w/api.php":
+            self.user_agents.append(h.headers.get("User-Agent") or "")
+            words = [w for w in re.findall(r"\w+", q.get("gsrsearch", [""])[0].lower())
+                     if len(w) > 2 and w not in ("filetype", "video")]
+            hits = [p for p in self.pages if any(w in p["imageinfo"][0]["extmetadata"]["ObjectName"]["value"].lower()
+                                                 for w in words)]
+            return h._send(200, {"batchcomplete": True, "query": {"pages": hits}})
+        m = re.match(r"/files/(.+)$", u.path)
+        if m and m.group(1) in self.files:
+            data, mime = self.files[m.group(1)]
+            return h._send(200, data, {"Content-Type": mime})
+        return h._send(404, {"error": "not found"})

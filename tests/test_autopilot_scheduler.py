@@ -173,10 +173,13 @@ def test_approval_rules_and_invalidation(data):
     edited = scheduler.edit(yt["id"], {"title": "A new title"})
     assert edited["status"] == "awaiting_approval"  # edits need a new approval
     scheduler.approve(yt["id"], {})
-    (data / "rerender").write_text("x")
     import os
 
-    os.utime(clip["output_path"], (time.time() + 100, time.time() + 100))  # the clip was re-rendered
+    os.utime(clip["output_path"], (time.time() + 100, time.time() + 100))  # touched: the same bytes
+    assert scheduler.approval_valid(db.fetch("scheduled_publications", yt["id"]))  # bound to content, not to times
+    with open(clip["output_path"], "r+b") as fh:  # re-rendered in place: same size and time, other bytes
+        fh.write(b"V")
+    os.utime(clip["output_path"], (time.time() + 100, time.time() + 100))
     assert not scheduler.approval_valid(db.fetch("scheduled_publications", yt["id"]))
 
 

@@ -1,44 +1,48 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, Project,
+  Accounts, api, Clip, ClipVersion, clipThumbUrl, downloadZip, errorText, fmtTime, PlatformAccount, Project,
   Publication, TikTokCreator, versionDownloadUrl, versionThumbUrl, versionVideoUrl,
 } from "../api";
-import { Icon, Modal, ScoreBadge, toast } from "../components/ui";
+import { useLeaveGuard } from "../router";
+import { useStatus } from "../status";
 import { AccountBadge, ConnectButton } from "../components/accounts";
-import { StructureChips, SubscoreLine } from "../components/viral";
-import { VersionsCard } from "../components/versions";
+import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
-import { navigate } from "../App";
+import "./posts.css";
+import {
+  Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
+  ScoreBadge, Segmented, Tone, toast, usePoll,
+} from "../components/ui";
 
-const TIKTOK_PRIVACY: Record<string, string> = {
-  PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers", SELF_ONLY: "Only me",
-};
 const ACTIVE = ["queued", "uploading", "processing"];
+// TikTok's own pages its posting rules ask apps to link (the UX guidelines of the Content Posting API).
+const BC_POLICY = "https://www.tiktok.com/legal/page/global/bc-policy/en";
+const MUSIC_POLICY = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
+const STUDIO_UPLOAD = "https://www.tiktok.com/tiktokstudio/upload";
+const tagList = (s: string) => s.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`));
 
-const tagList = (s: string) =>
-  s.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`));
-
-interface Meta {
-  title: string;
-  caption: string;
-  hashtags: string;
-}
+type Meta = { title: string; caption: string; hashtags: string };
+const metaOf = (c: Clip): Meta => ({
+  title: c.post?.title || c.title, caption: c.post?.caption || "", hashtags: (c.post?.hashtags || c.hashtags).join(" "),
+});
 
 /**
- * One screen to publish a clip: preview, editable title / caption / hashtags, privacy per platform, and explicit
- * "Publish to YouTube", "Publish to TikTok" and "Export" buttons. Nothing is posted without pressing a button and
- * confirming.
+ * Prepare post: post one clip yourself, now. Preview the exact file (the clip's posting version), its text, and a
+ * panel per platform with every option the platform asks for. Nothing is uploaded until you press a platform's
+ * button and confirm in a dialog that says what happens. Posts Autopilot planned for this clip are listed and open
+ * their own page; changing the posting version happens in the editor.
  */
 export default function PublishPage({ id }: { id: string }) {
+  const { st } = useStatus();
   const [clip, setClip] = useState<Clip | null>(null);
   const [project, setProject] = useState<Project | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   const [pubs, setPubs] = useState<Publication[]>([]);
-  const [meta, setMeta] = useState<Meta>({ title: "", caption: "", hashtags: "" });
-  const [metaDirty, setMetaDirty] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [version, setVersion] = useState<ClipVersion | undefined>();
-  const onVersions = useCallback((active: ClipVersion | undefined) => setVersion(active), []);
+  const [saved, setSaved] = useState<Meta>({ title: "", caption: "", hashtags: "" });
+  const [meta, setMeta] = useState<Meta>(saved);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -46,10 +50,13 @@ export default function PublishPage({ id }: { id: string }) {
         let c = await api.clip(id);
         if (!c.post?.title && !c.post?.titles?.length) c = await api.regeneratePost(id); // clips from older versions
         setClip(c);
-        setMeta({ title: c.post?.title || c.title, caption: c.post?.caption || "", hashtags: (c.post?.hashtags || c.hashtags).join(" ") });
+        setSaved(metaOf(c));
+        setMeta(metaOf(c));
         setProject(await api.project(c.project_id));
+        const v = await api.versions(id);
+        setVersion(v.versions.find((x) => x.id === v.active));
       } catch (e) {
-        toast(errorText(e), true);
+        setLoadError(errorText(e));
       }
     })();
     api.accounts().then(setAccounts).catch((e) => toast(errorText(e), true));
@@ -59,31 +66,39 @@ export default function PublishPage({ id }: { id: string }) {
   useEffect(() => {
     loadPubs();
   }, [loadPubs]);
-  const active = pubs.some((p) => ACTIVE.includes(p.status));
+  const uploading = pubs.some((p) => ACTIVE.includes(p.status));
   useEffect(() => {
-    if (!active) return;
-    const t = setTimeout(loadPubs, 1200);
+    if (!uploading) return;
+    const t = setTimeout(loadPubs, 1500);
     return () => clearTimeout(t);
-  }, [active, pubs, loadPubs]);
+  }, [uploading, pubs, loadPubs]);
 
-  const setM = (patch: Partial<Meta>) => {
-    setMeta((m) => ({ ...m, ...patch }));
-    setMetaDirty(true);
-  };
+  // Posts Autopilot planned for this clip (they are approved and published on their own page).
+  const planned = usePoll(loadPosts, [id], 15000, () => true);
+  const posts = (planned.data?.items || []).filter((p) => p.clip_id === id);
 
-  /** Keep the post package in step with what is actually published. */
+  const dirtyKeys = (Object.keys(meta) as (keyof Meta)[]).filter((k) => meta[k] !== saved[k]);
+  /** Keep the clip's post text in step with what is actually published or exported. */
   const saveMeta = async () => {
-    if (!clip || !metaDirty) return;
-    const c = await api.patchClip(clip.id, { post: { title: meta.title, caption: meta.caption, hashtags: tagList(meta.hashtags) } });
+    if (!clip || !dirtyKeys.length) return;
+    const c = await api.patchClip(clip.id, {
+      post: { title: meta.title, caption: meta.caption, hashtags: tagList(meta.hashtags) },
+    });
     setClip(c);
-    setMetaDirty(false);
+    setSaved(meta);
   };
+  const guard = useMemo(() => (dirtyKeys.length ? {
+    what: `Post text (${dirtyKeys.join(", ")})`,
+    save: saveMeta, discard: () => setMeta(saved),
+  } : null), [dirtyKeys.join(), meta, saved]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLeaveGuard(guard);
 
   const publish = async (platform: "youtube" | "tiktok", body: Record<string, unknown>) => {
     await saveMeta();
     const p = await api.publish(id, platform, { ...body, confirm: true });
     setPubs((list) => [p, ...list]);
-    toast(`${platform === "youtube" ? "YouTube" : "TikTok"} upload started`);
+    toast(platform === "youtube" ? "The YouTube upload started." : p.mode === "inbox"
+      ? "Sending the draft to your TikTok inbox." : "The TikTok upload started.");
   };
 
   const exportClip = async () => {
@@ -99,156 +114,215 @@ export default function PublishPage({ id }: { id: string }) {
     }
   };
 
-  if (!clip || !project) return <div className="page"><div className="spinner" /></div>;
-  const ready = clip.status === "ready" && clip.has_video && (!version || (version.status === "ready" && version.has_video));
+  if (loadError) {
+    return (
+      <div className="page">
+        <PageHead title="Prepare post" crumbs={[{ label: "Library", href: "#/library" }, { label: "Prepare post" }]} />
+        <EmptyState icon="alert" title="This clip could not be opened"
+          actions={<a className="btn" href="#/library">Open Library</a>}>{loadError}</EmptyState>
+      </div>
+    );
+  }
+  if (!clip || !project) return <LoadingPage label="Loading the clip" />;
+  const ready = clip.status === "ready" && clip.has_video
+    && (!version || (version.status === "ready" && version.has_video));
   const post = clip.post || {};
   const duration = version?.duration ?? clip.duration;
   const videoUrl = version ? versionVideoUrl(clip, version) : `/api/clips/${clip.id}/video?v=${clip.version}`;
   const thumbUrl = version ? versionThumbUrl(clip, version) : clipThumbUrl(clip);
+  const downloadUrl = versionDownloadUrl(clip, version);
+  const acc = (p: "youtube" | "tiktok") => accounts?.[p];
+  const busy = (p: string) => pubs.some((x) => x.platform === p && ACTIVE.includes(x.status));
+  const setM = (patch: Partial<Meta>) => setMeta((m) => ({ ...m, ...patch }));
 
   return (
     <div className="page">
-      <div className="crumbs">
-        <a href="#/projects">Projects</a> / <a href={`#/project/${project.id}`}>{project.name}</a> / Publish
-      </div>
-      <div className="page-head">
-        <div>
-          <h1 style={{ fontSize: 22 }}>Publish clip</h1>
-          <p>Review the clip and its text, choose privacy, then publish. Nothing is posted until you press a Publish button and confirm.</p>
-        </div>
-        <div className="row">
-          <button className="btn ghost" onClick={() => navigate(`/clip/${clip.id}`)}><Icon name="edit" size={16} /> Edit clip</button>
-          <button className="btn" disabled={!ready || exporting} onClick={exportClip}>
-            <Icon name="zip" size={16} /> {exporting ? "Preparing..." : "Export"}
+      <PageHead title="Prepare post"
+        crumbs={[
+          { label: "Library", href: "#/library" },
+          { label: <span className="clamp-1 crumb-title">{project.name}</span>, href: `#/project/${project.id}` },
+          { label: <span className="clamp-1 crumb-title">{clip.title}</span>, href: `#/clip/${clip.id}` },
+          { label: "Prepare post" },
+        ]}
+        sub={<>Post this clip yourself, now. Nothing goes out until you press a platform's button and confirm. Posts
+          Autopilot planned are in <a className="textlink" href="#/posts/review">Posts</a>.</>}
+        actions={<>
+          <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
+          <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>
+            {exporting ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="download" />}
+            {exporting ? "Preparing the download…" : "Export"}
           </button>
-        </div>
-      </div>
+        </>} />
 
-      <div className="publish">
-        <div className="player">
-          {ready ? (
-            <video key={videoUrl} src={videoUrl} poster={clip.has_thumbnail ? thumbUrl : undefined} controls playsInline />
-          ) : (
-            <div className="rendering"><span className="badge warn">Not rendered yet</span><div className="small muted">{clip.error || "Render the clip first."}</div></div>
-          )}
-          <div className="card mt-s" style={{ padding: 14 }}>
-            <div className="row between"><ScoreBadge score={clip.score} /><span className="small muted">{version ? `${version.label} · ` : ""}{fmtTime(duration)} · 1080×1920</span></div>
-            <SubscoreLine c={clip} />
-            <StructureChips c={clip} />
-            <a className="btn sm mt-s" href={ready ? versionDownloadUrl(clip, version) : undefined} style={ready ? undefined : { opacity: 0.45, pointerEvents: "none" }}>
-              <Icon name="download" size={13} /> Download MP4
+      <div className="review">
+        <div className="stack-3">
+          <div className="player-wrap">
+            <div className="player">
+              {ready ? (
+                <video key={videoUrl} src={videoUrl} poster={clip.has_thumbnail ? thumbUrl : undefined} controls
+                  playsInline preload="metadata" aria-label={`Video: ${clip.title}`} />
+              ) : (
+                <span className="missing">
+                  <Icon name="film" />Not rendered yet. {clip.error || "Render the clip in the editor first."}
+                </span>
+              )}
+            </div>
+          </div>
+          <p className="small muted">
+            Posting version: <b>{version?.id ? version.label : "Original"}</b> · {fmtTime(duration)} · 1080×1920.{" "}
+            <a className="textlink" href={`#/clip/${clip.id}`}>Change it in the editor</a>
+          </p>
+          <div className="row wrap">
+            <ScoreBadge score={clip.score} />
+            <a className="btn btn-small btn-quiet" href={ready ? downloadUrl : undefined}
+              aria-disabled={!ready || undefined} download={ready || undefined}>
+              <Icon name="download" />Download MP4
             </a>
           </div>
         </div>
 
-        <div className="publish-side">
-          <VersionsCard clip={clip} onChange={onVersions} />
+        <div className="stack-4">
+          {posts.length > 0 && <PlannedPosts posts={posts} tz={planned.data?.timezone || st?.timezone} />}
 
-          <div className="card">
-            <h3>Post text <span className="muted small" style={{ fontWeight: 400 }}>used for both platforms · {post.source || "your text"}</span></h3>
-            <label className="field">
-              <span className="row between">Title <span className={`small ${meta.title.length > 100 ? "bad-text" : "muted"}`}>{meta.title.length}/100</span></span>
-              <input type="text" value={meta.title} onChange={(e) => setM({ title: e.target.value })} />
-            </label>
-            <Options items={post.titles || []} current={meta.title} onPick={(t) => setM({ title: t })} recommended={post.recommended_title} />
-            <label className="field mt">
-              <span className="row between">Description / caption <span className="small muted">{meta.caption.length} characters</span></span>
-              <textarea rows={4} value={meta.caption} onChange={(e) => setM({ caption: e.target.value })} />
-            </label>
-            <Options items={post.captions || []} current={meta.caption} onPick={(t) => setM({ caption: t })} />
-            <div className="row wrap mt-s" style={{ gap: 6 }}>
-              {post.cta && !meta.caption.includes(post.cta) && (
-                <button className="btn sm ghost" onClick={() => setM({ caption: `${meta.caption.trim()} ${post.cta}`.trim() })}>+ Add call to action: “{post.cta}”</button>
-              )}
+          <section className="panel" aria-labelledby="pp-text">
+            <div className="stack" style={{ gap: 2 }}>
+              <h2 id="pp-text">Post text</h2>
+              <p className="tiny faint">Used for both platforms · written from the clip's own words · edit anything</p>
             </div>
-            <label className="field mt">Hashtags
-              <input type="text" value={meta.hashtags} onChange={(e) => setM({ hashtags: e.target.value })} />
-            </label>
-            <div className="field-hint mt-s">
-              Suggestions come only from this clip's own words. Edit anything; your edits are saved with the clip when you publish or export.
+            <div className="field">
+              <label htmlFor="pp-title">
+                Title{" "}
+                <span className={`hint tnum ${meta.title.length > 100 ? "bad-text" : ""}`}>
+                  {meta.title.length}/100
+                </span>
+              </label>
+              <input id="pp-title" type="text" value={meta.title} onChange={(e) => setM({ title: e.target.value })}
+                aria-invalid={meta.title.length > 100 || undefined} />
             </div>
-          </div>
-
-          <YouTubePanel clip={clip} duration={duration} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "youtube" && ACTIVE.includes(p.status))} onPublish={publish} />
-          <TikTokPanel clip={clip} duration={duration} downloadUrl={versionDownloadUrl(clip, version)} accounts={accounts} setAccounts={setAccounts} meta={meta} ready={ready} busy={pubs.some((p) => p.platform === "tiktok" && ACTIVE.includes(p.status))} onPublish={publish} onExport={exportClip} />
-
-          {pubs.length > 0 && (
-            <div className="card">
-              <h3>Publishing status</h3>
-              <div className="pubs">
-                {pubs.map((p) => <PubRow key={p.id} p={p} onChange={(np) => setPubs((l) => l.map((x) => (x.id === np.id ? np : x)))} />)}
+            <Suggestions label="Title suggestions" items={post.titles || []} current={meta.title}
+              recommended={post.recommended_title} onPick={(t) => setM({ title: t })} />
+            <div className="field">
+              <label htmlFor="pp-cap">
+                Description or caption <span className="hint tnum">{meta.caption.length} characters</span>
+              </label>
+              <textarea id="pp-cap" rows={4} value={meta.caption} onChange={(e) => setM({ caption: e.target.value })} />
+            </div>
+            <Suggestions label="Caption suggestions" items={post.captions || []} current={meta.caption}
+              onPick={(t) => setM({ caption: t })} />
+            {post.cta && !meta.caption.includes(post.cta) && (
+              <div className="row wrap">
+                <button type="button" className="btn btn-small btn-quiet"
+                  onClick={() => setM({ caption: `${meta.caption.trim()} ${post.cta}`.trim() })}>
+                  Add the call to action: “{post.cta}”
+                </button>
               </div>
+            )}
+            <div className="field">
+              <label htmlFor="pp-tags">Hashtags</label>
+              <input id="pp-tags" type="text" value={meta.hashtags} onChange={(e) => setM({ hashtags: e.target.value })}
+              />
             </div>
-          )}
+            <p className="tiny faint">
+              Your edits are saved with the clip when you publish or export{dirtyKeys.length ? " (not saved yet)" : ""}.
+            </p>
+          </section>
+
+          <YouTubePanel account={acc("youtube")} setAccounts={setAccounts} meta={meta} duration={duration} ready={ready}
+            busy={busy("youtube")} onPublish={publish} />
+          <TikTokPanel account={acc("tiktok")} setAccounts={setAccounts} meta={meta} duration={duration} ready={ready}
+            busy={busy("tiktok")} onPublish={publish} onExport={exportClip} downloadUrl={downloadUrl} />
+
+          <section className="panel tight" aria-labelledby="pp-status">
+            <h2 id="pp-status" style={{ fontSize: "var(--fs-h3)" }}>Uploads you started here</h2>
+            {pubs.length ? (
+              <div className="pubs">
+                {pubs.map((p) => (
+                  <PubRow key={p.id} p={p} onChange={(np) => setPubs((l) => l.map((x) => (x.id === np.id ? np : x)))} />
+                ))}
+              </div>
+            ) : <p className="small muted">None yet.</p>}
+          </section>
         </div>
       </div>
     </div>
   );
 }
 
-function Options({ items, current, onPick, recommended }: { items: string[]; current: string; onPick: (t: string) => void; recommended?: number }) {
+function Suggestions({ label, items, current, recommended, onPick }: {
+  label: string; items: string[]; current: string; recommended?: number; onPick: (t: string) => void;
+}) {
   if (!items.length) return null;
   return (
-    <div className="options">
+    <div className="chips" role="group" aria-label={label}>
       {items.map((t, i) => (
-        <button key={i} type="button" className={`opt ${t === current ? "on" : ""}`} onClick={() => onPick(t)} title={t}>
-          {i === recommended && <span className="rec">★</span>}{t.length > 90 ? t.slice(0, 90) + "..." : t}
+        <button key={i} type="button" className="chip" aria-pressed={t === current} onClick={() => onPick(t)} title={t}>
+          {i === recommended && <span aria-label="Recommended">★ </span>}{t.length > 80 ? `${t.slice(0, 80)}…` : t}
         </button>
       ))}
     </div>
   );
 }
 
-function PlatformCard({ name, head, children }: { name: string; head: ReactNode; children: ReactNode }) {
+function PlannedPosts({ posts, tz }: { posts: Post[]; tz?: string }) {
   return (
-    <div className="card platform">
-      <div className="row between wrap" style={{ marginBottom: 12, gap: 10 }}>
-        <h3 style={{ margin: 0 }}>{name}</h3>
-        <div className="row wrap">{head}</div>
+    <section className="panel tight" aria-labelledby="pp-posts">
+      <h2 id="pp-posts" style={{ fontSize: "var(--fs-h3)" }}>Posts of this clip</h2>
+      <p className="tiny faint">Planned by Autopilot. Each one is approved, changed or canceled on its own page.</p>
+      <div className="rows">
+        {posts.map((p) => {
+          const s = postStatus(p);
+          return (
+            <div key={p.id} className="row wrap" style={{ padding: "8px 0" }}>
+              <PlatformName platform={p.platform} />
+              <span className="small faint tnum">{timeLabel(p.planned_at, tz)}</span>
+              <span className="grow" />
+              <Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
+              <a className="btn btn-small" href={`#/post/${p.id}`}
+                aria-label={`Open the ${p.platform === "youtube" ? "YouTube" : "TikTok"} post: ${s.word}`}>Open</a>
+            </div>
+          );
+        })}
       </div>
-      {children}
-    </div>
+    </section>
   );
 }
 
-function Confirm({ title, children, label, onConfirm, onClose }: { title: string; children: ReactNode; label: string; onConfirm: () => Promise<void>; onClose: () => void }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <Modal onClose={onClose}>
-      <div className="confirm">
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        {children}
-        <div className="row mt" style={{ justifyContent: "flex-end" }}>
-          <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy} onClick={async () => {
-            setBusy(true);
-            try {
-              await onConfirm();
-              onClose();
-            } catch (e) {
-              toast(errorText(e), true);
-              setBusy(false);
-            }
-          }}>{busy ? "Starting..." : label}</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
+// ------------------------------------------------------------------ one panel per platform
 type PanelProps = {
-  clip: Clip;
-  duration: number;
-  accounts: Accounts | null;
-  setAccounts: (a: Accounts) => void;
-  meta: Meta;
-  ready: boolean;
-  busy: boolean;
-  onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
+  account?: PlatformAccount; setAccounts: (a: Accounts) => void; meta: Meta; duration: number; ready: boolean;
+  busy: boolean; onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
 };
 
-function YouTubePanel({ duration, accounts, setAccounts, meta, ready, busy, onPublish }: PanelProps) {
-  const acc = accounts?.youtube;
+function PlatformPanel({ id, name, account, platform, setAccounts, children }: {
+  id: string; name: string; account?: PlatformAccount; platform: "youtube" | "tiktok";
+  setAccounts: (a: Accounts) => void; children: ReactNode;
+}) {
+  const ok = !!account?.connected && !account.needs_reconnect;
+  return (
+    <section className="panel" aria-labelledby={id}>
+      <div className="panel-head">
+        <h2 id={id}>{name}</h2>
+        <div className="row wrap">
+          <AccountBadge platform={platform} account={account} />
+          {!ok && <ConnectButton platform={platform} account={account} onChange={setAccounts} />}
+        </div>
+      </div>
+      {account && !account.configured && (
+        <p className="small muted">
+          Set up {platform === "youtube" ? "YouTube" : "TikTok"} once in{" "}
+          <a className="textlink" href="#/settings">Settings, Accounts</a> (your own free developer app), then connect.
+        </p>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function Note({ children }: { children: ReactNode }) {
+  return <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {children}</p>;
+}
+
+function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPublish }: PanelProps) {
   const [privacy, setPrivacy] = useState<"public" | "unlisted" | "private">("private");
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [shortsTag, setShortsTag] = useState(false);
@@ -258,8 +332,8 @@ function YouTubePanel({ duration, accounts, setAccounts, meta, ready, busy, onPu
     const t = shortsTag && !tags.some((x) => x.toLowerCase() === "#shorts") ? [...tags, "#Shorts"] : tags;
     return [meta.caption.trim(), t.join(" ")].filter(Boolean).join("\n\n");
   }, [meta.caption, meta.hashtags, shortsTag]); // eslint-disable-line react-hooks/exhaustive-deps
-  const connected = !!acc?.connected && !acc.needs_reconnect;
-  const problems = [
+  const connected = !!account?.connected && !account.needs_reconnect;
+  const missing = [
     !ready && "render the clip first",
     !connected && "connect YouTube",
     !meta.title.trim() && "enter a title",
@@ -267,58 +341,81 @@ function YouTubePanel({ duration, accounts, setAccounts, meta, ready, busy, onPu
     new TextEncoder().encode(description).length > 5000 && "shorten the description",
     !kids && "answer “made for kids”",
   ].filter(Boolean) as string[];
+  const privacyWord = { public: "Public", unlisted: "Unlisted", private: "Private" }[privacy];
 
   return (
-    <PlatformCard name="YouTube Shorts" head={<>
-      <AccountBadge platform="youtube" account={acc} />
-      <ConnectButton platform="youtube" account={acc} onChange={setAccounts} />
-    </>}>
-      {!acc?.configured && <div className="notice small block">Set up YouTube once in <a href="#/settings"><b>Settings → Accounts</b></a> (your own free Google Cloud app), then connect.</div>}
-      <div className="opt-row"><div className="lbl">Privacy</div>
-        <div className="segmented">
-          {(["public", "unlisted", "private"] as const).map((p) => (
-            <button key={p} type="button" className={privacy === p ? "on" : ""} onClick={() => setPrivacy(p)}>{p[0].toUpperCase() + p.slice(1)}</button>
-          ))}
-        </div>
+    <PlatformPanel id="pp-youtube" name="YouTube Shorts" platform="youtube" account={account} setAccounts={setAccounts}>
+      <div className="field">
+        <span className="label" id="pp-yt-priv">Who can see it</span>
+        <Segmented labelledBy="pp-yt-priv" value={privacy} onChange={setPrivacy}
+          options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
+            { value: "private", label: "Private" }]} />
       </div>
-      {privacy !== "private" && acc?.restriction && <div className="notice warn small block">{acc.restriction}</div>}
-      <div className="opt-row"><div className="lbl">Made for kids<small>Required by YouTube (COPPA)</small></div>
-        <div className="row">
-          <label className="row small"><input type="radio" checked={kids === "no"} onChange={() => setKids("no")} /> No, it's not made for kids</label>
-          <label className="row small"><input type="radio" checked={kids === "yes"} onChange={() => setKids("yes")} /> Yes</label>
-        </div>
-      </div>
-      <div className="opt-row"><div className="lbl">#Shorts tag<small>Optional; vertical videos up to 3 min are Shorts anyway</small></div>
-        <label className="row small"><input type="checkbox" checked={shortsTag} onChange={(e) => setShortsTag(e.target.checked)} /> Add #Shorts to the description</label>
-      </div>
-      {duration > 180 && <div className="notice warn small block">This clip is longer than 3 minutes, so YouTube will publish it as a regular video, not a Short.</div>}
-      <details className="small mt-s"><summary>Description as it will appear on YouTube</summary><pre className="desc-preview">{description || "(empty)"}</pre></details>
-      <div className="row between mt">
-        <span className="small muted">{problems.length ? `To publish: ${problems.join(", ")}.` : `Uploads to ${acc?.name} as ${privacy}.`}</span>
-        <button className="btn primary" disabled={problems.length > 0 || busy} onClick={() => setConfirming(true)}>
-          <Icon name="upload" size={16} /> {busy ? "Uploading..." : "Publish to YouTube"}
+      {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
+      <fieldset>
+        <legend className="label">Made for kids <span className="hint">(YouTube requires an answer)</span></legend>
+        <label className="choice">
+          <input type="radio" name="pp-kids" checked={kids === "no"} onChange={() => setKids("no")} />
+          <span>No, it's not made for kids</span>
+        </label>
+        <label className="choice">
+          <input type="radio" name="pp-kids" checked={kids === "yes"} onChange={() => setKids("yes")} />
+          <span>Yes, it's made for kids</span>
+        </label>
+      </fieldset>
+      <label className="choice">
+        <input type="checkbox" checked={shortsTag} onChange={(e) => setShortsTag(e.target.checked)} />
+        <span>Add #Shorts to the description (optional; vertical videos up to 3 minutes are Shorts anyway)</span>
+      </label>
+      {duration > 180 && (
+        <Note>This clip is longer than 3 minutes, so YouTube publishes it as a regular video, not a Short.</Note>
+      )}
+      <Disclosure plain summary="Description as it will appear on YouTube">
+        <pre className="desc-preview">{description || "(empty)"}</pre>
+      </Disclosure>
+      <div className="row wrap">
+        <span className="small muted grow">
+          {missing.length ? `To publish: ${missing.join(", ")}.`
+            : `Uploads to ${account?.name || "your channel"} as ${privacyWord}.`}
+        </span>
+        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
+          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
+            : !busy && setConfirming(true))}>
+          {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="upload" />}
+          {busy ? "Uploading…" : "Publish to YouTube now…"}
         </button>
       </div>
       {confirming && (
-        <Confirm title="Publish to YouTube?" label="Publish now" onClose={() => setConfirming(false)}
-          onConfirm={() => onPublish("youtube", { title: meta.title.trim(), description, tags, privacy, made_for_kids: kids === "yes" })}>
-          <div className="kv">
-            <span className="k">Channel</span><span>{acc?.name}</span>
-            <span className="k">Title</span><span>{meta.title}</span>
-            <span className="k">Privacy</span><span>{privacy[0].toUpperCase() + privacy.slice(1)}</span>
-            <span className="k">Made for kids</span><span>{kids === "yes" ? "Yes" : "No"}</span>
-            <span className="k">Tags</span><span>{tags.join(" ") || "none"}</span>
+        <ConfirmDialog title="Publish to YouTube now?" confirmLabel="Publish now" cancelLabel="Not now" wide
+          onClose={() => setConfirming(false)}
+          onConfirm={() => onPublish("youtube", {
+            title: meta.title.trim(), description, tags, privacy, made_for_kids: kids === "yes",
+          })}>
+          <dl className="kv">
+            <dt>Channel</dt><dd>{account?.name}</dd>
+            <dt>Title</dt><dd>{meta.title}</dd>
+            <dt>Who can see it</dt><dd>{privacyWord}</dd>
+            <dt>Made for kids</dt><dd>{kids === "yes" ? "Yes" : "No"}</dd>
+            <dt>Tags</dt><dd>{tags.join(" ") || "None"}</dd>
+            <dt>When</dt><dd>Right away</dd>
+          </dl>
+          {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
+          <div className="consequence">
+            <span>
+              This uploads the video to YouTube now. ClipFoundry can't take an upload back; you would delete it in
+              YouTube Studio. It uses part of your project's daily YouTube upload allowance.
+            </span>
           </div>
-          {privacy !== "private" && acc?.restriction && <div className="notice warn small block mt">{acc.restriction}</div>}
-        </Confirm>
+        </ConfirmDialog>
       )}
-    </PlatformCard>
+    </PlatformPanel>
   );
 }
 
-function TikTokPanel({ duration, accounts, setAccounts, meta, ready, busy, onPublish, onExport, downloadUrl }: PanelProps & { onExport: () => void; downloadUrl: string }) {
-  const acc = accounts?.tiktok;
-  const connected = !!acc?.connected && !acc.needs_reconnect;
+function TikTokPanel({
+  account, setAccounts, meta, duration, ready, busy, onPublish, onExport, downloadUrl,
+}: PanelProps & { onExport: () => void; downloadUrl: string }) {
+  const connected = !!account?.connected && !account.needs_reconnect;
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
   const [creatorError, setCreatorError] = useState("");
   const [mode, setMode] = useState<"direct" | "inbox">("direct");
@@ -328,149 +425,221 @@ function TikTokPanel({ duration, accounts, setAccounts, meta, ready, busy, onPub
   const [brandOrganic, setBrandOrganic] = useState(false);
   const [brandContent, setBrandContent] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [manual, setManual] = useState(false);
 
+  // TikTok's sharing guidelines: read the creator's options fresh before posting.
   useEffect(() => {
     if (!connected) return;
-    if (!acc?.can_direct_post) {
+    if (!account?.can_direct_post) {
       setMode("inbox");
       return;
     }
-    api.tiktokCreator().then((c) => { setCreator(c); setCreatorError(""); }).catch((e) => setCreatorError(errorText(e)));
-  }, [connected, acc?.can_direct_post, acc?.connected_at]);
+    api.tiktokCreator()
+      .then((c) => { setCreator(c); setCreatorError(""); })
+      .catch((e) => setCreatorError(errorText(e)));
+  }, [connected, account?.can_direct_post, account?.connected_at]);
 
   const caption = [meta.caption.trim(), tagList(meta.hashtags).join(" ")].filter(Boolean).join(" ");
-  const audited = !!acc?.audited;
+  const audited = !!account?.audited;
   const direct = mode === "direct";
-  const problems = [
-    !ready && "render the clip first",
-    !connected && "connect TikTok",
-    caption.length > 2200 && "shorten the caption to 2200 characters",
-    direct && !privacy && "choose who can see it",
-    direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
-    direct && brandContent && privacy === "SELF_ONLY" && "branded content can't be “Only me”",
-    direct && !audited && privacy && privacy !== "SELF_ONLY" && "unaudited apps can only post “Only me”",
-    direct && creator && creator.max_duration > 0 && duration > creator.max_duration && `trim to ${creator.max_duration}s`,
-  ].filter(Boolean) as string[];
   const branded = direct && disclose && brandContent;
   const label = disclose ? (brandContent ? "Paid partnership" : brandOrganic ? "Promotional content" : "") : "";
+  const allowed = (["comment", "duet", "stitch"] as const).filter((k) => allow[k]).join(", ");
+  const missing = [
+    !ready && "render the clip first",
+    !connected && "connect TikTok",
+    caption.length > 2200 && "shorten the caption to 2,200 characters",
+    direct && !privacy && "choose who can see it",
+    direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
+    branded && privacy === "SELF_ONLY" && "branded content can't be “Only me”",
+    direct && !audited && privacy && privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
+    direct && creator && creator.max_duration > 0 && duration > creator.max_duration
+      && `trim the clip to ${creator.max_duration} seconds`,
+  ].filter(Boolean) as string[];
+  const copyCaption = () => {
+    if (!navigator.clipboard) {
+      toast("Copying is not available in this browser. Select the caption in the text box and copy it.", true);
+      return;
+    }
+    navigator.clipboard.writeText(caption)
+      .then(() => toast("Caption copied"), () => toast("The caption could not be copied.", true));
+  };
 
   return (
-    <PlatformCard name="TikTok" head={<>
-      <AccountBadge platform="tiktok" account={acc} />
-      <ConnectButton platform="tiktok" account={acc} onChange={setAccounts} />
-    </>}>
-      {!acc?.configured && <div className="notice small block">Set up TikTok once in <a href="#/settings"><b>Settings → Accounts</b></a> (your own free TikTok developer app), then connect.</div>}
+    <PlatformPanel id="pp-tiktok" name="TikTok" platform="tiktok" account={account} setAccounts={setAccounts}>
       {connected && creator && (
-        <div className="row small" style={{ marginBottom: 8 }}>
-          {creator.avatar && <img className="avatar" src={creator.avatar} alt="" referrerPolicy="no-referrer" />}
-          Posting as <b>{creator.nickname}</b>{creator.username ? <span className="muted">@{creator.username}</span> : null}
-        </div>
+        <p className="small row" style={{ gap: 8 }}>
+          {creator.avatar && (
+            <img className="avatar" src={creator.avatar} alt="" referrerPolicy="no-referrer"
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          )}
+          <span>
+            Posting as <b>{creator.nickname}</b>
+            {creator.username ? <span className="muted"> @{creator.username}</span> : null}{" "}
+            <span className="faint">(read from TikTok just now)</span>
+          </span>
+        </p>
       )}
-      {creatorError && <div className="notice bad small block">{creatorError}</div>}
-      <div className="opt-row"><div className="lbl">How to post</div>
-        <div className="grid" style={{ gap: 6 }}>
-          <label className={`hook-opt ${direct ? "on" : ""}`} style={!acc?.can_direct_post && connected ? { opacity: 0.5 } : undefined}>
-            <input type="radio" checked={direct} disabled={connected && !acc?.can_direct_post} onChange={() => setMode("direct")} />
-            <span><b>Post directly</b> to your profile{connected && !acc?.can_direct_post ? " (your app has no Direct Post permission)" : ""}</span>
-          </label>
-          <label className={`hook-opt ${!direct ? "on" : ""}`}>
-            <input type="radio" checked={!direct} onChange={() => setMode("inbox")} />
-            <span><b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app. Works without TikTok's app audit.</span>
-          </label>
-        </div>
-      </div>
-      {direct && !audited && <div className="notice warn small block">{acc?.restriction || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}</div>}
+      {creatorError && <Banner tone="bad" title="TikTok's account details could not be read">{creatorError}</Banner>}
+      <fieldset>
+        <legend className="label">How to post</legend>
+        <label className="choice">
+          <input type="radio" name="pp-tt-mode" checked={direct} disabled={connected && !account?.can_direct_post}
+            onChange={() => setMode("direct")} />
+          <span>
+            <b>Post directly</b> to your profile
+            {connected && !account?.can_direct_post ? " (your TikTok app has no Direct Post permission)" : ""}
+          </span>
+        </label>
+        <label className="choice">
+          <input type="radio" name="pp-tt-mode" checked={!direct} onChange={() => setMode("inbox")} />
+          <span>
+            <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app. Works without TikTok's app
+            audit.
+          </span>
+        </label>
+      </fieldset>
       {direct && (
         <>
-          <div className="opt-row"><div className="lbl">Who can see this</div>
-            <select value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
-              <option value="" disabled>Choose privacy</option>
+          <div className="field">
+            <label htmlFor="pp-tt-priv">Who can see it</label>
+            <select id="pp-tt-priv" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
+              <option value="" disabled>Choose…</option>
               {(creator?.privacy_options || []).map((o) => (
                 <option key={o} value={o} disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
-                  {TIKTOK_PRIVACY[o] || o}{branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
+                  {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
+                  {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
                 </option>
               ))}
             </select>
           </div>
-          <div className="opt-row"><div className="lbl">Allow viewers to</div>
+          {!audited && (
+            <Note>
+              {account?.restriction
+                || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}
+            </Note>
+          )}
+          <fieldset>
+            <legend className="label">Allow viewers to</legend>
             <div className="row wrap" style={{ gap: 16 }}>
               {(["comment", "duet", "stitch"] as const).map((k) => {
                 const off = !!creator?.[`${k}_disabled` as const];
                 return (
-                  <label key={k} className="row small" style={off ? { opacity: 0.45 } : undefined} title={off ? "Turned off in your TikTok settings" : ""}>
-                    <input type="checkbox" disabled={off} checked={allow[k] && !off} onChange={(e) => setAllow({ ...allow, [k]: e.target.checked })} />
-                    {k[0].toUpperCase() + k.slice(1)}
+                  <label key={k} className="choice" title={off ? "Turned off in your TikTok settings" : undefined}>
+                    <input type="checkbox" disabled={off} checked={allow[k] && !off}
+                      onChange={(e) => setAllow({ ...allow, [k]: e.target.checked })} />
+                    <span>{k[0].toUpperCase() + k.slice(1)}{off ? " (off in TikTok)" : ""}</span>
                   </label>
                 );
               })}
             </div>
-          </div>
-          <div className="opt-row"><div className="lbl">Disclose commercial content<small>Promotes a brand, product or service</small></div>
-            <div>
-              <label className="row small"><input type="checkbox" checked={disclose} onChange={(e) => { setDisclose(e.target.checked); if (!e.target.checked) { setBrandOrganic(false); setBrandContent(false); } }} /> This video is commercial content</label>
-              {disclose && (
-                <div className="grid mt-s" style={{ gap: 6, paddingLeft: 22 }}>
-                  <label className="row small"><input type="checkbox" checked={brandOrganic} onChange={(e) => setBrandOrganic(e.target.checked)} /> <span><b>Your brand</b>: you are promoting yourself or your own business</span></label>
-                  <label className="row small"><input type="checkbox" checked={brandContent} onChange={(e) => setBrandContent(e.target.checked)} /> <span><b>Branded content</b>: you are promoting another brand or a third party</span></label>
-                  {label && <div className="small muted">Your video will be labeled “{label}”.</div>}
-                </div>
-              )}
+          </fieldset>
+          <label className="choice">
+            <input type="checkbox" checked={disclose} onChange={(e) => {
+              setDisclose(e.target.checked);
+              if (!e.target.checked) { setBrandOrganic(false); setBrandContent(false); }
+            }} />
+            <span>This video promotes a brand, product or service (disclose commercial content)</span>
+          </label>
+          {disclose && (
+            <div className="stack" style={{ paddingLeft: 32 }}>
+              <label className="choice">
+                <input type="checkbox" checked={brandOrganic} onChange={(e) => setBrandOrganic(e.target.checked)} />
+                <span><b>Your brand</b>: you promote yourself or your own business</span>
+              </label>
+              <label className="choice">
+                <input type="checkbox" checked={brandContent} onChange={(e) => setBrandContent(e.target.checked)} />
+                <span><b>Branded content</b>: you promote another brand or a third party</span>
+              </label>
+              {label && <span className="small muted">Your video will be labeled “{label}”.</span>}
             </div>
-          </div>
+          )}
         </>
       )}
-      <div className="small muted mt-s">
+      <p className="tiny faint">
         By posting, you agree to TikTok's{" "}
-        {branded && <><a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noreferrer">Branded Content Policy</a> and </>}
-        <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noreferrer">Music Usage Confirmation</a>.
-      </div>
-      <details className="small mt-s"><summary>Caption as it will appear on TikTok ({caption.length}/2200)</summary><pre className="desc-preview">{caption || "(empty)"}</pre></details>
-      <div className="row between mt">
-        <span className="small muted">{problems.length ? `To publish: ${problems.join(", ")}.` : direct ? `Posts to ${creator?.nickname || acc?.name} (${TIKTOK_PRIVACY[privacy]}).` : "Sends a draft to your TikTok inbox."}</span>
-        <button className="btn primary" disabled={problems.length > 0 || busy} onClick={() => setConfirming(true)}>
-          <Icon name="upload" size={16} /> {busy ? "Uploading..." : "Publish to TikTok"}
+        {branded && <><a className="textlink" href={BC_POLICY} target="_blank" rel="noreferrer">Branded Content
+          Policy</a> and </>}
+        <a className="textlink" href={MUSIC_POLICY} target="_blank" rel="noreferrer">Music Usage Confirmation</a>.
+      </p>
+      <Disclosure plain summary={`Caption as it will appear on TikTok (${caption.length}/2200)`}>
+        <pre className="desc-preview">{caption || "(empty)"}</pre>
+      </Disclosure>
+      <div className="row wrap">
+        <span className="small muted grow">
+          {missing.length ? `To publish: ${missing.join(", ")}.` : direct
+            ? `Posts to ${creator?.nickname || account?.name} (${TIKTOK_PRIVACY[privacy]}).`
+            : "Sends a draft to your TikTok inbox."}
+        </span>
+        <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
+          onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
+            : !busy && setConfirming(true))}>
+          {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="upload" />}
+          {busy ? "Uploading…" : direct ? "Post to TikTok now…" : "Send to TikTok inbox…"}
         </button>
       </div>
-      <div className="mt-s">
-        <button className="btn ghost sm" onClick={() => setManual(!manual)}>{manual ? "Hide" : "Can't post through the API?"} Upload it yourself in TikTok</button>
-        {manual && (
-          <ol className="manual small">
-            <li><button className="btn sm" onClick={onExport}><Icon name="zip" size={13} /> Export</button> or <a href={downloadUrl}>download the MP4</a>.</li>
-            <li><button className="btn sm" onClick={() => navigator.clipboard?.writeText(caption).then(() => toast("Caption copied"))}>Copy caption</button> (text and hashtags).</li>
-            <li>Open <a href="https://www.tiktok.com/tiktokstudio/upload" target="_blank" rel="noreferrer">TikTok Studio → Upload</a> (official), select the MP4, paste the caption, choose privacy and post.</li>
-          </ol>
-        )}
-      </div>
+      <Disclosure plain summary="Can't post through the API? Upload it yourself">
+        <ol className="steps-list">
+          <li>
+            <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Export</button>
+            {" "}or <a className="textlink" href={downloadUrl} download>download the MP4</a>.
+          </li>
+          <li>
+            <button type="button" className="btn btn-small" onClick={copyCaption}>
+              <Icon name="copy" />Copy caption
+            </button>
+            {" "}(text and hashtags).
+          </li>
+          <li>
+            Open <a className="textlink" href={STUDIO_UPLOAD} target="_blank" rel="noreferrer">TikTok Studio,
+            Upload</a> (official), choose the MP4, paste the caption, choose who can see it and post.
+          </li>
+        </ol>
+      </Disclosure>
       {confirming && (
-        <Confirm title={direct ? "Post to TikTok?" : "Send to your TikTok inbox?"} label={direct ? "Post now" : "Send draft"} onClose={() => setConfirming(false)}
+        <ConfirmDialog title={direct ? "Post to TikTok now?" : "Send to your TikTok inbox?"} wide cancelLabel="Not now"
+          confirmLabel={direct ? "Post now" : "Send the draft"} onClose={() => setConfirming(false)}
           onConfirm={() => onPublish("tiktok", {
-            description: caption, mode, privacy: direct ? privacy : "", allow_comment: allow.comment, allow_duet: allow.duet,
-            allow_stitch: allow.stitch, disclose, brand_organic: brandOrganic, brand_content: brandContent,
+            description: caption, mode, privacy: direct ? privacy : "", allow_comment: allow.comment,
+            allow_duet: allow.duet, allow_stitch: allow.stitch, disclose, brand_organic: brandOrganic,
+            brand_content: brandContent,
           })}>
-          <div className="kv">
-            <span className="k">Account</span><span>{creator?.nickname || acc?.name}</span>
-            <span className="k">Caption</span><span>{caption}</span>
-            {direct && <><span className="k">Who can see it</span><span>{TIKTOK_PRIVACY[privacy]}</span></>}
-            {direct && <><span className="k">Viewers can</span><span>{(["comment", "duet", "stitch"] as const).filter((k) => allow[k]).join(", ") || "not comment, duet or stitch"}</span></>}
-            {label && <><span className="k">Label</span><span>{label}</span></>}
+          <dl className="kv">
+            <dt>Account</dt><dd>{creator?.nickname || account?.name}</dd>
+            <dt>Caption</dt><dd>{caption || "(empty)"}</dd>
+            {direct && <><dt>Who can see it</dt><dd>{TIKTOK_PRIVACY[privacy]}</dd></>}
+            {direct && <><dt>Viewers can</dt><dd>{allowed || "Not comment, duet or stitch"}</dd></>}
+            {label && <><dt>Label</dt><dd>{label}</dd></>}
+            <dt>When</dt><dd>Right away</dd>
+          </dl>
+          <div className="consequence">
+            <span>
+              {direct ? "This posts the video on your TikTok profile now. ClipFoundry can't take it back; you would "
+                + "delete it in the TikTok app. It may take a few minutes to appear."
+                : "This sends the video to your TikTok inbox as a draft now. Nothing is public until you finish and "
+                  + "post it in the TikTok app."}
+            </span>
+            <span>
+              By posting, you agree to TikTok's {branded ? "Branded Content Policy and " : ""}Music Usage Confirmation.
+            </span>
           </div>
-          <p className="small muted">{direct ? "It may take a few minutes for the video to be processed and appear on your profile." : "You finish and post it in the TikTok app."}</p>
-          <p className="small muted">By posting, you agree to TikTok's {branded ? "Branded Content Policy and " : ""}Music Usage Confirmation.</p>
-        </Confirm>
+        </ConfirmDialog>
       )}
-    </PlatformCard>
+    </PlatformPanel>
   );
 }
 
-const STATUS: Record<Publication["status"], [string, string]> = {
-  queued: ["Waiting", "info"], uploading: ["Uploading", "warn"], processing: ["Processing", "warn"], done: ["Done", "good"],
-  action_needed: ["Finish in the app", "info"], failed: ["Failed", "bad"], cancelled: ["Cancelled", ""],
+// ------------------------------------------------------------------ uploads started on this page
+const STATUS: Record<Publication["status"], [string, Tone, IconName]> = {
+  queued: ["Waiting to upload", "info", "clock"], uploading: ["Uploading", "info", "upload"],
+  processing: ["Processing on the platform", "info", "clock"], done: ["Done", "good", "check"],
+  action_needed: ["Finish in the TikTok app", "info", "info"], failed: ["Failed", "bad", "alert"],
+  cancelled: ["Canceled", "neutral", "x"],
 };
 
 function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) => void }) {
-  const [label, cls] = STATUS[p.status];
-  const privacy = p.platform === "tiktok" ? TIKTOK_PRIVACY[p.privacy || p.requested_privacy] : p.privacy || p.requested_privacy;
+  const [word, tone, icon] = STATUS[p.status];
+  const [canceling, setCanceling] = useState(false);
+  const privacy = p.privacy || p.requested_privacy;
   const act = async (fn: () => Promise<Publication>) => {
     try {
       onChange(await fn());
@@ -478,29 +647,55 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
       toast(errorText(e), true);
     }
   };
+  const name = p.platform === "youtube" ? "YouTube" : p.mode === "inbox" ? "TikTok inbox" : "TikTok";
   return (
     <div className="pub">
-      <div className="row between wrap">
-        <div className="row">
-          <b>{p.platform === "youtube" ? "YouTube" : p.mode === "inbox" ? "TikTok inbox" : "TikTok"}</b>
-          <span className={`badge ${cls}`}>{label}{p.status === "uploading" ? ` ${Math.round(p.progress * 100)}%` : ""}</span>
-          {privacy && p.status === "done" && <span className="badge">{privacy[0].toUpperCase() + privacy.slice(1)}</span>}
-          <span className="small muted">{new Date(p.created_at * 1000).toLocaleString()}</span>
-        </div>
-        <div className="row">
-          {p.url && <a className="btn sm" href={p.url} target="_blank" rel="noreferrer">Open</a>}
-          {p.info?.studio_url && <a className="btn sm ghost" href={p.info.studio_url} target="_blank" rel="noreferrer">YouTube Studio</a>}
-          {(p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id && (
-            <button className="btn sm ghost" onClick={() => act(() => api.refreshPublication(p.id))}><Icon name="refresh" size={12} /> Refresh status</button>
-          )}
-          {(p.status === "queued" || p.status === "uploading") && <button className="btn sm danger" onClick={() => act(() => api.cancelPublication(p.id))}>Cancel</button>}
-        </div>
+      <div className="row wrap">
+        <PlatformName platform={p.platform} extra={p.mode === "inbox" ? "inbox" : undefined} />
+        <Pill tone={tone} icon={icon}>{word}{p.status === "uploading" ? ` ${Math.round(p.progress * 100)}%` : ""}</Pill>
+        {privacy && p.status === "done" && <span className="tag">{privacyLabel(p.platform, privacy)}</span>}
+        <span className="tiny faint">{new Date(p.created_at * 1000).toLocaleString()}</span>
       </div>
-      {(p.status === "uploading" || p.status === "queued") && <div className="bar mt-s"><div style={{ width: `${Math.max(2, p.progress * 100)}%` }} /></div>}
-      {p.message && <div className="small mt-s">{p.message}</div>}
-      {p.error && <div className="small bad-text mt-s">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</div>}
-      <div className="small muted mt-s">“{p.title || p.description.slice(0, 80)}”</div>
+      {(p.status === "uploading" || p.status === "queued") && (
+        <ProgressBar value={p.progress} label={`${name} upload`} />
+      )}
+      {p.message && <span className="small">{p.message}</span>}
+      {p.error && <span className="small bad-text">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</span>}
+      <span className="tiny faint">“{p.title || p.description.slice(0, 80)}”</span>
+      <div className="row wrap">
+        {p.url && (
+          <a className="btn btn-small" href={p.url} target="_blank" rel="noreferrer">
+            <Icon name="external" />Open on {p.platform === "youtube" ? "YouTube" : "TikTok"}
+          </a>
+        )}
+        {p.info?.studio_url && (
+          <a className="btn btn-small btn-quiet" href={p.info.studio_url} target="_blank" rel="noreferrer">
+            YouTube Studio
+          </a>
+        )}
+        {(p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id && (
+          <button type="button" className="btn btn-small btn-quiet"
+            onClick={() => act(() => api.refreshPublication(p.id))}>
+            <Icon name="refresh" />Refresh status
+          </button>
+        )}
+        {(p.status === "queued" || p.status === "uploading") && (
+          <button type="button" className="btn btn-small btn-danger" onClick={() => setCanceling(true)}>
+            Cancel upload…
+          </button>
+        )}
+      </div>
       <PublicationStats p={p} onChange={onChange} />
+      {canceling && (
+        <ConfirmDialog title={`Cancel the ${name} upload?`} confirmLabel="Cancel the upload"
+          cancelLabel="Keep uploading" danger onClose={() => setCanceling(false)}
+          onConfirm={async () => onChange(await api.cancelPublication(p.id))}>
+          <p className="muted">
+            The upload stops. If {p.platform === "youtube" ? "YouTube" : "TikTok"} already received every byte, the
+            video may still appear there; check before you upload again.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

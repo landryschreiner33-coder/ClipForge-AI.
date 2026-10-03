@@ -16,6 +16,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +26,7 @@ SPEECH = ("Here is the thing nobody tells you about starting a podcast. You do n
           "good question. Ask your guest what they got wrong last year. That answer is always the best part of the "
           "episode. People love honest stories about mistakes. Keep the recording short and cut the slow parts. Your "
           "first ten episodes are practice, so publish them anyway. ")
-TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: they need your OK)
+TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: skipped unless covered)
     ("pod1", "The podcast moment everyone is talking about", "UCpodcast000000001", 950_000, "PT1H10M"),
     ("int1", "Podcast interview: the founder who almost quit", "UCinterview0000001", 610_000, "PT48M"),
     ("pod2", "Podcast debate gets heated over remote work", "UCdebate0000000001", 420_000, "PT55M"),
@@ -35,12 +36,14 @@ TRENDING = [  # what the stand-in for YouTube reports as trending (other creator
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_SANDBOX_PORT", 8799)))
+    parser.add_argument("--scenario", choices=("beginner", "zero-touch"), default="beginner")
     args = parser.parse_args()
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         sys.exit("The sandbox needs ffmpeg and ffprobe on the PATH (winget install Gyan.FFmpeg).")
 
     data = Path(tempfile.mkdtemp(prefix="clipfoundry-sandbox-"))
     os.environ["CLIPFOUNDRY_DATA"] = str(data)
+    os.environ["CLIPFOUNDRY_VIDEOS"] = str(data / "Videos" / "ClipFoundry")  # your videos folder, inside the sandbox
     os.environ["CLIPFOUNDRY_WORKERS"] = "in_app"  # the workers must run here, next to the stand-ins
     for var in ("NO_PROXY", "no_proxy"):
         os.environ[var] = "127.0.0.1,localhost"
@@ -56,6 +59,7 @@ def main() -> None:
     for name, path in (("AUTH_URL", "/o/oauth2/v2/auth"), ("TOKEN_URL", "/token"), ("REVOKE_URL", "/revoke"),
                        ("API_URL", "/youtube/v3"), ("UPLOAD_URL", "/upload/youtube/v3/videos")):
         setattr(youtube, name, google.url + path)
+    youtube.ANALYTICS_URL = f"{google.url}/v2/reports"
     tiktok.AUTH_URL, tiktok.API_URL = f"{tt.url}/v2/auth/authorize/", f"{tt.url}/v2"
     for vid, title, channel, views, duration in TRENDING:
         google.add_video(vid, title, channel, views=views, age_hours=5, duration=duration)
@@ -65,12 +69,22 @@ def main() -> None:
     # The test connections: the stand-ins' own app codes. A real user pastes their own once (Settings → General).
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
-                      "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast"})
+                      "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast",
+                      "library_discovery": False})  # offline: the free-license library is not searched
 
-    # The original file of a video (what "Add the video file" asks for), a synthetic talk
+    # The original file of a video (what "Add the file" asks for), a synthetic talk
     original = data / "sandbox" / "original.mp4"
     original.parent.mkdir(parents=True)
     make_video(original, seconds=75.0)
+    # A creator's shared folder (a synced Dropbox, say) with the raw file of their trending video, named by its
+    # YouTube ID. The test records an agreement with this creator that names the folder. Older than a minute, so
+    # it does not look like a file still being synced.
+    shared = data / "sandbox" / "Podcast creator shared"
+    shared.mkdir()
+    raw = shared / "episode 112 raw [pod1].mp4"
+    shutil.copyfile(original, raw)
+    old = time.time() - 600
+    os.utime(raw, (old, old))
 
     def synthetic_transcript(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
         text = (SPEECH * 8).split()
@@ -86,12 +100,66 @@ def main() -> None:
 
     from clipfoundry.api import app
 
+    scenario = None
+    if args.scenario == "zero-touch":
+        from zero_touch_support import CompleteLoopFixture
+
+        google.catalog.clear()
+        scenario = CompleteLoopFixture(data, google, setattr)
+
+        # These controls exist only in this executable and are served only on its own loopback port. They
+        # expose fixture observations or change external inputs/time; no production API has reset/test routes.
+        @app.get("/sandbox/state")
+        def sandbox_state():
+            return scenario.snapshot()
+
+        @app.post("/sandbox/next-video")
+        def sandbox_next_video():
+            scenario.repeat()
+            return {"ok": True}
+
+        @app.post("/sandbox/age-results")
+        def sandbox_age_results():
+            scenario.age_results()
+            return {"ok": True}
+
+        @app.post("/sandbox/upcoming-stream")
+        def sandbox_upcoming_stream():
+            return {"url": scenario.upcoming_stream()}
+
+        @app.post("/sandbox/start-stream")
+        def sandbox_start_stream():
+            scenario.start_stream()
+            return {"ok": True}
+
+        @app.post("/sandbox/restart-workers")
+        def sandbox_restart_workers():
+            from clipfoundry.autopilot import host
+
+            old = host.supervisor.host
+            if old:
+                old.stop(timeout=30)
+            replacement = host.WorkerHost(poll=0.1)
+            if not replacement.start(wait_for_lock=10):
+                raise RuntimeError("The previous worker host has not finished its safe step")
+            host.supervisor.host = replacement
+            return {"ok": True, "owner": replacement.owner, "enabled": db.get_settings()["autopilot_enabled"]}
+
+        # api.py's SPA fallback was registered before this executable's fixture routes. Put only these sandbox
+        # routes before that fallback so requests receive observations rather than the frontend's index.html.
+        fixture_routes = [route for route in app.router.routes if getattr(route, "path", "").startswith("/sandbox/")]
+        for route in fixture_routes:
+            app.router.routes.remove(route)
+        app.router.routes[:0] = fixture_routes
+
     print(f"\n  ClipFoundry sandbox at http://127.0.0.1:{args.port}  (data: {data})\n", flush=True)
     try:
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
         google.stop()
         tt.stop()
+        if scenario:
+            scenario.stop()
         shutil.rmtree(data, ignore_errors=True)
 
 

@@ -26,7 +26,8 @@ def _serve(host: str, port: int, open_browser: bool) -> None:
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     _print_transcription_mode()
-    print(f"\n  ClipFoundry is running at {url}\n  Press Ctrl+C to stop.\n")
+    print(f"\n  ClipFoundry is running at {url}\n  Leave this window open: closing it stops ClipFoundry and Autopilot."
+          "\n  Press Ctrl+C to stop.\n")
     uvicorn.run("clipfoundry.api:app", host=host, port=port, log_level="warning")
 
 
@@ -98,8 +99,15 @@ def _process(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> int:
+def setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # httpx logs every request address at INFO; a YouTube Data API key travels in the address (?key=), and the
+    # worker's output goes to data/logs/workers.log, so those lines stay off
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def main() -> int:
+    setup_logging()
     parser = argparse.ArgumentParser(prog="clipfoundry", description="ClipFoundry local AI clipper")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_PORT", 8765)))

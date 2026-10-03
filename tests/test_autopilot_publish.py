@@ -141,6 +141,82 @@ def test_tiktok_direct_post_and_unaudited_refusal(env):
     assert any(a["key"] == f"review:{bad['id']}" for a in state.open_actions())
 
 
+def test_a_platform_wait_is_never_shortened(env):
+    """A rate limit: the job waits exactly as long as the platform asked (a wait uses no attempt), however long,
+    and a long wait holds the platform's other posts too. Then the post goes out once."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    t.init_error, t.init_status = "rate_limit_exceeded", 429  # no Retry-After: a minute
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    with pytest.raises(queue.Wait) as silent:
+        run_publish(item["id"])
+    assert silent.value.reason == "platform_wait" and silent.value.seconds == 60.0
+    assert not scheduler.blocked_until("tiktok")[0]  # a short wait holds nothing else
+    t.retry_after = "86400"  # a whole day: not capped, not retried sooner
+    t0 = time.time()
+    with pytest.raises(queue.Wait) as asked:
+        run_publish(item["id"])
+    assert asked.value.seconds == 86400.0 and "TikTok asked to wait 24 hours" in asked.value.message
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "publishing" and "TikTok asked to wait 24 hours" in after["status_note"]
+    assert scheduler.blocked_until("tiktok")[0] >= t0 + 86400  # other TikTok posts wait for that time as well
+    other = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}},
+                      text="Your environment beats your motivation every single time.")
+    with pytest.raises(queue.Wait) as held:
+        run_publish(other["id"])
+    assert held.value.reason == "platform_limit" and held.value.seconds >= 86400 - 5
+    db.execute("DELETE FROM platform_limits")  # the day has passed
+    t.init_error, t.retry_after = "", ""
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published" and len(t.uploads) == 1
+
+
+def test_after_a_long_youtube_wait_the_same_upload_continues(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    g.rate_limit_puts, g.retry_after = 1, "7200"  # YouTube asks for two hours in the middle of the upload
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    with pytest.raises(queue.Wait) as waited:
+        run_publish(item["id"])
+    assert waited.value.seconds == 7200.0
+    pub = db.get_publication(db.fetch("scheduled_publications", item["id"])["publication_id"])
+    assert pub["status"] == "uploading" and pub["info"]["upload_session"] and not g.videos  # kept, not failed
+    db.execute("DELETE FROM platform_limits")  # two hours later
+    run_publish(item["id"])
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "published" and after["publication_id"] == pub["id"] and len(g.videos) == 1
+    assert sum(1 for m, p in g.log if m == "POST" and "uploadType=resumable" in p) == 1  # one session, continued
+
+
+def test_a_rate_limited_status_check_never_uploads_a_second_copy(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    t.rate_limit_status, t.retry_after = 1, "300"  # uploaded; then TikTok asks to wait before saying more
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    with pytest.raises(queue.Wait) as waited:
+        run_publish(item["id"])
+    assert waited.value.seconds == 300.0
+    pub = db.get_publication(db.fetch("scheduled_publications", item["id"])["publication_id"])
+    assert pub["status"] == "processing" and len(t.uploads) == 1  # the upload stays linked
+    db.execute("DELETE FROM platform_limits")
+    for _ in range(3):  # after the wait, TikTok is only asked how the upload went (it may still be processing)
+        try:
+            run_publish(item["id"])
+            break
+        except queue.Wait as w:
+            assert w.reason == "tiktok_processing"
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published" and len(t.uploads) == 1
+
+
 def test_tiktok_inbox_needs_the_app_then_can_be_linked(env):
     from fastapi.testclient import TestClient
 
@@ -290,6 +366,9 @@ def test_publish_center_api(env):
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H, json={"privacy": "SELF_ONLY",
                                                                                    "confirm": True})
         assert r.status_code == 200 and r.json()["status"] == "approved" and r.json()["approval_valid"]
+        one = c.get(f"/api/autopilot/scheduled/{tt['id']}").json()  # the post page reads one post the same way
+        assert one["item"]["id"] == tt["id"] and one["item"]["approval_valid"] and one["timezone"]
+        assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
         assert r.json()["privacy"] == "unlisted"
@@ -384,7 +463,7 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
         run_publish(item["id"])
     monkeypatch.setattr(publish_jobs, "_progress_writer", real)
     job = queue.jobs(worker="publisher")[0]
-    queue.cancel(job["id"], "Stopped with STOP ALL JOBS")  # the job is gone; the post still says "publishing"
+    queue.cancel(job["id"], "Stopped with Stop all jobs")  # the job is gone; the post still says "publishing"
     db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
     never = make_item(tmp, approve={"options": {"made_for_kids": False}}, text="Never started.")
     db.execute("UPDATE scheduled_publications SET status = 'publishing', updated_at = ? WHERE id = ?",
@@ -398,3 +477,79 @@ def test_an_upload_stopped_halfway_is_reconciled_with_the_platform(env, monkeypa
     run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
     assert len(g.videos) == 1 and len(g.sessions) == 1  # the stored session was continued, nothing uploaded twice
+
+
+@pytest.mark.parametrize("how", ["stop_all", "canceled_by_you"])
+def test_an_approved_post_whose_upload_job_was_stopped_goes_out_at_its_new_time(env, how):
+    """Stop all jobs (then Resume jobs), or canceling the waiting upload job, puts the approved post back with a new
+    time. When that time comes its upload is queued again, and it is uploaded once."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler, state
+
+    g, t, tmp = env
+    connect(g, t)
+    db.save_settings({"autopilot_auto_publish": True})
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+
+    def due() -> None:
+        db.execute("UPDATE scheduled_publications SET planned_at = ? WHERE id = ?", (time.time() + 60, item["id"]))
+        scheduler.process_due(db.get_settings(), time.time())
+
+    due()
+    job = queue.jobs(worker="publisher")[0]
+    assert job["status"] == "queued" and db.fetch("scheduled_publications", item["id"])["status"] == "publishing"
+    if how == "stop_all":
+        queue.cancel_all()
+        state.put("emergency_stop", False)  # Resume jobs
+    else:
+        queue.cancel(job["id"])
+    db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
+    scheduler.reconcile_orphans(time.time())
+    back = db.fetch("scheduled_publications", item["id"])
+    assert back["status"] == "approved" and back["planned_at"] is None  # the upload never started: a new time
+    due()  # the new time came
+    assert queue.get(job["id"])["status"] == "queued"
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published" and len(g.videos) == 1
+
+
+def test_closing_the_app_mid_upload_resumes_the_exact_session_after_restart(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue
+    from clipfoundry.publish import jobs as publish_jobs
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    old_host = host.WorkerHost(periodic=False)
+    job = queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                        ref=("scheduled", item["id"]))
+    real = publish_jobs._progress_writer
+
+    def closing(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if 0.1 < frac < 1.0:
+                old_host._stop.set()
+                old_host.running()[job["id"]].cancel_event.set()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", closing)
+    old_host._run("publisher", queue.claim("publisher", "before-close"))
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    pending = queue.get(job["id"])
+    assert saved["status"] == "reconciling" and pub["info"]["upload_session"]
+    assert pending["status"] == "waiting" and pending["wait_reason"] == "restart"
+    assert len(g.sessions) == 1 and not g.videos
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    new_host = host.WorkerHost(periodic=False)
+    new_host._run("publisher", queue.claim("publisher", "after-restart", now=pending["run_after"] + 1))
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(g.sessions) == 1 and len(g.videos) == 1
+    assert queue.get(job["id"])["status"] == "completed"
