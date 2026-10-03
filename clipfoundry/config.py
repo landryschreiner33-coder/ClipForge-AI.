@@ -14,7 +14,7 @@ FONTS_DIR = ASSETS_DIR / "fonts"
 YUNET_MODEL = ASSETS_DIR / "models" / "face_detection_yunet_2023mar.onnx"
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ogv"}  # .ogv: free-license libraries
 TRANSCRIPT_EXTENSIONS = {".srt", ".vtt", ".json"}
 
 OUTPUT_W, OUTPUT_H = 1080, 1920
@@ -119,7 +119,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_learning": True,
     "autopilot_timezone": "America/Chicago",
     "autopilot_active_start": 9,        # local hour, inclusive
-    "autopilot_active_end": 23,         # local hour, exclusive
+    "autopilot_active_end": 21,         # local hour, exclusive (posting window 9 a.m.-9 p.m.)
     "autopilot_min_gap_minutes": 45,
     "autopilot_youtube_daily_limit": 15,
     "autopilot_tiktok_daily_limit": 15,
@@ -131,14 +131,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "trend_language": "en",
     "trend_topics": ("podcast, interview, UFC, boxing, NBA, NFL, soccer, gaming, esports, stand-up comedy, "
                      "commentary, news, live stream, science, business, education"),
-    "trend_poll_minutes": 60,
+    "trend_poll_minutes": 180,          # every few hours, within the providers' quotas and your cost limit
     "trend_max_age_hours": 72,
     "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
     "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
+    "tavily_api_key": "",               # optional web search (tavily.com): public TikTok links and originals of clips
+    "tavily_free_credits": 1000,        # credits your Tavily plan includes each month (the free plan: 1,000)
+    "discovery_monthly_budget_usd": 0.0,  # paid use beyond free credits; 0 = never spend money
+    "library_discovery": True,          # search free-license libraries (Wikimedia Commons) for reusable videos
     # Rights: which statuses allow automatic clipping (OWNED always does; BLOCKED never)
     "rights_auto_licensed": True,
     "rights_auto_allowlisted": True,
-    "rights_auto_creative_commons": False,
+    "rights_auto_creative_commons": True,   # CC BY (credit added); share-alike, non-commercial and no-derivatives
+                                            # licenses are never used automatically
+    "rights_auto_public_domain": True,      # public domain or CC0, as reported by the library
+    "rights_ask_per_video": False,          # off: videos nothing covers are skipped (activity log), never asked about
+    "autopilot_commercial_use": True,       # your posts count as commercial (monetized, sponsored, promoting a business)
     "rights_allow_remote_download": False,  # download platform-hosted sources with the URL importer
     # YouTube Data API quota of your Google Cloud project (per day, resets at midnight Pacific Time)
     "youtube_quota_default": 10000,     # units for everything except uploads and searches
@@ -155,8 +163,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key"}
-SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret", "youtube_api_key"}  # encrypted at rest (secure.py)
+               "youtube_api_key", "tavily_api_key"}
+SEALED_KEYS = {"youtube_client_secret", "tiktok_client_secret", "youtube_api_key",
+               "tavily_api_key"}  # encrypted at rest (secure.py)
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["public", "unlisted", "private"]
 
@@ -223,6 +232,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "youtube_quota_default": (0, 10_000_000), "youtube_quota_uploads": (0, 100_000),
     "youtube_quota_search": (0, 100_000), "youtube_discovery_share": (0, 90),
     "youtube_search_discovery_share": (0, 100), "gpu_min_free_vram_mb": (0, 48_000), "gpu_wait_minutes": (1, 720),
+    "tavily_free_credits": (0, 1_000_000), "discovery_monthly_budget_usd": (0.0, 1000.0),
 }
 
 

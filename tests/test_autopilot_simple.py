@@ -1,5 +1,6 @@
 """Zero-config Autopilot: connect an account, press START AUTOPILOT, and Autopilot finds, checks and queues content
-by itself. Only what really needs you is asked, in plain words. Against local stand-ins for Google and TikTok."""
+by itself. Only what really needs you is asked, in plain words; a video nothing covers is skipped (activity log), not
+asked about, unless you turn the questions on. Against local stand-ins for Google and TikTok."""
 from __future__ import annotations
 
 import os
@@ -123,8 +124,13 @@ def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
     sources = db.select("sources")
     assert {s["external_id"] for s in sources} >= set(ids) and all(s["signal_id"] for s in sources)
     home = client.get("/api/autopilot/status").json()["home"]
-    assert [o["title"] for o in home["opportunities"]][:3] == [g.catalog[v]["snippet"]["title"] for v in ids]
-    assert home["empty"] == "" and home["opportunities"][0]["stage"] == "Needs your OK"
+    # Other creators' videos without an agreement or license are skipped, not asked about: no questions, and the
+    # activity log says why. The empty list of opportunities says so in plain words.
+    assert home["needs_you"] == [] and home["opportunities"] == [] and home["skipped_today"] >= 3
+    assert "not covered by an agreement or license" in home["empty"]
+    log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
+    for s in sources:
+        assert not log[s["id"]]["used"] and log[s["id"]]["why"].startswith("Not covered")
 
 
 # ------------------------------------------------------------------ 3: missing providers
@@ -140,13 +146,14 @@ def test_missing_optional_providers_do_not_stop_autopilot(client, fakes):
     provs = state.get("providers")
     assert provs["youtube"]["status"] == "ok"
     assert provs["google_trends"]["status"] == provs["tiktok_trends"]["status"] == "unavailable"
+    assert provs["web_search"]["status"] == "unavailable" and provs["library"]["status"] in ("ok", "error")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["opportunities"] and not [i for i in home["needs_you"] if i["type"] not in ("rights",)]
+    assert home["skipped_today"] >= 1 and home["needs_you"] == []
     # Without any way to discover (YouTube not connected), Autopilot still runs and says what would help.
     client.post("/api/publish/youtube/disconnect", headers=H)
     run("trend_scan")
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["setup"]["can_discover"] is False and all(i["type"] == "rights" for i in home["needs_you"])
+    assert home["setup"]["can_discover"] is False and home["needs_you"] == []
     assert client.get("/api/autopilot/status").json()["enabled"]
 
 
@@ -188,6 +195,10 @@ def test_rights_are_still_gated_and_answered_in_one_click(client, fakes):
     with pytest.raises(rights.RightsBlocked):
         rights.gate(src[ids[0]], "ingest")
     home = client.get("/api/autopilot/status").json()["home"]
+    assert not [i for i in home["needs_you"] if i["type"] == "rights"]  # by default: skipped, never asked
+    client.put("/api/settings", json={"rights_ask_per_video": True})  # Advanced: "Ask me about strong videos..."
+    run("source_scout")
+    home = client.get("/api/autopilot/status").json()["home"]
     q = [i for i in home["needs_you"] if i["type"] == "rights"]
     assert q and q[0]["question"] == "Can you use this content?" and q[0]["source"]["url"].startswith("https://")
 
@@ -198,11 +209,13 @@ def test_rights_are_still_gated_and_answered_in_one_click(client, fakes):
     assert no.json()["rights_status"] == rights.BLOCKED and no.json()["status"] == "blocked"
     run("source_scout")
     after = {s["external_id"]: s for s in db.select("sources")}
-    # Yes: allowed, but a YouTube-hosted video is still not downloaded by default: you are asked for the file.
+    # Yes: allowed, but a YouTube-hosted video is still not downloaded (YouTube's terms). It is not asked about
+    # either: the activity log offers "Add the file", and Autopilot moves on to other videos.
     assert after[ids[0]]["status"] == "needs_file" and not queue.jobs(worker="clip_hunter")
     home = client.get("/api/autopilot/status").json()["home"]
-    types = {i["type"]: i for i in home["needs_you"]}
-    assert "file" in types and "YouTube Studio" in types["file"]["detail"]
+    assert not [i for i in home["needs_you"] if i["type"] == "file"]
+    log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
+    assert log[after[ids[0]]["id"]]["can_add_file"] and "YouTube Studio" in log[after[ids[0]]["id"]]["why"]
     assert not [i for i in home["needs_you"] if i["type"] == "rights" and i["source"]["id"] == after[ids[1]]["id"]]
     video = os.path.join(os.environ["CLIPFOUNDRY_DATA"], "orig.mp4")
     with open(video, "wb") as fh:
@@ -226,6 +239,7 @@ def test_you_are_asked_only_about_strong_videos_and_only_when_needed(client, fak
                 duration="P0D")  # a YouTube live stream: a yes could not be used without the download setting
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
+    client.put("/api/settings", json={"rights_ask_per_video": True})  # the questions are off by default
     run("trend_scan")
     run("source_scout")
     asked = [i for i in client.get("/api/autopilot/status").json()["home"]["needs_you"] if i["type"] == "rights"]
@@ -258,7 +272,9 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     connect(client, g, "youtube")
     st = client.post("/api/autopilot/start", headers=H).json()
     home = st["home"]
-    assert set(home) == {"setup", "currently", "needs_you", "opportunities", "upcoming", "empty"}
+    assert set(home) == {"setup", "currently", "needs_you", "opportunities", "upcoming", "empty", "auto_publish",
+                         "pc_note", "skipped_today"}
+    assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     run("trend_scan")
     run("source_scout")
     home = client.get("/api/autopilot/status").json()["home"]

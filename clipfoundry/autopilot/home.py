@@ -3,13 +3,16 @@
 A plain-language view over the existing workers, sources, schedule and action items, so a first-time user never has
 to learn what a source, feed, provider or worker is. The technical detail stays on the Advanced pages. The only new
 state is when START AUTOPILOT was pressed and which accounts it started with.
+
+What Autopilot skipped (nothing covers the video, no allowed way to get its file, too short, a re-upload, weak) is
+not a problem that needs you: it is listed in the activity log, with the reason, for when you want to look.
 """
 from __future__ import annotations
 
 import time
 
 from .. import db
-from . import queue, rights, state
+from . import autopublish, queue, rights, state
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -35,12 +38,17 @@ DOING = {
 
 # Where a found video stands, in plain words (by source status)
 STAGE = {
-    "discovered": "Checking", "eligible": "Next in line", "needs_rights": "Needs your OK",
-    "needs_file": "Needs the video file", "queued": "Up next for clipping", "ingesting": "Getting the video",
-    "analyzing": "Finding the best moments", "weak": "No strong moments", "exhausted": "Done",
-    "failed": "Could not be processed",
+    "discovered": "Checking", "eligible": "Next in line", "needs_rights": "Skipped: not covered",
+    "needs_file": "Skipped: no allowed way to get the file", "queued": "Up next for clipping",
+    "ingesting": "Getting the video", "analyzing": "Finding the best moments", "weak": "No strong moments",
+    "exhausted": "Done", "failed": "Could not be processed",
 }
-NOT_OPPORTUNITIES = ("skipped", "blocked")
+NOT_OPPORTUNITIES = ("skipped", "blocked", "needs_rights", "needs_file")  # listed in the activity log instead
+ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
+            "analyzed", "exhausted")
+PC_NOTE = ("Keep this PC on and awake: ClipFoundry finds videos and makes clips only while it runs. YouTube posts that "
+           "were already uploaded go out at their time even if the PC is off (YouTube publishes them); TikTok posts "
+           "need the PC on at their time.")
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
                "Being public or trending does not make a video reusable.")
@@ -52,11 +60,14 @@ def connected(platforms: dict) -> list[str]:
     return [p for p in NAME if (platforms.get(p) or {}).get("connected") and not platforms[p].get("needs_reconnect")]
 
 
-def start(platforms: dict) -> dict:
-    """Turn Autopilot on with the accounts that are connected (one is enough). Everything else keeps its defaults;
-    the scans themselves are started by the caller."""
+def start(platforms: dict, topics: str | None = None) -> dict:
+    """Turn Autopilot on with the accounts that are connected (one is enough) and the topics you chose (the
+    suggestion stays if you did not change it). Everything else keeps its defaults; the scans themselves are started
+    by the caller."""
     ready = connected(platforms)
     patch: dict = {"autopilot_enabled": True}
+    if topics is not None and topics.strip():
+        patch["trend_topics"] = ", ".join(t.strip() for t in topics.split(",") if t.strip())[:1000]
     if ready:  # post only where you are signed in; with none yet, a platform is used once you connect it
         patch.update({f"autopilot_{p}": p in ready for p in NAME})
     db.save_settings(patch)
@@ -161,9 +172,8 @@ def needs_you(settings: dict, platforms: dict) -> list[dict]:
                                      "videos, YouTube Studio → Download gives you one.") if hosted else a["detail"],
                           "source": _source_view(src)})
         elif kind == "approve":
-            items.append({"key": key, "type": "approve", "title": a["title"],
-                          "detail": "YouTube and TikTok need your OK on every post. Approved posts go out at their "
-                                    "time by themselves.", "link": "#/publish-center"})
+            items.append({"key": key, "type": "approve", "title": a["title"], "detail": a["detail"],
+                          "link": "#/publish-center"})
         elif kind == "publish":
             items.append({"key": key, "type": "publish", "title": a["title"], "detail": a["detail"],
                           "fix": a["fix"], "link": "#/publish-center/problems"})
@@ -205,11 +215,41 @@ def opportunities(limit: int = 5) -> list[dict]:
 
 
 def upcoming(limit: int = 5) -> list[dict]:
+    """The next posts, including ones already uploaded that the platform will publish at their time."""
     marks = ",".join("?" * len(UPCOMING))
-    rows = db.select("scheduled_publications", f"status IN ({marks})", UPCOMING, "planned_at IS NULL, planned_at",
-                     limit)
+    rows = db.select("scheduled_publications", f"status IN ({marks}) OR (status = 'published' AND planned_at > ?)",
+                     (*UPCOMING, time.time()), "planned_at IS NULL, planned_at", limit)
     return [{"id": r["id"], "platform": r["platform"], "title": r.get("title") or "", "planned_at": r.get("planned_at"),
-             "status": r["status"]} for r in rows]
+             "status": r["status"], "auto": (r.get("approval") or {}).get("by") == "automatic",
+             "on_platform": r["status"] == "published"} for r in rows]
+
+
+def _why_not(src: dict) -> str:
+    """Why a found video was not (or not yet) used, in plain words."""
+    st = src["status"]
+    if st == "needs_rights":
+        return "Not covered: " + (src.get("rights_basis") or "no agreement, license or ownership")
+    if st == "needs_file":
+        return src.get("status_note") or "No allowed way to get the video file"
+    if st == "blocked":
+        return "Blocked: " + (src.get("rights_basis") or "by your rule")
+    return src.get("status_note") or STAGE.get(st, st)
+
+
+def activity(limit: int = 40) -> list[dict]:
+    """The activity log: what Autopilot did with each video it found, newest first, with the reason when it skipped
+    one. Optional reading; nothing here waits for you."""
+    marks = ",".join("?" * len(ACTIVITY))
+    rows = db.select("sources", f"status IN ({marks})", ACTIVITY, "updated_at DESC", limit)
+    out = []
+    for s in rows:
+        used = s["status"] in ("queued", "ingesting", "analyzing", "analyzed", "exhausted")
+        out.append({**_source_view(s), "status": s["status"], "used": used,
+                    "stage": STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped",
+                    "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
+                    "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
+                    "can_add_file": s["status"] == "needs_file" and bool(rights.evaluate(s)["auto_allowed"])})
+    return out
 
 
 def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
@@ -222,13 +262,34 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Turn on Autopilot to start finding opportunities."
     if not state.get("trend:last_scan"):
         return "Autopilot is looking for opportunities."
+    skipped = skipped_count()
+    if skipped:
+        return (f"No usable videos yet: the {skipped} found so far are not covered by an agreement or license, or their "
+                "file cannot be obtained. ClipFoundry is still looking (Activity shows why each was skipped).")
     return "No strong opportunities yet. ClipFoundry is still looking."
+
+
+def auto_publish(settings: dict) -> dict:
+    """Per platform: publishes by itself, or waits for your OK (and why)."""
+    v = autopublish.view(settings)
+    return {p: {"enabled": v[p]["enabled"], "supported": v[p]["supported"], "note": v[p]["note"],
+                "since": autopublish.since(v[p]["consent"], settings) if v[p]["consent"] else "",
+                "settings": (v[p]["consent"] or {}).get("settings") or {}} for p in NAME}
 
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
     found = opportunities()
     discover = can_discover(settings, platforms)
-    return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover},
+    return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
+                      "topics": settings.get("trend_topics") or ""},
             "currently": currently(settings, workers_alive), "needs_you": needs_you(settings, platforms),
-            "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found)}
+            "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
+            "auto_publish": auto_publish(settings), "pc_note": PC_NOTE,
+            "skipped_today": skipped_count()}
+
+
+def skipped_count() -> int:
+    """Videos looked at and skipped in the last 24 hours (the activity log explains each)."""
+    return int(db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('skipped', 'needs_rights', 'needs_file', "
+                         "'blocked') AND updated_at > ?", (time.time() - 86400,)) or 0)
