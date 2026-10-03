@@ -5,10 +5,6 @@ Trend Scout collects signals from the legitimate providers (providers.py), keeps
 strong clips each one is likely to hold, ranks them, and sends the best eligible ones to the Clip Hunter, up to the
 number of sources per day. A source that turns out weak does not count: Source Scout picks another one instead of
 padding the day with weak clips.
-
-Nothing that is unclear blocks the day. A video no agreement, license or ownership covers, or whose file cannot be
-obtained in an allowed way (access.py), is skipped with its reason (the activity log shows it) and the next best
-video is tried. You are only asked about such videos if you turn that on under Advanced.
 """
 from __future__ import annotations
 
@@ -18,9 +14,8 @@ import time
 from zoneinfo import ZoneInfo
 
 from .. import db
-from ..pipeline import fingerprint
 from ..publish.common import PublishError
-from . import access, providers, quota, rights, state, trends
+from . import providers, quota, rights, state, trends
 from .host import MAINTENANCE_STEPS, PERIOD_ADJUST, Job, handler
 from . import queue  # noqa: E402 - after host (registration order does not matter)
 
@@ -50,21 +45,6 @@ def local_day(settings: dict, now: float | None = None) -> str:
 
 def topics(settings: dict) -> list[str]:
     return [t.strip() for t in str(settings.get("trend_topics") or "").split(",") if t.strip()]
-
-
-EMERGING_MAX = 3
-
-
-def emerging_topics(signals: list[dict], known: list[str]) -> list[str]:
-    """Words that several different creators' web results share and that are not one of your topics yet: an
-    emerging topic, searched on YouTube in the next scans."""
-    seen: dict[str, set] = {}
-    for s in signals:
-        for k in (s.get("keywords") or [])[:3]:
-            seen.setdefault(k, set()).add(s.get("channel_id") or s.get("external_id"))
-    low = {t.lower() for t in known}
-    ranked = sorted((k for k, who in seen.items() if len(who) >= 2 and k not in low), key=lambda k: -len(seen[k]))
-    return ranked[:EMERGING_MAX]
 
 
 # ------------------------------------------------------------------ signals
@@ -139,19 +119,16 @@ def trend_scan(job: Job) -> dict:
     now = time.time()
     statuses: dict = dict(state.get("providers", {}) or {})
     collected: list[dict] = []
-    per_scan = max(1, min(len(topics(settings)), 4))
-    cursor = int(state.get("trend:topic_cursor", 0) or 0)
-    all_topics = topics(settings)
-    chosen = [all_topics[(cursor + k) % len(all_topics)] for k in range(per_scan)] if all_topics else []
-    state.put("trend:topic_cursor", cursor + per_scan)
-    emerging = [t for t in (state.get("trend:emerging") or []) if t not in chosen][:1]
-    chosen += emerging
-    yt: providers.YouTubeDiscovery | None = None
     job.progress(0.05, "Asking YouTube for trending and recent videos", stage="youtube")
     try:
         yt = providers.YouTubeDiscovery(settings)
         channels = [{"channel_id": f["config"].get("channel_id"), "name": f.get("name")}
                     for f in providers.feeds("youtube_channel")]
+        per_scan = max(1, min(len(topics(settings)), 4))
+        cursor = int(state.get("trend:topic_cursor", 0) or 0)
+        all_topics = topics(settings)
+        chosen = [all_topics[(cursor + k) % len(all_topics)] for k in range(per_scan)] if all_topics else []
+        state.put("trend:topic_cursor", cursor + per_scan)
         include_live = bool(int(state.get("trend:scans", 0) or 0) % 2 == 0)
         sigs = yt.discover(chosen, channels, include_live, job)
         collected += sigs
@@ -163,17 +140,12 @@ def trend_scan(job: Job) -> dict:
     except providers.Unavailable as exc:
         statuses["youtube"] = _provider_status("YouTube Data API", exc.status, str(exc), fix=exc.fix)
     except PublishError as exc:
-        yt = None
         statuses["youtube"] = _provider_status("YouTube Data API", "error", str(exc), fix=exc.fix)
         if exc.code in ("reconnect", "setup"):
             state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                          level="warning")
     state.put("trend:scans", int(state.get("trend:scans", 0) or 0) + 1)
     job.check()
-    job.progress(0.3, "Searching the web for public TikTok links", stage="web")
-    collected += web_search(settings, chosen, yt, statuses, job)
-    job.progress(0.4, "Searching the free-license library", stage="library")
-    collected += library_search(settings, chosen, statuses, job)
     job.progress(0.5, "Checking watch folders and feeds", stage="feeds")
     collected += collect_feeds(job, statuses)
     for key, (name, detail) in providers.UNAVAILABLE.items():
@@ -185,45 +157,8 @@ def trend_scan(job: Job) -> dict:
     active = rescore(settings, now)
     state.put("trend:last_scan", {"at": now, "signals": len(collected), "active": active})
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}", priority=job.row["priority"])
-    return {"signals": len(collected), "active": active, "topics": chosen,
-            "message": f"{len(collected)} signals checked, {active} active"}
-
-
-def web_search(settings: dict, chosen: list[str], yt: providers.YouTubeDiscovery | None, statuses: dict,
-               job: Job) -> list[dict]:
-    """Optional web search: public TikTok links (no statistics) and the originals behind popular TikTok clips. A
-    failure or an empty allowance never stops the rest of discovery."""
-    name = "Web search (Tavily)"
-    try:
-        ws = providers.WebSearch(settings)
-        sigs = ws.discover(chosen, yt, job)
-    except providers.Unavailable as exc:
-        statuses["web_search"] = _provider_status(name, "unavailable" if exc.status == "not_configured" else
-                                                  exc.status, str(exc), fix=exc.fix)
-        return []
-    use = providers.web_usage(settings)
-    tiktok = [s for s in sigs if s["platform"] == "tiktok"]
-    state.put("trend:emerging", emerging_topics(tiktok, topics(settings)))
-    detail = (f"{len(tiktok)} TikTok links, {len(sigs) - len(tiktok)} originals · {use['used']} of {use['allowed']} "
-              f"credits this month" + (f" · stopped early: {ws.stopped}" if ws.stopped else ""))
-    statuses["web_search"] = _provider_status(name, "ok", detail, len(sigs))
-    return sigs
-
-
-def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) -> list[dict]:
-    name = "Free-license library (Wikimedia Commons)"
-    try:
-        lib = providers.Library(settings)
-        sigs = lib.discover(chosen, job)
-    except providers.Unavailable as exc:
-        statuses["library"] = _provider_status(name, "unavailable" if exc.status == "off" else exc.status, str(exc),
-                                               fix=exc.fix)
-        return []
-    except (ValueError, TypeError) as exc:  # an answer in an unexpected shape: skip it this time
-        statuses["library"] = _provider_status(name, "error", f"Unexpected answer: {exc}")
-        return []
-    statuses["library"] = _provider_status(name, "ok", f"{len(sigs)} videos with a license", len(sigs))
-    return sigs
+    return {"signals": len(collected), "active": active, "message": f"{len(collected)} signals checked, "
+                                                                   f"{active} active"}
 
 
 @handler("feed_scan")
@@ -272,11 +207,6 @@ def source_from_signal(sig: dict) -> dict | None:
                 "live_status": "live" if raw.get("growing") else ""}
     if sig["platform"] == "stream":
         return {**base, "kind": "live", "live_status": "live"}
-    if sig["platform"] == "commons":
-        return {**base, "kind": "recorded", "license": raw.get("license", ""), "duration": raw.get("duration_s"),
-                "rights_info": {k: raw.get(k) for k in providers.LICENSE_KEYS}}
-    if raw.get("signal_only"):
-        return None  # a web search result: a topic signal and a pointer to originals, not something to clip
     return {**base, "kind": "live" if sig.get("kind") == "live" else "recorded"}
 
 
@@ -285,9 +215,8 @@ def upsert_source(src: dict) -> tuple[dict, bool]:
     if existing:
         keep = existing[0]
         refresh = {k: v for k, v in src.items() if k in ("title", "channel_title", "metrics", "live_status", "signal_id",
-                                                           "topic", "category", "license", "duration", "kind",
-                                                           "rights_info")
-                   and v not in (None, "", {})}
+                                                           "topic", "category", "license", "duration", "kind")
+                   and v not in (None, "")}
         if keep["status"] in DONE_SOURCE and refresh.get("kind") == "live":
             refresh.pop("kind")  # already clipped: a live flag must not restart it
         db.update("sources", keep["id"], **refresh)
@@ -295,33 +224,14 @@ def upsert_source(src: dict) -> tuple[dict, bool]:
     return db.insert("sources", {**src, "status": "discovered"}), True
 
 
-def skip_reason(src: dict, sig: dict | None, settings: dict | None = None) -> str:
+def skip_reason(src: dict, sig: dict | None) -> str:
     raw = (sig or {}).get("raw") or {}
     if raw.get("made_for_kids"):
         return "Made for kids: not used (content safety)"
-    if src["platform"] in ("youtube", "commons") and src.get("kind") != "live":
+    if src["platform"] == "youtube" and src.get("kind") != "live":
         dur = src.get("duration")
         if dur is not None and dur < MIN_SOURCE_SECONDS:
             return f"Too short to clip from ({dur:.0f} s)"
-    limit = float((settings or {}).get("autopilot_max_source_gb") or 8) * 1e9
-    if raw.get("size") and float(raw["size"]) > limit:
-        return f"The file is too large ({float(raw['size']) / 1e9:.1f} GB; the limit is {limit / 1e9:.0f} GB)"
-    return repeat_of(src)
-
-
-def repeat_of(src: dict) -> str:
-    """Why this looks like a video already processed under another address (a re-upload), or ""."""
-    title = fingerprint.norm_title(src.get("title") or "")
-    if len(title.split()) < 3:
-        return ""
-    done = db.select("sources", "status IN ('queued', 'ingesting', 'analyzing', 'analyzed', 'weak', 'exhausted') AND "
-                                "NOT (platform = ? AND external_id = ?)", (src["platform"], src["external_id"]))
-    for d in done:
-        if fingerprint.title_similarity(d.get("title") or "", src.get("title") or "") < 0.85:
-            continue
-        if src.get("duration") and d.get("duration") and abs(float(src["duration"]) - float(d["duration"])) > 5:
-            continue  # same words, different video (a later episode)
-        return f"Same video as “{(d.get('title') or '')[:60]}”, already {d['status']}"
     return ""
 
 
@@ -420,7 +330,7 @@ def source_scout(job: Job) -> dict:
         row, new = upsert_source(src)
         created += new
         if row["status"] in ("discovered", "eligible", "needs_rights", "blocked", "skipped"):
-            reason = skip_reason(row, sig, settings)
+            reason = skip_reason(row, sig)
             if reason:
                 db.update("sources", row["id"], status="skipped", status_note=reason)
                 continue
@@ -430,12 +340,12 @@ def source_scout(job: Job) -> dict:
                       components=sc["components"])
     job.check()
     picked = select_for_today(settings, now)
-    top = rights_questions(settings, now) if settings.get("rights_ask_per_video") else []
+    top = rights_questions(settings, now)
     for src in top:
         rights.request_confirmation(src)
     asked = {f"rights:{s['id']}" for s in top}
-    for item in state.open_actions():  # a missing file is never asked about: the activity log offers "Add the file"
-        if (item["key"].startswith("rights:") and item["key"] not in asked) or item["key"].startswith("file:"):
+    for item in state.open_actions():
+        if item["key"].startswith("rights:") and item["key"] not in asked:
             state.resolve(item["key"])
     return {"sources_new": created, "picked": [p["id"] for p in picked],
             "message": f"{created} new source(s); {len(picked)} sent to the Clip Hunter"}
@@ -484,25 +394,21 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     picked: list[dict] = []
     if needed <= 0:
         return picked
-    rows = db.select("sources", "status IN ('eligible', 'needs_file') AND kind = 'recorded'", (),
-                     "status = 'needs_file', source_score DESC", 80)
-    for src in rows:
+    for src in db.select("sources", "status = 'eligible' AND kind = 'recorded'", (), "source_score DESC", 50):
         if len(picked) >= needed:
             break
         if (src.get("expected_clips") or 0) < 1:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
-        if src["status"] == "needs_file" and not rights.evaluate(src, settings)["auto_allowed"]:
+        ok, why = rights.download_allowed(src, settings)
+        if not ok:
+            db.update("sources", src["id"], status="needs_file", status_note=why)
+            state.action(f"file:{src['id']}", "source_file", f"Add the video file for “{src['title'][:80]}”", why,
+                         "Add the file on the Autopilot page, or under Autopilot → Advanced → Sources & rights.",
+                         ref_type="source", ref_id=src["id"],
+                         snooze_s=rights.ASK_AGAIN_AFTER)
             continue
-        found = access.resolve(src, settings)  # getting the file is its own question: skip it, try the next one
-        if not found["ok"]:
-            if src["status"] != "needs_file" or src.get("status_note") != found["detail"]:
-                db.update("sources", src["id"], status="needs_file", status_note=found["detail"],
-                          access=access.record(src, found))
-            continue
-        state.resolve(f"file:{src['id']}")
-        db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter",
-                  access=access.record(src, found))
+        db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter")
         queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
                       max_attempts=3, timeout_s=6 * 3600)
         state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}, "

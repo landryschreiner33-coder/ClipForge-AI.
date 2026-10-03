@@ -427,7 +427,6 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         "thumb_path": str(thumb) if thumb.exists() else "",
         "duration": round(tl.duration, 2),
         "render_info": {"mode": plan.mode, "faces": plan.faces_found, "cuts": len(plan.cuts), "encoder": encoder,
-                        "crop_w": round(cw_frac, 3), "layout": layout,
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),
                         "fillers_removed": fillers_cut, "speed": tl.speed, "emphasis_words": len(emphasis),

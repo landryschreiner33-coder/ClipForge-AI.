@@ -95,14 +95,13 @@ class FakeGoogle(_Server):
     def add_video(self, vid: str, title: str, channel: str = "UCother0000000000", views: int | None = 1000,
                   likes: int | None = 50, comments: int | None = 5, age_hours: float = 10.0, duration: str = "PT25M",
                   live_viewers: int | None = None, license_: str = "youtube", category: str = "22",
-                  made_for_kids: bool = False, tags: list | None = None, description: str = "") -> dict:
+                  made_for_kids: bool = False, tags: list | None = None) -> dict:
         import datetime as _dt
         published = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=age_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         stats = {k: str(v) for k, v in (("viewCount", views), ("likeCount", likes), ("commentCount", comments))
                  if v is not None}
         item = {"id": vid, "snippet": {"title": title, "channelId": channel, "channelTitle": f"Channel {channel[-4:]}",
                                        "publishedAt": published, "categoryId": category, "tags": tags or [],
-                                       "description": description,
                                        "liveBroadcastContent": "live" if live_viewers is not None else "none"},
                 "statistics": stats, "contentDetails": {"duration": duration},
                 "status": {"license": license_, "madeForKids": made_for_kids, "privacyStatus": "public"}}
@@ -388,79 +387,3 @@ class FakeTikTok(_Server):
         up["data"] += body
         h._send(201 if len(up["data"]) == up["size"] else 206, None)
 
-
-
-class FakeTavily(_Server):
-    """Tavily's search endpoint: web results (title, link, snippet), filtered by the requested domains."""
-
-    def __init__(self) -> None:
-        self.key = "tvly-test-key"
-        self.pages: list[dict] = []
-        self.requests: list[dict] = []
-        self.fail = 0                            # answer this many searches with 500
-        super().__init__()
-
-    def add(self, url: str, title: str, score: float = 0.9, published_date: str | None = None) -> None:
-        self.pages.append({"url": url, "title": title, "content": f"{title} ...", "score": score,
-                           "published_date": published_date})
-
-    def handle(self, h, method: str, body: bytes) -> None:
-        if urlparse(h.path).path != "/search" or method != "POST":
-            return h._send(404, {"detail": "not found"})
-        if h.headers.get("Authorization") != f"Bearer {self.key}":
-            return h._send(401, {"detail": {"error": "Unauthorized: missing or invalid API key."}})
-        req = json.loads(body or b"{}")
-        self.requests.append(req)
-        if self.fail > 0:
-            self.fail -= 1
-            return h._send(500, {"detail": {"error": "Internal error"}})
-        domains = req.get("include_domains") or []
-        words = [w for w in re.findall(r"\w+", str(req.get("query", "")).lower()) if len(w) > 2]
-        hits = [p for p in self.pages if (not domains or any(d in p["url"] for d in domains))
-                and any(w in p["title"].lower() for w in words)]
-        return h._send(200, {"query": req.get("query"), "results": hits[: int(req.get("max_results") or 5)],
-                             "response_time": 0.01})
-
-
-class FakeCommons(_Server):
-    """Wikimedia Commons' MediaWiki API (search of video files with their license metadata) and its file server."""
-
-    def __init__(self) -> None:
-        self.pages: list[dict] = []
-        self.files: dict[str, tuple[bytes, str]] = {}
-        self.user_agents: list[str] = []
-        super().__init__()
-
-    def add(self, name: str, title: str, license_: str, license_name: str, artist: str = "Jane Doe",
-            data: bytes = b"", mime: str = "video/mp4", length: float | None = 1800.0, restrictions: str = "",
-            attribution_required: bool = True) -> dict:
-        url = f"{self.url}/files/{name}"
-        self.files[name] = (data or b"x" * 1000, mime)
-        meta = [{"name": "length", "value": length}] if length is not None else []
-        page = {"pageid": 1000 + len(self.pages), "ns": 6, "title": f"File:{name}", "index": len(self.pages) + 1,
-                "imageinfo": [{"url": url, "descriptionurl": f"{self.url}/wiki/File:{name}",
-                               "size": len(self.files[name][0]), "mime": mime, "metadata": meta,
-                               "extmetadata": {
-                                   "License": {"value": license_}, "LicenseShortName": {"value": license_name},
-                                   "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0"},
-                                   "Artist": {"value": f"<a href=\"https://example.org\">{artist}</a>"},
-                                   "AttributionRequired": {"value": "true" if attribution_required else "false"},
-                                   "Restrictions": {"value": restrictions}, "ObjectName": {"value": title}}}]}
-        self.pages.append(page)
-        return page
-
-    def handle(self, h, method: str, body: bytes) -> None:
-        u = urlparse(h.path)
-        q = parse_qs(u.query)
-        if u.path == "/w/api.php":
-            self.user_agents.append(h.headers.get("User-Agent") or "")
-            words = [w for w in re.findall(r"\w+", q.get("gsrsearch", [""])[0].lower())
-                     if len(w) > 2 and w not in ("filetype", "video")]
-            hits = [p for p in self.pages if any(w in p["imageinfo"][0]["extmetadata"]["ObjectName"]["value"].lower()
-                                                 for w in words)]
-            return h._send(200, {"batchcomplete": True, "query": {"pages": hits}})
-        m = re.match(r"/files/(.+)$", u.path)
-        if m and m.group(1) in self.files:
-            data, mime = self.files[m.group(1)]
-            return h._send(200, data, {"Content-Type": mime})
-        return h._send(404, {"error": "not found"})

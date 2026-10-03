@@ -20,14 +20,14 @@ from pathlib import Path
 from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
 from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
-from ..pipeline.common import JobContext, read_json, write_json
+from ..pipeline.common import JobContext, read_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
 from ..publish.common import client
-from . import access, queue, rights, state
+from . import queue, rights, state
 from .host import Job, handler
 
 POOL_SIZE = 60
-DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ogv")
+DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 
 
 GPU_PAUSE_SECONDS = 1800
@@ -78,7 +78,7 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
         if r.status_code != 200:
             raise queue.Retry(f"The media URL answered {r.status_code}", "Check that the link still works.")
         kind = r.headers.get("content-type", "")
-        if not kind.startswith(("video/", "application/octet-stream", "binary/", "application/ogg")):
+        if not kind.startswith(("video/", "application/octet-stream", "binary/")):
             raise queue.Fail(f"The URL is not a video file ({kind or 'unknown type'})",
                              "Use a direct link to the video file, or add the file itself.")
         need = int(r.headers.get("content-length") or 0) + MIN_FREE_DISK
@@ -104,24 +104,6 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
     state.resolve("disk:space")
 
 
-def write_provenance(pdir: Path, src: dict, found: dict, settings: dict) -> None:
-    """Keep the file together with where it came from and why it may be used: the source, the rights decision with
-    its conditions and evidence, the license the provider reported, and how the file was obtained."""
-    r = rights.evaluate(src, settings)
-    rule = db.fetch("source_rights", r["rule_id"]) if r.get("rule_id") else None
-    f = next((p for p in pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS), None)
-    write_json(pdir / "provenance.json", {
-        "source": {k: src.get(k) for k in ("id", "platform", "external_id", "title", "url", "channel_id",
-                                           "channel_title", "published_at", "signal_id")},
-        "rights": {k: r.get(k) for k in ("status", "label", "basis", "rule_id", "conditions")},
-        "evidence": {"text": (rule or {}).get("evidence", ""), "url": (rule or {}).get("evidence_url", "")},
-        "license": src.get("rights_info") or {},
-        "attribution": rights.attribution({**src, "rights_status": r["status"], "rights_rule_id": r["rule_id"]}),
-        "access": {k: found.get(k) for k in ("method", "label", "detail", "local_path", "url")},
-        "file": {"name": f.name, "bytes": f.stat().st_size} if f else None,
-        "obtained_at": time.time()})
-
-
 def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
     """The project that holds this source's video (created once; re-used when the job is retried)."""
     project = db.get_project(src.get("project_id") or "") if src.get("project_id") else None
@@ -135,39 +117,31 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
     existing = next((p for p in pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS), None)
     if existing:
         dst = existing
+    elif src.get("local_path"):
+        local = Path(src["local_path"])
+        if not local.exists():
+            raise queue.Fail("The source file no longer exists", "Add the file again in Autopilot → Sources.")
+        dst = pdir / f"source{local.suffix.lower()}"
+        _link_or_copy(local, dst)
     else:
-        found = access.resolve(src, settings)  # how the file may be obtained, apart from the right to reuse it
-        db.update("sources", src["id"], access=access.record(src, found))
-        if not found["ok"]:
-            raise queue.Fail(found["detail"], "Add the original file on the Autopilot page (Activity).")
-        if found.get("local_path"):
-            local = Path(found["local_path"])
-            if not local.exists():
-                raise queue.Fail("The source file no longer exists", "Add the file again in Autopilot → Sources.")
-            dst = pdir / f"source{local.suffix.lower()}"
-            _link_or_copy(local, dst)
-        elif found["method"] != "platform" or (found.get("url") or "").lower().split("?")[0].endswith(DIRECT_MEDIA):
-            dst = pdir / f"source{_suffix(found['url'])}"
-            _http_download(found["url"], dst, ctx, src, settings)
+        ok, why = rights.download_allowed(src, settings)
+        if not ok:
+            raise queue.Fail(why, "Add the original file in Autopilot → Sources.")
+        url = src.get("url") or ""
+        if url.lower().split("?")[0].endswith(DIRECT_MEDIA) or not rights.is_platform_url(url):
+            dst = pdir / "source.mp4"
+            _http_download(url, dst, ctx, src, settings)
         else:
             db.update_project(project["id"], source_path=str(pdir / "source.mp4"))
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
-                download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
+                download_url(project["id"], url, ctx, max_bytes=max_source_bytes(settings),
                              max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
             except DownloadRefused as exc:
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
-            write_provenance(pdir, src, found, settings)
             return db.get_project(project["id"]) or project
-        write_provenance(pdir, src, found, settings)
     db.update_project(project["id"], source_path=str(dst), source_filename=dst.name)
     return db.get_project(project["id"]) or project
-
-
-def _suffix(url: str) -> str:
-    """The downloaded file keeps its container's extension (a library serves WebM or Ogg as often as MP4)."""
-    ext = Path(url.split("?")[0].split("#")[0]).suffix.lower()
-    return ext if ext in config.VIDEO_EXTENSIONS else ".mp4"
 
 
 def check_length(project: dict, settings: dict) -> None:

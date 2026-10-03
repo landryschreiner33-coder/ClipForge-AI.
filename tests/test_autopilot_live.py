@@ -36,7 +36,7 @@ def test_segment_list_parsing_and_capture_rules(data):
     assert live.capture_allowed(src, db.get_settings())[0]
     assert live.input_args(src, {})[:2] == ["-follow", "1"]  # follows a file that is still being written
     yt = {"id": "y", "platform": "youtube", "url": "https://www.youtube.com/watch?v=live1", "kind": "live"}
-    with pytest.raises(queue.Fail, match="does not allow downloading"):
+    with pytest.raises(queue.Fail, match="allow downloads"):
         live.input_args(yt, {"rights_allow_remote_download": False})
     assert live.input_args({"url": "rtmp://127.0.0.1/live/mine"}, {})[-1] == "rtmp://127.0.0.1/live/mine"
     sess = live.Session(db.fetch("sources", src["id"]), db.get_settings())

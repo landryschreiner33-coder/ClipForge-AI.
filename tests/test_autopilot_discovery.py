@@ -115,9 +115,7 @@ def test_rights_evaluation_order_and_policy(data):
     r = rights.evaluate(src, settings)
     assert r["status"] == rights.MANUAL and not r["auto_allowed"]  # public/trending is not authorization
     cc = rights.evaluate({**src, "license": "creativeCommon"}, settings)
-    assert cc["status"] == rights.CC and cc["auto_allowed"]  # a CC BY license allows reuse (credit added)
-    assert not rights.evaluate({**src, "license": "creativeCommon"}, {**settings, "rights_auto_creative_commons":
-                                                                        False})["auto_allowed"]  # ...unless turned off
+    assert cc["status"] == rights.CC and not cc["auto_allowed"]  # CC needs opting in
     with pytest.raises(ValueError):
         rights.add_rule("channel", "UCabc", rights.ALLOWLISTED)  # the permission must be recorded
     rights.add_rule("channel", "UCabc", rights.ALLOWLISTED, "Official clipping program, joined 2026-09-01",
@@ -237,20 +235,13 @@ def test_trend_and_source_scout(google, data, tmp_path, monkeypatch):
     local = next(s for s in src.values() if s["platform"] == "local")
     assert local["rights_status"] == rights.OWNED and local["status"] == "queued" and local["selected_day"]
     keys = {a["key"] for a in state.open_actions()}
-    # By default nothing is asked: videos nothing covers, and a covered video whose file cannot be obtained, are
-    # skipped (the activity log says why) and the next best video is tried.
-    assert not [k for k in keys if k.startswith(("rights:", "file:"))]
-    assert "YouTube does not allow downloading" in src["pod1"]["status_note"]
-    # With "Ask me about strong videos nothing covers" on: today is one source short (2 per day, 1 queued), so there
-    # is exactly one rights question, about the strongest video that needs it (not the YouTube live stream: without
-    # the download setting a yes could not be used).
-    db.save_settings({"rights_ask_per_video": True})
-    run("source_scout")
-    keys = {a["key"] for a in state.open_actions()}
+    # Today is one source short (2 per day, 1 queued), so there is exactly one rights question: about the strongest
+    # video that needs it (not the YouTube live stream: without the download setting a yes could not be used). The
+    # other unconfirmed videos stay in discovery without bothering you.
     asked = sorted(k for k in keys if k.startswith("rights:"))
     strongest = max((s for s in src.values() if s["status"] == "needs_rights" and s["kind"] != "live"),
                     key=lambda s: s["source_score"])
-    assert asked == [f"rights:{strongest['id']}"] and not [k for k in keys if k.startswith("file:")]
+    assert asked == [f"rights:{strongest['id']}"] and f"file:{src['pod1']['id']}" in keys
     from clipfoundry.autopilot import queue
 
     hunts = queue.jobs(worker="clip_hunter")

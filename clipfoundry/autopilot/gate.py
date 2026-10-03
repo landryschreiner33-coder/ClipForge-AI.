@@ -77,35 +77,6 @@ def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
     return out
 
 
-MUSIC_SHARE = 0.35  # of the clip: loud sound without speech (music, or a lot of laughter and applause)
-
-
-def sound_rights_check(clip: dict) -> dict | None:
-    """Coverage that does not include other people's material (an agreement with a creator, a CC or public domain
-    license) must not carry someone else's music. Speech-to-text finds no words in music, so a clip with long loud
-    stretches without words is rejected. A heuristic: it cannot hear background music under speech."""
-    src = _source(clip)
-    if not src:
-        return None
-    r = rights.evaluate(src)
-    if r["status"] not in (rights.LICENSED, rights.ALLOWLISTED, rights.CC, rights.PD) or \
-            (r.get("conditions") or {}).get("third_party"):
-        return None
-    audio = (db.fetch("clip_analysis", clip["id"], "clip_id") or {}).get("audio") or {}
-    name, label = "sound_rights", "Sound covered by the reuse terms"
-    if not audio:
-        return quality.check(name, label, quality.HEURISTIC, quality.SKIP, "No sound analysis for this clip.")
-    dur = max(1.0, float(clip.get("end") or 0) - float(clip.get("start") or 0))
-    share = float(audio.get("reaction_seconds") or 0) / dur
-    if share >= MUSIC_SHARE:
-        return quality.check(name, label, quality.HEURISTIC, quality.FAIL,
-                             f"{share:.0%} of the clip is loud sound without speech (possibly music). The coverage "
-                             f"({r['label']}) includes only the creator's own material.")
-    return quality.check(name, label, quality.HEURISTIC, quality.PASS,
-                         f"Mostly speech ({share:.0%} loud sound without speech; background music under speech cannot "
-                         "be ruled out).")
-
-
 def run(clip: dict, settings: dict, cancelled=None) -> dict:
     """Check the clip's current file (reusing the media checks of an earlier report of the same file) and its
     packaging; store and return the report."""
@@ -119,12 +90,6 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
         media["passed"] = existing["status"] == "passed"
     else:
         media = quality.evaluate(path, render_info, clip, _has_audio(clip), cancelled)
-    sound = sound_rights_check(clip)  # rights can change, so this is judged again every time
-    checks = [c for c in media["checks"] if c["name"] != "sound_rights"] + ([sound] if sound else [])
-    media = {**media, "checks": checks,
-             "blockers": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.FAIL],
-             "warnings": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.WARN]}
-    media["passed"] = not media["blockers"]
     metadata = check_metadata(clip, media["artifact_sha256"], settings)
     fields = {"clip_id": clip["id"], "version_id": version, "gate_version": quality.GATE_VERSION,
               "status": "passed" if media["passed"] else "failed", "metadata": metadata,

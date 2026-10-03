@@ -3,7 +3,6 @@ import { Accounts, api, Health, Settings } from "../api";
 import { Icon, Segmented, StylePicker, Toggle, TRACKING, toast } from "../components/ui";
 import { AccountBadge, ConnectButton, SetupAndConnect, TikTokSetupSteps, YouTubeSetupSteps } from "../components/accounts";
 import { AutopilotSettings } from "../components/autopilotSettings";
-import { AutoPublishLine } from "../components/autoPublish";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
 
@@ -115,12 +114,12 @@ export default function SettingsPage({ tab }: { tab?: string }) {
               <input type="number" min={1} max={100} value={s.autopilot_daily_target} style={{ maxWidth: 140 }}
                 onChange={(e) => set({ autopilot_daily_target: e.target.value === "" ? 1 : +e.target.value })} />
             </Row>
-            <Row label="Automatic publishing" hint="Post finished clips without asking you about each one, where the platform allows it">
-              <AutoPublishLine />
+            <Row label="Automatic publishing" hint="Approved posts go out at their time by themselves (off: they wait for Publish now)">
+              <Toggle on={!!s.autopilot_auto_publish} onChange={(v) => set({ autopilot_auto_publish: v })} />
             </Row>
             <div className="small muted">
-              Everything else has a sensible default (United States, English, 3 videos a day, up to 5 clips each, posts spread between
-              9 a.m. and 9 p.m. Central time). You can change it under <a href="#/settings/advanced">Advanced</a>, but you don't need to.
+              Everything else has a sensible default (United States, English, 3 videos a day, up to 5 clips each, posting times
+              chosen for you). You can change it under <a href="#/settings/advanced">Advanced</a>, but you don't need to.
             </div>
           </div>
         </>

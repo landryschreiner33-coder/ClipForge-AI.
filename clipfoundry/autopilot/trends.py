@@ -37,13 +37,11 @@ TOPIC_NOISE = {"official", "video", "full", "episode", "ep", "part", "live", "st
                "shorts", "short", "clip", "clips", "podcast", "show", "watch", "today", "2024", "2025", "2026"}
 
 
-def m(value: float | int | None, status: str = "observed", note: str = "", at: float | None = None,
-      source: str = "") -> dict:
-    """One metric with its provenance: who reported it (`source`) and when it was observed (`at`). A number the
-    source did not report stays unknown (None), with the reason in `note`."""
+def m(value: float | int | None, status: str = "observed", note: str = "", at: float | None = None) -> dict:
+    """One metric with its provenance."""
     if value is None:
-        return {"value": None, "status": "unavailable", "note": note, "at": at, "source": source}
-    return {"value": value, "status": status, "note": note, "at": at or time.time(), "source": source}
+        return {"value": None, "status": "unavailable", "note": note, "at": at}
+    return {"value": value, "status": status, "note": note, "at": at or time.time()}
 
 
 def val(metrics: dict, key: str) -> float | None:
