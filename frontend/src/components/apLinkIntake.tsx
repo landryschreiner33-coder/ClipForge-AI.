@@ -28,10 +28,10 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
 
   const remember = (item: AutopilotLink, first = false) => {
     // Restart polling after a mutation so an older in-flight answer cannot replace the new status.
-    setData(item.status === "removed" ? (data || []).filter((i) => i.id !== item.id)
-      : first ? [item, ...(data || []).filter((i) => i.id !== item.id)]
-      : data?.some((i) => i.id === item.id)
-        ? data.map((i) => i.id === item.id ? item : i) : [item, ...(data || [])]);
+    setData((current) => item.status === "removed" ? (current || []).filter((i) => i.id !== item.id)
+      : first ? [item, ...(current || []).filter((i) => i.id !== item.id)]
+      : current?.some((i) => i.id === item.id)
+        ? current.map((i) => i.id === item.id ? item : i) : [item, ...(current || [])]);
     refresh();
     refreshStatus();
   };
@@ -61,7 +61,7 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
     try {
       const result = await ap.linkAction(item.id, action);
       if (action === "remove") {
-        setData((data || []).filter((i) => i.id !== item.id));
+        setData((current) => (current || []).filter((i) => i.id !== item.id));
         refresh();
         refreshStatus();
       } else remember(result, action === "prioritize");

@@ -257,17 +257,17 @@ class Capture:
                     self.stop("restart")
                     return
                 if state.paused() or (row and (row.get("cancel_requested") or row["status"] == "canceled")):
-                    self.stop("canceled")
                     if src:
                         db.update("sources", src["id"], status="canceled", status_note="Canceled by you")
+                    self.stop("canceled")  # shutdown may take seconds; a later retry owns the source state
                     return
                 if row is None or row["status"] in queue.TERMINAL:
                     self.stop("canceled")
                     return
                 if not state.enabled(settings) and int((row or {}).get("priority") or 0) < 100:
-                    self.stop("paused")
                     if src:
                         db.update("sources", src["id"], status="queued", status_note="Recording paused")
+                    self.stop("paused")
                     return
                 ok, why = capture_allowed(src, settings) if src else (False, "The live source was removed")
                 if not ok:
@@ -587,6 +587,9 @@ def live_capture(job: Job) -> dict:
         raise queue.Fail("The live source was deleted")
     if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
         raise queue.Canceled()
+    current = queue.get(job.id)
+    if current and (current.get("cancel_requested") or current["status"] == "canceled"):
+        raise queue.Canceled()
     r = rights.recheck(src, settings)
     if not rights.local_allowed(src, r, settings):
         key = _capture_key(src["id"])
@@ -608,7 +611,7 @@ def live_capture(job: Job) -> dict:
     key = _capture_key(src["id"])
     with _capture_lock:
         capture = _captures.get(key)
-        if capture and (capture.job_id != job.id or capture.stopped_reason in ("restart", "paused")):
+        if capture and (capture.job_id != job.id or capture.stopped_reason in ("restart", "paused", "canceled")):
             _captures.pop(key, None)
             old, capture = capture, None
         else:

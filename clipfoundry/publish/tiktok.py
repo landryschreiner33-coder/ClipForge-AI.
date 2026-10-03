@@ -306,19 +306,26 @@ def _busy(r: httpx.Response) -> PublishError:
 
 
 def upload_chunks(upload_url: str, path: str, progress: Callable[[float], None],
-                  cancelled: Callable[[], bool]) -> None:
-    """Upload the file in chunks. A short Retry-After is waited out exactly; a longer one ends the attempt with its
-    wait attached (the job queue runs it again at that time; TikTok never posts an unfinished upload)."""
+                  cancelled: Callable[[], bool], *, resume_offset: int = 0,
+                  on_final_chunk: Callable[[], None] | None = None) -> None:
+    """Upload or continue from a complete chunk confirmed by TikTok's status API. A short Retry-After is waited
+    out exactly; a longer one ends the attempt so the durable job can continue this same upload later."""
     size = os.path.getsize(path)
     chunk, total = chunking(size)
+    if isinstance(resume_offset, bool) or not isinstance(resume_offset, int) or resume_offset < 0 or \
+            resume_offset >= size or resume_offset % chunk or resume_offset // chunk >= total:
+        raise PublishError("TikTok reported an upload position that is not a complete chunk.",
+                           "Check the post's status before uploading it again.", "outcome_unknown")
     with client(300) as c, open(path, "rb") as fh:
-        for i in range(total):
+        for i in range(resume_offset // chunk, total):
             if cancelled():
                 raise Cancelled()
             start = i * chunk
             end = size - 1 if i == total - 1 else start + chunk - 1
             fh.seek(start)
             data = fh.read(end - start + 1)
+            if i == total - 1 and on_final_chunk:
+                on_final_chunk()  # persist uncertainty before any final bytes can reach the platform
             for attempt in range(3):
                 try:
                     r = c.put(upload_url, content=data, headers={"Content-Type": "video/mp4",
@@ -328,7 +335,8 @@ def upload_chunks(upload_url: str, path: str, progress: Callable[[float], None],
                 if r is not None and r.status_code in (200, 201, 206):
                     break
                 if r is not None and r.status_code < 500 and r.status_code != 429:
-                    raise PublishError(f"TikTok rejected the upload ({r.status_code}).", "Publish again.")
+                    code = "upload_session_expired" if r.status_code in (403, 404, 410) else ""
+                    raise PublishError(f"TikTok rejected the upload ({r.status_code}).", "Publish again.", code)
                 asked = retry_after(r)
                 if r is not None and ((asked is not None and asked > SHORT_WAIT) or attempt == 2 and
                                       (asked is not None or r.status_code == 429)):

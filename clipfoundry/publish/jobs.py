@@ -126,11 +126,24 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
                         float(opts.get("duration") or 0))
     size = os.path.getsize(pub["video_path"])
     where = "TikTok" if mode == "direct" else "your TikTok inbox"
-    db.update_publication(pub["id"], status="uploading", progress=0, message=f"Uploading to {where}")
-    init = tiktok.init_upload(token, mode, size, pub["description"], pub["requested_privacy"], opts)
-    db.update_publication(pub["id"], remote_id=init["publish_id"], info={**(pub.get("info") or {}),
-                                                                         "username": username})
-    tiktok.upload_chunks(init["upload_url"], pub["video_path"], _progress_writer(pub["id"]), cancelled)
+    saved = pub.get("info") or {}
+    resuming = pub["status"] == "uploading" and pub.get("remote_id") and saved.get("upload_url")
+    offset = int(saved.get("upload_offset") or 0) if resuming else 0
+    db.update_publication(pub["id"], status="uploading", progress=offset / size, message=f"Uploading to {where}")
+    if resuming:
+        init = {"publish_id": pub["remote_id"], "upload_url": saved["upload_url"]}
+    else:
+        init = tiktok.init_upload(token, mode, size, pub["description"], pub["requested_privacy"], opts)
+        db.update_publication(pub["id"], remote_id=init["publish_id"],
+                              info={**saved, "username": username, "upload_url": init["upload_url"],
+                                    "upload_size": size, "upload_offset": 0, "final_chunk_at": 0})
+
+    def final_chunk() -> None:
+        current = db.get_publication(pub["id"]) or pub
+        db.update_publication(pub["id"], info={**(current.get("info") or {}), "final_chunk_at": time.time()})
+
+    tiktok.upload_chunks(init["upload_url"], pub["video_path"], _progress_writer(pub["id"]), cancelled,
+                         resume_offset=offset, on_final_chunk=final_chunk)
     db.update_publication(pub["id"], status="processing", progress=1.0,
                           message=f"Uploaded. TikTok is processing it. {tiktok.PROCESSING_NOTE}")
     deadline = time.time() + tiktok.POLL_TIMEOUT

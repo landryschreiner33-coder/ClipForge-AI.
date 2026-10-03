@@ -1010,15 +1010,19 @@ def save_settings(patch: dict[str, Any]) -> dict[str, Any]:
 def interrupted_work() -> dict[str, list]:
     """What was mid-flight when the app stopped, so it can be resumed.
 
-    Manual projects, renders and versions are resumed by the app's render worker (jobs.py). Autopilot projects are
-    resumed by their own durable job (autopilot/queue.py). A manual upload is not restarted without the user: it
-    is marked as interrupted and can be checked and published again. An upload that was waiting for the time a
+    Manual projects, renders and versions are resumed by the app's render worker (jobs.py), including explicit
+    reprocessing of an automatic project. Other Autopilot projects resume through their own durable job. A manual
+    upload is not restarted without the user: it is marked as interrupted and can be checked and published again.
+    An upload that was waiting for the time a
     platform asked for (`info.retry_at`) keeps waiting (publish/jobs.py starts it at that time).
     """
     with connect() as conn:
-        projects = [dict(r) for r in conn.execute(
-            "SELECT id, source_path, source_url, info FROM projects WHERE status IN ('queued', 'processing') "
-            "AND COALESCE(origin, 'manual') NOT IN ('autopilot', 'live')")]
+        projects = []
+        for row in conn.execute("SELECT id, source_path, source_url, info, origin FROM projects "
+                                "WHERE status IN ('queued', 'processing')"):
+            info = (_decode("projects", row) or {}).get("info") or {}
+            if row["origin"] not in ("autopilot", "live") or info.get("manual_process_pending"):
+                projects.append(dict(row))
         clips = []
         for row in conn.execute("SELECT c.id, c.render_info, p.origin, p.status AS project_status FROM clips c "
                                 "JOIN projects p ON p.id = c.project_id WHERE c.status IN ('queued', 'rendering')"):

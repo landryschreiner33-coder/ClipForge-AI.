@@ -15,7 +15,7 @@ import httpx
 
 from .. import config, db, netguard
 from ..publish.common import PublishError, asked_to_wait, client, retry_after
-from . import access, providers, queue, quota, rights, state, verify
+from . import access, providers, queue, quota, rights, state, trends, verify
 from .host import Job, handler
 
 LINK_PRIORITY = 80
@@ -168,6 +168,7 @@ def identify(source: dict, settings: dict) -> dict:
         fields = {"title": str(snippet.get("title") or source["title"])[:120],
                   "channel_id": snippet.get("channelId") or "",
                   "channel_title": snippet.get("channelTitle") or "",
+                  "category": trends.YOUTUBE_CATEGORIES.get(str(snippet.get("categoryId") or ""), ""),
                   "license": (video.get("status") or {}).get("license") or "",
                   "duration": providers.iso_duration((video.get("contentDetails") or {}).get("duration")),
                   "published_at": providers.iso_time(snippet.get("publishedAt")),
@@ -426,7 +427,8 @@ def action(source_id: str, operation: str) -> dict:
         # Resume the most advanced usable stage. Upstream/downstream stages of one video never restart together.
         for job in retryable:
             db.update("worker_jobs", job["id"], status="queued", attempts=0, cancel_requested=0, run_after=time.time(),
-                      finished_at=None, error="", fix="", message="Queued again", lease_owner="", lease_until=0)
+                      finished_at=None, error="", fix="", message="Queued again", lease_owner="", lease_until=0,
+                      priority=queue.source_priority(source, job["priority"]))
         if not retryable and status == "queued":
             identifier = _enqueue(db.fetch("sources", source_id) or source)
             db.update("worker_jobs", identifier["id"], status="queued", attempts=0, cancel_requested=0,
@@ -443,7 +445,7 @@ def action(source_id: str, operation: str) -> dict:
         db.update("sources", source_id, intake={**meta, "priority": TOP_PRIORITY})
         for job in _jobs(source):
             if job["status"] in queue.ACTIVE:
-                db.update("worker_jobs", job["id"], priority=TOP_PRIORITY)
+                db.update("worker_jobs", job["id"], priority=max(TOP_PRIORITY, job["priority"]))
     else:
         raise ValueError("That video action is not supported.")
     return item(db.fetch("sources", source_id) or source)

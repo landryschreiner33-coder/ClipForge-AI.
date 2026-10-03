@@ -41,7 +41,8 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts"],
+      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts", "link-intake-races.spec.ts",
+        "status-polling.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

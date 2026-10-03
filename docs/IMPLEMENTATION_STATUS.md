@@ -269,6 +269,10 @@ retro studio across the working app. [Design and original assets](../design/retr
 | Real simultaneous activity; brief attention/completion gestures; truthful progress and stopped states | Shared polling + current job_kind/fresh progress; RobotOffice.tsx | Worker API contracts and six motion/state browser checks; real pipeline activity capture | Real PC performance |
 | Persistent Reduce motion; OS preference; hidden-tab pause | motion.tsx + Settings Defaults Appearance; browser local storage only | Keyboard, reload, cross-tab, OS changes, denied storage, hidden-tab checks | — |
 | Existing navigation/routes/Back/unsaved editor guard, original video appearance and posting safeguards | Existing router and APIs preserved; grouped local-day agenda; exact render validity retained | 60 populated read-only browser checks, 1 fixture-dependent skip; source/editor/post-review captures | Owner's playback/hardware |
+| Final scan: manual requests survive restart and yield correctly; canceled work releases recovery ownership | jobs.py, db.interrupted_work, queue.has_higher_priority_work | Automatic/live project reprocessing, queued render cancellation, terminal failures, resume limits and a new request arriving during completion | Restart on owner's saved database |
+| Final scan: retry canceled streams, retain manual priority, use official video category, preserve decoded media length | intake.py, live.py, stream_access.py | Actual cancel/retry actions, delayed recorder shutdown, minimum-priority claim and compressed-media relay regressions | Real platform metadata and live servers |
+| Final scan: continue interrupted uploads and hold uncertain cancellation for review | autopilot/publisher.py, publish/jobs.py, publish/tiktok.py | Fake-platform status/chunk failure, exact-session/byte-offset retry, orphan recovery, expiry and final-byte cancellation | Real account/network interruptions |
+| Final scan: preserve completed media on late render failure; prevent stale browser updates | render.py, status.tsx, apLinkIntake.tsx | Two real FFmpeg renders with injected metadata failure; six controlled browser race/polling checks | Real device/disk failures |
 
 The first broad slow run caught a recorder wrapper shutdown defect (buffered stdin in a daemon thread). Raw
 `os.read` fixed it and the original real growing-file capture/render case passed. The same early run imported stale
@@ -285,6 +289,20 @@ worker during app startup, and a failed restore could delete the saved backup. E
 keeps manual work recoverable without reviving canceled automatic clips. A backup stays available if restoration
 fails and cannot overwrite a newer completed render or an active manual rerender. Independent review repeated the
 original reproductions successfully after the fixes.
+
+The owner's final scan reproduced additional boundary failures. Manual reprocessing of an automatic/live project
+now records explicit ownership through restart, and queued cancellation releases render recovery ownership.
+Terminal project status and ownership release are saved together so finishing one request cannot erase a new one.
+Canceled live captures can be retried without inheriting their old recorder or its delayed status write. Link
+priority stays high through move-to-top/retry, and official YouTube categories reach the existing rights checks.
+Compressed stream responses no longer forward a stale encoded length. Upload recovery retains platform identifiers
+after transient errors; TikTok's stored upload URL continues only from complete chunks the platform confirms.
+An expired early session can restart before any final chunk was sent; uncertain completion waits for outcome
+review. Invalid byte counts and a boundary inside the merged final chunk also wait for outcome review.
+Cross-review reproduced and fixed an intermediate partial-upload wait before broad backend validation.
+Cancellation after possible platform acceptance also waits for outcome review. A late render
+metadata failure retains the previous completed MP4 and thumbnail. Shared browser polling stays single-flight and
+discards answers predating a successful action; delayed link actions preserve newer polled items.
 
 No original user media, connections, settings, models, `.mcp.json` or GPU dependency declarations were changed.
 The cloud has no NVIDIA GPU or Windows. Platform APIs, OAuth and metrics in these tests are local stand-ins;
@@ -324,11 +342,20 @@ claim real accounts, CUDA transcription, Windows keep-awake, human semantic qual
     restart-safe live recording and verified repeated complete-loop sandbox.
 22. [x] Retro robot studio across the working app: original artwork, real worker animation, motion preference,
     local-day Posts agenda, preserved editor controls and committed frontend bundle.
+23. [x] Final bug scan: restart/cancellation ownership, live retry, intake priority/category, compressed media,
+    upload recovery, completed-output retention and stale browser updates; add regressions and rebuild the bundle.
 
 ## Test log
 
 | When | Command | Result |
 | --- | --- | --- |
+| Final scan backend (2026-10-03) | `.venv/bin/python -m pytest -m "not slow" -q` | 508 passed, 7 deselected (309.99 s), including all final intake, recorder/relay, upload continuation/offset, manual ownership/terminal-race and completed-file guards. Log: `/workspace/scratch/final-scan-backend.log`. |
+| Final scan media (2026-10-03) | `.venv/bin/python -m pytest -m slow -v` | 7 passed, 508 deselected (887.61 s) on the final implementation, including manual/editor rendering, API processing, repeated upload/results and upcoming→restart→live→post-live. Log: `/workspace/scratch/final-scan-media-final.log`. |
+| Final scan upload recovery | Publisher and TikTok focused suites | 46 passed (95.69 s), covering before-first-byte and partial-chunk failure, lost final reply, expired/missing URL, exact Retry-After, canceled uploads and same-session recovery. Log: `/workspace/scratch/final-scan-upload-focused.log`. |
+| Final scan browser sandbox | `cd e2e && npm run test:sandbox` with system Chromium and eSpeak wrapper | 14 passed (10.7 min), including all 6 new concurrent-link/shared-status regressions and the real-media repeated complete loop. Disposable accounts and imported transcripts. Log: `/workspace/scratch/final-scan-browser-sandbox.log`. |
+| Final scan populated browser | Read-only `npm test` against workers-off disposable copied loop data on port 8830 | 60 passed, 1 fixture-dependent skip (3.2 min; no planned post for the cancel-dialog check); latest built bundle served and all writes rejected by the unchanged fixture. Log: `/workspace/scratch/final-scan-browser-readonly.log`. |
+| Final scan last recovery guards | `pytest tests/test_manual_recovery.py tests/test_autopilot_publish.py -q` | 47 passed (46.03 s), including 9 invalid/complete-offset guards and 3 immediate-next-request terminal-state races. The terminal races were red before atomic ownership release (3 failed). Log: `/workspace/scratch/final-scan-last-guards.log`. |
+| Final scan build and focused recovery | `npm run build`; manual/core/recovery and artifact-quality suites | TypeScript and Vite passed; 56 manual/core/recovery tests and 12 artifact-quality tests passed. The late-artifact-failure real FFmpeg regression failed before the cleanup-order fix. Logs: `/workspace/scratch/final-scan-frontend-build.log`, `/workspace/scratch/final-scan-manual-focused.log`, `/workspace/scratch/renderer-artifact-quality-final.log`. |
 | Delivery media (2026-10-02) | `.venv/bin/python -m pytest -m slow -v` | 7 passed, 466 deselected (654.47 s), including repeated complete-loop upload/results and upcoming→restart→live→post-live. Collected before the final 2 manual-owner guard cases were added; both guards passed separately and in the final 468-test backend run. Clean log: `/workspace/scratch/retro-media-delivery-final.log`. |
 | Delivery backend (2026-10-02) | `.venv/bin/python -m pytest -m "not slow" -q` | 468 passed, 7 deselected (209.74 s); includes the final startup/manual-ownership, restore failure, newer-file and active-manual-render guards. Clean log: `/workspace/scratch/backend-delivery-final.log`. |
 | Independent recovery review | Targeted reproductions after startup and backup fixes | 7 passed (0.66 s); original live/manual-owner and ENOSPC backup-loss defects reproduced as resolved. The last queued/rendering manual-owner guard adds 2 passing cases (0.43 s), then the full 468-test backend run above. |

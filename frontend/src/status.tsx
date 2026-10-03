@@ -28,44 +28,69 @@ export function StatusProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [misses, setMisses] = useState(0);
   const [lastOk, setLastOk] = useState<number | null>(null);
-  const [tick, setTick] = useState(0);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const revision = useRef(0);
+  const refreshPoll = useRef(() => {});
   useEffect(() => {
     let alive = true;
+    let reading = false;
+    let again = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const run = async () => {
+      clearTimeout(timer);
+      if (reading) {
+        // Returning to the tab or refreshing must not start a second polling loop.
+        again = true;
+        return;
+      }
+      reading = true;
+      const before = revision.current;
       try {
         const v = await ap.status();
-        if (!alive) return;
+        if (!alive || before !== revision.current) return;
         setSt(v);
         setError("");
         setMisses(0);
         setLastOk(Date.now());
       } catch (e) {
-        if (!alive) return;
+        if (!alive || before !== revision.current) return;
         setError((e as Error).message);
         setMisses((m) => m + 1);
+      } finally {
+        reading = false;
+        if (alive) {
+          if (again) {
+            again = false;
+            run();
+          } else {
+            timer = setTimeout(run, document.hidden ? HIDDEN_MS : EVERY_MS);
+          }
+        }
       }
-      if (alive) timer.current = setTimeout(run, document.hidden ? HIDDEN_MS : EVERY_MS);
+    };
+    refreshPoll.current = () => {
+      revision.current += 1;
+      run();
     };
     run();
     const wake = () => {
-      if (!document.hidden) {
-        clearTimeout(timer.current);
-        run();
-      }
+      if (!document.hidden) run();
     };
     document.addEventListener("visibilitychange", wake);
     return () => {
       alive = false;
-      clearTimeout(timer.current);
+      clearTimeout(timer);
+      refreshPoll.current = () => {};
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [tick]);
+  }, []);
   const value: StatusState = {
     st, error, lost: misses >= LOST_AFTER, lastOk,
-    refresh: () => setTick((x) => x + 1),
+    refresh: () => refreshPoll.current(),
     setData: (s) => {
+      // An answer to an earlier GET cannot undo a successful Start/Pause action.
+      revision.current += 1;
       setSt(s);
+      setError("");
       setMisses(0);
       setLastOk(Date.now());
     },

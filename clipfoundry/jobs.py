@@ -30,8 +30,10 @@ class Worker:
     # ------------------------------------------------------------- submit
     def submit_project(self, project_id: str, url: str | None = None) -> None:
         self.cancelled.discard(project_id)
+        project = db.get_project(project_id) or {}
+        info = {**(project.get("info") or {}), "manual_process_pending": True}
         db.update_project(project_id, status="queued", progress=0, stage="queued", error="",
-                          message="Waiting in queue")
+                          message="Waiting in queue", info=info)
         self.q.put(("project", project_id, url))
         self.start()
 
@@ -81,7 +83,8 @@ class Worker:
                 info = {}
             count = int(info.get("resume_count", 0)) + 1
             if count > 2:
-                db.update_project(p["id"], status="error", message="Failed",
+                info.pop("manual_process_pending", None)
+                db.update_project(p["id"], status="error", message="Failed", info=info,
                                   error="Interrupted again while processing (the app was closed or stopped twice). "
                                         "Click Retry to try once more.")
                 resumed["not_resumed"] += 1
@@ -122,14 +125,26 @@ class Worker:
 
     def _mark_cancelled(self, kind: str, key: str) -> None:
         if kind == "project":
-            db.update_project(key, status="cancelled", message="Cancelled")
+            info = dict((db.get_project(key) or {}).get("info") or {})
+            info.pop("manual_process_pending", None)
+            db.update_project(key, status="cancelled", message="Cancelled", info=info)
         elif kind == "version":
             db.update_version(key, status="error", error="Cancelled")
         else:
-            db.update_clip(key, status="error", error="Cancelled")
+            info = dict((db.get_clip(key) or {}).get("render_info") or {})
+            info.pop("manual_render_pending", None)
+            db.update_clip(key, status="error", error="Cancelled", render_info=info)
 
     def _run_project(self, project_id: str, url: str | None) -> None:
         last = [0.0]
+
+        def finish(status: str, **fields: object) -> None:
+            info = dict((db.get_project(project_id) or {}).get("info") or {})
+            info.pop("manual_process_pending", None)
+            if status == "ready":
+                info.pop("resume_count", None)
+            # A new request can start as soon as the terminal status is visible; release ownership with it.
+            db.update_project(project_id, status=status, info=info, **fields)
 
         def report(frac: float, msg: str) -> None:
             now = time.time()
@@ -146,14 +161,12 @@ class Worker:
             clips = db.list_clips(project_id)
             ready = sum(1 for c in clips if c["status"] == "ready")
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
-            info = (db.get_project(project_id) or {}).get("info") or {}
-            info.pop("resume_count", None)
-            db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg, info=info)
+            finish("ready", progress=1.0, stage="done", message=msg)
         except Cancelled:
-            db.update_project(project_id, status="cancelled", message="Cancelled")
+            finish("cancelled", message="Cancelled")
         except Exception as exc:  # noqa: BLE001
             log.exception("project %s failed", project_id)
-            db.update_project(project_id, status="error", error=str(exc)[:1000], message="Failed")
+            finish("error", error=str(exc)[:1000], message="Failed")
         finally:
             self.cancelled.discard(project_id)
 

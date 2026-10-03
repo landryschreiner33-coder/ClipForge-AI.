@@ -196,7 +196,7 @@ class PublicStream:
                 handler.send_header("Retry-After", str(max(1, int(remaining + 1))))
                 handler.end_headers()
                 return
-            headers = {}
+            headers = {"Accept-Encoding": "identity"}  # byte ranges and media lengths describe unencoded bytes
             wanted = handler.headers.get("Range")
             if wanted:
                 if not RANGE.fullmatch(wanted):
@@ -217,6 +217,13 @@ class PublicStream:
             declared = int(response.headers.get("content-length") or 0)
             if declared < 0 or declared > MAX_RESOURCE_BYTES:
                 raise StreamRefused("The stream resource exceeds the safe download limit.")
+            encoded = response.headers.get("content-encoding", "identity").strip().lower() not in ("", "identity")
+            if encoded:
+                if response.status_code == 206 or response.headers.get("content-range"):
+                    raise StreamRefused("The stream returned a compressed byte range that cannot be read safely.")
+                # httpx decodes iter_bytes even if a server ignores Accept-Encoding. Its compressed length would
+                # truncate the decoded media at our local HTTP client; close-delimited streaming remains bounded.
+                declared = 0
             chunks = response.iter_bytes(65536)
             first = next(chunks, b"")
             self._count(len(first))

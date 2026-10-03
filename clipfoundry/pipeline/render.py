@@ -419,17 +419,18 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360)
     except FFmpegError as exc:
         log.warning("thumbnail failed: %s", exc)
+    followed = blueprint.summary() if blueprint is not None else None
+    if blueprint is not None:
+        write_json(out_dir / "blueprint.json", blueprint.to_dict())
+    record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder, followed)
+    ctx.progress(1.0, "Done")
+    # Keep the completed output available if writing the new render's metadata or progress fails.
     for old in list(out_dir.glob("clip*.mp4")) + list(out_dir.glob("thumb*.jpg")):
         if old not in (out_path, thumb):
             try:
                 old.unlink()
             except OSError:
                 pass  # still open somewhere; cleaned up on the next render
-    followed = blueprint.summary() if blueprint is not None else None
-    if blueprint is not None:
-        write_json(out_dir / "blueprint.json", blueprint.to_dict())
-    record = artifact.record(out_path, out_dir, tl, words, start, end, opts, encoder, followed)
-    ctx.progress(1.0, "Done")
     return {
         "output_path": str(out_path),
         "thumb_path": str(thumb) if thumb.exists() else "",

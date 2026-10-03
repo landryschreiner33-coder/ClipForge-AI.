@@ -519,3 +519,397 @@ def test_closing_the_app_mid_upload_resumes_the_exact_session_after_restart(env,
     assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
     assert len(g.sessions) == 1 and len(g.videos) == 1
     assert queue.get(job["id"])["status"] == "completed"
+
+
+def test_a_tiktok_status_network_error_keeps_the_completed_upload(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    fetch = tiktok.fetch_status
+
+    def interrupted(*args, **kwargs):
+        raise PublishError("The status connection was interrupted", code="network")
+
+    monkeypatch.setattr(tiktok, "fetch_status", interrupted)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    assert saved["status"] == "publishing" and saved["publication_id"]
+    pub = db.get_publication(saved["publication_id"])
+    assert pub["remote_id"] in t.uploads
+    assert len(t.uploads[pub["remote_id"]]["data"]) == t.uploads[pub["remote_id"]]["size"]
+
+    # Even exhaustion of the durable retries retains enough information for ordinary orphan recovery.
+    pending = queue.jobs(worker="publisher")[0]
+    db.update("worker_jobs", pending["id"], status="failed", attempts=pending["max_attempts"])
+    db.execute("UPDATE scheduled_publications SET updated_at = ? WHERE id = ?", (time.time() - 600, item["id"]))
+    assert scheduler.reconcile_orphans(time.time()) == 1
+    assert queue.get(pending["id"])["status"] == "queued"
+    assert db.fetch("scheduled_publications", item["id"])["publication_id"] == pub["id"]
+
+    monkeypatch.setattr(tiktok, "fetch_status", fetch)
+    for _ in range(3):
+        try:
+            run_publish(item["id"])
+            break
+        except queue.Wait:
+            pass
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(t.inits) == len(t.uploads) == 1
+
+
+def test_a_youtube_transient_error_resumes_the_accepted_bytes(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import jobs as publish_jobs, youtube
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, size=700_000, approve={"options": {"made_for_kids": False}})
+    real = publish_jobs._progress_writer
+
+    def interrupted(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if 0 < frac < 1:
+                g.fail_puts = 7  # the next chunk exhausts this attempt's network retries
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", interrupted)
+    monkeypatch.setattr(youtube, "_pause", lambda *args: None)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    assert saved["publication_id"]
+    pub = db.get_publication(saved["publication_id"])
+    session = next(iter(g.sessions.values()))
+    assert 0 < len(session["data"]) < session["size"]
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    run_publish(item["id"])
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(g.sessions) == len(g.videos) == 1
+
+
+def test_cancel_after_youtube_accepts_the_final_chunk_keeps_the_uncertain_upload(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import jobs as publish_jobs
+    from clipfoundry.publish.common import Cancelled
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}})
+    real = publish_jobs._progress_writer
+
+    def stopped(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if frac >= 1:
+                g.sessions.clear()  # the platform accepted it; the session is no longer available
+                raise Cancelled()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", stopped)
+    with pytest.raises(queue.Canceled):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    assert saved["status"] == "reconciling" and saved["publication_id"]
+    assert db.get_publication(saved["publication_id"])["info"]["final_chunk_at"]
+    monkeypatch.setattr(publish_jobs, "_progress_writer", real)
+    run_publish(item["id"])  # an explicit retry only checks the existing upload
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == saved["publication_id"]
+    assert len(g.videos) == 1
+
+
+@pytest.mark.parametrize("platform,expected", [("youtube", "canceled"), ("tiktok", "reconciling")])
+def test_intentional_upload_cancel_does_not_return_the_post_to_automatic_scheduling(env, monkeypatch,
+                                                                                 platform, expected):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue, scheduler
+    from clipfoundry.publish import jobs as publish_jobs
+    from clipfoundry.publish.common import Cancelled
+
+    g, t, tmp = env
+    connect(g, t)
+    approval = {"options": {"made_for_kids": False}} if platform == "youtube" else \
+        {"privacy": "SELF_ONLY", "options": {"mode": "direct"}}
+    item = make_item(tmp, platform, size=700_000, approve=approval)
+    h = host.WorkerHost(periodic=False)
+    pending = queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
+                            ref=("scheduled", item["id"]))
+    real = publish_jobs._progress_writer
+
+    def stopped(pub_id):
+        write = real(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if frac > 0:
+                queue.cancel(pending["id"])
+                raise Cancelled()
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", stopped)
+    h._run("publisher", queue.claim("publisher", "cancel-upload"))
+    assert queue.get(pending["id"])["status"] == "canceled"
+    assert db.fetch("scheduled_publications", item["id"])["status"] == expected
+    scheduler.process_due(db.get_settings(), time.time() + 10_000)
+    assert queue.get(pending["id"])["status"] == "canceled"
+    assert queue.claim("publisher", "after-resume", now=time.time() + 10_000) is None
+    assert not g.videos and len(g.sessions) + len(t.uploads) == 1
+
+
+@pytest.mark.parametrize("after_chunk", [False, True])
+def test_tiktok_partial_upload_continues_the_same_id_after_transient_failure(env, monkeypatch, after_chunk):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import jobs as publish_jobs, tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    monkeypatch.setattr(tiktok, "CHUNK", 5 * t.MB)
+    item = make_item(tmp, "tiktok", size=11 * t.MB,
+                     approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    upload, progress = tiktok.upload_chunks, publish_jobs._progress_writer
+
+    def interrupted(*args, **kwargs):
+        raise PublishError("Temporary upload connection failure", code="network")
+
+    def stop_after_chunk(pub_id):
+        write = progress(pub_id)
+
+        def checkpoint(frac):
+            write(frac)
+            if 0 < frac < 1:
+                raise PublishError("Temporary upload connection failure", code="network")
+
+        return checkpoint
+
+    monkeypatch.setattr(publish_jobs, "_progress_writer", stop_after_chunk if after_chunk else progress)
+    monkeypatch.setattr(tiktok, "upload_chunks", upload if after_chunk else interrupted)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    assert len(t.uploads[pub["remote_id"]]["data"]) == (5 * t.MB if after_chunk else 0)
+    assert pub["info"]["upload_url"] and not pub["info"]["final_chunk_at"]
+
+    monkeypatch.setattr(tiktok, "upload_chunks", upload)
+    monkeypatch.setattr(publish_jobs, "_progress_writer", progress)
+    run_publish(item["id"])
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert db.get_publication(pub["id"])["remote_id"] == pub["remote_id"]
+    assert len(t.inits) == len(t.uploads) == 1
+    assert len(t.uploads[pub["remote_id"]]["data"]) == 11 * t.MB
+
+
+def test_tiktok_lost_final_reply_only_checks_the_existing_upload(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import tiktok
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    handle_upload = t.handle_upload
+
+    def lost_answer(h, body):
+        if any(len(up["data"]) == up["size"] for up in t.uploads.values()):
+            return h._send(409, None)  # the same completed upload refuses repeated bytes
+        send = h._send
+
+        def drop(status, response, headers=None):
+            if status == 201:
+                h.close_connection = True  # bytes arrived; the HTTP answer was lost
+                return
+            return send(status, response, headers)
+
+        h._send = drop
+        return handle_upload(h, body)
+
+    monkeypatch.setattr(t, "handle_upload", lost_answer)
+    monkeypatch.setattr(tiktok, "sleep_exactly", lambda *args: None)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    assert pub["status"] == "uploading" and pub["info"]["final_chunk_at"]
+    for _ in range(3):
+        try:
+            run_publish(item["id"])
+            break
+        except queue.Wait:
+            pass
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
+    assert len(t.inits) == len(t.uploads) == 1
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_tiktok_unusable_url_after_final_uncertainty_is_held_for_review(env, monkeypatch, expired):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, state
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+
+    def interrupted(*args, **kwargs):
+        kwargs["on_final_chunk"]()
+        raise PublishError("Upload URL expired", code="upload_session_expired" if expired else "network")
+
+    monkeypatch.setattr(tiktok, "upload_chunks", interrupted)
+    if expired:
+        run_publish(item["id"])
+    else:
+        with pytest.raises(queue.Retry):
+            run_publish(item["id"])
+        saved = db.fetch("scheduled_publications", item["id"])
+        pub = db.get_publication(saved["publication_id"])
+        db.update_publication(pub["id"], info={**pub["info"], "upload_url": ""})
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    assert saved["status"] == "reconciling" and saved["publication_id"]
+    assert any(a["key"] == f"review:{item['id']}" for a in state.open_actions())
+    run_publish(item["id"])
+    assert len(t.inits) == len(t.uploads) == 1  # no fresh upload of an uncertain completion
+
+
+def test_tiktok_retry_after_continues_the_same_upload_url(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    t.rate_limit_chunks, t.retry_after = 1, "7200"
+    with pytest.raises(queue.Wait) as asked:
+        run_publish(item["id"])
+    assert asked.value.seconds == 7200
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    assert pub["info"]["upload_url"] and len(t.uploads) == 1
+    db.execute("DELETE FROM platform_limits")  # the exact platform wait has passed
+    run_publish(item["id"])
+    finished = db.fetch("scheduled_publications", item["id"])
+    assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
+    assert len(t.inits) == len(t.uploads) == 1
+
+
+def test_tiktok_expired_session_can_restart_only_before_a_final_chunk_was_sent(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+    upload = tiktok.upload_chunks
+
+    def expired_before_bytes(*args, **kwargs):
+        raise PublishError("Early upload URL expired", code="upload_session_expired")
+
+    monkeypatch.setattr(tiktok, "upload_chunks", expired_before_bytes)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    assert not pub["remote_id"] and not pub["info"]["final_chunk_at"]
+    monkeypatch.setattr(tiktok, "upload_chunks", upload)
+    run_publish(item["id"])
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "published"
+    assert len(t.inits) == 2 and sum(len(u["data"]) == u["size"] for u in t.uploads.values()) == 1
+
+
+@pytest.mark.parametrize("offset", [-1, None, "0", True, 1, 11 * 1024 * 1024 + 1, 10 * 1024 * 1024])
+def test_tiktok_invalid_reported_upload_position_waits_for_review(env, monkeypatch, offset):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, state
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    monkeypatch.setattr(tiktok, "CHUNK", 5 * t.MB)
+    item = make_item(tmp, "tiktok", size=11 * t.MB,
+                     approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+
+    def interrupted(*args, **kwargs):
+        raise PublishError("Temporary upload connection failure", code="network")
+
+    monkeypatch.setattr(tiktok, "upload_chunks", interrupted)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    monkeypatch.setattr(tiktok, "fetch_status", lambda *args: {"status": "PROCESSING_UPLOAD",
+                                                             "uploaded_bytes": offset})
+    run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    assert saved["status"] == "reconciling" and saved["publication_id"] == pub["id"]
+    assert db.get_publication(pub["id"])["info"]["outcome_unknown"]
+    assert any(a["key"] == f"review:{item['id']}" for a in state.open_actions())
+    run_publish(item["id"])
+    assert len(t.inits) == len(t.uploads) == 1
+    assert not t.uploads[pub["remote_id"]]["data"]
+
+
+def test_tiktok_reported_complete_upload_only_waits_for_processing(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, "tiktok", approve={"privacy": "SELF_ONLY", "options": {"mode": "direct"}})
+
+    def interrupted(*args, **kwargs):
+        raise PublishError("Temporary upload connection failure", code="network")
+
+    monkeypatch.setattr(tiktok, "upload_chunks", interrupted)
+    with pytest.raises(queue.Retry):
+        run_publish(item["id"])
+    saved = db.fetch("scheduled_publications", item["id"])
+    pub = db.get_publication(saved["publication_id"])
+    monkeypatch.setattr(tiktok, "fetch_status", lambda *args: {"status": "PROCESSING_UPLOAD",
+                                                             "uploaded_bytes": pub["info"]["upload_size"]})
+    with pytest.raises(queue.Wait) as pending:
+        run_publish(item["id"])
+    assert pending.value.reason == "tiktok_processing"
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "publishing"
+    assert len(t.inits) == len(t.uploads) == 1
+
+
+def test_tiktok_resume_cannot_skip_the_merged_final_chunk(tmp_path, monkeypatch):
+    from clipfoundry.publish import tiktok
+    from clipfoundry.publish.common import PublishError
+
+    video = tmp_path / "clip.mp4"
+    with video.open("wb") as fh:
+        fh.truncate(11 * 1024 * 1024)
+    monkeypatch.setattr(tiktok, "CHUNK", 5 * 1024 * 1024)
+    with pytest.raises(PublishError) as stopped:
+        tiktok.upload_chunks("http://127.0.0.1:9/upload", str(video), lambda frac: None, lambda: False,
+                             resume_offset=10 * 1024 * 1024)
+    assert stopped.value.code == "outcome_unknown"

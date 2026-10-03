@@ -380,3 +380,59 @@ def test_legacy_dedup_preserves_blocks_and_distinct_direct_query_parameters(data
     assert not queue.jobs() and rights.evaluate(db.fetch("sources", original["id"]))["status"] == rights.BLOCKED
     different = intake.add("https://example.org/video.mp4?version=2")
     assert not different["already_added"] and different["item"]["id"] != original["id"]
+
+
+def test_move_to_top_keeps_manual_work_claimable_while_autopilot_is_off(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import intake, queue
+
+    db.save_settings({"autopilot_enabled": False})
+    added = intake.add("https://youtu.be/manual12345")["item"]
+    manual = queue.enqueue("hunt_source", {"source_id": added["id"]}, priority=100,
+                           ref=("source", added["id"]))
+    intake.action(added["id"], "prioritize")
+    claimed = queue.claim("clip_hunter", "manual-step", min_priority=100)
+    assert claimed and claimed["id"] == manual["id"] and claimed["priority"] == 100
+
+
+def test_explicit_retry_keeps_user_link_priority_above_automatic_work(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import intake, queue
+
+    added = intake.add("https://example.org/retry.mp4")["item"]
+    identifier = queue.jobs()[0]
+    db.update("worker_jobs", identifier["id"], status="completed")
+    db.update("sources", added["id"], status="failed", error="Interrupted download")
+    failed = queue.enqueue("hunt_source", {"source_id": added["id"]}, priority=0,
+                           ref=("source", added["id"]))
+    db.update("worker_jobs", failed["id"], status="failed")
+    queue.enqueue("hunt_source", {"source_id": "automatic"}, priority=10)
+    intake.action(added["id"], "retry")
+    claimed = queue.claim("clip_hunter", "next-step")
+    assert claimed and claimed["id"] == failed["id"] and claimed["priority"] == 80
+
+
+@pytest.mark.parametrize("official_category, expected_category, expected_reuse", [
+    ("10", "Music", "MANUAL_CONFIRMATION_REQUIRED"),
+    ("22", "People & Blogs", "ALLOWLISTED"),
+])
+def test_official_category_replaces_stale_metadata_before_creator_only_reuse_is_evaluated(
+        google, official_category, expected_category, expected_reuse):
+    from clipfoundry import db
+    from clipfoundry.autopilot import intake, rights
+
+    channel = "UCperformer000001"
+    google.add_video("category123", "Evening performance", channel, category=official_category)
+    added = intake.add("https://youtu.be/category123")["item"]
+    db.update("sources", added["id"], category="Music" if official_category == "22" else "People & Blogs")
+    rights.add_rule("channel", channel, rights.ALLOWLISTED, "Creator's original material", platform="youtube")
+    run_identifier(added["id"])
+    source = db.fetch("sources", added["id"])
+    assert source["category"] == expected_category
+    decision = rights.evaluate(source)
+    assert decision["status"] == expected_reuse
+    assert rights.local_allowed(source)  # Both remain usable locally; this metadata grants no publishing right.
+    if official_category == "10":
+        assert not decision["auto_allowed"]
+        with pytest.raises(rights.RightsBlocked):
+            rights.gate(source, "schedule")

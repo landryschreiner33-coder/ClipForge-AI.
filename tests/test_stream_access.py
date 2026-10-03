@@ -1,6 +1,7 @@
 """Public HLS resources stay behind the DNS-pinned URL guard, including inside ffmpeg."""
 from __future__ import annotations
 
+import gzip
 import ipaddress
 import re
 import shutil
@@ -138,6 +139,30 @@ def test_direct_media_preserves_ranges_and_caps_total_capture_bytes(internet):
         assert requests[0][1] == "bytes=0-3"
         assert fetch(relay.url).status_code == 502
         assert "size limit" in relay.error()
+
+
+@pytest.mark.parametrize("ranged", [False, True])
+def test_compressed_media_does_not_forward_its_encoded_content_length(internet, ranged):
+    routes, requests = internet
+    media = bytes(range(256)) * 8
+    encoded = gzip.compress(media)
+    headers = {"Content-Type": "video/mp2t", "Content-Encoding": "gzip", "Content-Length": str(len(encoded))}
+    if ranged:
+        headers["Content-Range"] = f"bytes 0-{len(encoded) - 1}/{len(encoded)}"
+
+    def compressed(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(206 if ranged else 200, headers=headers, content=encoded)
+
+    routes["https://video.example/live.ts"] = compressed
+    with stream_access.PublicStream("https://video.example/live.ts") as relay:
+        result = fetch(relay.url, headers={"Range": f"bytes=0-{len(encoded) - 1}"} if ranged else {})
+        if ranged:
+            assert result.status_code == 502 and "compressed byte range" in relay.error()
+        else:
+            assert result.status_code == 200 and result.content == media
+            assert not relay.error()
+    assert len(requests) == 1
 
 
 def test_opaque_tokens_are_bounded_and_shutdown_is_idempotent(internet, monkeypatch):

@@ -79,6 +79,9 @@ def has_higher_priority_work(current: dict, priority: int, now: float | None = N
     if any((clip.get("render_info") or {}).get("manual_render_pending")
            for clip in db.select("clips", "status IN ('queued', 'rendering')")):
         return True
+    if any((project.get("info") or {}).get("manual_process_pending")
+           for project in db.select("projects", "id != ? AND status IN ('queued', 'processing')", (project_id,))):
+        return True
     return bool(db.scalar("SELECT COUNT(*) FROM clip_versions WHERE status IN ('queued', 'rendering')") or
                 db.scalar("SELECT COUNT(*) FROM projects WHERE origin = 'manual' AND id != ? "
                           "AND status IN ('queued', 'processing')", (project_id,)) or

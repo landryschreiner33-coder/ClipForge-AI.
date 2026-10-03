@@ -96,6 +96,27 @@ def test_render_writes_the_artifact_record(data, tmp_path):
     assert artifact.of(out["render_info"]) == art and artifact.of({}) is None
 
 
+@needs_ffmpeg
+def test_late_artifact_failure_preserves_the_completed_video_and_thumbnail(data, tmp_path, monkeypatch):
+    src = make_video(tmp_path / "src.mp4", seconds=2.0)
+    project = _project(src, tmp_path / "proj")
+    clip = {"id": "c1", "start": 0.1, "end": 1.8, "hook": "", "edit": {"tracking": "center"}}
+    settings = {**config.DEFAULT_SETTINGS, **FAST}
+    words = words_every(1.8)
+    completed = render.render_clip(project, clip, words, settings, JobContext())
+    saved = {Path(completed[key]): Path(completed[key]).read_bytes() for key in ("output_path", "thumb_path")}
+
+    def fail_record(*args, **kwargs):
+        raise OSError("Artifact record unavailable")
+
+    monkeypatch.setattr(artifact, "record", fail_record)
+    with pytest.raises(OSError, match="Artifact record unavailable"):
+        render.render_clip(project, clip, words, settings, JobContext())
+    for path, contents in saved.items():
+        assert path.is_file(), f"Completed file was deleted after the later render failed: {path.name}"
+        assert path.read_bytes() == contents
+
+
 # ------------------------------------------------------------------ the GPU lock during encoding
 def _hold_gpu(label: str) -> tuple[threading.Event, threading.Thread]:
     """Another job (a Whisper stand-in) holds the GPU until the returned event is set."""

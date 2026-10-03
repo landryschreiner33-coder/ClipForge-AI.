@@ -155,6 +155,59 @@ def test_watchdog_honors_cancel_between_turns(data):
     assert db.fetch("sources", src["id"])["status"] == "canceled"
 
 
+def test_explicit_retry_replaces_a_canceled_live_recorder(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import host as host_mod, intake, live, queue
+
+    src = source(data)
+    host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
+    job = context(src, host)
+    made = []
+
+    class Recording:
+        def __init__(self, sess, job, args, relays=None):
+            self.sess, self.job_id, self.host = sess, job.id, job.host
+            self.stopped_reason = ""
+            self.proc = SimpleNamespace(poll=lambda: None)
+            made.append(self)
+
+        def stop(self, reason=""):
+            self.stopped_reason = self.stopped_reason or reason
+
+    monkeypatch.setattr(live, "Capture", Recording)
+    monkeypatch.setattr(live, "input_args", lambda *a, **kw: [])
+    with pytest.raises(queue.Wait):
+        live.live_capture(job)
+    intake.action(src["id"], "cancel")
+    made[0].stop("canceled")  # the capture watchdog honored cancellation between queue turns
+    intake.action(src["id"], "retry")
+    resumed = host_mod.Job(queue.get(job.id), "test", host)
+    with pytest.raises(queue.Wait) as wait:
+        live.live_capture(resumed)
+    assert wait.value.reason == "live"
+    assert len(made) == 2 and made[1].sess.project["id"] == made[0].sess.project["id"]
+    assert not (db.fetch("sources", src["id"]).get("intake") or {}).get("canceled")
+
+
+def test_watchdog_does_not_overwrite_retry_requested_during_recorder_shutdown(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import intake, live, queue
+
+    src = source(data)
+    job = context(src)
+    intake.action(src["id"], "cancel")
+    capture = live.Capture.__new__(live.Capture)
+    capture.sess = SimpleNamespace(src=src)
+    capture.job_id = job.id
+    capture.host = SimpleNamespace(_stop=threading.Event())
+    capture.proc = SimpleNamespace(poll=lambda: None)
+    capture.stopped = SimpleNamespace(wait=lambda seconds: False)
+    capture.stop = lambda reason: intake.action(src["id"], "retry")
+    capture._watch()
+    assert queue.get(job.id)["status"] == "queued"
+    assert db.fetch("sources", src["id"])["status"] == "queued"
+
+
 def test_parent_pipe_reaps_capture_and_releases_source_lock(data, monkeypatch):
     from clipfoundry import db, locks
     from clipfoundry.autopilot import live

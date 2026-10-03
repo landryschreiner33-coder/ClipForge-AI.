@@ -97,10 +97,10 @@ def _youtube_upload_by_title(pub: dict) -> dict | None:
 
 
 def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
-    """The upload may have created the video but the platform cannot say. Look for it among the channel's newest
-    uploads; if it is not there, the post waits for you ("reconciling") instead of risking a duplicate upload."""
+    """The upload may have created the video but the platform cannot say. YouTube can be checked against the
+    channel's newest uploads; otherwise hold for review instead of risking a duplicate upload."""
     try:
-        found = _youtube_upload_by_title(pub)
+        found = _youtube_upload_by_title(pub) if item["platform"] == "youtube" else None
     except (PublishError, httpx.HTTPError, ValueError):
         found = None
     if found and found.get("id"):
@@ -110,7 +110,8 @@ def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
     db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix,
                           info={**(pub.get("info") or {}), "outcome_unknown": True})
     _set(item, "reconciling", f"{exc} {exc.fix}", "outcome_unknown", last_error=str(exc), fix=exc.fix)
-    state.action(f"review:{item['id']}", "publish", f"Check YouTube for “{item['title'][:50]}”", str(exc), exc.fix,
+    state.action(f"review:{item['id']}", "publish",
+                 f"Check {item['platform'].title()} for “{item['title'][:50]}”", str(exc), exc.fix,
                  ref_type="scheduled", ref_id=item["id"])
     return {"message": "Needs your check: the upload may have finished"}
 
@@ -132,12 +133,40 @@ def recover(pub: dict) -> str:
             return "done"
         return "resume"
     if pub.get("remote_id"):
-        outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(tiktok.Token(db.get_settings()),  # noqa: SLF001
-                                                                         pub["remote_id"]),
+        status = tiktok.fetch_status(tiktok.Token(db.get_settings()), pub["remote_id"])
+        info = pub.get("info") or {}
+        outcome = publish_jobs._tiktok_outcome(pub, status,  # noqa: SLF001
                                                (pub.get("info") or {}).get("username", ""))
         if outcome:
             db.update_publication(pub["id"], **outcome)
             return "done" if outcome.get("status") in ("done", "action_needed") else "resume"
+        size = int(info.get("upload_size") or 0)
+        offset = status.get("uploaded_bytes")
+        if status.get("status") == "PROCESSING_UPLOAD":
+            if isinstance(offset, bool) or not isinstance(offset, int) or size <= 0 or not 0 <= offset <= size:
+                raise PublishError("TikTok reported an upload position that cannot be safely continued.",
+                                   "Check TikTok for the video, then confirm the outcome in Posts.",
+                                   youtube.OUTCOME_UNKNOWN)
+            if offset == size:
+                return "wait"  # every byte arrived; only the platform's processing outcome is still pending
+            chunk, total = tiktok.chunking(size)
+            if offset % chunk or offset // chunk >= total:
+                raise PublishError("TikTok reported an upload position that is not a complete chunk.",
+                                   "Check TikTok for the video, then confirm the outcome in Posts.",
+                                   youtube.OUTCOME_UNKNOWN)
+            if info.get("upload_url"):
+                db.update_publication(pub["id"], status="uploading", info={**info, "upload_offset": offset})
+                return "resume"  # continue the same ID from the bytes TikTok confirmed, never initialize a copy
+            if "final_chunk_at" in info and not info["final_chunk_at"]:
+                db.update_publication(pub["id"], status="queued", remote_id="")
+                return "resume"  # an unusable early session could not have sent a complete video
+            raise PublishError("TikTok's unfinished upload can no longer be continued, and its final outcome is "
+                               "uncertain.", "Check TikTok for the video, then confirm the outcome in Posts.",
+                               youtube.OUTCOME_UNKNOWN)
+        if pub["status"] == "uploading" and not info.get("upload_url"):
+            raise PublishError("TikTok cannot confirm or continue the earlier upload.",
+                               "Check TikTok for the video, then confirm the outcome in Posts.",
+                               youtube.OUTCOME_UNKNOWN)
         return "wait"  # TikTok is still processing the earlier upload: never post it a second time meanwhile
     return "resume"
 
@@ -167,8 +196,8 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
 def _platform_wait(item: dict, pub: dict, exc: PublishError, seconds: float, settings: dict) -> None:
     """The platform asked to wait: the job runs again exactly then (a wait uses no attempt), never sooner, and the
     upload keeps its place. A YouTube upload continues its stored session, and a TikTok upload that finished is only
-    asked about again (never uploaded twice); an unfinished TikTok upload starts over after the wait (TikTok never
-    posts an unfinished one). A longer wait also holds the platform's other posts until then."""
+    asked about again (never uploaded twice); an unfinished TikTok upload continues its stored URL from the bytes
+    the platform confirmed. A longer wait also holds the platform's other posts until then."""
     platform = item["platform"]
     name = "YouTube" if platform == "youtube" else "TikTok"
     seconds = max(1.0, seconds)
@@ -177,11 +206,7 @@ def _platform_wait(item: dict, pub: dict, exc: PublishError, seconds: float, set
     if seconds > SHORT_WAIT and until > blocked_until(platform)[0]:
         block_platform(platform, until, f"{name} asked to wait {wait_text(seconds)} ({exc})")
     pub = db.get_publication(pub["id"]) or pub
-    if platform == "tiktok" and pub["status"] == "uploading":
-        db.update_publication(pub["id"], status="cancelled", message=f"Stopped: {exc} It starts again after the wait.")
-        db.update("scheduled_publications", item["id"], publication_id="")
-    else:
-        db.update_publication(pub["id"], message=text)
+    db.update_publication(pub["id"], message=text)
     _set(item, "publishing", text, "platform_wait", last_error=str(exc), fix=exc.fix)
     raise queue.Wait("platform_wait", seconds, text)
 
@@ -292,18 +317,58 @@ def publish(job: Job) -> dict:
             db.update_publication(pub["id"], message="App closed; checking the existing upload when it starts again")
             _set(item, "reconciling", "App closed; the existing upload will continue safely on restart", "interrupted")
             raise queue.Canceled()
+        pub = db.get_publication(pub["id"]) or pub
+        if (item["platform"] == "youtube" and (pub.get("info") or {}).get("final_chunk_at")) or \
+                (item["platform"] == "tiktok" and pub.get("remote_id")):
+            # Cancellation cannot recall bytes the platform already accepted. Keep the durable identifier and
+            # hold the post for a check instead of approving another upload when Stop all jobs is resumed.
+            fix = "Check the platform for this video, then confirm whether it was published in Posts."
+            _set(item, "reconciling", "Stopped; the platform may already have the video. Check it before retrying.",
+                 "stopped", fix=fix)
+            state.action(f"review:{item['id']}", "publish", f"Check {item['platform'].title()} for this stopped upload",
+                         "The platform may already have accepted the video.", fix,
+                         ref_type="scheduled", ref_id=item["id"])
+            raise queue.Canceled()
         db.update_publication(pub["id"], status="cancelled", message="Stopped before the upload finished")
-        _set(item, "approved", "Stopped before the upload finished; it will get a new time.", "stopped",
+        _set(item, "canceled", "Stopped before the upload finished; retry this post when you want to publish it.",
+             "stopped",
              planned_at=None, publication_id="")
         raise queue.Canceled()
     except PublishError as exc:
+        if item["platform"] == "tiktok" and exc.code == "upload_session_expired":
+            pub = db.get_publication(pub["id"]) or pub
+            db.update_publication(pub["id"], info={**(pub.get("info") or {}), "upload_url": ""})
+            try:
+                what = recover(db.get_publication(pub["id"]) or pub)
+            except PublishError as recovery_error:
+                if recovery_error.code == youtube.OUTCOME_UNKNOWN:
+                    return outcome_unknown(item, db.get_publication(pub["id"]) or pub, recovery_error)
+                asked = asked_to_wait(recovery_error)
+                if asked is not None:
+                    _platform_wait(item, pub, recovery_error, asked, settings)
+                _handle_error(job, item, recovery_error, settings)
+            if what == "done":
+                return finish(item, db.get_publication(pub["id"]) or pub)
+            if what == "wait":
+                raise queue.Wait("tiktok_processing", 60, "TikTok is still processing the earlier upload")
+            raise queue.Retry("TikTok's unfinished upload expired; continuing with a new upload")
         if exc.code == youtube.OUTCOME_UNKNOWN:
             return outcome_unknown(_item(item["id"]) or item, db.get_publication(pub["id"]) or pub, exc)
         asked = asked_to_wait(exc)
         if asked is not None:
             _platform_wait(_item(item["id"]) or item, pub, exc, asked, settings)
-        db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix)
-        db.update("scheduled_publications", item["id"], publication_id="")
+        pub = db.get_publication(pub["id"]) or pub
+        pending = (item["platform"] == "youtube" and (pub.get("info") or {}).get("upload_session")) or \
+            (item["platform"] == "tiktok" and pub.get("remote_id"))
+        if pending:
+            # A transport or status error says nothing about whether the platform accepted the video. Keep the
+            # session/publish ID and its upload phase so the retry resumes or checks that same publication.
+            db.update_publication(pub["id"], error=str(exc), fix=exc.fix)
+            _set(item, "publishing", "The upload was interrupted; checking the existing upload before continuing",
+                 "interrupted", last_error=str(exc), fix=exc.fix)
+        else:
+            db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix)
+            db.update("scheduled_publications", item["id"], publication_id="")
         _handle_error(job, _item(item["id"]) or item, exc, settings)
     pub = db.get_publication(pub["id"]) or pub
     return finish(item, pub)
