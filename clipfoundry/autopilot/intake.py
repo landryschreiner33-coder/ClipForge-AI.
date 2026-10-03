@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 
-from .. import config, db, netguard
+from .. import config, db, netguard, media_import
 from ..publish.common import PublishError, asked_to_wait, client, retry_after
 from . import access, providers, queue, quota, rights, state, verify
 from .host import Job, handler
@@ -154,7 +154,10 @@ def identify(source: dict, settings: dict) -> dict:
     """Read only public/platform metadata; no cookies, authentication bypass or DRM handling."""
     netguard.check(source["url"], schemes=netguard.STREAM, allow_private=False)
     if source["platform"] == "youtube":
-        api = providers.YouTubeDiscovery(settings)
+        try:
+            api = providers.YouTubeDiscovery(settings)
+        except providers.Unavailable:
+            return media_import.inspect_video(source["url"])
         found = api._get("videos.list", "videos", {"part": providers.VIDEO_PARTS,
                                                    "id": source["external_id"]}, ttl=30)
         video = next((v for v in found.get("items") or [] if v.get("id") == source["external_id"]), None)
@@ -218,10 +221,15 @@ def identify(source: dict, settings: dict) -> dict:
             if content in ("application/vnd.apple.mpegurl", "application/x-mpegurl", "application/dash+xml"):
                 return {"kind": "live", "live_status": "live"}
             if not content.startswith(("video/", "application/octet-stream", "binary/", "application/ogg")):
-                raise queue.Fail("Video found, but ClipFoundry cannot access the video file. "
-                                 "Use a direct public video or stream link.")
+                if content not in ("text/html", "application/xhtml+xml"):
+                    raise queue.Fail("This link does not contain a supported public video.")
+                webpage = True
+            else:
+                webpage = False
         finally:
             response.close()
+    if webpage:
+        return {**media_import.inspect_video(source["url"]), "access": {"webpage": True}}
     return {"kind": "recorded", "live_status": ""}
 
 
@@ -279,6 +287,9 @@ def identify_link(job: Job) -> dict:
         return {"source_id": source["id"], "job_id": result["id"], "message": "Added to Autopilot"}
     except queue.Wait:
         raise
+    except media_import.MediaUnavailable as exc:
+        _unavailable(source, exc)
+        raise queue.Fail(str(exc)) from exc
     except providers.Unavailable as exc:
         error = queue.Fail("YouTube needs a connected account or API key to check this video.")
         _unavailable(source, error)

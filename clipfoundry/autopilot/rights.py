@@ -1,7 +1,7 @@
 """Rights and content safety gate. Discovery is not authorization.
 
 Every source gets exactly one rights status. Discovery stays broad (any trending topic, creator or stream), but a
-source is only clipped, scheduled or published automatically when its status passes the policy in Settings:
+source is only scheduled or published automatically when its status passes the policy in Settings:
 
 * OWNED                          your own content (your connected YouTube channel, folders you marked as yours)
 * LICENSED                       you have a license (you record the basis, e.g. the agreement)
@@ -12,8 +12,9 @@ source is only clipped, scheduled or published automatically when its status pas
 * BLOCKED                        never used
 
 Being public, trending or downloadable says nothing about whether a video may be reused, so the default for anything
-unknown is MANUAL_CONFIRMATION_REQUIRED, and Autopilot skips it and keeps looking (it is listed in the activity log;
-it only asks about it when you turn that on under Advanced).
+unknown is MANUAL_CONFIRMATION_REQUIRED. Public discovery may select it for local clipping when
+autopilot_public_videos is on; it never supplies a scheduling or publishing grant. With that mode off, unknown
+discovered videos are skipped (questions remain optional). Explicit blocks always prevent local processing.
 
 A channel named by a feed or list is only a claim. Channel rules (agreements, allowlisted creators) and ownership by
 your connected channel apply only when the platform itself confirmed that this exact video, and the link to it,
@@ -75,7 +76,7 @@ def auto_allowed(status: str, settings: dict) -> bool:
 
 
 def local_allowed(source: dict, evaluation: dict | None = None, settings: dict | None = None) -> bool:
-    """A user-submitted, accessible video may be clipped locally without a publishing grant.
+    """A submitted video or an enabled public discovery pick may be clipped without a publishing grant.
 
     This never changes its reuse status: scheduling and publishing still require auto_allowed.
     Explicit blocks remain binding, and access.resolve separately decides whether media can be obtained.
@@ -83,8 +84,11 @@ def local_allowed(source: dict, evaluation: dict | None = None, settings: dict |
     intake = source.get("intake") or {}
     if intake.get("canceled") or intake.get("removed") or source.get("status") in ("canceled", "removed"):
         return False
+    settings = settings if settings is not None else db.get_settings()
     r = evaluation if evaluation is not None else evaluate(source, settings)
-    return bool(r["auto_allowed"] or (source.get("user_added") and r["status"] != BLOCKED))
+    public_pick = bool(settings.get("autopilot_public_videos") and source.get("signal_id") and
+                       not source.get("local_path") and str(source.get("url") or "").startswith(("http://", "https://")))
+    return bool(r["auto_allowed"] or ((source.get("user_added") or public_pick) and r["status"] != BLOCKED))
 
 
 # What a title says about material that is not the creator's own (music, broadcasts, films). A heuristic: it can

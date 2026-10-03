@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
+from ..media_import import MediaUnavailable
 from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
 from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
@@ -149,7 +150,8 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
                 raise queue.Fail("The source file no longer exists", "Add the file again in Autopilot → Sources.")
             dst = pdir / f"source{local.suffix.lower()}"
             _link_or_copy(local, dst)
-        elif found["method"] != "platform" or (found.get("url") or "").lower().split("?")[0].endswith(DIRECT_MEDIA):
+        elif found["method"] not in ("platform", "webpage") or \
+                (found.get("url") or "").lower().split("?")[0].endswith(DIRECT_MEDIA):
             dst = pdir / f"source{_suffix(found['url'])}"
             _http_download(found["url"], dst, ctx, src, settings)
         else:
@@ -157,7 +159,7 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
                 download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
                              max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
-            except DownloadRefused as exc:
+            except (DownloadRefused, MediaUnavailable) as exc:
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
             write_provenance(pdir, src, found, settings)

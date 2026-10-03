@@ -38,6 +38,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(providers, "TAVILY_URL", f"{web.url}/search")
     monkeypatch.setattr(providers, "COMMONS_API", f"{lib.url}/w/api.php")
     db.init()
+    db.save_settings({"autopilot_public_videos": False})  # exercise reuse-covered-only discovery
     db.save_settings({"youtube_api_key": "test-api-key", "trend_topics": "podcast, space", "autopilot_enabled": True,
                       "youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret"})

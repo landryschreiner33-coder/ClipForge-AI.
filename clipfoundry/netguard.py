@@ -93,16 +93,24 @@ def _pinned(url: str, ip: Address) -> tuple[str, dict, dict]:
 
 
 def open_checked(client: httpx.Client, url: str, *, allow_private: bool = False,
-                 headers: dict[str, str] | None = None) -> httpx.Response:
+                 headers: dict[str, str] | None = None, method: str = "GET",
+                 data: bytes | None = None) -> httpx.Response:
     """GET `url` (streaming), following redirects one checked hop at a time. The caller closes the response."""
     for _ in range(MAX_REDIRECTS + 1):
         ip = check(url, allow_private=allow_private)[0]
         target, pinned_headers, ext = _pinned(url, ip)
-        req = client.build_request("GET", target, headers={**(headers or {}), **pinned_headers}, extensions=ext)
+        req = client.build_request(method, target, content=data,
+                                   headers={**(headers or {}), **pinned_headers}, extensions=ext)
         resp = client.send(req, stream=True, follow_redirects=False)
         if resp.is_redirect and resp.headers.get("location"):
             resp.close()
-            url = urljoin(url, resp.headers["location"])
+            next_url = urljoin(url, resp.headers["location"])
+            if urlsplit(next_url).netloc != urlsplit(url).netloc:
+                headers = {k: v for k, v in (headers or {}).items()
+                           if k.lower() not in ("authorization", "cookie")}
+            if resp.status_code == 303 or (resp.status_code in (301, 302) and method == "POST"):
+                method, data = "GET", None
+            url = next_url
             continue
         return resp
     raise UnsafeUrl(f"More than {MAX_REDIRECTS} redirects")

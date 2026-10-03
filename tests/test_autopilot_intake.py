@@ -157,7 +157,7 @@ def test_access_failure_keeps_item_and_does_not_stop_another_link(google):
     from clipfoundry import db
     from clipfoundry.autopilot import intake, queue
 
-    db.save_settings({"rights_allow_remote_download": False})
+    db.save_settings({"rights_allow_remote_download": False, "autopilot_public_videos": False})
     google.add_video("bad12345678", "Video without supported download")
     bad = intake.add("https://youtu.be/bad12345678")["item"]
     good = intake.add("https://youtu.be/ok123456789")["item"]

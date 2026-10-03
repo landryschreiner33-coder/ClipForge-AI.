@@ -237,8 +237,9 @@ of `IMPLEMENTATION_STATUS.md` lists what the user must run on their PC.
 
 These are product guarantees; tests enforce most of them. Don't weaken them to make something work.
 
-1. **Separate local intent from reuse rights.** Only Owned, Licensed and Allowlisted sources, creator agreements,
-   CC BY and public domain are selected automatically from discovery. Public links explicitly submitted in
+1. **Separate local intent from reuse rights.** Public discovery may select accessible internet videos for local
+   clipping with `autopilot_public_videos` (default on, owner request 2026-10-03). With that mode off, only Owned,
+   Licensed, Allowlisted, creator agreements, CC BY and public domain are selected. Public links submitted in
    Autopilot may be processed locally through supported media access even when reuse permission is unknown;
    explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
    re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.

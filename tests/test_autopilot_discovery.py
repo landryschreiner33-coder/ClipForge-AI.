@@ -17,6 +17,7 @@ def data(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
+    db.save_settings({"autopilot_public_videos": False})  # restricted mode still has its original behavior
     return tmp_path
 
 

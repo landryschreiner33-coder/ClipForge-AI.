@@ -28,6 +28,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(youtube, "API_URL", f"{g.url}/youtube/v3")
     monkeypatch.setattr(tiktok, "OEMBED_URL", f"{t.url}/oembed")
     db.init()
+    db.save_settings({"autopilot_public_videos": False})  # test channel eligibility in restricted discovery mode
     db.save_settings({"youtube_api_key": "test-api-key", "autopilot_enabled": True})
     db.save_account("youtube", tokens={"access_token": "x", "expires_at": 0}, account_id=MINE)
     yield {"g": g, "t": t, "tmp": tmp_path}

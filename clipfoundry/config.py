@@ -144,6 +144,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tavily_free_credits": 1000,        # credits your Tavily plan includes each month (the free plan: 1,000)
     "discovery_monthly_budget_usd": 0.0,  # paid use beyond free credits; 0 = never spend money
     "library_discovery": True,          # search free-license libraries (Wikimedia Commons) for reusable videos
+    "autopilot_public_videos": True,   # public internet videos for local clipping; grants no publishing rights
     # Rights: which statuses allow automatic clipping (OWNED always does; BLOCKED never)
     "rights_auto_licensed": True,
     "rights_auto_allowlisted": True,

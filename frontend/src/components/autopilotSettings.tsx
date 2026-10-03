@@ -215,6 +215,10 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             + "when today's plan is short"}>
           <Switch k="rights_ask_per_video" c={c} />
         </SettingRow>
+        <SettingRow k="autopilot_public_videos" label="Find public videos to clip" {...row}
+          hint="Automatically picks accessible public internet videos. Clips stay in your Library; posting still needs reuse permission.">
+          <Switch k="autopilot_public_videos" c={c} />
+        </SettingRow>
         <SettingRow k="rights_allow_remote_download" label="Download authorized platform sources" {...row}
           hint="With the address importer, for sources that pass the permission check">
           <Switch k="rights_allow_remote_download" c={c} />

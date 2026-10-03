@@ -17,7 +17,8 @@ def data(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
-    db.save_settings({"autopilot_enabled": True, "trend_topics": "space", "library_discovery": False})
+    db.save_settings({"autopilot_enabled": True, "trend_topics": "space", "library_discovery": False,
+                      "autopilot_public_videos": False})  # reuse-covered-only discovery remains available
     return tmp_path
 
 

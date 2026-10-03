@@ -88,6 +88,8 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
           <Icon name={adding ? "refresh" : "plus"} />{adding ? "ADDING…" : "ADD"}
         </button>
       </form>
+      <p className="tiny faint">Public video pages, direct video files and supported streams. Some websites require
+        a login or restrict downloads and cannot be imported.</p>
       <p id="ap-link-hint" className="tiny faint">Your links go first after the current safe step. Other work keeps
         going. Clips stay in your Library; posting still needs the required permission.</p>
       {(!enabled || stopped) && <p className="small muted">Links are saved now and wait until you

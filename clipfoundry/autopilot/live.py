@@ -66,7 +66,7 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
     if not url:
         raise queue.Fail("The live source has no file or URL")
     try:  # network protocols only, and no private or local addresses unless you typed the address yourself
-        if rights.is_platform_url(url):
+        if rights.is_platform_url(url) or (src.get("access") or {}).get("webpage"):
             ok, why = rights.download_allowed(src, settings)
             if not ok:
                 raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream "
@@ -91,13 +91,15 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
 
 def _resolve_platform_stream(url: str) -> str:
     """The HLS address of a platform live stream (no logins, cookies or DRM)."""
+    from ..media_import import MediaUnavailable, public_extractor
+
     try:
-        import yt_dlp
-    except ImportError as exc:
-        raise queue.Fail("Capturing this live stream needs yt-dlp") from exc
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True,
-                           "allow_unplayable_formats": False}) as ydl:
-        info = ydl.extract_info(url, download=False) or {}
+        with public_extractor() as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+    except (netguard.UnsafeUrl, queue.Wait):
+        raise
+    except Exception:
+        raise queue.Fail("The public live video could not be accessed. Use a direct public HLS stream link.") from None
     if not info.get("is_live"):
         if info.get("live_status") in ("was_live", "post_live") or info.get("was_live"):
             raise StreamEnded()
@@ -551,7 +553,8 @@ def capture_allowed(src: dict, settings: dict) -> tuple[bool, str]:
         return False, f"{r['label']}: {r['explain']}"
     if src.get("local_path"):
         return Path(src["local_path"]).exists(), "Recording file"
-    if rights.is_platform_url(src.get("url") or "") and not settings.get("rights_allow_remote_download"):
+    if rights.is_platform_url(src.get("url") or "") and not (settings.get("rights_allow_remote_download") or
+                                                              settings.get("autopilot_public_videos")):
         return False, "Platform live stream: allow downloads of authorized sources in Settings to capture it"
     return bool(src.get("url")), "Stream URL"
 

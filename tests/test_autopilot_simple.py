@@ -22,6 +22,10 @@ JARGON = ("worker", "feed", "provider", "source_scout", "trend_scan", "hunt_sour
 @pytest.fixture()
 def fakes(monkeypatch, tmp_path):
     monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from clipfoundry import db
+
+    db.init()
+    db.save_settings({"autopilot_public_videos": False})  # verify the existing restricted discovery flow
     for var in ("NO_PROXY", "no_proxy"):
         monkeypatch.setenv(var, "127.0.0.1,localhost")
     from clipfoundry.publish import tiktok, youtube

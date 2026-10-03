@@ -23,7 +23,7 @@ def test_user_submission_keeps_local_intent_separate_from_reuse_and_access(data)
     r = rights.evaluate(src)
     assert r["status"] == rights.MANUAL and not r["auto_allowed"]
     assert rights.local_allowed(src, r)
-    assert not access.resolve(src, config.DEFAULT_SETTINGS)["ok"]
+    assert not access.resolve(src, {**config.DEFAULT_SETTINGS, "autopilot_public_videos": False})["ok"]
     assert rights.apply(src)["status"] == "queued"
     assert db.fetch("sources", src["id"])["rights_status"] == rights.MANUAL
     assert not rights.url_typed_by_user(src)  # later media redirects still require public addresses

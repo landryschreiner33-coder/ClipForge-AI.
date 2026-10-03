@@ -394,6 +394,9 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Autopilot is looking for opportunities."
     skipped = skipped_count()
     if skipped:
+        if settings.get("autopilot_public_videos"):
+            return ("No accessible strong videos yet. ClipFoundry is still looking. "
+                    "Activity shows why each video was skipped. You can also paste a public video link.")
         return (f"Nothing it may use yet: the {skipped} video{'s' if skipped != 1 else ''} it found belong to other "
                 "people (not covered by an agreement or license) or cannot be downloaded. Put your own videos in your "
                 "videos folder. Activity shows why each was skipped.")

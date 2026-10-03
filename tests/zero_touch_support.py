@@ -106,7 +106,7 @@ class CompleteLoopFixture:
 
     def __init__(self, data: Path, google, patch):
         from clipfoundry import db
-        from clipfoundry.autopilot import access, host, live, providers
+        from clipfoundry.autopilot import access, host, live, providers, scheduler
         from clipfoundry.pipeline import transcribe
         from clipfoundry.publish import youtube
 
@@ -170,6 +170,9 @@ class CompleteLoopFixture:
         patch(providers, "COMMONS_API", "http://127.0.0.1:9/w/api.php")
         patch(providers, "TAVILY_URL", "http://127.0.0.1:9/search")
         patch(host, "POLL_SECONDS", 0.1)
+        # Fake YouTube accepts future uploads. Cover tomorrow's slots regardless of the real clock hour;
+        # production's configurable upload lead is verified separately by the publisher/scheduler suites.
+        patch(scheduler, "lead_seconds", lambda item, settings: 48 * 3600 if item["platform"] == "youtube" else 0)
         # Discovery normally sleeps for hours and learning for six hours. Use the same production periodic
         # dispatcher with shorter fixture clock periods, so successive runs get real, distinct idempotency
         # slots. Resetting next:* alone inside the same multi-hour slot would correctly return the old job.

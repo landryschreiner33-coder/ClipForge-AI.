@@ -411,6 +411,29 @@ class WebSearch:
             for topic in topics[:WEB_TOPICS_PER_SCAN]:
                 if job:
                     job.check()
+                if self.settings.get("autopilot_public_videos"):
+                    results = self.search(f"{topic} interview podcast video", [], 5, "week")
+                    for rank, result in enumerate(results, 1):
+                        url = str(result.get("url") or "")
+                        if not url.startswith(("https://", "http://")):
+                            continue
+                        title = plain(result.get("title"), 200) or "Public video"
+                        from . import verify
+
+                        platform, external_id = "url", hashlib.sha256(url.encode()).hexdigest()[:32]
+                        yt_video, tk_video = verify.link_video("youtube", url), verify.link_video("tiktok", url)
+                        if yt_video:
+                            platform, external_id = "youtube", yt_video[0]
+                            url = f"https://www.youtube.com/watch?v={external_id}"
+                        elif tk_video:
+                            platform, external_id = "tiktok", tk_video[0]
+                            url = f"https://www.tiktok.com/@{tk_video[1].lower()}/video/{external_id}"
+                        out.append({"provider": "web_search", "platform": platform, "external_id": external_id,
+                                    "kind": "video", "title": title, "url": url, "channel_id": "",
+                                    "channel_title": "", "keywords": trends.keywords(title), "query": topic,
+                                    "published_at": any_time(result.get("published_date")), "platform_rank": rank,
+                                    "metrics": {}, "raw": {"list_size": len(results), "reported_by": TAVILY,
+                                                              "observed_at": now, "webpage": platform == "url"}})
                 results = self.search(topic, ["tiktok.com"], 10, "week")
                 sigs = [s for s in (tiktok_signal(x, topic, k, len(results), now) for k, x in enumerate(results, 1))
                         if s]

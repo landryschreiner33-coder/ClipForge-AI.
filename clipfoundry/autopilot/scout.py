@@ -422,6 +422,8 @@ def source_from_signal(sig: dict) -> dict | None:
             "channel_title": sig.get("channel_title", ""), "signal_id": sig["id"], "topic": sig.get("topic", ""),
             "category": sig.get("category", ""), "published_at": sig.get("published_at"),
             "feed_id": raw.get("feed_id", ""), "metrics": sig.get("metrics") or {}}
+    if raw.get("webpage"):
+        base["access"] = {"webpage": True}
     if sig["platform"] == "youtube":
         return {**base, "kind": "live" if sig.get("kind") == "live" else "recorded", "license": raw.get("license", ""),
                 "live_status": raw.get("live_status", ""), "duration": raw.get("duration_s")}
@@ -433,7 +435,7 @@ def source_from_signal(sig: dict) -> dict | None:
     if sig["platform"] == "commons":
         return {**base, "kind": "recorded", "license": raw.get("license", ""), "duration": raw.get("duration_s"),
                 "rights_info": {k: raw.get(k) for k in providers.LICENSE_KEYS}}
-    if raw.get("signal_only"):
+    if raw.get("signal_only") and not db.get_settings().get("autopilot_public_videos"):
         return None  # a web search result: a topic signal and a pointer to originals, not something to clip
     return {**base, "kind": "live" if sig.get("kind") == "live" else "recorded"}
 

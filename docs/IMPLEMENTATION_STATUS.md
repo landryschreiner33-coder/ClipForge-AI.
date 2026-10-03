@@ -24,6 +24,29 @@ Verification levels used below: **source reviewed** (read the code path and its 
 **RTX 3050 verified**, **real account verified**. Imported/synthetic transcripts and fake platform adapters are
 always labeled as such.
 
+## Public internet video imports (2026-10-03)
+
+Owner request: expand automatic pulling and local use beyond the prior reuse-covered-only discovery.
+`autopilot_public_videos` defaults on: accessible HTTP/HTTPS discovery picks can be clipped locally without a
+recorded reuse license. Turning it off restores restricted discovery. Explicit blocks and canceled sources still
+win. Scheduling, publishing, channel confirmation, quality gates and platform approvals retain their existing rules.
+Public links are not declared owned or licensed.
+
+HTML video pages now use `media_import.public_extractor`, with native yt-dlp HTTP, recorded HLS and DASH segment
+downloads. Every metadata request, redirect, manifest and fragment is DNS-pinned through `netguard`. Only local files
+are handed to ffmpeg for merging. Unsupported/protected/live-native formats fail visibly. Live webpage extraction
+uses the same guarded transport and the existing HLS relay. No browser credentials, saved cookies or DRM bypass.
+Downloads stage in a separate folder and promote the completed container atomically; metadata and total download
+bytes are bounded, cancellation and Retry-After are preserved, and a 2 GB disk reserve is checked while downloading.
+YouTube metadata can fall back to public extraction without an API key; only official metadata verifies a channel.
+Optional configured Tavily search adds public video pages within its existing allowance; search coverage is limited
+to the configured providers, not every video on the internet. No GPU dependency changed. Frontend bundle rebuilt.
+
+Legacy rights/discovery tests now explicitly exercise restricted mode; `test_public_video_import.py` covers the new
+default, real yt-dlp generic-page extraction against a fake HTTP transport, completed download promotion, private
+embedded media/redirect rejection, aggregate size caps, waits and reuse separation. Real website availability and
+RTX 3050 execution must still be checked on the owner's PC.
+
 ## Baseline (before any change in this task)
 
 | Command | Result |
@@ -117,7 +140,7 @@ Status values: verified, implemented-but-unverified, partial, missing, externall
 | Metric provenance (observed / estimated / unavailable), missing = null, velocity needs time-separated observations | `autopilot/trends.py` | verified (unit) | `missing_metrics_are_never_filled_in`, `momentum_beats_size` | — | — |
 | Rights statuses, basis, evidence URL, expiry; recheck at ingest, schedule, publish | `autopilot/rights.py` (`gate` re-evaluates rules each time) | partial | `rights_evaluation_order_and_policy`, `repeats_and_blocked_sources_are_never_scheduled`, `gates_before_every_upload` | allowed platforms and attribution are modeled for agreements only | — |
 | A channel named by a list is only a claim: channel rules and ownership apply only after the platform confirms the exact video's channel (decided by the owner 2026-09-29: restrict) | `autopilot/verify.py` (YouTube Data API `videos.list`, or the Data API signal that found the video; TikTok oEmbed by video number); the link must lead to the same video; stored per source in `channel_check`, bound to platform, video, channel and link. `rights.evaluate`: Owned only when confirmed, channel rules and platform-host link rules skipped when not; an unconfirmed video is *Not covered* with the reason in the Activity log (no question, no popup) and is asked about again later (busy platform after 1 h, unknown video after 1 day). A confirmed channel still needs a rule or agreement. Checked again before every stage: `rights_check` / `confirm_channels` (maintenance) re-judge sources already queued and cancel their hunt, `select_for_today`, `hunt_source`, `analyze_source`, `live_capture`, *Clip now* and the publisher. A feed row can no longer overwrite what the YouTube API reported about a video | verified (unit, fake platforms) | `test_autopilot_channels.py` (7): false claims of your channel and of an allowed channel on YouTube, TikTok and an unsupported platform, a confirmed channel without a rule, queued-before sources, an unreachable platform, feed overwrites, link parsing | real Data API and oEmbed answers | TikTok oEmbed availability is TikTok's choice |
-| Discovery-only kept separate from media eligibility; no platform downloads by default | `rights.download_allowed`, `rights_allow_remote_download` | verified (unit) | `folder_rules_and_download_policy` | — | — |
+| Public local discovery separated from reuse/publishing; restricted discovery is optional | `rights.local_allowed`, `autopilot_public_videos` (on), `access.resolve`, `media_import.public_extractor` | unit/contract tested | `test_public_video_import.py`, restricted-mode rights/discovery suites | real website availability on the owner's PC | website login, DRM and platform restrictions |
 | Remote media URLs and redirects checked against private/internal networks | `netguard.py` (`check`, `open_checked`, `download`, `get_text`, `ffmpeg_input`), used by `hunter._http_download`, `providers.signal_feed`, `live.input_args`; trust from `rights.url_typed_by_user` | verified (unit, local HTTP server, fake DNS) | `test_netguard.py` (18) | ffmpeg resolves stream hosts itself, so live stream URLs are checked but not pinned | — |
 
 ### Scheduling and publishing
@@ -346,8 +369,19 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
     *open() got an unexpected keyword argument 'metadata_errors'*. The app now reads its own 16 kHz mono WAV
     (`audio.read_samples`) and hands Whisper the samples, the same values faster-whisper's decoder produced.
     Requirements are unchanged; an existing install can also run `pip install "av<19"`.
+25. [x] Public internet video import (owner request 2026-10-03): default local discovery mode, public webpage
+    extraction, bounded native downloads, safe live-page resolution, separate reuse/publishing gates, committed UI.
 
 ## Test log
+
+| Public internet import check (2026-10-03) | Result |
+| --- | --- |
+| Focused import checks | 12 passed, including real yt-dlp generic extraction and real recorded HLS imported through the guarded fake HTTP transport |
+| Frontend `npm run build` | passes; committed bundle rebuilt |
+| First fast suite after dependency setup | 489 passed, 7 slow deselected (205 s); final cookie-isolation regression added afterwards |
+| Final `pytest -m "not slow"` | 490 passed, 7 slow deselected (218 s). An earlier run hit a concurrent test DB migration (`duplicate column rights_info`); the affected test and all 18 TikTok tests passed on rerun, then this full run passed. |
+| `pytest -m slow` with real ffmpeg/eSpeak, synthetic transcripts and fake platforms | 6 passed, 1 clock-dependent complete-loop failure (762 s): its next post was outside the fixture's 12-hour upload lead. Production correctly waited. |
+| Complete-loop rerun after fixing only the fake fixture's upload horizon | 1 passed (301 s). The fake YouTube fixture uses a 48-hour lead independent of wall-clock hour; production's 5–720 minute setting and scheduling behavior are unchanged. All seven media cases passed across these runs. No real GPU or accounts were used. |
 
 | When | Command | Result |
 | --- | --- | --- |

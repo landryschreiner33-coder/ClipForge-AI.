@@ -191,24 +191,28 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
                  max_seconds: float | None = None) -> None:
     """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention.
     Autopilot passes size and length limits; a video over them is not downloaded (DownloadRefused)."""
-    try:
-        import yt_dlp
-    except ImportError as exc:
-        raise RuntimeError("URL import needs yt-dlp (pip install yt-dlp)") from exc
+    from . import config
+    from .media_import import MediaUnavailable, public_extractor
+    import os
+    import shutil
     project = db.get_project(project_id)
     assert project
     pdir = Path(project["source_path"]).parent
+    staging = pdir / "download"
+    staging.mkdir(parents=True, exist_ok=True)
     db.update_project(project_id, stage="download", message="Downloading video")
 
     def hook(d: dict) -> None:
         if ctx.cancelled():
             raise Cancelled()
+        if shutil.disk_usage(pdir).free < 2_000_000_000:
+            raise DownloadRefused("The download stopped to keep 2 GB of free disk space")
         if d.get("status") == "downloading" and d.get("total_bytes"):
             db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
                               message=f"Downloading {d.get('_percent_str', '').strip()}")
 
     ydl_opts = {
-        "outtmpl": str(pdir / "source.%(ext)s"),
+        "outtmpl": str(staging / "source.%(ext)s"),
         "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
@@ -219,15 +223,42 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
     }
     if max_bytes:
         ydl_opts["max_filesize"] = int(max_bytes)
-    if max_seconds:
-        from yt_dlp.utils import match_filter_func
 
-        ydl_opts["match_filter"] = match_filter_func(f"duration <=? {int(max_seconds)}")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        meta = ydl.extract_info(url, download=True)
-        path = Path(ydl.prepare_filename(meta)) if meta else pdir / "source.mp4"
+    def one_video(info, *, incomplete=False):
+        if info.get("_type") in ("playlist", "multi_video"):
+            raise DownloadRefused("Use a link to one video, rather than a playlist or channel")
+        if max_seconds and (info.get("duration") or 0) > max_seconds:
+            raise DownloadRefused("The video exceeds the configured duration limit")
+        return None
+
+    ydl_opts["match_filter"] = one_video
+    with public_extractor(ydl_opts, max_bytes=max_bytes or 8_000_000_000, cancelled=ctx.cancelled) as ydl:
+        try:
+            meta = ydl.extract_info(url, download=False)
+            if not isinstance(meta, dict):
+                raise DownloadRefused("No accessible video was found")
+            one_video(meta)
+            expected = sum(float(f.get("filesize") or f.get("filesize_approx") or 0)
+                           for f in meta.get("requested_formats") or [meta])
+            if max_bytes and expected > max_bytes:
+                raise DownloadRefused("The video exceeds the configured size limit")
+            if shutil.disk_usage(pdir).free < max(expected * 2, 0) + 2_000_000_000:
+                raise DownloadRefused("Not enough free disk space to download and merge this video")
+            meta = ydl.process_ie_result(meta, download=True)
+            path = Path(ydl.prepare_filename(meta))
+        except (Cancelled, DownloadRefused, MediaUnavailable):
+            raise
+        except Exception as exc:
+            from . import netguard
+            from .autopilot import queue
+
+            if isinstance(exc, (netguard.UnsafeUrl, queue.Wait)):
+                raise
+            raise MediaUnavailable("This video could not be downloaded. The site may require a login, "
+                                   "restrict downloads, or use an unsupported player.") from None
     if not path.exists():
-        candidates = sorted(p for p in pdir.glob("source.*") if not p.name.endswith(".part"))
+        candidates = sorted(p for p in staging.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS
+                            and p.name.count(".") == 1)
         if not candidates:
             if max_bytes or max_seconds:
                 raise DownloadRefused(
@@ -235,6 +266,9 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
                     f"{(max_seconds or 0) / 60:.0f} min (Autopilot limits)")
             raise RuntimeError("Download finished but no video file was found")
         path = candidates[0]
+    destination = pdir / f"source{path.suffix.lower()}"
+    os.replace(path, destination)
+    path = destination
     name = (meta or {}).get("title") or project["name"]
     db.update_project(project_id, source_path=str(path), source_filename=path.name, name=name[:120])
 

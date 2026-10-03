@@ -227,7 +227,7 @@ def test_autopilot_bounds_source_size_and_length(tmp_path, monkeypatch):
     monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
     project = db.create_project("p", source_path=str(tmp_path / "p" / "source.mp4"))
     (tmp_path / "p").mkdir()
-    with pytest.raises(jobs.DownloadRefused, match="larger than 2.0 GB or longer than 30 min"):
+    with pytest.raises(jobs.DownloadRefused, match="No accessible video was found"):
         jobs.download_url(project["id"], "https://www.youtube.com/watch?v=x", JobContext(), max_bytes=2_000_000_000,
                           max_seconds=1800)
     assert seen["max_filesize"] == 2_000_000_000 and seen["match_filter"] is not None
