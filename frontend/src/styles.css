@@ -453,6 +453,10 @@ details.plain > .more-body { display: grid; gap: var(--s2); padding: var(--s2) 0
 .ap-link-row .post-title { margin: 0; font-size: var(--fs-small); }
 .ap-link-row .grow { min-width: 0; flex-basis: 240px; }
 .ap-link-actions:empty { display: none; }
+.ap-link-post { gap: var(--s2); align-items: flex-start; cursor: pointer; }
+.ap-link-post input { margin-top: 3px; flex: none; }
+.ap-link-posting { gap: var(--s2); }
+.ap-link-posting .tiny { min-width: 0; flex: 1 1 200px; }
 @media (max-width: 960px) { .ap-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) {
   .ap-summary { grid-template-columns: minmax(0, 1fr); }

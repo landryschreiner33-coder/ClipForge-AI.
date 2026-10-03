@@ -94,7 +94,7 @@ cd e2e && npm run test:sandbox                    # beginner, motion, robot and 
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Where things stand (2026-10-02)
+## Where things stand (2026-10-03)
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
@@ -209,6 +209,12 @@ fixes to it). Start new work from the default branch; the tested commits are in 
       Stop all jobs is a hold, so its canceled work is queued again when asked for after Resume jobs (a job you
       cancel yourself stays canceled, `queue.STOP_ALL`); a due or *Publish now* post runs its canceled upload job
       again; the overview names searches that did not work again.
+21. **Post a pasted video's clips (2026-10-03, owner's request).** *Post the clips for me* under the link box, or
+    *Post the clips* on an added video (with a confirmation), records the user's statement for that one video (they
+    made it, or its creator lets them post clips of it) as an Allowlisted source rule with the date
+    (`intake.set_posting`). Its checked clips are then planned and go out under rule 2; *Stop posting* removes the
+    rule and cancels unstarted posts. The owner also asked to post *any* video automatically; that was declined
+    (copyright), so discovery is unchanged.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
@@ -242,6 +248,8 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
    Autopilot may be processed locally through supported media access even when reuse permission is unknown;
    explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
    re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
+   For a pasted link that coverage can be the user's own statement for that video (*Post the clips for me*, item
+   21), never something inferred.
    * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
      confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
      confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.

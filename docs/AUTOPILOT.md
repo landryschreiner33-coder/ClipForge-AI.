@@ -50,6 +50,15 @@ quality-checked even when reuse permission is unknown. An explicit block still w
 rights, quality, account and approval checks. Platform downloads remain subject to the existing download setting;
 the app never uses cookies or credentials to bypass private content, DRM, paywalls or authentication.
 
+**Post the clips for me** (the tick under the link box, or **Post the clips** on an added video's row, after a
+confirmation) is your statement for that one video: you made it, or its creator lets you post clips of it. It is
+recorded as an Allowlisted rule for that source with the date (`intake.set_posting`, `POST /api/autopilot/links`
+with `post`, `POST /api/autopilot/links/{id}/posting`). Its finished clips that pass the Final Quality Gate are then
+planned over the posting hours like any covered video's: YouTube posts go out by themselves only with automatic
+publishing on, TikTok posts after your OK on each. **Stop posting** removes the rule and cancels planned posts that
+have not started uploading; the clips stay in the Library. A block, or a rule from Permissions & sources, is not
+changed from here. Without the statement the clips are never posted (the complete-loop browser test checks this).
+
 The first time, **Get started** on Home (or **Set up Autopilot** on the Autopilot page) opens a setup in three steps
 (`#/setup`), and that is all a normal user needs:
 

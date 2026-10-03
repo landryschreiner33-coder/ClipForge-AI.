@@ -110,6 +110,7 @@ function Overview({ st, lost, since, refresh, setData }: {
   const h = st.home;
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const autoYouTube = !!h.auto_publish?.youtube?.enabled;
   if (!st.enabled && !h.setup.started) {
     return (
       <>
@@ -124,7 +125,8 @@ function Overview({ st, lost, since, refresh, setData }: {
         </section>
         <div className="ap-control-room">
           <RobotOffice />
-          <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
+          <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh}
+            autoYouTube={autoYouTube} />
         </div>
       </>
     );
@@ -181,7 +183,8 @@ function Overview({ st, lost, since, refresh, setData }: {
 
       <div className="ap-control-room">
         <RobotOffice />
-        <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
+        <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh}
+          autoYouTube={autoYouTube} />
       </div>
 
       <section className="panel ap-facts-panel" aria-label="Autopilot progress">

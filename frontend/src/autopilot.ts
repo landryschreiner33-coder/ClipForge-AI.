@@ -224,6 +224,8 @@ export interface AutopilotLink {
   can_cancel: boolean;
   can_retry: boolean;
   can_prioritize: boolean;
+  /** Whether its clips are posted: only after you said you made it or its creator allows you to post clips of it. */
+  posting: { on: boolean; by_you: boolean; can_change: boolean; label: string };
 }
 
 /** Something that really needs you, in plain words (the simple Autopilot page). */
@@ -488,7 +490,9 @@ export interface LearningStatus {
 const A = "/api/autopilot";
 export const ap = {
   links: () => req<AutopilotLink[]>("GET", `${A}/links`),
-  addLink: (url: string) => req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url }),
+  addLink: (url: string, post = false) =>
+    req<{ item: AutopilotLink; already_added: boolean }>("POST", `${A}/links`, { url, post }),
+  linkPosting: (id: string, on: boolean) => req<AutopilotLink>("POST", `${A}/links/${id}/posting`, { on }),
   linkAction: (id: string, action: "cancel" | "retry" | "prioritize" | "remove") =>
     req<AutopilotLink>("POST", `${A}/links/${id}/${action}`),
   status: () => req<AutopilotStatus>("GET", `${A}/status`),

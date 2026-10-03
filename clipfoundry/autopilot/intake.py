@@ -2,6 +2,11 @@
 
 Local processing intent is separate from reuse/publishing rights. Identifying a video grants neither a license
 nor permission to download it: the existing access resolver and publishing gates still decide those steps.
+
+Posting a pasted video's clips needs your own statement for that one video ("Post the clips for me": you made it, or
+its creator allows you to post clips of it), recorded as a rule for that source with the date (`set_posting`). Its
+clips are then scheduled like any covered video's, and go out under the usual approvals. Nothing is inferred: without
+that statement, or another rule that covers the video, the clips stay in your Library.
 """
 from __future__ import annotations
 
@@ -29,6 +34,8 @@ STATUS_LABELS = {
     "finished": "Finished", "inaccessible": "Could not access video", "canceled": "Canceled",
     "failed": "Could not finish", "removed": "Removed",
 }
+POSTING_BASIS = ("You confirmed that you made this video, or that its creator allows you to post clips of it "
+                 "(Autopilot → Add a video, {day})")
 
 
 def _checked_redirect(url: str) -> str:
@@ -104,7 +111,8 @@ def _enqueue(source: dict) -> dict:
                          max_attempts=5, timeout_s=120, message="Checking the video link", revive=False)
 
 
-def add(url: str) -> dict:
+def add(url: str, post: bool = False) -> dict:
+    """Add a link. `post` is your statement that you may post clips of this video (see set_posting)."""
     fields = canonical_url(url)
     existing = db.select("sources", "platform = ? AND external_id = ?",
                          (fields["platform"], fields["external_id"]))
@@ -147,7 +155,57 @@ def add(url: str) -> dict:
         for job in _jobs(source):
             if job["status"] in queue.ACTIVE and job["priority"] < LINK_PRIORITY:
                 db.update("worker_jobs", job["id"], priority=LINK_PRIORITY)
+    source = db.fetch("sources", source["id"]) or source
+    if post:
+        now = posting(source)
+        if now["can_change"] and not now["on"]:  # a block, or coverage that already posts it, stays as it is
+            set_posting(source["id"], True)
     return {"item": item(db.fetch("sources", source["id"]) or source), "already_added": already_added}
+
+
+def posting(source: dict, settings: dict | None = None, all_rules: list[dict] | None = None) -> dict:
+    """Whether this video's clips are posted, why, and whether you can change that here (only your own statement
+    for this one video can be turned on or off here; a block or another rule is changed in Permissions & sources)."""
+    meta = source.get("intake") or {}
+    if meta.get("canceled") or meta.get("removed") or source.get("status") in ("canceled", "removed"):
+        return {"on": False, "by_you": False, "can_change": False, "label": "Canceled: nothing is posted"}
+    r = rights.evaluate(source, settings, all_rules)
+    rule = db.fetch("source_rights", r["rule_id"]) if r["rule_id"] else None
+    by_you = bool(rule and rule["scope"] == "source" and rule["status"] == rights.ALLOWLISTED)
+    if r["status"] == rights.BLOCKED:
+        return {"on": False, "by_you": False, "can_change": False,
+                "label": "Not posted: blocked in Permissions & sources"}
+    if r["auto_allowed"]:
+        why = "you confirmed you may post it" if by_you else r["label"].lower()
+        return {"on": True, "by_you": by_you, "can_change": by_you, "label": f"Clips are posted ({why})"}
+    if by_you:  # Settings → Advanced turned off automatic use of allowlisted videos
+        return {"on": False, "by_you": True, "can_change": True,
+                "label": "Not posted: Settings → Advanced turns off posting allowlisted videos"}
+    return {"on": False, "by_you": False, "can_change": True, "label": "Clips stay in your Library"}
+
+
+def set_posting(source_id: str, on: bool) -> dict:
+    """Your statement for this one video. On: you made it, or its creator allows you to post clips of it, recorded as
+    an Allowlisted rule for this source with the date; its finished clips are then planned and posted like any covered
+    video's (YouTube by itself only with automatic publishing on, TikTok always after your OK). Off: the rule is
+    removed and upcoming posts that have not started uploading are canceled; the clips stay in your Library."""
+    source = db.fetch("sources", source_id)
+    if not source or not source.get("user_added") or (source.get("intake") or {}).get("removed"):
+        raise LookupError("Added video not found")
+    now = posting(source)
+    if not now["can_change"]:
+        raise ValueError(f"{now['label']}. Change it in Autopilot → Permissions & sources.")
+    if on:
+        rights.confirm(source_id, rights.ALLOWLISTED, POSTING_BASIS.format(day=time.strftime("%Y-%m-%d")))
+    else:
+        for rule in db.select("source_rights", "scope = 'source' AND value = ? AND status = ? AND active = 1",
+                              (source_id, rights.ALLOWLISTED)):
+            rights.remove_rule(rule["id"])
+        rights.apply(db.fetch("sources", source_id) or source)
+        _cancel_posts(source)
+    state.event("link_posting", f"{source['title'][:80]}: clips {'are posted' if on else 'are no longer posted'} "
+                                "(your choice)", ref_type="source", ref_id=source_id)
+    return item(db.fetch("sources", source_id) or source)
 
 
 def identify(source: dict, settings: dict) -> dict:
@@ -330,7 +388,7 @@ def _failures(source: dict, jobs: list[dict]) -> list[dict]:
     return failures
 
 
-def item(source: dict) -> dict:
+def item(source: dict, all_rules: list[dict] | None = None) -> dict:
     meta = source.get("intake") or {}
     jobs = _jobs(source)
     active = sorted((j for j in jobs if j["status"] in queue.ACTIVE),
@@ -388,11 +446,13 @@ def item(source: dict) -> dict:
             "can_cancel": bool(active) and status not in ("canceled", "removed"),
             "can_retry": status in ("inaccessible", "failed", "canceled", "removed")
             and not any(j["status"] == "running" for j in jobs),
-            "can_prioritize": bool(active) and status != "canceled"}
+            "can_prioritize": bool(active) and status != "canceled",
+            "posting": posting(source, all_rules=all_rules)}
 
 
 def links() -> list[dict]:
-    return [item(s) for s in db.select("sources", "user_added = 1", (), "created_at DESC", 200)
+    all_rules = rights.rules()  # read once for the whole list
+    return [item(s, all_rules) for s in db.select("sources", "user_added = 1", (), "created_at DESC", 200)
             if not (s.get("intake") or {}).get("removed")]
 
 

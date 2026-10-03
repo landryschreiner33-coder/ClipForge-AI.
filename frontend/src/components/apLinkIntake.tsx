@@ -2,16 +2,28 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
 import { ap, AutopilotLink } from "../autopilot";
 import { when } from "../format";
-import { Icon, Pill, ProgressBar, Skel, Tone, usePoll } from "./ui";
+import { ConfirmDialog, Icon, Pill, ProgressBar, Skel, Tone, usePoll } from "./ui";
 
 type LinkAction = "cancel" | "retry" | "prioritize" | "remove";
 
-/** One durable list: new links appear immediately, and duplicates lead back to the existing video. */
-export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }: {
-  enabled: boolean; stopped: boolean; timezone: string; refreshStatus: () => void;
+const POST_STATEMENT = "I made this video, or its creator lets me post clips of it.";
+
+/** How posted clips go out, in one line (YouTube by itself only with automatic publishing on). */
+const goesOut = (autoYouTube: boolean) => autoYouTube
+  ? "YouTube posts go out by themselves; TikTok posts wait for your OK in Posts."
+  : "They wait for your OK in Posts. To post to YouTube without being asked, turn on automatic publishing under "
+    + "How posts go out.";
+
+/**
+ * One durable list: new links appear immediately, and duplicates lead back to the existing video. A video's clips
+ * are posted only when you say you may post them ("Post the clips for me"), when adding it or later on its row.
+ */
+export default function LinkIntake({ enabled, stopped, timezone, refreshStatus, autoYouTube = false }: {
+  enabled: boolean; stopped: boolean; timezone: string; refreshStatus: () => void; autoYouTube?: boolean;
 }) {
   const { data, error, refresh, setData } = usePoll(() => ap.links(), [], 3000, () => true);
   const [url, setUrl] = useState("");
+  const [post, setPost] = useState(false);
   const [adding, setAdding] = useState(false);
   const [acting, setActing] = useState("");
   const [notice, setNotice] = useState("");
@@ -42,10 +54,12 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
     setNotice("");
     setProblem("");
     try {
-      const result = await ap.addLink(url.trim());
+      const result = await ap.addLink(url.trim(), post);
       remember(result.item);
-      setNotice(result.already_added ? "Already added" : "Added. Autopilot will work on this when it can.");
+      const posted = result.item.posting.on ? " Its clips will be posted." : "";
+      setNotice(result.already_added ? `Already added.${posted}` : `Added. Autopilot will work on this when it can.${posted}`);
       setUrl("");
+      setPost(false);  // your statement is about one video: say it again for the next one
       setFocusId(result.item.id);
     } catch (e) {
       setProblem(errorText(e));
@@ -74,6 +88,11 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
       setActing("");
     }
   };
+  const setPosting = async (item: AutopilotLink, on: boolean) => {
+    const result = await ap.linkPosting(item.id, on);  // a refusal stays in the dialog, which says why
+    remember(result);
+    setNotice(`${on ? "Its clips will be posted" : "Its clips are no longer posted"}: ${item.title || "Video"}`);
+  };
   return (
     <section className="panel ap-link-intake" aria-labelledby="ap-add-video">
       <h2 id="ap-add-video">Add a video or stream</h2>
@@ -88,8 +107,14 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
           <Icon name={adding ? "refresh" : "plus"} />{adding ? "ADDING…" : "ADD"}
         </button>
       </form>
+      <label className="row small top ap-link-post">
+        <input type="checkbox" checked={post} disabled={adding || !!acting}
+          onChange={(e) => setPost(e.target.checked)} />
+        <span><b>Post the clips for me.</b> {POST_STATEMENT}</span>
+      </label>
       <p id="ap-link-hint" className="tiny faint">Your links go first after the current safe step. Other work keeps
-        going. Clips stay in your Library; posting still needs the required permission.</p>
+        going. Without the tick, clips stay in your Library. Ticked, they are planned over your posting hours.{" "}
+        {goesOut(autoYouTube)}</p>
       {(!enabled || stopped) && <p className="small muted">Links are saved now and wait until you
         {stopped ? " resume jobs" : " start Autopilot"}.</p>}
       <p className="small" role="status" aria-live="polite">{notice}</p>
@@ -101,18 +126,21 @@ export default function LinkIntake({ enabled, stopped, timezone, refreshStatus }
       {data === null ? <Skel className="skel-block" /> : data.length ? (
         <div className="rows" aria-labelledby="ap-added-by-you">
           {data.map((item) => <LinkRow key={item.id} item={item} timezone={timezone} disabled={adding || !!acting}
-            rowRef={(el) => { rows.current[item.id] = el; }} act={(action) => act(item, action)} />)}
+            rowRef={(el) => { rows.current[item.id] = el; }} act={(action) => act(item, action)}
+            setPosting={(on) => setPosting(item, on)} autoYouTube={autoYouTube} />)}
         </div>
       ) : <p className="small muted">Paste a link above whenever you have a video or stream in mind.</p>}
     </section>
   );
 }
 
-function LinkRow({ item, timezone, disabled, rowRef, act }: {
+function LinkRow({ item, timezone, disabled, rowRef, act, setPosting, autoYouTube }: {
   item: AutopilotLink; timezone: string; disabled: boolean; rowRef: (el: HTMLElement | null) => void;
-  act: (action: LinkAction) => void;
+  act: (action: LinkAction) => void; setPosting: (on: boolean) => Promise<void>; autoYouTube: boolean;
 }) {
+  const [asking, setAsking] = useState<"on" | "off" | "">("");
   const title = item.title || "Video or stream";
+  const p = item.posting;
   const live = item.status === "watching_live";
   const waiting = item.status === "waiting_stream";
   const tone: Tone = ["inaccessible", "failed"].includes(item.status) ? "warn"
@@ -136,6 +164,33 @@ function LinkRow({ item, timezone, disabled, rowRef, act }: {
         </div>
         <Pill tone={tone} icon={live ? "dot" : tone === "good" ? "check" : "clock"}>{item.status_label}</Pill>
       </div>
+      {p && (
+        <div className="row wrap ap-link-posting">
+          <Pill tone={p.on ? "good" : "neutral"} icon={p.on ? "upload" : "library"}>{p.on ? "Posting" : "Not posted"}</Pill>
+          <span className="tiny muted">{p.label}</span>
+          {p.can_change && !p.on && <button type="button" className="btn btn-small" disabled={disabled}
+            aria-label={`Post the clips: ${title}`} onClick={() => setAsking("on")}>Post the clips</button>}
+          {p.can_change && p.on && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
+            aria-label={`Stop posting: ${title}`} onClick={() => setAsking("off")}>Stop posting</button>}
+        </div>
+      )}
+      {asking === "on" && (
+        <ConfirmDialog title="Post the clips of this video?" confirmLabel="Yes, post the clips"
+          onConfirm={() => setPosting(true)} onClose={() => setAsking("")}>
+          <p>Only if <b>you made this video, or its creator lets you post clips of it</b> (for example a clipping
+            program you joined). Being public or popular does not make a video yours to post: posting someone
+            else's video can get your account a copyright strike.</p>
+          <p className="small muted">ClipFoundry saves your answer with today's date. Its finished clips are then
+            planned over your posting hours. {goesOut(autoYouTube)}</p>
+        </ConfirmDialog>
+      )}
+      {asking === "off" && (
+        <ConfirmDialog title="Stop posting this video's clips?" confirmLabel="Stop posting"
+          onConfirm={() => setPosting(false)} onClose={() => setAsking("")}>
+          <p>Planned posts from this video that have not started uploading are canceled. Its clips stay in your
+            Library.</p>
+        </ConfirmDialog>
+      )}
       <div className="row wrap ap-link-actions">
         {item.can_prioritize && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
           aria-label={`Move to top: ${title}`} onClick={() => act("prioritize")}>Move to top</button>}

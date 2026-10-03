@@ -28,6 +28,11 @@ def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", 
 
 class LinkIn(BaseModel):
     url: str
+    post: bool = False  # you made this video, or its creator allows you to post clips of it
+
+
+class PostingIn(BaseModel):
+    on: bool
 
 
 @router.get("/links", dependencies=READ)
@@ -38,9 +43,19 @@ def links_list() -> list[dict]:
 @router.post("/links", dependencies=WRITE)
 def add_link(body: LinkIn) -> dict:
     try:
-        return intake.add(body.url)
+        return intake.add(body.url, post=body.post)
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/links/{source_id}/posting", dependencies=WRITE)  # before the generic route, which would take it
+def link_posting(source_id: str, body: PostingIn) -> dict:
+    try:
+        return intake.set_posting(source_id, body.on)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/links/{source_id}/{operation}", dependencies=WRITE)

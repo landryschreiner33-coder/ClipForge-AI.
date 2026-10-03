@@ -457,6 +457,71 @@ def test_an_automatically_approved_youtube_post_is_uploaded_and_scheduled_by_you
     assert any(u["on_platform"] for u in home["upcoming"])  # uploaded: YouTube publishes it at its time
 
 
+# ------------------------------------------------------------------ videos you paste: posted when you say you may
+def _pasted(env, client, monkeypatch, url: str, post: bool = False) -> tuple[dict, dict]:
+    """A link you pasted in Autopilot → Add a video, with one finished clip from it (as if already clipped)."""
+    import ipaddress
+
+    from clipfoundry import db, netguard
+
+    monkeypatch.setattr(netguard, "resolve", lambda host: [ipaddress.ip_address("93.184.216.34")])
+    added = client.post("/api/autopilot/links", headers=H, json={"url": url, "post": post}).json()["item"]
+    clip = _clip(env)
+    db.update("projects", clip["project_id"], source_id=added["id"])
+    db.update("sources", added["id"], project_id=clip["project_id"], status="analyzed", clips_selected=1)
+    return added, clip
+
+
+def test_a_pasted_video_is_posted_only_after_you_say_you_may_post_it(env, client, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import rights, scheduler
+
+    db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": True, "autopilot_min_gap_minutes": 30})
+    _consent(client)
+    added, clip = _pasted(env, client, monkeypatch, "https://example.org/talk.mp4")
+    assert added["posting"] == {"on": False, "by_you": False, "can_change": True,
+                                "label": "Clips stay in your Library"}
+    scheduler.plan_new(db.get_settings(), time.time())
+    assert not db.select("scheduled_publications")  # without your statement its clips stay in the Library
+
+    r = client.post(f"/api/autopilot/links/{added['id']}/posting", headers=H, json={"on": True})
+    assert r.status_code == 200 and r.json()["posting"]["on"] and r.json()["posting"]["by_you"]
+    rule = db.select("source_rights", "scope = 'source' AND value = ? AND active = 1", (added["id"],))[0]
+    assert rule["status"] == rights.ALLOWLISTED  # your statement, with its date, for this one video
+    assert rule["basis"].startswith("You confirmed that you made this video, or that its creator allows you")
+    scheduler.plan_new(db.get_settings(), time.time())
+    items = {i["platform"]: i for i in db.select("scheduled_publications", "clip_id = ?", (clip["id"],))}
+    assert items["youtube"]["status"] == "approved" and items["youtube"]["approval"]["by"] == "automatic"
+    assert 9 <= dt.datetime.fromtimestamp(items["youtube"]["planned_at"], CHI).hour < 21
+    assert items["tiktok"]["status"] == "awaiting_approval"  # TikTok: your OK on each post
+
+    r = client.post(f"/api/autopilot/links/{added['id']}/posting", headers=H, json={"on": False})
+    assert r.status_code == 200 and r.json()["posting"]["label"] == "Clips stay in your Library"
+    assert {i["status"] for i in db.select("scheduled_publications")} == {"canceled"}
+    scheduler.plan_new(db.get_settings(), time.time())
+    assert {i["status"] for i in db.select("scheduled_publications")} == {"canceled"}  # nothing new is planned
+    assert db.get_clip(clip["id"])["status"] == "ready"  # the clip stays in your Library
+
+
+def test_saying_so_when_adding_the_link_posts_it_but_never_overrides_a_block(env, client, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import rights, scheduler
+
+    db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": False})
+    added, _ = _pasted(env, client, monkeypatch, "https://example.org/mine.mp4", post=True)
+    assert added["posting"]["on"] and added["posting"]["label"] == "Clips are posted (you confirmed you may post it)"
+    scheduler.plan_new(db.get_settings(), time.time())
+    # without the automatic-publishing permission a post still waits for your OK
+    assert [i["status"] for i in db.select("scheduled_publications")] == ["awaiting_approval"]
+    rights.add_rule("url_prefix", "https://example.org/", rights.BLOCKED, "Not mine after all")
+    assert client.get("/api/autopilot/links").json()[0]["posting"] == {
+        "on": False, "by_you": False, "can_change": False, "label": "Not posted: blocked in Permissions & sources"}
+    r = client.post(f"/api/autopilot/links/{added['id']}/posting", headers=H, json={"on": True})
+    assert r.status_code == 409 and "Permissions & sources" in r.json()["detail"]
+    assert client.post(f"/api/autopilot/links/{added['id']}/posting", json={"on": True}).status_code == 403
+    assert client.post("/api/autopilot/links/missing/posting", headers=H, json={"on": True}).status_code == 404
+
+
 # ------------------------------------------------------------------ schedule: downtime and daylight saving time
 def test_after_downtime_missed_posts_are_spread_out_not_dumped(env):
     from clipfoundry import db

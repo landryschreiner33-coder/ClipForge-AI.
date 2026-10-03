@@ -256,6 +256,7 @@ retro studio across the working app. [Design and original assets](../design/retr
 | --- | --- | --- | --- |
 | Durable public video/stream intake, canonical duplicates, move-to-top, cancel/remove/retry | `autopilot/intake.py`, additive sources columns, identify_link job, apLinkIntake.tsx | intake/local-rights contracts; real manual-link browser intake | Real platform metadata/media access |
 | Local retention without unknown reuse granting publishing permission | `rights.local_allowed`, fresh cancel/block gates, hunter/live/packaging | Explicit block/cancellation and fresh publishing tests; local unknown-rights clip passes gate without creating posts | Owner's real source permissions |
+| Post a pasted video's clips after your statement for that video (2026-10-03, owner's request) | `intake.posting`/`set_posting` (an Allowlisted source rule with the date; off removes it and cancels unstarted posts), `POST /links` `post`, `POST /links/{id}/posting`, the tick and the row button with a confirmation in `apLinkIntake.tsx` | `test_autopilot_auto`: `a_pasted_video_is_posted_only_after_you_say_you_may_post_it` (not planned before; YouTube approved automatically under the permission, TikTok waits; off cancels and nothing new is planned), `saying_so_when_adding_the_link_posts_it_but_never_overrides_a_block`; sandbox click-through with screenshots | A real link on the owner's PC: YouTube/TikTok links still need the file or *Download authorized sources* |
 | Continue after ordinary failures; refill selection; preserve pause/stop; resume after crash | scout/queue/host/home, durable selection and stable clip IDs | Failed source followed by real checked upload; restart and second discovery; cancellation/recovery regressions | Overnight run on owner's PC |
 | User links and manual work precede ordinary pending renders at safe boundaries | fresh source priority, queue.has_higher_priority_work, hunter.render_in_priority_order; post-live uses the same helper | Higher-priority work arrives after the first clip; continuation keeps its exact bytes and renders only the remainder without using another attempt | Hardware scheduling and latency on owner's PC |
 | Closing the app preserves an in-progress upload and resumes the same session | publisher cooperative-shutdown guard + host restart Wait | Fake YouTube accepts the first chunk, host closes and resumes the same publication/session; exactly one uploaded video | Real account/network interruption |
@@ -346,6 +347,13 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
     *open() got an unexpected keyword argument 'metadata_errors'*. The app now reads its own 16 kHz mono WAV
     (`audio.read_samples`) and hands Whisper the samples, the same values faster-whisper's decoder produced.
     Requirements are unchanged; an existing install can also run `pip install "av<19"`.
+25. [x] Pasted videos are posted when you say you may (2026-10-03, the owner asked that videos they have it clip are
+    scheduled and uploaded automatically). *Post the clips for me* under the link box, or *Post the clips* on an added
+    video, records your statement for that one video (you made it, or its creator lets you post clips of it) as an
+    Allowlisted source rule with the date; its checked clips are then planned over the posting hours and go out under
+    the usual approvals (YouTube by itself with automatic publishing, TikTok after your OK). *Stop posting* removes it
+    and cancels unstarted posts. Without it nothing is posted; a block always wins. Videos found by discovery are
+    unchanged (the owner's request to post any video was declined: copyright).
 
 ## Test log
 
@@ -470,6 +478,10 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
 | PyAV 19 fix (2026-10-02) | `audio.read_samples` against faster-whisper's `decode_audio` (PyAV 18.0) on a WAV made by `extract_audio` from a synthetic video | identical float32 samples (320171, max difference 0) |
 | PyAV 19 fix (2026-10-02) | `pytest -m "not slow"` on `d4f100c` | 478 passed, 7 slow deselected (242 s) |
 | PyAV 19 fix (2026-10-02) | `pytest -m slow` on `d4f100c` | 7 passed (685 s); imported transcripts, so no real Whisper model (Hugging Face is blocked here) |
+| Post a pasted video (2026-10-03) | `pytest -m "not slow"` | 480 passed, 7 slow deselected (296 s), incl. the 2 new posting tests |
+| Post a pasted video (2026-10-03) | `npm run build` in `frontend/` | passes; `dist/` rebuilt |
+| Post a pasted video (2026-10-03) | sandbox click-through (tick, ADD, Stop posting, Post the clips) at 1366×900 and 390×844 | works; no console errors, no sideways scrolling |
+| Post a pasted video (2026-10-03) | `npm run test:sandbox`, run at the same time as `pytest -m slow` | 7 passed, 1 failed: the complete loop's second upload after the worker restart did not arrive within 240 s (1 of 2); its pasted-link steps, including "no post without permission", passed. Rerun alone below |
 
 ## Checklist for the user's machine
 
