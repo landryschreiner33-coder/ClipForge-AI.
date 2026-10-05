@@ -35,9 +35,10 @@ export default function Setup({ step }: { step?: string }) {
   if (!st) return <LoadingPage label="Loading setup" />;
 
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === step));
+  const localTest = !!st.settings.autopilot_local_test_mode;
   const started = st.home.setup.started;
   const how: How = draft.how || (started ? "autopilot" : "");
-  const topics = draft.topics ?? (st.home.setup.topics || DEFAULT_TOPICS);
+  const topics = draft.topics ?? (localTest ? st.home.setup.topics : st.home.setup.topics || DEFAULT_TOPICS);
   const setHow = (v: How) => {
     draft.how = v;
     setError("");
@@ -56,7 +57,7 @@ export default function Setup({ step }: { step?: string }) {
       firstChoice.current?.focus();
       return;
     }
-    if (how === "autopilot" && !splitTopics(topics).length) {
+    if (how === "autopilot" && !localTest && !splitTopics(topics).length) {
       setError("Choose at least one topic, or type your own.");
       return;
     }
@@ -68,7 +69,8 @@ export default function Setup({ step }: { step?: string }) {
     try {
       if (how === "autopilot" && !st.enabled) {
         setData(await ap.start(topics));
-        toast("Autopilot is on. Connecting an account did not allow any post by itself.");
+        toast(localTest ? "Autopilot is on for local testing. All uploads are off."
+          : "Autopilot is on. Connecting an account did not allow any post by itself.");
       } else if (how === "autopilot") {
         if (topics !== st.home.setup.topics) await api.saveSettings({ trend_topics: topics });
         refresh();
@@ -89,8 +91,11 @@ export default function Setup({ step }: { step?: string }) {
     body = (
       <section className="panel" aria-labelledby="st1">
         <h2 id="st1">Where are your videos?</h2>
-        <p className="muted">Use videos you made, or videos you have permission to use. ClipFoundry never uses other
-          people's videos without an agreement or a free license.</p>
+        <p className="muted">{localTest
+          ? "Local test mode lets Autopilot find public videos and make clips for local testing. You can also add "
+            + "videos from this PC. All uploads are off."
+          : "Use videos you made, or videos you have permission to use. ClipFoundry never uses other people's videos "
+            + "without an agreement or a free license."}</p>
         <div className="cols-2">
           <div className="choice-card stack-3" style={{ display: "grid", alignContent: "start", cursor: "auto" }}>
             <b>Choose one video now</b>
@@ -132,13 +137,16 @@ export default function Setup({ step }: { step?: string }) {
               onChange={() => setHow("autopilot")} />
             <span className="stack" style={{ gap: 2 }}>
               <b>Let Autopilot do it</b>
-              <span className="small muted">It clips your videos folder and videos it may use (like public-domain
-                ones), writes titles and plans posting times. Other people's videos are skipped. Nothing is posted
-                without your OK, or a permission you give separately.</span>
+              <span className="small muted">{localTest
+                ? "It finds public videos, makes clips and writes titles for local testing. Clips stay on this PC. "
+                  + "All uploads are off."
+                : "It clips your videos folder and videos it may use (like public-domain ones), writes titles and "
+                  + "plans posting times. Other people's videos are skipped. Nothing is posted without your OK, "
+                  + "or a permission you give separately."}</span>
             </span>
           </label>
         </fieldset>
-        {how === "autopilot" && <TopicChoice topics={topics} setTopics={setTopics} />}
+        {how === "autopilot" && <TopicChoice topics={topics} setTopics={setTopics} allowEmpty={localTest} />}
         {error && <p className="error-text" role="alert"><Icon name="alert" className="sm" />{error}</p>}
         <div className="row wrap">
           <a className="btn btn-quiet" href="#/setup/videos">Back</a>
@@ -150,17 +158,20 @@ export default function Setup({ step }: { step?: string }) {
   } else {
     body = (
       <section className="panel" aria-labelledby="st3">
-        <h2 id="st3">Post to YouTube and TikTok when you're ready</h2>
-        <p className="muted">Optional. Without accounts you can still make clips and export them. Connecting an account
-          does <b>not</b> let ClipFoundry post by itself: every post needs your OK, and YouTube can post automatically
-          only if you turn that on separately. TikTok always asks.</p>
+        <h2 id="st3">{localTest ? "Find videos for local testing" : "Post to YouTube and TikTok when you're ready"}</h2>
+        <p className="muted">{localTest
+          ? "Connect YouTube to help Autopilot find public videos. TikTok is not needed for local testing. Clips "
+            + "stay on this PC, and all uploads are off."
+          : <>Optional. Without accounts you can still make clips and export them. Connecting an account does <b>not</b>
+            {" "}let ClipFoundry post by itself: every post needs your OK, and YouTube can post automatically only if
+            you turn that on separately. TikTok always asks.</>}</p>
         <div className="rows">
-          {PLATFORMS.map((p) => {
+          {PLATFORMS.filter((p) => !localTest || p === "youtube").map((p) => {
             const acc = st.platforms[p];
             return (
               <div key={p} className="row wrap" style={{ padding: "12px 0" }}>
                 <PlatformName platform={p} />
-                <span className="grow small muted">{p === "youtube"
+                <span className="grow small muted">{localTest ? "Finds public videos for local clips." : p === "youtube"
                   ? "Posts Shorts to your channel and finds videos you may use."
                   : "Posts to your TikTok account, with your OK on each post."}</span>
                 {connectedOk(acc) ? <Pill tone="good" icon="check">Connected: {acc.name || acc.account_id}</Pill> : (
@@ -173,9 +184,12 @@ export default function Setup({ step }: { step?: string }) {
             );
           })}
         </div>
-        <p className="small muted">The first time, each platform asks for the two codes of your own free developer app
-          (about 10 minutes, steps included).</p>
-        {how === "autopilot" && (
+        <p className="small muted">{localTest
+          ? "The first time, YouTube asks for the two codes of your own free developer app (about 10 minutes, steps "
+            + "included). You can also start with videos from this PC."
+          : "The first time, each platform asks for the two codes of your own free developer app (about 10 minutes, "
+            + "steps included)."}</p>
+        {how === "autopilot" && !localTest && (
           <p className="small muted">Autopilot uses the accounts you connected. To let YouTube posts go out without
             your review, turn on automatic publishing later on the Autopilot page: it asks exactly what you allow.</p>
         )}
@@ -212,7 +226,7 @@ export default function Setup({ step }: { step?: string }) {
         {STEPS.map((s, i) => (
           <li key={s.id} className={i < idx ? "done" : ""} aria-current={i === idx ? "step" : undefined}>
             <span className="n">{i < idx ? <Icon name="check" className="sm" /> : i + 1}</span>
-            {s.label}
+            {localTest && s.id === "posting" ? "Find videos" : s.label}
             {i < idx && <span className="sr-only"> (done)</span>}
           </li>
         ))}

@@ -231,11 +231,14 @@ records the completed validation and actual disposable-data screenshots. CUDA de
 
 These are product guarantees; tests enforce most of them. Don't weaken them to make something work.
 
-1. **Separate local intent from reuse rights.** Only Owned, Licensed and Allowlisted sources, creator agreements,
+1. **Separate local intent from reuse rights.** In normal mode, only Owned, Licensed and Allowlisted sources, creator agreements,
    CC BY and public domain are selected automatically from discovery. Public links explicitly submitted in
    Autopilot may be processed locally through supported media access even when reuse permission is unknown;
    explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
    re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
+   The owner explicitly requested Local test mode (2026-10-05): recorded public discoveries may be clipped locally
+   regardless of reuse permission, while all uploads and automatic scheduling are held. Blocks still win; test
+   projects retain their local-test marker and stay out of automatic scheduling after mode changes.
    * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
      confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
      confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.

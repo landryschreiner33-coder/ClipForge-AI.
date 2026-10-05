@@ -11,7 +11,8 @@ ways:
 * library         a free-license library that exists for reuse and serves its files for download (Wikimedia Commons)
 * feed_link       a direct media or stream link from a feed you configured, or a link you added yourself
 * platform        a platform-hosted video, only with "Download authorized platform sources" turned on in Advanced
-                  after you checked the platform's terms (off by default)
+                  after you checked the platform's terms (off by default), or a recorded public video in the
+                  explicitly enabled Local test mode, which keeps all uploads off
 
 Anything else is skipped (listed in the activity log with the reason) and Source Scout moves on to the next video.
 Adding the file yourself stays possible.
@@ -97,6 +98,10 @@ def resolve(source: dict, settings: dict) -> dict:
             return _ok("library", "Wikimedia Commons serves its files for reuse", url=url)
         return _no("The link is not one of the library's own files")
     if rights.is_platform_url(url) and source.get("platform") != "stream":
+        if (settings.get("autopilot_local_test_mode") and source.get("kind", "recorded") == "recorded"
+                and rights.local_allowed(source, settings=settings)):
+            return {**_ok("platform", "Public video for Local test mode; uploads are off", url=url),
+                    "label": "Public video for local testing"}
         if settings.get("rights_allow_remote_download"):
             return _ok("platform", "Download allowed in Settings for authorized sources", url=url)
         where = PLATFORM_NAMES.get(source.get("platform") or "", "The platform")

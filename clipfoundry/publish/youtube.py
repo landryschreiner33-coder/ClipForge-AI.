@@ -291,6 +291,8 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
         offset, failures = 0, 0
         session = ""
         final_sent = False
+        if cancelled():
+            raise Cancelled()
         if resume_session:
             offset, done = _resume_offset(c, resume_session, size, token, sleep, cancelled)
             if done is not None:
@@ -301,7 +303,9 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
             session = resume_session if offset >= 0 else ""
             offset = max(0, offset)
         if not session:
-            session = _start_session(c, body, size, token)
+            if cancelled():
+                raise Cancelled()
+            session = _start_session(c, body, size, token, cancelled)
             if on_session:
                 on_session(session)
         with open(path, "rb") as fh:
@@ -316,6 +320,8 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                         on_final_chunk()
                 headers = {"Authorization": f"Bearer {token.get()}", "Content-Type": "video/mp4",
                            "Content-Range": f"bytes {offset}-{offset + len(chunk) - 1}/{size}"}
+                if cancelled():
+                    raise Cancelled()
                 try:
                     r = c.put(session, content=chunk, headers=headers)
                 except httpx.TransportError:
@@ -346,7 +352,9 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 if offset < 0:  # the upload session expired: start over, unless the video may already exist
                     if final_sent:
                         raise _outcome_unknown()
-                    session, offset = _start_session(c, body, size, token), 0
+                    if cancelled():
+                        raise Cancelled()
+                    session, offset = _start_session(c, body, size, token, cancelled), 0
                     if on_session:
                         on_session(session)
 
@@ -367,13 +375,16 @@ def _wait_error(r: httpx.Response) -> PublishError:
 
 
 @network_errors("YouTube")
-def _start_session(c: httpx.Client, body: dict, size: int, token: Token) -> str:
+def _start_session(c: httpx.Client, body: dict, size: int, token: Token,
+                   cancelled: Callable[[], bool] = lambda: False) -> str:
     params = {"uploadType": "resumable", "part": "snippet,status"}
     _quota("videos.insert", "publish")
     for attempt in range(2):
-        r = c.post(UPLOAD_URL, params=params, json=body,
-                   headers={"Authorization": f"Bearer {token.get(force=attempt > 0)}",
-                            "X-Upload-Content-Type": "video/mp4", "X-Upload-Content-Length": str(size)})
+        headers = {"Authorization": f"Bearer {token.get(force=attempt > 0)}",
+                   "X-Upload-Content-Type": "video/mp4", "X-Upload-Content-Length": str(size)}
+        if cancelled():
+            raise Cancelled()
+        r = c.post(UPLOAD_URL, params=params, json=body, headers=headers)
         if r.status_code == 200 and r.headers.get("Location"):
             return r.headers["Location"]
         if r.status_code != 401:
@@ -392,9 +403,14 @@ def _resume_offset(c: httpx.Client, session: str, size: int, token: Token, sleep
     """Ask YouTube how much of the file it already has (offset, or the finished video, or -1 if expired). When it
     asks to wait before answering, a short wait is sat out and a longer one ends the attempt (_wait_error)."""
     for _ in range(3):
+        if cancelled():
+            raise Cancelled()
+        headers = {"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
+                   "Content-Length": "0"}
+        if cancelled():
+            raise Cancelled()
         try:
-            r = c.put(session, headers={"Authorization": f"Bearer {token.get()}", "Content-Range": f"bytes */{size}",
-                                        "Content-Length": "0"})
+            r = c.put(session, headers=headers)
         except httpx.TransportError:
             return 0, None
         if r.status_code in (200, 201):

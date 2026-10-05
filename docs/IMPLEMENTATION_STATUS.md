@@ -309,6 +309,28 @@ The cloud has no NVIDIA GPU or Windows. Platform APIs, OAuth and metrics in thes
 transcripts are synthetic/imported and encoding/decoding/hash checks are real FFmpeg work. The evidence does not
 claim real accounts, CUDA transcription, Windows keep-awake, human semantic quality or real-PC throughput.
 
+## Trending public videos for local testing (2026-10-05)
+
+The owner requested automatic trending-video clipping regardless of reuse permission for an AI test project with
+no public uploads. **Local test mode**, off by default, is visible on Autopilot → Overview and in Advanced settings.
+It expands recorded discovery's local processing intent and public media acquisition, while preserving the exact
+reuse status and all quality, queue, size, daily limit, block and cancellation checks. YouTube discovery still
+requires a connection or a search key. The first-time setup explains local search and accepts empty topics.
+
+| Requirement | Implementation | Verification | Remaining external checks |
+| --- | --- | --- | --- |
+| Recent longer trending candidates beyond the region's limited chart | Official duration-filtered topic searches; bounded long/medium searches when topics are empty; original links from clips under 240 s | Six real-request/filter/quota/cache/provenance contracts and existing discovery regressions | Actual official API responses and access |
+| Automatically process public recorded discoveries with unknown reuse permission for local tests | `rights.local_allowed`, `access.resolve`, fresh hunter/analyzer checks; ordinary job priority and source limits | Unknown-rights discovery gets queued, Blocks/canceled/live/unsafe entries stay stopped, mode changes hold/resume work | Public platform availability and real Whisper/CUDA |
+| Every upload held while testing, with test projects excluded from later automatic posting | Scheduler/publisher/manual route/shared runner/chunk guards; durable project marker; marked manual projects still require rights and exact-file QA after mode is off | 26 fake-platform contracts and full backend validation; exact-session/confirmed-offset holds and resumes, unknown-rights manual bypasses blocked | Real network interruption and platform outcomes |
+| Guard public platform import requests and redirects | `public_import.GuardedYoutubeDL`, pinned HTTP(S) handler, progressive formats and local FFmpeg merge | 14 contracts, including actual yt-dlp extraction/download against fake HTTP transport, SSRF/credentials/redirect/size/cancel cases | Real public-video extraction; manifest-only acquisition is unsupported |
+| Repeated local loop produces real checked files with zero posts or uploads | Production WorkerHost and existing real pipeline; source/video/API/transcript fixture inputs only | Broken source refilled; two unknown-rights videos clipped; hashes match reports; restart keeps bytes, timestamps and IDs; no posts, publications, sessions or uploads | RTX 3050 throughput and human clip review |
+| Clear mode, local clip links and first-time setup | Shared status refresh, overview toggle, Advanced Save, local-ready panel, setup copy and blank topics | Nine disposable browser cases; actual mode save/Start; failure keeps prior state; screenshot inspection; TypeScript/Vite build | Windows display, real account setup and playback |
+
+Existing published history and uncertain earlier outcomes stay visible. Enabling testing does not revoke a standing
+publishing consent or recall bytes a platform accepted earlier. Test projects stay excluded from automatic plans
+after disabling the mode; explicit manual publishing again requires the existing rights, account, artifact and
+approval checks. Privacy, Terms, product copy and the contributor instructions now describe this behavior.
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -344,11 +366,19 @@ claim real accounts, CUDA transcription, Windows keep-awake, human semantic qual
     local-day Posts agenda, preserved editor controls and committed frontend bundle.
 23. [x] Final bug scan: restart/cancellation ownership, live retry, intake priority/category, compressed media,
     upload recovery, completed-output retention and stale browser updates; add regressions and rebuild the bundle.
+24. [x] Automatically find and clip promising trending public recordings in Local test mode regardless of reuse
+    status; hold all uploads, quarantine test projects, guard acquisition, show local outputs and verify the loop.
 
 ## Test log
 
 | When | Command | Result |
 | --- | --- | --- |
+| Local test backend (2026-10-05) | `.venv/bin/python -m pytest -m "not slow" -q` | 571 passed, 8 deselected (296.09 s). Includes final discovery, selection, mode, UI-view, guarded import and manual publishing coverage; the two later worker-state cases passed in the 26-case subset below. Log: `/workspace/scratch/local-test-backend-final.log`. |
+| Local test last upload guards | `pytest tests/test_local_test_publishing.py -q` | 26 passed (20.12 s), including existing uncertain-session/remote-ID preservation on reuse denial. The final marker-only manual gate checks source/platform coverage and current checked bytes without changing ordinary manual projects. Log: `/workspace/scratch/local-test-publishing-final.log`. |
+| Local test public acquisition | `pytest tests/test_autopilot_local_test.py tests/test_public_platform_import.py -q` | 25 passed (4.67 s), including private platform resolution failing before extraction and without network retry. Real yt-dlp uses a fake pinned HTTP transport. Log: `/workspace/scratch/local-test-public-final.log`. |
+| Local test browser and build | TypeScript/Vite build; disposable `status-polling.spec.ts` cases and Local test setup | Nine cases verified: seven passed initially, one corrected toast-locator test passed on retry, and the new empty-topic local Setup case passed against actual save/Start APIs. Final bundle `index-CCTSfF-1.js`; mode and local-clip screenshots inspected. Log: `/workspace/scratch/local-test-browser.log`. |
+| Local test broad media run | `.venv/bin/python -m pytest -m slow -v` | 7 passed, 1 fixture-clock failure, 547 deselected (1053.50 s). The new local loop passed; the old normal loop correctly scheduled its second post about 14 h ahead, beyond the fixture's 12 h upload lead, while the test waited only 240 s. Production timing unchanged; corrected shared-clock verification is recorded below. Log: `/workspace/scratch/local-test-media-full.log`. |
+| Local test repeat-cycle verification | `pytest tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart tests/test_local_test_loop.py -q` | 2 passed (382.05 s). The shared fixture advances only scheduler time after a real approved second plan exists; it never supplies processing or upload outcomes. Local test mode keeps real time and creates no uploads. All eight distinct real-media cases passed across the broad run and this corrected rerun. Log: `/workspace/scratch/local-test-loop-clock-final.log`. |
 | Final scan backend (2026-10-03) | `.venv/bin/python -m pytest -m "not slow" -q` | 508 passed, 7 deselected (309.99 s), including all final intake, recorder/relay, upload continuation/offset, manual ownership/terminal-race and completed-file guards. Log: `/workspace/scratch/final-scan-backend.log`. |
 | Final scan media (2026-10-03) | `.venv/bin/python -m pytest -m slow -v` | 7 passed, 508 deselected (887.61 s) on the final implementation, including manual/editor rendering, API processing, repeated upload/results and upcoming→restart→live→post-live. Log: `/workspace/scratch/final-scan-media-final.log`. |
 | Final scan upload recovery | Publisher and TikTok focused suites | 46 passed (95.69 s), covering before-first-byte and partial-chunk failure, lost final reply, expired/missing URL, exact Retry-After, canceled uploads and same-session recovery. Log: `/workspace/scratch/final-scan-upload-focused.log`. |

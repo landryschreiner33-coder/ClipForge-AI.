@@ -161,6 +161,8 @@ def _video_for(clip: dict) -> tuple[str, dict | None]:
 def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if platform not in PLATFORMS:
         raise HTTPException(404, "Unknown platform")
+    if jobs.local_test_mode():
+        raise HTTPException(409, jobs.LOCAL_TEST_NOTE)
     if not body.confirm:
         raise PublishError("Publishing needs your explicit confirmation.", "Press the Publish button and confirm.")
     clip = db.get_clip(clip_id)
@@ -169,6 +171,8 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     video_path, version = _video_for(clip)
     if any(p["status"] in jobs.ACTIVE for p in db.list_publications(clip_id, platform)):
         raise HTTPException(409, "This clip is already being uploaded to this platform.")
+    jobs.check_local_test_publication({"clip_id": clip_id, "project_id": clip["project_id"], "platform": platform,
+                                       "video_path": video_path})
     settings = db.get_settings()
     options: dict = {}
     if platform == "youtube":

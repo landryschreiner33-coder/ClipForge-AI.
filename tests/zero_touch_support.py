@@ -106,11 +106,23 @@ class CompleteLoopFixture:
 
     def __init__(self, data: Path, google, patch):
         from clipfoundry import db
-        from clipfoundry.autopilot import access, host, live, providers
+        from clipfoundry.autopilot import access, host, live, providers, scheduler
         from clipfoundry.pipeline import transcribe
         from clipfoundry.publish import youtube
 
         self.data, self.google = data, google
+        self.scheduler_clock_offset = 0.0
+        self.repeat_phase = False
+        self.real_scheduler_now = scheduler._now
+
+        def scheduler_clock():
+            if self.repeat_phase:
+                self.advance_to_due()
+            return self.real_scheduler_now() + self.scheduler_clock_offset
+
+        # The normal posting grid may place the second post beyond the fixture's 12-hour upload lead.
+        # Advance only scheduler time after its real plan exists; leases, media and results keep real time.
+        patch(scheduler, "_now", scheduler_clock)
         self.transcriptions: list[str] = []
         self.first, self.first_srt = build_speech_video(data / "sandbox" / "business", BUSINESS)
         self.second, self.second_srt = build_speech_video(data / "sandbox" / "story", STORY, flip=True)
@@ -206,7 +218,31 @@ class CompleteLoopFixture:
         """The upstream platform exposes another video; ordinary periodic discovery must pick it up."""
         self.add_catalog(SECOND, "Podcast honest stage story with a broken laptop", self.second)
         self.google.popular = [SECOND]
+        self.repeat_phase = True
         self.elapse_period("trend_scan")
+
+    def advance_to_due(self) -> None:
+        """Let an existing, approved second plan reach its upload lead without waiting hours in a sandbox.
+
+        This changes only the scheduler's clock input, by at most 12 hours. The production scheduler and
+        publisher still check the approval, rights, exact artifact and posting options and create every outcome.
+        Local test mode keeps its real clock and cannot create posts through this fixture.
+        """
+        from clipfoundry import db
+        from clipfoundry.autopilot import scheduler
+
+        settings = db.get_settings()
+        if settings.get("autopilot_local_test_mode"):
+            return
+        posts = db.select("scheduled_publications", "platform = 'youtube' AND status = 'approved' AND "
+                          "planned_at IS NOT NULL AND clip_id IN (SELECT c.id FROM clips c JOIN projects p ON "
+                          "c.project_id = p.id JOIN sources s ON p.source_id = s.id WHERE s.external_id = ?)",
+                          (SECOND,))
+        if not posts:
+            return
+        due = min(post["planned_at"] - scheduler.lead_seconds(post, settings) for post in posts)
+        advance = max(0.0, min(12 * 3600.0, due + 1.0 - self.real_scheduler_now()))
+        self.scheduler_clock_offset = max(self.scheduler_clock_offset, advance)
 
     def upcoming_stream(self) -> str:
         if self.stream_video is None:

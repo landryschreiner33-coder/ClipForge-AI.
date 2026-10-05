@@ -830,6 +830,8 @@ def retry_item(item_id: str) -> dict:
 def publish_now(item_id: str) -> dict:
     from .scheduler import _audit, approval_valid
 
+    if db.get_settings().get("autopilot_local_test_mode"):
+        raise HTTPException(409, "All uploads are off while Local test mode is on")
     item = _item_or_404(item_id)
     if not approval_valid({**item, "status": "approved"}) or item["status"] not in ("approved",):
         raise HTTPException(409, "Approve the post first")

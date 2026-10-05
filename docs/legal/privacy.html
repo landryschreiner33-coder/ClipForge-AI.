@@ -22,7 +22,7 @@
 </header>
 <main class="wrap doc">
 <h1>Privacy Policy</h1>
-<p class="meta">ClipFoundry · Effective October 2, 2026</p>
+<p class="meta">ClipFoundry · Effective October 5, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -70,7 +70,8 @@
   <thead><tr><th scope="col">What</th><th scope="col">Examples</th><th scope="col">How long it is kept</th></tr></thead>
   <tbody>
     <tr><td>Your videos and clips</td><td>A copy of each video you add or Autopilot uses (including free-license
-      videos it downloads), the clips made from it, thumbnails, and ClipFoundry's own copy of each export</td>
+      videos it downloads and public videos obtained in Local test mode), the clips made from it, thumbnails, and
+      ClipFoundry's own copy of each export</td>
       <td>Until you delete the video in ClipFoundry, or delete the data folder</td></tr>
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
       hashtags, edits and versions</td><td>Until you delete the video</td></tr>
@@ -87,7 +88,8 @@
       watch; video and stream links you paste, their queue order, progress, cancellation and retry records;
       the names and locations of video files it found in your folders; the public titles, links, channel names
       and statistics of videos it found online; which ones it used or skipped and why; permissions and creator
-      agreements you recorded; the automatic-publishing permission you gave, with its wording; and what it learned
+      agreements you recorded; Local test mode and a persistent local-test marker on projects made in that mode;
+      the automatic-publishing permission you gave, with its wording; and what it learned
       from your results</td><td>YouTube videos it found but did not use: deleted after 30 days. Videos it used: their
       YouTube statistics are deleted after 30 days, while their title, channel and link stay. Folders, channels, live
       streams and lists it watches: until you remove them. Your topics: until you change them. Everything else,
@@ -156,7 +158,8 @@
       missing or damaged</td><td>A request to download the model. If you have signed in to Hugging Face on this
       computer, the download also sends your Hugging Face sign-in token</td></tr>
     <tr><td>YouTube, TikTok and other video sites</td><td>Only if you turn on "Download authorized platform sources"
-      in Settings → Advanced (off by default), for videos that passed Autopilot's permission check</td><td>Requests to
+      in Settings → Advanced (off by default), for videos that passed Autopilot's permission check; or turn on Local
+      test mode for recorded public videos regardless of their reuse status</td><td>Requests to
       download those videos, or to record those live streams. These downloads don't go through the sites' official
       APIs</td></tr>
     <tr><td>The Python Package Index and other download sites</td><td>When ClipFoundry is installed or updated</td>
@@ -168,6 +171,10 @@
   </tbody>
 </table></div>
 <p>Nothing is sent to us. We don't sell, rent or share your information, and we don't use it for advertising.</p>
+<p>Local test mode saves clips on your computer and holds all platform uploads, including manual uploads and inbox
+drafts. Online discovery and obtaining public media still send requests to the services described above. Optional
+cloud AI continues to follow your existing AI settings. Test projects stay outside the automatic posting plan
+after the mode is turned off; the mode does not grant reuse or publishing permission.</p>
 
 <h2>4. YouTube API Services</h2>
 <p>

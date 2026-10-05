@@ -201,9 +201,14 @@ class DownloadRefused(RuntimeError):
 
 
 def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | None = None,
-                 max_seconds: float | None = None) -> None:
+                 max_seconds: float | None = None, public_only: bool = False) -> None:
     """Optional URL import via yt-dlp. Public media only: no cookies, logins or DRM circumvention.
-    Autopilot passes size and length limits; a video over them is not downloaded (DownloadRefused)."""
+    Autopilot passes size and length limits and public_only, guarding every extractor/media request and redirect.
+    A video over the limits is not downloaded (DownloadRefused)."""
+    if public_only:
+        from . import netguard
+
+        netguard.check(url)  # before yt-dlp normalizes credentials or invokes an extractor
     try:
         import yt_dlp
     except ImportError as exc:
@@ -236,8 +241,22 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
         from yt_dlp.utils import match_filter_func
 
         ydl_opts["match_filter"] = match_filter_func(f"duration <=? {int(max_seconds)}")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        meta = ydl.extract_info(url, download=True)
+    downloader = yt_dlp.YoutubeDL
+    if public_only:
+        from .public_import import GuardedYoutubeDL, public_options
+
+        ydl_opts.update(public_options())
+        downloader = GuardedYoutubeDL
+    with downloader(ydl_opts) as ydl:
+        if public_only:
+            ydl.public_budget = int(max_bytes or 8_000_000_000)
+            ydl.public_cancelled = ctx.cancelled
+        try:
+            meta = ydl.extract_info(url, download=True)
+        except Exception:
+            # yt-dlp may wrap a stopped transport as a download error; retain the pipeline's pause/cancel outcome.
+            ctx.check()
+            raise
         path = Path(ydl.prepare_filename(meta)) if meta else pdir / "source.mp4"
     if not path.exists():
         candidates = sorted(p for p in pdir.glob("source.*") if not p.name.endswith(".part"))

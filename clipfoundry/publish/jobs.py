@@ -13,6 +13,70 @@ from . import tiktok, youtube
 from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_exactly, wait_text
 
 ACTIVE = ("queued", "uploading", "processing")
+LOCAL_TEST_WAIT = 30.0
+LOCAL_TEST_NOTE = "Local test mode is on. Clips stay on this computer; platform uploads are held."
+
+
+class LocalTestPaused(Cancelled):
+    """Pause the existing upload without discarding its resumable session or final-byte marker."""
+
+
+def local_test_mode() -> bool:
+    return bool(db.get_settings().get("autopilot_local_test_mode"))
+
+
+def check_local_test_mode() -> None:
+    if local_test_mode():
+        raise PublishError(LOCAL_TEST_NOTE, "Turn off Local test mode before publishing.", "local_test_mode")
+
+
+def check_local_test_publication(pub: dict) -> None:
+    """A local test never grants reuse permission, even when a later upload is started manually."""
+    clip = db.get_clip(pub.get("clip_id") or "") or {}
+    project = db.get_project(clip.get("project_id") or pub.get("project_id") or "") or {}
+    if not (project.get("options") or {}).get("local_test_mode"):
+        return
+    from ..autopilot import gate, queue as work_queue, rights
+
+    source_id = project.get("source_id") or ""
+    source = db.fetch("sources", source_id) if source_id else None
+    if source_id and source is None:
+        raise PublishError("The original video's reuse permission cannot be confirmed.",
+                           "Restore the source and confirm its reuse permission before publishing.", "rights_blocked")
+    settings = db.get_settings()
+    try:
+        rights.gate(source, "publish", settings)
+    except rights.RightsBlocked as exc:
+        raise PublishError(str(exc), "Confirm reuse permission in Autopilot → Permissions & sources.",
+                           "rights_blocked") from exc
+    allowed, why = rights.platform_allowed(source, pub["platform"], settings)
+    if not allowed:
+        raise PublishError(why, "The reuse terms must cover this platform before publishing.", "rights_blocked")
+    current = db.get_publication(pub.get("id") or "") or pub
+    info = current.get("info") or {}
+    if info.get("upload_session") or current.get("remote_id") or info.get("final_chunk_at"):
+        return  # continue or reconcile the same accepted upload; do not replace its already approved bytes
+    if not clip:
+        raise PublishError("The clip is missing.", "Restore the clip before publishing.", "quality")
+    try:
+        gate.verify_file(clip, pub.get("video_path") or "")
+    except work_queue.Wait as exc:
+        raise PublishError(exc.message, "Wait for the final file check, then publish again.",
+                           "quality_pending") from exc
+    except work_queue.Fail as exc:
+        raise PublishError(str(exc), exc.fix or "Fix the clip and render it again before publishing.",
+                           "quality") from exc
+
+
+def upload_cancelled(cancelled: Callable[[], bool]) -> Callable[[], bool]:
+    def check() -> bool:
+        if cancelled():
+            return True
+        if local_test_mode():
+            raise LocalTestPaused()
+        return False
+
+    return check
 
 
 def feature_snapshot(clip: dict, version: dict | None = None) -> dict:
@@ -39,6 +103,9 @@ def _progress_writer(pub_id: str) -> Callable[[float], None]:
 
 
 def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
+    check_local_test_mode()
+    check_local_test_publication(pub)
+    cancelled = upload_cancelled(cancelled)
     settings = db.get_settings()
     token = youtube.Token(settings)
     opts = pub.get("options") or {}
@@ -114,6 +181,9 @@ def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
 
 
 def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
+    check_local_test_mode()
+    check_local_test_publication(pub)
+    cancelled = upload_cancelled(cancelled)
     settings = db.get_settings()
     token = tiktok.Token(settings)
     opts = pub.get("options") or {}
@@ -127,13 +197,37 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     size = os.path.getsize(pub["video_path"])
     where = "TikTok" if mode == "direct" else "your TikTok inbox"
     saved = pub.get("info") or {}
-    resuming = pub["status"] == "uploading" and pub.get("remote_id") and saved.get("upload_url")
+    resuming = (pub["status"] == "uploading" or saved.get("local_test_hold")) \
+        and pub.get("remote_id") and saved.get("upload_url")
     offset = int(saved.get("upload_offset") or 0) if resuming else 0
+    if resuming and saved.get("local_test_hold"):
+        # A mode change may interrupt a request after TikTok accepted bytes. Read its confirmed position before
+        # continuing that same publish ID; never initialize another post or guess how many bytes arrived.
+        status = tiktok.fetch_status(token, pub["remote_id"])
+        outcome = _tiktok_outcome(pub, status, saved.get("username", ""))
+        if outcome:
+            db.update_publication(pub["id"], **outcome)
+            return
+        offset = status.get("uploaded_bytes")
+        if status.get("status") != "PROCESSING_UPLOAD" or offset == size:
+            db.update_publication(pub["id"], status="processing",
+                                  message="Uploaded; TikTok is still processing it. Use Refresh status later.")
+            return
+        chunk, total = tiktok.chunking(size)
+        if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset < size \
+                or offset % chunk or offset // chunk >= total:
+            raise PublishError("TikTok could not confirm where the held upload should continue.",
+                               "Check TikTok for the video, then refresh its status before retrying.",
+                               youtube.OUTCOME_UNKNOWN)
+        db.update_publication(pub["id"], info={**saved, "upload_offset": offset})
     db.update_publication(pub["id"], status="uploading", progress=offset / size, message=f"Uploading to {where}")
     if resuming:
         init = {"publish_id": pub["remote_id"], "upload_url": saved["upload_url"]}
     else:
-        init = tiktok.init_upload(token, mode, size, pub["description"], pub["requested_privacy"], opts)
+        if cancelled():
+            raise Cancelled()
+        init = tiktok.init_upload(token, mode, size, pub["description"], pub["requested_privacy"], opts,
+                                  cancelled=cancelled)
         db.update_publication(pub["id"], remote_id=init["publish_id"],
                               info={**saved, "username": username, "upload_url": init["upload_url"],
                                     "upload_size": size, "upload_offset": 0, "final_chunk_at": 0})
@@ -255,7 +349,8 @@ class PublishWorker:
         n = 0
         for pub in db.list_publications():
             at = (pub.get("info") or {}).get("retry_at")
-            if pub["status"] == "queued" and at and not pub.get("scheduled_id"):
+            held = (pub.get("info") or {}).get("local_test_hold") and pub["status"] in ("queued", "uploading")
+            if (pub["status"] == "queued" or held) and at and not pub.get("scheduled_id"):
                 self.later(pub["id"], float(at))
                 n += 1
         return n
@@ -300,16 +395,31 @@ class PublishWorker:
         if pub_id in self.cancelled:
             db.update_publication(pub_id, status="cancelled", message="Cancelled before the upload started.")
             return
+        if local_test_mode():
+            self._hold_local_test(pub)
+            return
         runner = RUNNERS.get(pub["platform"])
         if runner is None:
             db.update_publication(pub_id, status="failed", error=f"Unknown platform {pub['platform']}")
             return
         try:
             runner(pub, lambda: pub_id in self.cancelled)
+        except LocalTestPaused:
+            self._hold_local_test(db.get_publication(pub_id) or pub)
         except Cancelled:
             db.update_publication(pub_id, status="cancelled", message="Upload cancelled. Nothing was published.")
         except PublishError as exc:
             current = db.get_publication(pub_id) or pub
+            if exc.code == "local_test_mode":
+                self._hold_local_test(current)
+                return
+            info = current.get("info") or {}
+            if exc.code == "rights_blocked" and (info.get("upload_session") or current.get("remote_id")
+                                                  or info.get("final_chunk_at")):
+                db.update_publication(pub_id, error=str(exc), fix=exc.fix,
+                                      message="Upload held: reuse permission is missing. The existing upload record "
+                                              "is kept; check the platform before starting another upload.")
+                return
             name = "YouTube" if pub["platform"] == "youtube" else "TikTok"
             if current["status"] == "processing":  # uploaded: only reading the outcome failed; never upload it twice
                 db.update_publication(pub_id, message=f"Uploaded; {name} did not say yet whether it is posted ({exc}). "
@@ -330,6 +440,15 @@ class PublishWorker:
         except Exception as exc:  # noqa: BLE001
             log.exception("%s publish failed", pub["platform"])
             db.update_publication(pub_id, status="failed", error=f"{type(exc).__name__}: {exc}"[:500])
+
+    def _hold_local_test(self, pub: dict) -> None:
+        # Keeping the upload phase and identifiers lets TikTok and YouTube continue the same upload later.
+        if pub["status"] not in ("queued", "uploading"):
+            return
+        at = max(time.time() + LOCAL_TEST_WAIT, float((pub.get("info") or {}).get("retry_at") or 0))
+        db.update_publication(pub["id"], message=LOCAL_TEST_NOTE,
+                              info={**(pub.get("info") or {}), "local_test_hold": True, "retry_at": at})
+        self.later(pub["id"], at)
 
 
 worker = PublishWorker()

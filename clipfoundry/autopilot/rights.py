@@ -1,7 +1,7 @@
 """Rights and content safety gate. Discovery is not authorization.
 
 Every source gets exactly one rights status. Discovery stays broad (any trending topic, creator or stream), but a
-source is only clipped, scheduled or published automatically when its status passes the policy in Settings:
+source is selected in normal mode, scheduled or published only when its status passes the policy in Settings:
 
 * OWNED                          your own content (your connected YouTube channel, folders you marked as yours)
 * LICENSED                       you have a license (you record the basis, e.g. the agreement)
@@ -29,6 +29,9 @@ every automatic status comes from your own records or from a license the provide
 
 Getting the file is a separate question (access.py): a license or an agreement does not make a platform's video
 downloadable.
+
+Local test mode lets recorded public discoveries be processed locally without changing their reuse status.
+Explicit blocks remain binding, and all platform uploads and automatic scheduling are held in that mode.
 """
 from __future__ import annotations
 
@@ -75,7 +78,7 @@ def auto_allowed(status: str, settings: dict) -> bool:
 
 
 def local_allowed(source: dict, evaluation: dict | None = None, settings: dict | None = None) -> bool:
-    """A user-submitted, accessible video may be clipped locally without a publishing grant.
+    """Submitted videos and recorded discoveries in Local test mode may be clipped without a publishing grant.
 
     This never changes its reuse status: scheduling and publishing still require auto_allowed.
     Explicit blocks remain binding, and access.resolve separately decides whether media can be obtained.
@@ -83,8 +86,13 @@ def local_allowed(source: dict, evaluation: dict | None = None, settings: dict |
     intake = source.get("intake") or {}
     if intake.get("canceled") or intake.get("removed") or source.get("status") in ("canceled", "removed"):
         return False
+    settings = settings if settings is not None else db.get_settings()
     r = evaluation if evaluation is not None else evaluate(source, settings)
-    return bool(r["auto_allowed"] or (source.get("user_added") and r["status"] != BLOCKED))
+    if r["status"] == BLOCKED:
+        return False
+    test_discovery = (settings.get("autopilot_local_test_mode") and source.get("signal_id")
+                      and source.get("kind", "recorded") == "recorded")
+    return bool(r["auto_allowed"] or source.get("user_added") or test_discovery)
 
 
 # What a title says about material that is not the creator's own (music, broadcasts, films). A heuristic: it can
@@ -272,7 +280,7 @@ def apply(source: dict, settings: dict | None = None, all_rules: list[dict] | No
     if r["status"] != source.get("rights_status"):
         state.event("rights_status", f"{source.get('title', '')[:80]}: {r['label']} ({r['basis']})",
                     ref_type="source", ref_id=source["id"], status=r["status"])
-    if r["auto_allowed"] or r["status"] == BLOCKED:
+    if local_allowed(source, r, settings) or r["status"] == BLOCKED:
         state.resolve(f"rights:{source['id']}")
     db.update("sources", source["id"], **fields)
     return {**source, **fields, "rights": r}

@@ -104,6 +104,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
     # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
     "autopilot_enabled": False,
+    "autopilot_local_test_mode": False,  # broad public discovery for local clips; all platform uploads stay off
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
     "autopilot_daily_target": 15,       # a target, never a quota: quality, rights and platform limits come first

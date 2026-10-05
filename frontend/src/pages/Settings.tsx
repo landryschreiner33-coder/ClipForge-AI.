@@ -38,7 +38,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
   const t: SettingsTab = tab === "defaults" || tab === "advanced" ? tab : "accounts";
-  const { st } = useStatus();
+  const { st, refresh } = useStatus();
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -108,6 +108,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       setForm((f) => f + 1);
       setNotes(kept);
       setJustSaved(true);
+      refresh();
       toast(keys.length === changed.length ? "Settings saved" : "Saved");
       api.health().then(setHealth).catch(() => undefined);
       api.accounts().then(setAccounts).catch(() => undefined);

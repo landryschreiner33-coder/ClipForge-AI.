@@ -687,7 +687,9 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         state.resolve(f"file:{src['id']}")
         db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter",
                   access=access.record(src, found))
-        queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
+        queue.enqueue("hunt_source", {"source_id": src["id"],
+                                     "local_test_mode": bool(settings.get("autopilot_local_test_mode"))},
+                      idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
                       priority=queue.source_priority(src) if src.get("user_added") else 0, revive=False,
                       max_attempts=3, timeout_s=6 * 3600)
         state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}, "
@@ -711,6 +713,13 @@ def reapply(rows: list[dict], settings: dict, all_rules: list[dict] | None = Non
         changed += after["rights_status"] != src["rights_status"]
         if src["status"] == "queued" and after["status"] != "queued":
             for j in queue.jobs(("queued", "retrying", "waiting"), ref=("source", src["id"])):
+                if (j["payload"].get("local_test_mode") and not settings.get("autopilot_local_test_mode")
+                        and after["rights_status"] == rights.MANUAL
+                        and not (src.get("intake") or {}).get("canceled")
+                        and not (src.get("intake") or {}).get("removed")):
+                    # Turning testing off holds its queue entry. A later toggle may continue this same job;
+                    # explicit blocks and user cancellations still take the durable cancellation path.
+                    continue
                 queue.cancel(j["id"], f"Not used: {after['rights']['label']} ({after['rights']['basis']})"[:300])
     return changed
 

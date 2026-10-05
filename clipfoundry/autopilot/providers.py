@@ -1,7 +1,8 @@
 """Where trend signals come from. Only legitimate, authorized sources; nothing is scraped.
 
 * YouTube Data API v3 (official): the mostPopular chart for your region (since July 2025 it covers the Trending
-  Music, Movies and Gaming charts), recent top videos for your topics (search.list, its own daily quota bucket),
+  Music, Movies and Gaming charts), recent long videos for your topics, or recent long/medium videos across topics
+  when no topics are set (search.list, its own daily quota bucket),
   live streams with their concurrent viewers, and new uploads of channels you follow. Every call is counted by the
   quota manager, answers are cached, and repeated requests are served from the cache.
 * Watch folders: new recordings you put in a folder (your own content, with the rights status you give the folder).
@@ -55,7 +56,7 @@ UNAVAILABLE = {
 VIDEO_PARTS = "snippet,statistics,contentDetails,liveStreamingDetails,status"
 MIN_STABLE_SECONDS = 60
 YOUTUBE_DATA = "YouTube Data API"
-SHORT_SECONDS = 180  # a video this short is a clip; the long video it links to is what can be clipped again
+SHORT_SECONDS = 240  # matches Source Scout's minimum: shorter clips can still point to a usable original
 YOUTUBE_LINK = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^\s#\"'<>]*&)?v=|live/|shorts/|embed/)|youtu\.be/)([\w-]{11})")
 
 
@@ -148,14 +149,19 @@ class YouTubeDiscovery:
         return data.get("items") or []
 
     def search(self, q: str, region: str, language: str, published_after: float | None, event_type: str = "",
-               max_results: int = 25) -> list[str]:
-        params = {"part": "snippet", "type": "video", "q": q, "regionCode": region, "relevanceLanguage": language,
+               max_results: int = 25, duration: str = "") -> list[str]:
+        params = {"part": "snippet", "type": "video", "regionCode": region, "relevanceLanguage": language,
                   "order": "viewCount", "maxResults": max_results}
+        if q:
+            params["q"] = q
         if event_type:
             params["eventType"] = event_type
-        elif published_after:
-            params["publishedAfter"] = dt.datetime.fromtimestamp(published_after, dt.timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ")
+        else:
+            if published_after:
+                params["publishedAfter"] = dt.datetime.fromtimestamp(published_after, dt.timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ")
+            if duration:
+                params["videoDuration"] = duration
         data = self._get("search.list", "search", params, ttl=1800)
         return [((i.get("id") or {}).get("videoId")) for i in data.get("items") or [] if (i.get("id") or {}).get("videoId")]
 
@@ -196,6 +202,7 @@ class YouTubeDiscovery:
                 return fn(*args, **kw)
             except quota.QuotaDenied as exc:
                 self.denied.append(str(exc))
+                failed_calls.add(fn.__name__)
                 return None
             except PublishError as exc:
                 # Keep results already obtained. An exhausted search API must not erase the chart or prevent
@@ -209,14 +216,18 @@ class YouTubeDiscovery:
         for rank, item in enumerate(popular or [], 1):
             items[item["id"]] = item
             ranked[item["id"]] = ("youtube_popular", rank, len(popular or []), "mostPopular")
-        for topic in topics:
+        # mostPopular covers only a few charts. With no preferred topics, two bounded searches also find
+        # recent interviews, commentary and other recordings without filling the result list with Shorts.
+        searches = [(topic, "long", topic) for topic in topics] if topics else [
+            ("", "long", "recent long videos"), ("", "medium", "recent medium videos")]
+        for query, duration, label in searches:
             if job:
                 job.check()
-            ids = attempt(self.search, topic, region, lang, since)
+            ids = attempt(self.search, query, region, lang, since, duration=duration)
             if ids is None:
                 break  # the search bucket said no: no point trying the next topic
             for rank, vid in enumerate(ids, 1):
-                ranked.setdefault(vid, ("youtube_search", rank, len(ids), topic))
+                ranked.setdefault(vid, ("youtube_search", rank, len(ids), label))
         if include_live:
             ids = attempt(self.search, "live", region, lang, None, event_type="live")
             for rank, vid in enumerate(ids or [], 1):
@@ -239,7 +250,7 @@ class YouTubeDiscovery:
         for vid in list(ranked):
             item = items.get(vid) or {}
             dur = iso_duration((item.get("contentDetails") or {}).get("duration"))
-            if dur is None or dur > SHORT_SECONDS:
+            if dur is None or dur >= SHORT_SECONDS:
                 continue
             for linked in linked_videos((item.get("snippet") or {}).get("description") or ""):
                 if linked != vid and linked not in ranked and linked not in found:

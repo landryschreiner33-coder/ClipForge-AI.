@@ -93,7 +93,7 @@ def start(platforms: dict, topics: str | None = None) -> dict:
     by the caller."""
     ready = connected(platforms)
     patch: dict = {"autopilot_enabled": True}
-    if topics is not None and topics.strip():
+    if topics is not None and (topics.strip() or db.get_settings().get("autopilot_local_test_mode")):
         patch["trend_topics"] = ", ".join(t.strip() for t in topics.split(",") if t.strip())[:1000]
     if ready:  # post only where you are signed in; with none yet, a platform is used once you connect it
         patch.update({f"autopilot_{p}": p in ready for p in NAME})
@@ -155,6 +155,11 @@ def currently(settings: dict, workers_alive: bool, discovery: dict | None = None
     kinds = {j["kind"] for j in queue.jobs(("running",), limit=50)}
     for kind, words in DOING.items():
         if kind in kinds:
+            if settings.get("autopilot_local_test_mode"):
+                if kind == "publish":
+                    return "Stopping an earlier upload"
+                if kind == "schedule_tick":
+                    continue
             return words
     busy = {r["status"] for r in db.select("sources", "status IN ('ingesting', 'analyzing')")}
     if busy:  # between two of a video's jobs nothing runs for a moment, but the video is still being worked on
@@ -169,9 +174,15 @@ def currently(settings: dict, workers_alive: bool, discovery: dict | None = None
         if counts.get("needs_file") and not used:
             return "No usable video files yet"
         if (counts.get("needs_rights") or counts.get("blocked")) and not used:
+            if settings.get("autopilot_local_test_mode"):
+                if counts.get("needs_rights"):
+                    return "Waiting to check public videos for local clips"
+                return "No usable public videos yet"
             return "No covered videos found yet"
         if discovery["problems"]:
             return "Some searches did not work"
+    if settings.get("autopilot_local_test_mode") and local_ready(1):
+        return "Local clips are ready on this PC"
     return "Waiting for the next search" if discovery["last_scan"] else "Looking for opportunities"
 
 
@@ -203,22 +214,38 @@ def _source_view(src: dict) -> dict:
 
 def _was_connected(platform: str) -> bool:
     return platform in (state.get("setup:platforms") or []) or bool(
-        db.scalar("SELECT COUNT(*) FROM publications WHERE platform = ?", (platform,)))
+                db.scalar("SELECT COUNT(*) FROM publications WHERE platform = ?", (platform,)))
+
+
+def _upload_uncertain(action: dict) -> bool:
+    """Keep the review of bytes a platform may already have, even while new uploads are disabled."""
+    if action["key"].startswith("review:"):
+        return True
+    if action.get("ref_type") != "scheduled" or not action.get("ref_id"):
+        return False
+    item = db.fetch("scheduled_publications", action["ref_id"]) or {}
+    if item.get("status") == "reconciling":
+        return True
+    pub = db.get_publication(item.get("publication_id") or "") or {}
+    return bool(pub.get("remote_id") or (pub.get("info") or {}).get("final_chunk_at"))
 
 
 def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> list[dict]:
     """Only what really needs you, in plain words, most urgent first."""
     items: list[dict] = []
+    local = bool(settings.get("autopilot_local_test_mode"))
     if workers_stopped(settings, workers_alive):
         items.append({"key": "workers_stopped", "type": "stopped", "title": "Autopilot's background work has stopped",
-                      "detail": "ClipFoundry is open, but the part that finds, clips and posts videos is not running, "
+                      "detail": ("ClipFoundry is open, but the part that finds and clips videos is not running, "
+                                 "so nothing happens.") if local else
+                                "ClipFoundry is open, but the part that finds, clips and posts videos is not running, "
                                 "so nothing happens.",
                       "fix": "Close the black ClipFoundry window, then start ClipFoundry again with start.bat. If "
                              "this keeps happening, see Autopilot → Advanced → System.",
                       "link": "#/autopilot/system"})
     for p, name in NAME.items():
         acc = platforms.get(p) or {}
-        if not settings.get(f"autopilot_{p}"):
+        if local or not settings.get(f"autopilot_{p}"):
             continue
         planned = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE platform = ? AND status IN "
                                 "('awaiting_approval', 'approved', 'publishing', 'action_needed')", (p,)) or 0)
@@ -236,6 +263,9 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
         kind, key = a["kind"], a["key"]
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
+        if local and (kind in ("approve", "rights") or key.startswith("connect:") or
+                      (kind == "publish" and not _upload_uncertain(a))):
+            continue
         if kind == "workers" and workers_alive:
             continue  # the automatic in-app fallback already recovered this problem
         if kind == "rights":
@@ -250,11 +280,15 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             if not src or src["status"] != "needs_file" or not src.get("user_added"):
                 continue
             hosted = rights.is_platform_url(src.get("url") or "")
+            detail = a["detail"]
+            if hosted:
+                detail = ("ClipFoundry could not get this public video automatically. Choose a video "
+                          "file on this computer to continue.") if local else \
+                         ("ClipFoundry does not download videos from YouTube or other platforms by itself "
+                          "(their terms). Choose the original file on this computer; for your own "
+                          "videos, YouTube Studio → Download gives you one.")
             items.append({"key": key, "type": "file", "title": f"Add the video file for “{src['title'][:80]}”",
-                          "detail": ("ClipFoundry does not download videos from YouTube or other platforms by itself "
-                                     "(their terms). Choose the original file on this computer; for your own "
-                                     "videos, YouTube Studio → Download gives you one.") if hosted else a["detail"],
-                          "source": _source_view(src)})
+                          "detail": detail, "source": _source_view(src)})
         elif kind == "approve":
             items.append({"key": key, "type": "approve", "title": a["title"], "detail": a["detail"],
                           "link": "#/posts/review"})
@@ -280,7 +314,7 @@ def needs_videos(settings: dict) -> dict | None:
     """Autopilot is on and has looked, but has nothing it may clip: nothing it may use is waiting or being worked on,
     and it made no clip in the last day. Videos from other channels are skipped (the activity log says why), so
     this is said once, here, with the one thing that helps: your own videos in your videos folder."""
-    if not state.enabled(settings) or not state.get("trend:last_scan"):
+    if settings.get("autopilot_local_test_mode") or not state.enabled(settings) or not state.get("trend:last_scan"):
         return None
     marks = ",".join("?" * len(USABLE))
     if db.scalar(f"SELECT COUNT(*) FROM sources WHERE status IN ({marks})", USABLE):
@@ -314,8 +348,10 @@ def needs_videos(settings: dict) -> dict | None:
     return {"key": "videos", "type": "videos", "title": title, "detail": detail, "folder": folder}
 
 
-def opportunities(limit: int = 5) -> list[dict]:
+def opportunities(limit: int = 5, settings: dict | None = None) -> list[dict]:
     """The strongest things discovery found, with where each one stands."""
+    settings = settings if settings is not None else db.get_settings()
+    local = bool(settings.get("autopilot_local_test_mode"))
     sigs = db.select("trend_signals", "status = 'active'", (), "score DESC, last_checked DESC", 60)
     by_signal: dict[str, dict] = {}
     if sigs:
@@ -325,11 +361,15 @@ def opportunities(limit: int = 5) -> list[dict]:
     out = []
     for s in sigs:
         src = by_signal.get(s["id"])
-        if src and src["status"] in NOT_OPPORTUNITIES:
+        waiting_local = bool(local and src and src["status"] == "needs_rights" and
+                             rights.local_allowed(src, settings=settings))
+        if src and src["status"] in NOT_OPPORTUNITIES and not waiting_local:
             continue
         made = int((src or {}).get("clips_selected") or 0)
         if src and src["status"] in ("analyzed", "weak", "exhausted") and made:
             stage = f"{made} clip{'s' if made != 1 else ''} made"
+        elif waiting_local:
+            stage = "Waiting for local clipping"
         else:
             stage = STAGE.get(src["status"], "Checking") if src else "Found"
         out.append({"id": s["id"], "title": s.get("title") or "", "url": s.get("url") or "",
@@ -341,20 +381,24 @@ def opportunities(limit: int = 5) -> list[dict]:
     return out
 
 
-def upcoming(limit: int = 5) -> list[dict]:
+def upcoming(limit: int = 5, settings: dict | None = None) -> list[dict]:
     """The next posts, including ones already uploaded that the platform will publish at their time."""
-    marks = ",".join("?" * len(UPCOMING))
+    settings = settings if settings is not None else db.get_settings()
+    statuses = ("reconciling", "action_needed") if settings.get("autopilot_local_test_mode") else UPCOMING
+    marks = ",".join("?" * len(statuses))
     rows = db.select("scheduled_publications", f"status IN ({marks}) OR (status = 'published' AND planned_at > ?)",
-                     (*UPCOMING, time.time()), "planned_at IS NULL, planned_at", limit)
+                     (*statuses, time.time()), "planned_at IS NULL, planned_at", limit)
     return [{"id": r["id"], "platform": r["platform"], "title": r.get("title") or "", "planned_at": r.get("planned_at"),
              "status": r["status"], "auto": (r.get("approval") or {}).get("by") == "automatic",
              "on_platform": r["status"] == "published"} for r in rows]
 
 
-def _why_not(src: dict) -> str:
+def _why_not(src: dict, settings: dict | None = None) -> str:
     """Why a found video was not (or not yet) used, in plain words."""
     st = src["status"]
     if st == "needs_rights":
+        if (settings or {}).get("autopilot_local_test_mode") and rights.local_allowed(src, settings=settings):
+            return "Waiting for local clipping. Reuse permission is still unknown; uploads are off."
         return "Not covered: " + (src.get("rights_basis") or "no agreement, license or ownership")
     if st == "needs_file":
         return src.get("status_note") or "No allowed way to get the video file"
@@ -366,6 +410,8 @@ def _why_not(src: dict) -> str:
 def activity(limit: int = 40) -> list[dict]:
     """The activity log: what Autopilot did with each video it found, newest first, with the reason when it skipped
     one. Optional reading; nothing here waits for you."""
+    settings = db.get_settings()
+    local = bool(settings.get("autopilot_local_test_mode"))
     marks = ",".join("?" * len(ACTIVITY))
     rows = db.select("sources", f"status IN ({marks})", ACTIVITY, "updated_at DESC", limit)
     out = []
@@ -375,10 +421,13 @@ def activity(limit: int = 40) -> list[dict]:
         stage = STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped"
         if made and s["status"] in ("analyzed", "weak", "exhausted"):
             stage = f"{made} clip{'s' if made != 1 else ''} made"  # a weak video still gave you these clips
+        elif local and s["status"] == "needs_rights" and rights.local_allowed(s, settings=settings):
+            stage = "Waiting for local clipping"
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
-                    "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
+                    "why": _why_not(s, settings), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
-                    "can_add_file": s["status"] == "needs_file" and bool(rights.evaluate(s)["auto_allowed"])})
+                    "can_add_file": s["status"] == "needs_file" and (rights.local_allowed(s, settings=settings)
+                         if local else bool(rights.evaluate(s)["auto_allowed"]))})
     return out
 
 
@@ -386,6 +435,20 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
     """What to say when there is nothing to show yet (never "no sources configured")."""
     if found:
         return ""
+    if settings.get("autopilot_local_test_mode"):
+        if local_ready(1):
+            return "Local clips are ready in Library. Uploads are off."
+        if not discover:
+            return ("Connect YouTube or add a YouTube search key in Settings → Advanced to find public videos. "
+                    "Uploads stay off.")
+        if not settings.get("autopilot_enabled"):
+            return "Turn on Autopilot to find public videos and make local clips. Uploads stay off."
+        if not state.get("trend:last_scan"):
+            return "Autopilot is looking for public videos to clip on this PC. Uploads are off."
+        if skipped_count():
+            return ("No usable public videos yet. Autopilot keeps looking for strong videos it can access. "
+                    "Activity explains videos it could not use. Uploads are off.")
+        return "No strong public videos found yet. Autopilot is still looking. Uploads are off."
     if not discover:
         return "Connect YouTube to start finding content."
     if not settings.get("autopilot_enabled"):
@@ -403,7 +466,9 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
 def auto_publish(settings: dict) -> dict:
     """Per platform: publishes by itself, or waits for your OK (and why)."""
     v = autopublish.view(settings)
-    return {p: {"enabled": v[p]["enabled"], "supported": v[p]["supported"], "note": v[p]["note"],
+    local = bool(settings.get("autopilot_local_test_mode"))
+    return {p: {"enabled": False if local else v[p]["enabled"], "supported": v[p]["supported"],
+                "note": "Local test mode is on. All uploads are off; clips stay on this PC." if local else v[p]["note"],
                 "since": autopublish.since(v[p]["consent"], settings) if v[p]["consent"] else "",
                 "settings": (v[p]["consent"] or {}).get("settings") or {}} for p in NAME}
 
@@ -415,6 +480,10 @@ def pc_note(settings: dict) -> str:
     now = keep_awake(settings)
     if now == "off" and not settings.get("autopilot_keep_awake", True):
         now = "setting_off"
+    if settings.get("autopilot_local_test_mode"):
+        return ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while "
+                f"ClipFoundry runs. {SLEEP[now]} Clips stay on this PC. All uploads are off. "
+                "A post uploaded before local test mode was turned on may already be on the platform.")
     start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
     return PC_NOTE.format(sleep=SLEEP[now], start=hour(int(9 if start is None else start)),
                           end=hour(int(21 if end is None else end)))
@@ -432,7 +501,8 @@ def needs_sleep_fix(settings: dict) -> dict | None:
         return None
     return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
             "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
-                      "Autopilot finds, clips and posts nothing.",
+                      + ("Autopilot cannot find or clip videos." if settings.get("autopilot_local_test_mode") else
+                         "Autopilot finds, clips and posts nothing."),
             "fix": SLEEP_FIX}
 
 
@@ -474,6 +544,8 @@ def working(settings: dict) -> dict | None:
     running = sorted(queue.jobs(("running",), limit=50),
                      key=lambda j: order.index(j["kind"]) if j["kind"] in order else len(order))
     for job in running:
+        if settings.get("autopilot_local_test_mode") and job["kind"] in ("publish", "schedule_tick"):
+            continue
         video = _video_of(job.get("ref_type") or "", job.get("ref_id") or "")
         if video:
             progress = float(job.get("progress") or 0)
@@ -481,6 +553,22 @@ def working(settings: dict) -> dict | None:
                     "progress": round(min(1.0, progress), 3) if progress > 0 else None,
                     "message": job.get("message") or DOING.get(job["kind"], "Working")}
     return None
+
+
+def local_ready(limit: int = 5) -> list[dict]:
+    """Finished local clips, including output still available after a failed final check."""
+    from ..pipeline import artifact
+
+    out = []
+    rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
+                              "('autopilot', 'live'))", (), "created_at DESC")
+    for clip in rows:
+        path, _, _ = artifact.active(clip)
+        if path and Path(path).is_file():
+            out.append({"id": clip["id"], "title": clip.get("title") or "Local clip", "project_id": clip["project_id"]})
+            if len(out) >= limit:
+                break
+    return out
 
 
 def post_counts() -> dict:
@@ -517,6 +605,8 @@ def next_step(settings: dict) -> str:
     if not settings.get("autopilot_enabled"):
         return "Start Autopilot to continue"
     pending = queue.jobs(("queued", "retrying", "waiting"), limit=100)
+    if settings.get("autopilot_local_test_mode"):
+        pending = [j for j in pending if j["kind"] not in ("publish", "schedule_tick")]
     due = [j for j in pending if float(j.get("run_after") or 0) <= time.time()]
     if due:
         job = max(due, key=lambda j: (j.get("priority") or 0, -(j.get("created_at") or 0)))
@@ -528,18 +618,22 @@ def next_step(settings: dict) -> str:
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     """Everything the simple Autopilot page shows."""
-    found = opportunities()
+    found = opportunities(settings=settings)
     discover = can_discover(settings, platforms)
     discovery = discovery_status()
-    return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
+    out = {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
             "currently": currently(settings, workers_alive, discovery), "next_look": next_look(settings),
             "next": next_step(settings),
             "discovery": discovery, "working": working(settings),
             "needs_you": needs_you(settings, platforms, workers_alive),
-            "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
+            "opportunities": found, "upcoming": upcoming(settings=settings),
+            "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),
             "skipped_today": skipped_count(), "my_videos": myvideos.view(), "posts": post_counts()}
+    if settings.get("autopilot_local_test_mode"):
+        out.update(local_test_mode=True, local_ready=local_ready())
+    return out
 
 
 def skipped_count() -> int:

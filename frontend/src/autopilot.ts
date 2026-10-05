@@ -283,6 +283,9 @@ export interface WorkingOn {
 }
 
 export interface HomeView {
+  local_test_mode?: boolean;
+  /** Finished Autopilot clips that have a rendered file on this PC. */
+  local_ready?: { id: string; title: string; project_id: string }[];
   setup: {
     started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string;
     /** The choice made in first-time setup ("manual": you make clips yourself). */

@@ -196,11 +196,14 @@ def api_error(code: str, message: str = "", status: int = 0) -> PublishError:
 
 
 @network_errors("TikTok")
-def _call(token: Token, path: str, body: dict | None = None, method: str = "POST", params: dict | None = None) -> dict:
+def _call(token: Token, path: str, body: dict | None = None, method: str = "POST", params: dict | None = None,
+          *, cancelled: Callable[[], bool] = lambda: False) -> dict:
     with client(30) as c:
         for attempt in range(2):
             headers = {"Authorization": f"Bearer {token.get(force=attempt > 0)}",
                        "Content-Type": "application/json; charset=UTF-8"}
+            if cancelled():
+                raise Cancelled()
             r = c.request(method, f"{API_URL}{path}", json=body if method == "POST" else None, params=params,
                           headers=headers)
             data = _json(r)
@@ -291,13 +294,13 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
 
 
 def init_upload(token: Token, mode: str, size: int, caption: str = "", privacy: str = "",
-                opts: dict | None = None) -> dict:
+                opts: dict | None = None, *, cancelled: Callable[[], bool] = lambda: False) -> dict:
     chunk, total = chunking(size)
     source = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": total}
     if mode == "direct":
         body = {"post_info": post_info(caption, privacy, opts or {}), "source_info": source}
-        return _call(token, "/post/publish/video/init/", body)
-    return _call(token, "/post/publish/inbox/video/init/", {"source_info": source})
+        return _call(token, "/post/publish/video/init/", body, cancelled=cancelled)
+    return _call(token, "/post/publish/inbox/video/init/", {"source_info": source}, cancelled=cancelled)
 
 
 def _busy(r: httpx.Response) -> PublishError:
@@ -327,6 +330,8 @@ def upload_chunks(upload_url: str, path: str, progress: Callable[[float], None],
             if i == total - 1 and on_final_chunk:
                 on_final_chunk()  # persist uncertainty before any final bytes can reach the platform
             for attempt in range(3):
+                if cancelled():
+                    raise Cancelled()
                 try:
                     r = c.put(upload_url, content=data, headers={"Content-Type": "video/mp4",
                                                                   "Content-Range": f"bytes {start}-{end}/{size}"})

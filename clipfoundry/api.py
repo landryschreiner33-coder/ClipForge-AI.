@@ -131,7 +131,15 @@ def get_settings() -> dict:
 @app.put("/api/settings")
 def put_settings(patch: dict[str, Any]) -> dict:
     patch = {k: v for k, v in patch.items() if not (k in config.SECRET_KEYS and v == "********")}
+    previous = bool(db.get_settings().get("autopilot_local_test_mode"))
     db.save_settings(patch)
+    if previous != bool(db.get_settings().get("autopilot_local_test_mode")):
+        from .autopilot import queue, state
+
+        # Ordinary priority keeps discovery subject to Autopilot's off/pause/stop controls.
+        queue.enqueue("rights_check", message="Local test mode changed; checking waiting videos")
+        state.event("local_test_mode", "Local test mode on: local clips only; all uploads off" if not previous else
+                    "Local test mode off: normal reuse and publishing checks apply")
     return get_settings()
 
 

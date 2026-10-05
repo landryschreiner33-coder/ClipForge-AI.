@@ -9,9 +9,9 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 ```
 
 * Runs entirely on your computer: no ClipFoundry accounts, no cloud rendering, no subscription. Runtime cost is about
-  **$0**. The only network use is optional: publishing and reading your own videos' statistics through the official
-  YouTube and TikTok APIs.
-* Paid AI APIs are optional and off by default. Local mode needs no API key.
+  **$0**. Network use includes online discovery, obtaining public media and speech models, optional cloud AI, and
+  publishing or reading your videos' statistics through the official YouTube and TikTok APIs.
+* Paid AI APIs are optional and off by default. Local scoring and transcription need no AI API key.
 * Personal tool, not a SaaS. Single user, local SQLite database, local files.
 
 > **New: Autopilot.** ClipFoundry can now run as a persistent, local-first content opportunity engine: it finds
@@ -20,6 +20,10 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 > clips each, 15 posts a day) are never quotas. Setup is three steps: add your videos, choose how to work, set up
 > posting (connect YouTube and, optionally, TikTok), then **Start Autopilot**; it only asks you what really needs you.
 > See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
+
+> **Local AI tests:** enable **Local test mode** on Autopilot to clip public trending recordings regardless of
+> reuse status, with all uploads held. Empty topics search across topics; a YouTube connection or search key is
+> needed for YouTube discovery. Finished clips stay in Library.
 
 > **Windows quick start:** install Python 3.11/3.12 and FFmpeg (`winget install Gyan.FFmpeg`), then double-click
 > **`start.bat`**. The app opens at <http://127.0.0.1:8765>. Full instructions are in [INSTALL.md](INSTALL.md).
@@ -47,7 +51,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Posts → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Posts → Results) or JSON as the basis for tuning the ranking later. |
 | Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Final Quality Gate, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. A simple **Overview** (**Start Autopilot** / **Pause Autopilot**, this PC and the GPU, **Needs you**, what it is working on, your videos folder, upcoming posts and how they go out), an **Activity** tab (top opportunities, and what it did with each video it found) and **Permissions & sources**, with a three-step first-time setup (add your videos, choose how to work, set up posting, then **Start Autopilot**); workers, GPU, quota, jobs and learning under **Advanced**; **Stop all jobs…** always at hand. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
 | Posts | Every planned and published post in one place, with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (required by YouTube and TikTok), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
-| Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Discovery is not authorization: only sources you have rights to are clipped automatically. |
+| Rights | Every source keeps its reuse status. Normal Autopilot selects covered sources; optional Local test mode also clips accessible public discoveries without a reuse grant and disables all uploads. Explicit Blocks always win. |
 | Library | **Home**, **Autopilot**, **Library** (your source videos and their clips), **Posts** and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 
 ## How clip discovery works
@@ -178,13 +182,18 @@ for exercising the whole pipeline.
 
 ## Responsible use
 
-Only process videos you own or have permission to use. Finding a video (trending, public or downloadable) does not
-make it reusable. Automatically discovered sources need reuse rights before clipping. Links you paste into
+Finding a video (trending, public or downloadable) does not make it reusable. In normal mode, automatically
+discovered sources need reuse rights before clipping. Links you paste into
 Autopilot may be clipped locally when the file can be obtained through supported access; this supplies no reuse or
 publishing permission. Explicitly blocked videos are never processed. The optional URL import uses yt-dlp for
 publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never
 passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you
-have permission to download.
+have permission to download. For local AI testing, turn on **Local test mode** on Autopilot → Overview, then
+**Start Autopilot**. It automatically chooses promising recorded public discoveries regardless of reuse status,
+obtains supported public media, and saves quality-checked clips in Library. All uploads, including manual uploads
+and inbox drafts, are held while the mode is on. Test projects stay outside the automatic posting plan after it
+is turned off. A YouTube connection or search key is still needed for YouTube discovery; blocked or inaccessible
+videos are skipped and quality thresholds and daily limits still apply.
 
 ## Website and legal pages
 

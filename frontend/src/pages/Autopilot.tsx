@@ -1,5 +1,5 @@
 import RobotOffice from "../components/RobotOffice";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorText, Platform, Project, projectThumbUrl, timeAgo } from "../api";
 import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
 import { PLATFORM_NAME } from "../components/accounts";
@@ -11,7 +11,7 @@ import { AutoPublishLine } from "../components/autoPublish";
 import { needLook, NeedsYouList } from "../components/needsYou";
 import {
   Banner, ConfirmDialog, Disclosure, Fact, Icon, IconName, LinkTabs, LoadingPage, PageHead, PlatformName, Pill,
-  ProgressBar, Skel, TextPromptDialog, Thumb, toast, Tone, usePoll,
+  ProgressBar, Skel, TextPromptDialog, Thumb, toast, Toggle, Tone, usePoll,
 } from "../components/ui";
 import { plural, zoneLine } from "../format";
 import { useStatus } from "../status";
@@ -33,8 +33,10 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Autopilot" sub="Finds videos you may use, makes clips, checks them and plans posts. Nothing is
-        posted without your OK, or the permission you gave for YouTube." />
+      <PageHead title="Autopilot" sub={st.settings.autopilot_local_test_mode
+        ? "Finds public videos and makes clips for local testing. Clips stay on this PC. All uploads are off."
+        : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
+          + "or the permission you gave for YouTube."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Autopilot sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/autopilot", label: "Overview" },
@@ -103,11 +105,52 @@ function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue
 const every = (minutes: number) => minutes % 60 === 0 ? `every ${plural(minutes / 60, "hour")}`
   : `every ${minutes} minutes`;
 
+function LocalTestMode({ st, lost, refresh }: {
+  st: AutopilotStatus; lost: boolean; refresh: () => void;
+}) {
+  const on = !!st.settings.autopilot_local_test_mode;
+  const [pending, setPending] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (pending === on) setPending(null);
+  }, [on, pending]);
+  const toggle = async (value: boolean) => {
+    setPending(value);
+    try {
+      await api.saveSettings({ autopilot_local_test_mode: value });
+      refresh();
+      toast(value ? "Local test mode is on. All uploads are off."
+        : "Local test mode is off. Posting follows your existing permissions.");
+    } catch (e) {
+      setPending(null);
+      toast(errorText(e), true);
+    }
+  };
+  return (
+    <section className="panel tight" aria-labelledby="ap-local-test">
+      <div className="panel-head">
+        <h2 id="ap-local-test">Local test mode</h2>
+        <Toggle on={on} onChange={toggle} ariaLabel="Local test mode" showState
+          disabled={lost || pending !== null} describedBy="ap-local-test-hint" />
+      </div>
+      <p className="small muted" id="ap-local-test-hint">
+        When on, Autopilot finds public videos and makes clips for local testing. Clips stay on this PC.
+        {" "}<b>All uploads are off while this is on.</b> Blocked or unavailable videos are still skipped.
+      </p>
+      {lost ? <p className="small muted">The app is not answering. This is the last known setting.</p>
+        : pending !== null && <p className="small muted" role="status">Saving…</p>}
+    </section>
+  );
+}
+
 // ------------------------------------------------------------------ overview
 function Overview({ st, lost, since, refresh, setData }: {
   st: AutopilotStatus; lost: boolean; since: string; refresh: () => void; setData: (s: AutopilotStatus) => void;
 }) {
   const h = st.home;
+  const localTest = !!st.settings.autopilot_local_test_mode;
+  const localClips = (h.local_ready || []).slice(0, 3);
+  const earlierUploads = h.upcoming.filter((u) => u.on_platform
+    || ["publishing", "published", "reconciling", "action_needed"].includes(u.status));
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
   if (!st.enabled && !h.setup.started) {
@@ -115,13 +158,17 @@ function Overview({ st, lost, since, refresh, setData }: {
       <>
         <section className="panel" aria-labelledby="ap-off">
           <h2 id="ap-off">Autopilot is not set up</h2>
-          <p className="muted">Autopilot finds videos it may use and makes local clips from links you add. It keeps
-            looking and working by itself. Posting needs your OK or the permission you give for YouTube.</p>
+          <p className="muted">{localTest
+            ? "Autopilot finds public videos and makes clips for local testing. It keeps looking and working by "
+              + "itself. Clips stay on this PC, and all uploads are off."
+            : "Autopilot finds videos it may use and makes local clips from links you add. It keeps looking and "
+              + "working by itself. Posting needs your OK or the permission you give for YouTube."}</p>
           <div className="row wrap">
             <a className="btn btn-primary" href="#/setup/mode">Set up Autopilot</a>
             <a className="btn" href="#/create">Make clips yourself instead</a>
           </div>
         </section>
+        <LocalTestMode st={st} lost={lost} refresh={refresh} />
         <div className="ap-control-room">
           <RobotOffice />
           <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
@@ -179,6 +226,8 @@ function Overview({ st, lost, since, refresh, setData }: {
         </div>
       </section>
 
+      <LocalTestMode st={st} lost={lost} refresh={refresh} />
+
       <div className="ap-control-room">
         <RobotOffice />
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
@@ -230,10 +279,23 @@ function Overview({ st, lost, since, refresh, setData }: {
         </section>
         <section className="panel" aria-labelledby="ap-up">
           <div className="panel-head">
-            <h2 id="ap-up">Coming up</h2>
-            <a className="btn btn-quiet btn-small" href="#/posts/scheduled">All posts</a>
+            <h2 id="ap-up">{localTest ? "Local clips" : "Coming up"}</h2>
+            <a className="btn btn-quiet btn-small" href={localTest ? "#/library" : "#/posts/scheduled"}>
+              {localTest ? "All clips" : "All posts"}</a>
           </div>
-          {h.upcoming.length ? (
+          {localTest ? <>
+            {localClips.length ? <div className="rows">{localClips.map((c) => (
+              <div className="row" key={c.id}>
+                <Icon name="film" />
+                <a className="textlink clamp-2" href={`#/clip/${c.id}`}>{c.title || "Open clip"}</a>
+              </div>
+            ))}</div> : <p className="muted small">Finished clips appear in Library. All uploads are off.</p>}
+            {earlierUploads.length > 0 && <>
+              <hr className="divider" />
+              <h3>Earlier uploads</h3>
+              <div className="rows">{earlierUploads.map((u) => <UpcomingRow key={u.id} u={u} tz={st.timezone} />)}</div>
+            </>}
+          </> : h.upcoming.length ? (
             <>
               <div className="rows">{h.upcoming.map((u) => <UpcomingRow key={u.id} u={u} tz={st.timezone} />)}</div>
               <p className="tiny faint">{zoneLine(st.timezone)}</p>
@@ -241,7 +303,10 @@ function Overview({ st, lost, since, refresh, setData }: {
           ) : <p className="muted small">No posts planned yet. Finished clips show up here with their posting time.</p>}
           <hr className="divider" />
           <h3>How posts go out</h3>
-          <AutoPublishLine onChange={refresh} />
+          {localTest
+            ? <p className="small muted">All uploads are off while Local test mode is on, including posts you approve.
+              Finished clips are available in <a className="textlink" href="#/library">Library</a>.</p>
+            : <AutoPublishLine onChange={refresh} />}
           <Accounts st={st} refresh={refresh} />
           <p className="tiny faint">Connecting an account never lets ClipFoundry post by itself. Automatic publishing is
             a separate permission that you turn on here, for YouTube only.</p>

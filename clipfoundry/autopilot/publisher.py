@@ -250,11 +250,17 @@ def publish(job: Job) -> dict:
         raise queue.Fail("The scheduled post was deleted")
     if item["status"] in ("published", "canceled", "replaced"):
         return {"message": f"Nothing to do: the post is {item['status']}"}
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        raise queue.Wait("local_test_mode", publish_jobs.LOCAL_TEST_WAIT, publish_jobs.LOCAL_TEST_NOTE)
     clip = db.get_clip(item["clip_id"])
     if not clip or clip["status"] != "ready":
         _set(item, "failed", "The clip is missing or not rendered.", "failed")
         raise queue.Fail("The clip is missing or not rendered")
     project = db.get_project(clip["project_id"]) or {}
+    if (project.get("options") or {}).get("local_test_mode") \
+            and not any(a.get("event") == "publish_now" for a in item.get("audit") or []):
+        raise queue.Wait("local_test_clip", publish_jobs.LOCAL_TEST_WAIT,
+                         "This clip was made in Local test mode and is held from automatic publishing.")
     source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
     if source and verify.ensure([source], settings):  # a channel never confirmed (work from before the check)
         source = db.fetch("sources", source["id"]) or source
@@ -298,6 +304,8 @@ def publish(job: Job) -> dict:
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
+    if publish_jobs.local_test_mode():
+        raise queue.Wait("local_test_mode", publish_jobs.LOCAL_TEST_WAIT, publish_jobs.LOCAL_TEST_NOTE)
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:
@@ -308,7 +316,11 @@ def publish(job: Job) -> dict:
             pub = db.get_publication(pub["id"]) or pub
         if pub["status"] not in ("done", "action_needed"):
             runner = publish_jobs.RUNNERS[item["platform"]]
-            runner(pub, job.cancelled)
+            runner(pub, publish_jobs.upload_cancelled(job.cancelled))
+    except publish_jobs.LocalTestPaused:
+        db.update_publication(pub["id"], message=publish_jobs.LOCAL_TEST_NOTE)
+        db.update("scheduled_publications", item["id"], status_note=publish_jobs.LOCAL_TEST_NOTE)
+        raise queue.Wait("local_test_mode", publish_jobs.LOCAL_TEST_WAIT, publish_jobs.LOCAL_TEST_NOTE) from None
     except (queue.Canceled, UploadCancelled):
         if job.host and job.host._stop.is_set() and not state.paused() \
                 and not (queue.get(job.id) or {}).get("cancel_requested"):
@@ -335,6 +347,10 @@ def publish(job: Job) -> dict:
              planned_at=None, publication_id="")
         raise queue.Canceled()
     except PublishError as exc:
+        if exc.code == "local_test_mode":
+            db.update_publication(pub["id"], message=publish_jobs.LOCAL_TEST_NOTE)
+            db.update("scheduled_publications", item["id"], status_note=publish_jobs.LOCAL_TEST_NOTE)
+            raise queue.Wait("local_test_mode", publish_jobs.LOCAL_TEST_WAIT, publish_jobs.LOCAL_TEST_NOTE) from None
         if item["platform"] == "tiktok" and exc.code == "upload_session_expired":
             pub = db.get_publication(pub["id"]) or pub
             db.update_publication(pub["id"], info={**(pub.get("info") or {}), "upload_url": ""})

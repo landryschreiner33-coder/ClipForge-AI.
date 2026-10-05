@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .. import db
 from ..pipeline import artifact, fingerprint
+from ..publish import jobs as publish_jobs
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
@@ -166,6 +167,12 @@ def active_version_path(clip: dict) -> tuple[str, str]:
     return path, version
 
 
+def local_test_clip(clip_id: str) -> bool:
+    clip = db.get_clip(clip_id) or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    return bool((project.get("options") or {}).get("local_test_mode"))
+
+
 def _published_or_active(clip_id: str, platform: str) -> bool:
     if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND platform = ? AND status IN "
                  "('awaiting_approval', 'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
@@ -194,12 +201,16 @@ def _repeat_of_published(clip: dict) -> str:
 
 def candidates(settings: dict, now: float) -> list[dict]:
     """(clip, platform) pairs ready to be scheduled, with their scores."""
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        return []
     out = []
     rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
                               "('autopilot', 'live'))", (), "created_at")
     platforms = [p for p in PLATFORMS if settings.get(f"autopilot_{p}")]
     for clip in rows:
         project = db.get_project(clip["project_id"]) or {}
+        if (project.get("options") or {}).get("local_test_mode"):
+            continue
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
         try:
             rights.gate(source, "schedule", settings)
@@ -310,6 +321,11 @@ def _meta_fields(c: dict, settings: dict) -> dict:
 
 def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: float, replaces: str = "",
                 audit: list | None = None) -> dict:
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        raise queue.Wait("local_test_mode", publish_jobs.LOCAL_TEST_WAIT, publish_jobs.LOCAL_TEST_NOTE)
+    project = db.get_project(c["clip"]["project_id"]) or {}
+    if (project.get("options") or {}).get("local_test_mode"):
+        raise queue.Fail("Clips made in Local test mode stay local and are not scheduled automatically.")
     opp = _opportunity(slot, c["urgency"], planned_at, now)
     scores = {**c["scores"], "publish_opportunity": opp}
     final, why = final_score(scores, learner.weights())
@@ -366,7 +382,8 @@ def replacement_blocked(weak: dict, clip_id: str, settings: dict, now: float) ->
 
 def try_replace(c: dict, settings: dict, now: float, plan: Plan) -> dict | None:
     """Dynamic replacement: a clearly stronger opportunity takes the weakest future slot that may be replaced."""
-    if not settings.get("autopilot_dynamic_replacement"):
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode() \
+            or not settings.get("autopilot_dynamic_replacement"):
         return None
     threshold = float(settings.get("autopilot_replacement_threshold") or 15)
     for weak in replaceable(c["platform"], now):
@@ -412,6 +429,8 @@ def _replace(c: dict, weak: dict, score: float, threshold: float, settings: dict
 
 
 def plan_new(settings: dict, now: float) -> dict:
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        return {"created": 0, "replaced": 0, "waiting_for_slot": 0, "replacement_cooldown": 0}
     plan = Plan(settings, now)
     timings = {p: Timing(p, settings) for p in PLATFORMS}
     created, replaced, no_slot = 0, 0, 0
@@ -532,6 +551,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     It is recorded as approved automatically (with the permission), never as approved by you."""
     from ..publish.common import PublishError
 
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        return False
     consent = autopublish.active(item["platform"])
     if not consent or item["status"] != "awaiting_approval" or not item.get("planned_at"):
         return False
@@ -552,6 +573,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         _note(item, f"Held for your review, not published automatically: {why}")
         return False
     project = db.get_project(clip.get("project_id") or "") or {}
+    if (project.get("options") or {}).get("local_test_mode"):
+        return False
     source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
     try:
         rights.gate(source, "schedule", settings)
@@ -711,10 +734,17 @@ def reconcile_orphans(now: float) -> int:
     """Posts left "publishing" without a publish job (STOP ALL canceled it while it waited, or the worker died):
     one that never started uploading gets a new time; one that did is checked with the platform ("reconciling"),
     never uploaded again blindly."""
+    if publish_jobs.local_test_mode():
+        return 0
     active = {j["ref_id"] for j in queue.jobs(("queued", "running", "waiting", "retrying"), worker="publisher",
                                               limit=1000)}
     n = 0
     for item in db.select("scheduled_publications", "status = 'publishing' AND updated_at < ?", (now - ORPHAN_AFTER,)):
+        if publish_jobs.local_test_mode():
+            break
+        if local_test_clip(item["clip_id"]) and not any(a.get("event") == "publish_now"
+                                                       for a in item.get("audit") or []):
+            continue
         if item["id"] in active:
             continue
         if item.get("publication_id"):
@@ -742,11 +772,18 @@ def reconcile_orphans(now: float) -> int:
 
 
 def process_due(settings: dict, now: float) -> dict:
+    if settings.get("autopilot_local_test_mode") or publish_jobs.local_test_mode():
+        return {"publishing": 0, "missed": 0, "expired": 0, "overdue_unapproved": 0,
+                "awaiting_approval": 0, "reconciled": 0}
     started, moved, retired = 0, 0, 0
     waiting = 0
     reconciled = reconcile_orphans(now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
+        if publish_jobs.local_test_mode():
+            break
+        if local_test_clip(item["clip_id"]):
+            continue
         if item["status"] == "approved":
             if item["planned_at"] - lead_seconds(item, settings) > now:
                 continue
@@ -775,6 +812,8 @@ def process_due(settings: dict, now: float) -> dict:
                              "Automatic publishing is off, so approved posts wait for you at their time.",
                              "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
+            if publish_jobs.local_test_mode():
+                break
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
@@ -798,6 +837,10 @@ def process_due(settings: dict, now: float) -> dict:
     plan = Plan(settings, now)
     for item in db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved') AND planned_at IS "
                                                     "NULL"):
+        if publish_jobs.local_test_mode():
+            break
+        if local_test_clip(item["clip_id"]):
+            continue
         timing = Timing(item["platform"], settings)
         slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, timing)
         if slot:
@@ -830,6 +873,8 @@ def remind_approvals() -> int:
 @handler("schedule_tick")
 def schedule_tick(job: Job) -> dict:
     settings = db.get_settings()
+    if settings.get("autopilot_local_test_mode"):
+        return {"created": 0, "publishing": 0, "message": publish_jobs.LOCAL_TEST_NOTE}
     now = _now()
     due = process_due(settings, now)
     planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}

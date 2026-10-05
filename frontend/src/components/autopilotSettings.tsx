@@ -19,6 +19,11 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       <SettingsPanel id="adv-ap" title="Autopilot details"
         intro={<>A post goes out only when it is approved: by you in Posts or, for YouTube, by the automatic-publishing
           permission on Settings, Accounts. <b>TikTok always needs your OK on each post.</b></>}>
+        <SettingRow k="autopilot_local_test_mode" label="Local test mode"
+          hint={"Automatically clip public videos for local testing, even without recorded reuse permission. Clips "
+            + "stay on this PC and all uploads are off. Blocked or unavailable videos are still skipped"} {...row}>
+          <Switch k="autopilot_local_test_mode" c={c} />
+        </SettingRow>
         <SettingRow k="autopilot_timezone" label="Time zone" hint="Posting hours and planned times use this zone"
           {...row}>
           <TextInput k="autopilot_timezone" c={c} width={280} placeholder="America/Chicago" />
@@ -130,8 +135,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       </SettingsPanel>
 
       <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={"Discovery is not permission. Owned videos are always allowed; uncovered and blocked videos never are: "
-          + "they're skipped and listed in Activity."}>
+        intro={"Discovery is not permission to reuse or post a video. Local test mode can make local clips from public "
+          + "videos without recorded reuse permission. Otherwise, uncovered videos are skipped. Blocked videos are "
+          + "always skipped and listed in Activity."}>
         <SettingRow label="Region and language" hint="Two-letter country and language codes (US and en by default)"
           group>
           <div className="inline-fields small">

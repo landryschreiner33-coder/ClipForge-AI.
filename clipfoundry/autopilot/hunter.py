@@ -52,7 +52,39 @@ def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
 
 def project_options(settings: dict) -> dict:
     return {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
-            "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0)}
+            "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0),
+            "local_test_mode": bool(settings.get("autopilot_local_test_mode"))}
+
+
+def source_context(job: Job, src: dict, settings: dict) -> JobContext:
+    """Recheck local test permission at download and processing cancellation checkpoints."""
+    ctx = job.pipeline_ctx(0.0, 1.0)
+    if not settings.get("autopilot_local_test_mode"):
+        return ctx
+
+    def stopped() -> bool:
+        if ctx.cancelled():
+            return True
+        current = db.fetch("sources", src["id"])
+        fresh = db.get_settings()
+        if not current or not rights.local_allowed(current, settings=fresh):
+            if current and not (current.get("intake") or {}).get("canceled"):
+                evaluation = rights.evaluate(current, fresh)
+                db.update("sources", src["id"], status="blocked" if evaluation["status"] == rights.BLOCKED else
+                          "needs_rights", status_note="Local clipping is held until this video may be processed")
+            raise queue.Wait("local_permission", 30, "Local clipping is paused; checking this video's permission")
+        return False
+
+    return JobContext(ctx.progress, stopped)
+
+
+def mark_local_test_project(project: dict, settings: dict) -> dict:
+    if settings.get("autopilot_local_test_mode") and not (project.get("options") or {}).get("local_test_mode"):
+        # A resumed project made for testing must not enter the posting plan when the mode is later turned off.
+        options = {**(project.get("options") or {}), "local_test_mode": True}
+        db.update_project(project["id"], options=options)
+        return {**project, "options": options}
+    return project
 
 
 # ------------------------------------------------------------------ media
@@ -122,6 +154,7 @@ def write_provenance(pdir: Path, src: dict, found: dict, settings: dict) -> None
         "attribution": rights.attribution({**src, "rights_status": r["status"], "rights_rule_id": r["rule_id"]}),
         "access": {k: found.get(k) for k in ("method", "label", "detail", "local_path", "url")},
         "file": {"name": f.name, "bytes": f.stat().st_size} if f else None,
+        "local_test_mode": bool(settings.get("autopilot_local_test_mode")),
         "obtained_at": time.time()})
 
 
@@ -133,6 +166,7 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
                                     source_id=src["id"], source_url=src.get("url", ""), status="processing",
                                     options=project_options(settings))
         db.update("sources", src["id"], project_id=project["id"])
+    project = mark_local_test_project(project, settings)
     pdir = config.projects_dir() / project["id"]
     pdir.mkdir(parents=True, exist_ok=True)
     existing = next((p for p in pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS), None)
@@ -156,10 +190,13 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
             db.update_project(project["id"], source_path=str(pdir / "source.mp4"))
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
                 download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
-                             max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
+                             max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240),
+                             public_only=True)
             except DownloadRefused as exc:
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
+            except netguard.UnsafeUrl as exc:
+                raise queue.Fail(f"Public video access refused: {exc}", "Use an accessible public video.") from exc
             write_provenance(pdir, src, found, settings)
             return db.get_project(project["id"]) or project
         write_provenance(pdir, src, found, settings)
@@ -239,9 +276,12 @@ def hunt_source(job: Job) -> dict:
         return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
     if not rights.local_allowed(src, r, settings):
+        if job.payload.get("local_test_mode") and r["status"] == rights.MANUAL:
+            db.update("sources", src["id"], status="needs_rights", status_note="Local test mode is off; video held")
+            raise queue.Wait("local_test_mode", 30, "Local test mode is off; this test video is held")
         return _not_used(src, r)
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
-    ctx = job.pipeline_ctx(0.0, 1.0)
+    ctx = source_context(job, src, settings)
     try:
         project = ensure_project(src, settings, ctx)
         check_length(project, settings)
@@ -271,7 +311,8 @@ def hunt_source(job: Job) -> dict:
     db.update("sources", src["id"], status="analyzing", candidates_found=len(cands), duration=p.meta.get("duration"),
               status_note=f"{len(cands)} candidate moments found; waiting for the analyzer")
     db.update_project(p.id, message=f"{len(cands)} candidate moments; analyzing")
-    queue.enqueue("analyze_source", {"source_id": src["id"], "project_id": p.id},
+    queue.enqueue("analyze_source", {"source_id": src["id"], "project_id": p.id,
+                                     "local_test_mode": bool(settings.get("autopilot_local_test_mode"))},
                   idem_key=f"analyze:{src['id']}:{p.id}", ref=("source", src["id"]),
                   priority=queue.source_priority(src, job.row["priority"]),
                   timeout_s=4 * 3600)
@@ -354,8 +395,12 @@ def analyze_source(job: Job) -> dict:
         return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # no clip is rendered from a source that is no longer covered
     if not rights.local_allowed(src, r, settings):
+        if job.payload.get("local_test_mode") and r["status"] == rights.MANUAL:
+            db.update("sources", src["id"], status="needs_rights", status_note="Local test mode is off; video held")
+            raise queue.Wait("local_test_mode", 30, "Local test mode is off; this test video is held")
         return _not_used(src, r)
-    ctx = job.pipeline_ctx(0.0, 1.0)
+    mark_local_test_project(db.get_project(p.id) or {}, settings)
+    ctx = source_context(job, src, settings)
     cands = read_json(p.pdir / "candidates.json", []) or []
     db.update_project(p.id, status="processing", message="Autopilot: analyzing candidates")
     job.progress(0.05, f"Analyzing {len(cands)} candidates", stage="analyze")

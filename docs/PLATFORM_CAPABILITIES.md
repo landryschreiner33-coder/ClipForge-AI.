@@ -56,7 +56,7 @@ saw.
 | Native scheduling | Upload as private with `publishAt` | YouTube Data API | Upload lead time (default 30 min) then YouTube publishes | contract-tested |
 | Derived metrics from API data | Not without Google's approval | Developer Policies III.E.4 (as recorded) | Momentum/learning from YouTube data only with the explicit setting | unit-tested |
 | Stored API data | Refresh or delete within 30 days (Authorized Data of the user's own channel may be kept by approved projects) | Developer Policies (as recorded) | Maintenance step deletes older YouTube data | unit-tested |
-| Downloading platform videos | Only through means YouTube authorizes, or with permission | YouTube Terms (as recorded) | Off by default; own files preferred | unit-tested |
+| Downloading platform videos | Only through means YouTube authorizes, or with permission | YouTube Terms (as recorded) | Off by default in normal mode; Local test mode allows guarded recorded public acquisition and holds all uploads, without granting rights | unit-tested; real yt-dlp with fake HTTP transport |
 | `chart=mostPopular` | Covers Music, Movies, Gaming charts only (since July 2025) | Revision history (as recorded) | Topic searches within the search allowance | unit-tested |
 
 ## What still needs a real account

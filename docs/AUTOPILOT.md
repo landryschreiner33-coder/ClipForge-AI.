@@ -30,6 +30,27 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 
 ## Setting it up
 
+### Trending videos for local testing
+
+Turn on **Local test mode** on Autopilot → Overview, then **Start Autopilot**. It selects promising recorded public
+videos even when reuse permission is unknown and saves their checked clips on this PC. **Local clips** links to the
+finished outputs; Library keeps them across restarts. Explicit Blocks, cancellation, URL checks, size and duration
+limits, daily source limits and the final quality gate still apply. Recorded platform acquisition uses guarded
+HTTP(S) progressive media; extractor/API requests, media URLs and redirects are checked and pinned to public
+addresses. FFmpeg merges only local files. Manifest-only or inaccessible videos are skipped
+and the next candidate is tried. No account login, cookies or DRM bypass is used for obtaining media.
+
+All platform uploads are held, including existing scheduled posts, manual uploads and TikTok inbox drafts. Turning
+the mode off restores the normal checks; projects made for testing retain their marker and do not enter the
+automatic posting plan. Upload history and unresolved earlier upload outcomes remain visible. Work held by a mode
+change can continue when the mode is enabled again, without reviving user-canceled work.
+
+YouTube discovery needs a connected YouTube account or a search key in Settings → Advanced. Preferred topics use
+recent long-video searches. Clearing the topics searches recent long and medium videos across topics, in addition
+to the region's chart. These calls use the existing quota budgets and cached official responses; optional paid
+search is not enabled. Source scores and likely clip counts remain estimates, and actual clips must pass the
+existing quality thresholds. `autopilot_local_test_mode` defaults to off and is also in Advanced settings.
+
 ### Adding a video or stream while Autopilot runs
 
 On Overview, paste a public link into **Add a video or stream** and press **ADD**. **Added by you** shows its durable
@@ -48,7 +69,8 @@ that cannot safely be decided automatically.
 Submitting a link expresses local processing intent. If supported access is available, its clips can be saved and
 quality-checked even when reuse permission is unknown. An explicit block still wins. Publishing requires its own
 rights, quality, account and approval checks. Platform downloads remain subject to the existing download setting;
-the app never uses cookies or credentials to bypass private content, DRM, paywalls or authentication.
+the app never uses cookies or credentials to bypass private content, DRM, paywalls or authentication. Local test
+mode additionally permits supported recorded public platform acquisition for local testing.
 
 The first time, **Get started** on Home (or **Set up Autopilot** on the Autopilot page) opens a setup in three steps
 (`#/setup`), and that is all a normal user needs:
@@ -61,7 +83,7 @@ The first time, **Get started** on Home (or **Set up Autopilot** on the Autopilo
    videos. **Connect TikTok** is optional: one platform without the other works too. Then **Start Autopilot**: it
    turns Autopilot on for the accounts you connected and starts looking right away.
 
-**Your videos folder.** Videos from other people's channels are never used without an agreement or a license, so
+**Your videos folder.** In normal discovery mode, videos from other people's channels need an agreement or a license, so
 with only a connected account Autopilot usually finds nothing it may clip. The simplest way to give it work is your
 videos folder: `Videos\ClipFoundry` in your Windows user folder (`ClipFoundry videos` in your user folder if there is no
 Videos folder). **Start Autopilot** creates it and watches it (`autopilot/myvideos.py`). It is outside the ClipFoundry
