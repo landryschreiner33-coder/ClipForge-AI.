@@ -67,12 +67,14 @@ export const VIEW_OF: Record<string, (p: Post) => boolean> = {
   published: (p) => p.status === "published" && !onPlatform(p),
   history: (p) => (p.status === "published" && !onPlatform(p)) || p.status === "canceled" || p.status === "replaced",
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
+  manual: (p) => p.status === "manual_handoff",
 };
 export const VIEW_NAME: Record<string, string> = {
   review: "Needs review", scheduled: "Scheduled", published: "Published", history: "Published", problems: "Problems",
+  manual: "Post yourself",
 };
 export const viewOf = (p: Post) =>
-  ["review", "problems", "scheduled", "published", "history"].find((v) => VIEW_OF[v](p)) || "review";
+  ["review", "problems", "manual", "scheduled", "published", "history"].find((v) => VIEW_OF[v](p)) || "review";
 
 /**
  * Why a post needs your OK again, from what the API reports: an approved post with `approval_valid: false` (the video
@@ -149,9 +151,14 @@ export function postStatus(p: Post): StatusWord {
       return p.approval?.by === "automatic" ? { tone: "good", word: "Approved automatically", icon: "shield" }
         : { tone: "good", word: "Approved by you", icon: "check" };
     case "publishing": return { tone: "info", word: "Uploading now", icon: "upload" };
-    case "published":
+    case "published": {
+      // An upload is not the same as reaching the chosen viewers: say which audience step it is at.
+      const setup = p.publication?.info?.audience?.setup;
+      if (setup === "awaiting_invitations") return { tone: "warn", word: "Awaiting viewer invitations", icon: "user" };
+      if (setup === "owner_only_staging") return { tone: "info", word: "Uploaded for you only", icon: "shield" };
       return onPlatform(p) ? { tone: "info", word: "Uploaded, waiting for its time", icon: "clock" }
         : { tone: "good", word: "Published", icon: "check" };
+    }
     case "reconciling": return { tone: "warn", word: "Upload not confirmed", icon: "question" };
     case "failed": return { tone: "bad", word: "Failed", icon: "alert" };
     case "blocked":
@@ -162,6 +169,7 @@ export function postStatus(p: Post): StatusWord {
         : { tone: "bad", word: "Action needed", icon: "alert" };
     case "canceled": return { tone: "neutral", word: "Canceled", icon: "x" };
     case "replaced": return { tone: "neutral", word: "Replaced by a stronger clip", icon: "refresh" };
+    case "manual_handoff": return { tone: "info", word: "Manual posting package", icon: "upload" };
     default: return { tone: "neutral", word: p.status, icon: "info" };
   }
 }

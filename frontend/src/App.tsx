@@ -1,4 +1,6 @@
-import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  KeyboardEvent as ReactKeyboardEvent, lazy, ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState,
+} from "react";
 import { errorText } from "./api";
 import { ap } from "./autopilot";
 import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost } from "./components/ui";
@@ -16,34 +18,63 @@ import AutopilotPage from "./pages/Autopilot";
 import Posts from "./pages/Posts";
 import PostReview from "./pages/PostReview";
 import SettingsPage from "./pages/Settings";
+import OfficePage from "./office/Office";
+import { TeamRoster } from "./robots";
+
+// The contact sheet draws every role in every direction and state: loaded only when someone opens it.
+const DevGallery = lazy(() => import("./robots/DevGallery"));
 
 export { navigate };
 
-type NavKey = "home" | "autopilot" | "library" | "posts" | "settings";
+type NavKey = "office" | "missions" | "clips" | "queue" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
-  "": "home", setup: "home", autopilot: "autopilot", library: "library", project: "library", clip: "library",
-  publish: "library", create: "library", posts: "posts", post: "posts", settings: "settings",
+  "": "office", office: "office", home: "office", setup: "office", team: "office", dev: "office",
+  missions: "missions", clips: "clips", project: "clips", clip: "clips", publish: "clips", create: "clips",
+  queue: "queue", post: "queue", settings: "settings",
 };
 const SECTION_TITLE: Record<string, string> = {
-  "": "", setup: "Set up", autopilot: "Autopilot", library: "Library", project: "Source video", clip: "Edit clip",
-  publish: "Prepare post", create: "Add video", posts: "Posts", post: "Post review", settings: "Settings",
+  "": "Office", office: "Office", home: "Summary", setup: "Set up", missions: "Missions", clips: "Clips",
+  project: "Source video", clip: "Edit clip", publish: "Prepare post", create: "Add video", queue: "Queue",
+  post: "Post review", settings: "Settings", team: "Team", dev: "Robot characters",
 };
 
 function page(route: Route) {
   const [section, id] = route.parts;
   switch (section) {
+    case "home": return <Home />;
     case "setup": return <Setup step={id} />;
     case "create": return <Create />;
-    case "library": return <Library />;
+    case "clips": return <Library />;
     case "project": return <ProjectView id={id} key={id} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
-    case "autopilot": return <AutopilotPage tab={id} />;
-    case "posts": return <Posts view={id} />;
+    case "missions": return <AutopilotPage tab={id} />;
+    case "queue": return <Posts view={id} />;
     case "post": return <PostReview id={id} key={id} />;
     case "settings": return <SettingsPage tab={id} />;
-    default: return <Home />;
+    case "team": return <TeamPage />;
+    case "dev": return (
+      <Suspense fallback={<p className="muted">Loading the character sheet…</p>}><DevGallery /></Suspense>
+    );
+    default: return <OfficePage />;
   }
+}
+
+/** The read-only team roster: every robot with its portrait, office-scale sprite, job and manager. */
+function TeamPage() {
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 tabIndex={-1}>Team</h1>
+          <p className="muted">Who does what in the Office. Each robot is a responsibility over the same job queue; the
+            Office shows what they are actually doing.</p>
+        </div>
+        <div className="actions"><a className="btn" href="#/">Back to the Office</a></div>
+      </div>
+      <TeamRoster showOfficeScale />
+    </div>
+  );
 }
 
 export default function App() {
@@ -65,7 +96,7 @@ function Shell() {
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "home";
+  const active = SECTION_NAV[section] || "office";
 
   useEffect(() => {
     setLeaveAsker(setLeaving);
@@ -102,21 +133,19 @@ function Shell() {
   }, [route.path, route.unknown, section]);
 
   const state = autopilotState(st, lost);
-  const tone = state.tone === "good" ? "on" : state.tone === "neutral" ? "" : state.tone;
   const review = st?.home.posts?.review || 0;
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="home" label="Home" on={active === "home"} />
-      <NavLink href="#/autopilot" icon="autopilot" label="Autopilot" on={active === "autopilot"}
-        extra={<span className={`state ${tone}`}><span className="sr-only">: </span>{state.word}</span>} />
-      <NavLink href="#/library" icon="library" label="Library" on={active === "library"} />
-      <NavLink href="#/posts/review" icon="posts" label="Posts" on={active === "posts"}
+      <NavLink href="#/" icon="home" label="Office" on={active === "office"} />
+      <NavLink href="#/missions" icon="autopilot" label="Missions" on={active === "missions"} />
+      <NavLink href="#/clips" icon="library" label="Clips" on={active === "clips"} />
+      <NavLink href="#/queue/review" icon="posts" label="Queue" on={active === "queue"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
+      <NavLink href="#/settings" icon="settings" label="Settings" on={active === "settings"} />
     </>
   );
-  const settingsLink = <NavLink href="#/settings" icon="settings" label="Settings" on={active === "settings"} />;
   const foot = (
     <div className="sidebar-foot">
       <span>Runs on this computer. Posting is optional and uses YouTube's and TikTok's official connections.</span>
@@ -126,11 +155,13 @@ function Shell() {
     </div>
   );
   const brand = (
-    <a className="brand" href="#/" aria-label="ClipFoundry, Home">
+    <a className="brand" href="#/" aria-label="ClipFoundry, Office">
       <Logo />
       <span className="brand-name" aria-hidden="true">Clip<span>Foundry</span></span>
     </a>
   );
+  // The Office has its own stale-data notice and control bar, so the shell's banners would only repeat them there.
+  const office = section === "" || section === "office";
 
   return (
     <ConnectionContext.Provider value={{ lost, lastOk }}>
@@ -138,47 +169,43 @@ function Shell() {
         e.preventDefault();
         main.current?.focus();
       }}>Skip to content</a>
-      <header className="topbar">
-        <button type="button" className="btn btn-small" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
+      <header className="appbar">
+        <button type="button" className="btn btn-small appbar-menu" aria-haspopup="dialog" aria-expanded={drawer}
+          onClick={() => setDrawer(true)}>
           <Icon name="menu" />Menu
         </button>
         {brand}
+        <nav className="appnav" aria-label="Main">{nav}</nav>
         <span className="spacer" />
-        <a href="#/autopilot" id="top-state" className={`pill ${state.tone}`}>
+        <a href="#/missions" id="top-state" className={`pill ${state.tone}`}>
           <Icon name="autopilot" />Autopilot: {state.word}
         </a>
       </header>
-      <div className="app">
-        <aside className="sidebar">
-          {brand}
-          <nav className="nav" aria-label="Main">{nav}</nav>
-          <div className="nav-sep" />
-          <nav className="nav" aria-label="Settings">{settingsLink}</nav>
-          {foot}
-        </aside>
-        <main className="main" id="main" ref={main} tabIndex={-1}>
-          <div className="banners">
-            {lost && (
-              <Banner tone="warn" icon="offline" title="ClipFoundry is not answering"
-                actions={<button type="button" className="btn btn-small" onClick={refresh}><Icon name="refresh" />Try again</button>}>
-                What you see is the last known state{lastOk ? `, from ${new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
-                Check that the black ClipFoundry window is still open on this PC.
-              </Banner>
-            )}
-            {st?.paused && section !== "autopilot" && (
-              <Banner tone="bad" icon="stop" title="All jobs are stopped" actions={<ResumeButton onDone={refresh} />}>
-                Nothing is made, checked or posted until you resume. Things you start yourself wait too.
-              </Banner>
-            )}
-            {route.unknown !== undefined && (
-              <Banner tone="info" title="That address does not exist">
-                There is no page at “#/{route.unknown}”, so Home is shown instead.
-              </Banner>
-            )}
-          </div>
-          {page(route)}
-        </main>
-      </div>
+      <main className={`main ${office ? "is-office" : ""}`} id="main" ref={main} tabIndex={-1}>
+        <div className="banners">
+          {lost && !office && (
+            <Banner tone="warn" icon="offline" title="ClipFoundry is not answering"
+              actions={<button type="button" className="btn btn-small" onClick={refresh}>
+                <Icon name="refresh" />Try again</button>}>
+              What you see is the last known state{lastOk ? `, from ${new Date(lastOk)
+                .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
+              Check that the black ClipFoundry window is still open on this PC.
+            </Banner>
+          )}
+          {st?.paused && section !== "missions" && !office && (
+            <Banner tone="bad" icon="stop" title="All jobs are stopped" actions={<ResumeButton onDone={refresh} />}>
+              Nothing is made, checked or posted until you resume. Things you start yourself wait too.
+            </Banner>
+          )}
+          {route.unknown !== undefined && (
+            <Banner tone="info" title="That address does not exist">
+              There is no page at “#/{route.unknown}”, so the Office is shown instead.
+            </Banner>
+          )}
+        </div>
+        {page(route)}
+        {!office && foot}
+      </main>
       {drawer && (
         <Drawer onClose={() => setDrawer(false)}>
           <div className="drawer-head">
@@ -186,7 +213,6 @@ function Shell() {
             <button type="button" className="btn btn-small btn-icon" aria-label="Close menu" onClick={() => setDrawer(false)}><Icon name="x" /></button>
           </div>
           <nav className="nav" aria-label="Main">{nav}</nav>
-          <nav className="nav" aria-label="Settings">{settingsLink}</nav>
           <div className="nav-sep" />
           {foot}
         </Drawer>
