@@ -238,6 +238,7 @@ const POST_WORD: Record<ScheduledItem["status"], string> = {
   replaced: "replaced by a stronger clip",
   blocked: "blocked by the final check",
   action_needed: "finish in the TikTok app",
+  manual_handoff: "manual posting package",
 };
 
 /** "YouTube: needs your OK". An approval that no longer matches the file says so. */

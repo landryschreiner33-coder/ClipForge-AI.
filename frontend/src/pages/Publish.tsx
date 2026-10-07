@@ -8,6 +8,9 @@ import { useStatus } from "../status";
 import { AccountBadge, ConnectButton } from "../components/accounts";
 import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
+import { SETUP_LABEL } from "../components/queueAudience";
+import { office } from "../office/officeApi";
+import { TestFeedback } from "../office/TestFeedback";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
@@ -242,6 +245,7 @@ export default function PublishPage({ id }: { id: string }) {
               </div>
             ) : <p className="small muted">None yet.</p>}
           </section>
+          <TestFeedback clipId={clip.id} />
         </div>
       </div>
     </div>
@@ -660,6 +664,9 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
         <ProgressBar value={p.progress} label={`${name} upload`} />
       )}
       {p.message && <span className="small">{p.message}</span>}
+      {p.info?.audience?.setup && (
+        <span className="small">Audience: {SETUP_LABEL[p.info.audience.setup] || p.info.audience.setup}</span>
+      )}
       {p.error && <span className="small bad-text">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</span>}
       <span className="tiny faint">“{p.title || p.description.slice(0, 80)}”</span>
       <div className="row wrap">
@@ -677,6 +684,12 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
           <button type="button" className="btn btn-small btn-quiet"
             onClick={() => act(() => api.refreshPublication(p.id))}>
             <Icon name="refresh" />Refresh status
+          </button>
+        )}
+        {p.status === "done" && p.info?.audience?.setup === "awaiting_invitations" && (
+          <button type="button" className="btn btn-small"
+            onClick={() => act(() => office.viewersInvited(p.id) as Promise<Publication>)}>
+            <Icon name="check" />I've invited my viewers
           </button>
         )}
         {(p.status === "queued" || p.status === "uploading") && (

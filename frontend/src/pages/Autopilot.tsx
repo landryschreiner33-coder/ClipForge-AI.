@@ -1,4 +1,3 @@
-import RobotOffice from "../components/RobotOffice";
 import { useState } from "react";
 import { api, errorText, Platform, Project, projectThumbUrl, timeAgo } from "../api";
 import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
@@ -123,7 +122,7 @@ function Overview({ st, lost, since, refresh, setData }: {
           </div>
         </section>
         <div className="ap-control-room">
-          <RobotOffice />
+          <OfficeLink />
           <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
         </div>
       </>
@@ -180,7 +179,7 @@ function Overview({ st, lost, since, refresh, setData }: {
       </section>
 
       <div className="ap-control-room">
-        <RobotOffice />
+        <OfficeLink />
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
       </div>
 
@@ -484,5 +483,18 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
         </TextPromptDialog>
       )}
     </>
+  );
+}
+
+/** The robot crew lives in the Office now; Missions links to it instead of drawing a second studio. */
+function OfficeLink() {
+  return (
+    <section className="panel" aria-labelledby="ap-office">
+      <h2 id="ap-office">Your robot team</h2>
+      <p className="muted">Every job Autopilot runs has a robot responsible for it. The Office shows who is working on
+        what right now, their reports and their managers' reviews.</p>
+      <div className="row wrap"><a className="btn btn-primary" href="#/">Open the Office</a>
+        <a className="btn" href="#/team">Meet the team</a></div>
+    </section>
   );
 }

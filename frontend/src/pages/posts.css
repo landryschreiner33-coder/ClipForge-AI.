@@ -27,3 +27,17 @@
   .posts-page .post-actions { grid-column: 2; justify-content: flex-start; }
   .posts-page .post-ledger-heading, .posts-page .post-day-heading { align-items: flex-start; }
 }
+
+/* Upload facts kept apart: transfer, visibility, audience setup, analytics (never one "success" flag). */
+.aud-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0; font-size: var(--fs-tiny); }
+.aud-facts > div { display: flex; gap: 4px; }
+.aud-facts dt { color: var(--text-3); }
+.aud-facts dt::after { content: ":"; }
+.aud-facts dd { margin: 0; color: var(--text-2); }
+.manual-package {
+  display: grid; gap: 8px; margin-top: 4px; padding: 10px; border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+}
+.manual-package input[type="url"] { min-width: 220px; }
+.test-feedback .fb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.test-feedback textarea.mono, .csv-import textarea.mono { font-family: var(--mono); font-size: 0.8125rem; }
