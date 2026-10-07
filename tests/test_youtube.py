@@ -62,7 +62,8 @@ def clip(app_client, tmp_path):
 
 def _setup(client) -> None:
     r = client.put("/api/settings", json={"youtube_client_id": "cid.apps.googleusercontent.com",
-                                          "youtube_client_secret": "csecret"})
+                                          "youtube_client_secret": "csecret",
+                                          "audience_youtube_intent": "SELECTED_AUDIENCE"})
     assert r.json()["youtube_client_secret"] == "********"
 
 
@@ -149,6 +150,11 @@ def test_upload_is_resumable_and_reports_the_video(app_client, google, clip):
     assert pub["privacy"] == "private" and pub["url"] == f"https://www.youtube.com/shorts/{pub['remote_id']}"
     assert pub["features"]["viral_potential"] == 88.0  # snapshot kept for comparing with real performance later
     assert sum(1 for m, p in google.log if m == "PUT" and "upload-session" in p) >= 4
+    # selected audience: uploaded privately, never a later public release, and nobody can watch until invited
+    assert video["status"]["privacyStatus"] == "private" and "publishAt" not in video["status"]
+    assert pub["info"]["audience"]["setup"] == "awaiting_invitations" and "Studio" in pub["message"]
+    pub = app_client.post(f"/api/publications/{pub['id']}/viewers-invited", headers=H).json()
+    assert pub["info"]["audience"]["setup"] == "user_confirmed" and pub["info"]["audience"]["evidence"] == "user"
 
 
 def test_a_rate_limited_upload_waits_as_long_as_youtube_asks(app_client, google, clip, monkeypatch):
@@ -247,13 +253,16 @@ def test_a_waiting_upload_survives_a_restart_and_can_be_cancelled(app_client, go
     assert db.get_publication(pid)["status"] == "cancelled" and pid not in jobs.worker.timers
 
 
-def test_unverified_project_lock_is_explained(app_client, google, clip):
+def test_public_unlisted_and_local_only_uploads_are_blocked(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)
-    google.lock_private = True
-    pub = _wait(app_client, _publish(app_client, c["id"], privacy="public").json()["id"])
-    assert pub["status"] == "done" and pub["requested_privacy"] == "public" and pub["privacy"] == "private"
-    assert pub["info"]["locked_private"] and "audit" in pub["message"]
+    for privacy in ("public", "unlisted"):
+        r = _publish(app_client, c["id"], privacy=privacy)
+        assert r.status_code == 400 and r.json()["code"] == "audience_blocked", r.text
+    app_client.put("/api/settings", json={"audience_youtube_intent": "LOCAL_ONLY"})
+    r = _publish(app_client, c["id"])
+    assert r.status_code == 400 and "keep clips on this PC" in r.json()["detail"]
+    assert not google.sessions  # nothing reached YouTube
 
 
 def test_explicit_confirmation_and_required_fields(app_client, google, clip):
@@ -262,7 +271,7 @@ def test_explicit_confirmation_and_required_fields(app_client, google, clip):
     assert "confirmation" in _publish(app_client, c["id"], confirm=False).json()["detail"]
     assert "made for kids" in _publish(app_client, c["id"], made_for_kids=None).json()["detail"]
     assert "100 characters" in _publish(app_client, c["id"], title="x" * 101).json()["detail"]
-    assert "Public, Unlisted or Private" in _publish(app_client, c["id"], privacy="friends").json()["detail"]
+    assert "Private" in _publish(app_client, c["id"], privacy="friends").json()["detail"]
     assert not google.sessions  # nothing reached YouTube
 
 
@@ -312,10 +321,10 @@ def test_cancel_during_upload(app_client, google, clip):
 def test_refresh_status_and_disconnect(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)
-    pub = _wait(app_client, _publish(app_client, c["id"], privacy="unlisted").json()["id"])
-    google.videos[pub["remote_id"]]["status"]["privacyStatus"] = "private"  # e.g. locked after processing
+    pub = _wait(app_client, _publish(app_client, c["id"]).json()["id"])
+    google.videos[pub["remote_id"]]["status"]["privacyStatus"] = "public"  # changed in Studio after the upload
     pub = app_client.post(f"/api/publications/{pub['id']}/refresh", headers=H).json()
-    assert pub["privacy"] == "private" and pub["info"]["locked_private"] and "audit" in pub["message"]
+    assert pub["privacy"] == "public" and pub["info"]["visibility_drift"] and "Private" in pub["message"]
     app_client.post("/api/publish/youtube/disconnect", headers=H)
     assert google.revoked and not app_client.get("/api/publish/accounts").json()["youtube"]["connected"]
     assert app_client.get(f"/api/clips/{c['id']}/publications").json()[0]["id"] == pub["id"]  # history is kept

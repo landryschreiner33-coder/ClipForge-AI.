@@ -70,8 +70,10 @@ def _tiktok(pub: dict) -> tuple[dict, str, list[str], dict]:
     ids = [str(i) for i in (pub.get("info") or {}).get("post_ids") or []]
     source = "TikTok Display API (video.query)"
     if not ids:
-        return {}, source, ["TikTok only reports statistics for posts with a public video ID. 'Only me' posts and "
-                            "inbox drafts have none; after posting from the TikTok app, link the post with its URL."], {}
+        return {}, source, ["TikTok only reports statistics for posts with a public video ID. 'Only me', Followers "
+                            "and Friends posts and inbox drafts usually have none; after posting from the TikTok app, "
+                            "link the post with its URL, or enter your test viewers' results in Clips → Test "
+                            "feedback."], {}
     if "video.list" not in ((db.get_account("tiktok") or {}).get("scopes") or []):
         return {}, source, ["ClipFoundry was not given TikTok's video.list permission. Turn on 'Video statistics' in "
                             "Settings → Publishing → TikTok and connect again."], {}

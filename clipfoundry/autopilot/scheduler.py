@@ -8,6 +8,10 @@ survives restarts.
   target is never reached by lowering the quality bar.
 * Final Opportunity Score = an explained, weighted mix of the Clip, Packaging, Trend, Source, Diversity, Expected
   Retention and Publish Opportunity scores. Better items get better slots; a trending clip is posted sooner.
+* Who may see a post is decided by the audience policy (audience.py): YouTube private for invited viewers, TikTok
+  Followers/Friends on a private account, or staging; never public or unlisted, and never a later public release.
+  A destination set to keep clips on this PC gets no posts. TikTok posts that this app cannot deliver to followers
+  become a manual-posting package ("manual_handoff") for the user to post themselves.
 * A post goes out only with an approval: yours, or the automatic-publishing permission you gave for a platform whose
   rules allow it (autopublish.py: YouTube; TikTok requires your OK on each post). A post approved under that
   permission is marked "approved automatically", never "approved by you", and only clips that passed every check
@@ -24,7 +28,7 @@ import math
 import time
 from pathlib import Path
 
-from .. import db
+from .. import audience, db
 from ..pipeline import artifact, fingerprint
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
@@ -168,7 +172,8 @@ def active_version_path(clip: dict) -> tuple[str, str]:
 
 def _published_or_active(clip_id: str, platform: str) -> bool:
     if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND platform = ? AND status IN "
-                 "('awaiting_approval', 'approved', 'publishing', 'reconciling', 'published')", (clip_id, platform)):
+                 "('awaiting_approval', 'approved', 'publishing', 'reconciling', 'manual_handoff', 'published')",
+                 (clip_id, platform)):
         return True
     return bool(db.scalar("SELECT COUNT(*) FROM publications WHERE clip_id = ? AND platform = ? AND status IN "
                           "('done', 'action_needed', 'uploading', 'processing', 'queued')", (clip_id, platform)))
@@ -183,7 +188,7 @@ def _repeat_of_published(clip: dict) -> str:
                                             "status IN ('done', 'action_needed', 'uploading', 'processing') UNION "
                                             "SELECT clip_id FROM scheduled_publications WHERE status IN "
                                             "('awaiting_approval', 'approved', 'publishing', 'reconciling', "
-                                            "'published'))",
+                                            "'manual_handoff', 'published'))",
                        (clip["id"],))
     for o in others:
         if fingerprint.text_similarity(mine.get("text_sig") or [], o.get("text_sig") or []) >= 0.6 or \
@@ -197,7 +202,7 @@ def candidates(settings: dict, now: float) -> list[dict]:
     out = []
     rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
                               "('autopilot', 'live'))", (), "created_at")
-    platforms = [p for p in PLATFORMS if settings.get(f"autopilot_{p}")]
+    platforms = [p for p in PLATFORMS if settings.get(f"autopilot_{p}") and audience.plan(p, settings).route != "none"]
     for clip in rows:
         project = db.get_project(clip["project_id"]) or {}
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
@@ -239,7 +244,8 @@ class Plan:
         self.settings = settings
         self.now = now
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
-                                                         "'reconciling', 'published') AND planned_at IS NOT NULL")
+                                                         "'reconciling', 'manual_handoff', 'published') AND "
+                                                         "planned_at IS NOT NULL")
         self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
         self.held = 0  # replacements held back by the cooldown
 
@@ -300,12 +306,16 @@ def _opportunity(slot: dict, urgency: float, planned_at: float, now: float) -> f
 
 def _meta_fields(c: dict, settings: dict) -> dict:
     meta, platform = c["meta"], c["platform"]
+    d = audience.plan(platform, settings)
     if platform == "youtube":
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
-                "privacy": settings.get("autopilot_youtube_privacy") or "public", "options": {"made_for_kids": None}}
+                "privacy": d.visibility, "options": {"made_for_kids": None, "audience_intent": d.intent}}
+    # TikTok: the saved audience is a suggestion shown on the post; the user still picks it when approving (TikTok's
+    # rules forbid a preset choice for Direct Post). A manual package carries it as the reminder of what to choose.
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
-            "options": {"mode": "direct", "allow_comment": False, "allow_duet": False, "allow_stitch": False,
-                        "disclose": False}}
+            "options": {"mode": "manual" if d.route == "manual" else "direct", "allow_comment": False,
+                        "allow_duet": False, "allow_stitch": False, "disclose": False, "audience_intent": d.intent,
+                        "suggested_privacy": d.visibility}}
 
 
 def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: float, replaces: str = "",
@@ -324,6 +334,8 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
                                                                         f"{final:.0f}"}]})
     state.event("scheduled", f"{c['platform']}: “{c['meta']['title'][:60]}” planned for "
                              f"{_label(planned_at, settings)}", ref_type="scheduled", ref_id=item["id"], final=final)
+    if (item.get("options") or {}).get("mode") == "manual":
+        return manual_handoff(item, settings)
     if auto_approve(item, settings, now):
         return db.fetch("scheduled_publications", item["id"]) or item
     return item
@@ -469,7 +481,8 @@ def approval_basis(item: dict, quick: bool = False) -> dict | None:
     if not sha:
         return None
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
-    return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME}
+    policy = audience.policy_version(item["platform"], db.get_settings())
+    return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME, "audience_policy": policy}
 
 
 def approval_hash(item: dict, quick: bool = False) -> str:
@@ -483,7 +496,7 @@ def approval_record(item: dict, **fields: object) -> dict | None:
     if not basis:
         return None
     return {**fields, "hash": artifact.sha256_json(basis), "scheme": APPROVAL_SCHEME,
-            "video_sha256": basis["video_sha256"]}
+            "video_sha256": basis["video_sha256"], "audience_policy": basis["audience_policy"]}
 
 
 def approval_problem(item: dict, quick: bool = False) -> str:
@@ -496,6 +509,8 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     current = approval_hash(item, quick)
     if not current:
         return "the video file is missing or cannot be read"
+    if appr.get("audience_policy") != audience.policy_version(item["platform"], db.get_settings()):
+        return "who can see it changed after approval (audience settings)"
     return "" if appr["hash"] == current else "the clip or its text changed after approval"
 
 
@@ -511,6 +526,7 @@ def check_platform(item: dict, creator: dict | None = None) -> None:
     settings = db.get_settings()
     opts = item.get("options") or {}
     if item["platform"] == "youtube":
+        audience.check("youtube", item.get("privacy") or "", settings, options=opts)
         if opts.get("made_for_kids") is None:
             raise PublishError("Say whether this video is made for kids.", "YouTube requires this answer (COPPA).")
         youtube.video_body(item["title"], item["description"], item.get("tags") or [], item["privacy"],
@@ -518,8 +534,11 @@ def check_platform(item: dict, creator: dict | None = None) -> None:
     else:
         clip = db.get_clip(item["clip_id"]) or {}
         mode = opts.get("mode") or "direct"
+        if (item.get("privacy") or "") in audience.WIDE:  # the policy's refusal says more than TikTok's rules
+            audience.check("tiktok", item["privacy"], settings, mode=mode, options=opts, creator=creator)
         tiktok.validate(item["description"], item.get("privacy") or "", opts, mode, settings, creator,
                         float(clip.get("duration") or 0))
+        audience.check("tiktok", item.get("privacy") or "", settings, mode=mode, options=opts, creator=creator)
 
 
 def _note(item: dict, note: str) -> None:
@@ -566,7 +585,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
                     "is reached")
         return False
-    updated = {**item, "privacy": cfg.get("visibility") or item.get("privacy"),
+    # the audience policy decides visibility, never the permission's older wording (it could say public)
+    updated = {**item, "privacy": audience.plan(item["platform"], settings).visibility,
                "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
     try:
         check_platform(updated)
@@ -698,9 +718,8 @@ def _awaiting_by_platform() -> dict[str, int]:
 
 # ------------------------------------------------------------------ the tick
 def lead_seconds(item: dict, settings: dict) -> float:
-    """YouTube posts are uploaded early and published by YouTube at the planned time (publishAt)."""
-    if item["platform"] == "youtube":
-        return 60.0 * float(settings.get("autopilot_upload_lead_minutes") or 30)
+    """Posts are uploaded at their planned time. (Before the audience policy, YouTube posts were uploaded early with
+    a later public release, status.publishAt; that is never used now.)"""
     return 0.0
 
 
@@ -770,6 +789,9 @@ def process_due(settings: dict, now: float) -> dict:
                           audit=_audit(item, "approval_invalidated", "The automatic-publishing permission that "
                                                                      "approved it is no longer in force"))
                 continue
+            if settings.get("autopilot_publish_paused"):
+                _note(item, "Publishing is paused: it waits here; local clips keep being made")
+                continue
             if not settings.get("autopilot_auto_publish"):
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
@@ -809,6 +831,61 @@ def process_due(settings: dict, now: float) -> dict:
     pending = remind_approvals()
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
             "awaiting_approval": pending, "reconciled": reconciled}
+
+
+def manual_handoff(item: dict, settings: dict) -> dict:
+    """A TikTok post this app cannot deliver to the chosen followers becomes a package for the user to post
+    themselves: the exact checked video, the caption, the audience reminder and steps. Nothing is uploaded."""
+    d = audience.plan(item["platform"], settings)
+    group = "Followers" if d.visibility == audience.TIKTOK_GROUPS["FOLLOWERS"] else "Friends"
+    note = "Ready for manual TikTok posting: " + "; ".join(d.notes)
+    db.update("scheduled_publications", item["id"], status="manual_handoff", status_note=note[:500],
+              fix=audience.TIKTOK_MANUAL_STEPS.format(group=group),
+              audit=_audit(item, "manual_handoff", note, audience_policy=d.policy_version))
+    state.action(f"manual:{item['id']}", "publish", f"Post “{item['title'][:50]}” on TikTok yourself",
+                 note, audience.TIKTOK_MANUAL_STEPS.format(group=group), ref_type="scheduled", ref_id=item["id"])
+    return db.fetch("scheduled_publications", item["id"]) or item
+
+
+def manual_posted(item_id: str, link: str = "", note: str = "") -> dict:
+    """The user posted a manual package themselves. Recorded as the user's statement (not platform evidence)."""
+    item = db.fetch("scheduled_publications", item_id)
+    if not item:
+        raise ValueError("Scheduled post not found")
+    if item["status"] != "manual_handoff":
+        raise ValueError("This post is not waiting to be posted by hand")
+    link = (link or "").strip()
+    if link and not link.startswith("https://"):
+        raise ValueError("Paste the https:// link of the post, or leave it empty")
+    clip = db.get_clip(item["clip_id"]) or {}
+    path, version = active_version_path(clip)
+    opts = item.get("options") or {}
+    pub = db.create_publication(item["clip_id"], item["platform"], project_id=clip.get("project_id", ""), mode="manual",
+                                status="done", progress=1.0, message="Posted by you (manual handoff)",
+                                title=item["title"], description=item["description"], tags=item.get("tags") or [],
+                                requested_privacy=opts.get("suggested_privacy", ""), privacy="", url=link,
+                                remote_id=tiktok_post_id(link), video_path=path, version_id=version,
+                                options=opts, scheduled_id=item["id"],
+                                info={"audience": {"intent": opts.get("audience_intent", ""), "evidence": "user",
+                                                   "requested": opts.get("suggested_privacy", ""), "returned": "",
+                                                   "setup": audience.SETUP_USER_CONFIRMED, "note": note[:300],
+                                                   "policy_version": audience.policy_version(
+                                                       item["platform"], db.get_settings()),
+                                                   "recorded_at": time.time()}})
+    db.update("scheduled_publications", item["id"], status="published", publication_id=pub["id"],
+              status_note="Posted by you on TikTok" + ("" if link else " (no link given)"),
+              audit=_audit(item, "manual_posted", "You marked it posted" + (f": {link}" if link else "")))
+    state.resolve(f"manual:{item['id']}")
+    state.event("published", f"tiktok: “{item['title'][:60]}” posted by you (manual)", ref_type="scheduled",
+                ref_id=item["id"], url=link)
+    return db.fetch("scheduled_publications", item["id"]) or item
+
+
+def tiktok_post_id(link: str) -> str:
+    import re
+
+    m = re.search(r"/video/(\d+)", link or "")
+    return m.group(1) if m else ""
 
 
 def remind_approvals() -> int:

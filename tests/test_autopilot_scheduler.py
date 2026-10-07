@@ -19,7 +19,8 @@ def data(monkeypatch, tmp_path):
     db.init()
     db.save_settings({"autopilot_enabled": True, "autopilot_youtube": True, "autopilot_tiktok": False,
                       "autopilot_active_start": 9, "autopilot_active_end": 21, "autopilot_min_gap_minutes": 60,
-                      "autopilot_youtube_daily_limit": 3, "autopilot_daily_target": 15})
+                      "autopilot_youtube_daily_limit": 3, "autopilot_daily_target": 15,
+                      "audience_youtube_intent": "SELECTED_AUDIENCE", "audience_tiktok_intent": "OWNER_ONLY"})
     return tmp_path
 
 
@@ -81,7 +82,7 @@ def test_planning_respects_gaps_limits_and_scores(data):
     out = scheduler.plan_new(db.get_settings(), now)
     assert out["created"] == 5
     items = db.select("scheduled_publications", "", (), "planned_at")
-    assert all(i["status"] == "awaiting_approval" and i["privacy"] == "public" for i in items)
+    assert all(i["status"] == "awaiting_approval" and i["privacy"] == "private" for i in items)
     days = [dt.datetime.fromtimestamp(i["planned_at"], CHI).date() for i in items]
     assert days.count(days[0]) == 3  # the YouTube daily limit of 3; the rest go to tomorrow
     same_day = [i["planned_at"] for i in items if dt.datetime.fromtimestamp(i["planned_at"], CHI).date() == days[0]]
@@ -168,8 +169,10 @@ def test_approval_rules_and_invalidation(data):
         scheduler.approve(tt["id"], {"privacy": "PUBLIC_TO_EVERYONE"})  # the app is not audited
     ok = scheduler.approve(tt["id"], {"privacy": "SELF_ONLY"})
     assert ok["status"] == "approved" and scheduler.approval_valid(ok)
-    ok = scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "unlisted"})
-    assert ok["privacy"] == "unlisted" and ok["approval"]["hash"]
+    with pytest.raises(PublishError, match="blocked"):  # anyone with the link is never a selected audience
+        scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "unlisted"})
+    ok = scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "private"})
+    assert ok["privacy"] == "private" and ok["approval"]["hash"] and ok["approval"]["audience_policy"]
     edited = scheduler.edit(yt["id"], {"title": "A new title"})
     assert edited["status"] == "awaiting_approval"  # edits need a new approval
     scheduler.approve(yt["id"], {})
@@ -193,7 +196,7 @@ def test_due_processing(data):
     scheduler.plan_new(db.get_settings(), now)
     due, other = sorted(db.select("scheduled_publications"), key=lambda i: -i["final_score"])
     scheduler.approve(due["id"], {"options": {"made_for_kids": False}})
-    db.update("scheduled_publications", due["id"], planned_at=now + 600)  # YouTube uploads 30 min early
+    db.update("scheduled_publications", due["id"], planned_at=now - 60)  # due: uploads start at their time
     out = scheduler.process_due(db.get_settings(), now)
     assert out["publishing"] == 1 and db.fetch("scheduled_publications", due["id"])["status"] == "publishing"
     assert queue.jobs(worker="publisher")[0]["ref_id"] == due["id"]
@@ -217,7 +220,7 @@ def test_auto_publish_off_asks_first(data):
     scheduler.plan_new(db.get_settings(), now)
     item = db.select("scheduled_publications")[0]
     scheduler.approve(item["id"], {"options": {"made_for_kids": False}})
-    db.update("scheduled_publications", item["id"], planned_at=now + 60)
+    db.update("scheduled_publications", item["id"], planned_at=now - 60)
     assert scheduler.process_due(db.get_settings(), now)["publishing"] == 0
     assert any(a["key"] == f"publish:{item['id']}" for a in state.open_actions())
 

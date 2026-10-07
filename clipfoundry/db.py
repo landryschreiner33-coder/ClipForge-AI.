@@ -542,6 +542,68 @@ CREATE TABLE IF NOT EXISTS api_cache (
     fetched_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS observations (         -- the Brain's evidence (brain.py); never mixed across cohorts
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    render_sha256 TEXT DEFAULT '',            -- the exact file viewers saw
+    publication_id TEXT DEFAULT '',
+    platform TEXT NOT NULL,
+    platform_video_id TEXT DEFAULT '',
+    cohort TEXT NOT NULL,                     -- selected:youtube:invited:v1, owner:tiktok, public:youtube, ...
+    audience_type TEXT DEFAULT '',
+    provenance TEXT NOT NULL,                 -- platform_api owner_import tester_feedback
+    metric TEXT NOT NULL,
+    unit TEXT DEFAULT '',
+    value REAL,                               -- NULL = not reported (never stored as zero)
+    window_start REAL,
+    window_end REAL,
+    observed_at REAL NOT NULL,
+    sample_size INTEGER,
+    tester_id TEXT DEFAULT '',
+    import_id TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    reading_key TEXT NOT NULL,                -- same reading again = duplicate; new value = correction
+    version INTEGER DEFAULT 1,
+    superseded_by TEXT DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_obs_reading ON observations(reading_key, superseded_by);
+CREATE INDEX IF NOT EXISTS idx_obs_cohort ON observations(cohort, clip_id);
+CREATE TABLE IF NOT EXISTS observation_imports (
+    id TEXT PRIMARY KEY,
+    filename TEXT DEFAULT '',
+    kind TEXT DEFAULT 'csv',
+    rows INTEGER DEFAULT 0,
+    accepted INTEGER DEFAULT 0,
+    duplicates INTEGER DEFAULT 0,
+    sha256 TEXT DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS strategy_versions (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,                      -- a selected-audience cohort; public strategy is never automatic
+    parameter TEXT NOT NULL,
+    old_value REAL,
+    new_value REAL,
+    reason TEXT DEFAULT '',
+    evidence TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'active',             -- active superseded rolled_back
+    rollback_to TEXT DEFAULT '',
+    kind TEXT DEFAULT 'automatic',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS experiments (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    parameter TEXT NOT NULL,
+    variants TEXT DEFAULT '[]',
+    share REAL DEFAULT 0.1,
+    status TEXT DEFAULT 'running',            -- running finished stopped
+    result TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 JSON_FIELDS = {
@@ -575,6 +637,10 @@ JSON_FIELDS = {
     "api_cache": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
+    "observations": set(),
+    "observation_imports": set(),
+    "strategy_versions": {"evidence"},
+    "experiments": {"variants", "result"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -609,6 +675,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "CASE WHEN w.replaced_by = n.id THEN 'replaced' ELSE 'proposed' END, n.created_at, n.updated_at "
         "FROM scheduled_publications n JOIN scheduled_publications w ON (n.replaces != '' AND w.id = n.replaces) OR "
         "(w.replaced_by != '' AND w.replaced_by = n.id)")
+    # the audience policy (audience.py) replaced the YouTube privacy setting: an older private setting becomes
+    # owner-only staging, public/unlisted become local-only (blocked in this build); never widened, saved once
+    from . import audience
+
+    stored = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings").fetchall()}
+    decoded = {}
+    for k, v in stored.items():
+        try:
+            decoded[k] = json.loads(v)
+        except ValueError:
+            pass
+    for key, value in audience.migrate_legacy(decoded).items():
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, json.dumps(value)))
     # secrets saved before they were sealed (the AI service keys until 2026-10-01) are sealed now, not at their next
     # save, so none stays readable in the database file
     for row in conn.execute(f"SELECT key, value FROM settings WHERE key IN ({','.join('?' * len(config.SEALED_KEYS))})",
@@ -778,7 +857,7 @@ def update_project(project_id: str, **fields: Any) -> None:
 # Deleted with their clip. Kept on purpose: the post history (publications, scheduled_publications,
 # slot_replacements, performance) and clip_fingerprints, which stop the same clip from being posted twice.
 CLIP_CHILDREN = ("clip_versions", "clip_blueprints", "quality_reports", "clip_analysis", "clip_scores",
-                 "metadata_candidates")
+                 "metadata_candidates", "observations")
 
 
 def delete_project(project_id: str) -> None:

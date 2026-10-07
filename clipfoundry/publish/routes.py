@@ -1,13 +1,14 @@
 """REST endpoints for accounts and publishing. Every publish needs an explicit confirmation from the publish screen."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from .. import db, learning, secure
+from .. import audience, db, learning, secure
 from . import jobs, stats, tiktok, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
@@ -171,6 +172,12 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         raise HTTPException(409, "This clip is already being uploaded to this platform.")
     settings = db.get_settings()
     options: dict = {}
+    # the audience policy applies to manual uploads exactly as to Autopilot (audience.py); TikTok's own rules are
+    # checked first so their wording stays, then the policy (below)
+    if platform == "youtube":
+        audience.check(platform, body.privacy, settings)
+    elif audience.intent(platform, settings) == audience.LOCAL_ONLY:
+        audience.check(platform, body.privacy, settings, mode=body.mode)
     if platform == "youtube":
         if not (db.get_account("youtube") or {}).get("has_tokens"):
             raise PublishError("YouTube is not connected.", "Click Connect YouTube first.", "not_connected")
@@ -198,6 +205,7 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
             options["brand_organic"] = options["brand_content"] = False
         info = tiktok.creator_info(tiktok.Token(settings)) if mode == "direct" else None
         tiktok.validate(body.description, body.privacy, options, mode, settings, info, options["duration"])
+        audience.check(platform, body.privacy, settings, mode=mode, creator=info)
     pub = db.create_publication(
         clip_id, platform, project_id=clip["project_id"], mode=mode, status="queued", message="Waiting to upload",
         title=body.title.strip(), description=body.description.strip(), tags=body.tags,
@@ -321,3 +329,101 @@ def performance_dataset(format: str = "csv") -> Response:  # noqa: A002 - query 
                         headers={"Content-Disposition": 'attachment; filename="clipfoundry-performance.json"'})
     return Response("\ufeff" + learning.to_csv(rows), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="clipfoundry-performance.csv"'})
+
+
+# ------------------------------------------------------------------ selected audience (audience.py)
+class AudienceBody(BaseModel):
+    youtube_intent: str | None = None
+    tiktok_intent: str | None = None
+    tiktok_group: str | None = None
+    tiktok_private_confirmed: bool | None = None
+    tiktok_followers_reviewed: bool | None = None
+    youtube_viewers_label: str | None = None
+    youtube_group_changed: bool = False
+    tiktok_group_changed: bool = False
+    publish_paused: bool | None = None
+
+
+def audience_view() -> dict:
+    settings = db.get_settings()
+    return {"destinations": audience.summary(settings), "scope": audience.SCOPE_TEXT,
+            "setup_labels": audience.SETUP_LABELS, "publish_paused": bool(settings.get("autopilot_publish_paused")),
+            "tiktok_private_confirmed": bool(settings.get("audience_tiktok_private_confirmed")),
+            "tiktok_followers_reviewed": bool(settings.get("audience_tiktok_followers_reviewed")),
+            "youtube_viewers_label": settings.get("audience_youtube_viewers_label") or "",
+            "migrated_from": settings.get("audience_migrated_from") or "",
+            "youtube_share_steps": audience.YOUTUBE_SHARE_STEPS}
+
+
+@router.get("/api/audience", dependencies=[Depends(local_only)])
+def get_audience() -> dict:
+    return audience_view()
+
+
+@router.post("/api/audience", dependencies=[Depends(app_request)])
+def save_audience(body: AudienceBody) -> dict:
+    """The user's own audience choices. Nothing here invites anyone or changes an account; it only decides what
+    ClipFoundry may request. Selected audience on TikTok needs the private-account confirmation first."""
+    settings = db.get_settings()
+    patch: dict = {}
+    for name, key in (("youtube_intent", "audience_youtube_intent"), ("tiktok_intent", "audience_tiktok_intent"),
+                      ("tiktok_group", "audience_tiktok_group"),
+                      ("tiktok_private_confirmed", "audience_tiktok_private_confirmed"),
+                      ("tiktok_followers_reviewed", "audience_tiktok_followers_reviewed"),
+                      ("youtube_viewers_label", "audience_youtube_viewers_label"),
+                      ("publish_paused", "autopilot_publish_paused")):
+        value = getattr(body, name)
+        if value is not None:
+            patch[key] = value
+    for key in ("audience_youtube_intent", "audience_tiktok_intent"):
+        if key in patch and str(patch[key]).upper() not in audience.INTENTS:
+            raise HTTPException(400, "Choose: keep on this PC, private staging, or selected audience")
+    tiktok_selected = str(patch.get("audience_tiktok_intent", settings.get("audience_tiktok_intent"))).upper() \
+        == audience.SELECTED_AUDIENCE
+    if tiktok_selected and not patch.get("audience_tiktok_private_confirmed",
+                                         settings.get("audience_tiktok_private_confirmed")):
+        raise HTTPException(400, "Confirm that your TikTok account is private first. ClipFoundry never changes it.")
+    if tiktok_selected and not patch.get("audience_tiktok_followers_reviewed",
+                                         settings.get("audience_tiktok_followers_reviewed")):
+        raise HTTPException(400, "Review your approved followers in the TikTok app first: Followers means all of them.")
+    for p in audience.PLATFORMS:
+        if getattr(body, f"{p}_group_changed"):
+            patch[f"audience_{p}_group_version"] = int(settings.get(f"audience_{p}_group_version") or 1) + 1
+    db.save_settings(patch)
+    return audience_view()
+
+
+@router.post("/api/publications/{pub_id}/viewers-invited", dependencies=[Depends(app_request)])
+def viewers_invited(pub_id: str) -> dict:
+    """The user says they shared this private YouTube video with their chosen viewers in Studio. Recorded as the
+    user's confirmation, never as independent verification."""
+    pub = _pub_or_404(pub_id)
+    a = (pub.get("info") or {}).get("audience") or {}
+    if pub["platform"] != "youtube" or pub["status"] != "done" or a.get("intent") != audience.SELECTED_AUDIENCE:
+        raise HTTPException(400, "Only a private YouTube upload meant for your selected viewers can be marked shared.")
+    info = {**(pub.get("info") or {}), "audience": {**a, "setup": audience.SETUP_USER_CONFIRMED,
+                                                     "confirmed_at": time.time(), "evidence": "user"}}
+    db.update_publication(pub_id, info=info, message="Viewers invited (confirmed by you).")
+    from ..autopilot import state
+
+    state.resolve(f"share:{pub_id}")
+    return db.get_publication(pub_id) or pub
+
+
+@router.post("/api/publications/{pub_id}/retarget", dependencies=[Depends(app_request)])
+def retarget(pub_id: str) -> dict:
+    """Explicitly turn one owner-only staged YouTube upload into a selected-audience video (the user then invites
+    viewers in Studio). One clip at a time, never in bulk during a migration; nothing changes on YouTube."""
+    pub = _pub_or_404(pub_id)
+    a = (pub.get("info") or {}).get("audience") or {}
+    settings = db.get_settings()
+    if pub["platform"] != "youtube" or pub["status"] != "done" or (pub.get("privacy") or "") != "private":
+        raise HTTPException(400, "Only a private YouTube upload can be retargeted.")
+    if audience.intent("youtube", settings) != audience.SELECTED_AUDIENCE:
+        raise HTTPException(400, "Set YouTube to Selected audience first (Settings → Integrations).")
+    if a.get("intent") == audience.SELECTED_AUDIENCE:
+        return pub
+    d = audience.plan("youtube", settings)
+    info = audience.record(pub.get("info") or {}, d, pub.get("privacy") or "", "user_retarget")
+    db.update_publication(pub_id, info=info, message="Retargeted to your selected viewers: share it in YouTube Studio.")
+    return db.get_publication(pub_id) or pub

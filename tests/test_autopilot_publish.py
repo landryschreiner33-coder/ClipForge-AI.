@@ -32,7 +32,9 @@ def env(monkeypatch, tmp_path):
     db.init()
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
-                      "autopilot_youtube": True, "autopilot_tiktok": True})
+                      "autopilot_youtube": True, "autopilot_tiktok": True,
+                      # audience policy: invited YouTube viewers; TikTok "Only me" staging (an unaudited app)
+                      "audience_youtube_intent": "SELECTED_AUDIENCE", "audience_tiktok_intent": "OWNER_ONLY"})
     yield g, t, tmp_path
     g.stop()
     t.stop()
@@ -70,7 +72,7 @@ def make_item(tmp, platform: str = "youtube", size: int = 300_000, planned_in: f
     item = db.insert("scheduled_publications", {
         "clip_id": clip["id"], "platform": platform, "title": "Talk to customers first, then build",
         "description": text if platform == "tiktok" else f"{text}\n\nFollow for more clips like this.",
-        "tags": ["customers"], "privacy": "public" if platform == "youtube" else "",
+        "tags": ["customers"], "privacy": "private" if platform == "youtube" else "",
         "options": {"made_for_kids": None} if platform == "youtube" else {"mode": "direct"},
         "planned_at": time.time() + planned_in, "status": "awaiting_approval", "final_score": 70})
     if approve is not None:
@@ -91,8 +93,9 @@ def run_publish(item_id: str) -> dict:
     return host.HANDLERS["publish"](host.Job(queue.get(row["id"]), "test"))
 
 
-def test_youtube_post_is_scheduled_with_publish_at(env):
+def test_youtube_post_is_uploaded_privately_and_waits_for_viewer_invitations(env):
     from clipfoundry import db
+    from clipfoundry.autopilot import state
 
     g, t, tmp = env
     connect(g, t)
@@ -101,22 +104,69 @@ def test_youtube_post_is_scheduled_with_publish_at(env):
     after = db.fetch("scheduled_publications", item["id"])
     pub = db.get_publication(after["publication_id"])
     video = g.videos[pub["remote_id"]]
-    assert video["status"]["privacyStatus"] == "private" and video["status"]["publishAt"]  # YouTube publishes it
-    assert after["status"] == "published" and "scheduled" in after["status_note"].lower()
-    assert pub["info"]["scheduled"] and pub["scheduled_id"] == item["id"]
+    assert video["status"]["privacyStatus"] == "private" and "publishAt" not in video["status"]
+    assert after["status"] == "published" and pub["scheduled_id"] == item["id"]
+    # a private upload with no invitations is not delivery to test viewers
+    assert pub["info"]["audience"]["setup"] == "awaiting_invitations"
+    assert any(a["key"] == f"share:{pub['id']}" for a in state.open_actions())
 
 
-def test_locked_private_is_reported_honestly(env):
-    from clipfoundry import db
+def test_owner_only_staging_is_never_reported_as_viewer_delivery(env):
+    from clipfoundry import audience, db
 
     g, t, tmp = env
     connect(g, t)
-    g.lock_private = True  # an API project that has not passed YouTube's audit
+    db.save_settings({"audience_youtube_intent": "OWNER_ONLY"})
+    item = make_item(tmp, planned_in=60, approve={"options": {"made_for_kids": False}})
+    run_publish(item["id"])
+    pub = db.get_publication(db.fetch("scheduled_publications", item["id"])["publication_id"])
+    assert pub["info"]["audience"]["setup"] == "owner_only_staging" and not audience.viewers_can_watch(pub)
+    assert "No test viewer" in pub["message"]
+
+
+def test_a_wider_visibility_reported_by_youtube_halts_the_destination(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    g.force_privacy = "public"
     item = make_item(tmp, planned_in=60, approve={"options": {"made_for_kids": False}})
     run_publish(item["id"])
     after = db.fetch("scheduled_publications", item["id"])
-    assert after["status"] == "published" and "Published as Private" in after["status_note"]
-    assert db.get_publication(after["publication_id"])["privacy"] == "private"
+    assert after["status"] == "blocked" and "wider" in after["status_note"]
+    assert scheduler.blocked_until("youtube")[0] > time.time() + 86400  # no further uploads there
+
+
+def test_changing_the_audience_after_approval_needs_a_new_approval(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, planned_in=60, approve={"options": {"made_for_kids": False}})
+    db.save_settings({"audience_youtube_group_version": 2})  # the user changed who is invited
+    with pytest.raises(queue.Fail):
+        run_publish(item["id"])
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "awaiting_approval" and "who can see it changed" in after["status_note"]
+    assert not g.sessions
+
+
+def test_public_items_from_older_versions_stay_blocked(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, planned_in=60)
+    # a post saved by an older version as public, with an approval that looked valid then
+    db.update("scheduled_publications", item["id"], privacy="public", status="approved",
+              approval={"hash": "x", "scheme": 2})
+    with pytest.raises(queue.Fail):
+        run_publish(item["id"])
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "blocked" and "blocked" in after["status_note"] and not g.sessions
 
 
 def test_tiktok_direct_post_and_unaudited_refusal(env):
@@ -362,7 +412,7 @@ def test_publish_center_api(env):
                       json={"made_for_kids": False}).status_code == 400  # no explicit confirmation
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H,
                    json={"privacy": "PUBLIC_TO_EVERYONE", "confirm": True})
-        assert r.status_code == 400 and "Only me" in r.json()["detail"]
+        assert r.status_code == 400 and "blocked" in r.json()["detail"]  # the audience policy, before TikTok's rules
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H, json={"privacy": "SELF_ONLY",
                                                                                    "confirm": True})
         assert r.status_code == 200 and r.json()["status"] == "approved" and r.json()["approval_valid"]
@@ -371,7 +421,10 @@ def test_publish_center_api(env):
         assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
-        assert r.json()["privacy"] == "unlisted"
+        assert r.status_code == 400 and r.json()["code"] == "audience_blocked"  # anyone with the link: never
+        r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
+                   json={"made_for_kids": False, "privacy": "private", "confirm": True})
+        assert r.json()["privacy"] == "private"
         r = c.patch(f"/api/autopilot/scheduled/{yt['id']}", headers=H, json={"title": "Invented: 5 secrets of Elon"})
         assert r.json()["status"] == "awaiting_approval" and r.json()["warnings"]
         c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H, json={"confirm": True})
@@ -491,8 +544,8 @@ def test_an_approved_post_whose_upload_job_was_stopped_goes_out_at_its_new_time(
     db.save_settings({"autopilot_auto_publish": True})
     item = make_item(tmp, approve={"options": {"made_for_kids": False}})
 
-    def due() -> None:
-        db.execute("UPDATE scheduled_publications SET planned_at = ? WHERE id = ?", (time.time() + 60, item["id"]))
+    def due() -> None:  # uploads start at the planned time (no early upload with a later public release)
+        db.execute("UPDATE scheduled_publications SET planned_at = ? WHERE id = ?", (time.time() - 1, item["id"]))
         scheduler.process_due(db.get_settings(), time.time())
 
     due()
