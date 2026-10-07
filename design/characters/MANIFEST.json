@@ -1,0 +1,2842 @@
+{
+  "generatedFrom": "frontend/src/robots/registry.ts",
+  "cell": {
+    "width": 48,
+    "height": 64,
+    "footAnchor": {
+      "x": 24,
+      "y": 59
+    }
+  },
+  "renderer": "frontend/src/robots/RobotSprite.tsx#RobotSprite",
+  "states": [
+    "idle",
+    "walk",
+    "work",
+    "carry",
+    "review",
+    "waiting",
+    "approved",
+    "revise",
+    "error",
+    "retrying",
+    "paused",
+    "unavailable"
+  ],
+  "roles": [
+    {
+      "id": "command",
+      "name": "COMMAND",
+      "job": "Boss",
+      "rank": "director",
+      "department": "boss_hub",
+      "managerId": null,
+      "scale": 1.35,
+      "source": "frontend/src/robots/art/director.ts#command",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            240,
+            240,
+            240,
+            240
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "tracker",
+      "name": "TRACKER",
+      "job": "Discovery Manager",
+      "rank": "manager",
+      "department": "discover",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#tracker",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            260,
+            260,
+            260
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "vector",
+      "name": "VECTOR",
+      "job": "Analysis Manager",
+      "rank": "manager",
+      "department": "analyze",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#vector",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            220,
+            220,
+            220,
+            220
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "frame",
+      "name": "FRAME",
+      "job": "Clip Studio Manager",
+      "rank": "manager",
+      "department": "clip_studio",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#frame",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 2,
+          "ms": [
+            260,
+            260
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "script",
+      "name": "SCRIPT",
+      "job": "Caption Manager",
+      "rank": "manager",
+      "department": "caption",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#script",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 2,
+          "ms": [
+            300,
+            300
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "clock",
+      "name": "CLOCK",
+      "job": "Schedule Manager",
+      "rank": "manager",
+      "department": "schedule",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#clock",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            250,
+            250,
+            250,
+            250
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "harbor",
+      "name": "HARBOR",
+      "job": "Publish Manager",
+      "rank": "manager",
+      "department": "upload_dock",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#harbor",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            260,
+            260,
+            260
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "switch",
+      "name": "SWITCH",
+      "job": "System Manager",
+      "rank": "manager",
+      "department": "system",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#switch",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            200,
+            200,
+            200,
+            200
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "curator",
+      "name": "CURATOR",
+      "job": "Learning Manager",
+      "rank": "manager",
+      "department": "brain",
+      "managerId": "command",
+      "scale": 1.15,
+      "source": "frontend/src/robots/art/managers.ts#curator",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            280,
+            280,
+            280
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "radar",
+      "name": "RADAR",
+      "job": "Scout",
+      "rank": "worker",
+      "department": "discover",
+      "managerId": "tracker",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#radar",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            180,
+            180,
+            180,
+            180
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "archive",
+      "name": "ARCHIVE",
+      "job": "Researcher",
+      "rank": "worker",
+      "department": "discover",
+      "managerId": "tracker",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#archive",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            220,
+            220,
+            220,
+            220
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "pulse",
+      "name": "PULSE",
+      "job": "Trend Analyst",
+      "rank": "worker",
+      "department": "analyze",
+      "managerId": "vector",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#pulse",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "gavel",
+      "name": "GAVEL",
+      "job": "Source Judge",
+      "rank": "worker",
+      "department": "analyze",
+      "managerId": "vector",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#gavel",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            200,
+            200,
+            200
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "spark",
+      "name": "SPARK",
+      "job": "Moment Finder",
+      "rank": "worker",
+      "department": "clip_studio",
+      "managerId": "frame",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#spark",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 2,
+          "ms": [
+            240,
+            240
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "story",
+      "name": "STORY",
+      "job": "Story Editor",
+      "rank": "worker",
+      "department": "clip_studio",
+      "managerId": "frame",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#story",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            260,
+            260,
+            260
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "boost",
+      "name": "BOOST",
+      "job": "Viral Analyst",
+      "rank": "worker",
+      "department": "analyze",
+      "managerId": "vector",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#boost",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            200,
+            200,
+            200,
+            200
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "splice",
+      "name": "SPLICE",
+      "job": "Video Editor",
+      "rank": "worker",
+      "department": "clip_studio",
+      "managerId": "frame",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#splice",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            170,
+            170,
+            170,
+            170
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "glyph",
+      "name": "GLYPH",
+      "job": "Caption Agent",
+      "rank": "worker",
+      "department": "caption",
+      "managerId": "script",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#glyph",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            140,
+            140,
+            140,
+            140
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "quill",
+      "name": "QUILL",
+      "job": "Title Agent",
+      "rank": "worker",
+      "department": "caption",
+      "managerId": "script",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#quill",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 3,
+          "ms": [
+            220,
+            220,
+            220
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "check",
+      "name": "CHECK",
+      "job": "Quality Control",
+      "rank": "worker",
+      "department": "system",
+      "managerId": "switch",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#check",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            200,
+            200,
+            200,
+            200
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "lock",
+      "name": "LOCK",
+      "job": "Audience Verification",
+      "rank": "worker",
+      "department": "upload_dock",
+      "managerId": "harbor",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#lock",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 2,
+          "ms": [
+            300,
+            300
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "dock",
+      "name": "DOCK",
+      "job": "Publisher",
+      "rank": "worker",
+      "department": "upload_dock",
+      "managerId": "harbor",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#dock",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            170,
+            170,
+            170,
+            170
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "metric",
+      "name": "METRIC",
+      "job": "Analytics Agent",
+      "rank": "worker",
+      "department": "brain",
+      "managerId": "curator",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#metric",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            200,
+            200,
+            200,
+            200
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "synapse",
+      "name": "SYNAPSE",
+      "job": "Learning Agent",
+      "rank": "worker",
+      "department": "brain",
+      "managerId": "curator",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#synapse",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            220,
+            220,
+            220,
+            220
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "id": "patch",
+      "name": "PATCH",
+      "job": "System Guardian",
+      "rank": "worker",
+      "department": "system",
+      "managerId": "switch",
+      "scale": 1,
+      "source": "frontend/src/robots/art/workers.ts#patch",
+      "directions": [
+        "down",
+        "up",
+        "left",
+        "right"
+      ],
+      "states": {
+        "idle": {
+          "frames": 2,
+          "ms": [
+            1500,
+            220
+          ]
+        },
+        "walk": {
+          "frames": 4,
+          "ms": [
+            150,
+            150,
+            150,
+            150
+          ]
+        },
+        "work": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "carry": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "review": {
+          "frames": 2,
+          "ms": [
+            900,
+            900
+          ]
+        },
+        "waiting": {
+          "frames": 3,
+          "ms": [
+            420,
+            420,
+            420
+          ]
+        },
+        "approved": {
+          "frames": 2,
+          "ms": [
+            320,
+            320
+          ]
+        },
+        "revise": {
+          "frames": 2,
+          "ms": [
+            380,
+            380
+          ]
+        },
+        "error": {
+          "frames": 2,
+          "ms": [
+            450,
+            450
+          ]
+        },
+        "retrying": {
+          "frames": 4,
+          "ms": [
+            160,
+            160,
+            160,
+            160
+          ]
+        },
+        "paused": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        },
+        "unavailable": {
+          "frames": 1,
+          "ms": [
+            1000
+          ]
+        }
+      }
+    }
+  ],
+  "core": {
+    "id": "core",
+    "name": "CORE",
+    "job": "Brain Core",
+    "department": "brain",
+    "source": "frontend/src/robots/core.ts#renderCore",
+    "activities": [
+      "idle",
+      "lookup",
+      "evaluating",
+      "updating"
+    ],
+    "countedAsRole": false
+  },
+  "departments": [
+    {
+      "id": "boss_hub",
+      "label": "Boss Hub",
+      "color": "#F5C542",
+      "managerId": "command",
+      "workerIds": []
+    },
+    {
+      "id": "discover",
+      "label": "Discover",
+      "color": "#8EE83A",
+      "managerId": "tracker",
+      "workerIds": [
+        "radar",
+        "archive"
+      ]
+    },
+    {
+      "id": "analyze",
+      "label": "Analyze",
+      "color": "#2F6BFF",
+      "managerId": "vector",
+      "workerIds": [
+        "pulse",
+        "gavel",
+        "boost"
+      ]
+    },
+    {
+      "id": "clip_studio",
+      "label": "Clip Studio",
+      "color": "#FF3DAD",
+      "managerId": "frame",
+      "workerIds": [
+        "spark",
+        "story",
+        "splice"
+      ]
+    },
+    {
+      "id": "caption",
+      "label": "Captions",
+      "color": "#9A6BFF",
+      "managerId": "script",
+      "workerIds": [
+        "glyph",
+        "quill"
+      ]
+    },
+    {
+      "id": "schedule",
+      "label": "Schedule",
+      "color": "#FFAB45",
+      "managerId": "clock",
+      "workerIds": []
+    },
+    {
+      "id": "upload_dock",
+      "label": "Upload Dock",
+      "color": "#2FCB6B",
+      "managerId": "harbor",
+      "workerIds": [
+        "lock",
+        "dock"
+      ]
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "color": "#FFB020",
+      "managerId": "switch",
+      "workerIds": [
+        "check",
+        "patch"
+      ]
+    },
+    {
+      "id": "brain",
+      "label": "Brain",
+      "color": "#B79CFF",
+      "managerId": "curator",
+      "workerIds": [
+        "metric",
+        "synapse"
+      ]
+    }
+  ],
+  "note": "Generated from the registry by rendering every role/direction/state/frame (3044 frames). Regenerate when the registry changes."
+}
