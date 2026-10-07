@@ -284,6 +284,10 @@ class WorkerHost:
         with self._lock:
             self._running[job.id] = job
         self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
+        from .. import office
+
+        started_at = time.time()
+        office.record_safely(office.job_started, row)
         fn = HANDLERS.get(row["kind"])
         try:
             if fn is None:
@@ -331,6 +335,7 @@ class WorkerHost:
             with self._lock:
                 self._running.pop(job.id, None)
             outcome = queue.get(job.id) or {}
+            office.record_safely(office.job_finished, row, outcome, started_at)
             if outcome.get("status") in ("failed", "canceled") and row["kind"] in ("hunt_source", "analyze_source"):
                 from . import scout
 
