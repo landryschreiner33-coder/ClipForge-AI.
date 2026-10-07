@@ -176,7 +176,19 @@ def _anthropic(settings: dict, prompt: str) -> str:
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
-PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic}
+def _nvidia(settings: dict, prompt: str) -> str:
+    # budgeted, host-restricted and opt-in (nvidia.py); when it may not run, the caller's local fallback is used
+    from . import nvidia
+
+    try:
+        return nvidia.chat(settings, [{"role": "system", "content": SYSTEM_PROMPT},
+                                      {"role": "user", "content": prompt}], task="text").text
+    except (nvidia.NvidiaUnavailable, nvidia.NvidiaError) as exc:
+        raise ProviderError(str(exc)) from exc
+
+
+PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic,
+             "nvidia": _nvidia}
 LOCAL_PROVIDERS = {"ollama", "openai_compatible"}
 
 
@@ -188,6 +200,8 @@ def provider_label(settings: dict) -> str:
         return f"Local server {settings.get('openai_model') or ''}".strip()
     if p == "anthropic":
         return f"Claude {settings.get('anthropic_model')}"
+    if p == "nvidia":
+        return f"NVIDIA {settings.get('nvidia_model')} ({settings.get('nvidia_mode') or 'experimental'})"
     return "Local heuristic"
 
 
@@ -243,6 +257,11 @@ def check_provider(settings: dict) -> dict:
             has_key = bool(settings.get("anthropic_api_key"))
             return {"ok": has_key, "detail": "API key set (paid usage)" if has_key else
                     "No API key saved (the SDK may still use ANTHROPIC_API_KEY)"}
+        if provider == "nvidia":  # configuration only: never a generative call from a status check
+            from . import nvidia
+
+            why = nvidia.blocker(settings)
+            return {"ok": not why, "detail": why or "Configured; authentication is verified by 'Run small AI test'"}
         return {"ok": True, "detail": "Offline heuristic scoring (no AI model needed)"}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "detail": f"not reachable: {exc.__class__.__name__}"}

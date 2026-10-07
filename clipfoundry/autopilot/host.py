@@ -288,7 +288,13 @@ class WorkerHost:
         try:
             if fn is None:
                 raise queue.Fail(f"No handler for job kind {row['kind']}")
-            result = fn(job) or {}
+            from ..pipeline import nvidia
+
+            unattended = nvidia.UNATTENDED.set(True)  # preview cloud AI is never used by unattended work
+            try:
+                result = fn(job) or {}
+            finally:
+                nvidia.UNATTENDED.reset(unattended)
             job.check()
             queue.complete(row, token, result, str(result.get("message") or "Done"))
             self.set_state(name, "completed", job, message=str(result.get("message") or f"{row['kind']} done"))

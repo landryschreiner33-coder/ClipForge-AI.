@@ -23,7 +23,7 @@ CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
 SILENCE_MODES = ["off", "light", "aggressive"]
-AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic"]
+AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic", "nvidia"]
 CLIP_COUNTS = [3, 5, 10]
 
 
@@ -72,6 +72,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "openai_url": "http://localhost:1234/v1",
     "openai_model": "",
     "openai_api_key": "",
+    # Optional NVIDIA-hosted text AI (pipeline/nvidia.py, docs/NVIDIA.md): off, nothing leaves the PC until you opt in
+    "nvidia_enabled": False,
+    "nvidia_cloud_optin": False,
+    "nvidia_api_key": "",                 # or NVIDIA_API_KEY in the backend's environment
+    "nvidia_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia_mode": "experimental",        # experimental (catalog preview, never unattended) or production
+    "nvidia_production_url": "",
+    "nvidia_production_terms_confirmed": False,
+    "nvidia_price_input_per_mtok": "",    # empty = unknown, which is not zero
+    "nvidia_price_output_per_mtok": "",
+    "nvidia_spend_cap_usd": 0.0,          # authorized paid spend per day; zero by default
+    "nvidia_daily_requests": 50,
+    "nvidia_daily_tokens": 100000,
+    "nvidia_max_output_tokens": 800,
+    "nvidia_timeout_s": 60.0,
+    "nvidia_terms_checked": "",           # what you checked about the endpoint's terms, and when
     "anthropic_api_key": "",
     "anthropic_model": "claude-opus-5",
     # Rendering defaults (per-clip overrides live in the clip's edit params)
@@ -183,7 +199,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_max_source_minutes": 240,  # ...nor processes a longer source (manual projects have no limit)
 }
 
-SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
+SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "nvidia_api_key", "youtube_client_secret", "tiktok_client_secret",
                "youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 AUTOPILOT_PROCESS = ["separate", "in_app"]
@@ -224,6 +240,13 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "ai_provider" and v not in AI_PROVIDERS:
             continue
+        elif key == "nvidia_mode" and v not in ("experimental", "production"):
+            continue
+        elif key in {"nvidia_price_input_per_mtok", "nvidia_price_output_per_mtok"} and v != "":
+            try:
+                v = str(max(0.0, float(v)))
+            except ValueError:
+                continue
         elif key == "crf":
             v = max(10, min(35, v))
         elif key == "max_fps":
@@ -261,7 +284,9 @@ _RANGES: dict[str, tuple[float, float]] = {
     "autopilot_replacement_cooldown_hours": (0.0, 168.0),
     "brain_min_clips": (30, 1000), "brain_min_sources": (3, 500), "brain_min_viewers_per_clip": (1, 1000),
     "brain_min_testers": (2, 1000), "brain_maturity_hours": (1.0, 720.0), "brain_max_step": (0.01, 0.10),
-    "brain_min_arm": (20, 1000), "brain_exploration_share": (0.0, 0.10),
+    "brain_min_arm": (20, 1000),
+    "nvidia_spend_cap_usd": (0.0, 100.0), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
+    "nvidia_max_output_tokens": (16, 4000), "nvidia_timeout_s": (5.0, 180.0), "brain_exploration_share": (0.0, 0.10),
     "audience_youtube_group_version": (1, 1_000_000), "audience_tiktok_group_version": (1, 1_000_000),
     "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),
     "autopilot_youtube_daily_limit": (0, 100), "autopilot_tiktok_daily_limit": (0, 100),

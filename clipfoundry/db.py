@@ -593,6 +593,21 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_usage (           -- cloud text-AI requests, reserved before they are sent (nvidia.py)
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT DEFAULT '',
+    day TEXT NOT NULL,                        -- local date the budget counts against
+    task TEXT DEFAULT '',
+    ref_id TEXT DEFAULT '',                   -- job, project or clip
+    status TEXT DEFAULT 'reserved',           -- reserved done retry timeout error
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
 CREATE TABLE IF NOT EXISTS experiments (
     id TEXT PRIMARY KEY,
     scope TEXT NOT NULL,
@@ -641,6 +656,7 @@ JSON_FIELDS = {
     "observation_imports": set(),
     "strategy_versions": {"evidence"},
     "experiments": {"variants", "result"},
+    "ai_usage": set(),
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
