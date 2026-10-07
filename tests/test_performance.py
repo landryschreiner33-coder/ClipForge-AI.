@@ -79,11 +79,18 @@ def _youtube_pub(c, g) -> dict:
     return _wait(c, r.json()["id"])
 
 
-def _tiktok_pub(c, t, privacy: str = "PUBLIC_TO_EVERYONE", mode: str = "direct") -> dict:
+def _tiktok_pub(c, t, privacy: str = "FOLLOWER_OF_CREATOR", mode: str = "direct") -> dict:
+    """A post for approved followers. TikTok returns no post id for a post that is not public, so the owner links
+    it (as in the app: Share → Copy link)."""
     _connect(c, t, "tiktok")
     r = c.post(f"/api/clips/{c.clip['id']}/publish/tiktok", headers=H, json={
         "description": "caption", "privacy": privacy if mode == "direct" else "", "mode": mode, "confirm": True})
-    return _wait(c, r.json()["id"])
+    pub = _wait(c, r.json()["id"])
+    if mode == "direct" and pub["status"] == "done":
+        c.post(f"/api/publications/{pub['id']}/link", headers=H,
+               json={"url": "https://www.tiktok.com/@testcreator/video/7300000000000000001"})
+        pub = c.get(f"/api/publications/{pub['id']}").json()
+    return pub
 
 
 def test_youtube_numbers_are_stored_exactly_as_reported(client, fakes):
@@ -129,7 +136,7 @@ def test_youtube_without_analytics_permission(client, fakes):
     assert any("allow analytics access" in n for n in s["notes"])
 
 
-def test_tiktok_public_post_stats(client, fakes):
+def test_tiktok_follower_post_stats(client, fakes):
     _, t = fakes
     pub = _tiktok_pub(client, t)
     t.stats["7300000000000000001"] = {"view_count": 900, "like_count": 80, "comment_count": 5, "share_count": 4}

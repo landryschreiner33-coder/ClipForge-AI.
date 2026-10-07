@@ -542,13 +542,116 @@ CREATE TABLE IF NOT EXISTS api_cache (
     fetched_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS office_events (    -- the office feed (office/feed.py): one row per real transition
+    id INTEGER PRIMARY KEY AUTOINCREMENT,     -- the client's resume cursor
+    at REAL NOT NULL,
+    type TEXT NOT NULL,                       -- job_started, job_stage, job_done, job_failed, report, decision, ...
+    role TEXT DEFAULT '',
+    job_id TEXT DEFAULT '',
+    kind TEXT DEFAULT '',
+    ref_type TEXT DEFAULT '',
+    ref_id TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    data TEXT DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_office_events_at ON office_events(at);
+CREATE INDEX IF NOT EXISTS idx_office_events_job ON office_events(job_id);
+CREATE TABLE IF NOT EXISTS office_reports (   -- a manager's automatic review of one finished job
+    id TEXT PRIMARY KEY,
+    job_id TEXT DEFAULT '',
+    kind TEXT DEFAULT '',
+    department TEXT DEFAULT '',
+    manager TEXT DEFAULT '',
+    worker TEXT DEFAULT '',
+    ref_type TEXT DEFAULT '',
+    ref_id TEXT DEFAULT '',
+    state TEXT DEFAULT '',                    -- done, failed, waiting, canceled
+    summary TEXT DEFAULT '',
+    warnings TEXT DEFAULT '[]',
+    recommendation TEXT DEFAULT '',           -- continue, rework, retry_later, needs_owner, stop
+    confidence REAL,                          -- NULL when nothing measured it
+    resources TEXT DEFAULT '{}',              -- elapsed seconds, attempts, GPU use when known
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_office_reports_at ON office_reports(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_office_reports_job ON office_reports(job_id, state);
+CREATE TABLE IF NOT EXISTS office_decisions ( -- the Director's recorded decisions at the four checkpoints
+    id TEXT PRIMARY KEY,
+    point TEXT NOT NULL,                      -- source, clip, qc, upload
+    subject_type TEXT DEFAULT '',
+    subject_id TEXT DEFAULT '',
+    job_id TEXT DEFAULT '',
+    decided_by TEXT DEFAULT 'command',
+    reported_by TEXT DEFAULT '',
+    action TEXT NOT NULL,                     -- approved, rework, rejected, held
+    reason TEXT DEFAULT '',
+    evidence TEXT DEFAULT '{}',
+    rule_version TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_office_decisions_subject ON office_decisions(subject_type, subject_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_observations ( -- results evidence with provenance (autopilot/brain.py)
+    id TEXT PRIMARY KEY,
+    clip_id TEXT DEFAULT '',
+    publication_id TEXT DEFAULT '',
+    platform TEXT DEFAULT '',
+    cohort TEXT DEFAULT 'selected',           -- selected (test viewers), public_legacy, owner_only
+    group_version INTEGER DEFAULT 0,
+    provenance TEXT NOT NULL,                 -- platform_api, owner_import, tester_feedback
+    observed_at REAL NOT NULL,                -- when the numbers were true, not when they were entered
+    age_hours REAL,                           -- hours after posting, when known
+    metrics TEXT DEFAULT '{}',                -- missing metrics stay missing (never 0)
+    tester TEXT DEFAULT '',                   -- a tester's own label; no personal data needed
+    note TEXT DEFAULT '',
+    origin TEXT DEFAULT '',                   -- "form", a CSV file name, or the platform API
+    dedupe_key TEXT NOT NULL,
+    revision INTEGER DEFAULT 1,               -- a correction replaces the values and keeps the earlier ones below
+    previous TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_obs_dedupe ON brain_observations(dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_brain_obs_clip ON brain_observations(clip_id, observed_at);
+CREATE TABLE IF NOT EXISTS brain_strategies ( -- versioned strategy settings, with the evidence and a rollback
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,                       -- e.g. clip_length
+    platform TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    params TEXT DEFAULT '{}',
+    evidence TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'active',             -- active, superseded, rolled_back
+    reason TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_strategies ON brain_strategies(name, platform, cohort, version);
+CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every request and its budget reservation
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    day TEXT NOT NULL,                        -- local day the budget counts against
+    job_id TEXT DEFAULT '',
+    task TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    status TEXT DEFAULT 'reserved',           -- reserved, done, failed, canceled
+    reserved_tokens INTEGER DEFAULT 0,
+    input_tokens INTEGER,                     -- NULL when the provider did not report usage
+    output_tokens INTEGER,
+    cost_usd REAL,                            -- NULL when unknown: never shown as $0
+    error TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
 """
 
 JSON_FIELDS = {
     "projects": {"options", "info"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},
-    "publications": {"tags", "options", "info", "features"},
+    "publications": {"tags", "options", "info", "features", "audience", "delivery"},
     "clip_versions": {"edit", "render_info"},
     "performance": {"notes", "raw"},
     "worker_jobs": {"payload", "result"},
@@ -567,12 +670,18 @@ JSON_FIELDS = {
     "clip_scores": {"components", "explanation"},
     "clip_fingerprints": {"text_sig", "phash"},
     "metadata_candidates": {"tags", "hashtags", "components", "problems"},
-    "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "audit"},
+    "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "audit", "audience", "delivery"},
     "slot_replacements": set(),
     "platform_limits": set(),
     "learning_metrics": {"data"},
     "quota_usage": set(),
     "api_cache": set(),
+    "office_events": {"data"},
+    "office_reports": {"warnings", "resources"},
+    "office_decisions": {"evidence"},
+    "brain_observations": {"metrics", "previous"},
+    "brain_strategies": {"params", "evidence"},
+    "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
 }
@@ -582,7 +691,11 @@ JSON_FIELDS = {
 ADDED_COLUMNS = {
     "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'", "active_version": "TEXT DEFAULT ''"},
     "projects": {"origin": "TEXT DEFAULT 'manual'", "source_id": "TEXT DEFAULT ''"},
-    "publications": {"scheduled_id": "TEXT DEFAULT ''"},
+    # who may watch (publish/audience.py) and what actually happened, field by field: transfer, returned visibility,
+    # audience setup (invitations, followers, manual post) and results; never one overloaded "success"
+    "publications": {"scheduled_id": "TEXT DEFAULT ''", "audience": "TEXT DEFAULT '{}'",
+                     "delivery": "TEXT DEFAULT '{}'"},
+    "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'"},
     "action_items": {"dismissed_at": "REAL"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
@@ -619,6 +732,95 @@ def _migrate(conn: sqlite3.Connection) -> None:
             continue
         if isinstance(value, str) and value and not value.startswith((secure.DPAPI, secure.LOCAL)):
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
+    _migrate_audience(conn)
+
+
+AUDIENCE_MIGRATION = "audience_migrated_v1"
+_LEGACY_PUBLIC = {"public", "unlisted", "PUBLIC_TO_EVERYONE"}
+
+
+def _legacy_intent(platform: str, privacy: str) -> str:
+    """What a post planned before the audience policy amounts to. Nothing becomes wider than it was: a private
+    YouTube post or a TikTok "Only me" post stays owner-only; a public one is kept but blocked."""
+    if privacy in _LEGACY_PUBLIC:
+        return "LEGACY_PUBLIC"
+    if (platform == "youtube" and privacy == "private") or privacy == "SELF_ONLY":
+        return "OWNER_ONLY"
+    return "SELECTED_AUDIENCE"  # a TikTok privacy not chosen yet, or followers/friends chosen by the owner
+
+
+def _migrate_audience(conn: sqlite3.Connection) -> None:
+    """Once per database: stamp posts planned before the selected-audience policy with what they were, hold the
+    public ones, and stop asking YouTube for public uploads by default. A copy of the database is kept first."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (AUDIENCE_MIGRATION,)).fetchone():
+        return
+    rows = conn.execute("SELECT id, platform, privacy, status, audit FROM scheduled_publications WHERE "
+                        "audience IN ('', '{}') OR audience IS NULL").fetchall()
+    pubs = conn.execute("SELECT id, platform, requested_privacy, status FROM publications WHERE "
+                        "audience IN ('', '{}') OR audience IS NULL").fetchall()
+    setting = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_youtube_privacy'").fetchone()
+    consents = conn.execute("SELECT COUNT(*) FROM publish_consents WHERE revoked_at IS NULL").fetchone()[0]
+    now = time.time()
+    if rows or pubs or setting or consents:
+        conn.commit()
+        backups = config.data_dir() / "backups"
+        backups.mkdir(parents=True, exist_ok=True)
+        copy = sqlite3.connect(str(backups / f"clipfoundry-before-audience-v1-{int(now)}.db"))
+        try:
+            conn.backup(copy)
+        finally:
+            copy.close()
+    held = 0
+    for r in rows:
+        want = _legacy_intent(r["platform"], r["privacy"] or "")
+        stamp = {"intent": want, "platform": r["platform"], "policy_version": 0, "legacy": True,
+                 "visibility": r["privacy"] or ""}
+        if want == "LEGACY_PUBLIC" and r["status"] in ("awaiting_approval", "approved", "action_needed", "failed"):
+            note = ("Held: planned as public before this version, which posts only to the viewers you choose. Use "
+                    "“Send to my selected viewers” to plan it for them, or cancel it.")
+            try:
+                audit = json.loads(r["audit"] or "[]")
+            except ValueError:
+                audit = []
+            audit.append({"at": now, "event": "audience_hold", "detail": note})
+            conn.execute("UPDATE scheduled_publications SET audience = ?, status = 'blocked', status_note = ?, "
+                         "approval = '{}', audit = ?, updated_at = ? WHERE id = ?",
+                         (json.dumps(stamp), note, json.dumps(audit), now, r["id"]))
+            held += 1
+        else:
+            conn.execute("UPDATE scheduled_publications SET audience = ? WHERE id = ?", (json.dumps(stamp), r["id"]))
+    for p in pubs:
+        want = _legacy_intent(p["platform"], p["requested_privacy"] or "")
+        stamp = {"intent": want, "platform": p["platform"], "policy_version": 0, "legacy": True,
+                 "visibility": p["requested_privacy"] or ""}
+        if want == "LEGACY_PUBLIC" and p["status"] == "queued":
+            conn.execute("UPDATE publications SET audience = ?, status = 'cancelled', message = ?, updated_at = ? "
+                         "WHERE id = ?", (json.dumps(stamp), "Not uploaded: public posting is off in this version.",
+                                          now, p["id"]))
+        else:
+            conn.execute("UPDATE publications SET audience = ? WHERE id = ?", (json.dumps(stamp), p["id"]))
+    if setting and json.loads(setting["value"] or '""') in ("public", "unlisted"):
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'autopilot_youtube_privacy'", (json.dumps("private"),))
+    wide = [c for c in conn.execute("SELECT id, settings FROM publish_consents WHERE revoked_at IS NULL").fetchall()
+            if (json.loads(c["settings"] or "{}") or {}).get("visibility") != "private"]
+    for c in wide:  # a permission to publish publicly no longer covers anything: it ends, and you are asked again
+        conn.execute("UPDATE publish_consents SET revoked_at = ?, updated_at = ? WHERE id = ?", (now, now, c["id"]))
+    if wide:
+        conn.execute("INSERT OR IGNORE INTO action_items (id, key, kind, level, title, detail, fix, ref_type, ref_id, "
+                     "created_at, updated_at) VALUES (?, 'consent_renew:youtube', 'audience', 'action', ?, ?, ?, '', '', "
+                     "?, ?)", (new_id(), "Turn automatic YouTube publishing on again",
+                               "Your permission was for public or unlisted videos. This version uploads Private videos "
+                               "only, so that permission ended.",
+                               "Autopilot → Permissions & sources → Automatic publishing: read the new wording and "
+                               "turn it on again.", now, now))
+    conn.execute("INSERT OR REPLACE INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (AUDIENCE_MIGRATION, json.dumps({"at": now, "held": held, "posts": len(rows),
+                                                  "uploads": len(pubs), "consents_ended": len(wide)}), now))
+    if held:
+        conn.execute("INSERT INTO autopilot_events (at, kind, level, message, ref_type, ref_id, data) VALUES "
+                     "(?, 'audience_hold', 'warning', ?, '', '', '{}')",
+                     (now, f"{held} post(s) planned as public were held: this version posts only to the viewers "
+                           "you choose"))
 
 
 _ready: set[str] = set()

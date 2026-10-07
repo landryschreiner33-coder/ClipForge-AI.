@@ -11,13 +11,13 @@ import {
 import { PublicationStats } from "../components/stats";
 import "./posts.css";
 import {
-  Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, Segmented, toast,
+  Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, toast,
   usePoll,
 } from "../components/ui";
 
 type Kids = "" | "no" | "yes";
 type Form = {
-  title: string; text: string; tags: string; privacy: string; kids: Kids; mode: "direct" | "inbox";
+  title: string; text: string; tags: string; privacy: string; kids: Kids; mode: "direct" | "inbox" | "manual";
   comment: boolean; duet: boolean; stitch: boolean; disclose: boolean; brandOrganic: boolean; brandContent: boolean;
 };
 const LABELS: Record<keyof Form, string> = {
@@ -39,9 +39,9 @@ function formOf(p: Post): Form {
   const yt = p.platform === "youtube";
   return {
     title: p.title || "", text: p.description || "", tags: (p.tags || []).join(" "),
-    privacy: yt ? p.privacy || "private" : p.privacy || "",
+    privacy: yt ? "private" : p.privacy || "",  // YouTube: Private only (the selected-audience policy)
     kids: o.made_for_kids === false ? "no" : o.made_for_kids === true ? "yes" : "",
-    mode: o.mode === "inbox" ? "inbox" : "direct",
+    mode: o.mode === "inbox" || o.mode === "manual" ? o.mode : "direct",
     comment: !!o.allow_comment, duet: !!o.allow_duet, stitch: !!o.allow_stitch,
     disclose: !!o.disclose, brandOrganic: !!o.brand_organic, brandContent: !!o.brand_content,
   };
@@ -259,7 +259,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
           )}
           <Checks p={p} account={account} />
           {editable ? (
-            <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} tz={tz} />
+            <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} />
           ) : (
             <section className="panel" aria-labelledby="posted-h">
               <h2 id="posted-h" style={{ fontSize: "var(--fs-h3)" }}>Text and visibility</h2>
@@ -296,9 +296,17 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             <span className="small muted">
               {!yt && f.mode === "inbox"
                 ? `Approving sends this exact video with this text to your TikTok inbox ${atLabel(p.planned_at, tz)}, `
-                  + "without asking again. You finish and post it in the TikTok app. Nothing is sent now."
-                : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
-                  + `${account?.name || name}, without asking again. Nothing is posted now.`}
+                  + "without asking again. You finish it in the TikTok app for your followers. Nothing is sent now."
+                : !yt && f.mode === "manual"
+                  ? `Approving makes this exact video and caption ready for you to post ${atLabel(p.planned_at, tz)}. `
+                    + "Nothing is sent to TikTok: you post it in the TikTok app for your followers and paste the link."
+                  : yt
+                    ? `Approving uploads this exact video as Private ${atLabel(p.planned_at, tz)} to `
+                      + `${account?.name || name}, without asking again. Then you share it in YouTube Studio with `
+                      + "the people you picked. Nothing is uploaded now."
+                    : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
+                      + `${account?.name || name} for the audience you chose, without asking again. Nothing is `
+                      + "posted now."}
               {" "}If the video or the text changes, it needs your OK again, and you can cancel it until it goes out.
               {!autoPublish
                 ? " Posting at the planned time is turned off, so at its time it waits for you to press Publish now."
@@ -634,15 +642,14 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
 }
 
 // ------------------------------------------------------------------ text and visibility
-function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
+function TextPanel({ p, f, set, creator, creatorError, account }: {
   p: Post; f: Form; set: (x: Partial<Form>) => void; creator: TikTokCreator | null; creatorError: string;
-  account?: PlatformAccount; tz?: string;
+  account?: PlatformAccount;
 }) {
   const yt = p.platform === "youtube";
   const direct = !yt && f.mode === "direct";
   const branded = direct && f.disclose && f.brandContent;
   const audited = !!account?.audited;
-  const restriction = account?.restriction || "";
   const options = (p.metadata_options || []).filter((o) => !o.problems.length).slice(0, 6);
   const pick = (o: ScheduledItem["metadata_options"][number]) =>
     set({ title: o.title, text: yt ? o.description : o.caption, tags: (yt ? o.tags : o.hashtags).join(" ") });
@@ -683,18 +690,13 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
             <input id="rv-tags" type="text" value={f.tags} onChange={(e) => set({ tags: e.target.value })} />
           </Field>
           <div className="field">
-            <span className="label" id="rv-priv-l">Who can see it</span>
-            <Segmented labelledBy="rv-priv-l" value={f.privacy} onChange={(v) => set({ privacy: v })}
-              options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
-                { value: "private", label: "Private" }]} />
-            {f.privacy === "public" && (
-              <span className="hint">
-                It is uploaded early as Private with a publish time; YouTube itself makes it public{" "}
-                {atLabel(p.planned_at, tz)}.
-              </span>
-            )}
+            <span className="label">Who can see it</span>
+            <span>Private, then shared with the people you invite</span>
+            <span className="hint">
+              ClipFoundry uploads it as Private and never makes it public or unlisted. Share it in YouTube Studio:
+              Content → this video → Visibility → Private → Share privately.
+            </span>
           </div>
-          {restriction && f.privacy !== "private" && <Note>{restriction}</Note>}
           <fieldset>
             <legend className="label">Made for kids <span className="hint">(YouTube requires an answer)</span></legend>
             {([["no", "No, it's not made for kids"], ["yes", "Yes, it's made for kids"]] as const).map(([v, l]) => (
@@ -729,9 +731,18 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
               </span>
             </label>
             <label className="choice">
-              <input type="radio" name="rv-mode" checked={!direct} onChange={() => set({ mode: "inbox" })} />
+              <input type="radio" name="rv-mode" checked={f.mode === "inbox"} onChange={() => set({ mode: "inbox" })}
+                disabled={!account?.connected || !account.can_inbox} />
               <span>
-                Send to your TikTok inbox as a draft (you finish it in the TikTok app; works without TikTok's app audit)
+                Send to your TikTok inbox as a draft (you finish it in the TikTok app for your followers; works without
+                TikTok's app audit)
+              </span>
+            </label>
+            <label className="choice">
+              <input type="radio" name="rv-mode" checked={f.mode === "manual"} onChange={() => set({ mode: "manual" })} />
+              <span>
+                Ready to post yourself (download the video and caption, post it in the TikTok app for your followers,
+                then paste the link)
               </span>
             </label>
           </fieldset>
@@ -740,7 +751,7 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
               <Field id="rv-tpriv" label="Who can see it">
                 <select id="rv-tpriv" value={f.privacy} onChange={(e) => set({ privacy: e.target.value })}>
                   <option value="" disabled>Choose…</option>
-                  {(creator?.privacy_options || []).map((o) => (
+                  {(creator?.privacy_options || []).filter((o) => o !== "PUBLIC_TO_EVERYONE").map((o) => (
                     <option key={o} value={o}
                       disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
                       {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
@@ -749,12 +760,11 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
                   ))}
                 </select>
               </Field>
-              {!audited && (
-                <Note>
-                  {restriction
-                    || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}
-                </Note>
-              )}
+              <Note>
+                Posting to everyone is turned off: ClipFoundry posts only for your approved followers (keep your TikTok
+                account private).{!audited ? " Until TikTok audits your app, Direct Post can only post “Only me”, so "
+                  + "use the inbox draft or the ready-to-post package to reach your followers." : ""}
+              </Note>
               <fieldset>
                 <legend className="label">Allow viewers to</legend>
                 <div className="row wrap" style={{ gap: 16 }}>

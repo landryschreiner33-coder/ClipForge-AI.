@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from .. import db
+from ..office import feed
 from ..pipeline import artifact, process, quality
 from . import packaging, queue, rights, state
 from .host import Job, handler
@@ -382,8 +383,12 @@ def quality_check(job: Job) -> dict:
     if rep["status"] != "passed":
         state.event("quality_failed", f"“{title}” did not pass the final quality check: {rep['blockers'][0]}",
                     "warning", ref_type="clip", ref_id=clip["id"], blockers=rep["blockers"])
-        if repair_media(clip, rep, job.row["priority"]):
+        if repair_media(clip, rep, job.row["priority"]):  # QC checkpoint: back to the Video Editor, bounded
+            feed.decide("qc", "rework", ("clip", clip["id"]), "Render again: " + rep["blockers"][0][:200],
+                        job_id=job.id, reported_by="check", sha256=rep["artifact_sha256"], blockers=rep["blockers"][:5])
             return {"status": "repairing", "message": "Making a fresh copy after the final check"}
+        feed.decide("qc", "rejected", ("clip", clip["id"]), "Did not pass: " + rep["blockers"][0][:200],
+                    job_id=job.id, reported_by="check", sha256=rep["artifact_sha256"], blockers=rep["blockers"][:5])
         from . import scout
 
         scout.refill(_source(clip) or {})
@@ -400,5 +405,8 @@ def quality_check(job: Job) -> dict:
     if ok:
         queue.enqueue("schedule_tick", {"reason": "quality"}, idem_key=f"schedule_tick:{int(time.time() // 60)}")
     warn = f", {len(rep['warnings'])} warning(s)" if rep["warnings"] else ""
+    feed.decide("qc", "approved", ("clip", clip["id"]), f"Passed the final check{warn}; bound to this exact file",
+                job_id=job.id, reported_by="switch", once=False, sha256=rep["artifact_sha256"],
+                warnings=[str(w)[:160] for w in rep["warnings"][:5]], text_ready=ok)
     return {"status": "passed", "platforms": ok, "warnings": len(rep["warnings"]),
             "message": f"Passed{warn}; text ready for " + (", ".join(ok) or "no platform yet")}

@@ -9,7 +9,7 @@ from typing import Callable
 
 from .. import db
 from ..pipeline.common import log
-from . import tiktok, youtube
+from . import audience, tiktok, youtube
 from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_exactly, wait_text
 
 ACTIVE = ("queued", "uploading", "processing")
@@ -42,11 +42,15 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
     token = youtube.Token(settings)
     opts = pub.get("options") or {}
-    publish_at = opts.get("publish_at") if (opts.get("publish_at") or 0) > time.time() + 300 else None
+    info = pub.get("info") or {}
+    stamp = pub.get("audience") or {}
+    if not info.get("upload_session"):  # an upload under way keeps going; a new one is checked against the policy
+        stamp = audience.check("youtube", pub["requested_privacy"], settings, stamp=stamp or None)
+        db.update_publication(pub["id"], audience=stamp)
     body = youtube.video_body(pub["title"], pub["description"], pub.get("tags") or [], pub["requested_privacy"],
-                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22",
-                              publish_at)
-    db.update_publication(pub["id"], status="uploading", progress=0, message="Uploading to YouTube")
+                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22")
+    db.update_publication(pub["id"], status="uploading", progress=0, message="Uploading to YouTube as Private",
+                          delivery={**(pub.get("delivery") or {}), "transfer": "uploading"})
 
     def remember(session: str) -> None:  # lets an interrupted upload resume instead of uploading twice
         current = db.get_publication(pub["id"]) or pub
@@ -57,37 +61,26 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
         current = db.get_publication(pub["id"]) or pub
         db.update_publication(pub["id"], info={**(current.get("info") or {}), "final_chunk_at": time.time()})
 
-    info = pub.get("info") or {}
     video = youtube.upload(pub["video_path"], body, token, _progress_writer(pub["id"]), cancelled,
                            on_session=remember, resume_session=info.get("upload_session", ""),
                            on_final_chunk=final_chunk, may_be_complete=bool(info.get("final_chunk_at")))
     vid = video.get("id", "")
     st = video.get("status") or {}
-    privacy = st.get("privacyStatus") or pub["requested_privacy"]
-    wanted = pub["requested_privacy"]
+    privacy = st.get("privacyStatus") or ""
     info = {**((db.get_publication(pub["id"]) or pub).get("info") or {}), "studio_url": youtube.studio_url(vid),
             "upload_status": st.get("uploadStatus", "")}
-    if publish_at and st.get("publishAt"):
-        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(publish_at))
-        message = (f"Uploaded as Private and scheduled: YouTube makes it public at {when}.")
-        if not settings.get("youtube_project_verified"):
-            message += (" Your API project is not marked as audited: YouTube may keep it Private at that time. "
-                        "Check it with Refresh status after the scheduled time.")
-        db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
-                              privacy="private", message=message,
-                              info={**info, "publish_at": publish_at, "scheduled": True, "locked_private": False})
-        return
-    locked = wanted != "private" and privacy == "private"
-    if locked:
-        message = f"Uploaded, but YouTube set it to Private instead of {wanted.capitalize()}. {youtube.UNVERIFIED_NOTE}"
+    delivery = audience.delivery_after_upload("youtube", stamp, privacy, "api")
+    if privacy and privacy != "private":  # never expected: YouTube was asked for Private
+        audience.incident("youtube", f"YouTube reports the new video {vid} as {privacy}, not Private.", vid)
+        message = f"YouTube reports this video as {privacy.capitalize()}, not Private. Check it in YouTube Studio."
+    elif stamp.get("intent") == audience.OWNER_ONLY:
+        message = "Uploaded to YouTube as Private. Only you can see it (staging, nobody is invited)."
     else:
-        message = (f"Uploaded to YouTube as {privacy.capitalize()}. YouTube is processing it; it shows up on your "
-                   "channel within a few minutes.")
-        if wanted != "private" and not settings.get("youtube_project_verified"):
-            message += (" Your API project is not marked as audited, so YouTube may still lock it to Private: "
-                        "use Refresh status or check YouTube Studio.")
+        message = ("Uploaded to YouTube as Private. Next: share it privately in YouTube Studio with the people you "
+                   "picked; until then nobody else can watch it.")
     db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
-                          privacy=privacy, message=message, info={**info, "locked_private": locked})
+                          privacy=privacy or "private", message=message, info={**info, "locked_private": False},
+                          delivery=delivery)
 
 
 def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
@@ -97,15 +90,20 @@ def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
         ids = st.get("publicaly_available_post_id") or []  # TikTok's spelling
         url = tiktok.post_url(username, str(ids[0])) if ids else ""
         seen = tiktok.PRIVACY_LABELS.get(pub["requested_privacy"], pub["requested_privacy"])
+        # TikTok accepted the post with the requested audience; its status answer does not report the audience back
+        delivery = audience.delivery_after_upload("tiktok", pub.get("audience") or {}, "", "api")
         return {"status": "done", "progress": 1.0, "url": url, "privacy": pub["requested_privacy"],
-                "message": f"Posted on TikTok ({seen}). {tiktok.PROCESSING_NOTE}"
+                "message": f"Posted on TikTok for {seen}. {tiktok.PROCESSING_NOTE}"
                            + ("" if url else " Open your TikTok profile to see it."),
-                "info": {**(pub.get("info") or {}), "post_ids": ids, "tiktok_status": status}}
+                "info": {**(pub.get("info") or {}), "post_ids": ids, "tiktok_status": status}, "delivery": delivery}
     if status == "SEND_TO_USER_INBOX":
+        group = audience.TIKTOK_GROUP_LABELS[audience.tiktok_group(db.get_settings())].split(" (")[0]
         return {"status": "action_needed", "progress": 1.0,
                 "message": "Sent to your TikTok inbox. Open the TikTok app, tap the notification about the new video, "
-                           "edit it if you like, choose who can see it and post it.",
-                "info": {**(pub.get("info") or {}), "tiktok_status": status}}
+                           f"choose {group} as who can watch (keep your account private) and post it. Then paste "
+                           "the post's link here.",
+                "info": {**(pub.get("info") or {}), "tiktok_status": status},
+                "delivery": audience.delivery_after_upload("tiktok", pub.get("audience") or {}, "", "manual")}
     if status == "FAILED":
         err = tiktok.api_error(st.get("fail_reason", ""), st.get("fail_reason", ""))
         return {"status": "failed", "error": str(err), "fix": err.fix,
@@ -119,11 +117,15 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     opts = pub.get("options") or {}
     mode = pub.get("mode") or "direct"
     username = ""
+    creator = None
     if mode == "direct":  # TikTok asks apps to read the creator's current options right before posting
-        info = tiktok.creator_info(token)
-        username = info["username"]
-        tiktok.validate(pub["description"], pub["requested_privacy"], opts, mode, settings, info,
+        creator = tiktok.creator_info(token)
+        username = creator["username"]
+        tiktok.validate(pub["description"], pub["requested_privacy"], opts, mode, settings, creator,
                         float(opts.get("duration") or 0))
+    stamp = audience.check("tiktok", pub["requested_privacy"], settings, mode=mode, creator=creator,
+                           stamp=pub.get("audience") or None)
+    db.update_publication(pub["id"], audience=stamp)
     size = os.path.getsize(pub["video_path"])
     where = "TikTok" if mode == "direct" else "your TikTok inbox"
     db.update_publication(pub["id"], status="uploading", progress=0, message=f"Uploading to {where}")
@@ -164,20 +166,18 @@ def refresh(pub: dict) -> dict:
         if not st["exists"]:
             db.update_publication(pub["id"], info=info, message="This video no longer exists on YouTube.")
         else:
-            old = pub.get("info") or {}
-            waiting = old.get("scheduled") and st["privacy"] == "private" and time.time() < float(
-                old.get("publish_at") or 0) + 600
-            locked = pub["requested_privacy"] != "private" and st["privacy"] == "private" and not waiting
+            delivery = dict(pub.get("delivery") or {})
+            delivery["visibility"] = {**(delivery.get("visibility") or {}), "returned": st["privacy"],
+                                      "evidence": "api", "checked_at": time.time()}
             msg = pub.get("message", "")
-            if waiting:
-                msg = "Scheduled: YouTube makes it public at " + time.strftime(
-                    "%Y-%m-%d %H:%M UTC", time.gmtime(float(old["publish_at"]))) + "."
-            elif locked and not old.get("locked_private"):
-                msg = f"YouTube kept this video Private. {youtube.UNVERIFIED_NOTE}"
-            elif old.get("scheduled") and st["privacy"] == "public":
-                msg = "Published: YouTube made it public at its scheduled time."
-            info["locked_private"] = locked or (old.get("locked_private", False) and st["privacy"] == "private")
-            db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg)
+            # only uploads made under the audience policy are held to it; what was posted before is reported as is
+            governed = int((pub.get("audience") or {}).get("policy_version") or 0) >= 1
+            if st["privacy"] != "private" and governed:
+                audience.incident("youtube", f"YouTube reports video {pub['remote_id']} as {st['privacy']}, not "
+                                             "Private.", pub["remote_id"])
+                msg = (f"YouTube reports this video as {st['privacy'].capitalize()}, not Private. ClipFoundry stopped "
+                       "uploading to YouTube until you check it in YouTube Studio.")
+            db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg, delivery=delivery)
     if pub["platform"] == "tiktok" and pub.get("remote_id") and pub["status"] in ("processing", "action_needed"):
         token = tiktok.Token(db.get_settings())
         outcome = _tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),

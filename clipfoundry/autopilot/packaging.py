@@ -232,7 +232,7 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
     cta = (clip.get("post") or {}).get("cta") or postpack.CTA_DEFAULT
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            text = llm.complete(settings, _ai_prompt(platform, sents, feedback))
+            text = llm.complete(settings, _ai_prompt(platform, sents, feedback), unattended=True, task="packaging")
             m = re.search(r"\{.*\}", text or "", re.S)
             data = json.loads(m.group(0)) if m else {}
         except (llm.ProviderError, ValueError):

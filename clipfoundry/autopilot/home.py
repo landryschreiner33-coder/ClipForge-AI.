@@ -342,13 +342,21 @@ def opportunities(limit: int = 5) -> list[dict]:
 
 
 def upcoming(limit: int = 5) -> list[dict]:
-    """The next posts, including ones already uploaded that the platform will publish at their time."""
+    """The next posts, including ones uploaded ahead of their time (Private: they still wait for your sharing step,
+    nothing makes them public)."""
+    from ..publish import audience
+
     marks = ",".join("?" * len(UPCOMING))
     rows = db.select("scheduled_publications", f"status IN ({marks}) OR (status = 'published' AND planned_at > ?)",
                      (*UPCOMING, time.time()), "planned_at IS NULL, planned_at", limit)
-    return [{"id": r["id"], "platform": r["platform"], "title": r.get("title") or "", "planned_at": r.get("planned_at"),
-             "status": r["status"], "auto": (r.get("approval") or {}).get("by") == "automatic",
-             "on_platform": r["status"] == "published"} for r in rows]
+    out = []
+    for r in rows:
+        state_ = audience.delivery_state(r)
+        out.append({"id": r["id"], "platform": r["platform"], "title": r.get("title") or "",
+                    "planned_at": r.get("planned_at"), "status": r["status"],
+                    "auto": (r.get("approval") or {}).get("by") == "automatic", "on_platform": r["status"] == "published",
+                    "delivery_state": state_, "delivery_label": audience.DELIVERY_LABELS.get(state_, "")})
+    return out
 
 
 def _why_not(src: dict) -> str:

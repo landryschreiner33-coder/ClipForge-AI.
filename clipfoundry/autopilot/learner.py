@@ -5,10 +5,11 @@
 2. Turns each post into one learning row: when it went out (local hour and weekday), platform, topic, source type,
    the source's trend score, the clip's scores and length, how the clip opens (hook type) and the packaging style of
    its title/caption, next to its real views and, when reported, retention.
-3. Compares posts only within a platform (z-scores of log views with outliers capped, plus average percentage
-   viewed when available),
-   and needs at least 10 posts before it concludes anything. Small groups are pulled toward your average (shrinkage),
-   so one lucky post does not become a rule.
+3. Compares posts only within a platform and one audience (your selected viewers, in the current version of that
+   group): z-scores of log views with outliers capped, plus average percentage viewed when available. It needs at
+   least 30 posts (`brain_min_clips`) before it concludes anything, small groups are pulled toward your average
+   (shrinkage), so one lucky post does not become a rule, and each update moves a learned value by at most 10%
+   (`brain_max_step`) from the previous one.
 4. Feeds the results back: posting times (scheduler), topics (source ranking), packaging styles, the weights of the
    Final Opportunity Score, and a calibrated Expected Retention.
 
@@ -32,7 +33,8 @@ from . import state
 from .host import Job, handler
 from .scout import tz
 
-MIN_SAMPLES = 10
+MIN_SAMPLES = 30  # the floor of the brain_min_clips setting (section 14 of the build brief)
+NEW_RESULTS = 10  # new posts needed before the learned values move again
 MIN_GROUP = 3
 SHRINK = 5.0
 REFERENCE_AGE_H = 48.0
@@ -99,6 +101,19 @@ def _duration_bucket(d: float | None) -> str:
     return "<20 s" if d < 20 else "20-35 s" if d < 35 else "35-50 s" if d < 50 else "50+ s"
 
 
+def cohort(pub: dict) -> str:
+    """Which audience a post reached: "selected" (your test viewers), "owner_only" (nobody else, nothing to learn),
+    or "public_legacy" (posted publicly before the selected-audience version). Results of different audiences are
+    never mixed: a small test group does not react like the public."""
+    from ..publish import audience
+
+    want = (pub.get("audience") or {}).get("intent") or ""
+    if not want:
+        want = db._legacy_intent(pub["platform"], pub.get("requested_privacy") or "")  # noqa: SLF001
+    return {audience.SELECTED: "selected", audience.OWNER_ONLY: "owner_only",
+            audience.LEGACY_PUBLIC: "public_legacy"}.get(want, "selected")
+
+
 def rows(settings: dict) -> list[dict]:
     out = []
     zone = tz(settings)
@@ -120,7 +135,8 @@ def rows(settings: dict) -> list[dict]:
         local = dt.datetime.fromtimestamp(posted, zone)
         feats = pub.get("features") or {}
         out.append({
-            "publication_id": pub["id"], "clip_id": pub["clip_id"], "platform": pub["platform"],
+            "publication_id": pub["id"], "clip_id": pub["clip_id"], "platform": pub["platform"], "cohort": cohort(pub),
+            "group_version": int((pub.get("audience") or {}).get("group_version") or 1),
             "hour": str(local.hour), "weekday": str(local.weekday()),
             "topic": ((source or {}).get("topic") or (source or {}).get("category") or clip.get("category") or
                       "unknown").lower(),
@@ -144,7 +160,7 @@ def _robust_z(x: np.ndarray) -> np.ndarray:
     return np.clip((w - w.mean()) / (w.std() or 1.0), -3.0, 3.0)
 
 
-def add_performance(rs: list[dict]) -> None:
+def add_performance(rs: list[dict], minimum: int = MIN_SAMPLES) -> None:
     by = defaultdict(list)
     for r in rs:
         by[r["platform"]].append(r)
@@ -153,7 +169,7 @@ def add_performance(rs: list[dict]) -> None:
         pct = [r["avg_view_percentage"] for r in group]
         have = [p for p in pct if p is not None]
         zp = None
-        if len(have) >= MIN_SAMPLES:
+        if len(have) >= minimum:
             zh = iter(_robust_z(np.array(have, dtype=float)).tolist())
             zp = [next(zh) if p is not None else None for p in pct]
         for k, r in enumerate(group):
@@ -179,28 +195,37 @@ def aggregate(rs: list[dict]) -> list[dict]:
     return out
 
 
-def learned_weights(rs: list[dict]) -> dict:
-    """How well each score ordered your real results (Spearman); weights move by at most ±50%."""
+def bounded(new: float, previous: float, step: float) -> float:
+    """One accepted update moves a learned value by at most `step` (10%) of its previous value."""
+    return max(previous * (1 - step), min(previous * (1 + step), new))
+
+
+def learned_weights(rs: list[dict], previous: dict[str, float] | None = None, step: float = 0.10,
+                    minimum: int = MIN_SAMPLES) -> dict:
+    """How well each score ordered your real results (Spearman). The evidence may point up to ±50% away from the
+    starting weight, but each update moves the weight by at most `step` from where it was."""
     from .scheduler import FINAL_WEIGHTS
 
+    previous = previous or {}
     out = {}
     for k in SCORE_KEYS:
         pairs = [(r["scores"][k], r["perf"]) for r in rs if r["scores"].get(k) is not None]
-        if len(pairs) < MIN_SAMPLES:
+        if len(pairs) < minimum:
             continue
         rho = learning.spearman([p[0] for p in pairs], [p[1] for p in pairs])
         if rho is None:
             continue
-        out[k] = {"weight": round(FINAL_WEIGHTS[k] * (1 + max(-0.5, min(0.5, rho))), 4), "rho": round(rho, 3),
-                  "n": len(pairs)}
+        aim = FINAL_WEIGHTS[k] * (1 + max(-0.5, min(0.5, rho)))
+        out[k] = {"weight": round(bounded(aim, previous.get(k, FINAL_WEIGHTS[k]), step), 4), "rho": round(rho, 3),
+                  "n": len(pairs), "aim": round(aim, 4)}
     return out
 
 
-def retention_calibration(rs: list[dict]) -> dict | None:
+def retention_calibration(rs: list[dict], minimum: int = MIN_SAMPLES) -> dict | None:
     """Observed average percentage viewed vs the Expected Retention estimate (a straight-line fit)."""
     pairs = [(r["scores"]["retention"], r["avg_view_percentage"]) for r in rs
              if r["scores"].get("retention") is not None and r.get("avg_view_percentage") is not None]
-    if len(pairs) < MIN_SAMPLES:
+    if len(pairs) < minimum:
         return None
     x, y = np.array([p[0] for p in pairs], float), np.array([p[1] for p in pairs], float)
     if x.std() == 0:
@@ -234,47 +259,86 @@ def expected_retention(estimate: float | None) -> tuple[float | None, str]:
 def findings(metrics: list[dict], limit: int = 8) -> list[str]:
     """Plain statements backed by your own data (only reliable groups, strongest first)."""
     out = []
+    seen = lambda m: float((m.get("data") or {}).get("aim") or m["lift"])  # noqa: E731 - what the data showed
     for m in sorted((m for m in metrics if (m.get("data") or {}).get("reliable") and m["platform"] != "all"),
-                    key=lambda m: -abs(m["lift"] - 1)):
-        if abs(m["lift"] - 1) < 0.15:
+                    key=lambda m: -abs(seen(m) - 1)):
+        if abs(seen(m) - 1) < 0.15:
             continue
         key = f"{int(m['key']):02d}:00" if m["dimension"] == "hour" else WEEKDAYS[int(m["key"])] \
             if m["dimension"] == "weekday" else m["key"]
-        word = "better" if m["lift"] > 1 else "worse"
-        out.append(f"{m['platform'].title()} · {DIMENSION_LABELS[m['dimension']]} {key}: {m['lift']:.2f}x "
-                   f"({word} than your average) across {m['n']} posts")
+        word = "better" if seen(m) > 1 else "worse"
+        out.append(f"{m['platform'].title()} · {DIMENSION_LABELS[m['dimension']]} {key}: {seen(m):.2f}x "
+                   f"({word} than your average) across {m['n']} posts; used as {m['lift']:.2f}x for now")
         if len(out) >= limit:
             break
     return out
 
 
+def minimum(settings: dict) -> int:
+    return max(MIN_SAMPLES, int(settings.get("brain_min_clips") or MIN_SAMPLES))
+
+
 @handler("learn")
 def learn(job: Job) -> dict:
+    from ..publish import audience
+    from . import brain
+
     settings = db.get_settings()
+    need, step = minimum(settings), min(0.10, float(settings.get("brain_max_step") or 0.10))
+    job.progress(0.05, "Collecting results", stage="refresh")
     refreshed = refresh_due(settings, job)
+    for pub in db.list_publications():
+        if pub["status"] in ("done", "action_needed"):
+            brain.ingest_platform(pub)  # the Brain's copy, with its provenance; repeats add nothing
+    job.progress(0.5, "Comparing results", stage="evaluate")
     all_rows = rows(settings)
-    allowed = [r for r in all_rows if usable(r["platform"], settings)]
-    excluded = len(all_rows) - len(allowed)
+    usable_rows = [r for r in all_rows if usable(r["platform"], settings)]
+    excluded = len(all_rows) - len(usable_rows)
+    groups = {p: int(audience.destination(p, settings)["group_version"]) for p in ("youtube", "tiktok")}
+    # your selected viewers only, in the current version of that group: never mixed with another audience
+    allowed = [r for r in usable_rows if r["cohort"] == "selected" and r["group_version"] == groups[r["platform"]]]
+    other_audience = len(usable_rows) - len(allowed)
     note = ("YouTube results are shown but not used for learning: YouTube's Developer Policies require Google's "
             "approval for metrics derived from YouTube API data." if excluded else "")
-    status = {"at": time.time(), "samples": len(allowed), "needed": MIN_SAMPLES, "excluded_youtube": excluded,
-              "note": note, "refreshed": refreshed["refreshed"], "findings": [], "weights": {}, "calibration": None}
-    db.execute("DELETE FROM learning_metrics")
-    if len(allowed) < MIN_SAMPLES:
-        status["message"] = (f"Not enough results yet: {len(allowed)} of {MIN_SAMPLES} posts with real numbers. "
-                             "Until then posting times are spread evenly and the scores are not adjusted.")
+    if other_audience:
+        note = (note + " " if note else "") + (
+            f"{other_audience} post{'s' if other_audience != 1 else ''} reached another audience (public before this "
+            "version, only you, or an earlier version of your viewer group) and are kept apart from your selected "
+            "viewers' results.")
+    previous = {r["id"]: float(r["lift"]) for r in db.select("learning_metrics") if r.get("lift") is not None}
+    status = {"at": time.time(), "samples": len(allowed), "needed": need, "excluded_youtube": excluded,
+              "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"], "findings": [], "weights": {}, "calibration": None}
+    evaluated = brain.evaluate(settings)
+    if len(allowed) < need:
+        # too few results now: the learned values stay as they were (they never jump back and forth)
+        status["message"] = (f"Not enough results yet: {len(allowed)} of {need} posts with real numbers. "
+                             "Until then posting times are spread evenly and the scores are not adjusted."
+                             if not previous else f"Not enough new results: {len(allowed)} of {need} posts; the "
+                             "values learned earlier stay.")
         state.put("learning:status", status)
-        return {**refreshed, "message": status["message"]}
-    add_performance(allowed)
+        return {**refreshed, "message": status["message"], "brain": evaluated["message"]}
+    basis = set(state.get("learning:basis") or [])
+    fresh = sum(r["publication_id"] not in basis for r in allowed)
+    if previous and fresh < NEW_RESULTS:  # the same results never move the learned values twice
+        status["message"] = (f"Waiting for new results: {fresh} of {NEW_RESULTS} new posts since the last update; "
+                             "the values learned earlier stay.")
+        state.put("learning:status", status)
+        return {**refreshed, "samples": len(allowed), "message": status["message"], "brain": evaluated["message"]}
+    state.put("learning:basis", [r["publication_id"] for r in allowed])
+    db.execute("DELETE FROM learning_metrics")
+    add_performance(allowed, need)
     metrics = aggregate(allowed)
     for m in metrics:
+        m["data"]["aim"] = m["lift"]
+        m["lift"] = round(bounded(m["lift"], previous.get(m["id"], 1.0), step), 4)
         db.insert("learning_metrics", m, replace=True)
-    w = learned_weights(allowed)
+    w = learned_weights(allowed, {k.split(":")[1]: v for k, v in previous.items() if k.startswith("weight:")}, step,
+                        need)
     for k, v in w.items():
         db.insert("learning_metrics", {"id": f"weight:{k}:all:weight", "dimension": "weight", "key": k,
                                        "platform": "all", "metric": "weight", "n": v["n"], "lift": v["weight"],
                                        "data": {"rho": v["rho"]}}, replace=True)
-    cal = retention_calibration(allowed)
+    cal = retention_calibration(allowed, need)
     if cal:
         db.insert("learning_metrics", {"id": "calibration:retention:all:retention", "dimension": "calibration",
                                        "key": "retention", "platform": "all", "metric": "retention", "n": cal["n"],
@@ -283,4 +347,4 @@ def learn(job: Job) -> dict:
                   message=f"Learned from {len(allowed)} of your posts.")
     state.put("learning:status", status)
     state.event("learned", status["message"] + (" " + "; ".join(status["findings"][:3]) if status["findings"] else ""))
-    return {**refreshed, "samples": len(allowed), "message": status["message"]}
+    return {**refreshed, "samples": len(allowed), "message": status["message"], "brain": evaluated["message"]}

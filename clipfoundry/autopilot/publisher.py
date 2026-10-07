@@ -21,13 +21,15 @@ import time
 import httpx
 
 from .. import db
+from ..office import feed
 from ..pipeline import fingerprint
+from ..publish import audience
 from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
 from ..publish.common import Cancelled as UploadCancelled
 from ..publish.common import SHORT_WAIT, PublishError, asked_to_wait, client, wait_text
 from . import autopublish, gate, queue, quota, rights, state, verify
-from .host import Job, handler
+from .host import MAINTENANCE_STEPS, Job, handler
 from .providers import iso_time
 from .scheduler import _audit, _label, active_version_path, approval_problem, block_platform, blocked_until, tz
 
@@ -148,9 +150,7 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     if pub:
         return pub
     opts = dict(item.get("options") or {})
-    if item["platform"] == "youtube":
-        opts["publish_at"] = item["planned_at"]
-    else:
+    if item["platform"] == "tiktok":
         opts["duration"] = float(clip.get("duration") or 0)
     from ..publish.jobs import feature_snapshot
 
@@ -159,7 +159,8 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
                                 mode=opts.get("mode", "direct"), status="queued", message="Autopilot upload",
                                 title=item["title"], description=item["description"], tags=item.get("tags") or [],
                                 requested_privacy=item["privacy"], video_path=video, version_id=version,
-                                options=opts, features=feature_snapshot(clip, version_row), scheduled_id=item["id"])
+                                options=opts, features=feature_snapshot(clip, version_row), scheduled_id=item["id"],
+                                audience=item.get("audience") or {}, delivery={"transfer": "not_started"})
     db.update("scheduled_publications", item["id"], publication_id=pub["id"])
     return pub
 
@@ -189,6 +190,9 @@ def _platform_wait(item: dict, pub: dict, exc: PublishError, seconds: float, set
 def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> None:
     code = exc.code or ""
     platform = item["platform"]
+    if code == "audience":  # the audience policy refused it: never retried until the owner changes something
+        _set(item, "blocked", f"{exc} {exc.fix}".strip(), "audience", last_error=str(exc), fix=exc.fix)
+        raise queue.Fail(str(exc), exc.fix)
     if code in ("network", "internal", "video_pull_failed"):
         raise queue.Retry(str(exc), exc.fix)
     if code in ("quota_budget", "quotaExceeded"):
@@ -225,6 +229,9 @@ def publish(job: Job) -> dict:
         raise queue.Fail("The scheduled post was deleted")
     if item["status"] in ("published", "canceled", "replaced"):
         return {"message": f"Nothing to do: the post is {item['status']}"}
+    if settings.get("autopilot_publishing_paused") and not item.get("publication_id"):  # an upload under way finishes
+        db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
+        raise queue.Wait("publishing_paused", 300, "Publishing is paused")
     clip = db.get_clip(item["clip_id"])
     if not clip or clip["status"] != "ready":
         _set(item, "failed", "The clip is missing or not rendered.", "failed")
@@ -237,6 +244,8 @@ def publish(job: Job) -> dict:
         rights.gate(source, "publish", settings)
     except rights.RightsBlocked as exc:
         _set(item, "blocked", str(exc), "blocked")
+        feed.decide("upload", "rejected", ("scheduled", item["id"]), f"Not posted: {exc}", job_id=job.id,
+                    reported_by="gavel", once=True, platform=item["platform"])
         raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
     allowed, why = rights.platform_allowed(source, item["platform"], settings)
     if not allowed:
@@ -250,10 +259,44 @@ def publish(job: Job) -> dict:
         _set(item, "awaiting_approval", "Automatic publishing was turned off or changed: approve it yourself.",
              "approval_invalidated", approval={})
         raise queue.Fail("The automatic-publishing permission that approved this post is no longer in force")
+    mode = (item.get("options") or {}).get("mode") or "direct"
+    if not item.get("publication_id"):  # who may watch, checked again right before a new upload starts
+        stop = audience.halted(item["platform"])
+        if stop:  # an audience incident on this platform: the post keeps its approval and waits until you checked it
+            note = f"Waiting: uploads are stopped until you check a video. {stop.get('detail', '')}".strip()
+            db.update("scheduled_publications", item["id"], status_note=note[:500])
+            raise queue.Wait("audience_halt", 3600, note)
+        job.progress(None, "Checking who may watch it", stage="audience")
+        try:
+            stamp = audience.check(item["platform"], item.get("privacy") or "", settings, mode=mode,
+                                   stamp=item.get("audience") or None)
+        except audience.AudienceBlocked as exc:
+            _set(item, "blocked", f"{exc} {exc.fix}".strip(), "audience", last_error=str(exc), fix=exc.fix)
+            feed.decide("upload", "held", ("scheduled", item["id"]), str(exc), job_id=job.id, reported_by="lock",
+                        once=True, platform=item["platform"], fix=exc.fix)
+            raise queue.Fail(str(exc), exc.fix) from exc
+        db.update("scheduled_publications", item["id"], audience={**(item.get("audience") or {}), **stamp})
+        item = _item(item["id"]) or item
+        # upload-eligibility checkpoint: rights, a valid approval and the audience all hold for this exact post
+        who = audience.destination(item["platform"], settings)["label"]
+        feed.decide("upload", "approved", ("scheduled", item["id"]),
+                    f"Ready for you to post for {who}" if mode == "manual" else f"Eligible to upload for {who}",
+                    job_id=job.id, reported_by="harbor", once=True, platform=item["platform"],
+                    intent=stamp["intent"], visibility=stamp["visibility"], route=stamp["route"],
+                    approval=(item.get("approval") or {}).get("by"))
+        job.progress(None, "Uploading" if mode != "manual" else "Preparing your package", stage="upload")
     repeat = "" if settings.get("autopilot_allow_republish") else already_published(item)
     if repeat:
         _set(item, "canceled", f"Not published: {repeat}", "duplicate")
         return {"message": repeat}
+    if mode == "manual":  # nothing is uploaded: the owner posts the checked file in the TikTok app
+        video, _version = active_version_path(clip)
+        try:
+            gate.verify_file(clip, video)
+        except queue.Fail as exc:
+            _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
+            raise
+        return handoff(item)
     until, why = blocked_until(item["platform"])
     if until:
         raise queue.Wait("platform_limit", until - time.time() + 60, f"{item['platform']}: {why}")
@@ -310,24 +353,24 @@ def publish(job: Job) -> dict:
 
 
 def finish(item: dict, pub: dict) -> dict:
-    """Record exactly what the platform did."""
+    """Record exactly what the platform did: the transfer, the visibility it reported, and what is still needed
+    before anyone can watch (an upload alone never means viewers can watch)."""
     item = _item(item["id"]) or item
     if pub["status"] == "done":
-        info = pub.get("info") or {}
-        if info.get("scheduled"):
-            note = pub.get("message") or "Uploaded and scheduled on YouTube"
-        elif info.get("locked_private"):
-            note = f"Published as Private: the platform did not allow {item['privacy']}. {pub.get('message', '')}"
-        else:
-            note = pub.get("message") or "Published"
-        _set(item, "published", note, "published", last_error="", fix="")
+        note = pub.get("message") or "Uploaded"
+        delivery = pub.get("delivery") or audience.delivery_after_upload(
+            item["platform"], item.get("audience") or {}, pub.get("privacy") or "", "api")
+        _set(item, "published", note, "published", last_error="", fix="", delivery=delivery)
         state.resolve(f"review:{item['id']}")
         state.event("published", f"{item['platform']}: “{item['title'][:60]}” — {note[:160]}", ref_type="scheduled",
                     ref_id=item["id"], url=pub.get("url", ""))
+        remind_audience_setup()
         return {"url": pub.get("url", ""), "message": note}
     if pub["status"] == "action_needed":
-        _action_needed(item, f"inbox:{item['id']}", "Finish the TikTok post in the app", pub.get("message", ""),
-                       "Open the TikTok app, finish and post the draft, then link it in Posts.")
+        _set(item, "action_needed", pub.get("message", ""), "inbox_draft",
+             delivery=pub.get("delivery") or audience.delivery_after_upload(item["platform"], item.get("audience")
+                                                                             or {}, "", "manual"))
+        remind_audience_setup()
         return {"message": pub.get("message", "")}
     if pub["status"] == "processing":
         _set(item, "publishing", pub.get("message") or "Uploaded; the platform is processing it", "processing")
@@ -335,3 +378,75 @@ def finish(item: dict, pub: dict) -> dict:
     if pub["status"] == "failed":
         raise queue.Retry(pub.get("error") or "The upload failed", pub.get("fix") or "")
     return {"message": pub.get("message", "")}
+
+
+# ------------------------------------------------------------------ the owner's own steps (audience setup)
+def handoff(item: dict) -> dict:
+    """TikTok without an eligible route for the selected audience: the clip becomes a ready-to-post package (the
+    video, its caption and who to post it for). Nothing is uploaded; the owner posts it and pastes the link."""
+    group = audience.TIKTOK_GROUP_LABELS[audience.tiktok_group(db.get_settings())].split(" (")[0]
+    note = (f"Ready for you to post on TikTok for {group} (keep your account private). Download the video and copy "
+            "the caption in Queue, post it in the TikTok app, then paste the post's link here.")
+    delivery = {"transfer": "manual", "route": "manual", "audience_setup": "manual_pending",
+                "visibility": {"requested": (item.get("audience") or {}).get("visibility", ""), "returned": None,
+                               "evidence": "unknown", "checked_at": None},
+                "analytics": "awaiting_viewer_access", "handoff_at": time.time()}
+    _set(item, "action_needed", note, "manual_handoff", delivery=delivery, last_error="", fix="")
+    remind_audience_setup()
+    return {"message": "Ready for you to post on TikTok"}
+
+
+def remind_audience_setup() -> None:
+    """One Needs you item per kind of step only the owner can take (not one per clip): YouTube videos to share
+    privately in Studio, and TikTok clips to post from the app."""
+    invites = db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE platform = 'youtube' AND status = "
+                        "'published' AND json_extract(delivery, '$.audience_setup') = 'awaiting_invitations'") or 0
+    if invites:
+        state.action("audience_share:youtube", "audience", f"Share {invites} YouTube video{'s' if invites != 1 else ''}"
+                     " privately", "They are uploaded as Private; nobody else can watch until you share them with the "
+                     "people you picked. YouTube's API cannot send these invitations.", audience.YOUTUBE_SHARE_STEPS)
+    else:
+        state.resolve("audience_share:youtube")
+    manual = db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE platform = 'tiktok' AND status = "
+                       "'action_needed' AND json_extract(delivery, '$.audience_setup') = 'manual_pending'") or 0
+    if manual:
+        state.action("audience_post:tiktok", "audience", f"Post {manual} clip{'s' if manual != 1 else ''} on TikTok",
+                     "TikTok lets only audited apps post for followers, so these are ready for you to post in the "
+                     "TikTok app.", "Queue → Ready for you to post: download, post for your followers, paste the link.")
+    else:
+        state.resolve("audience_post:tiktok")
+
+
+DRIFT_EVERY = 12 * 3600
+DRIFT_BATCH = 10  # one videos.list unit each; a few per maintenance run keeps the quota cost small
+
+
+def visibility_drift(job: Job) -> dict:
+    """Ask YouTube again whether recent uploads are still Private (bounded: the oldest checks first, at most a few per
+    run). A video reported wider than Private stops YouTube uploads until you check it; nothing is changed there."""
+    acc = db.get_account("youtube") or {}
+    if not acc.get("has_tokens") or audience.halted("youtube"):
+        return {}
+    now = time.time()
+    due = []
+    for pub in db.select("publications", "platform = 'youtube' AND status = 'done' AND remote_id != '' AND "
+                                         "created_at > ?", (now - 30 * 86400,)):
+        if int((pub.get("audience") or {}).get("policy_version") or 0) < 1:
+            continue
+        checked = float(((pub.get("delivery") or {}).get("visibility") or {}).get("checked_at") or 0)
+        if now - checked >= DRIFT_EVERY:
+            due.append((checked, pub))
+    checked_n = 0
+    for _, pub in sorted(due, key=lambda t: t[0])[:DRIFT_BATCH]:
+        job.check()
+        try:
+            publish_jobs.refresh(pub)
+            checked_n += 1
+        except (PublishError, httpx.HTTPError):
+            break  # quota or connection trouble: try again at the next run
+        if audience.halted("youtube"):
+            break
+    return {"visibility_checked": checked_n}
+
+
+MAINTENANCE_STEPS.append(visibility_drift)

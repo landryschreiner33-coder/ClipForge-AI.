@@ -34,6 +34,7 @@ def load_words(project: dict) -> list[dict]:
 def _options(project: dict, settings: dict) -> dict:
     opts = dict(settings)
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
+    opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
     opts["min_duration"] = float(opts.get("min_duration", 20))
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))

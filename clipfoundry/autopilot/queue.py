@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 from .. import db
+from ..office import feed
 from ..pipeline.common import Cancelled, log
 
 ACTIVE = ("queued", "running", "waiting", "retrying")
@@ -186,6 +187,7 @@ def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | 
     if job:
         log_line(job["id"], worker, "info", "started", f"attempt {job['attempts']} of {job['max_attempts']}",
                  owner=owner)
+        feed.job_event(job, "job_started", job.get("message") or "", attempt=job["attempts"])
     return job
 
 
@@ -221,6 +223,9 @@ def complete(job: dict, owner: str, result: dict | None = None, message: str = "
                  fix="", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "info", "completed", message)
+        latest = db.fetch("worker_jobs", job["id"]) or job
+        feed.job_event(latest, "job_done", message)
+        feed.report(latest, "done", result or {})
     return ok
 
 
@@ -237,6 +242,7 @@ def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float
     if _finish(job, owner, status="retrying", error=error[:2000], fix=fix, run_after=_now() + wait_s,
                message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
         log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
+        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
     return "retrying"
 
 
@@ -244,6 +250,9 @@ def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
     ok = _finish(job, owner, status="failed", error=error[:2000], fix=fix, message="Failed", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "error", "failed", error, fix=fix)
+        latest = db.fetch("worker_jobs", job["id"]) or job
+        feed.job_event(latest, "job_failed", error[:300], fix=fix[:300])
+        feed.report(latest, "failed", {}, error=error, fix=fix)
     return ok
 
 
@@ -253,6 +262,8 @@ def wait(job: dict, owner: str, reason: str, seconds: float, message: str = "") 
     if ok:
         log_line(job["id"], job["worker"], "info", "waiting", message or reason, reason=reason,
                  seconds=round(seconds, 1))
+        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_waiting", (message or reason)[:300],
+                       reason=reason, seconds=round(seconds, 1))
     return ok
 
 
@@ -260,6 +271,7 @@ def mark_canceled(job: dict, owner: str, message: str = "Canceled") -> bool:
     ok = _finish(job, owner, status="canceled", message=message, finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "info", "canceled", message)
+        feed.job_event(job, "job_canceled", message)
     return ok
 
 
@@ -272,7 +284,10 @@ def progress(job_id: str, fraction: float | None = None, message: str | None = N
     if stage is not None:
         fields["stage"] = stage
     if fields:
+        before = db.fetch("worker_jobs", job_id) if stage is not None else None
         db.update("worker_jobs", job_id, **fields)
+        if before and before.get("stage") != stage:  # a new stage can mean another role takes over
+            feed.job_event({**before, **fields}, "job_stage", message or "", stage=stage)
 
 
 # ------------------------------------------------------------------ control

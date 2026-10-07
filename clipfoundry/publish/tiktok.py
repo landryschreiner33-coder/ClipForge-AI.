@@ -264,6 +264,7 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
     """Everything TikTok (and its sharing guidelines) would reject, checked before uploading."""
     if caption_length(caption) > CAPTION_MAX:
         raise PublishError(f"TikTok captions can have at most {CAPTION_MAX} characters.", "Shorten the caption.")
+    _never_public(privacy)
     if mode != "direct":
         return
     if not privacy:
@@ -290,8 +291,18 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
                                "Change it in the TikTok app or leave it off.")
 
 
+def _never_public(privacy: str) -> None:
+    """The last step before TikTok: "Everyone" is refused for every path (publish/audience.py)."""
+    if privacy == "PUBLIC_TO_EVERYONE":
+        from .audience import PUBLIC_OFF_FIX, AudienceBlocked
+
+        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipFoundry posts only for your approved "
+                              "followers or friends.", PUBLIC_OFF_FIX)
+
+
 def init_upload(token: Token, mode: str, size: int, caption: str = "", privacy: str = "",
                 opts: dict | None = None) -> dict:
+    _never_public(privacy)
     chunk, total = chunking(size)
     source = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": total}
     if mode == "direct":

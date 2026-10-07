@@ -34,7 +34,9 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await expect(page.getByText(/^Connected: /)).toHaveCount(1);
 
   // A one-time account permission is required even in the fake account. No post is approved by this test.
-  await post(request, "/api/autopilot/auto-publish", { platform: "youtube", visibility: "public",
+  // Who watches is confirmed once too (Settings → Integrations): Private uploads for the viewers you invite.
+  await post(request, "/api/audience/youtube", { intent: "selected", confirm: true });
+  await post(request, "/api/autopilot/auto-publish", { platform: "youtube", visibility: "private",
     made_for_kids: false, daily_limit: 4, start_hour: 0, end_hour: 24, agreed: true });
   await page.getByRole("button", { name: "Start Autopilot" }).click();
   // Finish the setup handler's own navigation before choosing the main control page.
@@ -67,7 +69,8 @@ test("one Start continues through real clips, checked uploads, results and a sec
   const received = state.uploads.find((u: any) => u.id === publication.remote_id);
   expect(received.sha256).toBe(report.artifact_sha256);
   expect(received.status.privacyStatus).toBe("private");
-  expect(received.status.publishAt).toBeTruthy();
+  expect(received.status.publishAt).toBeUndefined();  // nothing ever turns public later
+  expect(postItem.delivery.audience_setup).toBe("awaiting_invitations");
   for (const kind of ["trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip",
     "quality_check", "schedule_tick", "publish"]) {
     expect(state.jobs.some((j: any) => j.kind === kind && j.status === "completed"), kind).toBe(true);

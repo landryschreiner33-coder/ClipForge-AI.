@@ -3,23 +3,18 @@ import { errorText } from "../api";
 import { ap, AutoPublishView } from "../autopilot";
 import { Banner, ConfirmDialog, Dialog, Pill, toast } from "./ui";
 
-const VISIBILITY = [
-  { value: "public", label: "Public: anyone can see them" },
-  { value: "unlisted", label: "Unlisted: only people with the link" },
-  { value: "private", label: "Private: only you" },
-];
 const hourWord = (h?: number) => (h === undefined ? "?" : h === 0 || h === 24 ? "midnight" : h === 12 ? "noon"
   : h < 12 ? `${h} a.m.` : `${h - 12} p.m.`);
 
 /**
- * "Turn on automatic publishing": says exactly what will happen (account, what is posted, visibility, how many, when)
- * and only turns it on when you chose the visibility and the made-for-kids answer yourself and ticked that you
- * understand. TikTok is not offered: its rules require your OK on each post.
+ * "Turn on automatic publishing": says exactly what will happen (account, what is posted, how many, when) and only
+ * turns it on when you gave the made-for-kids answer yourself and ticked that you understand. Uploads are always
+ * Private (the selected-audience policy): you share each one with your invited viewers in YouTube Studio. TikTok is
+ * not offered: its rules require your OK on each post.
  */
 export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [view, setView] = useState<AutoPublishView | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [visibility, setVisibility] = useState("");
   const [kids, setKids] = useState<boolean | null>(null);
   const [limit, setLimit] = useState(3);
   const [start, setStart] = useState(9);
@@ -37,7 +32,6 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
     }).catch((e) => setLoadError(errorText(e)));
   }, []);
   const missing = [
-    !visibility && "choose who can see them",
     kids === null && "answer “made for kids”",
     !(limit >= 1) && "allow at least 1 a day",
     !(start < end) && "make the start hour earlier than the end hour",
@@ -49,7 +43,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
     setError("");
     try {
       await ap.enableAutoPublish({
-        platform: "youtube", visibility, made_for_kids: kids, daily_limit: limit, start_hour: start, end_hour: end,
+        platform: "youtube", visibility: "private", made_for_kids: kids, daily_limit: limit, start_hour: start, end_hour: end,
         agreed,
       });
       toast("Automatic publishing is on for YouTube");
@@ -73,7 +67,8 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
       </button>
     </>}>
       <p className="small">
-        ClipFoundry will then publish finished clips to YouTube by itself, without asking you about each one.
+        ClipFoundry will then upload finished clips to YouTube by itself as <b>Private</b> videos, without asking you
+        about each one. Nobody else can watch them until you share them in YouTube Studio.
       </p>
       {loadError && <Banner tone="bad" title="The current setting could not be read">{loadError}</Banner>}
       <dl className="kv">
@@ -84,12 +79,10 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           Only clips that passed every automatic check (file, sound, captions, framing, text), from videos you own or
           that an agreement or license covers. Clips that do not pass stay in your Library and are not posted.
         </dd>
-        <dt><label htmlFor={`${id}-vis`}>Who can see them</label></dt>
+        <dt>Who can see them</dt>
         <dd>
-          <select id={`${id}-vis`} value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-            <option value="" disabled>Choose…</option>
-            {VISIBILITY.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
-          </select>
+          Private: only the people you invite in YouTube Studio (YouTube → Content → the video → Visibility → Private
+          → Share privately). ClipFoundry never makes them public or unlisted.
         </dd>
         <dt id={`${id}-kids`}>Made for kids</dt>
         <dd>
@@ -114,20 +107,14 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           </span>
         </dd>
       </dl>
-      {view && !view.verified_project && (
-        <Banner tone="warn" icon="shield" title="YouTube keeps these uploads private for now">
-          Until Google audits your YouTube API project, YouTube keeps uploads from it <b>private</b> whatever you choose
-          here. The audit is requested in Google's YouTube API Services form.
-        </Banner>
-      )}
       <p className="small">
         <b>TikTok</b> is not included: {view?.tiktok.note || "TikTok requires your OK on each post."}
       </p>
       <label className="autopub-agree">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
         <span>
-          I understand: ClipFoundry uploads these clips to my channel without asking me each time. I can cancel any
-          upcoming post, and turn this off at any time.
+          I understand: ClipFoundry uploads these clips to my channel as Private videos without asking me each time,
+          and I share them myself. I can cancel any upcoming upload, and turn this off at any time.
         </span>
       </label>
       <span className="tiny muted" id={`${id}-why`}>

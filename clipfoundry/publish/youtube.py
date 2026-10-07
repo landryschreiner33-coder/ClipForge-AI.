@@ -36,7 +36,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/yt-analytics.readonly",  # watch time / retention of your videos (optional)
 ]
 CHUNK = 8 * 1024 * 1024  # must be a multiple of 256 KiB
-PRIVACY = ("public", "unlisted", "private")
+PRIVACY = ("private",)  # public and unlisted are refused (publish/audience.py)
 SHORTS_MAX_SECONDS = 180
 AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
 
@@ -233,8 +233,9 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
                category_id: str = "22", publish_at: float | None = None) -> dict:
     """snippet + status for videos.insert, validated against YouTube's limits.
 
-    With `publish_at` (a public post planned for later), the video is uploaded as private with status.publishAt and
-    YouTube itself makes it public at that time, even if this computer is off."""
+    Only Private is accepted (publish/audience.py): the owner shares the video privately in YouTube Studio. Public and
+    unlisted are refused here, the last step before any upload, and status.publishAt is never set, so YouTube never
+    makes an upload public later. `publish_at` is accepted from older callers and ignored."""
     title = _clean(title)
     if not title:
         raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
@@ -243,8 +244,13 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
     description = _clean(description)
     if len(description.encode("utf-8")) > 5000:
         raise PublishError("YouTube descriptions can have at most 5000 bytes.", "Shorten the description.")
+    if privacy in ("public", "unlisted"):
+        from .audience import PUBLIC_OFF_FIX, AudienceBlocked
+
+        raise AudienceBlocked("Public and unlisted YouTube uploads are turned off: ClipFoundry uploads as Private for "
+                              "the viewers you invite.", PUBLIC_OFF_FIX)
     if privacy not in PRIVACY:
-        raise PublishError("Choose Public, Unlisted or Private.")
+        raise PublishError("Choose Private (you invite the viewers in YouTube Studio).")
     clean_tags, total = [], 0
     for t in tags:
         t = _clean(t).lstrip("#").replace(",", " ").strip()
@@ -253,11 +259,6 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
             clean_tags.append(t)
             total += cost
     status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids), "embeddable": True}
-    if publish_at and privacy == "public":
-        import datetime as dt
-
-        status["privacyStatus"] = "private"  # YouTube requires private + publishAt for scheduled publishing
-        status["publishAt"] = dt.datetime.fromtimestamp(publish_at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     return {"snippet": {"title": title, "description": description, "tags": clean_tags,
                         "categoryId": str(category_id or "22")}, "status": status}
 

@@ -96,7 +96,7 @@ def local(day: dt.date, hour: int, minute: int = 0) -> float:
 def consent_youtube() -> dict:
     from clipfoundry.autopilot import autopublish
 
-    return autopublish.enable("youtube", "public", False, 3, 9, 21, True, "")
+    return autopublish.enable("youtube", "private", False, 3, 9, 21, True, "")
 
 
 def item_for(clip: dict, platform: str = "youtube") -> dict:
@@ -485,7 +485,7 @@ def test_missed_posts_are_replanned_once_each_without_a_burst_across_the_change(
         clip = make_clip(env, f"Missed clip {k} about customers")
         item = db.insert("scheduled_publications", {
             "clip_id": clip["id"], "platform": "youtube", "title": clip["title"], "description": "d", "tags": [],
-            "privacy": "public", "options": {"made_for_kids": False}, "planned_at": at,
+            "privacy": "private", "options": {"made_for_kids": False}, "planned_at": at,
             "status": "awaiting_approval"})
         scheduler.approve(item["id"], {})
         ids.append(item["id"])

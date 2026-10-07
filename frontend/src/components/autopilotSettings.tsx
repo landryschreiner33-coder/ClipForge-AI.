@@ -105,14 +105,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           </div>
           <Errors keys={["autopilot_youtube_daily_limit", "autopilot_tiktok_daily_limit"]} errors={errors} />
         </SettingRow>
-        <SettingRow k="autopilot_youtube_privacy" label="Suggested YouTube visibility"
-          hint="You confirm it for every post when approving" group {...row}>
-          <Seg k="autopilot_youtube_privacy" c={c}
-            options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
-              { value: "private", label: "Private" }]} />
-        </SettingRow>
         <SettingRow k="autopilot_upload_lead_minutes" label="Upload YouTube posts early" {...row}
-          hint="Minutes before the planned time. YouTube publishes at the planned time, even if this PC is off by then">
+          hint="Minutes before the planned time. Uploads are Private; you share them with your viewers in Studio">
           <NumInput k="autopilot_upload_lead_minutes" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_auto_publish" label="Publish approved posts at their time" {...row}

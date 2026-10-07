@@ -80,6 +80,7 @@ class FakeGoogle(_Server):
         self.expire_sessions = False             # ...and forget the upload session right away
         self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
         self.lock_private = False                # behave like an unaudited API project
+        self.force_privacy = ""                  # report every new upload with this visibility (an audience incident)
         self.quota_exceeded = False
         self.chunk_delay = 0.0
         self.analytics: dict | None = None      # a YouTube Analytics row for every video, or None = no data yet
@@ -259,7 +260,8 @@ class FakeGoogle(_Server):
             return h._send(308, None, headers)
         vid = "vid" + secrets.token_hex(4)
         wanted = s["meta"]["status"]["privacyStatus"]
-        status = {"uploadStatus": "uploaded", "privacyStatus": "private" if self.lock_private else wanted,
+        status = {"uploadStatus": "uploaded",
+                  "privacyStatus": self.force_privacy or ("private" if self.lock_private else wanted),
                   "selfDeclaredMadeForKids": s["meta"]["status"]["selfDeclaredMadeForKids"]}
         if s["meta"]["status"].get("publishAt"):
             assert wanted == "private"  # YouTube only accepts publishAt on private videos
@@ -284,6 +286,8 @@ class FakeTikTok(_Server):
         self.access = ""
         self.refresh_token = "rft-" + secrets.token_hex(4)
         self.scope = "user.info.basic,video.upload,video.publish,video.list"
+        # what TikTok offers a private account (an unaudited app may still only use SELF_ONLY)
+        self.privacy_options = ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
         self.grants: list[str] = []
         self.revoked = False
         self.inits: list[dict] = []
@@ -363,7 +367,7 @@ class FakeTikTok(_Server):
                                 "creator_nickname": "Test Creator", "comment_disabled": False,
                                 "duet_disabled": self.duet_disabled, "stitch_disabled": False,
                                 "max_video_post_duration_sec": 600,
-                                "privacy_level_options": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]})
+                                "privacy_level_options": list(self.privacy_options)})
         if u.path in ("/v2/post/publish/video/init/", "/v2/post/publish/inbox/video/init/"):
             req = json.loads(body)
             self.inits.append({"path": u.path, **req})

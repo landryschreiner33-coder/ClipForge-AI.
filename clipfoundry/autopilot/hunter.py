@@ -20,11 +20,12 @@ from pathlib import Path
 from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
 from ..media_import import MediaUnavailable
-from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
+from ..office import feed
+from ..pipeline import blueprint, cuda, fingerprint, process, render, transcribe
 from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
 from ..publish.common import client, retry_after, wait_text
-from . import access, queue, rights, state
+from . import access, brain, queue, rights, state
 from .host import Job, handler
 
 POOL_SIZE = 60
@@ -52,8 +53,14 @@ def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
 
 
 def project_options(settings: dict) -> dict:
-    return {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
+    opts = {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
             "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0)}
+    learned = brain.clip_length(settings)  # the Brain's clip length, when your selected viewers' results changed it
+    if learned:
+        opts["target_duration"] = learned["target_duration"]
+        opts["strategy"] = {brain.STRATEGY: {"id": learned["id"], "used": learned["used"],
+                                             "target_duration": learned["target_duration"]}}
+    return opts
 
 
 # ------------------------------------------------------------------ media
@@ -241,7 +248,15 @@ def hunt_source(job: Job) -> dict:
         return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
     if not rights.local_allowed(src, r, settings):
+        feed.decide("source", "rejected", ("source", src["id"]), f"Not processed: {r['label']} ({r['basis']})",
+                    job_id=job.id, reported_by="gavel", once=True, rights=r["label"])
         return _not_used(src, r)
+    # source checkpoint: the cheap evidence available now authorizes bounded processing (clips are judged later)
+    score = src.get("source_score")
+    feed.decide("source", "approved", ("source", src["id"]), "Use this video: " + r["label"] + (
+        f"; source score {round(float(score))} (an estimate)" if score is not None else ""), job_id=job.id,
+        reported_by="vector", once=True, rights=r["label"], source_score=score, platform=src.get("platform"),
+        title=(src.get("title") or "")[:120])
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
     ctx = job.pipeline_ctx(0.0, 1.0)
     try:
@@ -262,6 +277,7 @@ def hunt_source(job: Job) -> dict:
     state.resolve("gpu:strict")
     if p is None:
         raise queue.Fail("The project could not be prepared")
+    job.progress(0.5, "Finding complete moments", stage="candidates")
     cands = process.candidate_pool(p, ctx)
     p.save_info()
     db.execute("DELETE FROM clip_candidates WHERE project_id = ?", (p.id,))
@@ -340,7 +356,17 @@ def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobC
         lo, hi = 0.6 + 0.35 * index / total, 0.6 + 0.35 * (index + 1) / total
         step = f"Making clip {index + 1} of {len(planned)}"
         job.progress(lo, step, stage="render")
-        sub = JobContext(lambda fraction, message, step=step: ctx.progress(fraction, step), ctx.cancelled)
+
+        current_stage = ["render"]
+
+        def report(fraction: float, message: str, step: str = step) -> None:
+            stage = "captions" if message == render.CAPTIONS_STEP else "render" if message == render.FRAMES_STEP \
+                else current_stage[0]
+            if stage != current_stage[0]:  # the Caption Agent's part of the render, then back to the frames
+                current_stage[0] = stage
+                job.progress(None, step, stage=stage)
+            ctx.progress(fraction, step)
+        sub = JobContext(report, ctx.cancelled)
         process.render_clips(p, [current], sub, lo=lo, hi_total=hi)
 
 
@@ -370,9 +396,20 @@ def analyze_source(job: Job) -> dict:
         write_json(selection_path, chosen)  # resume this exact selection after an interrupted render
     for c in p.info.get("candidates", []):
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
-    job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
+    job.progress(0.55, f"Checking the story of {len(chosen)} moment(s)", stage="plan")
     rows = process.create_clips(p, chosen, ctx, durable=True)
     planned = plan_clips(p, rows, chosen, src["id"])
+    kept = {c["id"] for c in planned}
+    for row, r in zip(rows, chosen):  # clip checkpoint: after transcription and moment finding, never before
+        if row["id"] in kept:
+            feed.decide("clip", "approved", ("clip", row["id"]), f"Keep this moment (score {round(r['score'])}, "
+                        "an estimate)", job_id=job.id, reported_by="frame", once=True, source_id=src["id"],
+                        start=row.get("start"), end=row.get("end"), estimate=r.get("score"))
+        else:
+            current = db.get_clip(row["id"]) or row
+            feed.decide("clip", "rejected", ("clip", row["id"]), (current.get("error") or "Plan rejected")[:300],
+                        job_id=job.id, reported_by="story", once=True, source_id=src["id"])
+    job.progress(0.6, f"Rendering {len(planned)} clip(s)", stage="render")
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
         db.update("clip_candidates", f"{p.id}-{r['cid']}", clip_id=row["id"])

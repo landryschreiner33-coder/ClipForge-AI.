@@ -628,6 +628,9 @@ def _count(table: str, column: str, where: str = "") -> list[dict]:
 # ------------------------------------------------------------------ Publish Center
 VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'action_needed')",
          "published": "status = 'published'",
+         "yours": "(status = 'action_needed' AND json_extract(delivery, '$.audience_setup') = 'manual_pending') OR "
+                  "(status = 'published' AND json_extract(delivery, '$.audience_setup') = 'awaiting_invitations')",
+         "held": "status = 'blocked' AND json_extract(audience, '$.intent') = 'LEGACY_PUBLIC'",
          "problems": "status IN ('failed', 'blocked', 'action_needed', 'reconciling')",
          "history": "status IN ('published', 'canceled', 'replaced', 'failed', 'blocked')",
          "all": ""}
@@ -641,9 +644,15 @@ def _public_item(item: dict, settings: dict) -> dict:
     signal = db.fetch("trend_signals", source["signal_id"]) if source and source.get("signal_id") else None
     pub = db.get_publication(item["publication_id"]) if item.get("publication_id") else None
     version = clip.get("active_version") or ""
+    from ..publish import audience
     from .scheduler import approval_valid
 
+    delivery_state = audience.delivery_state(item, pub)
+    analytics = audience.analytics_state(item, settings)
     return {**item, "local_time": _local_time(item.get("planned_at"), settings),
+            "delivery_state": delivery_state, "delivery_label": audience.DELIVERY_LABELS.get(delivery_state, ""),
+            "analytics_state": analytics, "analytics_label": audience.ANALYTICS_LABELS.get(analytics, ""),
+            "audience_label": _audience_label(item, settings),
             "approval_valid": approval_valid(item, quick=True),  # display only; decisions hash the file
             "clip": {"id": clip.get("id"), "title": clip.get("title"), "duration": clip.get("duration"),
                      "score": clip.get("score"), "category": clip.get("category"), "status": clip.get("status"),
@@ -662,7 +671,22 @@ def _public_item(item: dict, settings: dict) -> dict:
             "metadata_options": db.select("metadata_candidates", "clip_id = ? AND platform = ?",
                                           (item["clip_id"], item["platform"]), "score DESC"),
             "publication": ({k: pub.get(k) for k in ("id", "status", "url", "privacy", "requested_privacy",
-                                                     "message", "error", "fix", "info", "remote_id")} if pub else None)}
+                                                     "message", "error", "fix", "info", "remote_id", "delivery")}
+                            if pub else None)}
+
+
+def _audience_label(item: dict, settings: dict) -> str:
+    """Who this post is for, in the owner's words (the footer and the post page show it)."""
+    from ..publish import audience
+
+    want = (item.get("audience") or {}).get("intent") or ""
+    if want == audience.LEGACY_PUBLIC:
+        return "Planned as public before this version (held)"
+    if want == audience.OWNER_ONLY:
+        return "Only you (staging)"
+    if want == audience.LOCAL_ONLY:
+        return "Kept on this PC"
+    return audience.destination(item["platform"], settings)["label"]
 
 
 @router.get("/scheduled", dependencies=READ)
@@ -719,7 +743,7 @@ def _fields(item: dict, body: ApproveBody) -> dict:
                                                    "brand_organic", "brand_content")})
         if not body.disclose:
             opts["brand_organic"] = opts["brand_content"] = False
-        if body.mode in ("direct", "inbox"):
+        if body.mode in ("direct", "inbox", "manual"):
             opts["mode"] = body.mode
     fields["options"] = opts
     return fields
@@ -833,6 +857,8 @@ def publish_now(item_id: str) -> dict:
     item = _item_or_404(item_id)
     if not approval_valid({**item, "status": "approved"}) or item["status"] not in ("approved",):
         raise HTTPException(409, "Approve the post first")
+    if db.get_settings().get("autopilot_publishing_paused"):
+        raise HTTPException(409, "Publishing is paused. Resume publishing first (Office → bottom bar).")
     db.update("scheduled_publications", item_id, planned_at=time.time() + 30, status="publishing",
               status_note="Publishing now (started by you)", audit=_audit(item, "publish_now", "Publish now: by you"))
     queue.enqueue("publish", {"scheduled_id": item_id}, idem_key=f"publish:{item_id}", priority=MANUAL_PRIORITY,
@@ -847,18 +873,90 @@ class UrlBody(BaseModel):
 
 @router.post("/scheduled/{item_id}/link", dependencies=WRITE)
 def link_inbox_post(item_id: str, body: UrlBody) -> dict:
-    """After finishing a TikTok inbox draft in the app: link the post (its URL) to read its real statistics."""
+    """After posting in the TikTok app (an inbox draft, or a ready-to-post package you posted yourself): link the
+    post (its URL) so its real statistics can be read. Your link is the record that you posted it."""
     from ..publish.routes import LinkBody, link_tiktok_post
+    from . import publisher
+    from .scheduler import _audit, active_version_path
+
+    item = _item_or_404(item_id)
+    pub_id = item.get("publication_id") or ""
+    if not pub_id:
+        if item["platform"] != "tiktok" or (item.get("delivery") or {}).get("audience_setup") != "manual_pending":
+            raise HTTPException(400, "Nothing was uploaded for this post yet")
+        clip = db.get_clip(item["clip_id"]) or {}
+        video, version = active_version_path(clip) if clip else ("", "")
+        pub = db.create_publication(item["clip_id"], "tiktok", project_id=clip.get("project_id") or "", mode="manual",
+                                    status="done", progress=1.0, message="Posted by you from the TikTok app",
+                                    title=item["title"], description=item["description"], tags=item.get("tags") or [],
+                                    requested_privacy=(item.get("audience") or {}).get("visibility") or "",
+                                    video_path=video, version_id=version, options=item.get("options") or {},
+                                    scheduled_id=item_id, audience=item.get("audience") or {},
+                                    delivery=item.get("delivery") or {})
+        pub_id = pub["id"]
+        db.update("scheduled_publications", item_id, publication_id=pub_id)
+    link_tiktok_post(pub_id, LinkBody(url=body.url))
+    pub = db.get_publication(pub_id) or {}
+    db.update("scheduled_publications", item_id, status="published", status_note="Posted from the TikTok app",
+              delivery=pub.get("delivery") or item.get("delivery") or {},
+              audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
+    state.resolve(f"inbox:{item_id}")
+    publisher.remind_audience_setup()
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+@router.post("/scheduled/{item_id}/audience-confirmed", dependencies=WRITE)
+def confirm_audience(item_id: str) -> dict:
+    """You shared this Private YouTube video with your selected viewers in YouTube Studio. Recorded as your word:
+    YouTube's API does not report private-sharing invitations."""
+    from . import publisher
     from .scheduler import _audit
 
     item = _item_or_404(item_id)
-    if not item.get("publication_id"):
-        raise HTTPException(400, "Nothing was uploaded for this post yet")
-    link_tiktok_post(item["publication_id"], LinkBody(url=body.url))
-    db.update("scheduled_publications", item_id, status="published", status_note="Posted from the TikTok app",
-              audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
-    state.resolve(f"inbox:{item_id}")
+    if item["status"] != "published" or (item.get("delivery") or {}).get("audience_setup") != "awaiting_invitations":
+        raise HTTPException(409, "Only an uploaded video waiting for your invitations can be confirmed")
+    delivery = {**(item.get("delivery") or {}), "audience_setup": "user_confirmed", "audience_evidence": "user",
+                "confirmed_at": time.time()}
+    db.update("scheduled_publications", item_id, delivery=delivery,
+              audit=_audit(item, "audience_confirmed", "You shared it privately in YouTube Studio"))
+    if item.get("publication_id") and db.get_publication(item["publication_id"]):
+        pub = db.get_publication(item["publication_id"]) or {}
+        db.update_publication(item["publication_id"], delivery={**(pub.get("delivery") or {}), **delivery})
+    publisher.remind_audience_setup()
     return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+class RetargetBody(BaseModel):
+    ids: list[str] = []
+
+
+@router.post("/scheduled/retarget", dependencies=WRITE)
+def retarget_held(body: RetargetBody) -> dict:
+    """Plan posts held as public (planned before this version) for your selected viewers instead. Each one needs a
+    new approval; nothing goes out on its own. With no ids: every held post."""
+    from ..publish import audience
+    from . import scheduler
+
+    settings = db.get_settings()
+    held = db.select("scheduled_publications", VIEWS["held"], ())
+    if body.ids:
+        held = [i for i in held if i["id"] in set(body.ids)]
+    done = 0
+    for item in held:
+        dest = audience.destination(item["platform"], settings)
+        text = {"title": item["title"], "caption": item["description"], "description": item["description"],
+                "hashtags": item.get("tags") or [], "tags": item.get("tags") or []}
+        meta = scheduler._meta_fields({"platform": item["platform"], "meta": text}, settings)  # noqa: SLF001
+        db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={}, planned_at=None,
+                  privacy=meta["privacy"], options={**(item.get("options") or {}), **meta["options"]},
+                  audience=meta["audience"], last_error="", fix="",
+                  status_note=f"Planned for {dest['label']} instead of public: approve it to upload it",
+                  audit=scheduler._audit(item, "retarget", "Planned for your selected viewers instead of public"))  # noqa: SLF001
+        done += 1
+    if done:
+        state.event("audience_retarget", f"{done} held post{'s' if done != 1 else ''} planned for your selected "
+                                         "viewers (each needs your approval)")
+    return {"retargeted": done}
 
 
 class ResolveBody(BaseModel):
@@ -905,11 +1003,12 @@ def learning_status() -> dict:
     from . import learner
 
     rows = db.select("learning_metrics", "dimension NOT IN ('weight', 'calibration')", (), "dimension, platform, lift DESC")
-    return {"status": state.get("learning:status") or {"samples": 0, "needed": learner.MIN_SAMPLES,
+    need = learner.minimum(db.get_settings())
+    return {"status": state.get("learning:status") or {"samples": 0, "needed": need,
                                                        "message": "Nothing learned yet."},
             "metrics": [r for r in rows if (r.get("data") or {}).get("reliable")],
             "weights": db.select("learning_metrics", "dimension = 'weight'"),
-            "labels": learner.DIMENSION_LABELS, "min_samples": learner.MIN_SAMPLES}
+            "labels": learner.DIMENSION_LABELS, "min_samples": need}
 
 
 @router.post("/learn", dependencies=WRITE)

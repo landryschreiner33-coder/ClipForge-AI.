@@ -62,7 +62,7 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
     try:
         with TestClient(app, base_url="http://127.0.0.1:8765") as client:
             assert client.post("/api/autopilot/auto-publish", headers=H, json={"platform": "youtube",
-                               "visibility": "public", "made_for_kids": False, "daily_limit": 4,
+                               "visibility": "private", "made_for_kids": False, "daily_limit": 4,
                                "start_hour": 0, "end_hour": 24, "agreed": True}).status_code == 200
             assert client.post("/api/autopilot/start", headers=H).status_code == 200
             worker = host.WorkerHost(poll=0.05)

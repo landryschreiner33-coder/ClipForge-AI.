@@ -135,8 +135,8 @@
     <tr><td>Google and YouTube</td><td>You connect YouTube, publish or look at results. While Autopilot is on, it
       also searches YouTube, updates your posts' results and checks which channel posted a video</td><td>Your sign-in
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
-      posts under the automatic-publishing permission you turned on, with their title, description, tags, category,
-      privacy, made-for-kids answer and publishing time; requests to read your channel, its newest uploads, and your
+      posts under the automatic-publishing permission you turned on, as Private videos, with their title,
+      description, tags, category and made-for-kids answer (never a publishing time); requests to read your channel, its newest uploads, and your
       posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of your own
       channel and of the YouTube channels you added, gave a permission to or have an agreement with, to see their new
       videos;
@@ -144,7 +144,8 @@
       one</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
       also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and your TikTok
-      app's client key and secret; the videos you approve with their caption and settings; requests for your posting
+      app's client key and secret; the videos you approve with their caption and settings (never visible to
+      everyone: only your followers or friends, or only you); requests for your posting
       options, your posts' status and results; public TikTok links, to check which account posted them</td></tr>
     <tr><td>Wikimedia Commons</td><td>Autopilot searches the free-license video library (on unless you turn it
       off)</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
@@ -292,11 +293,13 @@
   YouTube and TikTok keep and handle what you posted under their own policies.
 </p>
 <p>
-  Autopilot uploads a planned YouTube post before its planned time (30 minutes before, unless you change this). If the
-  post is public, YouTube makes it public at the planned time, even if your computer is off. Once it is uploaded,
-  deleting the clip, turning off automatic publishing or disconnecting in ClipFoundry does not stop it. Change or
-  delete it in YouTube Studio. A video sent to your TikTok inbox also stays there until you delete it in the TikTok
-  app.
+  Autopilot uploads a planned YouTube post before its planned time (30 minutes before, unless you change this), always
+  as a Private video. ClipFoundry never makes a video public or unlisted, and never sets a time for YouTube to do it;
+  only the people you share it with in YouTube Studio can watch it. Once it is uploaded, deleting the clip, turning off
+  automatic publishing or disconnecting in ClipFoundry does not remove it. Change or delete it in YouTube Studio. A
+  video sent to your TikTok inbox also stays there until you delete it in the TikTok app. Posts that an earlier version
+  had planned as public were held when you updated, and a copy of your database from before that change is kept in
+  the <code>data\backups</code> folder.
 </p>
 
 <h2>9. This website</h2>

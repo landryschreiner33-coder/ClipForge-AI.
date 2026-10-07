@@ -81,7 +81,8 @@ def test_planning_respects_gaps_limits_and_scores(data):
     out = scheduler.plan_new(db.get_settings(), now)
     assert out["created"] == 5
     items = db.select("scheduled_publications", "", (), "planned_at")
-    assert all(i["status"] == "awaiting_approval" and i["privacy"] == "public" for i in items)
+    assert all(i["status"] == "awaiting_approval" and i["privacy"] == "private" for i in items)
+    assert all(i["audience"]["intent"] == "SELECTED_AUDIENCE" for i in items)  # for the viewers you invite
     days = [dt.datetime.fromtimestamp(i["planned_at"], CHI).date() for i in items]
     assert days.count(days[0]) == 3  # the YouTube daily limit of 3; the rest go to tomorrow
     same_day = [i["planned_at"] for i in items if dt.datetime.fromtimestamp(i["planned_at"], CHI).date() == days[0]]
@@ -160,16 +161,20 @@ def test_approval_rules_and_invalidation(data):
     yt = db.select("scheduled_publications", "platform = 'youtube'")[0]
     tt = db.select("scheduled_publications", "platform = 'tiktok'")[0]
     assert tt["privacy"] == ""  # TikTok: never pre-selected
+    assert tt["options"]["mode"] == "manual"  # TikTok is not connected: a package you post yourself
     with pytest.raises(PublishError, match="made for kids"):
         scheduler.approve(yt["id"], {})
-    with pytest.raises(PublishError, match="Choose who can see"):
-        scheduler.approve(tt["id"], {})
-    with pytest.raises(PublishError, match="Only me"):
-        scheduler.approve(tt["id"], {"privacy": "PUBLIC_TO_EVERYONE"})  # the app is not audited
-    ok = scheduler.approve(tt["id"], {"privacy": "SELF_ONLY"})
+    with pytest.raises(PublishError, match="turned off"):
+        scheduler.approve(tt["id"], {"privacy": "PUBLIC_TO_EVERYONE"})  # never everyone
+    with pytest.raises(PublishError, match="audited"):  # followers through the API need an audited app
+        scheduler.approve(tt["id"], {"privacy": "FOLLOWER_OF_CREATOR", "mode": "direct",
+                                     "options": {"mode": "direct"}})
+    ok = scheduler.approve(tt["id"], {})
     assert ok["status"] == "approved" and scheduler.approval_valid(ok)
-    ok = scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "unlisted"})
-    assert ok["privacy"] == "unlisted" and ok["approval"]["hash"]
+    with pytest.raises(PublishError, match="turned off"):
+        scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "unlisted"})
+    ok = scheduler.approve(yt["id"], {"options": {"made_for_kids": False}})
+    assert ok["privacy"] == "private" and ok["approval"]["hash"] and ok["approval"]["scheme"] == 3
     edited = scheduler.edit(yt["id"], {"title": "A new title"})
     assert edited["status"] == "awaiting_approval"  # edits need a new approval
     scheduler.approve(yt["id"], {})

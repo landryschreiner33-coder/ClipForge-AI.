@@ -28,6 +28,8 @@ SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
 SPEED_RANGE = (0.8, 1.25)
 PLAN_VERSION = 2  # bump when the framing analysis changes, so cached plans are recomputed
+CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
+FRAMES_STEP = "Rendering"
 
 
 # ------------------------------------------------------------ timeline
@@ -308,6 +310,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         write_json(plan_path, {"key": plan_key, "plan": plan.to_json()})
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
+    ctx.progress(0.03, CAPTIONS_STEP)
     keywords = {t.lstrip("#").lower() for t in ((clip.get("post") or {}).get("hashtags") or clip.get("hashtags") or [])}
     emphasis = blueprint_mod.emphasis_indices(blueprint, words) if blueprint is not None else \
         emphasis_words(words_out, keywords)
@@ -388,7 +391,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                     if written % 15 == 0:
                         if ctx.cancelled():
                             raise Cancelled()
-                        ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), "Rendering")
+                        ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), FRAMES_STEP)
             # pad if decoding ended early
             while written < n_out_frames and last is not None:
                 frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,

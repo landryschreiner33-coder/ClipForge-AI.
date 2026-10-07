@@ -247,13 +247,13 @@ def test_a_waiting_upload_survives_a_restart_and_can_be_cancelled(app_client, go
     assert db.get_publication(pid)["status"] == "cancelled" and pid not in jobs.worker.timers
 
 
-def test_unverified_project_lock_is_explained(app_client, google, clip):
+def test_public_and_unlisted_never_reach_youtube(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)
-    google.lock_private = True
-    pub = _wait(app_client, _publish(app_client, c["id"], privacy="public").json()["id"])
-    assert pub["status"] == "done" and pub["requested_privacy"] == "public" and pub["privacy"] == "private"
-    assert pub["info"]["locked_private"] and "audit" in pub["message"]
+    for privacy in ("public", "unlisted"):
+        r = _publish(app_client, c["id"], privacy=privacy)
+        assert r.status_code == 400 and "turned off" in r.json()["detail"]
+    assert not google.sessions  # nothing reached YouTube
 
 
 def test_explicit_confirmation_and_required_fields(app_client, google, clip):
@@ -262,7 +262,7 @@ def test_explicit_confirmation_and_required_fields(app_client, google, clip):
     assert "confirmation" in _publish(app_client, c["id"], confirm=False).json()["detail"]
     assert "made for kids" in _publish(app_client, c["id"], made_for_kids=None).json()["detail"]
     assert "100 characters" in _publish(app_client, c["id"], title="x" * 101).json()["detail"]
-    assert "Public, Unlisted or Private" in _publish(app_client, c["id"], privacy="friends").json()["detail"]
+    assert "Choose Private" in _publish(app_client, c["id"], privacy="friends").json()["detail"]
     assert not google.sessions  # nothing reached YouTube
 
 
@@ -312,10 +312,13 @@ def test_cancel_during_upload(app_client, google, clip):
 def test_refresh_status_and_disconnect(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)
-    pub = _wait(app_client, _publish(app_client, c["id"], privacy="unlisted").json()["id"])
-    google.videos[pub["remote_id"]]["status"]["privacyStatus"] = "private"  # e.g. locked after processing
+    pub = _wait(app_client, _publish(app_client, c["id"]).json()["id"])
     pub = app_client.post(f"/api/publications/{pub['id']}/refresh", headers=H).json()
-    assert pub["privacy"] == "private" and pub["info"]["locked_private"] and "audit" in pub["message"]
+    assert pub["privacy"] == "private" and pub["delivery"]["visibility"]["evidence"] == "api"
+    google.videos[pub["remote_id"]]["status"]["privacyStatus"] = "public"  # changed outside ClipFoundry
+    pub = app_client.post(f"/api/publications/{pub['id']}/refresh", headers=H).json()
+    assert pub["privacy"] == "public" and "not Private" in pub["message"]
+    assert app_client.get("/api/audience").json()["youtube"]["halted"]  # YouTube uploads stop until checked
     app_client.post("/api/publish/youtube/disconnect", headers=H)
     assert google.revoked and not app_client.get("/api/publish/accounts").json()["youtube"]["connected"]
     assert app_client.get(f"/api/clips/{c['id']}/publications").json()[0]["id"] == pub["id"]  # history is kept

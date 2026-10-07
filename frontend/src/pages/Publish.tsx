@@ -11,7 +11,7 @@ import { PublicationStats } from "../components/stats";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
-  ScoreBadge, Segmented, Tone, toast, usePoll,
+  ScoreBadge, Tone, toast, usePoll,
 } from "../components/ui";
 
 const ACTIVE = ["queued", "uploading", "processing"];
@@ -323,7 +323,7 @@ function Note({ children }: { children: ReactNode }) {
 }
 
 function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPublish }: PanelProps) {
-  const [privacy, setPrivacy] = useState<"public" | "unlisted" | "private">("private");
+  const privacy = "private";  // the selected-audience policy: never public or unlisted
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [shortsTag, setShortsTag] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -341,17 +341,18 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
     new TextEncoder().encode(description).length > 5000 && "shorten the description",
     !kids && "answer “made for kids”",
   ].filter(Boolean) as string[];
-  const privacyWord = { public: "Public", unlisted: "Unlisted", private: "Private" }[privacy];
+  const privacyWord = "Private";
 
   return (
     <PlatformPanel id="pp-youtube" name="YouTube Shorts" platform="youtube" account={account} setAccounts={setAccounts}>
       <div className="field">
-        <span className="label" id="pp-yt-priv">Who can see it</span>
-        <Segmented labelledBy="pp-yt-priv" value={privacy} onChange={setPrivacy}
-          options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
-            { value: "private", label: "Private" }]} />
+        <span className="label">Who can see it</span>
+        <span>Private, then shared with the people you invite</span>
+        <span className="hint">
+          ClipFoundry uploads it as Private and never makes it public or unlisted. Share it in YouTube Studio: Content →
+          this video → Visibility → Private → Share privately.
+        </span>
       </div>
-      {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
       <fieldset>
         <legend className="label">Made for kids <span className="hint">(YouTube requires an answer)</span></legend>
         <label className="choice">
@@ -399,10 +400,9 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
             <dt>Tags</dt><dd>{tags.join(" ") || "None"}</dd>
             <dt>When</dt><dd>Right away</dd>
           </dl>
-          {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
           <div className="consequence">
             <span>
-              This uploads the video to YouTube now. ClipFoundry can't take an upload back; you would delete it in
+              This uploads the video to YouTube now as Private; nobody else can watch it until you share it. ClipFoundry can't take an upload back; you would delete it in
               YouTube Studio. It uses part of your project's daily YouTube upload allowance.
             </span>
           </div>
@@ -504,7 +504,7 @@ function TikTokPanel({
             <label htmlFor="pp-tt-priv">Who can see it</label>
             <select id="pp-tt-priv" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
               <option value="" disabled>Choose…</option>
-              {(creator?.privacy_options || []).map((o) => (
+              {(creator?.privacy_options || []).filter((o) => o !== "PUBLIC_TO_EVERYONE").map((o) => (
                 <option key={o} value={o} disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
                   {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
                   {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
@@ -512,12 +512,11 @@ function TikTokPanel({
               ))}
             </select>
           </div>
-          {!audited && (
-            <Note>
-              {account?.restriction
-                || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}
-            </Note>
-          )}
+          <Note>
+            Posting to everyone is turned off: ClipFoundry posts only for your approved followers (keep your TikTok
+            account private).{!audited ? " Until TikTok audits your app, Direct Post can only post “Only me”; send it "
+              + "to your inbox or export it to reach your followers." : ""}
+          </Note>
           <fieldset>
             <legend className="label">Allow viewers to</legend>
             <div className="row wrap" style={{ gap: 16 }}>
