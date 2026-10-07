@@ -85,7 +85,7 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
                 upload = next(u for u in initial["uploads"] if u["id"] == pub["remote_id"])
                 assert upload["sha256"] == report["artifact_sha256"]
                 assert Path(clip["output_path"]).stat().st_size == upload["bytes"]
-                assert upload["status"]["privacyStatus"] == "private" and upload["status"]["publishAt"]
+                assert upload["status"]["privacyStatus"] == "private" and "publishAt" not in upload["status"]
             done = {j["kind"] for j in initial["jobs"] if j["status"] == "completed"}
             assert {"trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip", "quality_check",
                     "schedule_tick", "publish"} <= done
@@ -101,12 +101,16 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert db.select("sources", "external_id = ?", (SECOND,))[0]["clips_selected"] >= 1
             assert len(google.sessions) == len(google.videos) == 2
             fixture.age_results()
-            until(fixture, lambda: (state.get("learning:status") or {}).get("samples") == 2, timeout=60)
+            # Invited-viewer results feed the Brain's test cohort, never the public-audience learner
+            until(fixture, lambda: db.select("observations", "cohort = 'selected:youtube:invited:v1' AND "
+                                                             "provenance = 'platform_api'"), timeout=60)
             readings = db.select("performance")
             assert len(readings) == 2 and all(r["views"] == 1234 for r in readings)
             assert all(r["avg_view_percentage"] is None for r in readings)
             learned = state.get("learning:status")
-            assert learned["weights"] == {} and "2 of 10 posts with real numbers" in learned["message"]
+            assert learned["weights"] == {} and learned["samples"] == 0
+            obs = db.select("observations", "metric = 'avg_view_percentage'")
+            assert obs and all(o["value"] is None for o in obs)  # unreported stays missing in the Brain too
             assert not any(a["type"] in ("rights", "failed") for a in client.get("/api/autopilot/status").json()
                            ["home"]["needs_you"])
     finally:

@@ -142,6 +142,14 @@ Choose *Claude API (optional, paid)* under Settings → Advanced → Rendering, 
 paste an API key (*Claude API key*). This costs money per call. Use *Max candidates* to cap how many clips per video
 are sent. The key is stored only in your local `data\clipfoundry.db`.
 
+## Optional: NVIDIA-hosted AI (off by default)
+
+ClipFoundry can use an NVIDIA-hosted text model (build.nvidia.com) to help rank moments and write titles. It is not
+needed. Put the key in **Settings → Integrations → NVIDIA AI (optional)** or in the `NVIDIA_API_KEY` environment
+variable of the window that starts ClipFoundry (never in a chat or a file in this folder), tick the cloud-AI opt-in,
+and press **Run small AI test**. Limits, data sharing and the development-preview restrictions are in
+[docs/NVIDIA.md](docs/NVIDIA.md).
+
 ## Optional: publishing to YouTube Shorts
 
 ClipFoundry uploads through the official **YouTube Data API v3** with your own free Google Cloud project. You sign in on
@@ -161,10 +169,11 @@ encrypted with Windows DPAPI (only your Windows account on this PC can read them
 
 Things Google enforces, which ClipFoundry explains on screen:
 
-* **Unaudited projects upload Private only.** Google locks every video uploaded by an API project that has not passed
-  the [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to Private, even if you choose Public
-  or Unlisted. Private uploads work for testing. After the audit, tick *My Google Cloud project passed YouTube's API
-  audit* in Settings → Accounts → YouTube → Your YouTube app codes.
+* **ClipFoundry uploads Private only.** It never uploads public or unlisted videos and never schedules a video to go
+  public. Choose who can see your clips in **Settings → Integrations → Who can see it**. *Selected audience* uploads
+  a private video; you then invite your test viewers in YouTube Studio (**Visibility → Private → Share privately**,
+  their Google accounts, up to 50) and press **I've invited my viewers** in ClipFoundry. See
+  [docs/AUDIENCE.md](docs/AUDIENCE.md).
 * **Testing-mode connections expire after 7 days.** While the consent screen is in *Testing*, connect again weekly
   (**Reconnect YouTube** in Settings → Accounts once the sign-in has expired), or set it to *In production* (for your
   own use you can continue past the "unverified app" screen).
@@ -190,6 +199,13 @@ developer app. You sign in on TikTok's page; ClipFoundry never sees or stores yo
    use your port if you changed it).
 5. While the app is not reviewed, add your TikTok account as a target user. Paste the client key and secret there
    (*Client key* and *Client secret*) and click **Connect TikTok** (it saves them first).
+
+**Who can see it:** ClipFoundry never posts to *Everyone*. For a test group, make your TikTok account **private**
+(TikTok app → Settings and privacy → Privacy → Private account), approve only your testers as followers, and choose
+**Selected audience → Followers** (or Friends) in **Settings → Integrations**. Unless TikTok audited your app,
+ClipFoundry prepares a **manual posting package** (video, caption and steps) that you post from your phone with
+*Followers*; then paste the post's link under Queue → *Manual posting package* → **I posted it**. See
+[docs/AUDIENCE.md](docs/AUDIENCE.md).
 
 Two official ways to post, both on Prepare post and on each TikTok post's review page:
 
@@ -219,7 +235,9 @@ its post page or on Prepare post) reads the real numbers of your own uploads fro
 | YouTube | Data API | Data API | Data API | Analytics API | Analytics API (enable *YouTube Analytics API*; data arrives 2-3 days after upload) |
 | TikTok | `video.query` | `video.query` | `video.query` | `video.query` | not available from TikTok's API |
 
-TikTok only reports public posts. For an inbox draft you finished in the TikTok app, paste the post's link under the
+TikTok only reports public posts, so followers-only and "Only me" posts have no numbers from TikTok: enter what you
+see in the TikTok app, or what your testers tell you, under **Clips → (clip) → Test feedback**, or import a CSV
+(see [docs/BRAIN.md](docs/BRAIN.md)). For an inbox draft you finished in the TikTok app, paste the post's link under the
 upload on Prepare post (*Posted it in the TikTok app?*), or use **Link the post…** on a planned post's page, to track
 it. Anything a platform does not report is shown as "—" with the reason; ClipFoundry never estimates it. Every
 refresh is kept as a snapshot, and **Download data (CSV)** under Posts → Results downloads each clip's scores at

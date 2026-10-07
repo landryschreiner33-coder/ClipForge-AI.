@@ -616,13 +616,12 @@ def test_one_complete_path_from_discovery_to_a_post_scheduled_on_youtube(env, cl
     assert tt and all(i["status"] == "awaiting_approval" for i in tt)  # TikTok: your OK on each post
     assert "Wikimedia Commons" in yt[0]["description"] and "Ada Byron" in yt[0]["description"]  # the credit line
     first = min(yt, key=lambda i: i["planned_at"])
-    due = first["planned_at"] - 60 * float(db.get_settings()["autopilot_upload_lead_minutes"])
-    scheduler.process_due(db.get_settings(), due + 1)
+    scheduler.process_due(db.get_settings(), first["planned_at"] + 1)  # uploaded at its time, never ahead to go public
     drain("publisher")
     done = db.fetch("scheduled_publications", first["id"])
-    assert done["status"] == "published" and "scheduled" in done["status_note"].lower(), done["status_note"]
+    assert done["status"] == "published", done["status_note"]
     meta = next(iter(g.sessions.values()))["meta"]
-    assert meta["status"]["privacyStatus"] == "private" and meta["status"]["publishAt"]  # YouTube makes it public
+    assert meta["status"]["privacyStatus"] == "private" and "publishAt" not in meta["status"]  # stays private
     # a restart does not upload it again: the publish job is idempotent and the post is recorded as done
     assert queue.enqueue("publish", {"scheduled_id": first["id"]}, idem_key=f"publish:{first['id']}")
     drain("publisher")
