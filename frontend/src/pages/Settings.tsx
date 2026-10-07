@@ -613,8 +613,15 @@ function AdvancedTab({ c, health, st }: {
             { value: "ollama", label: "Ollama (local AI, free)" },
             { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
+            { value: "nvidia", label: "NVIDIA AI (optional; set it up in Settings → Integrations)" },
           ]} />
         </SettingRow>
+        {provider === "nvidia" && (
+          <p className="hint">
+            Uses the NVIDIA AI integration only when it is on, opted in and within today's limits; otherwise the
+            local heuristic scores clips. <a href="#/settings/integrations">Open Integrations</a>
+          </p>
+        )}
         {provider === "ollama" && (
           <>
             <SettingRow k="ollama_url" label="Ollama address"><TextInput k="ollama_url" c={c} /></SettingRow>
