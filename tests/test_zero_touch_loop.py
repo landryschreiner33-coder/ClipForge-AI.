@@ -102,8 +102,9 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert len(google.sessions) == len(google.videos) == 2
             fixture.age_results()
             # Invited-viewer results feed the Brain's test cohort, never the public-audience learner
-            until(fixture, lambda: db.select("observations", "cohort = 'selected:youtube:invited:v1' AND "
-                                                             "provenance = 'platform_api'"), timeout=60)
+            until(fixture, lambda: len({o["publication_id"] for o in db.select(
+                "observations", "cohort = 'selected:youtube:invited:v1' AND provenance = 'platform_api'")}) == 2,
+                timeout=60)
             readings = db.select("performance")
             assert len(readings) == 2 and all(r["views"] == 1234 for r in readings)
             assert all(r["avg_view_percentage"] is None for r in readings)
