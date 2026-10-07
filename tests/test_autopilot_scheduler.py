@@ -165,8 +165,10 @@ def test_approval_rules_and_invalidation(data):
         scheduler.approve(yt["id"], {})
     with pytest.raises(PublishError, match="Choose who can see"):
         scheduler.approve(tt["id"], {})
+    with pytest.raises(PublishError, match="Public posts are blocked"):  # the audience rule speaks first
+        scheduler.approve(tt["id"], {"privacy": "PUBLIC_TO_EVERYONE"})
     with pytest.raises(PublishError, match="Only me"):
-        scheduler.approve(tt["id"], {"privacy": "PUBLIC_TO_EVERYONE"})  # the app is not audited
+        scheduler.approve(tt["id"], {"privacy": "FOLLOWER_OF_CREATOR"})  # the app is not audited
     ok = scheduler.approve(tt["id"], {"privacy": "SELF_ONLY"})
     assert ok["status"] == "approved" and scheduler.approval_valid(ok)
     with pytest.raises(PublishError, match="blocked"):  # anyone with the link is never a selected audience
