@@ -37,7 +37,8 @@ YIELD_PER_MINUTE = {"People & Blogs": 0.10, "Comedy": 0.10, "Education": 0.08, "
                     "Gaming": 0.05, "Film & Animation": 0.03, "Music": 0.01}
 DEFAULT_YIELD = 0.07
 SOURCE_WEIGHTS = {"trend": 0.35, "clip_potential": 0.30, "creator": 0.15, "freshness": 0.10, "live": 0.10,
-                  "topic_results": 0.15}
+                  "topic_results": 0.15, "topic_fit": 0.20, "language": 0.10, "audience_context": 0.05,
+                  "clip_structure": 0.15}
 
 
 def tz(settings: dict) -> ZoneInfo:
@@ -468,7 +469,36 @@ def skip_reason(src: dict, sig: dict | None, settings: dict | None = None) -> st
     limit = float((settings or {}).get("autopilot_max_source_gb") or 8) * 1e9
     if raw.get("size") and float(raw["size"]) > limit:
         return f"The file is too large ({float(raw['size']) / 1e9:.1f} GB; the limit is {limit / 1e9:.0f} GB)"
+    if sig and not src.get("user_added"):
+        why = trends.preference_reason(sig, settings or {})
+        if why:
+            return why
     return repeat_of(src)
+
+
+def clip_reason(candidate: dict, settings: dict) -> str:
+    """Transcript-based story check for automatic clips. Never infer a hook/payoff from a source's title."""
+    analysis = candidate.get("analysis") or candidate
+    if settings.get("discovery_require_complete_clips", True):
+        structure = analysis.get("structure") or {}
+        missing = [part for part in ("hook", "context", "payoff") if not structure.get(part)]
+        if missing:
+            return "Transcript story check: no clear " + ", ".join(missing) + " (a heuristic estimate)"
+        for flag in analysis.get("flags") or []:
+            if flag.get("id") == "repetitive":
+                return "Transcript story check: repetitive material (a heuristic estimate)"
+    return ""
+
+
+def transcript_reason(src: dict, language: str, settings: dict) -> str:
+    """Transcription can settle an unknown metadata language; explicitly supplied own videos keep their intent."""
+    if src.get("user_added") or src.get("platform") == "local" or src.get("rights_status") == rights.OWNED:
+        return ""
+    detected = str(language or "").lower().split("-")[0].split("_")[0]
+    preferred = str(settings.get("trend_language") or "").lower().split("-")[0].split("_")[0]
+    if detected and preferred and detected != preferred:
+        return f"Transcript language {detected} does not match your preferred language {preferred}"
+    return ""
 
 
 def repeat_of(src: dict) -> str:
@@ -542,6 +572,10 @@ def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dic
     else:
         expected = min(float(cps), 2.0 * mult)  # only decides whether it is worth reading; not counted as evidence
         comps["clip_potential"] = {"value": None, "note": "length unknown until the file is read"}
+    comps["clip_structure"] = {"value": None,
+                               "note": "hook, context and payoff unknown until the transcript is evaluated"}
+    if sig:
+        comps.update(trends.audience_parts(sig, settings))
     comps["creator"] = ({"value": max(0.0, min(1.0, mult / 2)), "note": f"{mult:.2f}x the estimate before"} if n else
                         {"value": None, "note": "no finished videos of this creator or category yet"})
     if src.get("published_at") and trends.derived_allowed(src["platform"], settings):
@@ -568,6 +602,7 @@ def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dic
     have = {k: c for k, c in comps.items() if c["value"] is not None}
     for k, c in have.items():
         c.pop("quality", None)
+        c.setdefault("status", "estimated")
         c["weight"] = SOURCE_WEIGHTS[k]
         c["value"] = round(c["value"], 3)
     ev = trends.evidence(coverage, readings, missing)
@@ -597,6 +632,13 @@ RIGHTS_QUESTIONS = 3      # open rights questions at most, however many sources 
 RIGHTS_MIN_SCORE = 50.0   # below this Source Score a video is not worth asking you about
 
 
+def _skip_discovery(src: dict, reason: str) -> None:
+    # A durable marker lets new preferences reconsider an automatic skip without reviving a user's own Skip.
+    parts = {**(src.get("components") or {}), "discovery_filter":
+             {"value": 0.0, "weight": 0.0, "status": "summary", "note": reason}}
+    db.update("sources", src["id"], status="skipped", status_note=reason, components=parts)
+
+
 @handler("source_scout")
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
@@ -613,10 +655,15 @@ def source_scout(job: Job) -> dict:
         row, new = upsert_source(src)
         created += new
         if row["status"] in ("discovered", "eligible", "needs_rights", "blocked", "skipped"):
+            if row.get("status_note") == "Skipped by you":
+                continue
             reason = skip_reason(row, sig, settings)
             if reason:
-                db.update("sources", row["id"], status="skipped", status_note=reason)
+                _skip_discovery(row, reason)
                 continue
+            if row["status"] == "skipped" and (row.get("components") or {}).get("discovery_filter"):
+                row = {**row, "status": "discovered", "status_note": ""}
+                db.update("sources", row["id"], status="discovered", status_note="")
             verify.from_signal(row, sig)  # found through the platform's API: its answer names the channel already
             pending.append((row, sig))
     verify.ensure([row for row, _ in pending], settings, now)  # the channels feeds named, 50 videos per lookup
@@ -626,6 +673,10 @@ def source_scout(job: Job) -> dict:
         sc = score_source(row, sig, settings, now)
         db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
                   components=sc["components"])
+        if not row.get("user_added") and trends.broad_discovery(sig) and \
+                sc["score"] < float(settings.get("discovery_min_source_score", 50)):
+            _skip_discovery({**row, "components": sc["components"]},
+                            f"Source estimate {sc['score']:.0f} is below your discovery minimum; no quota filler")
     job.check()
     picked = select_for_today(settings, now)
     top = rights_questions(settings, now) if settings.get("rights_ask_per_video") else []
@@ -689,6 +740,12 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             continue
         if not src.get("user_added") and (src.get("expected_clips") or 0) < 1:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
+            continue
+        signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
+        curated = bool(signal and not trends.broad_discovery(signal))
+        if not src.get("user_added") and src.get("signal_id") and src.get("platform") != "local" and not curated and \
+                float(src.get("source_score") or 0) < float(settings.get("discovery_min_source_score", 50)):
+            _skip_discovery(src, "Below your discovery minimum; waiting for stronger videos")
             continue
         if not rights.local_allowed(src, rights.evaluate(src, settings, all_rules), settings):
             rights.apply(src, settings, all_rules)

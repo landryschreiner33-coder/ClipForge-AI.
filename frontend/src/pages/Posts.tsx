@@ -16,8 +16,8 @@ const VIEWS = ["review", "scheduled", "published", "history", "problems", "resul
 const INTRO: Record<string, string> = {
   review: "Nothing is posted until it's approved. TikTok needs your OK on every post; YouTube does too unless you " +
     "turned on automatic publishing.",
-  published: "Posts uploaded to YouTube or TikTok for the viewers you chose. Uploaded is not the same as watched: "
-    + "each post says how far it got.",
+  published: "Each post shows its planned audience and what the platform confirmed. An upload or your own "
+    + "confirmation does not prove public visibility or that anyone watched it.",
   history: "Published, canceled and replaced posts.",
   problems: "Posts that could not go out, or where ClipFoundry needs you to check something. Nothing here is tried " +
     "again behind your back.",
@@ -25,12 +25,12 @@ const INTRO: Record<string, string> = {
 const EMPTY: Record<string, [string, string]> = {
   review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
   scheduled: ["Nothing is scheduled", "Approved posts wait here for their time."],
-  published: ["Nothing uploaded yet", "Posts appear here once they are uploaded for your viewers."],
+  published: ["Nothing uploaded yet", "Posts appear here after uploading or after you record a manual post."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
 };
 const VIEW_TITLE: Record<string, string> = {
-  review: "Ready for your review", scheduled: "Your posting agenda", published: "Uploaded for your viewers",
+  review: "Ready for your review", scheduled: "Your posting agenda", published: "Uploads and confirmed posts",
   history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
 };
 
@@ -247,6 +247,20 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
         </div>
         {p.status === "published" && p.analytics_label && (
           <span className="tiny faint">Results: {p.analytics_label}</span>
+        )}
+        {["approved", "publishing"].includes(p.status)
+          && ["retrying", "waiting"].includes(p.publishing_job?.status || "") && (
+          <span className="small muted">
+            {p.publishing_job?.message || p.publishing_job?.error || p.publishing_job?.wait_reason}
+            {!!p.publishing_job?.run_after && p.publishing_job.run_after > Date.now() / 1000
+              && ` · next check ${timeLabel(p.publishing_job.run_after, tz)}`}
+          </span>
+        )}
+        {p.delivery_state === "public_requested" && (
+          <span className="tiny muted">TikTok did not report who can watch; Public was requested.</span>
+        )}
+        {p.delivery_state === "public_restricted" && (
+          <span className="small">Check YouTube Studio: the API has not confirmed public visibility.</span>
         )}
         {/* An approved post's note ("Approved: it will be published…") is out of date once its OK no longer
             covers it. */}

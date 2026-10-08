@@ -202,12 +202,20 @@ def check_length(project: dict, settings: dict) -> None:
     """Autopilot processes sources up to the configured length (transcribing and analyzing costs grow with it)."""
     limit = 60.0 * float(settings.get("autopilot_max_source_minutes") or 240)
     try:
-        duration = float(probe(project["source_path"])["duration"] or 0)
+        meta = probe(project["source_path"])
+        duration = float(meta["duration"] or 0)
     except FFmpegError as exc:
         raise queue.Fail(f"The source video cannot be read: {exc}", "Add another copy of the file.") from exc
     if duration > limit:
         raise queue.Fail(f"The source is {duration / 60:.0f} min long; Autopilot processes sources up to "
                          f"{limit / 60:.0f} min", "Raise the limit in Settings → Autopilot, or clip it by hand.")
+    if project.get("id"):
+        db.update_project(project["id"], info={**(project.get("info") or {}), **meta})
+    imported = (project.get("options") or {}).get("transcript_file")
+    if not meta.get("has_audio") and not (imported and Path(imported).is_file()):
+        raise queue.Fail("This source has video but no audio track; speech transcription and spoken-clip "
+                         "selection cannot run.", "Add a recording with sound, or use manual clipping with an "
+                         "imported transcript. The video stays on this PC.")
 
 
 # ------------------------------------------------------------------ Clip Hunter
@@ -293,6 +301,16 @@ def hunt_source(job: Job) -> dict:
     state.resolve("gpu:strict")
     if p is None:
         raise queue.Fail("The project could not be prepared")
+    from .scout import transcript_reason
+
+    unsuitable = transcript_reason(src, p.info.get("language") or "", settings)
+    if unsuitable:
+        db.update("sources", src["id"], status="weak", error="", status_note=unsuitable)
+        db.update_project(p.id, status="ready", message=unsuitable)
+        from . import scout
+
+        scout.refill(src)
+        return {"project_id": p.id, "candidates": 0, "skipped": True, "message": unsuitable}
     job.progress(0.5, "Finding complete moments", stage="candidates")
     cands = process.candidate_pool(p, ctx)
     p.save_info()
@@ -356,6 +374,24 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
     return ok
 
 
+def screen_stories(p: process.Prepared, chosen: list[dict], settings: dict) -> list[dict]:
+    """Reuse the transcript analysis already paid for; save why incomplete stories were declined."""
+    from .scout import clip_reason
+
+    kept, declined = [], []
+    for candidate in chosen:
+        reason = clip_reason(candidate, settings)
+        if reason:
+            declined.append({"cid": candidate.get("cid"), "start": candidate.get("start"),
+                             "end": candidate.get("end"), "reason": reason})
+        else:
+            kept.append(candidate)
+    if declined:
+        p.info["story_screen"] = {"kept": len(kept), "declined": declined, "method": "transcript heuristic"}
+        p.save_info()
+    return kept
+
+
 def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict) -> None:
     """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
     The durable selection and stable clip IDs let this handler resume only the remaining renders."""
@@ -409,6 +445,7 @@ def analyze_source(job: Job) -> dict:
     chosen = read_json(selection_path, None)
     if chosen is None:
         chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+        chosen = screen_stories(p, chosen, settings)
         write_json(selection_path, chosen)  # resume this exact selection after an interrupted render
     for c in p.info.get("candidates", []):
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])

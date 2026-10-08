@@ -169,6 +169,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                      "commentary, news, live stream, science, business, education"),
     "trend_poll_minutes": 180,          # every few hours, within the providers' quotas and your cost limit
     "trend_max_age_hours": 72,
+    "discovery_require_topic_match": True,  # broad searches need evidence in the video, not just the search query
+    "discovery_excluded_topics": "",         # comma-separated words or phrases the owner does not want
+    "discovery_audience_terms": "United States, USA, American, NBA, NFL",  # context clues, never audience demographics
+    "discovery_min_source_score": 50.0,      # never lower this estimate floor just to fill today's target
+    "discovery_require_complete_clips": True,  # transcript must contain hook, context and payoff before auto-render
     "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
     "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
     "tavily_api_key": "",               # optional web search (tavily.com): public TikTok links and originals of clips
@@ -204,8 +209,8 @@ SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 ACTION_ONLY_KEYS = {"nvidia_opt_in_at"}  # set only by their own button (an explicit agreement), never a settings save
 AUTOPILOT_PROCESS = ["separate", "in_app"]
-YOUTUBE_PRIVACY = ["private"]  # public and unlisted posting are off in this version (publish/audience.py)
-AUDIENCE_INTENTS = ["selected", "owner_only", "local_only"]
+YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
+AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
 
 
 def coerce_setting(key: str, value: Any) -> Any:
@@ -266,11 +271,16 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue  # the key is only ever sent over https
         elif key == "trend_region":
             v = v.upper()[:2]
+        elif key == "trend_language":
+            v = v.strip().lower()[:20]
+        elif key in ("discovery_excluded_topics", "discovery_audience_terms"):
+            v = v[:2000]
         out[key] = v
     return out
 
 
 _RANGES: dict[str, tuple[float, float]] = {
+    "discovery_min_source_score": (0.0, 100.0),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
     "brain_min_testers": (2, 100), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),

@@ -41,7 +41,8 @@ test("robots stand where their real work is, and follow it when it changes", asy
   Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   Object.assign(role(feed, "check"), { state: "error", error: "ffmpeg is missing" });
   await page.goto("/#/");
-  await page.getByLabel(/Reduce animations/).check();
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
+  await expect(page.locator(".robot-hit")).toHaveCount(25);
   await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover");
   await expect(robot(page, "radar")).toHaveAttribute("aria-label", "RADAR, Scout, working: Reading search results");
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
@@ -51,18 +52,23 @@ test("robots stand where their real work is, and follow it when it changes", asy
   const shots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, "error-controlled.png") });
-  // a resting worker is in the lounge (or only counted there)
+  // Idle robots keep visible department stations. Nobody is replaced by a counter.
   const resting = robot(page, "glyph");
-  if (await resting.isVisible()) await expect(resting).toHaveAttribute("data-room", "lounge");
+  await expect(resting).toBeVisible();
+  await expect(resting).toHaveAttribute("data-room", "caption");
+  await expect(page.locator(".room-sign").filter({ hasText: /\+\d+/ })).toHaveCount(0);
+  for (const state of ["working", "idle", "error"]) {
+    await expect(page.locator(`.robot-state.state-${state}`).first()).toBeVisible();
+  }
   // measured progress is shown as measured; a step without a measurement shows no percentage
   await robot(page, "radar").click();
   const panel = page.getByRole("complementary", { name: "Details" });
   await expect(panel.getByRole("heading", { level: 2 })).toHaveText("RADAR");
   await expect(panel.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "37");
-  // the job finished: the next snapshot sends RADAR to rest
+  // The job finished: RADAR stays visible, with a truthful idle state.
   Object.assign(role(feed, "radar"), { state: "idle", task: null, last: { summary: "Found 3 videos", state: "done",
     at: Date.now() / 1000 } });
-  await expect(robot(page, "radar")).toHaveAttribute("data-room", "lounge", { timeout: 15_000 });
+  await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover", { timeout: 15_000 });
   await expect(robot(page, "radar")).toHaveAttribute("data-state", "idle");
 });
 
@@ -70,7 +76,7 @@ test("a real report is carried to the manager; a decision gets COMMAND's reactio
   const feed = await controlled(page, request);
   Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   await page.goto("/#/");
-  await page.getByLabel(/Reduce animations/).uncheck();
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
   const now = Date.now() / 1000;
   feed.events.push({ id: 1, at: now, type: "report", role: "frame", job_id: "job-1", kind: "analyze_source",
@@ -106,23 +112,26 @@ test("paused and stopped states rest the robots; a lost connection is said and m
   await expect(page.getByText("The office is not updating", { exact: true })).toHaveCount(0, { timeout: 15_000 });
 });
 
-test("Reduce animations stills the map; the office fits common laptop screens", async ({ page, request }) => {
+test("Full overrides system motion; Reduced stills the map and all 25 fit desktop screens", async ({ page, request }) => {
   const feed = await controlled(page, request);
   Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   await page.setViewportSize({ width: 1366, height: 768 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#/");
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
   const canvas = page.locator(".office-world canvas");
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
   const frame = () => canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL());
   const a = await frame();
   await page.waitForTimeout(700);
   expect(await frame(), "working robots move").not.toBe(a);
-  await page.getByLabel(/Reduce animations/).check();
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
   await page.waitForTimeout(800);
   const b = await frame();
   await page.waitForTimeout(1200);
   expect(await frame(), "nothing moves with Reduce animations").toBe(b);
-  await page.getByLabel(/Reduce animations/).uncheck();
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   for (const [w, h] of [[1366, 768], [1280, 720]]) {
     await page.setViewportSize({ width: w, height: h });
     await expect(page.getByRole("region", { name: "Autopilot controls" })).toBeInViewport();
@@ -130,6 +139,12 @@ test("Reduce animations stills the map; the office fits common laptop screens", 
     const world = await page.locator(".office-world").boundingBox();
     expect(world!.width, `the whole office at ${w}×${h} without shrinking the pixels`).toBeGreaterThanOrEqual(704);
     expect(world!.y + world!.height).toBeLessThanOrEqual(h);
+    await expect(page.locator(".robot-hit")).toHaveCount(25);
+    for (const button of await page.locator(".robot-hit").all()) {
+      await expect(button).toBeInViewport();
+      await expect(button.locator(".robot-tag")).toBeVisible();
+      await expect(button.locator(".robot-state")).toBeVisible();
+    }
   }
   for (const [w, h] of [[683, 384], [390, 844]]) {
     await page.setViewportSize({ width: w, height: h });

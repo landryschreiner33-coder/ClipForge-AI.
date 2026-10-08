@@ -1,25 +1,32 @@
 import { createContext, ReactNode, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
 
-const STORAGE_KEY = "clipfoundry.reduceMotion";
+const STORAGE_KEY = "clipfoundry.animationMode";
+const LEGACY_KEY = "clipfoundry.reduceMotion";
 const SYSTEM_QUERY = "(prefers-reduced-motion: reduce)";
+export type AnimationMode = "system" | "full" | "reduced";
 
 interface MotionState {
-  /** Effective reduction: the operating system and the app preference each keep animation still. */
+  /** Full is an explicit override; only Follow system consults the operating system. */
   reduceMotion: boolean;
+  animationMode: AnimationMode;
   preferredReduceMotion: boolean;
   systemReducedMotion: boolean;
   pageHidden: boolean;
   persistent: boolean;
   setReduceMotion: (value: boolean) => void;
+  setAnimationMode: (value: AnimationMode) => void;
 }
 
 const MotionContext = createContext<MotionState | null>(null);
 
 function preference() {
   try {
-    return { value: window.localStorage.getItem(STORAGE_KEY) === "true", persistent: true };
+    const value = window.localStorage.getItem(STORAGE_KEY);
+    const mode: AnimationMode = value === "full" || value === "reduced" || value === "system" ? value
+      : window.localStorage.getItem(LEGACY_KEY) === "true" ? "reduced" : "system";
+    return { mode, persistent: true };
   } catch {
-    return { value: false, persistent: false };
+    return { mode: "system" as AnimationMode, persistent: false };
   }
 }
 
@@ -32,17 +39,19 @@ export function MotionProvider({ children }: { children: ReactNode }) {
   const [stored, setStored] = useState(preference);
   const [systemReducedMotion, setSystemReducedMotion] = useState(systemPreference);
   const [pageHidden, setPageHidden] = useState(() => document.hidden);
-  const reduceMotion = stored.value || systemReducedMotion;
+  const reduceMotion = stored.mode === "reduced" || (stored.mode === "system" && systemReducedMotion);
 
-  const setReduceMotion = useCallback((value: boolean) => {
+  const setAnimationMode = useCallback((mode: AnimationMode) => {
     let persistent = true;
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(value));
+      window.localStorage.setItem(STORAGE_KEY, mode);
     } catch {
       persistent = false;
     }
-    setStored({ value, persistent });
+    setStored({ mode, persistent });
   }, []);
+  const setReduceMotion = useCallback((value: boolean) => setAnimationMode(value ? "reduced" : "system"),
+    [setAnimationMode]);
 
   useLayoutEffect(() => {
     const media = typeof window.matchMedia === "function" ? window.matchMedia(SYSTEM_QUERY) : null;
@@ -60,7 +69,7 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     const visibility = () => setPageHidden(document.hidden);
     const storage = (event: StorageEvent) => {
       if (event.key === STORAGE_KEY || event.key === null) {
-        setStored({ value: event.newValue === "true", persistent: true });
+        setStored(preference());
       }
     };
     document.addEventListener("visibilitychange", visibility);
@@ -77,9 +86,10 @@ export function MotionProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.pageHidden = String(pageHidden);
   }, [reduceMotion, pageHidden]);
 
-  const value = useMemo(() => ({ reduceMotion, preferredReduceMotion: stored.value, systemReducedMotion,
-    pageHidden, persistent: stored.persistent, setReduceMotion }),
-  [reduceMotion, stored, systemReducedMotion, pageHidden, setReduceMotion]);
+  const value = useMemo(() => ({ reduceMotion, animationMode: stored.mode,
+    preferredReduceMotion: stored.mode === "reduced", systemReducedMotion,
+    pageHidden, persistent: stored.persistent, setReduceMotion, setAnimationMode }),
+  [reduceMotion, stored, systemReducedMotion, pageHidden, setReduceMotion, setAnimationMode]);
   return <MotionContext.Provider value={value}>{children}</MotionContext.Provider>;
 }
 

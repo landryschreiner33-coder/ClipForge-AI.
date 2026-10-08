@@ -161,18 +161,29 @@ def enqueue(kind: str, payload: dict | None = None, *, priority: int = 0, idem_k
 
 # ------------------------------------------------------------------ claim / lease
 def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | None = None,
-          min_priority: int | None = None) -> dict | None:
+          min_priority: int | None = None, *, manual_priority: int | None = None) -> dict | None:
     """Atomically take the next due job for `worker` (highest priority, then oldest). `min_priority` (e.g. only
     jobs a user started while Autopilot is off) is part of the same transaction, so no other claim can slip in
     between the check and the take. `owner` becomes the job's lease token: only it can renew or finish the job."""
     now = now or _now()
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        floor = -(2 ** 62) if min_priority is None else min_priority
+        if manual_priority is not None:
+            # A Pause/Stop may have committed after the host's preliminary gate read. Re-read controls inside
+            # the claim transaction so newly queued work cannot slip through that stale observation.
+            stopped = conn.execute("SELECT value FROM autopilot_state WHERE key = 'emergency_stop'").fetchone()
+            if stopped and json.loads(stopped["value"]):
+                conn.execute("COMMIT")
+                return None
+            enabled = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_enabled'").fetchone()
+            if not enabled or not json.loads(enabled["value"]):
+                floor = max(floor, manual_priority)
         row = conn.execute(
             "SELECT id, status FROM worker_jobs WHERE worker = ? AND status IN ('queued', 'retrying', 'waiting') "
             "AND run_after <= ? AND cancel_requested = 0 AND priority >= ? "
             "ORDER BY priority DESC, run_after ASC, created_at ASC LIMIT 1",
-            (worker, now, -(2 ** 62) if min_priority is None else min_priority)).fetchone()
+            (worker, now, floor)).fetchone()
         if not row:
             conn.execute("COMMIT")
             return None

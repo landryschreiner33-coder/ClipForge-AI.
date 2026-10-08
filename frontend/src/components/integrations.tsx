@@ -9,7 +9,7 @@ import { FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch
 import { Banner, ConfirmDialog, Disclosure, Icon, Pill, toast, Tone } from "./ui";
 
 /**
- * Settings → Integrations: who watches (the selected-audience choice an upload needs), one card per connection
+ * Settings → Integrations: who watches (the explicit audience choice an upload needs), one card per connection
  * with what it can and cannot do here, and the optional NVIDIA AI. A card keeps three things apart: whether this
  * version implements a capability, whether an account or key is connected, and whether it is available now.
  */
@@ -66,8 +66,9 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
 function AudiencePanel({ view, onSaved }: { view: AudienceView; onSaved: (v: AudienceView) => void }) {
   return (
     <SettingsPanel id="int-audience" title="Who watches"
-      intro={<>ClipFoundry uploads only for viewers you pick, never publicly. Nothing uploads to a platform until
-        you confirm how its audience works. {view.limits}</>}>
+      intro={<>Choose the audience for new posts, then set up automatic YouTube publishing in Accounts. Public posts
+        may be watched by anyone. Existing posts and previously planned private uploads keep their audience.
+        Accessible videos still need reuse permission and a passing final check before posting. {view.limits}</>}>
       <div className="stack-4">
         <AudienceRow p="youtube" d={view.youtube} steps={view.youtube_steps} onSaved={onSaved} />
         <AudienceRow p="tiktok" d={view.tiktok} steps={view.tiktok_steps} onSaved={onSaved} />
@@ -90,6 +91,7 @@ function AudienceRow({ p, d, steps, onSaved }: {
     setGroup(d.group === "friends" ? "friends" : "followers");
     setUnderstood(false);
   }, [d.intent, d.group, d.confirmed_at]);
+  const selectIntent = (v: AudienceIntent) => { setIntent(v); setUnderstood(false); };
   const dirty = intent !== INTENT_OF[d.intent] || (p === "tiktok" && intent === "selected" && group !== d.group);
   const needsWord = intent !== "local_only";
   const save = async (groupChanged = false) => {
@@ -107,7 +109,10 @@ function AudienceRow({ p, d, steps, onSaved }: {
     }
   };
   const selectedLabel = p === "youtube" ? "My invited viewers" : "My approved followers";
-  const promise = intent === "owner_only"
+  const promise = intent === "public"
+    ? `New ${name} posts are public: anyone may watch, share or find them. This does not make existing posts or `
+      + "previously scheduled private uploads public. Public discovery alone does not grant reuse permission."
+    : intent === "owner_only"
     ? `Only I can see these ${name} uploads. Nobody else watches them, so they teach the Brain nothing.`
     : p === "youtube"
       ? "ClipFoundry uploads as Private and cannot invite anyone. I share each video with my viewers in YouTube "
@@ -138,22 +143,26 @@ function AudienceRow({ p, d, steps, onSaved }: {
       <p className="small muted" style={{ margin: 0 }}>{d.detail}</p>
       <fieldset className="stack" style={{ gap: 4, border: 0, padding: 0, margin: 0 }}>
         <legend className="label">Who may watch {name} uploads</legend>
-        <Radio name={id} value="selected" on={intent} set={setIntent}
+        <Radio name={id} value="public" on={intent} set={selectIntent} label="Public audience"
+          hint={p === "youtube" ? "Anyone can watch; automatic publishing needs separate permission"
+            : "Everyone; TikTok approval and an explicit choice on each post are required"} />
+        <Radio name={id} value="selected" on={intent} set={selectIntent}
           label={selectedLabel} hint={p === "youtube" ? "Private, shared in YouTube Studio with the people you pick"
             : "Followers-only posts on your private account"} />
         {p === "tiktok" && intent === "selected" && (
           <div className="row wrap" style={{ paddingLeft: 28 }} role="group" aria-label="Which TikTok group">
             {(["followers", "friends"] as const).map((g) => (
               <label key={g} className="choice small">
-                <input type="radio" name={`${id}-group`} checked={group === g} onChange={() => setGroup(g)} />
+                <input type="radio" name={`${id}-group`} checked={group === g}
+                  onChange={() => { setGroup(g); setUnderstood(false); }} />
                 <span>{g === "followers" ? "Followers" : "Friends (followers you follow back)"}</span>
               </label>
             ))}
           </div>
         )}
-        <Radio name={id} value="owner_only" on={intent} set={setIntent} label="Only me (staging)"
+        <Radio name={id} value="owner_only" on={intent} set={selectIntent} label="Only me (staging)"
           hint="Nobody else can watch; not a test with viewers" />
-        <Radio name={id} value="local_only" on={intent} set={setIntent} label="Keep clips on this PC"
+        <Radio name={id} value="local_only" on={intent} set={selectIntent} label="Keep clips on this PC"
           hint={`Nothing is uploaded to ${name}`} />
       </fieldset>
       {needsWord && (dirty || !d.confirmed) && (

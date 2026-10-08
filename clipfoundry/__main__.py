@@ -127,7 +127,17 @@ def main() -> int:
     g.add_argument("--seconds", type=float, default=None, help="audio length to test (default 300, 120 synthetic)")
     w = sub.add_parser("workers", help="run the autopilot workers (the app normally starts them itself)")
     w.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)  # started by the app: exit with it
+    perf = sub.add_parser("performance", help="report measured active stage times from recent jobs")
+    perf.add_argument("--days", type=int, default=7, help="history window, 1-14 days")
     args = parser.parse_args()
+    if args.cmd == "performance":
+        import json
+        from . import db
+        from .office.performance import summary
+
+        db.init()
+        print(json.dumps(summary(args.days), indent=2))
+        return 0
     if args.cmd == "workers":
         from .autopilot.host import run_worker_process
 

@@ -48,7 +48,8 @@ def job_event(job: dict, type_: str, message: str = "", stage: str = "", **data:
     kind = job.get("kind") or ""
     role = roles.role_for(kind, stage or job.get("stage") or "")
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-    emit(type_, role, job_id=job.get("id") or "", kind=kind, ref=_ref(job), message=message, stage=stage,
+    emit(type_, role, job_id=job.get("id") or "", kind=kind, ref=_ref(job), message=message,
+         stage=stage or job.get("stage") or "",
          routine=kind in ROUTINE and not payload.get("manual"), worker=job.get("worker") or "", **data)
 
 

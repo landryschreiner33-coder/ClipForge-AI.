@@ -28,7 +28,7 @@ const ALIASES: [RegExp, string][] = [
   [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];
 const PAGES = ["", "office", "missions", "clips", "queue", "create", "project", "clip", "publish", "post", "setup",
-  "settings", "dev"];
+  "settings", "brain", "dev"];
 const NEEDS_ID = ["project", "clip", "publish", "post"];
 
 export type Route = {

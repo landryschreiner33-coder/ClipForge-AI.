@@ -7,6 +7,42 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-08 · Public publishing, teachable Brain and complete robot office
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `fea045d`.
+  **Result:** the commit containing this entry. PR stays draft and unmerged.
+* **What changed:** all 25 named robots remain readable with real job states, dependencies/handoffs and saved
+  Follow system / Full / Reduced motion. Brain supports safe local document/good/bad example uploads, search,
+  revision approval/edit/disable/delete, complete metadata/text/influence export and immutable later-plan influence.
+  Approved typed preferences alter new blueprints; uploaded prose is inert and examples never become posting results.
+  Discovery uses topic/language/freshness/relevance evidence and explains estimates and weak-story filters.
+  Final checks send bounded repairs to the responsible stage. Video-only sources fail before Whisper; live
+  segments with missing audio preserve the timeline and returning audio. Existing GPU execution paths remain.
+  Explicit NEW Public YouTube automation uses channel/audience-bound consent, recorded project-audit confirmation,
+  exact-file checks, limits and local due-time uploads without `publishAt`; old Private schedules remain Private.
+  TikTok still needs eligible app/creator options/per-post consent, with truthful draft/manual fallbacks.
+  Learning separates public/selected cohorts and waits 48 hours. Added stage timing report and isolated Windows launcher.
+* **Final regression fixes:** Pause/Stop is checked atomically when claiming work; database migrations are serialized
+  across threads/processes and committed before the next initializer; clearing the YouTube audit confirmation blocks
+  new automatic Public approvals/uploads while preserving Private permissions; Brain export removes browsing caps.
+  The Windows GPU-check command explicitly selects test data and distinguishes CUDA proof from NVENC render proof.
+* **Why:** the owner's continuation prompt supersedes selected-only new uploads and hidden idle robots, while
+  preserving existing visibility/data, platform restrictions and the unmerged PR.
+* **Validation:** 641 passed, 7 deselected in 263.21 s. All seven slow cases and ten sandbox browser checks passed across initial
+  runs and targeted reruns, with exact outcomes/fixture corrections in [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md).
+  TypeScript/production build passed. Focused startup/core/office/TikTok: 66 passed; full Brain export: 8;
+  public-audit/automatic-publishing recheck: 33; publishing: 44; returning-audio/recovery: 28.
+  Disposable old-schema upgrade preserves rows/approval/media bytes. Before-fix reconstructions fail the new
+  Stop/startup/export regressions. Tests use synthetic media/transcripts and local fake publishing, with real
+  FFmpeg; no owner accounts/data or real uploads.
+* **Evidence:** [screenshots, actual job animation, controlled motion demo and saved Brain influence](design/robot-office/screenshots/README.md).
+  [Processing measurements/server advice](docs/PERFORMANCE.md) and [separate Windows ZIP test](docs/WINDOWS_PR14_TEST.md).
+* **Not verified / blocked:** RTX 3050 CUDA/NVENC, Windows setup/fonts/scaling, real network intake and connected
+  account scopes/project/app approvals/returned Public visibility. Official developer hosts returned proxy 403;
+  current policies could not be freshly verified. Google's reachable official GitHub schema confirms only the
+  `publishAt` field contract. Audit settings record owner confirmation, not programmatic approval.
+  No server purchase, deployment, account permission changes or real posts occurred.
+
 ## 2026-10-08 · PR #14 review round
 
 * **Tool:** Claude Code (cloud session). **Branch:** `claude/project-thread-vw1n9y` (draft PR #14), on top of

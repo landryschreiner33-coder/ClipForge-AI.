@@ -100,6 +100,9 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert len(google.videos) == 2
             assert db.select("sources", "external_id = ?", (SECOND,))[0]["clips_selected"] >= 1
             assert len(google.sessions) == len(google.videos) == 2
+            # The publication becomes done before the publisher finishes copying its result to the schedule.
+            # Wait for both finalized posts before simulating the owner's invitations and 48-hour result age.
+            until(fixture, lambda: len(db.select("scheduled_publications", "status = 'published'")) == 2)
             # the owner shares the Private videos in YouTube Studio and says so: only then are they viewers' evidence
             for item in db.select("scheduled_publications", "status = 'published'"):
                 shared = client.post(f"/api/autopilot/scheduled/{item['id']}/audience-confirmed", headers=H)

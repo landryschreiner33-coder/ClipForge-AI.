@@ -350,6 +350,8 @@ def platforms(settings: dict) -> list[str]:
 @handler("package_clip")
 def package_clip(job: Job) -> dict:
     settings = db.get_settings()
+    if job.payload.get("local_only"):
+        settings = {**settings, "ai_provider": "heuristic", "nvidia_enabled": False}
     clip = db.get_clip(job.payload.get("clip_id", ""))
     if not clip or clip["status"] != "ready":
         raise queue.Fail("The clip is missing or not rendered")

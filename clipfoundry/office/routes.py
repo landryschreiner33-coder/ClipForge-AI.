@@ -54,6 +54,13 @@ def health_check() -> dict:
     return health.check()
 
 
+@router.get("/performance", dependencies=READ)
+def performance(days: int = 7) -> dict:
+    from .performance import summary
+
+    return summary(days)
+
+
 @router.get("/rooms/{room_id}", dependencies=READ)
 def room(room_id: str) -> dict:
     try:

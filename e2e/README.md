@@ -87,18 +87,22 @@ completed clip when publishing permission is unknown. An upcoming stream waits a
 segmented capture and post-live clipping finish it. It never approves an individual post or retries a failed job.
 
 `sandbox/robot-office.spec.ts` checks how the Office draws real state, with controlled answers from the office API
-in the browser only: robots stand where their work is and go back to the Lounge after it, a report is carried to the
-manager, a decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, Reduce
-animations, and the layout at 1366×768, 1280×720 and narrow widths. `sandbox/motion.spec.ts` checks the motion
-preference. The sandbox tests write the screenshots in `design/robot-office/screenshots`.
+in the browser only: all 25 identities remain visible at named stations, a report is carried to the manager, a
+decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, and the layout at
+1366×768, 1280×720 and narrow widths. `sandbox/motion.spec.ts` checks saved Follow system / Full / Reduced,
+including Full overriding system reduced motion. `sandbox/brain-workspace.spec.ts` checks actual document upload,
+approval, reload, lookup preview, disable/delete/export and responsive layout. The sandbox tests write the
+screenshots in `design/robot-office/screenshots`.
 
-Known (October 2026): with public video discovery on (the default since `eff96fb`) the beginner flow fails at its
-older expectation that videos nothing covers are never clipped; it passes with that setting off. It waits for the
-owner's decision on public videos.
+The current beginner flow passes with public video discovery on. Uncovered videos can be clipped locally, but
+cannot be automatically posted. The complete loop explicitly confirms Public YouTube setup and project audit,
+gives channel-bound standing consent, and checks Public fake-account uploads without `publishAt`. Its sandbox-only
+controls advance approved Public due times and result age; production Public uploads start locally at their due
+time. [Current validation and remaining PC checks](../docs/IMPLEMENTATION_STATUS.md).
 
 The full sandbox replaces external account APIs, fixture DNS, original-file access and Whisper. Rendering, quality
 checks, approvals, queue dispatch, uploads and learning use the application itself. Small generated originals stand
-in for the longer episodes described by the fake catalog. Simulated result age avoids waiting a day; metrics still
+in for the longer episodes described by the fake catalog. Simulated result age avoids waiting 48 hours; metrics still
 come from the fake platform, and two posts correctly leave learning below its ten-post threshold. Fixture controls
 under `/sandbox/` exist only in the sandbox executable. They are absent from the ordinary app.
 
@@ -115,7 +119,8 @@ npm run test:sandbox
 `CLIPFOUNDRY_PYTHON` picks another Python (default `..\.venv\Scripts\python.exe`), and
 `CLIPFOUNDRY_SANDBOX_PORT` another port; its successor is used by the complete-loop sandbox.
 Screenshots of actual working, waiting, restart and paused states are saved under
-`design/retro-studio/screenshots/`, separately from Playwright's temporary test results.
+`design/robot-office/screenshots/`, separately from Playwright's temporary test results. Its README labels actual
+jobs, saved blueprint influence, lookup previews and controlled motion evidence separately.
 
 The corresponding Python integration checks include an upcoming stream waiting across a worker restart, followed
 by real segmented capture and post-live clipping when the fake platform reports it live:

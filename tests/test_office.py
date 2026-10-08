@@ -186,7 +186,7 @@ def test_controls_compose_the_existing_buttons(client):
 
     snap = client.get("/api/office/snapshot").json()
     assert snap["run"]["state"] == "stopped" and snap["cursor"] >= 0 and len(snap["roles"]) == 25
-    assert snap["audience"]["footer"].startswith("Selected audience: YouTube") and "TikTok" in snap["audience"]["footer"]
+    assert snap["audience"]["footer"].startswith("Who watches: YouTube") and "TikTok" in snap["audience"]["footer"]
     assert client.post("/api/office/control", json={"action": "pause"}, headers=H).status_code == 409
     assert client.post("/api/office/control", json={"action": "start"}).status_code == 403  # only from the app's page
     assert client.post("/api/office/control", json={"action": "start"}, headers=H).json()["run"]["state"] == "running"
@@ -315,9 +315,9 @@ def test_test_connection_reads_once_and_changes_nothing(platforms, client):
     yt = _cards(client)["youtube"]
     assert yt["checked_at"] == out["at"] and yt["last_check"]["ok"] and yt["can_test"]
     assert "grant" not in yt["last_check"] and g.refresh_token not in client.get("/api/integrations").text
-    # TikTok: creator_info, never an init, a chunk or a status call; "Everyone" is not offered as an audience
+    # TikTok: creator_info reports actual choices, never an init, a chunk or a status call.
     out = client.post("/api/integrations/tiktok/test", headers=H).json()
-    assert out["ok"] and "Followers" in out["detail"] and "Everyone" not in out["detail"]
+    assert out["ok"] and "Followers" in out["detail"] and "Everyone" in out["detail"]
     assert not t.inits and not t.uploads and not t.status_calls
     assert _cards(client)["tiktok"]["checked_at"] == out["at"]
 

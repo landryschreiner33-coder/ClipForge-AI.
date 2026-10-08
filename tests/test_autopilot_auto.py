@@ -62,7 +62,9 @@ def test_the_original_behind_a_popular_short_is_found(env):
     g = env["g"]
     g.add_video("short01aaaa", "Best podcast moment #shorts", "UCclips0000000001", views=2_000_000, duration="PT45S",
                 description="Full episode here: https://youtu.be/longvid0001 (and our merch link)")
-    g.add_video("longvid0001", "Full episode 88 with Jane", "UCorig00000000001", views=300_000, duration="PT1H12M")
+    # A linked original remains a candidate when its own metadata supports the owner's podcast preference.
+    g.add_video("longvid0001", "Full episode 88 with Jane", "UCorig00000000001", views=300_000,
+                duration="PT1H12M", description="A podcast interview with Jane")
     g.popular = ["short01aaaa"]
     run("trend_scan")
     sigs = {s["external_id"]: s for s in db.select("trend_signals")}
@@ -207,6 +209,7 @@ def client(env):
     from clipfoundry.api import app
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        c._fake_env = env
         yield c
 
 
@@ -341,6 +344,11 @@ def _clip(env, title="Talk to customers first", warn: str = "") -> dict:
 
 
 def _consent(client, **kw) -> object:
+    from clipfoundry import db
+    from test_autopilot_publish import connect
+
+    if not (db.get_account("youtube") or {}).get("has_tokens"):
+        connect(client._fake_env["g"], client._fake_env["t"])
     body = {"platform": "youtube", "visibility": "private", "made_for_kids": False, "daily_limit": 2,
             "start_hour": 9, "end_hour": 21, "agreed": True, **kw}
     return client.post("/api/autopilot/auto-publish", headers=H, json=body)

@@ -1,8 +1,9 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const H = { "X-ClipFoundry": "1" };
+test.use({ video: { mode: "on", size: { width: 1440, height: 900 } } });
 
 async function get(request: APIRequestContext, url: string): Promise<any> {
   const result = await request.get(url);
@@ -34,9 +35,10 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await expect(page.getByText(/^Connected: /)).toHaveCount(1);
 
   // A one-time account permission is required even in the fake account. No post is approved by this test.
-  // Who watches is confirmed once too (Settings → Integrations): Private uploads for the viewers you invite.
-  await post(request, "/api/audience/youtube", { intent: "selected", confirm: true });
-  await post(request, "/api/autopilot/auto-publish", { platform: "youtube", visibility: "private",
+  // This is a fake audited project/account, never a claim about the owner's real Google project.
+  await request.put("/api/settings", { headers: H, data: { youtube_project_verified: true } });
+  await post(request, "/api/audience/youtube", { intent: "public", confirm: true });
+  await post(request, "/api/autopilot/auto-publish", { platform: "youtube", visibility: "public",
     made_for_kids: false, daily_limit: 4, start_hour: 0, end_hour: 24, agreed: true });
   await page.getByRole("button", { name: "Start Autopilot" }).click();
   // Finish the setup handler's own navigation before choosing the main control page.
@@ -56,8 +58,12 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/#/missions");
   await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
-  await expect.poll(async () => (await get(request, "/sandbox/state")).publications
-    .filter((p: any) => p.status === "done").length,
+  // Advance approved deadlines on the isolated server rather than bypassing the production zero public lead.
+  // Rendering/checking/approval/upload/results still run through actual production handlers.
+  await expect.poll(async () => {
+    await post(request, "/sandbox/due-public-posts");
+    return (await get(request, "/sandbox/state")).publications.filter((p: any) => p.status === "done").length;
+  },
     { timeout: 240_000 }).toBeGreaterThanOrEqual(1);
   let state = await get(request, "/sandbox/state");
   const first = state.sources.find((s: any) => s.external_id === "loopfirst01");
@@ -72,9 +78,9 @@ test("one Start continues through real clips, checked uploads, results and a sec
   expect(postItem.approval.video_sha256).toBe(report.artifact_sha256);
   const received = state.uploads.find((u: any) => u.id === publication.remote_id);
   expect(received.sha256).toBe(report.artifact_sha256);
-  expect(received.status.privacyStatus).toBe("private");
-  expect(received.status.publishAt).toBeUndefined();  // nothing ever turns public later
-  expect(postItem.delivery.audience_setup).toBe("awaiting_invitations");
+  expect(received.status.privacyStatus).toBe("public");
+  expect(received.status.publishAt).toBeUndefined();
+  expect(postItem.delivery.audience_setup).toBe("public_api_verified");
   for (const kind of ["trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip",
     "quality_check", "schedule_tick", "publish"]) {
     expect(state.jobs.some((j: any) => j.kind === kind && j.status === "completed"), kind).toBe(true);
@@ -114,19 +120,16 @@ test("one Start continues through real clips, checked uploads, results and a sec
   expect((await get(request, "/api/autopilot/links")).find((i: any) => i.id === added.id).project_id)
     .toBe(added.project_id);
   await post(request, "/sandbox/next-video");
-  await expect.poll(async () => (await get(request, "/sandbox/state")).publications
-    .filter((p: any) => p.status === "done").length,
+  await expect.poll(async () => {
+    await post(request, "/sandbox/due-public-posts");
+    return (await get(request, "/sandbox/state")).publications.filter((p: any) => p.status === "done").length;
+  },
     { timeout: 240_000 }).toBe(2);
   state = await get(request, "/sandbox/state");
   expect(state.sources.find((s: any) => s.external_id === "loopagain01").clips_selected).toBeGreaterThan(0);
   expect(new Set(state.publications.filter((p: any) => p.status === "done").map((p: any) => p.remote_id)).size).toBe(2);
 
-  // The owner shares the Private videos in YouTube Studio and presses "I shared it": only from then on are they
-  // results of viewers (an upload nobody else can watch teaches nothing).
-  for (const item of state.posts.filter((p: any) => p.status === "published")) {
-    await post(request, `/api/autopilot/scheduled/${item.id}/audience-confirmed`);
-  }
-  // Simulate waiting a day for results. Stats still come from the platform, then the real learner executes.
+  // Simulate mature results. Stats still come from the fake platform, then the actual learner executes.
   await post(request, "/sandbox/age-results");
   await expect.poll(async () => (await get(request, "/sandbox/state")).learning?.samples,
     { timeout: 60_000 }).toBe(2);
@@ -185,4 +188,6 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await expect(page.locator("#office-run-state")).toHaveText("Paused");
   await expect(page.locator('.robot-hit[data-state="working"]')).toHaveCount(0);
   await page.screenshot({ path: path.join(screenshots, "paused.png") });
+  await writeFile(path.join(screenshots, "processing-timings.json"),
+    JSON.stringify(await get(request, "/api/office/performance"), null, 2));
 });

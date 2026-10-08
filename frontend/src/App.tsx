@@ -8,6 +8,7 @@ import { MotionProvider } from "./motion";
 import Office from "./pages/Office";
 import Team, { RobotGallery } from "./pages/Team";
 import Feedback from "./pages/Feedback";
+import Brain from "./pages/Brain";
 import Setup from "./pages/Setup";
 import Create from "./pages/Create";
 import Library from "./pages/Library";
@@ -21,16 +22,16 @@ import SettingsPage from "./pages/Settings";
 
 export { navigate };
 
-type NavKey = "office" | "missions" | "clips" | "queue" | "settings";
+type NavKey = "office" | "missions" | "clips" | "queue" | "brain" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
   "": "office", office: "office", setup: "office", dev: "office", missions: "missions", clips: "clips",
   project: "clips", clip: "clips", publish: "clips", create: "clips", queue: "queue", post: "queue",
-  settings: "settings",
+  settings: "settings", brain: "brain",
 };
 const SECTION_TITLE: Record<string, string> = {
   "": "", office: "Team", setup: "Set up", missions: "Missions", clips: "Clips", project: "Source video",
   clip: "Edit clip", publish: "Prepare post", create: "Add video", queue: "Queue", post: "Post review",
-  settings: "Settings", dev: "Robot gallery",
+  settings: "Settings", brain: "Brain", dev: "Robot gallery",
 };
 
 function page(route: Route) {
@@ -48,6 +49,7 @@ function page(route: Route) {
     case "queue": return <Posts view={id} />;
     case "post": return <PostReview id={id} key={id} />;
     case "settings": return <SettingsPage tab={id} />;
+    case "brain": return <Brain tab={id} />;
     default: return <Office />;
   }
 }
@@ -120,6 +122,7 @@ function Shell() {
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
       <NavLink href="#/settings" icon="settings" label="Settings" on={active === "settings"} />
+      <NavLink href="#/brain" icon="spark" label="Brain" on={active === "brain"} />
     </>
   );
   const foot = (

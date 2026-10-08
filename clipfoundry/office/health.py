@@ -177,6 +177,31 @@ def audience_incidents() -> dict:
     return _c("audience", "Who can watch", "healthy", "Uploads go only to the audience you chose.")
 
 
+def media_workflow() -> dict:
+    """Saved media problems and current QC blockers, distinct from GPU/worker availability."""
+    from ..autopilot import state
+    from . import view
+
+    missing = [a for a in state.open_actions() if a.get("key", "").startswith("media:audio:")]
+    if missing:
+        return _c("media", "Video and final checks", "degraded", missing[0]["detail"], missing[0]["fix"],
+                  missing_audio_sources=len(missing))
+    blocked = view._quality_blocked(view._active_jobs(), time.time())
+    if blocked:
+        return _c("media", "Video and final checks", "degraded", blocked["blocked_reason"],
+                  "Open the clip's final check and fix the reported stage; automatic repairs have a limit.",
+                  next_role=blocked["next_role"], clip_id=blocked["shared"]["clip_id"])
+    failed = db.select("sources", "status = 'failed' AND updated_at > ?", (time.time() - 86400,),
+                       "updated_at DESC", 20)
+    audio_failed = next((s for s in failed if "no audio track" in (s.get("error") or "") or
+                         "video only" in (s.get("error") or "")), None)
+    if audio_failed:
+        return _c("media", "Video and final checks", "degraded", audio_failed["error"],
+                  "Add a source with sound. The video is saved and this impossible transcription is not retried.",
+                  source_id=audio_failed["id"])
+    return _c("media", "Video and final checks", "healthy", "No recent unresolved media failure was recorded.")
+
+
 def quotas(settings: dict) -> dict:
     try:
         from ..autopilot import quota
@@ -253,7 +278,7 @@ def check(settings: dict | None = None) -> dict:
     when nothing is worse."""
     settings = settings or db.get_settings()
     checks = [scheduler(settings), queue_age(settings), discovery(settings), gpu(settings), ffmpeg(), disk(),
-              database(), accounts(settings), audience_incidents(), quotas(settings)]
+              database(), accounts(settings), audience_incidents(), quotas(settings), media_workflow()]
     counted = [c for c in checks if not c.get("info")]
     worst = max(counted, key=lambda c: ORDER[c["status"]]) if counted else checks[0]
     overall = worst["status"]

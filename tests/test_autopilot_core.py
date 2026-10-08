@@ -202,6 +202,7 @@ def test_the_priority_floor_is_part_of_the_claim(data):
 def test_a_recovered_job_cannot_be_finished_by_its_old_thread(data):
     from clipfoundry.autopilot import host as host_mod, queue
 
+    queue.db.save_settings({"autopilot_enabled": True})
     h = host_mod.WorkerHost(workers=["maintenance"], periodic=False)  # not started: only its tokens are used
     job = queue.enqueue("selftest", max_attempts=3)
     first = h._claim("maintenance", 0)  # noqa: SLF001 - the thread that will hang

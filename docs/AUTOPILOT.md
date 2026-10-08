@@ -5,8 +5,9 @@ attention, checks whether each source may be used, finds the strongest moments, 
 TikTok, schedules them, publishes the posts you approved through the official APIs, and learns from the real results.
 
 > **Names since the robot office (October 2026):** Home is now the **Office**, the Autopilot page is **Missions**,
-> the Library is **Clips** and Posts is the **Queue**; old addresses still open the right page. Uploads go only to the
-> viewers you choose (YouTube Private shared with invited viewers, TikTok approved followers), never publicly. See
+> the Library is **Clips**, Posts is the **Queue**, and **Brain** has its own workspace; old addresses still open
+> the right page. New uploads can be Public after explicit setup and eligible platform permission. Existing Private
+> schedules stay Private. TikTok needs per-post consent or a manual handoff. See
 > [OFFICE.md](OFFICE.md) for the office, the audience policy, the capability matrix and the Brain.
 
 Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your

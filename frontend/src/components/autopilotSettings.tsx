@@ -106,7 +106,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           <Errors keys={["autopilot_youtube_daily_limit", "autopilot_tiktok_daily_limit"]} errors={errors} />
         </SettingRow>
         <SettingRow k="autopilot_upload_lead_minutes" label="Upload YouTube posts early" {...row}
-          hint="Minutes before the planned time. Uploads are Private; you share them with your viewers in Studio">
+          hint="Private uploads only: minutes before the planned time. Public posts upload at their planned time">
           <NumInput k="autopilot_upload_lead_minutes" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_auto_publish" label="Publish approved posts at their time" {...row}
@@ -124,8 +124,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       </SettingsPanel>
 
       <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={"Discovery is not permission. Owned videos are always allowed; uncovered and blocked videos never are: "
-          + "they're skipped and listed in Activity."}>
+        intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
+          + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
         <SettingRow label="Region and language" hint="Two-letter country and language codes (US and en by default)"
           group>
           <div className="inline-fields small">
@@ -140,6 +140,33 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             <a className="textlink" href="#/settings/defaults">Change</a>
           </span>
         </SettingRow>
+        <SettingRow k="discovery_require_topic_match" label="Require a topic match"
+          hint="Broad searches must match your topics in the video's metadata; your chosen folders and channels stay available"
+          {...row}>
+          <Switch k="discovery_require_topic_match" c={c} />
+        </SettingRow>
+        <SettingRow k="discovery_excluded_topics" label="Topics to skip"
+          hint="Comma-separated words or phrases. Matches are skipped during automatic discovery" {...row}>
+          <TextInput k="discovery_excluded_topics" c={c} width={380} placeholder="spoilers, gambling" />
+        </SettingRow>
+        <SettingRow k="discovery_audience_terms" label="Audience context clues"
+          hint="Comma-separated subjects or places relevant to your audience. Clues improve ranking; viewer location stays unknown"
+          {...row}>
+          <TextInput k="discovery_audience_terms" c={c} width={380} />
+        </SettingRow>
+        <SettingRow k="discovery_min_source_score" label="Minimum discovery estimate"
+          hint="0–100. Wait for stronger videos when candidates fall below this; never lower the bar to fill a target"
+          {...row}>
+          <NumInput k="discovery_min_source_score" c={c} />
+        </SettingRow>
+        <SettingRow k="discovery_require_complete_clips" label="Require a complete story"
+          hint="After transcription, automatic clips need a clear hook, context and payoff; repetitive moments are skipped"
+          {...row}>
+          <Switch k="discovery_require_complete_clips" c={c} />
+        </SettingRow>
+        <p className="tiny muted">A US search setting is a request, not proof of a US audience. Reported language
+          is checked when available; unknown language is confirmed from transcription. Clip quality is assessed
+          after the video is read. Scores are estimates and do not predict virality.</p>
         <SettingRow k="trend_poll_minutes" label="Check trends every"
           hint="Minutes (every 3 hours by default); slowed down automatically near the quota share" {...row}>
           <NumInput k="trend_poll_minutes" c={c} />

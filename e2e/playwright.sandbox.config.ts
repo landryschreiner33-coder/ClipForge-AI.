@@ -19,6 +19,7 @@ export default defineConfig({
   outputDir: "test-results-sandbox",
   use: {
     baseURL: `http://127.0.0.1:${port}`,
+    actionTimeout: 30_000,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -41,7 +42,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts"],
+      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts", "brain-workspace.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

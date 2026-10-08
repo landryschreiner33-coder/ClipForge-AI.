@@ -39,7 +39,7 @@ def post(platform: str, hour: int, views: int, clip_score: float = 60, style: st
                                 features={"viral_potential": clip_score, "duration": 30.0})
     db.execute("UPDATE publications SET created_at = ? WHERE id = ?", (when, pub["id"]))
     db.execute("INSERT INTO performance (id, publication_id, clip_id, platform, fetched_at, views, avg_view_percentage) "
-               "VALUES (?,?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], platform, when + 47 * 3600, views, pct))
+               "VALUES (?,?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], platform, when + 49 * 3600, views, pct))
     return pub
 
 

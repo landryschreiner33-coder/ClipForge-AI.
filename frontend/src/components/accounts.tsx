@@ -153,7 +153,8 @@ export function TikTokSetupSteps() {
       <p className="small muted">
         Until TikTok audits your app, Direct Post only works when your TikTok account is private, every post is
         “Only me”, and at most 5 users can post a day. <b>Send to TikTok inbox</b> needs no audit, but TikTok must
-        have approved your app for it; the video arrives as a draft and you post it for your Followers. TikTok's rules
+        have approved your app for it; the video arrives as a draft and you choose the confirmed audience in TikTok.
+        Public posts need Everyone and an account that allows it. TikTok's rules
         turn down apps for personal use, so expect to post clips yourself: ClipFoundry prepares each one (video,
         caption, who to post it for) in the Queue.
       </p>

@@ -271,7 +271,8 @@ class WorkerHost:
 
     def _claim(self, name: str, min_priority: int) -> dict | None:
         # Autopilot off: min_priority limits the claim to jobs a user started by hand, inside the claim itself
-        return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None)
+        return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None,
+                           manual_priority=MANUAL_PRIORITY)
 
     def _idle(self, name: str, message: str) -> None:
         row = db.fetch("worker_state", name, "name") or {}

@@ -38,7 +38,7 @@ from . import queue, rights, state
 from .host import Job, handler
 from .stream_access import StreamRefused
 from .hunter import (gpu_failed, gpu_policy, max_source_bytes, plan_clips, prior_fingerprints, project_options,
-                     render_in_priority_order, store_fingerprint)
+                     render_in_priority_order, screen_stories, store_fingerprint)
 
 SEGMENT_SECONDS = 60
 WINDOW_SECONDS = 900          # the rolling window searched for live clips
@@ -108,7 +108,11 @@ def _resolve_platform_stream(url: str) -> str:
             (f.get("height") or 0) <= 1080]
     if not fmts:
         raise queue.Fail("No live stream address was found")
-    return max(fmts, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))["url"]
+    usable = [f for f in fmts if f.get("acodec") != "none" and f.get("vcodec") != "none"]
+    if not usable:
+        raise queue.Fail("The available live formats have no combined video and audio track.",
+                         "Use a stream with sound or add your own recording; no transcription was attempted.")
+    return max(usable, key=lambda f: (bool(f.get("acodec")), f.get("height") or 0, f.get("tbr") or 0))["url"]
 
 
 # ------------------------------------------------------------------ session state (on disk, survives restarts)
@@ -134,6 +138,7 @@ class Session:
         self.clips: list[dict] = st.get("clips", [])
         self.meta: dict = st.get("meta", {})
         self.untranscribed: list[list[float]] = st.get("untranscribed", [])  # strict GPU: minutes not transcribed
+        self.missing_audio: list[list[float]] = st.get("missing_audio", [])
         self.transcript = read_json(self.pdir / "transcript.json", None) or {"language": "", "source": "live",
                                                                              "segments": []}
         # One atomic checkpoint owns both the timeline and words. Separate convenience files can lag after a crash.
@@ -158,6 +163,7 @@ class Session:
         write_json(self.segdir / "state.json", {"run": self.run, "segments": self.segments, "offset": self.offset,
                                                 "env": self.env, "clips": self.clips, "meta": self.meta,
                                                 "untranscribed": self.untranscribed, "transcript": self.transcript,
+                                                "missing_audio": self.missing_audio,
                                                 "capture_complete": self.capture_complete,
                                                 "limit_reached": self.limit_reached})
         write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
@@ -367,27 +373,39 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     job.check()
     _check_local_permission(sess)
     path = sess.segdir / name
-    if not sess.meta:
-        sess.meta = probe(path)
-    duration = duration or float(probe(path).get("duration") or 0)
+    meta = probe(path)  # audio may disappear or return between live segments
+    if not sess.meta or meta.get("has_audio"):
+        sess.meta = meta
+    duration = duration or float(meta.get("duration") or 0)
     wav = sess.segdir / (Path(name).stem + ".wav")
-    extract_audio(path, wav, duration, cancel=job.cancelled)
-    env = loudness_envelope(wav)["db"]
     frames = int(round(duration / 0.1))
-    env = (env + [env[-1] if env else -60.0] * frames)[:frames]
     ctx = JobContext(None, job.cancelled)
-    try:
-        with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
-                               max_wait_s=600):
-            t = transcribe.transcribe(wav, duration, sess.settings, ctx, allow_cpu_fallback=bool(
-                sess.settings.get("autopilot_allow_cpu_fallback")))
-    except transcribe.GpuTranscriptionFailed as exc:
-        # Strict GPU: live clipping pauses, the recording goes on. The post-live pass transcribes the whole
-        # recording again (on the GPU) before it is analyzed, so nothing said in these minutes is lost.
-        gpu_failed(exc, f"live “{sess.src.get('title', '')[:60]}”")
-        sess.untranscribed.append([sess.offset, sess.offset + duration])
-        t = {"segments": [], "language": "", "runtime": {}}
-    gpu.manager.record_transcription(t.get("runtime") or {}, f"live: {sess.src.get('title', '')[:60]}")
+    if not meta.get("has_audio"):
+        sess.missing_audio.append([sess.offset, sess.offset + duration])
+        env = [-60.0] * frames
+        t = {"segments": [], "language": "", "source": "no_audio"}
+        reason = f"Live minute {sess.offset / 60:.0f} has no audio track; saved video without transcription"
+        job.log("live_missing_audio", reason, start=sess.offset, end=sess.offset + duration)
+        db.update("sources", sess.src["id"], status_note=reason)
+        state.action(f"media:audio:{sess.src['id']}", "media", "The live recording has missing audio", reason,
+                     "Check the stream or OBS audio track. Recording continues; silent minutes are not sent to "
+                     "Whisper.", level="warning", ref_type="source", ref_id=sess.src["id"])
+    else:
+        extract_audio(path, wav, duration, cancel=job.cancelled)
+        env = loudness_envelope(wav)["db"]
+        env = (env + [env[-1] if env else -60.0] * frames)[:frames]
+        try:
+            with gpu.manager.heavy("live transcription", sess.src.get("title", "")[:80], job.id, job.cancelled,
+                                   max_wait_s=600):
+                t = transcribe.transcribe(wav, duration, sess.settings, ctx, allow_cpu_fallback=bool(
+                    sess.settings.get("autopilot_allow_cpu_fallback")))
+        except transcribe.GpuTranscriptionFailed as exc:
+            # Keep recording; the post-live pass transcribes these minutes with the same strict GPU policy.
+            gpu_failed(exc, f"live “{sess.src.get('title', '')[:60]}”")
+            sess.untranscribed.append([sess.offset, sess.offset + duration])
+            t = {"segments": [], "language": "", "runtime": {}}
+        if t.get("runtime"):
+            gpu.manager.record_transcription(t["runtime"], f"live: {sess.src.get('title', '')[:60]}")
     for seg in t.get("segments", []):
         shifted = {"start": seg["start"] + sess.offset, "end": seg["end"] + sess.offset, "text": seg.get("text", ""),
                    "words": [{**w, "start": w["start"] + sess.offset, "end": w["end"] + sess.offset}
@@ -401,7 +419,9 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     wav.unlink(missing_ok=True)
     sess.save()
     db.update_project(sess.project["id"], duration=sess.offset, message=f"Live: {sess.offset / 60:.0f} min recorded, "
-                                                                        f"{len(sess.clips)} clip(s)")
+                      f"{len(sess.clips)} clip(s)" + ("; this minute has no audio" if not meta.get("has_audio") else ""),
+                      info={**(db.get_project(sess.project["id"]) or {}).get("info", {}), **sess.meta,
+                            "missing_audio": sess.missing_audio})
 
 
 def detect(sess: Session, job: Job) -> dict | None:
@@ -427,6 +447,10 @@ def detect(sess: Session, job: Job) -> dict | None:
                  for a, b in virality.variants(c["s0"], c["s1"], sents, opts, feats)), key=lambda x: x["raw"])
         if r["blocked"] or r["viral_potential"] < max(min_quality, float(opts.get("min_score", 50))) or \
                 r["end"] > edge - EDGE_MARGIN:
+            continue
+        from .scout import clip_reason
+
+        if clip_reason(r, sess.settings):
             continue
         if best is None or r["viral_potential"] > best[0]["viral_potential"]:
             best = (r, sents, loud)
@@ -532,18 +556,44 @@ def _resume_live_outputs(sess: Session, job: Job) -> None:
 
 
 def finalize(sess: Session) -> Path | None:
-    """Join the segments into the full recording (stream copy)."""
+    """Join the recording without dropping audio that returns after a video-only segment.
+
+    Normal recordings keep stream copy. Mixed recordings copy video and normalize only their audio tracks,
+    inserting silence for known missing audio so later speech keeps its source timeline.
+    """
     if not sess.segments:
         return None
-    listing = sess.segdir / "all.txt"
-    listing.write_text("".join(f"file '{(sess.segdir / s['name']).as_posix()}'\n" for s in sess.segments),
-                       encoding="utf-8")
-    out = sess.pdir / "source.mkv"
-    subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
-                    "0", "-i", str(listing), "-c", "copy", str(out)], check=True, capture_output=True,
-                   creationflags=NO_WINDOW)
-    db.update_project(sess.project["id"], source_path=str(out), source_filename=out.name, duration=sess.offset)
-    return out
+    temporary: list[Path] = []
+    try:
+        paths = [sess.segdir / s["name"] for s in sess.segments]
+        if sess.missing_audio and len(sess.missing_audio) < len(sess.segments):
+            paths = []
+            for index, segment in enumerate(sess.segments):
+                source = sess.segdir / segment["name"]
+                target = sess.segdir / f"joined-audio-{index:06d}.mkv"
+                duration = float(segment["end"]) - float(segment["start"])
+                missing = [segment["start"], segment["end"]] in sess.missing_audio
+                args = [ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(source)]
+                if missing:
+                    args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+                args += ["-map", "0:v:0", "-map", "1:a:0" if missing else "0:a:0", "-c:v", "copy",
+                         "-c:a", "aac", "-ac", "2", "-ar", "48000", "-af", "aresample=async=1:first_pts=0,apad",
+                         "-t", f"{duration:.6f}", "-avoid_negative_ts", "make_zero", str(target)]
+                temporary.append(target)
+                subprocess.run(args, check=True, capture_output=True, creationflags=NO_WINDOW)
+                paths.append(target)
+        listing = sess.segdir / "all.txt"
+        listing.write_text("".join(f"file '{path.as_posix()}'\n" for path in paths),
+                           encoding="utf-8")
+        out = sess.pdir / "source.mkv"
+        subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
+                        "0", "-i", str(listing), "-c", "copy", str(out)], check=True, capture_output=True,
+                       creationflags=NO_WINDOW)
+        db.update_project(sess.project["id"], source_path=str(out), source_filename=out.name, duration=sess.offset)
+        return out
+    finally:
+        for path in temporary:
+            path.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------ jobs
@@ -739,7 +789,20 @@ def live_capture(job: Job) -> dict:
 
 def _finish_capture(sess: Session, job: Job) -> dict:
     src = sess.src
-    finalize(sess)
+    output = finalize(sess)
+    no_audio = bool(sess.missing_audio) and all([s["start"], s["end"]] in sess.missing_audio for s in sess.segments)
+    if output and Path(output).is_file():
+        final_meta = probe(output)
+        db.update_project(sess.project["id"], info={**(db.get_project(sess.project["id"]) or {}).get("info", {}),
+                                                  **final_meta, "missing_audio": sess.missing_audio})
+        no_audio = not final_meta.get("has_audio")
+    if no_audio:
+        reason = "The completed live recording contains video only; no usable audio track is available."
+        db.update("sources", src["id"], live_status="stopped" if sess.limit_reached else "ended", status="failed",
+                  error=reason, status_note=reason)
+        db.update_project(sess.project["id"], status="error", stage="audio", error=reason, message=reason)
+        raise queue.Fail(reason, "The recording is saved. Check the stream or OBS audio track before trying a "
+                         "new recording; speech transcription cannot recover missing audio.")
     detail = "Recording limit reached" if sess.limit_reached else "Live ended"
     db.update("sources", src["id"], kind="live", live_status="stopped" if sess.limit_reached else "ended",
               status="analyzing", status_note=f"{detail} after {sess.offset / 60:.0f} min with "
@@ -800,6 +863,7 @@ def post_live(job: Job) -> dict:
     if selection is None:
         cands = process.candidate_pool(p, ctx)
         chosen = process.evaluate_select(p, cands, ctx, prior=prior_fingerprints(p.id))
+        chosen = screen_stories(p, chosen, settings)
         live = [c for c in db.list_clips(p.id) if c["status"] in ("ready", "rendering", "queued")]
         keep: list[dict] = []
         replacements = {}

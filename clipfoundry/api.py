@@ -24,7 +24,7 @@ from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
-from .autopilot import brain_routes
+from .autopilot import brain_routes, knowledge_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
 from .office import routes as office_routes
@@ -58,6 +58,7 @@ app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
+app.include_router(knowledge_routes.router)
 app.include_router(integration_routes.router)
 
 

@@ -168,6 +168,10 @@ def probe(path: str | Path) -> dict:
         "video_codec": video.get("codec_name", ""),
         "has_audio": audio is not None,
         "audio_codec": (audio or {}).get("codec_name", ""),
+        "video_start": float(video["start_time"]) if video.get("start_time") not in (None, "N/A") else None,
+        "audio_start": float(audio["start_time"]) if audio and audio.get("start_time") not in (None, "N/A") else None,
+        "video_duration": float(video["duration"]) if video.get("duration") not in (None, "N/A") else None,
+        "audio_duration": float(audio["duration"]) if audio and audio.get("duration") not in (None, "N/A") else None,
         "size_bytes": int(fmt.get("size") or 0),
     }
 

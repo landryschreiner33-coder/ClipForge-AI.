@@ -301,6 +301,9 @@ export interface Publication {
   info: Record<string, any>;
   created_at: number;
   updated_at: number;
+  audience?: { intent?: string; visibility?: string; group?: string };
+  delivery?: { audience_setup?: string; visibility?: { requested?: string; returned?: string | null;
+    evidence?: string; checked_at?: number | null } };
   stats?: PerfSnapshot | null;
 }
 

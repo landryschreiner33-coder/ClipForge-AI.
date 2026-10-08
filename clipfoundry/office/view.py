@@ -8,6 +8,7 @@ estimated; the frontend decides how to draw it.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from .. import db
 from ..autopilot import state as ap_state
@@ -53,9 +54,73 @@ def _task(j: dict) -> dict:
     message = j.get("message") or ""
     if j["status"] == "running" and message == QUEUED_TEXT:  # claimed, but its handler has not said anything yet
         message = "Started"
-    return {"job_id": j["id"], "kind": j["kind"], "stage": j.get("stage") or "", "status": j["status"],
+    payload = j.get("payload") or {}
+    handoff = payload.get("handoff") or {}
+    clip_id = payload.get("clip_id") or (j.get("ref_id") if j.get("ref_type") == "clip" else "") or ""
+    clip = db.get_clip(clip_id) or {}
+    project_id = payload.get("project_id") or clip.get("project_id") or ""
+    source_id = payload.get("source_id") or (j.get("ref_id") if j.get("ref_type") == "source" else "") or ""
+    source = db.fetch("sources", source_id) or {}
+    project_id = project_id or source.get("project_id") or ""
+    project = db.get_project(project_id) or {}
+    source_id = source_id or project.get("source_id") or ""
+    dependencies = []
+    if Path(project.get("source_path") or "").is_file():
+        dependencies.append("Source recording saved")
+    if project_id:
+        from .. import config
+
+        if (config.projects_dir() / project_id / "transcript.json").is_file():
+            dependencies.append("Transcript saved")
+    if Path(clip.get("output_path") or "").is_file():
+        dependencies.append("Rendered clip saved")
+    if handoff.get("report_id"):
+        dependencies.append("Final check returned this work with a specific reason")
+    next_role = {"hunt_source": "boost", "analyze_source": "quill", "post_live": "quill",
+                 "regenerate_clip": "quill", "package_clip": "check", "quality_check": "clock",
+                 "schedule_tick": "lock", "publish": "metric", "live_capture": "spark"}.get(j["kind"], "")
+    blocked = (j.get("error") or message) if j["status"] in ("waiting", "retrying", "failed") else \
+        ("Waiting for background work to start" if j["status"] == "queued" else "")
+    return {"job_id": j["id"], "kind": j["kind"], "stage": j.get("stage") or handoff.get("stage") or "",
+            "status": j["status"],
             "message": message[:200], "progress": round(float(j["progress"]), 3) if measured else None,
-            "ref_type": j.get("ref_type") or "", "ref_id": j.get("ref_id") or "", "updated_at": j.get("updated_at")}
+            "ref_type": j.get("ref_type") or "", "ref_id": j.get("ref_id") or "", "updated_at": j.get("updated_at"),
+            "blocked_reason": blocked[:400], "next_role": next_role, "dependencies": dependencies,
+            "shared": {"source_id": source_id, "project_id": project_id, "clip_id": clip_id},
+            "handoff": handoff or None}
+
+
+def _job_role(j: dict) -> str:
+    handoff = (j.get("payload") or {}).get("handoff") or {}
+    if j["status"] == "queued" and handoff.get("to_role") in roles.BY_ID:
+        return handoff["to_role"]
+    return roles.role_for(j["kind"], j.get("stage") or "")
+
+
+def _quality_blocked(jobs: list[dict], now: float) -> dict | None:
+    """A completed check can reject a clip without failing the worker itself. Keep that blocker visible."""
+    from ..autopilot import gate
+
+    active_clips = {(j.get("payload") or {}).get("clip_id") for j in jobs}
+    for rep in db.select("quality_reports", "updated_at > ?", (now - ERROR_SECONDS,), "updated_at DESC", 30):
+        if rep["clip_id"] in active_clips:
+            continue
+        clip = db.get_clip(rep["clip_id"])
+        if not clip or clip.get("status") != "ready" or (gate.report_for(clip) or {}).get("id") != rep["id"]:
+            continue
+        bad_text = [p for p, m in (rep.get("metadata") or {}).items() if m.get("status") != "passed"]
+        if rep["status"] == "passed" and not bad_text:
+            continue
+        rows = db.select("worker_jobs", "kind = 'quality_check' AND ref_id = ?", (clip["id"],),
+                         "created_at DESC", 1)
+        if not rows:
+            continue
+        task = _task(rows[0])
+        reason = "; ".join(rep.get("blockers") or ["Post text did not pass for " + ", ".join(bad_text)])
+        task.update(status="blocked", progress=None, message=reason[:200], blocked_reason=reason[:400],
+                    next_role=gate.rework_target(rep)[1] if rep["status"] != "passed" else "quill")
+        return task
+    return None
 
 
 def role_states(settings: dict, now: float | None = None) -> list[dict]:
@@ -65,7 +130,8 @@ def role_states(settings: dict, now: float | None = None) -> list[dict]:
     failures = _recent_failures(now)
     by_role: dict[str, list[dict]] = {}
     for j in jobs:
-        by_role.setdefault(roles.role_for(j["kind"], j.get("stage") or ""), []).append(j)
+        by_role.setdefault(_job_role(j), []).append(j)
+    quality_blocked = _quality_blocked(jobs, now)
     reports = db.select("office_reports", "created_at > ?", (now - REACT_SECONDS,), "created_at DESC", 20)
     decisions = db.select("office_decisions", "created_at > ?", (now - REACT_SECONDS,), "created_at DESC", 5)
     from ..autopilot.scheduler import uploadable_platforms
@@ -88,6 +154,10 @@ def role_states(settings: dict, now: float | None = None) -> list[dict]:
         elif failed and float(failed.get("finished_at") or 0) > max((float(j.get("updated_at") or 0) for j in mine),
                                                                      default=0):
             st, task = "error", _task(failed)
+        elif queued:
+            st, task = "waiting", _task(queued[0])
+        elif r["id"] == "check" and quality_blocked:
+            st, task = "error", quality_blocked
         if r["rank"] == "manager":
             if any(rep["manager"] == r["id"] for rep in reports):
                 st = "reviewing"
@@ -104,7 +174,8 @@ def role_states(settings: dict, now: float | None = None) -> list[dict]:
             st = "paused"
         last = db.select("office_reports", "worker = ? OR manager = ?", (r["id"], r["id"]), "created_at DESC", 1)
         out.append({"id": r["id"], "state": st, "task": task, "tasks": len(mine), "queued": len(queued),
-                    "error": ((failed or {}).get("error") or "")[:300] if st == "error" else "",
+                    "error": ((task or {}).get("blocked_reason") or (failed or {}).get("error") or "")[:300]
+                    if st == "error" else "",
                     "last": ({"summary": last[0]["summary"], "state": last[0]["state"], "at": last[0]["created_at"]}
                              if last else None)})
     return out
@@ -120,7 +191,7 @@ def snapshot() -> dict:
     nxt = db.select("scheduled_publications", "status IN ('approved', 'publishing') AND planned_at >= ?",
                     (now - 600,), "planned_at", 1)
     dests = {p: audience.destination(p, settings) for p in ("youtube", "tiktok")}
-    footer = "Selected audience: " + " · ".join(
+    footer = "Who watches: " + " · ".join(
         f"{'YouTube' if p == 'youtube' else 'TikTok'} {d['label'][:1].lower() + d['label'][1:]}"
         for p, d in dests.items())
     return {

@@ -295,7 +295,7 @@ function SourceRow({ s, open, act }: {
   return (
     <div className="row top wrap source" style={{ padding: "12px 0" }}>
       <Pill tone={rightsTone(s.rights_status)} icon="shield" title={s.rights_explain}>{s.rights_label}</Pill>
-      <span className="grow stack" style={{ gap: 2, flexBasis: 260 }}>
+      <div className="grow stack" style={{ gap: 2, flexBasis: 260 }}>
         {s.url ? <a className="post-title break" href={s.url} target="_blank" rel="noreferrer">{title}
           <span className="sr-only"> (opens a new tab)</span></a> : <b className="break">{title}</b>}
         <span className="tiny faint">{[PLATFORM_NAME[s.platform as Platform] || s.platform, s.channel_title,
@@ -304,7 +304,19 @@ function SourceRow({ s, open, act }: {
         {(s.rights_basis || s.status_note) && (
           <span className="small muted break">{[s.rights_basis, s.status_note].filter(Boolean).join(" · ")}</span>
         )}
-      </span>
+        {Object.keys(s.components || {}).length > 0 && <details className="small muted">
+          <summary>Why this video was considered</summary>
+          <ul className="small" style={{ margin: "8px 0", paddingLeft: 20 }}>
+            {Object.entries(s.components || {}).map(([key, part]) => <li key={key}>
+              {key === "discovery_filter" ? "Filter: " : key === "evidence" ? "Evidence: "
+                : part.status === "observed" ? "Reported fact: " : "Estimate: "}
+              {part.note || "No explanation recorded"}
+            </li>)}
+          </ul>
+          <p className="tiny">Estimates describe why it is worth reading. They do not promise views or virality.
+            Posting permission is checked separately.</p>
+        </details>}
+      </div>
       <span className="small" title={parts || undefined}>
         Source Score <b>{s.source_score != null ? Math.round(s.source_score) : "—"}</b>{" "}
         <span className="faint">

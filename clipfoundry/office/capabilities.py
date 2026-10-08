@@ -38,8 +38,10 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "media": (IMPLEMENTED, "A pasted link or a found video is downloaded only where access is allowed; your "
                                "connection to YouTube does not grant downloads."),
         "upload": (IMPLEMENTED, "Resumable upload through the YouTube Data API."),
-        "visibility": (IMPLEMENTED, "Private only. You invite your viewers in YouTube Studio (no API for that)."),
-        "consent": (IMPLEMENTED, "Your OK on each post, or the automatic-upload permission (Private only)."),
+        "visibility": (IMPLEMENTED, "Public for an explicitly chosen public audience (YouTube may lock an "
+                                   "unaudited project to Private); Private for invited viewers or only you."),
+        "consent": (IMPLEMENTED, "Your OK on each post, or permission for one channel and visibility. Existing "
+                                "Private posts never become Public when you enable public publishing."),
         "status": (IMPLEMENTED, "Upload processing and the returned privacy are read back after each upload."),
         "analytics": (APPROVAL, "Views, likes and comments are shown; using them for learning needs Google's "
                                 "derived-metrics approval. Average percentage viewed needs the Analytics scope "
@@ -52,16 +54,17 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "metadata": (IMPLEMENTED, "Creator and title from TikTok's public embed endpoint; no view counts."),
         "transcript": (LOCAL, "Made on this PC with Whisper."),
         "media": (IMPLEMENTED, "Only where the video is accessible to the link importer; nothing is bypassed."),
-        "upload": (APPROVAL, "Direct Post to your followers needs TikTok's app audit, and TikTok's guidelines turn "
+        "upload": (APPROVAL, "Direct Post to Everyone or followers needs TikTok's app audit, and its guidelines turn "
                              "away personal tools and apps that repost other platforms' videos, so expect a refusal. "
                              "Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise "
                              "ClipFoundry prepares a ready-to-post package that you post in the TikTok app."),
-        "visibility": (APPROVAL, "Followers or friends on a private account (audited apps); an unaudited app can "
-                                 "only post 'Only me', which is staging, not a test."),
+        "visibility": (APPROVAL, "Everyone when your audited app/account offers it, or followers/friends on a "
+                                 "private account. Unaudited Direct Post is 'Only me' staging."),
         "consent": (IMPLEMENTED, "Your OK on every post (TikTok requires it)."),
         "status": (IMPLEMENTED, "The post's publish status is read back; follower-only posts may not return a link."),
-        "analytics": (UNSUPPORTED, "TikTok's video list API covers public posts only, so results of follower-only "
-                                   "posts are unavailable here; enter them in Clips → Test feedback."),
+        "analytics": (IMPLEMENTED, "Views, likes, comments and shares for public posts when the Display API "
+                                   "scope and post ID are available. Restricted posts and retention may need "
+                                   "manual feedback; missing numbers remain unavailable."),
         "limits": (IMPLEMENTED, "TikTok's posting caps per creator per day, as TikTok reports them."),
     },
     "web": {
@@ -198,9 +201,7 @@ def _probe(platform: str, settings: dict) -> tuple[str, str]:
     if "video.publish" in (acc.get("scopes") or []):
         info = tiktok.creator_info(token)  # refreshes and retries once by itself on an invalid token
         name = info.get("nickname") or info.get("username") or ""
-        # "Everyone" is left out: ClipFoundry never posts publicly (publish/audience.py), so it is not an option here
-        offers = ", ".join(tiktok.PRIVACY_LABELS.get(o, o) for o in info.get("privacy_options") or []
-                           if o != "PUBLIC_TO_EVERYONE")
+        offers = ", ".join(tiktok.PRIVACY_LABELS.get(o, o) for o in info.get("privacy_options") or [])
         return name, f"TikTok answered for {name or 'your account'}" + (
             f". Audiences it offers for your posts: {offers}." if offers else ".")
     try:
@@ -275,10 +276,13 @@ def cards(settings: dict | None = None) -> list[dict]:
     elif not yt["connected"]:
         st, detail, action = "not_connected", "Clips stay on this PC until you connect.", "Connect YouTube"
     elif not dest["confirmed"]:
-        st, detail, action = "requires_user_action", "Confirm who watches (Private + your invited viewers).", \
+        st, detail, action = "requires_user_action", "Confirm who watches your new uploads.", \
             "Confirm the audience"
     else:
-        st, detail, action = "connected", f"Uploads go to {dest['label'].lower()} as Private.", ""
+        st, detail, action = "connected", f"New uploads request {dest['label'].lower()}.", ""
+        if dest["intent"] == audience.PUBLIC and not settings.get("youtube_project_verified"):
+            st, detail, action = "permission_required", "YouTube restricts unaudited API projects to Private. " \
+                "Automatic public publishing needs Google's audit.", "Check YouTube project audit"
     wait = _platform_wait("youtube", settings) if yt["connected"] else None
     if st == "connected" and wait:
         st, detail = "rate_limited", wait["detail"]
@@ -290,14 +294,15 @@ def cards(settings: dict | None = None) -> list[dict]:
                      ["YouTube Analytics (average percentage viewed)"],
                      checked_at=chk.get("last_ok_at"), last_check=chk or None, can_test=bool(yt["connected"]),
                      connected_at=yt.get("connected_at"), limit=wait, audience=dest,
-                     steps=audience.YOUTUBE_SHARE_STEPS))
+                     steps="Complete Google's API project audit for public uploads." if dest["intent"] ==
+                     audience.PUBLIC else audience.YOUTUBE_SHARE_STEPS))
     # TikTok
     dest = audience.destination("tiktok", settings)
     missing = []
     if tt["connected"] and not tt["can_direct_post"] and not tt["can_inbox"]:
         missing.append("video.upload or video.publish")
     if tt["connected"] and not tt["audited"]:
-        missing.append("TikTok app audit (needed to post to followers)")
+        missing.append("TikTok app audit (needed to post to Everyone or followers)")
     if not tt["configured"]:
         st, detail, action = "requires_user_action", "Your TikTok developer app is not set up yet.", tt["setup"]
     elif tt["needs_reconnect"]:
@@ -306,13 +311,13 @@ def cards(settings: dict | None = None) -> list[dict]:
         st, detail, action = "not_connected", "Clips can still be posted by you from a ready-to-post package.", \
             "Connect TikTok"
     elif not tt["audited"]:
-        st, detail, action = "permission_required", ("Unaudited apps cannot post to followers, so each clip is "
+        st, detail, action = "permission_required", ("Unaudited apps cannot post to Everyone or followers; each clip is "
                                                      "prepared for you to post in the TikTok app."), ""
     elif not dest["confirmed"]:
-        st, detail, action = "requires_user_action", "Confirm who watches (your approved followers).", \
+        st, detail, action = "requires_user_action", "Confirm who watches your new posts.", \
             "Confirm the audience"
     else:
-        st, detail, action = "connected", f"Posts go to {dest['label'].lower()} on your private account.", ""
+        st, detail, action = "connected", f"Posts request {dest['label'].lower()}; each still needs your OK.", ""
     wait = _platform_wait("tiktok", settings) if tt["connected"] else None
     if st == "connected" and wait:
         st, detail = "rate_limited", wait["detail"]
@@ -322,7 +327,8 @@ def cards(settings: dict | None = None) -> list[dict]:
     out.append(_card("tiktok", "TikTok", st, detail, identity=tt["name"], action=action, missing=missing,
                      checked_at=chk.get("last_ok_at"), last_check=chk or None, can_test=bool(tt["connected"]),
                      connected_at=tt.get("connected_at"), limit=wait, audience=dest,
-                     steps=audience.TIKTOK_PRIVATE_STEPS))
+                     steps="Choose Everyone on each TikTok post when your account offers it." if dest["intent"] ==
+                     audience.PUBLIC else audience.TIKTOK_PRIVATE_STEPS))
     # Web search
     key = bool(settings.get("tavily_api_key"))
     out.append(_card("web", "Web search (Tavily)", "connected" if key else "not_connected",

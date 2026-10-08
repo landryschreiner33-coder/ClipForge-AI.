@@ -14,6 +14,11 @@ export interface OfficeTask {
   ref_type: string;
   ref_id: string;
   updated_at: number | null;
+  blocked_reason?: string;
+  next_role?: string;
+  dependencies?: string[];
+  shared?: { source_id?: string; project_id?: string; clip_id?: string };
+  handoff?: { from_role: string; reason: string; attempt: number; max_attempts: number; report_id?: string } | null;
 }
 
 export interface RoleRow {
@@ -354,10 +359,10 @@ export const integrations = {
 };
 
 // ------------------------------------------------------------------ who watches (publish/audience.py)
-export type AudienceIntent = "selected" | "owner_only" | "local_only";
+export type AudienceIntent = "public" | "selected" | "owner_only" | "local_only";
 export interface AudienceDestination {
   platform: "youtube" | "tiktok";
-  intent: "SELECTED_AUDIENCE" | "OWNER_ONLY" | "LOCAL_ONLY";
+  intent: "PUBLIC" | "SELECTED_AUDIENCE" | "OWNER_ONLY" | "LOCAL_ONLY";
   group: string;
   label: string;
   detail: string;
@@ -376,7 +381,7 @@ export interface AudienceView {
   limits: string;
 }
 export const INTENT_OF: Record<AudienceDestination["intent"], AudienceIntent> = {
-  SELECTED_AUDIENCE: "selected", OWNER_ONLY: "owner_only", LOCAL_ONLY: "local_only",
+  PUBLIC: "public", SELECTED_AUDIENCE: "selected", OWNER_ONLY: "owner_only", LOCAL_ONLY: "local_only",
 };
 export const audienceApi = {
   view: () => req<AudienceView>("GET", "/api/audience"),

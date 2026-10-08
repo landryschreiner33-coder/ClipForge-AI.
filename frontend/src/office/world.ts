@@ -150,23 +150,23 @@ function dedupe(pts: Pt[]): Pt[] {
 // ------------------------------------------------------------------ stations (feet positions)
 const at = (room: RoomId, dx: number, dy: number): Pt => ({ x: ROOM[room].x + dx, y: ROOM[room].y + dy });
 
-/** Where each role stands while on duty. Managers stand at the front of their room. */
+/** Everyone keeps a readable station while idle, paused or on duty. Room signs and state icons fit above them. */
 export const STATION: Record<string, Pt> = {
-  command: at("boss", 96, 66),
-  tracker: at("discover", 52, 70), radar: at("discover", 120, 62), archive: at("discover", 182, 62),
-  vector: at("analyze", 186, 70), pulse: at("analyze", 46, 62), gavel: at("analyze", 96, 62),
-  boost: at("analyze", 140, 62),
-  frame: at("studio", 52, 70), spark: at("studio", 104, 62), story: at("studio", 148, 62),
-  splice: at("studio", 194, 62),
-  script: at("caption", 186, 70), glyph: at("caption", 60, 62), quill: at("caption", 120, 62),
-  clock: at("schedule", 96, 66),
-  harbor: at("dock", 186, 70), lock: at("dock", 64, 62), dock: at("dock", 126, 64),
-  switch: at("system", 40, 70), check: at("system", 96, 62), patch: at("system", 152, 62),
-  curator: at("brain", 186, 70), metric: at("brain", 36, 64), synapse: at("brain", 76, 64),
+  command: at("boss", 96, 86),
+  tracker: at("discover", 52, 86), radar: at("discover", 120, 86), archive: at("discover", 182, 86),
+  vector: at("analyze", 192, 86), pulse: at("analyze", 38, 86), gavel: at("analyze", 88, 86),
+  boost: at("analyze", 140, 86),
+  frame: at("studio", 38, 86), spark: at("studio", 90, 86), story: at("studio", 142, 86),
+  splice: at("studio", 194, 86),
+  script: at("caption", 186, 86), glyph: at("caption", 52, 86), quill: at("caption", 120, 86),
+  clock: at("schedule", 96, 86),
+  harbor: at("dock", 186, 86), lock: at("dock", 58, 86), dock: at("dock", 120, 86),
+  switch: at("system", 34, 86), check: at("system", 96, 86), patch: at("system", 158, 86),
+  curator: at("brain", 192, 86), metric: at("brain", 36, 86), synapse: at("brain", 86, 86),
 };
 export const CORE_AT: Pt = at("brain", 132, 56);
 
-/** Lounge places for idle and paused workers (the rest are counted, not drawn). */
+/** Lounge furniture locations. Robots keep their own stations so the full team remains visible. */
 export const LOUNGE: Pt[] = [
   at("lounge", 36, 60), at("lounge", 150, 58), at("lounge", 96, 76), at("lounge", 204, 74), at("lounge", 40, 84),
   at("lounge", 160, 84),

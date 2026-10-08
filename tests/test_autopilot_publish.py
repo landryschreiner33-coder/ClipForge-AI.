@@ -339,6 +339,7 @@ def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     path = clip["output_path"]
     db.insert("quality_reports", {"clip_id": clip["id"], "artifact_path": path, "artifact_sha256":
                                   artifact.sha256_file(path), "file_stamp": quality.file_stamp(path),
+                                  "gate_version": quality.GATE_VERSION,
                                   "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"]})
     with pytest.raises(queue.Fail, match="did not pass"):
         run_publish(item["id"])
@@ -394,7 +395,7 @@ def test_publish_center_api(env):
         assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
-        assert r.status_code == 400 and "turned off" in r.json()["detail"]  # never unlisted (anyone with the link)
+        assert r.status_code == 400 and "Unlisted" in r.json()["detail"]  # unsupported link-only visibility
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "private", "confirm": True})
         assert r.json()["privacy"] == "private" and r.json()["status"] == "approved"

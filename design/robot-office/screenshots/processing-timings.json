@@ -1,0 +1,301 @@
+{
+  "days": 7,
+  "stages": [
+    {
+      "kind": "analyze_source",
+      "stage": "render",
+      "role": "splice",
+      "samples": 6,
+      "total_s": 107.81,
+      "median_s": 13.23,
+      "p95_s": 46.82
+    },
+    {
+      "kind": "live_capture",
+      "stage": "live",
+      "role": "archive",
+      "samples": 4,
+      "total_s": 60.74,
+      "median_s": 2.7,
+      "p95_s": 53.54
+    },
+    {
+      "kind": "quality_check",
+      "stage": "quality",
+      "role": "check",
+      "samples": 4,
+      "total_s": 13,
+      "median_s": 3.27,
+      "p95_s": 4.35
+    },
+    {
+      "kind": "hunt_source",
+      "stage": "transcribe",
+      "role": "archive",
+      "samples": 3,
+      "total_s": 8.71,
+      "median_s": 3.09,
+      "p95_s": 3.42
+    },
+    {
+      "kind": "post_live",
+      "stage": "starting",
+      "role": "spark",
+      "samples": 1,
+      "total_s": 8.26,
+      "median_s": 8.26,
+      "p95_s": 8.26
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "youtube",
+      "role": "radar",
+      "samples": 16,
+      "total_s": 6.91,
+      "median_s": 0.39,
+      "p95_s": 1
+    },
+    {
+      "kind": "analyze_source",
+      "stage": "captions",
+      "role": "glyph",
+      "samples": 3,
+      "total_s": 5.99,
+      "median_s": 2.09,
+      "p95_s": 2.31
+    },
+    {
+      "kind": "source_scout",
+      "stage": "starting",
+      "role": "radar",
+      "samples": 22,
+      "total_s": 4.16,
+      "median_s": 0.18,
+      "p95_s": 0.38
+    },
+    {
+      "kind": "schedule_tick",
+      "stage": "starting",
+      "role": "clock",
+      "samples": 10,
+      "total_s": 3.63,
+      "median_s": 0.29,
+      "p95_s": 0.88
+    },
+    {
+      "kind": "learn",
+      "stage": "refresh",
+      "role": "metric",
+      "samples": 16,
+      "total_s": 3.07,
+      "median_s": 0.08,
+      "p95_s": 1.39
+    },
+    {
+      "kind": "learn",
+      "stage": "evaluate",
+      "role": "synapse",
+      "samples": 16,
+      "total_s": 2.68,
+      "median_s": 0.13,
+      "p95_s": 0.36
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "feeds",
+      "role": "radar",
+      "samples": 16,
+      "total_s": 2.33,
+      "median_s": 0.14,
+      "p95_s": 0.28
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "score",
+      "role": "pulse",
+      "samples": 16,
+      "total_s": 2.19,
+      "median_s": 0.1,
+      "p95_s": 0.32
+    },
+    {
+      "kind": "hunt_source",
+      "stage": "starting",
+      "role": "spark",
+      "samples": 4,
+      "total_s": 1.75,
+      "median_s": 0.49,
+      "p95_s": 0.5
+    },
+    {
+      "kind": "analyze_source",
+      "stage": "analyze",
+      "role": "boost",
+      "samples": 3,
+      "total_s": 1.72,
+      "median_s": 0.38,
+      "p95_s": 1.09
+    },
+    {
+      "kind": "identify_link",
+      "stage": "starting",
+      "role": "archive",
+      "samples": 3,
+      "total_s": 1.41,
+      "median_s": 0.54,
+      "p95_s": 0.69
+    },
+    {
+      "kind": "analyze_source",
+      "stage": "plan",
+      "role": "story",
+      "samples": 3,
+      "total_s": 1.38,
+      "median_s": 0.31,
+      "p95_s": 0.77
+    },
+    {
+      "kind": "package_clip",
+      "stage": "starting",
+      "role": "quill",
+      "samples": 4,
+      "total_s": 1.26,
+      "median_s": 0.3,
+      "p95_s": 0.51
+    },
+    {
+      "kind": "publish",
+      "stage": "upload",
+      "role": "dock",
+      "samples": 2,
+      "total_s": 1.22,
+      "median_s": 0.61,
+      "p95_s": 0.92
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "starting",
+      "role": "tracker",
+      "samples": 16,
+      "total_s": 1.05,
+      "median_s": 0.06,
+      "p95_s": 0.19
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "library",
+      "role": "radar",
+      "samples": 16,
+      "total_s": 0.91,
+      "median_s": 0.05,
+      "p95_s": 0.28
+    },
+    {
+      "kind": "hunt_source",
+      "stage": "candidates",
+      "role": "spark",
+      "samples": 3,
+      "total_s": 0.71,
+      "median_s": 0.21,
+      "p95_s": 0.3
+    },
+    {
+      "kind": "learn",
+      "stage": "starting",
+      "role": "synapse",
+      "samples": 16,
+      "total_s": 0.67,
+      "median_s": 0.02,
+      "p95_s": 0.19
+    },
+    {
+      "kind": "live_capture",
+      "stage": "starting",
+      "role": "archive",
+      "samples": 3,
+      "total_s": 0.58,
+      "median_s": 0.2,
+      "p95_s": 0.29
+    },
+    {
+      "kind": "trend_scan",
+      "stage": "web",
+      "role": "radar",
+      "samples": 16,
+      "total_s": 0.51,
+      "median_s": 0.02,
+      "p95_s": 0.12
+    },
+    {
+      "kind": "feed_scan",
+      "stage": "starting",
+      "role": "radar",
+      "samples": 4,
+      "total_s": 0.4,
+      "median_s": 0.06,
+      "p95_s": 0.24
+    },
+    {
+      "kind": "analyze_source",
+      "stage": "starting",
+      "role": "boost",
+      "samples": 3,
+      "total_s": 0.34,
+      "median_s": 0.07,
+      "p95_s": 0.22
+    },
+    {
+      "kind": "publish",
+      "stage": "starting",
+      "role": "dock",
+      "samples": 2,
+      "total_s": 0.3,
+      "median_s": 0.15,
+      "p95_s": 0.23
+    },
+    {
+      "kind": "live_watch",
+      "stage": "starting",
+      "role": "radar",
+      "samples": 8,
+      "total_s": 0.22,
+      "median_s": 0.02,
+      "p95_s": 0.06
+    },
+    {
+      "kind": "maintenance",
+      "stage": "starting",
+      "role": "patch",
+      "samples": 1,
+      "total_s": 0.13,
+      "median_s": 0.13,
+      "p95_s": 0.13
+    },
+    {
+      "kind": "publish",
+      "stage": "audience",
+      "role": "lock",
+      "samples": 2,
+      "total_s": 0.11,
+      "median_s": 0.06,
+      "p95_s": 0.09
+    },
+    {
+      "kind": "quality_check",
+      "stage": "starting",
+      "role": "check",
+      "samples": 4,
+      "total_s": 0.1,
+      "median_s": 0.03,
+      "p95_s": 0.03
+    }
+  ],
+  "outcomes": {
+    "done": 97,
+    "failed": 1,
+    "waiting": 6
+  },
+  "active_jobs": 0,
+  "measured_active_s": 244.25,
+  "note": "Measured active job time on this computer. Waits, incomplete stages and missing history are excluded. Parallel times overlap; this is not elapsed time or a prediction for another PC."
+}

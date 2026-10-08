@@ -29,7 +29,7 @@ from . import artifact
 from .common import Cancelled, read_json
 from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, probe
 
-GATE_VERSION = 1
+GATE_VERSION = 2
 PASS, WARN, FAIL, SKIP = "pass", "warn", "fail", "skipped"
 DETERMINISTIC, HEURISTIC = "deterministic", "heuristic"
 MIN_SECONDS = 1.0
@@ -176,6 +176,7 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
         out.append(check("audio_stream", "Audio track", DETERMINISTIC, FAIL, "The clip has no audio track."))
     else:
         out.append(check("audio_stream", "Audio track", DETERMINISTIC, PASS))
+    out.append(_av_timing(info))
     dims_ok = (info["width"], info["height"]) == (config.OUTPUT_W, config.OUTPUT_H)
     out.append(check("dimensions", f"{config.OUTPUT_W}x{config.OUTPUT_H} vertical", DETERMINISTIC,
                      PASS if dims_ok else FAIL, "" if dims_ok else f"The file is {info['width']}x{info['height']}.",
@@ -210,6 +211,23 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     out += _caption_checks(expected.get("srt"), duration, expected.get("transcript"))
     out += _cut_checks(expected.get("transcript"), expected.get("edl"))
     return out
+
+
+def _av_timing(info: dict) -> dict:
+    """Container track timing only; this cannot verify lip sync or align speech with moving mouths."""
+    start_v, start_a = info.get("video_start"), info.get("audio_start")
+    if not info.get("has_audio") or start_v is None or start_a is None:
+        return check("av_timing", "Audio/video track timing", DETERMINISTIC, SKIP,
+                     "Track timestamps are unavailable; lip sync was not measured.")
+    offset = abs(float(start_v) - float(start_a))
+    dv, da = info.get("video_duration"), info.get("audio_duration")
+    difference = abs(float(dv) - float(da)) if dv is not None and da is not None else None
+    status = FAIL if offset > 0.5 or (difference is not None and difference > max(1.0, 0.03 * float(dv))) else \
+        WARN if offset > 0.15 else PASS
+    detail = f"Tracks start {offset:.2f} s apart" + (f"; lengths differ by {difference:.2f} s" if difference is not
+                                                    None else "; track lengths unavailable") + ". Lip sync not measured."
+    return check("av_timing", "Audio/video track timing", DETERMINISTIC, status, detail,
+                 start_offset_s=round(offset, 3), duration_difference_s=difference)
 
 
 def _picture_checks(sc: Scan, duration: float) -> list[dict]:

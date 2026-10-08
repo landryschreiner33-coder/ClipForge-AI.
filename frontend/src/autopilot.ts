@@ -358,7 +358,9 @@ export interface AgreementIn {
 }
 
 export interface AutoPublishView {
-  youtube: { supported: boolean; note: string; enabled: boolean; consent: { id: string; settings: AutoPublishState["settings"]; text: string; created_at: number } | null };
+  youtube: { supported: boolean; note: string; enabled: boolean; can_enable?: boolean; blocker?: string;
+    visibility?: string; account_id?: string; consent: { id: string; settings: AutoPublishState["settings"];
+      text: string; created_at: number } | null };
   tiktok: { supported: boolean; note: string; enabled: boolean; consent: null };
   verified_project: boolean;
   channel: string;
@@ -416,6 +418,9 @@ export interface ScheduledItemRow {
   last_error: string;
   fix: string;
   audit: { at: number; event: string; detail: string }[];
+  /** Current durable publishing job. Waiting and retry labels come from this record, never from elapsed time. */
+  publishing_job?: { status: string; attempts: number; max_attempts: number; run_after: number | null;
+    message: string; error: string; fix: string; wait_reason: string } | null;
   /** Delivery, kept apart from the upload status (publish/audience.py): uploaded is not "watched". */
   delivery_state?: string;
   delivery_label?: string;
@@ -543,7 +548,7 @@ export const ap = {
   postedByYou: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/posted`),
   /** You shared this Private YouTube video with your viewers in YouTube Studio (your word). */
   audienceConfirmed: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/audience-confirmed`),
-  /** Plan posts held as public (planned before this version) for your selected viewers; each needs your OK. */
+  /** Re-plan held legacy posts for the currently confirmed audience; each needs a fresh review. */
   retarget: (ids: string[]) => req<{ retargeted: number }>("POST", `${A}/scheduled/retarget`, { ids }),
   resolve: (id: string, published: boolean, url = "") => req<ScheduledItem>("POST", `${A}/scheduled/${id}/resolve`, { published, url }),
   learning: () => req<LearningStatus>("GET", `${A}/learning`),
@@ -552,7 +557,7 @@ export const ap = {
   addAgreement: (body: AgreementIn) => req<Agreement>("POST", `${A}/agreements`, body),
   removeAgreement: (id: string) => req<{ ok: boolean }>("DELETE", `${A}/agreements/${id}`),
   autoPublish: () => req<AutoPublishView>("GET", `${A}/auto-publish`),
-  enableAutoPublish: (body: { platform: string; visibility: string; made_for_kids: boolean | null; daily_limit: number; start_hour: number; end_hour: number; agreed: boolean }) =>
+  enableAutoPublish: (body: { platform: string; visibility: string; made_for_kids: boolean | null; daily_limit: number; start_hour: number; end_hour: number; agreed: boolean; expected_account_id?: string; expected_audience_version?: number }) =>
     req<AutoPublishView>("POST", `${A}/auto-publish`, body),
   disableAutoPublish: (platform: string) => req<AutoPublishView & { returned_to_review: number }>("DELETE", `${A}/auto-publish/${platform}`),
 };

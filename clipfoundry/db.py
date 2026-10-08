@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from . import config, secure
+from . import config, locks, secure
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -628,6 +628,38 @@ CREATE TABLE IF NOT EXISTS brain_strategies ( -- versioned strategy settings, wi
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_brain_strategies ON brain_strategies(name, platform, cohort, version);
+CREATE TABLE IF NOT EXISTS brain_knowledge ( -- owner references/examples; never posting-results evidence
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    features TEXT DEFAULT '{}',
+    preferences TEXT DEFAULT '{}',
+    example_label TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    approved_at REAL,
+    revision INTEGER DEFAULT 1,
+    filename TEXT DEFAULT '',
+    asset_path TEXT DEFAULT '',
+    asset_sha256 TEXT DEFAULT '',
+    media TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_active ON brain_knowledge(enabled, approved_at);
+CREATE TABLE IF NOT EXISTS brain_influences ( -- immutable explanations of actual blueprint choices
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    blueprint_id TEXT NOT NULL,
+    knowledge_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    snapshot TEXT DEFAULT '{}',
+    decisions TEXT DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_influence_once ON brain_influences(blueprint_id, knowledge_id);
+CREATE INDEX IF NOT EXISTS idx_brain_influence_clip ON brain_influences(clip_id, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every request and its budget reservation
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -681,6 +713,8 @@ JSON_FIELDS = {
     "office_decisions": {"evidence"},
     "brain_observations": {"metrics", "previous"},
     "brain_strategies": {"params", "evidence"},
+    "brain_knowledge": {"tags", "features", "preferences", "media"},
+    "brain_influences": {"snapshot", "decisions"},
     "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
@@ -832,14 +866,17 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    if path not in _ready:  # create tables on first use of this database file
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.executescript(SCHEMA)
-        _migrate(conn)
-        for f in (path, f"{path}-wal", f"{path}-shm"):  # it holds (sealed) publishing tokens
-            secure.restrict_file(f)
-        _ready.add(path)
     try:
+        if path not in _ready:  # API and worker processes can reach a new/old database together
+            with locks.named("database-init"):
+                if path not in _ready:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.executescript(SCHEMA)
+                    _migrate(conn)
+                    conn.commit()  # the next initializer must see all migrated columns and rows
+                    for f in (path, f"{path}-wal", f"{path}-shm"):
+                        secure.restrict_file(f)  # it holds (sealed) publishing tokens
+                    _ready.add(path)
         yield conn
         conn.commit()
     finally:

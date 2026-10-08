@@ -385,8 +385,11 @@ def finish(item: dict, pub: dict) -> dict:
 def handoff(item: dict) -> dict:
     """TikTok without an eligible route for the selected audience: the clip becomes a ready-to-post package (the
     video, its caption and who to post it for). Nothing is uploaded; the owner posts it and pastes the link."""
-    group = audience.TIKTOK_GROUP_LABELS[audience.tiktok_group(db.get_settings())].split(" (")[0]
-    note = (f"Ready for you to post on TikTok for {group} (keep your account private). Download the video and copy "
+    public = (item.get("audience") or {}).get("intent") == audience.PUBLIC
+    group = "Everyone" if public else audience.TIKTOK_GROUP_LABELS[
+        (item.get("audience") or {}).get("group") or audience.tiktok_group(db.get_settings())].split(" (")[0]
+    account_step = "" if public else " (keep your account private)"
+    note = (f"Ready for you to post on TikTok for {group}{account_step}. Download the video and copy "
             "the caption in Queue, post it in the TikTok app, then paste the post's link here.")
     delivery = {"transfer": "manual", "route": "manual", "audience_setup": "manual_pending",
                 "visibility": {"requested": (item.get("audience") or {}).get("visibility", ""), "returned": None,
@@ -412,10 +415,10 @@ def remind_audience_setup() -> None:
                        "'action_needed' AND json_extract(delivery, '$.audience_setup') = 'manual_pending'") or 0
     if manual:
         state.action("audience_post:tiktok", "audience", f"Post {manual} clip{'s' if manual != 1 else ''} on TikTok",
-                     "TikTok lets only audited apps post for followers, so these are ready for you to post in the "
-                     "TikTok app.",
+                     "These clips have no eligible automatic API route. You need to finish posting them in the "
+                     "TikTok app; a ready package is not automatic publishing.",
                      "Queue → Problems → Ready for you to post on TikTok: download the video, post it for your "
-                     "followers in the TikTok app, then paste its link.")
+                     "audience recorded on that post in the TikTok app, then paste its link.")
     else:
         state.resolve("audience_post:tiktok")
 

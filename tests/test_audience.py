@@ -183,11 +183,13 @@ def test_automatic_publishing_is_private_only(env):
     from clipfoundry import db
     from clipfoundry.autopilot import autopublish
 
+    g, t, _ = env
+    connect(g, t)
     with pytest.raises(ValueError, match="Private only"):
         autopublish.enable("youtube", "public", False, 3, 9, 21, True)
     row = autopublish.enable("youtube", "private", False, 3, 9, 21, True)
     assert "as Private videos" in row["text"] and "never makes them public" in row["text"]
-    assert row["settings"]["text_version"] == 2
+    assert row["settings"]["text_version"] == 3
     item = {"platform": "youtube", "approval": {"by": "automatic", "consent_id": row["id"]}}
     assert autopublish.still_covers(item)
     db.update("publish_consents", row["id"], settings={**row["settings"], "visibility": "public"})

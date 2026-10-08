@@ -120,7 +120,7 @@ class Timing:
         self.hour: dict[int, float] = {}
         self.weekday: dict[int, float] = {}
         self.samples = 0
-        if settings.get("autopilot_learning", True):
+        if settings.get("autopilot_learning", True) and learner.context_matches(settings):
             for r in db.select("learning_metrics", "platform = ? AND dimension IN ('hour', 'weekday') AND "
                                                    "metric = 'performance'", (platform,)):
                 if not (r.get("data") or {}).get("reliable"):
@@ -322,7 +322,7 @@ def _opportunity(slot: dict, urgency: float, planned_at: float, now: float) -> f
 
 
 def _meta_fields(c: dict, settings: dict) -> dict:
-    """The post's text and its audience. YouTube: always Private (the owner invites viewers in Studio). TikTok: no
+    """The post's text and the audience explicitly chosen for new posts. TikTok: no
     preset privacy (the owner picks it per post, among the audience's allowed options) and the route TikTok allows
     this app: Direct Post, an inbox draft, or a package the owner posts by hand."""
     meta, platform = c["meta"], c["platform"]
@@ -332,7 +332,7 @@ def _meta_fields(c: dict, settings: dict) -> dict:
              "group_version": dest["group_version"], "visibility": audience.visibility(platform, want, settings)}
     if platform == "youtube":
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
-                "privacy": "private", "options": {"made_for_kids": None}, "audience": stamp}
+                "privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp}
     route = audience.tiktok_route(settings, db.get_account("tiktok"))
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
             "options": {"mode": route, "allow_comment": False, "allow_duet": False, "allow_stitch": False,
@@ -533,7 +533,9 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     stamp = item.get("audience") or {}
     if stamp.get("group_version"):
         dest = audience.destination(item["platform"], db.get_settings())
-        if int(stamp["group_version"]) != dest["group_version"]:
+        kept_private = dest["intent"] == audience.PUBLIC and stamp.get("intent") in (audience.SELECTED,
+                                                                                   audience.OWNER_ONLY)
+        if int(stamp["group_version"]) != dest["group_version"] and not kept_private:
             return "who watches changed after approval"
     current = approval_hash(item, quick)
     if not current:
@@ -556,9 +558,11 @@ def check_platform(item: dict, creator: dict | None = None) -> dict:
     if item["platform"] == "youtube":
         if opts.get("made_for_kids") is None:
             raise PublishError("Say whether this video is made for kids.", "YouTube requires this answer (COPPA).")
+        stamp = audience.check("youtube", item["privacy"], settings, stamp=item.get("audience") or None)
         youtube.video_body(item["title"], item["description"], item.get("tags") or [], item["privacy"],
-                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22")
-        return audience.check("youtube", item["privacy"], settings, stamp=item.get("audience") or None)
+                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22",
+                           audience_intent=stamp["intent"])
+        return stamp
     clip = db.get_clip(item["clip_id"]) or {}
     mode = opts.get("mode") or "direct"
     tiktok.validate(item["description"], item.get("privacy") or "", opts, mode if mode != "manual" else "inbox",
@@ -583,7 +587,15 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if any(a.get("event") == "edited" for a in item.get("audit") or []):
         return False  # you changed this post yourself: you decide when it is ready
     cfg = consent.get("settings") or {}
-    if cfg.get("visibility") != "private":  # a permission given for public videos covers nothing now
+    visibility = autopublish.consent_visibility(consent)
+    if not visibility or visibility != item.get("privacy"):
+        return False
+    # A new public permission authorizes only posts already planned explicitly for that audience. It must never
+    # widen older Private uploads, or silently reactivate held posts from before the audience policy.
+    if visibility == "public" and (item.get("audience") or {}).get("intent") != audience.PUBLIC:
+        return False
+    if visibility == "public" and not settings.get("youtube_project_verified"):
+        _note(item, "Held: confirm the YouTube API project's audit in Settings before automatic Public uploads")
         return False
     if not autopublish.same_account(consent):
         _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "
@@ -617,7 +629,7 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
                     "is reached")
         return False
-    updated = {**item, "privacy": "private",  # the only visibility the permission and the audience policy allow
+    updated = {**item,
                "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
     try:
         stamp = check_platform(updated)
@@ -672,7 +684,9 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     # approving is for the audience as it is now: the post keeps what it was meant for (only you, held as public),
     # and takes the current test group
     kept = (item.get("audience") or {}).get("intent")
-    updated["audience"] = {"intent": kept} if kept else {}
+    dest = audience.destination(item["platform"], db.get_settings())
+    preserve = dest["intent"] == audience.PUBLIC and kept in (audience.SELECTED, audience.OWNER_ONLY)
+    updated["audience"] = dict(item.get("audience") or {}) if preserve else {"intent": kept} if kept else {}
     stamp = check_platform(updated, creator)
     updated["audience"] = {**(item.get("audience") or {}), **stamp}
     rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
@@ -755,8 +769,8 @@ def _awaiting_by_platform() -> dict[str, int]:
 
 # ------------------------------------------------------------------ the tick
 def lead_seconds(item: dict, settings: dict) -> float:
-    """YouTube posts are uploaded a little early, as Private (no publishAt: nothing becomes public later)."""
-    if item["platform"] == "youtube":
+    """Only Private YouTube uploads may start early. Public uploads wait until the local planned time."""
+    if item["platform"] == "youtube" and item.get("privacy") == "private":
         return 60.0 * float(settings.get("autopilot_upload_lead_minutes") or 30)
     return 0.0
 

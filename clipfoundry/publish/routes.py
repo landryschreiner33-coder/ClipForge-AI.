@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from .. import db, learning, secure
+from .. import config, db, learning, secure
 from . import audience, jobs, stats, tiktok, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
@@ -143,6 +143,7 @@ class PublishBody(BaseModel):
     brand_organic: bool = False    # "Your brand"
     brand_content: bool = False    # "Branded content" (paid partnership)
     confirm: bool = False
+    expected_account_id: str = ""
 
 
 def _video_for(clip: dict) -> tuple[str, dict | None]:
@@ -171,20 +172,23 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if any(p["status"] in jobs.ACTIVE for p in db.list_publications(clip_id, platform)):
         raise HTTPException(409, "This clip is already being uploaded to this platform.")
     settings = db.get_settings()
+    current_account = (db.get_account(platform) or {}).get("account_id") or ""
+    if body.expected_account_id and body.expected_account_id != current_account:
+        raise HTTPException(409, "Another account is connected now. Review the destination and publish again")
     if settings.get("autopilot_publishing_paused"):
         raise PublishError("Publishing is paused, so nothing new is uploaded.",
                            "Resume publishing in the Office (bottom bar), then publish again.", "paused")
-    options: dict = {}
+    options: dict = {"approved_account": current_account}
     if platform == "youtube":
         if not (db.get_account("youtube") or {}).get("has_tokens"):
             raise PublishError("YouTube is not connected.", "Click Connect YouTube first.", "not_connected")
         if body.made_for_kids is None:
             raise PublishError("Say whether this video is made for kids.",
                                "YouTube requires this answer (COPPA). Choose Yes or No on the publish screen.")
-        youtube.video_body(body.title, body.description, body.tags, body.privacy, body.made_for_kids,
-                           settings.get("youtube_category_id") or "22")  # validate before queueing
-        options["made_for_kids"] = body.made_for_kids
         stamp = audience.check("youtube", body.privacy, settings)
+        youtube.video_body(body.title, body.description, body.tags, body.privacy, body.made_for_kids,
+                           settings.get("youtube_category_id") or "22", audience_intent=stamp["intent"])
+        options["made_for_kids"] = body.made_for_kids
     mode = "direct"
     if platform == "tiktok":
         acc = db.get_account("tiktok") or {}
@@ -315,7 +319,7 @@ def audience_view() -> dict:
 
 
 class AudienceBody(BaseModel):
-    intent: str = "selected"        # selected | owner_only | local_only
+    intent: str = "selected"        # selected | owner_only | local_only | public
     group: str = ""                 # TikTok: followers | friends
     confirm: bool = False           # "I understand how this audience works" (needed before any upload)
     group_changed: bool = False     # the people in the test group changed: older approvals no longer apply
@@ -325,8 +329,8 @@ class AudienceBody(BaseModel):
 def audience_set(platform: str, body: AudienceBody) -> dict:
     if platform not in PLATFORMS:
         raise HTTPException(404, "Unknown platform")
-    if body.intent not in ("selected", "owner_only", "local_only"):
-        raise HTTPException(400, "Choose selected viewers, only you, or keep clips on this PC")
+    if body.intent not in config.AUDIENCE_INTENTS:
+        raise HTTPException(400, "Choose Public audience, selected viewers, only you, or keep clips on this PC")
     settings = db.get_settings()
     changes: dict = {f"audience_{platform}": body.intent}
     if platform == "tiktok" and body.group:

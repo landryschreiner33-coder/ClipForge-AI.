@@ -1,19 +1,20 @@
 import { useEffect, useId, useState } from "react";
 import { errorText } from "../api";
 import { ap, AutoPublishView } from "../autopilot";
-import { Banner, ConfirmDialog, Dialog, Pill, toast } from "./ui";
+import { audienceApi, AudienceView } from "../office/api";
+import { Banner, ConfirmDialog, Dialog, Disclosure, Pill, toast } from "./ui";
 
 const hourWord = (h?: number) => (h === undefined ? "?" : h === 0 || h === 24 ? "midnight" : h === 12 ? "noon"
   : h < 12 ? `${h} a.m.` : `${h - 12} p.m.`);
 
 /**
  * "Turn on automatic publishing": says exactly what will happen (account, what is posted, how many, when) and only
- * turns it on when you gave the made-for-kids answer yourself and ticked that you understand. Uploads are always
- * Private (the selected-audience policy): you share each one with your invited viewers in YouTube Studio. TikTok is
- * not offered: its rules require your OK on each post.
+ * turns it on when you gave the made-for-kids answer yourself and ticked that you understand. The permission names
+ * the confirmed audience and connected channel. TikTok is not offered: its rules require your OK on each post.
  */
 export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [view, setView] = useState<AutoPublishView | null>(null);
+  const [audience, setAudience] = useState<AudienceView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [kids, setKids] = useState<boolean | null>(null);
   const [limit, setLimit] = useState(3);
@@ -24,14 +25,24 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const [error, setError] = useState("");
   const id = useId();
   useEffect(() => {
-    ap.autoPublish().then((v) => {
+    Promise.all([ap.autoPublish(), audienceApi.view()]).then(([v, a]) => {
       setView(v);
+      setAudience(a);
+      setAgreed(false);
       setLimit(v.defaults.daily_limit);
       setStart(v.defaults.start_hour);
       setEnd(v.defaults.end_hour);
     }).catch((e) => setLoadError(errorText(e)));
   }, []);
+  const publicPosts = audience?.youtube.intent === "PUBLIC";
+  const visibility = publicPosts ? "public" : "private";
+  const audienceReady = !!audience?.youtube.confirmed && audience.youtube.intent !== "LOCAL_ONLY";
+  const blocker = view?.youtube.blocker || (!audienceReady ? "confirm who watches in Settings → Integrations"
+    : publicPosts && !view?.verified_project ? "record YouTube approval for public API uploads in Settings → Accounts"
+      : "");
   const missing = [
+    (!view || !audience || loadError) && "wait for the current account and audience to load",
+    (view?.youtube.can_enable === false || !audienceReady || publicPosts && !view?.verified_project) && blocker,
     kids === null && "answer “made for kids”",
     !(limit >= 1) && "allow at least 1 a day",
     !(start < end) && "make the start hour earlier than the end hour",
@@ -43,8 +54,9 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
     setError("");
     try {
       await ap.enableAutoPublish({
-        platform: "youtube", visibility: "private", made_for_kids: kids, daily_limit: limit, start_hour: start, end_hour: end,
-        agreed,
+        platform: "youtube", visibility, made_for_kids: kids, daily_limit: limit, start_hour: start, end_hour: end,
+        agreed, expected_account_id: view?.youtube.account_id,
+        expected_audience_version: audience?.youtube.group_version,
       });
       toast("Automatic publishing is on for YouTube");
       onDone();
@@ -56,20 +68,26 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   };
   const hour = (label: string, v: number, set: (n: number) => void, min: number, max: number) => (
     <input type="number" min={min} max={max} value={v} aria-label={label} style={{ width: 84 }}
-      onChange={(e) => set(Math.max(min, Math.min(max, +e.target.value || 0)))} />
+      onChange={(e) => { set(Math.max(min, Math.min(max, +e.target.value || 0))); setAgreed(false); }} />
   );
   return (
     <Dialog title="Turn on automatic publishing for YouTube" wide onClose={onClose} actions={<>
       <button type="button" className="btn" onClick={onClose}>Cancel</button>
-      <button type="button" className="btn btn-primary" aria-disabled={busy || missing.length > 0 || undefined}
+      <button type="button" className="btn btn-primary"
+        disabled={busy || missing.length > 0 || view?.youtube.can_enable === false}
         aria-describedby={`${id}-why`} onClick={() => !busy && save()}>
         {busy && <span className="inline-spinner" aria-hidden="true" />}Turn on automatic publishing
       </button>
     </>}>
       <p className="small">
-        ClipFoundry will then upload finished clips to YouTube by itself as <b>Private</b> videos, without asking you
-        about each one. Nobody else can watch them until you share them in YouTube Studio.
+        ClipFoundry will upload eligible finished clips to YouTube as <b>{publicPosts ? "Public" : "Private"}</b>
+        {" "}videos without asking about each one. {publicPosts ? "Anyone may watch, share or find new public posts."
+          : "You share private videos with invited viewers in YouTube Studio yourself."}
+        {" "}Existing posts and previously planned private uploads keep their audience.
       </p>
+      {blocker && <Banner tone="warn" title="Automatic publishing needs setup">
+        {blocker}. <a className="textlink" href="#/settings/integrations">Open publishing setup</a>
+      </Banner>}
       {loadError && <Banner tone="bad" title="The current setting could not be read">{loadError}</Banner>}
       <dl className="kv">
         <dt>Account</dt>
@@ -81,18 +99,22 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
         </dd>
         <dt>Who can see them</dt>
         <dd>
-          Private: only the people you invite in YouTube Studio (YouTube → Content → the video → Visibility → Private
-          → Share privately). ClipFoundry never makes them public or unlisted.
+          {publicPosts ? "Public: anyone can watch, including people who do not follow your channel."
+            : audience?.youtube.intent === "OWNER_ONLY" ? "Private: only you (staging)."
+              : "Private: only the people you invite in YouTube Studio (Content → the video → Visibility → "
+                + "Private → Share privately). ClipFoundry cannot invite viewers."}
         </dd>
         <dt id={`${id}-kids`}>Made for kids</dt>
         <dd>
           <div role="radiogroup" aria-labelledby={`${id}-kids`} className="row wrap">
             <label className="choice">
-              <input type="radio" name={`${id}-kids`} checked={kids === false} onChange={() => setKids(false)} />
+              <input type="radio" name={`${id}-kids`} checked={kids === false}
+                onChange={() => { setKids(false); setAgreed(false); }} />
               <span>No</span>
             </label>
             <label className="choice">
-              <input type="radio" name={`${id}-kids`} checked={kids === true} onChange={() => setKids(true)} />
+              <input type="radio" name={`${id}-kids`} checked={kids === true}
+                onChange={() => { setKids(true); setAgreed(false); }} />
               <span>Yes</span>
             </label>
           </div>
@@ -111,10 +133,14 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
         <b>TikTok</b> is not included: {view?.tiktok.note || "TikTok requires your OK on each post."}
       </p>
       <label className="autopub-agree">
-        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+        <input type="checkbox" checked={agreed} disabled={!view || !audience || !!loadError}
+          onChange={(e) => setAgreed(e.target.checked)} />
         <span>
-          I understand: ClipFoundry uploads these clips to my channel as Private videos without asking me each time,
-          and I share them myself. I can cancel any upcoming upload, and turn this off at any time.
+          I authorize ClipFoundry to upload eligible clips to {view?.channel || "this connected YouTube channel"}
+          {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} within these limits,
+          without asking me each time. {publicPosts ? "Previously planned private uploads keep their audience. "
+            : audience?.youtube.intent === "SELECTED_AUDIENCE" ? "I share private videos myself. " : ""}
+          I can cancel upcoming uploads or pause publishing at any time.
         </span>
       </label>
       <span className="tiny muted" id={`${id}-why`}>
@@ -149,23 +175,32 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
           {!platform && <b>YouTube</b>}
           {yt.enabled ? (
             <>
-              <Pill tone="good" icon="check">Automatic publishing on</Pill>
+              <Pill tone="good" icon="check">
+                Automatic {cfg.visibility === "public" ? "public " : ""}publishing on
+              </Pill>
               <span className="small muted">
                 {cfg.visibility ? `${String(cfg.visibility)[0].toUpperCase()}${String(cfg.visibility).slice(1)}` : ""},
                 {" "}up to{" "}
                 {cfg.daily_limit} a day, {hourWord(cfg.start_hour)} to {hourWord(cfg.end_hour)}
               </span>
+              {view.channel && <span className="small muted">· {view.channel}</span>}
               <button type="button" className="btn btn-small" onClick={() => setAsking(true)}>Turn off…</button>
             </>
           ) : (
             <>
               <Pill tone="neutral">Off: each post waits for your OK</Pill>
+              {yt.blocker && <span className="small muted">{yt.blocker}</span>}
               <button type="button" className="btn btn-small" onClick={() => setOpen(true)}>
                 Turn on automatic publishing…
               </button>
             </>
           )}
         </div>
+      )}
+      {platform !== "tiktok" && yt.enabled && yt.consent && (
+        <Disclosure plain summary="Recorded automatic publishing permission">
+          <p className="small muted">{yt.consent.text}</p>
+        </Disclosure>
       )}
       {platform !== "youtube" && (
         <div className="row wrap small">
@@ -187,7 +222,7 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
             onChange?.();
           }}>
           <p className="muted">
-            Upcoming YouTube posts it approved go back to Posts, Needs review, and wait for your OK. Nothing already
+            Upcoming YouTube posts it approved go back to Queue, Needs review, and wait for your OK. Nothing already
             published changes. You can turn it on again at any time.
           </p>
         </ConfirmDialog>

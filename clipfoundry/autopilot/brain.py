@@ -10,9 +10,9 @@ Evidence comes from three places and keeps its provenance apart:
 A missing number stays missing (never 0). Readings of the same post are cumulative snapshots: only the latest mature
 one counts, they are never added together. A correction replaces the values and keeps the earlier ones.
 
-Results are only compared within one comparable audience: the platform, who could watch (your selected viewers,
-only you, or the public before this version) and the version of that audience group. Only selected viewers' results
-can change a strategy; "only you" staging and old public posts are kept but never mixed in.
+Results are only compared within one comparable audience: the platform, confirmed selected viewers or public
+visibility, and the version of that audience group. Owner-only staging, legacy posts and public requests whose
+visibility the platform did not confirm are kept separately and cannot change a strategy.
 
 The strategy this version adjusts is the clip length Autopilot aims for (``target_duration`` in the moment finder).
 The guards (section 14 of the build brief, all in Settings → Advanced):
@@ -77,8 +77,9 @@ MIN_SOURCES = 5
 MIN_ARM = 20  # clips on each side of the shorter/longer comparison before it may change anything
 MIN_SIDE = 10  # clips under each version before a rollback; new clips before the next step after a change
 STRATEGY = "clip_length"
-STRATEGY_COHORTS = ("selected",)  # only your selected viewers' results may change a strategy
-COHORT_LABELS = {"selected": "Selected viewers", "owner_only": "Only you (staging)",
+STRATEGY_COHORTS = ("selected", "public")  # public visibility must be confirmed; requested audiences stay separate
+COHORT_LABELS = {"selected": "Selected viewers", "public": "Public (platform confirmed)",
+                 "public_requested": "Public requested (visibility unconfirmed)", "owner_only": "Only you (staging)",
                  "public_legacy": "Public (before this version)", "testers": "Shown to testers directly",
                  "unlinked": "Not linked to a post", "unconfirmed": "Your viewers could not watch it yet"}
 STATE_LABELS = {"cold_start": "Cold start", "collecting": "Collecting data", "evaluating": "Evaluating",
@@ -487,11 +488,12 @@ def clip_length(settings: dict | None = None) -> dict | None:
     Autopilot starts work on a new video (autopilot/hunter.py), and recorded with it, so later results can be tied
     to the version that made them."""
     settings = _settings(settings)
+    from .learner import destination_cohort
     if settings.get("brain_paused"):
         return None
     found, platforms = [], [p for p in ("youtube", "tiktok") if settings.get(f"autopilot_{p}")]
     for platform in platforms:
-        s = active(platform, "selected", _group_version(platform, settings))
+        s = active(platform, destination_cohort(platform, settings), _group_version(platform, settings))
         if s:
             found.append(s)
     # one clip goes to every platform Autopilot posts to: a length learned from one audience is used only when each
@@ -664,6 +666,7 @@ def evaluate_group(platform: str, cohort: str, gv: int, ev: dict, settings: dict
 def evaluate(settings: dict | None = None, now: float | None = None) -> dict:
     """Compare results per comparable audience and apply at most one bounded change each. Safe to re-run."""
     settings = _settings(settings)
+    from .learner import destination_cohort
     now = now or time.time()
     if settings.get("brain_paused"):
         out = {"at": now, "state": "paused", "groups": [], "message": "Learning is paused: results are still "
@@ -677,6 +680,8 @@ def evaluate(settings: dict | None = None, now: float | None = None) -> dict:
         for (platform, cohort, gv), ev in sorted(evidence(settings, now).items()):
             if cohort not in STRATEGY_COHORTS or not platform:
                 continue
+            if cohort != destination_cohort(platform, settings):
+                continue
             if gv != _group_version(platform, settings):
                 continue  # results from before the audience group changed are a different audience
             groups.append(evaluate_group(platform, cohort, gv, ev, settings, now))
@@ -687,7 +692,7 @@ def evaluate(settings: dict | None = None, now: float | None = None) -> dict:
         state.delete("brain:evaluating")
     changed = [g for g in groups if g["result"] in ("updated", "rolled_back")]
     msg = "; ".join(g["message"] for g in changed) or (groups[0]["message"] if groups else
-                                                       "Not enough evidence yet: no results from selected viewers.")
+                                                       "Not enough evidence yet: no mature results from a confirmed audience.")
     out = {"at": now, "state": "updated" if changed else "collecting", "groups": groups, "message": msg}
     state.put("brain:last", out)
     feed.emit("brain_evaluated", "curator", message=msg[:300], changed=len(changed))

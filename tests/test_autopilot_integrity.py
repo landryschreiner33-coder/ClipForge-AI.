@@ -93,9 +93,12 @@ def local(day: dt.date, hour: int, minute: int = 0) -> float:
     return dt.datetime.combine(day, dt.time(hour, minute), CHI).timestamp()
 
 
-def consent_youtube() -> dict:
+def consent_youtube(env) -> dict:
+    from clipfoundry import db
     from clipfoundry.autopilot import autopublish
 
+    if not (db.get_account("youtube") or {}).get("has_tokens"):
+        connect_youtube(env["g"])
     return autopublish.enable("youtube", "private", False, 3, 9, 21, True, "")
 
 
@@ -200,7 +203,7 @@ def test_an_automatic_swap_keeps_the_whole_audit_trail(env):
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler
 
-    consent_youtube()  # (it also sets the YouTube posts per day to its own limit)
+    consent_youtube(env)  # (it also sets the YouTube posts per day to its own limit)
     db.save_settings({"autopilot_youtube_daily_limit": 1})
     now = local(dt.datetime.now(CHI).date(), 6)
     for k in range(3):
@@ -277,7 +280,7 @@ def test_youtube_is_approved_again_automatically_only_after_the_gate_checked_the
     from clipfoundry.pipeline import artifact
 
     db.save_settings({"autopilot_tiktok": True})
-    consent_youtube()
+    consent_youtube(env)
     clip = make_clip(env, "Talk to customers first")
     now = time.time()
     scheduler.plan_new(db.get_settings(), now)
@@ -327,7 +330,7 @@ def test_approvals_and_automatic_publishing_stay_with_the_account_they_were_give
     yt = scheduler.approve(item_for(clip)["id"], NO_KIDS)
     assert yt["approval"]["account"] == "UC123"
     other = make_clip(env, "Ask what they got wrong")
-    consent_youtube()  # given while UC123 is connected
+    consent_youtube(env)  # given while UC123 is connected
     scheduler.plan_new(db.get_settings(), now)
     auto = item_for(other)
     assert auto["status"] == "approved" and auto["approval"]["by"] == "automatic"
@@ -381,7 +384,7 @@ def test_missing_or_unreadable_video_is_never_approved(env, monkeypatch):
     assert not scheduler.approval_valid(db.fetch("scheduled_publications", ok["id"]))
     with pytest.raises(ValueError, match="missing or cannot be read"):
         scheduler.approve(ok["id"], NO_KIDS)
-    consent_youtube()
+    consent_youtube(env)
     db.update("scheduled_publications", ok["id"], status="awaiting_approval", approval={})
     assert not scheduler.auto_approve(db.fetch("scheduled_publications", ok["id"]), db.get_settings(), now)
     assert "missing or cannot be read" in db.fetch("scheduled_publications", ok["id"])["status_note"]
@@ -406,7 +409,7 @@ def test_approvals_from_before_the_content_hash_are_asked_again(env):
         cur = db.fetch("scheduled_publications", i["id"])
         assert not scheduler.approval_valid(cur)
         assert scheduler.approval_problem(cur) == "approved before ClipFoundry checked the exact video file"
-    consent_youtube()
+    consent_youtube(env)
     scheduler.process_due(db.get_settings(), now)  # due: both go back to approval
     assert {db.fetch("scheduled_publications", i["id"])["status"] for i in (yt, tt)} == {"awaiting_approval"}
     db.update("scheduled_publications", yt["id"], planned_at=now + 7200)

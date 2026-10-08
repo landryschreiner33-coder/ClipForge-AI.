@@ -36,7 +36,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/yt-analytics.readonly",  # watch time / retention of your videos (optional)
 ]
 CHUNK = 8 * 1024 * 1024  # must be a multiple of 256 KiB
-PRIVACY = ("private",)  # public and unlisted are refused (publish/audience.py)
+PRIVACY = ("private", "public")
 SHORTS_MAX_SECONDS = 180
 AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
 
@@ -230,12 +230,12 @@ def _clean(text: str) -> str:
 
 
 def video_body(title: str, description: str, tags: list[str], privacy: str, made_for_kids: bool,
-               category_id: str = "22", publish_at: float | None = None) -> dict:
+               category_id: str = "22", publish_at: float | None = None, *, audience_intent: str = "") -> dict:
     """snippet + status for videos.insert, validated against YouTube's limits.
 
-    Only Private is accepted (publish/audience.py): the owner shares the video privately in YouTube Studio. Public and
-    unlisted are refused here, the last step before any upload, and status.publishAt is never set, so YouTube never
-    makes an upload public later. `publish_at` is accepted from older callers and ignored."""
+    Public needs the explicit audience stamp validated by the caller; Private stays Private and unlisted is not
+    supported. Scheduling is local: public uploads start at their planned time. `publish_at` from older callers is
+    ignored, so an existing Private upload never becomes public later."""
     title = _clean(title)
     if not title:
         raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
@@ -244,13 +244,13 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
     description = _clean(description)
     if len(description.encode("utf-8")) > 5000:
         raise PublishError("YouTube descriptions can have at most 5000 bytes.", "Shorten the description.")
-    if privacy in ("public", "unlisted"):
+    if privacy == "unlisted" or (privacy == "public" and audience_intent != "PUBLIC"):
         from .audience import PUBLIC_OFF_FIX, AudienceBlocked
 
-        raise AudienceBlocked("Public and unlisted YouTube uploads are turned off: ClipFoundry uploads as Private for "
-                              "the viewers you invite.", PUBLIC_OFF_FIX)
+        raise AudienceBlocked("Public and unlisted YouTube uploads are turned off unless a Public audience was "
+                              "explicitly confirmed. Unlisted is not supported.", PUBLIC_OFF_FIX)
     if privacy not in PRIVACY:
-        raise PublishError("Choose Private (you invite the viewers in YouTube Studio).")
+        raise PublishError("Choose Private or Public after confirming who watches.")
     clean_tags, total = [], 0
     for t in tags:
         t = _clean(t).lstrip("#").replace(",", " ").strip()

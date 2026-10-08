@@ -147,6 +147,11 @@ are sent. The key is stored only in your local `data\clipfoundry.db`.
 Off by default and never needed. The steps (build.nvidia.com, the key in Settings → Integrations, the agreement, the
 check and the small test, and how to turn it off) are in the [README](README.md#optional-nvidia-ai).
 
+## Separate PR #14 test copy
+
+For this review ZIP, use [the separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
+Keep your original folder/data intact; do not copy its database into the test copy.
+
 ## Optional: publishing to YouTube Shorts
 
 ClipFoundry uploads through the official **YouTube Data API v3** with your own free Google Cloud project. You sign in on
@@ -166,12 +171,14 @@ encrypted with Windows DPAPI (only your Windows account on this PC can read them
 
 Things Google enforces, which ClipFoundry explains on screen:
 
-* **ClipFoundry uploads Private only,** without a publishing time, so YouTube never makes a video public later.
-  You share each one privately in YouTube Studio (choose the video, Visibility → Share privately) with the people
-  you pick, then press **I shared it** on the post in Queue. The YouTube API offers no way to send those invitations,
-  so ClipFoundry never claims it did. Google also locks uploads from projects that have not passed the
-  [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to Private, so the audit is not needed
-  for this.
+* **Public is an explicit choice for new uploads.** Settings → Integrations → Who watches → Public audience,
+  then confirm. Public automation also needs Google’s API-project audit and a new channel/visibility-bound
+  automatic-publishing permission. The audit checkbox records your confirmation; it does not verify Google’s
+  approval. Actual returned visibility is checked after uploading. Public posts upload at the local scheduled
+  time, with no `publishAt`. Existing Private schedules stay Private.
+* **Selected-viewer uploads stay Private.** Share them in YouTube Studio and mark them shared in Queue; the API
+  cannot send invitations. Unlisted is unsupported.
+
 * **Testing-mode connections expire after 7 days.** While the consent screen is in *Testing*, connect again weekly
   (**Reconnect YouTube** in Settings → Accounts once the sign-in has expired), or set it to *In production* (for your
   own use you can continue past the "unverified app" screen).
@@ -201,18 +208,16 @@ developer app. You sign in on TikTok's page; ClipFoundry never sees or stores yo
 
 Two official ways to post, both on Prepare post and on each TikTok post's review page:
 
-* **Post directly** (Direct Post): posted to your **followers** (or friends) on a private account. Only apps TikTok
-  has audited may do this. Until TikTok audits your app, TikTok limits Direct Posts to "Only me" (and at most 5 users
-  per day); ClipFoundry treats "Only me" as staging for you, never as a delivery to viewers, and never offers
-  "Everyone".
-* **Send to TikTok inbox** (draft): needs no audit, but TikTok must have approved your app for drafts in its app
-  review, and at most 5 drafts can wait at a time. The video arrives in the TikTok app as a draft; tap the
-  notification, edit if you like, choose **Followers** and post it.
-* **Post it yourself** (the usual case for a personal tool): TikTok's rules turn down apps "for private or personal
-  use" and tools that upload to your own accounts, so expect neither of the above to be approved. ClipFoundry then
-  prepares each clip in **Queue → Problems → Ready for you to post on TikTok**: download the video, copy the caption,
-  post it in the TikTok app with *Who can watch* set to **Followers** (keep the account private), then paste the
-  post's link (or press *I posted it, no link*).
+* **Post directly** (Direct Post): an eligible audited app may request Everyone for a confirmed Public audience,
+  or followers/friends for selected viewers. TikTok must offer the option for this creator. You choose it on each
+  post and give consent after reviewing the preview, caption, disclosures and Music Usage Confirmation.
+  Unaudited apps can only request Only me; that is staging, not public delivery.
+* **Send to TikTok inbox** (draft): needs TikTok’s app approval for `video.upload`. You finish the draft and choose
+  the audience in TikTok. A draft is not a published post.
+* **Post it yourself**: the practical fallback if a personal tool is refused. Download the video, copy the caption
+  and follow Queue’s audience-specific steps; choose Everyone for Public, then link or mark the post. This is a
+  manual handoff, not unattended posting. See [platform requirements and verification limits](docs/PLATFORM_CAPABILITIES.md).
+
 
 As TikTok's sharing guidelines require, ClipFoundry shows your TikTok nickname, never pre-selects a privacy option,
 leaves comments, duets and stitches off unless you allow them (and greys them out if your account disables them),
@@ -259,8 +264,8 @@ Autopilot** on the Missions page) and follow the three steps of the setup.
 
 Autopilot then finds trending videos by itself; you do not add sources, feeds or rules. It asks you (under
 **Needs you**) only when it must: whether you have permission to use a strong video, for the original file of a
-YouTube-hosted video you said yes to, and to approve posts (both platforms require your approval of each post;
-approved posts are published at their time). Your own videos can be added any time: put them in your videos folder,
+YouTube-hosted video you said yes to, and to approve posts where required (YouTube can use your explicit standing permission;
+TikTok still needs consent on each post; approved posts upload at their time). Your own videos can be added any time: put them in your videos folder,
 or use *Add…* under Missions → Permissions & sources. Everything technical is on the Missions page (sources and
 permission rules under **Permissions & sources**; jobs, quota and workers under **Advanced**) and in Settings →
 Advanced, for example a YouTube Data API key or your project's raised daily quota (both in Settings → Advanced →

@@ -94,7 +94,13 @@
       settings the Brain tried, with the evidence behind each change and its rollback</td><td>Activity: the newest
       20,000 steps, at most 14 days. Reports: 90 days. Decisions and strategy history: until you delete the data
       folder</td></tr>
-    <tr><td>Who watches your uploads</td><td>For each platform, the audience you chose (your invited viewers, your
+    <tr><td>Brain teaching references</td><td>Original documents and example clips you upload, extracted text,
+      titles, notes, topic and feature labels, good/bad labels, typed preferences and approval revisions.
+      Each influenced clip keeps a snapshot of the reference’s title, labels and preferences and the changes it
+      made. Uploaded code is not executed; uploading does not fine-tune a model. These files stay on this PC</td>
+      <td>References and originals: until you delete the item or data folder. Influence snapshots: until the clip
+      or data folder is deleted. Export includes reference metadata/text and snapshots; originals download separately</td></tr>
+    <tr><td>Who watches your uploads</td><td>For each platform, the audience you chose (Public, your invited viewers, your
       approved followers or friends, only you, or nothing uploaded), when you confirmed it and when you said the
       group changed, and for each upload the audience it was approved for, the account it was approved for, and
       whether you said you shared it or posted it yourself in the TikTok app.
@@ -157,8 +163,9 @@
     <tr><td>Google and YouTube</td><td>You connect YouTube, publish or look at results. While Autopilot is on, it
       also searches YouTube, updates your posts' results and checks which channel posted a video</td><td>Your sign-in
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
-      posts under the automatic-publishing permission you turned on, as Private videos, with their title,
-      description, tags, category and made-for-kids answer (never a publishing time); requests to read your channel, its newest uploads, and your
+      posts under the account/visibility-bound automatic-publishing permission you turned on, as explicitly chosen
+      Public or Private videos, with their title, description, tags, category and made-for-kids answer
+      (never a YouTube publishing time; public uploads start at their local due time); requests to read your channel, its newest uploads, and your
       posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of your own
       channel and of the YouTube channels you added, gave a permission to or have an agreement with, to see their new
       videos;
@@ -323,13 +330,15 @@
   YouTube and TikTok keep and handle what you posted under their own policies.
 </p>
 <p>
-  Autopilot uploads a planned YouTube post before its planned time (30 minutes before, unless you change this), always
-  as a Private video. ClipFoundry never makes a video public or unlisted, and never sets a time for YouTube to do it;
-  only the people you share it with in YouTube Studio can watch it. Once it is uploaded, deleting the clip, turning off
-  automatic publishing or disconnecting in ClipFoundry does not remove it. Change or delete it in YouTube Studio. A
-  video sent to your TikTok inbox also stays there until you delete it in the TikTok app. Posts that an earlier version
-  had planned as public were held when you updated, and a copy of your database from before that change is kept in
-  the <code>data\backups</code> folder.
+  New planned Public YouTube posts upload at their planned local time only after explicit audience confirmation
+  and suitable account-bound approval or automatic-publishing permission. Existing scheduled Private posts stay
+  Private, may upload ahead of their planned time, and still need your Studio invitations for selected viewers.
+  ClipFoundry does not use YouTube’s <code>publishAt</code> field. It reads back actual visibility and reports
+  restrictions. Once uploaded, deleting the clip, stopping automation or disconnecting does not remove the video;
+  change or delete it in YouTube Studio. A TikTok inbox draft stays there until you delete it in TikTok. Older
+  public plans held by the previous migration remain held; the existing backup remains in
+  <code>data\backups</code>.
+
 </p>
 
 <h2>9. This website</h2>

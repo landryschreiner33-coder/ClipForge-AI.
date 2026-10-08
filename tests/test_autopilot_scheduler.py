@@ -171,7 +171,7 @@ def test_approval_rules_and_invalidation(data):
                                      "options": {"mode": "direct"}})
     ok = scheduler.approve(tt["id"], {})
     assert ok["status"] == "approved" and scheduler.approval_valid(ok)
-    with pytest.raises(PublishError, match="turned off"):
+    with pytest.raises(PublishError, match="Unlisted"):
         scheduler.approve(yt["id"], {"options": {"made_for_kids": False}, "privacy": "unlisted"})
     ok = scheduler.approve(yt["id"], {"options": {"made_for_kids": False}})
     assert ok["privacy"] == "private" and ok["approval"]["hash"] and ok["approval"]["scheme"] == 3

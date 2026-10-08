@@ -247,12 +247,13 @@ def test_a_waiting_upload_survives_a_restart_and_can_be_cancelled(app_client, go
     assert db.get_publication(pid)["status"] == "cancelled" and pid not in jobs.worker.timers
 
 
-def test_public_and_unlisted_never_reach_youtube(app_client, google, clip):
+def test_public_without_setup_and_unlisted_never_reach_youtube(app_client, google, clip):
     c, _ = clip
     _connect(app_client, google)
     for privacy in ("public", "unlisted"):
         r = _publish(app_client, c["id"], privacy=privacy)
-        assert r.status_code == 400 and "turned off" in r.json()["detail"]
+        expected = "turned off" if privacy == "public" else "Unlisted"
+        assert r.status_code == 400 and expected in r.json()["detail"]
     assert not google.sessions  # nothing reached YouTube
 
 

@@ -19,6 +19,7 @@ score also says how far it can be trusted in words (`confidence`), never as an i
 from __future__ import annotations
 
 import math
+import re
 import time
 from collections import Counter
 
@@ -43,6 +44,94 @@ NEUTRAL = 0.5             # what a part without data counts as: neither a strong
 MIN_GAP = 1200            # readings closer than 20 minutes apart say nothing about views per hour
 HIGH_COVERAGE, MEDIUM_COVERAGE = 0.75, 0.5
 CONFIDENCE_NOTE = {"high": "high", "medium": "medium", "low": "low (too little data: the score stays near 50)"}
+BROAD_DISCOVERY = {"youtube_popular", "youtube_search", "youtube_live", "youtube_original", "web_search", "library"}
+UNSUITABLE_LIVE = ("24/7", "24 hour", "white noise", "sleep music", "lofi", "lo-fi", "waiting room",
+                   "starting soon", "countdown", "stock ticker")
+
+
+def preference_terms(value: object) -> list[str]:
+    return [s.strip() for s in str(value or "").split(",") if s.strip()][:100]
+
+
+def metadata_text(signal: dict) -> str:
+    """Only the video's supplied metadata counts. A search query or requested region is not evidence of a match."""
+    raw = signal.get("raw") or {}
+    tags = raw.get("tags") or []
+    return " ".join((str(signal.get("title") or ""), str(raw.get("description") or ""),
+                     " ".join(str(t) for t in tags) if isinstance(tags, list) else "",
+                     str(signal.get("category") or "")))
+
+
+def matching_terms(text: str, terms: list[str]) -> list[str]:
+    words = set(re.findall(r"\w+", text.casefold()))
+    out = []
+    for term in terms:
+        wanted = set(content_tokens(term)) or set(re.findall(r"\w+", term.casefold()))
+        if wanted and wanted <= words:
+            out.append(term)
+    return out
+
+
+def reported_language(signal: dict) -> str:
+    raw = signal.get("raw") or {}
+    # Older YouTube rows saved relevanceLanguage (a search hint) as if it were the video's audio language.
+    if signal.get("platform") == "youtube" and raw.get("language_basis") not in ("audio", "metadata", "feed"):
+        return ""
+    return str(signal.get("language") or "").lower().split("-")[0].split("_")[0]
+
+
+def broad_discovery(signal: dict) -> bool:
+    return signal.get("provider") in BROAD_DISCOVERY and not (signal.get("raw") or {}).get("curated_channel")
+
+
+def audience_parts(signal: dict, settings: dict) -> dict[str, dict]:
+    """Metadata relevance estimates; none of these claims the nationality or measured interests of real viewers."""
+    text = metadata_text(signal)
+    preferred = preference_terms(settings.get("trend_topics"))
+    hits = matching_terms(text, preferred)
+    wanted_lang = str(settings.get("trend_language") or "").lower().split("-")[0]
+    lang = reported_language(signal)
+    context = matching_terms(text, preference_terms(settings.get("discovery_audience_terms")))
+    return {
+        "topic_fit": {"value": 1.0 if hits else 0.0 if text.strip() and preferred else None,
+                      "status": "estimated", "note": "Metadata matches your topics: " + ", ".join(hits[:5]) if hits
+                      else "No preferred topic found in metadata" if preferred else "No topic preference set"},
+        "language": {"value": 1.0 if lang == wanted_lang else 0.0 if lang and wanted_lang else None,
+                     "status": "estimated", "note": f"Reported language {lang}; preferred {wanted_lang}" if lang
+                     and wanted_lang else "Audio language unknown; the search language is only a request"},
+        "audience_context": {"value": 1.0 if context else None, "status": "estimated",
+                             "note": "Audience context in metadata: " + ", ".join(context[:5]) +
+                             "; actual viewer location unknown" if context else
+                             "No audience context clue; actual viewer location unknown"},
+    }
+
+
+def preference_reason(signal: dict, settings: dict, now: float | None = None) -> str:
+    """Cheap filters on broad discovery. Chosen folders/channels/streams keep their owner's explicit intent."""
+    text = metadata_text(signal)
+    excluded = matching_terms(text, preference_terms(settings.get("discovery_excluded_topics")))
+    if excluded:
+        return "Excluded by your topic preferences: " + ", ".join(excluded[:5])
+    lang = reported_language(signal)
+    wanted = str(settings.get("trend_language") or "").lower().split("-")[0]
+    if lang and wanted and lang != wanted:
+        return f"Reported language {lang} does not match your preferred language {wanted}"
+    if not broad_discovery(signal):
+        return ""
+    if signal.get("kind") == "live":
+        low = str(signal.get("title") or "").casefold()
+        if any(term in low for term in UNSUITABLE_LIVE):
+            return "Livestream looks like an ambient loop, waiting room or ticker; no clear spoken story"
+    if (signal.get("raw") or {}).get("live_status") == "upcoming":
+        return "Upcoming livestream: no recorded story to evaluate yet"
+    preferred = preference_terms(settings.get("trend_topics"))
+    if settings.get("discovery_require_topic_match", True) and preferred and not matching_terms(text, preferred):
+        return "No match to your preferred topics in the video's metadata (the search query alone is not evidence)"
+    published = signal.get("published_at")
+    if published and (time.time() if now is None else now) - float(published) > \
+            3600 * float(settings.get("trend_max_age_hours") or 72):
+        return "Older than your discovery age preference"
+    return ""
 
 
 def m(value: float | int | None, status: str = "observed", note: str = "", at: float | None = None,

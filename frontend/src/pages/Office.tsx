@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, toast } from "../components/ui";
-import { useMotion } from "../motion";
+import { AnimationMode, useMotion } from "../motion";
 import { useStatus } from "../status";
 import { BY_ID, RoomId, ROOM_NAMES } from "../office/cast";
 import { Control, office, Snapshot, staleHealth } from "../office/api";
@@ -30,7 +30,7 @@ function storedView(): "map" | "list" {
 export default function Office() {
   const feed = useOffice();
   const { st } = useStatus();
-  const { reduceMotion, setReduceMotion, systemReducedMotion } = useMotion();
+  const { reduceMotion, animationMode, setAnimationMode } = useMotion();
   const [sel, setSel] = useState<Sel>(null);
   const [view, setViewState] = useState<"map" | "list">(storedView);
   const setView = (v: "map" | "list") => {
@@ -90,10 +90,14 @@ export default function Office() {
               <button type="button" className={view === "map" ? "on" : ""} aria-pressed={view === "map"} onClick={() => setView("map")}><Icon name="dashboard" />Map</button>
               <button type="button" className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}><Icon name="menu" />List</button>
             </div>
-            <label className="check-inline small">
-              <input type="checkbox" checked={reduceMotion} disabled={systemReducedMotion}
-                onChange={(e) => setReduceMotion(e.target.checked)} />
-              Reduce animations{systemReducedMotion ? " (set by Windows)" : ""}
+            <label className="office-motion small">
+              Animations
+              <select aria-label="Animations" value={animationMode}
+                onChange={(e) => setAnimationMode(e.target.value as AnimationMode)}>
+                <option value="system">Follow system</option>
+                <option value="full">Full</option>
+                <option value="reduced">Reduced</option>
+              </select>
             </label>
             <span className="spacer" />
             <button type="button" className="btn btn-small btn-quiet" aria-pressed={sel?.type === "activity"} onClick={() => setSel(sel?.type === "activity" ? null : { type: "activity" })}><Icon name="clock" />Activity</button>

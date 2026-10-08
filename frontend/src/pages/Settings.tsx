@@ -2,7 +2,7 @@ import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
 import { useStatus } from "../status";
-import { useMotion } from "../motion";
+import { AnimationMode, useMotion } from "../motion";
 import {
   AccountBadge, ConnectButton, PLATFORM_NAME, TikTokSetupSteps, YouTubeSetupSteps,
 } from "../components/accounts";
@@ -14,7 +14,7 @@ import {
   TextInput, validate,
 } from "../components/settingsFields";
 import {
-  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPage, PageHead, Pill, StylePicker, toast, Toggle, TRACKING,
+  Banner, Disclosure, EmptyState, Icon, LinkTabs, LoadingPage, PageHead, Pill, StylePicker, toast, TRACKING,
 } from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
@@ -259,16 +259,20 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 }
 
 function AppearancePanel() {
-  const { preferredReduceMotion, systemReducedMotion, persistent, setReduceMotion } = useMotion();
+  const { animationMode, systemReducedMotion, persistent, setAnimationMode } = useMotion();
   return (
     <SettingsPanel id="appearance" title="Appearance" intro="Visual preferences apply immediately in this browser.">
-      <SettingRow k="reduce_motion" label="Reduce motion"
-        hint="Keep the robots and decorative movement still. Video previews play normally.">
-        <Toggle id={fieldId("reduce_motion")} ariaLabel="Reduce motion" on={preferredReduceMotion}
-          onChange={setReduceMotion} showState />
+      <SettingRow k="reduce_motion" label="Animations"
+        hint="Follow your system, allow full animation, or keep decorative movement still. Video previews play normally.">
+        <select id={fieldId("reduce_motion")} aria-label="Animations" value={animationMode}
+          onChange={(e) => setAnimationMode(e.target.value as AnimationMode)}>
+          <option value="system">Follow system</option>
+          <option value="full">Full</option>
+          <option value="reduced">Reduced</option>
+        </select>
       </SettingRow>
-      {systemReducedMotion && <p className="small muted">Your operating system also requests reduced motion, so
-        animations stay still even with this switch off.</p>}
+      {systemReducedMotion && <p className="small muted">Your operating system requests reduced motion.
+        Choose Full to allow animations here anyway.</p>}
       <p className="tiny muted" role="status">{persistent
         ? "Saved for this browser. No need to press Save settings."
         : "Applied for this tab. Your browser prevented saving this preference."}</p>

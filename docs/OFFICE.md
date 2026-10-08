@@ -9,15 +9,16 @@ The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py
 not a separate program or AI: it walks because a real job started, carries a card because a real job finished, and
 rests because nothing of its kind is running. Nothing in the office starts, approves or finishes work.
 
-## The five places
+## Places
 
 | Place | Address | What is there |
 | --- | --- | --- |
-| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view and Reduce animations are above the map. |
+| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view and Follow system / Full / Reduced animations are above the map. |
 | Team | `#/office/team` | All 25 robots and the Brain Core, read-only, with their job, room and manager. |
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
 | Queue | `#/queue/review` (+ `/scheduled`, `/published`, `/history`, `/problems`, `/results`) | The former Posts page: every planned and uploaded post, who it is for and what really happened. |
+| Brain | `#/brain` | Searchable saved knowledge and good/bad examples, approved preferences, clip influence, decisions and performance history. |
 | Settings | `#/settings`, `/defaults`, `/integrations`, `/advanced` | Integrations holds who watches your uploads, each connection's real capabilities and NVIDIA AI. Advanced holds the Brain's limits and the Dev Log. |
 | Robot gallery | `#/dev/robots` | Developer page: every robot in four directions and every pose. Not in the menu; it shows no real activity. |
 
@@ -78,16 +79,16 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
 
 ### Where a robot stands
 
-* A worker stands at its station while it is `working`, `waiting`, `retrying`, `error` or `reviewing`, and when it is
-  `unavailable` (DOCK, LOCK and HARBOR when no platform can upload). Idle or paused workers go to the Lounge (six
-  places; the rest are counted there). Managers and COMMAND stay at their stations.
+* All 25 robots have individually named stations on the desktop map, including idle and paused workers.
+  State icons appear above their heads. Selection shows the actual job, source/project/clip identifiers,
+  dependencies, blocked reason and next role. No overflow counter hides the cast.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
 * When Autopilot is paused or stopped, robots that are not running a job show `paused`.
 * A fresh `report` event makes the worker carry a card to its manager, who then reviews; a fresh `decision` gives
   COMMAND an approved, rework or rejected reaction. Progress bars show only progress a job measured.
-* Reduce animations (and the operating system's reduced-motion setting) stops all movement: robots are drawn at their
-  places in their state, and the list view shows the same information as text.
+* Follow system honors the operating system’s motion preference. Full explicitly overrides reduced motion.
+  Reduced stops movement; truthful state icons and the list view remain. The saved choice survives reloads.
 
 ## Controls
 
@@ -109,34 +110,22 @@ to look, and Degraded when the last search is more than twice its period overdue
 reading that counts. When the office loses its connection, every reading shows *Unknown — not updating* instead of
 its last value.
 
-## Who may watch an upload (selected audience)
+## Who may watch an upload
 
-One policy for every upload path (`clipfoundry/publish/audience.py`): Autopilot, your own uploads from Prepare post,
-retries, resumed uploads, and posts planned before this version.
+One audience policy applies to manual uploads, Autopilot, retry and recovery. Defaults affect new posts only.
+Public requires explicit confirmation; old selected/owner-only stamps and scheduled Private visibility remain.
+Legacy public plans held by the prior migration are not silently revived.
 
-* **Intents.** *Selected viewers* (the default), *Only me* (staging) and *Keep clips on this PC*. Public, unlisted
-  ("anyone with the link") and TikTok's "Everyone" are blocked everywhere. Posts planned as public before this
-  version are held, never widened or narrowed silently.
-* **YouTube: Private with invited viewers.** Every upload is Private and never carries `publishAt`, so YouTube never
-  makes it public later. You share it in YouTube Studio with the people you choose; the YouTube Data API has no call
-  for those invitations, so the post shows *Awaiting viewer invitations* until you press *I shared it*. That is your
-  confirmation, not a platform check. Comments are not promised on private videos.
-* **TikTok: approved followers.** Posts go to your Followers (or Friends) on a private account. Only an app TikTok
-  has audited may Direct Post to those groups, and TikTok's Content Sharing Guidelines turn down "a utility tool to
-  help upload contents to the account(s) you or your team manages" and apps that copy content from other platforms,
-  so a personal ClipFoundry should not expect the audit. An unaudited app can only post *Only me*, which is staging
-  for you and is never shown as delivered to viewers. Without an eligible route the clip becomes a ready-to-post
-  package (Queue → Problems → *Ready for you to post on TikTok*: download video, copy caption, steps, then *Link the
-  post…* or *I posted it, no link*) that you post in the TikTok app.
-* **Confirmation.** Before any upload you confirm, once per platform in Settings → Integrations, how your audience
-  works. *My viewers changed* makes earlier approvals stale. Every approval is bound to the exact file, the text and
-  the audience stamp (policy version and group version, `scheduler.APPROVAL_SCHEME = 3`), and automatic YouTube
-  uploads need the Private-only permission (consent version 2).
-* **Delivery truth.** Each post says what really happened: uploaded, only you can see it, awaiting invitations,
-  audience set up (you confirmed), restricted audience (platform confirmed), ready to post on TikTok, awaiting viewer
-  results, blocked, failed, retrying or *Upload not confirmed*. If the platform reports a wider audience than asked,
-  publishing stops for that platform until you check it (*I checked it*).
-* ClipFoundry never invites people, approves followers or changes an account's privacy.
+* YouTube: Public uploads require an explicit Public audience. Standing automation is bound to the connected
+  channel, visibility and audience revision; public automation additionally requires the owner’s recorded audit
+  confirmation. Eligible exact files upload at their due time, without `publishAt`. Returned Private restrictions
+  are reported as restricted, never public delivery. Private selected-viewer sharing remains a Studio step.
+* TikTok: Everyone requires an eligible audited app, fresh creator options and per-post consent. No privacy is
+  preselected. Inbox drafts and ready-to-post packages remain honest handoffs until the owner finishes posting.
+* Results distinguish requested visibility, the API’s answer and the owner’s confirmation. Public and selected
+  cohorts cannot reuse each other’s strategies or timing data. Unsupported/unconfirmed results do not drive learning.
+
+[Platform requirements and the blocked official-documentation recheck](PLATFORM_CAPABILITIES.md).
 
 ## What each integration can do
 
@@ -156,8 +145,8 @@ platform's wait (*Rate limited until*) read from where the code records it:
 | YouTube | Transcript | On this PC | Made on this PC with Whisper on your GPU; YouTube captions are not downloaded. |
 | YouTube | Gets the video file | Implemented | A pasted link or a found video is downloaded only where access is allowed; your connection to YouTube does not grant downloads. |
 | YouTube | Uploads | Implemented | Resumable upload through the YouTube Data API. |
-| YouTube | Who can watch | Implemented | Private only. You invite your viewers in YouTube Studio (no API for that). |
-| YouTube | Your OK | Implemented | Your OK on each post, or the automatic-upload permission (Private only). |
+| YouTube | Who can watch | Implemented | Explicit Public or Private. Private invitations stay in YouTube Studio (no API for that). |
+| YouTube | Your OK | Implemented | Your OK on each post, or the account/visibility-bound automatic-upload permission. |
 | YouTube | Checks the result | Implemented | Upload processing and the returned privacy are read back after each upload. |
 | YouTube | Results | Needs platform approval | Views, likes and comments are shown; using them for learning needs Google's derived-metrics approval. Average percentage viewed needs the Analytics scope and may be empty for a small private group. |
 | YouTube | Limits | Implemented | Daily API quota units (an upload costs about 1,600), counted on this PC. |
@@ -165,11 +154,11 @@ platform's wait (*Rate limited until*) read from where the code records it:
 | TikTok | Reads titles and numbers | Implemented | Creator and title from TikTok's public embed endpoint; no view counts. |
 | TikTok | Transcript | On this PC | Made on this PC with Whisper. |
 | TikTok | Gets the video file | Implemented | Only where the video is accessible to the link importer; nothing is bypassed. |
-| TikTok | Uploads | Needs platform approval | Direct Post to your followers needs TikTok's app audit, and TikTok's guidelines turn away personal tools and apps that repost other platforms' videos, so expect a refusal. Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise ClipFoundry prepares a ready-to-post package that you post in the TikTok app. |
-| TikTok | Who can watch | Needs platform approval | Followers or friends on a private account (audited apps); an unaudited app can only post 'Only me', which is staging, not a test. |
+| TikTok | Uploads | Needs platform approval | Direct Post to Everyone, followers or friends needs an eligible TikTok app audit, and TikTok's guidelines turn away personal tools and apps that repost other platforms' videos, so expect a refusal. Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise ClipFoundry prepares a ready-to-post package that you post in the TikTok app. |
+| TikTok | Who can watch | Needs platform approval | Everyone for Public, or followers/friends for selected viewers (eligible audited apps); an unaudited app can only post 'Only me', which is staging, not a test. |
 | TikTok | Your OK | Implemented | Your OK on every post (TikTok requires it). |
 | TikTok | Checks the result | Implemented | The post's publish status is read back; follower-only posts may not return a link. |
-| TikTok | Results | Unsupported by the platform | TikTok's video list API covers public posts only, so results of follower-only posts are unavailable here; enter them in Clips → Test feedback. |
+| TikTok | Results | Limited by the platform | TikTok's video list API covers public posts only, so results of follower-only posts are unavailable here; enter them in Clips → Test feedback. |
 | TikTok | Limits | Implemented | TikTok's posting caps per creator per day, as TikTok reports them. |
 | Web search (Tavily) | Finds videos | Implemented | Tavily web search finds public video links and the originals behind clips (paid credits beyond the free plan; capped by your monthly budget). |
 | Web search (Tavily) | Reads titles and numbers | Implemented | Only what the search result says; no statistics. |
@@ -234,22 +223,49 @@ confidence.
 * After transcription each moment gets its **Clip Score** (Viral Potential with eleven factors and the hook →
   context → payoff structure), and each planned post a **Final Opportunity Score** (docs/AUTOPILOT.md#scores).
 
+Discovery also applies configurable audience/topic terms, exclusions, source-score floor, language evidence and
+complete-story screening. Metadata matches and inferred clip potential are labeled estimates; a US search region
+is not evidence of US viewers. Automatic weak/repetitive/non-speech live sources are declined; explicit user and
+curated inputs remain available. After transcription, automatic clips need a hook, context and payoff (a heuristic).
+
+Final-check failures return to bounded responsible-stage repair: media to SPLICE, captions to GLYPH, safe cut-plan
+repair to STORY, grounded metadata to QUILL. At most two repair attempts; access, ownership and consent failures
+remain blocks. Stream timestamp checks detect offset/length problems, not semantic lip synchronization. Missing
+audio is detected before Whisper; video-only live segments are saved and skipped, later sound can resume, and an
+entirely video-only source fails visibly without repeating the impossible operation. Final stitching of mixed
+recordings preserves later audio by adding silent tracks only for missing-audio segments; video stays stream-copied.
+
+[Measured processing stages and server advice](PERFORMANCE.md).
+
 Not implemented from the brief: creator-relative baselines beyond the learned yield per creator, novelty and search
 signals, and a preview-based screening of hook and payoff before the download (moments are judged from the
 transcript after it).
 
 ## The Brain
 
-`clipfoundry/autopilot/brain.py`, `/api/brain`, Clips → Test feedback, Missions → Learning.
+`#/brain`, `autopilot/knowledge.py`, `/api/brain/knowledge`, plus performance in `autopilot/brain.py`.
+Documents (TXT/MD/CSV/JSON/DOCX), instructions and skill guides stay searchable on this PC. Good/bad example
+clips (MP4/MOV/WebM) can carry hook, pacing, captions and storytelling labels. Original files are bounded and
+never executed. Saved typed preferences require explicit revision approval before later Autopilot blueprints use
+them; editing invalidates approval. Topic tags scope the lookup. Text alone does not fine-tune a model or create
+arbitrary behavior. Approved controls cover caption style/position/emphasis and safe cuts versus continuous pacing.
+
+Knowledge can be edited, disabled, deleted or exported; original assets have separate downloads. Each later clip
+keeps the approved revision, feature labels, settings changed and before/after values in its influence record.
+Deleting a reference stops future use while retaining that clip’s explanation. The UI’s Try a decision is explicitly
+only a lookup preview. The upload tests also build and persist a later real blueprint to prove actual influence.
+Teaching examples never enter posting-performance tables.
+
+The performance evidence remains available through Clips → Test feedback and the Brain’s Performance tab.
 
 * **Evidence with provenance.** Each observation is *Platform (API)*, *Your import* (CSV or typed in from YouTube
   Studio or TikTok) or *Tester feedback (self-reported)*. A missing number stays missing; a measured zero stays
   zero. Imports are previewed, then imported once; the same reading entered twice counts once, and a correction
   keeps the earlier values. One answer per tester per clip. Mirrored YouTube API readings follow the 30-day rule.
-* **Audiences kept apart.** Results are grouped by platform, audience (selected viewers, only you, earlier public
+* **Audiences kept apart.** Results are grouped by platform, audience (selected viewers, only you, confirmed public
   posts, or *unconfirmed*: meant for your viewers but they cannot watch it yet, such as a Private upload nobody was
-  invited to or a TikTok package not posted yet) and audience-group version. Only selected-viewer results may change
-  a strategy, and only for that group. A post counts as mature 48 hours after your viewers could watch it (the upload,
+  invited to or a TikTok package not posted yet) and audience-group version. Only eligible selected-viewer or confirmed-public results may change
+  a strategy, and only for that platform, audience and group. A post counts as mature 48 hours after your viewers could watch it (the upload,
   or later when you said you shared it or linked the post you made yourself).
 * **Guards.** A strategy changes only with at least 30 mature clips from at least 5 videos in one group, each with
   at least `brain_min_views` views, and at least 20 clips on each side of the comparison (`MIN_ARM`); identical
@@ -264,8 +280,8 @@ transcript after it).
   supply most of the clips. Both are product decisions (a rule for how many different people), not yet made.
 * **What it changes.** The clip length the next videos Autopilot starts are cut for. The older learner
   (`learner.py`, posting times, styles and score weights) follows the same 30-post, 10%, views and 5-video guards,
-  but still accepts readings from 20 hours on (not 48) and treats posts without an audience-group number as the
-  current group.
+  now requires 48-hour mature readings and explicit group identity. It rejects
+  cached styles, weights and posting hours when the configured audience cohort changes.
 
 ## Optional NVIDIA AI
 

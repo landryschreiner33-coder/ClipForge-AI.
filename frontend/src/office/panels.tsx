@@ -83,7 +83,7 @@ function Section({ title, children, action }: { title: string; children: ReactNo
 
 function Progress({ value, label }: { value: number | null; label: string }) {
   if (value === null) {
-    return <div className="op-progress indeterminate" role="progressbar" aria-label={`${label}: progress not measured`}><span /></div>;
+    return <span className="op-unmeasured"><Icon name="clock" size={12} />Progress not measured</span>;
   }
   const pct = Math.round(value * 100);
   return (
@@ -264,7 +264,7 @@ export function RobotPanel({ id, row, card, onRobot }: {
     };
   }, [subject[0], subject[1]]);  // eslint-disable-line react-hooks/exhaustive-deps
   if (!c) return null;
-  const state = row?.state || "idle";
+  const state = row?.state || "unavailable";
   const manager = c.manager ? BY_ID[c.manager] : null;
   const link = subjectLink(subject[0], subject[1]);
   const team = CAST.filter((x) => x.manager === id);
@@ -284,18 +284,37 @@ export function RobotPanel({ id, row, card, onRobot }: {
           <dd>{manager ? <button type="button" className="op-chip" onClick={() => onRobot(manager.id)}>
             <Portrait id={manager.id} scale={1} crop />{manager.name}</button> : <span className="muted">Reports to you</span>}</dd>
         </div>
-        <div><dt>Next</dt><dd>{NEXT_STAGE[c.dept]}</dd></div>
+        <div><dt>Usual handoff</dt><dd>{NEXT_STAGE[c.dept]}</dd></div>
       </dl>
       <p className="small">{c.job}</p>
       {row?.task && (
         <Section title="Current task">
           <p className="small">{row.task.message || row.task.kind}</p>
           {row.task.status === "running" && <Progress value={row.task.progress} label={`${c.name} progress`} />}
+          {row.task.blocked_reason && <div className="op-callout bad">
+            <b>Blocked</b><p className="small">{row.task.blocked_reason}</p>
+          </div>}
+          {row.task.next_role && BY_ID[row.task.next_role] && <p className="small">Next robot: <button
+            type="button" className="link-btn" onClick={() => onRobot(row.task!.next_role!)}>
+            {BY_ID[row.task.next_role].name}</button></p>}
+          {!!row.task.dependencies?.length && <><b className="small">Dependencies</b>
+            <ul className="op-dependencies">{row.task.dependencies.map((dependency) => <li key={dependency}>{dependency}</li>)}</ul>
+          </>}
+          {row.task.handoff && <div className="op-callout">
+            <b>Returned by {BY_ID[row.task.handoff.from_role]?.name || row.task.handoff.from_role}</b>
+            <p className="small">{row.task.handoff.reason}</p>
+            <p className="tiny muted">Repair {row.task.handoff.attempt} of {row.task.handoff.max_attempts}</p>
+          </div>}
+          <div className="op-task-meta"><span className="muted">Job {row.task.job_id.slice(0, 8)}</span>
+            <a href="#/missions/jobs">Detailed jobs</a>
+            {row.task.shared?.project_id && <a href={`#/project/${row.task.shared.project_id}`}>Shared source video</a>}
+            {row.task.shared?.clip_id && <a href={`#/clip/${row.task.shared.clip_id}`}>Shared clip</a>}
+          </div>
           {row.tasks > 1 && <p className="muted tiny">{row.tasks - 1} more job{row.tasks > 2 ? "s" : ""} waiting for {c.name}.</p>}
         </Section>
       )}
       {card && (
-        <Section title="Carrying a report">
+        <Section title="Selected handoff report">
           <p className="small">{card.summary || card.kind} <span className="muted">({card.state === "failed" ? "failed" : "finished"})</span></p>
           <p className="muted tiny">Job {card.job_id.slice(0, 8)}</p>
         </Section>
@@ -375,7 +394,8 @@ export function RoomPanel({ id, snap, onRobot, stale = false }: {
           ))}
         </div>
       )}
-      {id === "lounge" && <p className="muted small">Robots rest here while they have no work or Autopilot is paused. Nothing in this room is processing.</p>}
+      {id === "lounge" && <p className="muted small">These robots have no active work, or are paused.
+        They remain visible at their department stations. The Lounge does not process work.</p>}
       {id === "workspace" && <p className="muted small">Handoffs between departments: each card is a real report a manager received.</p>}
       {err && <p className="error-text small">{err}</p>}
       {!d && !err && <p className="muted small">Loading…</p>}

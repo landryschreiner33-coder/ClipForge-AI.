@@ -81,11 +81,11 @@ def refresh_due(settings: dict, job: Job | None = None, now: float | None = None
 
 # ------------------------------------------------------------------ 2. rows
 def _snapshot(pub: dict) -> dict | None:
-    """The reading closest to 48 hours after your viewers could watch (at least 20 hours in), so posts are compared
+    """The reading closest to 48 hours after your viewers could watch (at least 48 hours in), so posts are compared
     fairly."""
     start = shown_at(pub)
     hist = [h for h in db.performance_history(pub["id"]) if h.get("views") is not None
-            and h["fetched_at"] - start >= 20 * 3600]
+            and h["fetched_at"] - start >= REFERENCE_AGE_H * 3600]
     if not hist:
         return None
     return min(hist, key=lambda h: abs((h["fetched_at"] - start) / 3600 - REFERENCE_AGE_H))
@@ -120,14 +120,46 @@ def cohort(pub: dict) -> str:
     want = (pub.get("audience") or {}).get("intent") or ""
     if not want:
         want = db._legacy_intent(pub["platform"], pub.get("requested_privacy") or "")  # noqa: SLF001
-    group = {audience.SELECTED: "selected", audience.OWNER_ONLY: "owner_only",
+    group = {audience.SELECTED: "selected", audience.PUBLIC: "public", audience.OWNER_ONLY: "owner_only",
              audience.LEGACY_PUBLIC: "public_legacy"}.get(want, "unconfirmed")
     setup = (pub.get("delivery") or {}).get("audience_setup") or ""  # empty: posted before deliveries were recorded
     if setup == "owner_only":
         return "owner_only"
+    if group == "public":
+        # An upload acceptance is not proof of public visibility. TikTok may not report its final audience.
+        return "public" if setup == "public_api_verified" else "public_requested" if setup == "public_requested" \
+            else "unconfirmed"
     if group == "selected" and setup and setup not in DELIVERED:
         return "unconfirmed"
     return group
+
+
+def destination_cohort(platform: str, settings: dict) -> str:
+    from ..publish import audience
+
+    return {audience.PUBLIC: "public", audience.SELECTED: "selected", audience.OWNER_ONLY: "owner_only",
+            audience.LOCAL_ONLY: "local_only"}[audience.destination(platform, settings)["intent"]]
+
+
+def learning_context(settings: dict) -> dict:
+    from ..publish import audience
+
+    return {p: {"cohort": destination_cohort(p, settings),
+                "group_version": int(audience.destination(p, settings)["group_version"])}
+            for p in ("youtube", "tiktok")}
+
+
+def context_matches(settings: dict | None = None) -> bool:
+    settings = db.get_settings() if settings is None else settings
+    stored = state.get("learning:context")
+    if stored is None:
+        # Metrics written before this version belonged only to selected viewers.
+        return all(destination_cohort(p, settings) == "selected" for p in ("youtube", "tiktok"))
+    return stored == learning_context(settings)
+
+
+def _context_matches() -> bool:
+    return context_matches()
 
 
 def shown_at(pub: dict) -> float:
@@ -260,6 +292,8 @@ def retention_calibration(rs: list[dict], minimum: int = MIN_SAMPLES) -> dict | 
 # ------------------------------------------------------------------ 4. what the other workers read
 def lift(dimension: str, key: str, platform: str = "all") -> tuple[float, int]:
     """(multiplier, posts) for a learned group; (1.0, 0) when there is no reliable result."""
+    if not _context_matches():
+        return 1.0, 0
     row = db.fetch("learning_metrics", f"{dimension}:{key}:{platform}:performance")
     if not row or not (row.get("data") or {}).get("reliable"):
         return 1.0, 0
@@ -267,10 +301,14 @@ def lift(dimension: str, key: str, platform: str = "all") -> tuple[float, int]:
 
 
 def weights() -> dict[str, float]:
+    if not _context_matches():
+        return {}
     return {r["key"]: float(r["lift"]) for r in db.select("learning_metrics", "dimension = 'weight'")}
 
 
 def expected_retention(estimate: float | None) -> tuple[float | None, str]:
+    if not _context_matches():
+        return estimate, ""
     row = db.fetch("learning_metrics", "calibration:retention:all:retention")
     if estimate is None or not row:
         return estimate, ""
@@ -318,8 +356,11 @@ def learn(job: Job) -> dict:
     usable_rows = [r for r in all_rows if usable(r["platform"], settings)]
     excluded = len(all_rows) - len(usable_rows)
     groups = {p: int(audience.destination(p, settings)["group_version"]) for p in ("youtube", "tiktok")}
-    # your selected viewers only, in the current version of that group: never mixed with another audience
-    allowed = [r for r in usable_rows if r["cohort"] == "selected" and r["group_version"] == groups[r["platform"]]]
+    context = learning_context(settings)
+    # Only confirmed audiences matching each platform's current destination, never legacy or requested visibility.
+    allowed = [r for r in usable_rows if r["cohort"] in ("selected", "public") and
+               r["cohort"] == context[r["platform"]]["cohort"] and
+               r["group_version"] == groups[r["platform"]]]
     other_audience = len(usable_rows) - len(allowed)
     # the Brain's guards apply here too: a post counts once it has brain_min_views views (a handful of plays from a
     # few followers is not a result), and the posts must come from at least brain.MIN_SOURCES different videos
@@ -333,15 +374,21 @@ def learn(job: Job) -> dict:
         note = (note + " " if note else "") + (
             f"{other_audience} post{'s' if other_audience != 1 else ''} reached another audience (public before this "
             "version, only you, not yet shared with your viewers, or an earlier version of your viewer group) and are "
-            "kept apart from your selected viewers' results.")
+            "kept apart from your current audience's results.")
     if few_views:
         note = (note + " " if note else "") + (f"{few_views} post{'s' if few_views != 1 else ''} with fewer than "
                                                f"{min_views} views do not count yet.")
-    previous = {r["id"]: float(r["lift"]) for r in db.select("learning_metrics") if r.get("lift") is not None}
+    previous = {r["id"]: float(r["lift"]) for r in db.select("learning_metrics") if r.get("lift") is not None} \
+        if _context_matches() else {}
     status = {"at": time.time(), "samples": len(allowed), "needed": need, "excluded_youtube": excluded,
               "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"], "findings": [], "weights": {}, "calibration": None}
     status.update(excluded_few_views=few_views, sources=sources)
     evaluated = brain.evaluate(settings)
+    if len({r["cohort"] for r in allowed}) > 1:
+        status["message"] = ("Public and selected-viewer results are kept separate. Shared score and timing "
+                             "learning waits for one comparable audience; clip-length strategies stay per platform.")
+        state.put("learning:status", status)
+        return {**refreshed, "message": status["message"], "brain": evaluated["message"]}
     if len(allowed) < need or sources < brain.MIN_SOURCES:
         # too few results now: the learned values stay as they were (they never jump back and forth)
         found = f"{len(allowed)} of {need} posts with real numbers from {sources} of {brain.MIN_SOURCES} videos"
@@ -350,7 +397,7 @@ def learn(job: Job) -> dict:
                              f"Not enough new results: {found}; the values learned earlier stay.")
         state.put("learning:status", status)
         return {**refreshed, "message": status["message"], "brain": evaluated["message"]}
-    basis = set(state.get("learning:basis") or [])
+    basis = set(state.get("learning:basis") or []) if _context_matches() else set()
     fresh = sum(r["publication_id"] not in basis for r in allowed)
     if previous and fresh < NEW_RESULTS:  # the same results never move the learned values twice
         status["message"] = (f"Waiting for new results: {fresh} of {NEW_RESULTS} new posts since the last update; "
@@ -358,6 +405,7 @@ def learn(job: Job) -> dict:
         state.put("learning:status", status)
         return {**refreshed, "samples": len(allowed), "message": status["message"], "brain": evaluated["message"]}
     state.put("learning:basis", [r["publication_id"] for r in allowed])
+    state.put("learning:context", context)
     db.execute("DELETE FROM learning_metrics")
     add_performance(allowed, need)
     metrics = aggregate(allowed)

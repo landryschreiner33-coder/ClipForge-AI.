@@ -321,6 +321,8 @@ class AutoPublishIn(BaseModel):
     start_hour: int = 9
     end_hour: int = 21
     agreed: bool = False
+    expected_account_id: str = ""
+    expected_audience_version: int | None = None
 
 
 @router.get("/auto-publish", dependencies=READ)
@@ -347,7 +349,9 @@ def auto_publish_on(body: AutoPublishIn) -> dict:
     yt = _youtube_state(settings)
     try:
         autopublish.enable(body.platform, body.visibility, body.made_for_kids, body.daily_limit, body.start_hour,
-                           body.end_hour, body.agreed, yt.get("name") or "")
+                           body.end_hour, body.agreed, yt.get("name") or "",
+                           expected_account_id=body.expected_account_id,
+                           expected_audience_version=body.expected_audience_version)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     _manual("schedule_tick")
@@ -654,7 +658,13 @@ def _public_item(item: dict, settings: dict) -> dict:
 
     delivery_state = audience.delivery_state(item, pub)
     analytics = audience.analytics_state(item, settings)
+    publishing_job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
+    if publishing_job and publishing_job["status"] == "retrying":
+        delivery_state = "retrying"
     return {**item, "local_time": _local_time(item.get("planned_at"), settings),
+            "publishing_job": ({k: publishing_job.get(k) for k in
+                                ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
+                                 "wait_reason")} if publishing_job else None),
             "delivery_state": delivery_state, "delivery_label": audience.DELIVERY_LABELS.get(delivery_state, ""),
             "analytics_state": analytics, "analytics_label": audience.ANALYTICS_LABELS.get(analytics, ""),
             "audience_label": _audience_label(item, settings),
@@ -691,6 +701,13 @@ def _audience_label(item: dict, settings: dict) -> str:
         return "Only you (staging)"
     if want == audience.LOCAL_ONLY:
         return "Kept on this PC"
+    if want == audience.PUBLIC:
+        return "Public audience"
+    if want == audience.SELECTED:
+        stamp = item.get("audience") or {}
+        if item["platform"] == "youtube":
+            return "Invited viewers"
+        return "Approved friends" if stamp.get("group") == "friends" else "Approved followers"
     return audience.destination(item["platform"], settings)["label"]
 
 
@@ -734,6 +751,7 @@ class ApproveBody(BaseModel):
     brand_organic: bool = False
     brand_content: bool = False
     confirm: bool = False
+    expected_account_id: str = ""
 
 
 def _fields(item: dict, body: ApproveBody) -> dict:
@@ -764,6 +782,8 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
     item = _item_or_404(item_id)
+    if body.expected_account_id and body.expected_account_id != autopublish.account_id(item["platform"]):
+        raise HTTPException(409, "Another account is connected now. Review the destination and approve again")
     fields = _fields(item, body)
     creator = None
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":

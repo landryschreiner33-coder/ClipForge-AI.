@@ -1,23 +1,13 @@
-"""Automatic publishing: your standing permission to upload without reviewing each post, where the platform's rules
-allow it.
+"""Standing YouTube permission for one channel and visibility, recorded with its exact wording.
 
-What the platforms' own documentation says (checked September 2026):
+Public automation needs explicit Public audience setup, a connected channel and the owner's API-project audit
+confirmation. Existing v2 Private permission stays Private. A new public permission never changes existing posts
+or previously scheduled Private uploads. TikTok requires express consent on each post with preview, an unpreset
+privacy choice and Music Usage Confirmation, so TikTok automation cannot substitute a standing permission.
 
-* YouTube (Data API videos.insert): an app may upload videos for the signed-in user. YouTube's Developer Policies
-  require that users keep final control over what is published and know what the app does in their name. Here that is
-  your explicit permission (which channel, what content, how many a day, when), stored with its exact wording, plus
-  every upcoming post listed with Cancel until it goes out. Since the selected-audience version, uploads are always
-  Private: nobody else can watch until you share a video privately in YouTube Studio (the API cannot invite viewers),
-  and nothing is ever scheduled to turn public.
-* TikTok (Content Posting API, Direct Post): TikTok's Content Sharing Guidelines require the user's express consent
-  to each post, with a preview, a privacy choice with no preset value and the Music Usage Confirmation. So TikTok posts
-  always wait for your OK in the Publish Center; once approved they go out at their time by themselves.
-
-A post approved under this permission is marked "approved automatically" with the permission it came from; it is
-never recorded as approved by you. Only clips that passed every check qualify: a clip whose final check noted a
-possible problem (a warning) is held for you instead. Turning the permission off returns every post that has not
-started uploading to "waiting for your approval". A permission given for public or unlisted videos (before this
-version) ended when the app updated; it is asked again with the new wording.
+Only exact files that passed the quality gate without specified warnings qualify. Content and reuse eligibility,
+posting limits, cancellation and the emergency stop remain enforced. Platform approval may still restrict the
+actual visibility; the returned result is reported separately from the visibility requested here.
 """
 from __future__ import annotations
 
@@ -27,10 +17,10 @@ import time
 from .. import config, db
 from . import state
 
-TEXT_VERSION = 2  # 2: Private uploads only, shared by you in YouTube Studio
+TEXT_VERSION = 3  # 3: explicit audience, visibility and connected-account permission
 SUPPORTED = {
-    "youtube": "YouTube allows apps to upload videos for you. ClipFoundry uploads them as Private; you share each one "
-               "with the people you picked in YouTube Studio.",
+    "youtube": "YouTube uploads can run automatically under your permission for one channel and visibility. "
+               "Public uploads need an audited API project; Private videos stay Private until you share them.",
 }
 NOT_SUPPORTED = {
     "tiktok": "TikTok's rules for apps require your OK on each post (with a preview and your own privacy choice), so "
@@ -55,40 +45,68 @@ def same_account(consent: dict) -> bool:
     """Was the permission given for the account connected now? It names one channel, so it never carries over to
     another one connected later (no account connected: nothing can be uploaded anyway)."""
     given, now = (consent.get("settings") or {}).get("account_id") or "", account_id(consent["platform"])
-    return not given or not now or given == now
+    return bool(given and now and given == now)
 
 
 def text_for(platform: str, cfg: dict, channel: str = "") -> str:
     """Exactly what you agree to (stored with the permission)."""
     where = f"my YouTube channel{f' “{channel}”' if channel else ''}"
     kids = "made for kids" if cfg["made_for_kids"] else "not made for kids"
+    public = cfg.get("visibility") == "public"
+    who = ("Public videos that anyone can watch" if public else "Private videos")
+    meaning = ("Public posting is authorized only for new posts planned for the public. Existing posts and "
+               "previously planned Private uploads keep their visibility. " if public else
+               "Nobody else can watch them until I share them privately in YouTube Studio; ClipFoundry never makes "
+               "them public or unlisted under this permission. ")
     return (f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day to {where} as "
-            f"Private videos, marked {kids}, between {cfg['start_hour']}:00 and {cfg['end_hour']}:00 "
-            f"({cfg['timezone']}), without asking me about each one. Nobody else can watch them until I share them "
-            "privately in YouTube Studio; ClipFoundry never makes them public or unlisted. Only clips that passed "
+            f"{who}, marked {kids}, between {cfg['start_hour']}:00 and {cfg['end_hour']}:00 "
+            f"({cfg['timezone']}), without asking me about each one. {meaning}Only clips that passed "
             "every automatic check (file, sound, captions, framing, text), from videos I own or that an agreement or "
             "license covers. I can cancel any upcoming upload, and turn this off at any time.")
 
 
 def view(settings: dict) -> dict:
+    from ..publish import audience
+
     out = {}
     for platform in ("youtube", "tiktok"):
         c = active(platform)
+        dest = audience.destination(platform, settings)
+        visibility = audience.visibility(platform, dest["intent"], settings)
+        blocker = ""
+        if platform == "youtube":
+            if not account_id(platform) or not (db.get_account(platform) or {}).get("has_tokens"):
+                blocker = "Connect your YouTube channel first."
+            elif not dest["confirmed"]:
+                blocker = "Confirm who watches in Settings → Integrations first."
+            elif visibility == "public" and not settings.get("youtube_project_verified"):
+                blocker = "YouTube restricts uploads from unaudited API projects to Private. Complete Google's " \
+                    "audit, then mark the project as verified in Settings."
+        can_enable = platform in SUPPORTED and not blocker
+        enabled = bool(c) and same_account(c) and consent_visibility(c) == visibility and not blocker
+        if visibility == "public" and c:
+            enabled = enabled and (c.get("settings") or {}).get("group_version") == dest["group_version"]
+        if c and not enabled and not blocker:
+            blocker = "Renew automatic publishing for the connected channel and the audience selected now."
         out[platform] = {"supported": platform in SUPPORTED, "note": SUPPORTED.get(platform) or
-                         NOT_SUPPORTED[platform], "enabled": bool(c),
+                         NOT_SUPPORTED[platform], "enabled": enabled,
+                         "visibility": visibility, "can_enable": can_enable,
+                         "blocker": blocker,
+                         "account_id": account_id(platform), "audience_version": dest["group_version"],
                          "consent": ({k: c[k] for k in ("id", "settings", "text", "created_at")} if c else None)}
     out["verified_project"] = bool(settings.get("youtube_project_verified"))
     return out
 
 
 def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_limit: int, start_hour: int,
-           end_hour: int, agreed: bool, channel: str = "") -> dict:
+           end_hour: int, agreed: bool, channel: str = "", *, expected_account_id: str = "",
+           expected_audience_version: int | None = None) -> dict:
     if platform not in SUPPORTED:
         raise ValueError(NOT_SUPPORTED.get(platform, "Unknown platform"))
     if not agreed:
         raise ValueError("Read and confirm what automatic publishing will do")
     if visibility not in config.YOUTUBE_PRIVACY:
-        raise ValueError("Automatic uploads are Private only: you share them with your selected viewers in Studio")
+        raise ValueError("Choose Public or Private for automatic YouTube uploads")
     if made_for_kids is None:
         raise ValueError("Say whether your videos are made for kids (YouTube requires this answer)")
     if not 1 <= int(daily_limit) <= 15:
@@ -96,11 +114,32 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     if not 0 <= int(start_hour) < int(end_hour) <= 24:
         raise ValueError("The posting window must start before it ends")
     settings = db.get_settings()
+    from ..publish import audience
+
+    dest = audience.destination(platform, settings)
+    if not account_id(platform) or not (db.get_account(platform) or {}).get("has_tokens"):
+        raise ValueError("Connect the YouTube channel this permission will authorize first")
+    if expected_account_id and expected_account_id != account_id(platform):
+        raise ValueError("Another YouTube channel is connected now. Review the channel and permission again")
+    if expected_audience_version is not None and expected_audience_version != dest["group_version"]:
+        raise ValueError("Who watches changed while this permission was open. Review it again")
+    if visibility == "public":
+        if dest["intent"] != audience.PUBLIC or not dest["confirmed"]:
+            raise ValueError("Automatic uploads are Private only until you explicitly confirm Public audience "
+                             "in Settings → Integrations")
+        if not settings.get("youtube_project_verified"):
+            raise ValueError("YouTube restricts unaudited API projects to Private. Complete Google's audit and "
+                             "mark the project as verified before enabling automatic public publishing")
+    elif dest["intent"] == audience.PUBLIC:
+        raise ValueError("The permission's visibility must match Who watches. Choose Public, or confirm a Private "
+                         "audience in Settings → Integrations")
     cfg = {"visibility": visibility, "made_for_kids": bool(made_for_kids), "daily_limit": int(daily_limit),
            "start_hour": int(start_hour), "end_hour": int(end_hour),
            "timezone": settings.get("autopilot_timezone") or "America/Chicago",
            "min_quality": float(settings.get("autopilot_min_quality") or 0), "text_version": TEXT_VERSION,
            "account_id": account_id(platform)}
+    if visibility == "public":
+        cfg.update(audience_intent=audience.PUBLIC, group_version=dest["group_version"])
     now = time.time()
     for old in db.select("publish_consents", "platform = ? AND revoked_at IS NULL", (platform,)):
         db.update("publish_consents", old["id"], revoked_at=now)
@@ -143,8 +182,34 @@ def still_covers(item: dict) -> bool:
     if appr.get("by") != "automatic":
         return True
     c = active(item["platform"])
-    return (bool(c) and c["id"] == appr.get("consent_id") and (c.get("settings") or {}).get("visibility") == "private"
-            and same_account(c))
+    if not c or c["id"] != appr.get("consent_id") or not same_account(c):
+        return False
+    visibility = consent_visibility(c)
+    if not visibility or visibility != (item.get("privacy") or "private"):
+        return False
+    if visibility == "public":
+        from ..publish import audience
+
+        settings = db.get_settings()
+        if not settings.get("youtube_project_verified"):
+            return False
+        dest = audience.destination(item["platform"], settings)
+        cfg = c.get("settings") or {}
+        return ((item.get("audience") or {}).get("intent") == audience.PUBLIC and dest["intent"] == audience.PUBLIC
+                and dest["confirmed"] and cfg.get("group_version") == dest["group_version"])
+    return (item.get("audience") or {}).get("intent") != "PUBLIC"
+
+
+def consent_visibility(consent: dict) -> str:
+    """Old Private permissions remain Private; public requires the new explicit wording and account binding."""
+    cfg = consent.get("settings") or {}
+    visibility = cfg.get("visibility") or ""
+    if visibility == "private" and int(cfg.get("text_version") or 0) >= 2:
+        return visibility
+    if (visibility == "public" and int(cfg.get("text_version") or 0) >= TEXT_VERSION and cfg.get("account_id")
+            and cfg.get("audience_intent") == "PUBLIC"):
+        return visibility
+    return ""
 
 
 def qualifies(report: dict | None) -> tuple[bool, str]:

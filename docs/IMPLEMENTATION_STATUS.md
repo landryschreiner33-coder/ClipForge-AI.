@@ -1,5 +1,68 @@
 # Implementation status
 
+<!-- PR14_CONTINUATION_START -->
+## PR #14 continuation — 2026-10-08
+
+Current branch: `claude/project-thread-vw1n9y`, started at `fea045d`; PR #14 stays draft and unmerged. This section
+supersedes the earlier selected-only/new-upload and hidden-idle descriptions below. The historical record is retained.
+
+Implemented: all 25 named robot stations, clear overhead states, actual task/dependency/handoff details and persisted
+Follow system / Full / Reduced controls; Brain uploads/search/revision approval/edit/disable/delete/export with
+per-clip saved influence; audience/topic/language/weak-story discovery filters with explicit estimate labels;
+bounded responsible-stage QC repairs and A/V timestamp checks; pre-Whisper no-audio handling and preservation of
+returning audio when stitching mixed live recordings; explicit NEW Public YouTube publishing and standing consent,
+actual visibility reporting, preserved existing Private schedules, truthful TikTok per-post/manual blockers;
+separate public/selected learning cohorts and 48-hour maturity; measured stage timings and isolated Windows launcher.
+
+Final regression review also serializes database initialization across API threads and worker processes, rechecks
+Public automation audit confirmation at approval/upload, and makes Brain export include every stored reference and
+influence rather than silently limiting it to 500 rows. Atomic job claiming honors newly committed Pause/Stop.
+
+| Check | Result and scope |
+| --- | --- |
+| `.venv/bin/python -m pytest -m 'not slow' -q --durations=12` | 641 passed, 7 deselected in 263.21 s |
+| `.venv/bin/python -m pytest -m slow -q --durations=12` | 6 passed, 1 failed; corrected result-maturity fixture, then `tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart` passed in 428.10 s. All seven cases passed across runs, not a single all-green run. |
+| Sandbox browser checks | 8 passed in the sandbox run; corrected Brain selector then 1 passed (9.4 s); complete-loop recording dependency resolved with installed FFmpeg, then 1 passed (8.3 min). All ten checks covered across runs. |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; built assets committed. |
+| Focused startup/core/office/TikTok | 66 passed (29.50 s), including concurrent old-schema startup in threads and a child process. |
+| Other focused Python checks | Publishing 44; knowledge/public 17; full Brain export 8; public-audit/automation 33; timing/office 19; returning-audio/recovery 28. These overlap the fast suite. |
+| Disposable `fea045d` database upgrade | Passed: preserved project/clip/settings/Private schedule/audience/approval/media bytes; rerun after initialization-lock change passed. |
+
+Fast/media commands used installed FFmpeg and an isolated espeak-ng wrapper on `PATH`. Browser commands used
+`CLIPFOUNDRY_E2E_CHROMIUM=/usr/bin/chromium`; the Public loop was
+`npm run test:sandbox -- --project complete-loop`, with `PLAYWRIGHT_BROWSERS_PATH` pointing to a scratch recording
+helper backed by installed FFmpeg. Brain's targeted rerun used a scratch Playwright config against the isolated
+sandbox, running `sandbox/brain-workspace.spec.ts`. No package version or Playwright pin was changed.
+
+The Public complete loop ran real media handlers and FFmpeg, two fake-account Public uploads with no `publishAt`,
+restart recovery, mature fake-result collection, actual live/post-live handlers and deliberate pause. It advances
+only the isolated fixture's approved Public due times and result age. It does not establish GPU/account/policy
+verification. During validation a stale Stop claim and duplicate-column startup race were reproduced and fixed;
+the slow fixture now waits for both durable published schedules before advancing simulated maturity.
+
+The Brain proof uses a real document upload, approval, validated later blueprint and SQLite save: bold → minimal
+captions. A bad-example upload also changes a later plan in its regression test. The UI lookup preview is labeled
+separately. [Visual evidence and provenance](../design/robot-office/screenshots/README.md).
+
+An old-schema database was created using `fea045d`, then opened with the new additive schema. Existing project,
+clip, settings, Private schedule, audience stamp, approval and media bytes were identical. This used a disposable
+fixture, never the owner's installation. Built frontend is included; `.mcp.json`, GPU dependency files, package
+versions and `e2e/tests` are unchanged.
+
+External limits: official Google/TikTok developer hosts returned proxy 403 in this continuation. Current policy
+requirements could not be freshly re-read. Google's official GitHub discovery schema confirms `publishAt` needs
+Private, an API field contract only. The audit settings record owner confirmation; real app approval and returned
+visibility still need account checks. TikTok requires per-post consent and eligible app approval; drafts/manual
+packages remain handoffs. No real videos were posted, hosting rented, account permissions changed or site deployed.
+
+PC checks: Windows installation/scaling/fonts; RTX 3050 CUDA transcription and NVENC rendering, real-video captions
+and sound sync; real account scopes, project/app audit decisions and visibility; live internet sources on the PC;
+optional NVIDIA service/current terms. [Safe separate ZIP test](WINDOWS_PR14_TEST.md) and
+[measured processing / server recommendation](PERFORMANCE.md). No server-speed claim is justified by this CPU-only
+synthetic run. Unique-viewer/dominant-video guards, a general experiment framework and additional discovery
+connectors remain outside this implementation.
+<!-- PR14_CONTINUATION_END -->
+
 Resume file for the "Audit, Finish, and Verify" task. Keep it current: another session must be able to continue
 from here without repeating the audit.
 

@@ -28,8 +28,8 @@ SPEECH = ("Here is the thing nobody tells you about starting a podcast. You do n
           "first ten episodes are practice, so publish them anyway. ")
 INTERVIEW = ("I almost quit the company in the second year. We had three months of money left and no customers. "
              "Then one buyer called back and asked a simple question. Could we deliver in a week instead of a month? "
-             "We said yes before we knew how. That promise changed the whole business. Speed mattered more than "
-             "features. Every founder I know has one call like that. ")
+             "We said yes before we knew how. That promise changed the whole business. The lesson is simple: "
+             "listen to customers first. That is why speed mattered more than features. ")
 TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: skipped unless covered)
     ("pod1", "The podcast moment everyone is talking about", "UCpodcast000000001", 950_000, "PT1H10M"),
     ("int1", "Podcast interview: the founder who almost quit", "UCinterview0000001", 610_000, "PT48M"),
@@ -152,6 +152,10 @@ def main() -> None:
         def sandbox_age_results():
             scenario.age_results()
             return {"ok": True}
+
+        @app.post("/sandbox/due-public-posts")
+        def sandbox_due_public_posts():
+            return scenario.due_public_posts()
 
         @app.post("/sandbox/upcoming-stream")
         def sandbox_upcoming_stream():

@@ -10,6 +10,7 @@ import ipaddress
 import datetime as dt
 import json
 import subprocess
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -172,7 +173,9 @@ class CompleteLoopFixture:
         patch(host, "POLL_SECONDS", 0.1)
         # Fake YouTube accepts future uploads. Cover tomorrow's slots regardless of the real clock hour;
         # production's configurable upload lead is verified separately by the publisher/scheduler suites.
-        patch(scheduler, "lead_seconds", lambda item, settings: 48 * 3600 if item["platform"] == "youtube" else 0)
+        real_lead = scheduler.lead_seconds
+        patch(scheduler, "lead_seconds", lambda item, settings: real_lead(item, settings)
+              if item.get("privacy") == "public" else 48 * 3600 if item["platform"] == "youtube" else 0)
         # Discovery normally sleeps for hours and learning for six hours. Use the same production periodic
         # dispatcher with shorter fixture clock periods, so successive runs get real, distinct idempotency
         # slots. Resetting next:* alone inside the same multi-hour slot would correctly return the old job.
@@ -232,10 +235,20 @@ class CompleteLoopFixture:
 
         state.put(f"next:{kind}", 0)
 
-    def age_results(self, hours: float = 24.0) -> None:
+    def due_public_posts(self) -> dict:
+        """Move only this fixture's approved public deadlines to now; never substitute a publish outcome."""
+        from clipfoundry import db
+
+        now = time.time()
+        count = db.execute("UPDATE scheduled_publications SET planned_at = ? WHERE status = 'approved' "
+                           "AND privacy = 'public' AND planned_at > ?", (now, now))
+        self.elapse_period("schedule_tick")
+        return {"deadlines_advanced": int(count or 0)}
+
+    def age_results(self, hours: float = 49.0) -> None:
         """Advance the fixture's result-observation age without changing upload bytes or outcomes.
 
-        The learner compares readings at least 20 hours after upload. Advancing only the age lets tests exercise
+        The learner compares readings at least 48 hours after upload. Advancing only the age lets tests exercise
         that policy quickly while real lease and cancellation deadlines remain accurate.
         """
         from clipfoundry import db

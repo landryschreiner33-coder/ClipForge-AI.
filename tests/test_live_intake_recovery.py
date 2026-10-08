@@ -338,7 +338,9 @@ def test_post_live_retry_keeps_selection_and_completed_output(data, monkeypatch,
     pdir = data / "prepared"
     pdir.mkdir()
     prepared = SimpleNamespace(id=project["id"], pdir=pdir)
-    chosen = [{"start": 20, "end": 40, "score": 75}, {"start": 50, "end": 70, "score": 80}]
+    story = {"structure": {"hook": True, "context": True, "payoff": True}}
+    chosen = [{"start": 20, "end": 40, "score": 75, "analysis": story},
+              {"start": 50, "end": 70, "score": 80, "analysis": story}]
     selections = []
     rendered = []
     competing_jobs = []

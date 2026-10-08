@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Icon, IconName } from "../components/ui";
+import { useMotion } from "../motion";
 import { BY_ID, CAST, Dir, RoomId, ROOM_NAMES } from "./cast";
 import { OfficeEvent, RoleRow, RoleState, Snapshot } from "./api";
 import { FRAMES, frameMs, Pose } from "./sprites";
 import { drawBackdrop, drawClock, drawCore, drawRackLights, drawRobot, drawScreens, highlightRoom, ROOM_ACCENT }
   from "./draw";
-import { besideManager, LOUNGE, Pt, ROOM, ROOMS, roomOf, route, STATION, WORLD } from "./world";
+import { besideManager, Pt, ROOMS, roomOf, route, STATION, WORLD } from "./world";
 import { Listener, LIVE_SECONDS } from "./useOffice";
 
 /**
  * The office map: a small canvas renderer with an accessible HTML layer on top (a button per room and per visible
- * robot). Robots stand where the snapshot says their work is: at their station while a job runs, waits or failed,
- * in the Lounge while idle or paused. Walks are started only by real transitions (a role's state changing, a
+ * robot). Every robot has a visible station, including idle and paused workers. Walks are started only by
+ * real transitions (a role's state changing, a
  * manager's report, a recorded decision); they never delay, create or finish work, and a backlog is never replayed.
  */
 export interface Card { job_id: string; kind: string; ref_type: string; ref_id: string; state: string; summary: string }
@@ -44,26 +46,20 @@ const NEXT_ROOM: Record<string, Partial<Record<string, RoomId>>> = {
   upload: { approved: "dock", held: "dock", rejected: "dock", rework: "schedule" },
 };
 const DECISION_POSE: Record<string, Pose> = { approved: "approved", rework: "rework", rejected: "error", held: "wait" };
-const AT_STATION: RoleState[] = ["working", "waiting", "retrying", "error", "reviewing"];
+const STATE_ICON: Record<RoleState, IconName> = {
+  idle: "dot", working: "play", waiting: "clock", retrying: "refresh", error: "alert", reviewing: "check",
+  paused: "pause", unavailable: "x",
+};
 
-/** Where each role belongs right now, from the snapshot alone. Managers and COMMAND keep their stations. */
+/** Keep the entire cast visible. State changes change the pose, never remove an idle worker from the office. */
 export function placements(rows: RoleRow[]): Record<string, { at: Pt | null; lounge: boolean }> {
   const out: Record<string, { at: Pt | null; lounge: boolean }> = {};
-  const resting: RoleRow[] = [];
   for (const r of rows) {
     const c = BY_ID[r.id];
     if (!c) continue;
-    if (c.rank !== "worker" || AT_STATION.includes(r.state) || r.state === "unavailable") {
-      out[r.id] = { at: STATION[r.id], lounge: false };
-    } else {
-      resting.push(r);
-    }
+    out[r.id] = { at: STATION[r.id], lounge: false };
   }
-  // the most recently active resting workers get the Lounge places; the others are counted, not drawn
-  resting.sort((a, b) => (b.last?.at || 0) - (a.last?.at || 0));
-  resting.forEach((r, i) => {
-    out[r.id] = { at: i < LOUNGE.length ? LOUNGE[i] : null, lounge: true };
-  });
+  for (const c of CAST) if (!out[c.id]) out[c.id] = { at: STATION[c.id], lounge: false };
   return out;
 }
 
@@ -82,6 +78,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
   stale: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
+  const { pageHidden } = useMotion();
   const canvas = useRef<HTMLCanvasElement>(null);
   const actors = useRef(new Map<string, Actor>());
   const buttons = useRef(new Map<string, HTMLButtonElement>());
@@ -89,17 +86,16 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
   const core = useRef(0);
   const snapRef = useRef(snap);
   const selRef = useRef(selected);
-  const reduceRef = useRef(reduce);
+  const reduceRef = useRef(reduce || stale || pageHidden);
   const [scale, setScale] = useState(1);
   const [shown, setShown] = useState<string[]>([]);
   snapRef.current = snap;
   selRef.current = selected;
-  reduceRef.current = reduce;
+  reduceRef.current = reduce || stale || pageHidden;
 
   const rows = useMemo(() => Object.fromEntries(snap.roles.map((r) => [r.id, r])), [snap.roles]);
   const place = useMemo(() => placements(snap.roles), [snap.roles]);
-  const resting = snap.roles.filter((r) => place[r.id]?.lounge).length;
-  const hiddenResting = snap.roles.filter((r) => place[r.id]?.lounge && !place[r.id]?.at).length;
+  const resting = snap.roles.filter((r) => BY_ID[r.id]?.rank === "worker" && ["idle", "paused"].includes(r.state)).length;
 
   // ---- fit the map into its box (whole world pixels inside, CSS scaling with nearest-neighbor sampling)
   useLayoutEffect(() => {
@@ -129,16 +125,8 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
         actors.current.set(c.id, a);
         continue;
       }
-      if (!target) {
-        if (!a.steps.length) a.visible = false;
-        continue;
-      }
-      if (!a.visible) {  // coming back into view: appear at the Lounge door rather than from nowhere
-        const from = ROOM.lounge.door;
-        a.x = from.x - 6;
-        a.y = from.y;
-        a.visible = true;
-      }
+      if (!target) continue;
+      a.visible = true;
       if (a.steps.length) continue;  // a scripted walk ends at the snapshot's place anyway
       const last = a.path.length ? a.path[a.path.length - 1] : { x: a.x, y: a.y };
       if (last.x === target.x && last.y === target.y) continue;
@@ -292,7 +280,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
     if (a.react) return a.react.pose;
     if (a.hold) return a.hold.pose;
     const row = snapRef.current.roles.find((r) => r.id === a.id);
-    return row ? POSE[row.state] : "idle";
+    return row ? POSE[row.state] : "unavailable";
   };
 
   const render = (ctx: CanvasRenderingContext2D, t: number, still: boolean) => {
@@ -303,7 +291,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
     drawScreens(ctx, working, t, still);
     drawClock(ctx, new Date(Date.now() + skew * 1000));
     const brainBusy = s.brain && "state" in s.brain && s.brain.state === "evaluating";
-    drawCore(ctx, core.current > t || brainBusy ? 1 : 0.2, t, still);
+    drawCore(ctx, core.current > t || brainBusy ? 1 : 0, t, still);
     const colors: Record<string, string> = { healthy: "#57eea0", degraded: "#ffab45", error: "#ff5d73", unknown: "#7d8494" };
     drawRackLights(ctx, s.health.checks.map((c) => colors[c.status] || colors.unknown));
     for (const [id, until] of pulses.current) {
@@ -322,8 +310,8 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
       drawRobot(ctx, a.id, a.x, a.y, dir, pose, frame, selRef.current === a.id);
       const b = buttons.current.get(a.id);
       if (b) {
-        b.style.left = `${((a.x - 14) / WORLD.w) * 100}%`;
-        b.style.top = `${((a.y - 44) / WORLD.h) * 100}%`;
+        b.style.left = `${((a.x - 18) / WORLD.w) * 100}%`;
+        b.style.top = `${((a.y - 70) / WORLD.h) * 100}%`;
         b.dataset.pose = pose;
         b.dataset.room = roomOf(a)?.id || "corridor";  // where it stands now (the browser tests read it)
       }
@@ -334,10 +322,11 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
     const c = BY_ID[id], r = rows[id];
     const st = r ? STATE_WORDS[r.state] : "unknown";
     const task = r?.task?.message ? `: ${r.task.message}` : "";
-    return `${c.name}, ${c.title}, ${st}${task}`;
+    return `${c.name}, ${c.title}, ${stale ? "last known: " : ""}${st}${task}`;
   };
 
   return (
+    <div className="office-map-frame">
     <div className={`office-map${stale ? " stale" : ""}`} ref={wrap}>
       <div className="office-world" style={{ width: WORLD.w * scale, height: WORLD.h * scale,
         ["--s" as string]: scale } as React.CSSProperties}>
@@ -346,17 +335,16 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
         {ROOMS.map((r) => {
           const people = snap.roles.filter((x) => BY_ID[x.id]?.room === r.id);
           const busy = people.filter((x) => x.state === "working").length;
-          const extra = r.id === "lounge" && hiddenResting ? ` +${hiddenResting}` : "";
           return (
             <button key={r.id} type="button" className={`room-hit${room === r.id ? " on" : ""}`}
               style={{ left: `${(r.x / WORLD.w) * 100}%`, top: `${(r.y / WORLD.h) * 100}%`,
                 width: `${(r.w / WORLD.w) * 100}%`, height: `${(r.h / WORLD.h) * 100}%`,
                 ["--accent" as string]: ROOM_ACCENT[r.id] } as React.CSSProperties}
-              aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} resting` :
+              aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} workers resting at their stations` :
                 busy ? `: ${busy} working` : ""}. Open details`}
               aria-pressed={room === r.id}
               onClick={() => onRoom(r.id)}>
-              <span className="room-sign" aria-hidden="true">{ROOM_NAMES[r.id]}{extra}</span>
+              <span className="room-sign" aria-hidden="true">{ROOM_NAMES[r.id]}</span>
             </button>
           );
         })}
@@ -366,15 +354,26 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
               if (el) buttons.current.set(id, el);
               else buttons.current.delete(id);
             }}
-            style={{ left: `${((actors.current.get(id)!.x - 14) / WORLD.w) * 100}%`,
-              top: `${((actors.current.get(id)!.y - 44) / WORLD.h) * 100}%`,
-              width: `${(28 / WORLD.w) * 100}%`, height: `${(46 / WORLD.h) * 100}%` }}
-            aria-label={label(id)} aria-pressed={selected === id} data-id={id} data-state={rows[id]?.state}
+            style={{ left: `${((actors.current.get(id)!.x - 18) / WORLD.w) * 100}%`,
+              top: `${((actors.current.get(id)!.y - 70) / WORLD.h) * 100}%`,
+              width: `${(36 / WORLD.w) * 100}%`, height: `${(70 / WORLD.h) * 100}%` }}
+            aria-label={label(id)} aria-pressed={selected === id} data-id={id} data-state={rows[id]?.state || "unavailable"}
             onClick={() => onRobot(id, actors.current.get(id)?.carry || null)}>
-            {selected === id && <span className="robot-tag" aria-hidden="true">{BY_ID[id].name}</span>}
+            <span className={`robot-state state-${rows[id]?.state || "unavailable"}`} aria-hidden="true"
+              title={stale ? "Last known state" : STATE_WORDS[rows[id]?.state || "unavailable"]}>
+              <Icon name={STATE_ICON[rows[id]?.state || "unavailable"]} size={12} />
+            </span>
+            <span className="robot-tag" aria-hidden="true">{BY_ID[id].name}</span>
           </button>
         ))}
       </div>
+    </div>
+    <div className="office-map-legend" aria-label="Robot states">
+      <span className="small">{CAST.length} robots · {stale ? "Last known states" : "Live job states"}</span>
+      {(["working", "waiting", "idle", "paused", "error"] as RoleState[]).map((state) => (
+        <span key={state}><Icon name={STATE_ICON[state]} size={13} />{state === "error" ? "Error" : state[0].toUpperCase() + state.slice(1)}</span>
+      ))}
+    </div>
     </div>
   );
 }
