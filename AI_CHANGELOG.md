@@ -7,6 +7,37 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-08 · PR #14 review round
+
+* **Tool:** Claude Code (cloud session). **Branch:** `claude/project-thread-vw1n9y` (draft PR #14), on top of
+  `f71238c`. **Result commits:** `cf54204` (code) and the commit that adds this entry (docs).
+* **What changed**
+  * Public video importing stays on (owner, 2026-10-08). The beginner browser test now expects public videos to be
+    clipped on the PC, to pass the final check and never to be planned or posted; the beginner answers *who
+    watches* before anything is planned. A rule recorded after a video was clipped now reaches that video.
+  * TikTok: a post-it-yourself page for the ready-to-post package (download, copy caption, steps, then link the post
+    or mark it posted, `POST /scheduled/{id}/posted`); branded content only for Friends; a full inbox (5 pending
+    drafts) holds TikTok posts for a day; labels that don't claim who could see a post. *I shared it* updates the
+    post itself; held public posts can be sent to the selected viewers from their page.
+  * Approvals and the automatic-publishing permission name the connected account; another account connected means a
+    new approval. START pressed again before its work ran queues nothing new.
+  * Brain and learner: uploads nobody else could watch are not evidence (*unconfirmed*), maturity counts from
+    sharing, each platform rolls back on its own, a rollback or reset is not undone by the same results, 20 clips
+    per side, identical results are inconclusive, the learner needs views and 5 videos.
+  * Health: GPU errors and CPU fallback, accounts as information, *Unknown — not updating* when the feed is lost, a
+    size-bounded `workers.log`, discovery stalls. Integration cards: Test connection, last check, rate limits.
+  * Trend and Source Scores: missing parts count as neutral, with coverage, confidence and the missing parts stored.
+    Video access failures carry one of 13 reasons; a named wait is honored, temporary problems are retried.
+  * Robots: the crown badge of COMMAND and the managers, TRACKER green, SPARK's blue eye, PATCH's orange lamp;
+    contact sheet re-captured. Setup and Sources text no longer say other people's videos are skipped.
+  * Docs: privacy page (Test connection result, log sizes, the account an approval names, posts you made yourself),
+    `docs/OFFICE.md`, `docs/PLATFORM_CAPABILITIES.md`, INSTALL and README (TikTok), AGENTS.md decisions, this file,
+    `AI_HANDOFF.md`, `docs/IMPLEMENTATION_STATUS.md`.
+* **Why:** the owner's follow-up of October 8, 2026 (compare with the spec, fix the beginner test without disabling
+  public videos, recheck TikTok, verify the Brain, steps to test on the PC).
+* **Tests run:** listed in the JSONL entry and in `docs/IMPLEMENTATION_STATUS.md` (test log).
+* **Not verified:** GPU on the RTX 3050, real YouTube and TikTok accounts, TikTok's decision on the app, Windows.
+
 ## 2026-10-07 · The robot office screens, docs and handoff
 
 * **Tool:** Claude Code (cloud session). **Branch:** `claude/project-thread-vw1n9y` (draft PR #14), on top of

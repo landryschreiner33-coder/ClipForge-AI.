@@ -1,6 +1,6 @@
 # Office screenshots
 
-Taken on October 7, 2026 in the cloud test machine, at 1366×768 (Team: full page). All but `team.png` come from
+Taken on October 8, 2026 in the cloud test machine, at 1366×768 (Team: full page). All but `team.png` come from
 the sandbox browser tests (`cd e2e && npm run test:sandbox`), which overwrite them on every run. The sandbox is a
 throwaway copy of the app with fake YouTube and TikTok services and a made-up transcript instead of Whisper. That
 machine has no NVIDIA GPU, so the GPU reading says *Error: No NVIDIA GPU was found* in every picture: that is the

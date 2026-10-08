@@ -344,13 +344,19 @@ current platform**, **Incomplete**.
 | Selected audience on every upload path (no public, unlisted, Everyone; old public posts held; approvals bound to the audience stamp) | Implemented and tested | `tests/test_audience.py`, `test_autopilot_publish.py`, `test_youtube.py`, `test_tiktok.py`, sandbox complete loop |
 | YouTube upload as Private without `publishAt` | Implemented and tested (fake YouTube); live verification pending | needs a real upload on the owner's account |
 | YouTube viewer invitations | Unsupported by the current platform (no API) | handoff: the owner shares in YouTube Studio and presses *I shared it*; labeled as the owner's confirmation |
-| TikTok Direct Post to followers or friends | Needs credentials/user action | needs TikTok's audit of the owner's developer app; until then "Only me" is staging and the clip becomes a ready-to-post package |
+| TikTok Direct Post to followers or friends | Needs credentials/user action | needs TikTok's audit of the owner's developer app, unlikely for a personal tool that reposts other platforms' videos (TikTok's guidelines, rechecked 2026-10-08); until then "Only me" is staging and the clip becomes a ready-to-post package |
+| TikTok ready-to-post package | Implemented and tested | the post's page: download, copy caption, steps, then *Link the post…* or *I posted it, no link* (`test_a_package_posted_without_a_link_is_recorded_as_your_word`); branded content Friends only; a full inbox holds TikTok posts for a day |
+| Approvals bound to the connected account | Implemented and tested | `test_approvals_and_automatic_publishing_stay_with_the_account_they_were_given_for` |
 | TikTok results for follower-only posts | Unsupported by the current platform | TikTok's video list covers public posts only; Clips → Test feedback instead |
 | YouTube results for a private group | Implemented; live verification pending | the Data API counts are read; the Analytics API may report little for a small group |
 | Office: cast registry (1 + 8 + 16, CORE separate), event feed with cursor, reports, decisions, health, controls | Implemented and tested | `tests/test_office.py`; `e2e/sandbox/robot-office.spec.ts` (placement, carry and review, decision reaction, old events ignored, paused, lost connection, Reduce animations, 1280×720 and 1366×768 fit, no sideways scroll at 683 and 390 px) |
 | Office screens, Team, gallery, Integrations, Test feedback, Dev Log, new navigation | Implemented and tested | read-only `e2e` suite and sandbox flows; screenshots in `design/robot-office/screenshots` |
-| Distinct robots (25, four directions, all poses) | Implemented; owner's visual review pending | `design/robots/contact-sheet.png`; drawn in code from the reference sheets, compared by eye only |
-| Brain: provenance, null ≠ 0, idempotent imports, corrections, cohorts, 30-clip / 10% guards, rollback, clip length used by the next videos | Implemented and tested (synthetic data) | `tests/test_brain.py`; real learning needs 30 real clips from the owner's viewers |
+| Distinct robots (25, four directions, all poses) | Implemented; owner's visual review pending | `design/robots/contact-sheet.png`; compared with the reference sheets on 2026-10-08: crown badge for COMMAND and the managers, TRACKER, SPARK and PATCH colors fixed; simplified details listed in the review report |
+| Brain: provenance, null ≠ 0, idempotent imports, corrections, cohorts, 30-clip / 10% guards, rollback, clip length used by the next videos | Implemented and tested (synthetic data) | `tests/test_brain.py` (21 tests; on 2026-10-08: uploads nobody could watch excluded, maturity from sharing, per-platform rollback, rollback not undone, 20 per side, identical results inconclusive); real learning needs 30 real clips from the owner's viewers |
+| Brain: distinct people and one dominant video | Incomplete | plays are not people; one video can supply most clips once 5 videos exist; needs the owner's rule |
+| Health readings, Test connection, rate-limit cards | Implemented and tested (fake platforms) | `tests/test_office_health.py`; a real check needs the owner's accounts |
+| Trend and Source Score coverage and confidence; specific media-access reasons | Implemented and tested | `tests/test_scores_and_access.py` |
+| Rework routed to the responsible stage; audio/video sync check; Queue states retrying, waiting for results, platform-verified audience; experiment framework | Incomplete | not in this version |
 | Optional NVIDIA text AI | Implemented and tested (fake transport); Needs credentials/user action for live use | `tests/test_nvidia.py`; no real request was made, NVIDIA's current terms were not read live |
 | GPU transcription and rendering on the RTX 3050 | Implemented; live verification pending | **GPU runtime not verified here** (no NVIDIA GPU in the cloud machine). On the PC: `gpu-check.bat`, or `.venv\Scripts\python.exe -m clipfoundry gpu-check` in the ClipFoundry folder |
 | Twitch, Kick, Reddit, X, Instagram and podcast discovery connectors | Incomplete | not in this version (the capability matrix says so); a pasted public link still goes through the link importer where supported |
@@ -363,9 +369,10 @@ transcript instead of Whisper, real ffmpeg rendering, no GPU): one Start discove
 final check, uploads to the fake YouTube as Private (Needs you then asks to share it privately), reads results,
 changes nothing with too few of them (2 of 30 posts with real numbers), waits for a stream link across a worker
 restart and records it once the stream starts, with no duplicate upload, and the office shows the running,
-waiting, restarted and paused states. The beginner flow passes with
-public video discovery off; with the `eff96fb` default (on) it fails at its old expectation that uncovered videos are
-never clipped (it fails the same way on `eff96fb` itself); that waits for the owner's public-video decision.
+waiting, restarted and paused states. The beginner flow passes with public video discovery on (the owner's decision
+of 2026-10-08): public videos are clipped on the PC and pass the final check, are never planned or posted, a video
+that cannot be downloaded is reported, the beginner chooses who watches, and an agreement makes a creator's video
+plannable.
 
 ## Plan (highest priority first)
 
@@ -413,7 +420,9 @@ never clipped (it fails the same way on `eff96fb` itself); that waits for the ow
 27. [x] The robot office screens, Team and gallery, Integrations, Test feedback, Dev Log, new navigation, docs and
     handoff (2026-10-07/08, PR #14).
 28. [ ] The owner's review of PR #14 and the checks on the PC below (GPU, real uploads, Who watches, the office look).
-29. [ ] The owner's public-video decision; then align `e2e/sandbox/beginner-flow.spec.ts` with it.
+29. [x] The owner's public-video decision (keep it, 2026-10-08); `e2e/sandbox/beginner-flow.spec.ts` aligned.
+30. [x] Review round of 2026-10-08 (`cf54204`): gaps against the master prompt, TikTok package flow, account-bound
+    approvals, Brain guards, health and Test connection, score confidence, media-access reasons, robots.
 
 ## Test log
 
@@ -556,6 +565,12 @@ never clipped (it fails the same way on `eff96fb` itself); that waits for the ow
 | robot office (2026-10-08) | `robot-office.spec.ts` and `zero-touch-loop.spec.ts` again after the fix | 5 passed (8.1 min) |
 | robot office (2026-10-08) | `beginner-flow.spec.ts` on `eff96fb` itself, in a separate worktree | failed at *nothing uncovered is ever clipped*: the same failure exists before this work (public video discovery default on) |
 | robot office (2026-10-08) | `beginner-flow.spec.ts` on this branch with `autopilot_public_videos` turned off by a temporary, uncommitted line | 1 passed (1.0 min) |
+| review round (2026-10-08) | `beginner-flow.spec.ts` on this branch with public video discovery on (the default), after the test learned to confirm who watches in Settings → Integrations | 1 passed (4.0 min) |
+| review round (2026-10-08) | new suites `test_brain.py` (21, 7 new), `test_office_health.py` (9), `test_scores_and_access.py` (29), the account-binding and START-twice tests | pass; the new ones failed before their fixes |
+| review round (2026-10-08) | `pytest -m "not slow"` on `cf54204` | 597 passed, 7 slow deselected (329 s) |
+| review round (2026-10-08) | `pytest -m slow` on `cf54204` | 7 passed (724 s); real ffmpeg and eSpeak NG, imported transcripts, fake platforms, no GPU |
+| review round (2026-10-08) | `npx tsc --noEmit` and `npm run build` in `frontend/` | pass; committed `dist/` (index-C1kfHSbU.js) |
+| review round (2026-10-08) | `npm run test:sandbox` on `cf54204` (Chromium at `/opt/pw-browsers/chromium`) | 9 passed (10.1 min): beginner flow, motion 3, robot office 4, complete loop |
 
 ## Checklist for the user's machine
 

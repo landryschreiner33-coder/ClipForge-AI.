@@ -101,9 +101,13 @@ when paused). Each one calls the same code as the Missions buttons, so no check 
 
 ## Health
 
-`GET /api/office/health` (`clipfoundry/office/health.py`): the scheduler, the oldest waiting job, the GPU, ffmpeg,
-disk space, the database, the accounts, audience incidents and API quotas, each Healthy, Degraded, Error or Unknown
-with the reason and what to do. The overall status is the worst reading; Unknown appears only when nothing is worse.
+`GET /api/office/health` (`clipfoundry/office/health.py`): the scheduler, the oldest waiting job, discovery, the
+GPU, ffmpeg, disk space, the database, the accounts, audience incidents and API quotas, each Healthy, Degraded, Error
+or Unknown with the reason and what to do. A GPU error newer than the last GPU transcription is Error; a CPU fallback
+is Degraded. No connected account is information, not a problem. Discovery is Error when Autopilot is on with nowhere
+to look, and Degraded when the last search is more than twice its period overdue. The overall status is the worst
+reading that counts. When the office loses its connection, every reading shows *Unknown — not updating* instead of
+its last value.
 
 ## Who may watch an upload (selected audience)
 
@@ -139,7 +143,11 @@ retries, resumed uploads, and posts planned before this version.
 Settings → Integrations shows, per connection, three separate things: whether this version implements a capability,
 whether an account or key is connected, and whether the capability is available now. A connected account does not
 make every capability available, and signing in never grants downloads or full analytics. The registry is
-`clipfoundry/office/capabilities.py` (`GET /api/integrations` returns it with the cards):
+`clipfoundry/office/capabilities.py` (`GET /api/integrations` returns it with the cards). Each connected account's
+card has **Test connection** (`POST /api/integrations/youtube/test` or `/tiktok/test`): one read with the stored
+account (YouTube `channels.list`, 1 quota unit; TikTok `creator_info`, or user info without Direct Post) that never
+uploads or changes anything. The card shows the last successful check, a failed check's reason and what to do, and a
+platform's wait (*Rate limited until*) read from where the code records it:
 
 | Platform | Capability | State | What it means |
 | --- | --- | --- | --- |
@@ -157,7 +165,7 @@ make every capability available, and signing in never grants downloads or full a
 | TikTok | Reads titles and numbers | Implemented | Creator and title from TikTok's public embed endpoint; no view counts. |
 | TikTok | Transcript | On this PC | Made on this PC with Whisper. |
 | TikTok | Gets the video file | Implemented | Only where the video is accessible to the link importer; nothing is bypassed. |
-| TikTok | Uploads | Needs platform approval | Direct Post to your followers needs TikTok's app audit. Without it ClipFoundry sends a draft to your TikTok inbox or prepares a ready-to-post package. |
+| TikTok | Uploads | Needs platform approval | Direct Post to your followers needs TikTok's app audit, and TikTok's guidelines turn away personal tools and apps that repost other platforms' videos, so expect a refusal. Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise ClipFoundry prepares a ready-to-post package that you post in the TikTok app. |
 | TikTok | Who can watch | Needs platform approval | Followers or friends on a private account (audited apps); an unaudited app can only post 'Only me', which is staging, not a test. |
 | TikTok | Your OK | Implemented | Your OK on every post (TikTok requires it). |
 | TikTok | Checks the result | Implemented | The post's publish status is read back; follower-only posts may not return a link. |
@@ -239,14 +247,25 @@ transcript after it).
   zero. Imports are previewed, then imported once; the same reading entered twice counts once, and a correction
   keeps the earlier values. One answer per tester per clip. Mirrored YouTube API readings follow the 30-day rule.
 * **Audiences kept apart.** Results are grouped by platform, audience (selected viewers, only you, earlier public
-  posts) and audience-group version. Only selected-viewer results may change a strategy, and only for that group.
-* **Guards.** A strategy changes only with at least 30 mature clips (48 hours old) from at least 5 videos in one
-  group, with at least 10 on each side of the comparison; it moves at most 10% per update
-  (`brain_min_clips` ≥ 30, `brain_max_step` ≤ 0.10, Settings → Advanced → Brain); it waits for results of the new
-  setting before moving again, and rolls back when later results are worse. You can pause it, roll back a change or
-  reset it. CORE cannot override privacy, credentials, cost limits, stop controls or the safety checks.
+  posts, or *unconfirmed*: meant for your viewers but they cannot watch it yet, such as a Private upload nobody was
+  invited to or a TikTok package not posted yet) and audience-group version. Only selected-viewer results may change
+  a strategy, and only for that group. A post counts as mature 48 hours after your viewers could watch it (the upload,
+  or later when you said you shared it or linked the post you made yourself).
+* **Guards.** A strategy changes only with at least 30 mature clips from at least 5 videos in one group, each with
+  at least `brain_min_views` views, and at least 20 clips on each side of the comparison (`MIN_ARM`); identical
+  results on a side count as inconclusive. It moves at most 10% per update (`brain_min_clips` ≥ 30,
+  `brain_max_step` ≤ 0.10, Settings → Advanced → Brain); it waits for 10 clips with results of the new setting before
+  moving again, and rolls back when later results are worse. Each platform keeps its own strategy and rolls back on
+  its own; a learned clip length is used only when every enabled platform learned the same value. You can pause it,
+  roll back a change or reset it, and the same results cannot undo your rollback or reset (the next change waits for
+  10 new clips). CORE cannot override privacy, credentials, cost limits, stop controls or the safety checks.
+* **Known limits.** "Views" are plays, not people: 10 plays by 2 people pass the views threshold, and the same 3
+  testers rating many clips count as many results. The count needs 5 different videos, but one video can still
+  supply most of the clips. Both are product decisions (a rule for how many different people), not yet made.
 * **What it changes.** The clip length the next videos Autopilot starts are cut for. The older learner
-  (`learner.py`, score weights) follows the same 30-post and 10% guards.
+  (`learner.py`, posting times, styles and score weights) follows the same 30-post, 10%, views and 5-video guards,
+  but still accepts readings from 20 hours on (not 48) and treats posts without an audience-group number as the
+  current group.
 
 ## Optional NVIDIA AI
 
