@@ -4,6 +4,11 @@ Autopilot turns ClipFoundry into a persistent, local-first content opportunity e
 attention, checks whether each source may be used, finds the strongest moments, packages them for YouTube Shorts and
 TikTok, schedules them, publishes the posts you approved through the official APIs, and learns from the real results.
 
+> **Names since the robot office (October 2026):** Home is now the **Office**, the Autopilot page is **Missions**,
+> the Library is **Clips** and Posts is the **Queue**; old addresses still open the right page. Uploads go only to the
+> viewers you choose (YouTube Private shared with invited viewers, TikTok approved followers), never publicly. See
+> [OFFICE.md](OFFICE.md) for the office, the audience policy, the capability matrix and the Brain.
+
 Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your
 own results. The daily numbers (3 sources, up to 5 clips per source, 15 clips a day) are **targets, never quotas**:
 quality, rights, availability and platform limits always come first, so a day can end with fewer posts.
@@ -86,8 +91,8 @@ automatic publishing…* under *How posts go out* on Autopilot → Overview, or 
 shows exactly what you allow: the channel, what gets posted (only clips that passed every check, from videos you own
 or that an agreement or license covers), who can see the posts, made for kids or not, how many a day and between
 which hours, and you confirm it. Turning it off (*Turn off…*) sends every post it approved that has not started
-uploading back to Posts → *Needs review*, where it waits for your OK. Until Google audits your YouTube API project,
-YouTube keeps the uploads private whatever you choose.
+uploading back to Posts → *Needs review*, where it waits for your OK. The permission covers Private uploads only
+(consent version 2): you still share each video in YouTube Studio with the people you pick.
 
 Both platforms only let apps like ClipFoundry post through *your own* free developer app, so the first **Connect
 YouTube** or **Connect TikTok** on a computer asks for that app's two codes once (the steps are under *How to get
@@ -312,8 +317,9 @@ platform, permission, time and final check. Each post opens as its own page with
 
 * **Approve for YouTube** / **Approve for TikTok** (on the post's page, after ticking *I watched this video and read
   its text*): required for every post by both platforms. For YouTube you confirm the title, description, tags,
-  visibility and the made-for-kids answer. For TikTok the page reads your creator info first, shows your nickname,
-  lets you choose the privacy (never pre-selected), interactions (off by default), the commercial content disclosure,
+  the made-for-kids answer and who it is for (Private, shared by you). For TikTok the page reads your creator info
+  first, shows your nickname, lets you choose followers or friends (never pre-selected; never Everyone),
+  interactions (off by default), the commercial content disclosure,
   and shows TikTok's Music Usage Confirmation. An approval is bound to the exact video (its SHA-256, not its size or
   date) and text: editing either, or a new render, needs a new approval. With automatic publishing on, YouTube posts
   are approved again by themselves only after the final check passed on the new file; TikTok always asks you.
@@ -325,8 +331,9 @@ platform, permission, time and final check. Each post opens as its own page with
   jobs** or a crash during the upload). ClipFoundry first checks with the platform; if it still cannot tell, it waits
   for you: **It's on YouTube: add its link…** (or TikTok) or **It's not there: upload again…** (after you checked
   that it is not there). It never uploads a second copy on its own.
-* YouTube posts are uploaded early (default 30 minutes) as Private with `publishAt`, so YouTube itself publishes them
-  at the planned time.
+* YouTube posts are uploaded a little before their planned time (default 30 minutes) as Private, without
+  `publishAt`, so YouTube never makes them public. The post then shows *Awaiting viewer invitations* until you share it in YouTube Studio and press
+  **I shared it**. Posts planned as public or unlisted before this version are held, never widened.
 * **Final check**: every post shows the Final Quality Gate's verdict on its exact file and text (*passed*, *passed,
   N warnings*, *failed*, *the text needs a fix* or *not done yet*), with every check listed (*All N checks of this
   exact file*) and marked as measured or as an estimate. A post whose file failed cannot be approved or uploaded; fix

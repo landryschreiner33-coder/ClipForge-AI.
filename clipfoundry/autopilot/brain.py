@@ -696,6 +696,28 @@ def history(limit: int = 50) -> list[dict]:
     return db.select("brain_strategies", "", (), "created_at DESC", limit)
 
 
+def feedback_clips(limit: int = 60) -> list[dict]:
+    """Clips to choose from on the Test feedback page: posted clips first (with where they went and to whom), then
+    the newest ready clips that were not posted (feedback from testers shown the file directly)."""
+    from .learner import cohort
+
+    out, seen = [], set()
+    for pub in db.select("publications", "status IN ('done', 'action_needed')", (), "created_at DESC", limit):
+        clip = db.get_clip(pub["clip_id"]) or {}
+        if not clip:
+            continue
+        group = cohort(pub)
+        out.append({"clip_id": clip["id"], "title": clip.get("title") or "Untitled clip", "platform": pub["platform"],
+                    "posted_at": pub["created_at"], "cohort": group, "cohort_label": COHORT_LABELS.get(group, group)})
+        seen.add(clip["id"])
+    for clip in db.select("clips", "status = 'ready'", (), "created_at DESC", limit):
+        if clip["id"] in seen:
+            continue
+        out.append({"clip_id": clip["id"], "title": clip.get("title") or "Untitled clip", "platform": "",
+                    "posted_at": None, "cohort": "testers", "cohort_label": COHORT_LABELS["testers"]})
+    return out[:limit * 2]
+
+
 def clip_results(clip_id: str) -> dict:
     """A clip's evidence for the Test feedback page: per provenance, newest first, and what it means."""
     rows = observations(clip_id)

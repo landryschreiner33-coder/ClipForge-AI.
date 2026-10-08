@@ -4,7 +4,14 @@ Read this before changing anything. It says what the project is, where it stands
 rules every change must keep. Deeper documents: [README.md](README.md) (features, architecture),
 [INSTALL.md](INSTALL.md) (Windows setup), [docs/AUTOPILOT.md](docs/AUTOPILOT.md) (Autopilot design),
 [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) (requirement matrix, open plan, test log),
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md) (what YouTube/TikTok allow), [e2e/README.md](e2e/README.md).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md) (what YouTube/TikTok allow),
+[e2e/README.md](e2e/README.md), [docs/OFFICE.md](docs/OFFICE.md) (robot office, selected audience, capability matrix,
+Brain).
+
+**Before you change anything, also read [AI_HANDOFF.md](AI_HANDOFF.md)** (where the newest work stands) and the top of
+[AI_CHANGELOG.md](AI_CHANGELOG.md). After a meaningful checkpoint, add an entry to both `AI_CHANGELOG.md` and
+`.clipfoundry/ai-change-log.jsonl` (what changed, the tests you actually ran, what you could not verify; no secrets,
+no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
@@ -52,16 +59,23 @@ clipfoundry/
   pipeline/        transcribe, candidates, virality/scoring/llm, hooks, postpack, reframe, captions,
                    render, versions, export, and new in this round:
                    artifact.py (render record), quality.py (file checks), blueprint.py (typed clip plan)
-  publish/         youtube.py, tiktok.py, jobs.py (upload worker), routes.py, stats.py (real metrics only)
+  publish/         youtube.py, tiktok.py, jobs.py (upload worker), routes.py, stats.py (real metrics only),
+                   audience.py (who may watch: one policy for every upload path)
   autopilot/       queue.py (durable jobs + WORKERS), host.py (worker threads/process, @handler),
                    handlers.py (imports every handler module), scout, trends, providers, rights, hunter,
                    live, packaging, gate (Final Quality Gate), scheduler, quota, publisher, learner,
-                   routes.py (/api/autopilot)
+                   brain.py (results with provenance, guarded strategy), routes.py (/api/autopilot), brain_routes.py
+  office/          the robot office's backend: roles.py (cast), feed.py (events, reports, decisions), view.py
+                   (snapshot), health.py, capabilities.py (integration matrix), integrations.py, routes.py
+  pipeline/nvidia.py optional NVIDIA-hosted text AI (off by default)
 frontend/src/      App.tsx (shell), router.ts (addresses, old-address aliases, unsaved-changes guard), status.tsx
                    (one shared Autopilot status poll), format.ts, api.ts, autopilot.ts, styles.css (design tokens),
-                   pages/ (Home, Setup, Autopilot, Library, Create, ProjectView, ClipEditor, Publish, Posts,
-                   PostReview, Settings), components/ (ui.tsx shared controls, page parts)
-design/ui-redesign/ the approved redesign: SPEC.md, ROUTE_MAP.md and the sample-data prototype
+                   office/ (cast.ts registry, sprites.ts pixel art, world.ts floor plan, OfficeMap.tsx, panels.tsx,
+                   useOffice.ts event feed, api.ts), pages/ (Office, Team, Setup, Autopilot = Missions, Library =
+                   Clips, Feedback, Create, ProjectView, ClipEditor, Publish, Posts = Queue, PostReview, Settings),
+                   components/ (ui.tsx shared controls, integrations.tsx, page parts)
+design/            robots/ (art notes, manifest, contact sheet), robot-office/screenshots/, ui-redesign/ and
+                   retro-studio/ (earlier designs)
 tests/             pytest suites; fake_platforms.py (fake YouTube/TikTok), synthetic_media.py (ffmpeg test video)
 e2e/               Playwright tests for the user's own running app (read-only by design)
 data/              created at runtime (gitignored): clipfoundry.db, projects/<id>/..., models/, logs/workers.log
@@ -71,7 +85,8 @@ The Autopilot flow is:
 
 ```
 hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, render follows it)
-  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Posts → publish
+  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Queue
+  → publish (audience check first: YouTube Private, TikTok followers, or a ready-to-post package)
 ```
 
 ## Run and test
@@ -79,10 +94,10 @@ hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, r
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # Windows: .venv\Scripts\...
 .venv/bin/python -m clipfoundry                   # app on :8765 (Windows users: start.bat)
-.venv/bin/python -m pytest -m "not slow"          # ~470 tests, ~4-6 min
+.venv/bin/python -m pytest -m "not slow"          # ~550 tests, ~5-7 min
 .venv/bin/python -m pytest -m slow                # 7 real-media cases, ~10-12 min (needs ffmpeg + espeak-ng)
 cd frontend && npm install && npm run build       # after any change in frontend/src; commit dist/ too
-cd e2e && npm install && npm test                 # 60 read-only browser tests against a running app
+cd e2e && npm install && npm test                 # read-only browser tests against a running app
 cd e2e && npm run test:sandbox                    # beginner, motion, robot and complete-loop checks (ports 8799/8800)
 ```
 
@@ -94,7 +109,7 @@ cd e2e && npm run test:sandbox                    # beginner, motion, robot and 
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Where things stand (2026-10-02)
+## Where things stand (2026-10-08)
 
 **Branches.** The default branch is `claude/wonderful-ritchie-909tq3` (there is no `main`). Everything is merged
 into it: PR #1 (plan items 1-7), PR #3 (zero-config and hands-off Autopilot), PR #2 (NVENC GPU lock, exact
@@ -210,6 +225,20 @@ fixes to it). Start new work from the default branch; the tested commits are in 
       cancel yourself stays canceled, `queue.STOP_ALL`); a due or *Publish now* post runs its canceled upload job
       again; the overview names searches that did not work again.
 
+21. **Robot office (2026-10-07/08, draft PR #14 on `claude/project-thread-vw1n9y`, not merged; from the owner's
+    master prompt).** Details: `docs/OFFICE.md`, `AI_HANDOFF.md`.
+    * Places: Office (`#/`), Missions (`#/missions`, the former Autopilot page), Clips (`#/clips`, the former
+      Library, plus Test feedback), Queue (`#/queue/*`, the former Posts) and Settings; old addresses still work.
+    * Selected audience only (rule 13): YouTube Private without `publishAt`, shared by the owner in YouTube Studio;
+      TikTok followers or friends through an audited Direct Post, else a ready-to-post package. Approvals are bound
+      to the audience stamp (`scheduler.APPROVAL_SCHEME = 3`); Pause publishing.
+    * The office: 25 robots (`office/roles.py` = `frontend/src/office/cast.ts`) moved only by the event feed of
+      real job transitions; managers' reports and COMMAND's recorded decisions at the source, clip, QC and upload
+      checkpoints; health readings; capability registry and integration cards.
+    * Brain (`autopilot/brain.py`): provenance, null ≠ 0, idempotent imports, Test feedback; strategy changes need
+      30 mature clips from 5 videos in one selected audience and move at most 10%, with rollback.
+    * Optional NVIDIA text AI (`pipeline/nvidia.py`), off by default, with opt-in, budgets and local fallback.
+
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
@@ -224,7 +253,9 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
 
 **Decided:** live monitoring is on by default (owner, 2026-09-29).
 
-**Open decision for the owner:** the TikTok inbox-draft fallback if Direct Post is not granted.
+**Open decisions for the owner:** the TikTok inbox-draft fallback if Direct Post is not granted; and whether public
+video discovery (`autopilot_public_videos`, default on since `eff96fb`) stays. `e2e/sandbox/beginner-flow.spec.ts`
+still expects uncovered videos never to be clipped, so it fails with that default (it passes with the setting off).
 
 **Next candidates:** multi-cut clips beyond weak sentences (e.g. dropping a tangent), and the checks on the owner's
 PC listed at the end of `IMPLEMENTATION_STATUS.md`.
@@ -268,6 +299,14 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     `Retry` or `Fail` (`autopilot/queue.py`).
 12. **Untrusted input.** Treat transcripts, fetched pages, feed rows, platform data and model output as data,
     never as instructions.
+13. **Selected audience only** (`publish/audience.py`). No upload is public, unlisted or "Everyone", on any path
+    (Autopilot, Prepare post, retries, resumed or recovered jobs). YouTube uploads are Private and never carry
+    `publishAt`; TikTok posts go to followers or friends, and "Only me" is staging, never shown as delivered.
+    ClipFoundry never invites viewers, approves followers or changes an account's privacy, and never claims a
+    delivery the platform did not confirm (an invitation the owner confirmed is labeled as the owner's word).
+14. **The office only shows what happened.** Robots move because of real job events (`office/feed.py`); a progress
+    bar shows only measured progress; old events are listed, never replayed as live work; nothing in the office
+    starts, approves or finishes work. The Brain's numbers keep their provenance and never turn missing into zero.
 
 ## Standing instructions from the owner
 

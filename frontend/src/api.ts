@@ -315,6 +315,8 @@ export const api = {
   tiktokCreator: () => req<TikTokCreator>("GET", "/api/publish/tiktok/creator"),
   refreshStats: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/stats`),
   linkTikTok: (pubId: string, url: string) => req<Publication>("POST", `/api/publications/${pubId}/link`, { url }),
+  /** You shared the private YouTube video with your invited viewers (your word: YouTube does not report it). */
+  audienceConfirmed: (pubId: string) => req<Publication>("POST", `/api/publications/${pubId}/audience-confirmed`),
   performance: () => req<PerformanceOverview>("GET", "/api/performance"),
   refreshAllStats: () => req<{ refreshed: number; failed: { platform: string; error: string; fix: string }[] }>("POST", "/api/performance/refresh"),
   refreshPublication: (id: string) => req<Publication>("POST", `/api/publications/${id}/refresh`),

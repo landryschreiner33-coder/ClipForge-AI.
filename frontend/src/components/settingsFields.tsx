@@ -7,7 +7,7 @@ import { Icon, Segmented, Toggle } from "./ui";
  * table (label and tab of every key, used by the save bar and to point at an invalid field) and validation.
  */
 
-export type SettingsTab = "accounts" | "defaults" | "advanced";
+export type SettingsTab = "accounts" | "defaults" | "integrations" | "advanced";
 export type FieldCtx = {
   s: Settings; set: (patch: Settings) => void; errors?: Record<string, string>; saved?: Settings;
 };
@@ -64,6 +64,16 @@ add("advanced", {
   ai_provider: "AI scoring", ai_max_candidates: "Max candidates", ollama_url: "Ollama address",
   ollama_model: "Ollama model", openai_url: "Server address", openai_model: "Server model",
   openai_api_key: "Server API key", anthropic_api_key: "Claude API key", anthropic_model: "Claude model",
+  brain_min_clips: "Brain: clips before a change", brain_max_step: "Brain: largest step",
+  brain_min_views: "Brain: views per reading", brain_min_testers: "Brain: testers per clip",
+});
+
+add("integrations", {
+  nvidia_enabled: "Use NVIDIA AI", nvidia_api_key: "NVIDIA API key", nvidia_model: "NVIDIA model",
+  nvidia_mode: "NVIDIA mode", nvidia_production_url: "NVIDIA endpoint", nvidia_daily_requests: "NVIDIA requests a day",
+  nvidia_daily_tokens: "NVIDIA tokens a day", nvidia_max_input_tokens: "NVIDIA text per request",
+  nvidia_max_output_tokens: "NVIDIA longest answer", nvidia_timeout_s: "NVIDIA timeout",
+  nvidia_price_per_mtok_usd: "NVIDIA price", nvidia_daily_spend_cap_usd: "NVIDIA spending cap",
 });
 
 // The server's ranges (config.py _RANGES and validate_settings), so a value is never silently clamped on save.
@@ -79,6 +89,10 @@ const RANGES: Record<string, [number, number]> = {
   youtube_quota_uploads: [0, 100_000], youtube_quota_search: [0, 100_000], youtube_discovery_share: [0, 90],
   youtube_search_discovery_share: [0, 100], gpu_min_free_vram_mb: [0, 48_000], gpu_wait_minutes: [1, 720],
   tavily_free_credits: [0, 1_000_000], discovery_monthly_budget_usd: [0, 1000],
+  nvidia_daily_requests: [0, 5000], nvidia_daily_tokens: [0, 5_000_000], nvidia_max_input_tokens: [500, 32000],
+  nvidia_max_output_tokens: [100, 4000], nvidia_timeout_s: [5, 300], nvidia_price_per_mtok_usd: [-1, 1000],
+  nvidia_daily_spend_cap_usd: [0, 1000],
+  brain_min_clips: [30, 1000], brain_max_step: [0.01, 0.1], brain_min_views: [1, 100_000], brain_min_testers: [2, 100],
 };
 const INTEGER = new Set([
   "clip_count", "crf", "max_fps", "ai_max_candidates", "whisper_beam_size", "autopilot_daily_target",
@@ -87,6 +101,8 @@ const INTEGER = new Set([
   "autopilot_upload_lead_minutes", "autopilot_max_source_minutes", "trend_poll_minutes", "trend_max_age_hours",
   "youtube_quota_default", "youtube_quota_uploads", "youtube_quota_search", "youtube_discovery_share",
   "youtube_search_discovery_share", "gpu_min_free_vram_mb", "gpu_wait_minutes", "tavily_free_credits",
+  "nvidia_daily_requests", "nvidia_daily_tokens", "nvidia_max_input_tokens", "nvidia_max_output_tokens",
+  "brain_min_clips", "brain_min_views", "brain_min_testers",
 ]);
 
 export function validTimeZone(tz: string): boolean {

@@ -8,6 +8,7 @@ import {
 } from "../components/accounts";
 import { AutopilotSettings, Errors } from "../components/autopilotSettings";
 import { AutoPublishLine } from "../components/autoPublish";
+import { DevLogPanel, IntegrationsTab } from "../components/integrations";
 import {
   Check, FieldCtx, fieldId, FIELDS, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, SettingsTab, Switch,
   TextInput, validate,
@@ -17,9 +18,12 @@ import {
 } from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
-const TAB_NAME: Record<SettingsTab, string> = { accounts: "Accounts", defaults: "Defaults", advanced: "Advanced" };
+const TAB_NAME: Record<SettingsTab, string> = {
+  accounts: "Accounts", defaults: "Defaults", integrations: "Integrations", advanced: "Advanced",
+};
 const TAB_HREF: Record<SettingsTab, string> = {
-  accounts: "#/settings", defaults: "#/settings/defaults", advanced: "#/settings/advanced",
+  accounts: "#/settings", defaults: "#/settings/defaults", integrations: "#/settings/integrations",
+  advanced: "#/settings/advanced",
 };
 const ACCOUNT_KEYS: Record<Platform, string[]> = {
   youtube: ["youtube_client_id", "youtube_client_secret", "youtube_project_verified"],
@@ -27,17 +31,18 @@ const ACCOUNT_KEYS: Record<Platform, string[]> = {
     "tiktok_app_audited"],
 };
 const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-  "youtube_api_key", "tavily_api_key"]);
+  "youtube_api_key", "tavily_api_key", "nvidia_api_key"]);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * Settings: Accounts (connect, app codes, how posts get approved), Defaults (new clips, the daily target, posting
- * hours, topics) and Advanced (everything else). One sticky save bar for all three: it names the unsaved changes,
+ * hours, topics), Integrations (who watches, what each connection can do, the optional NVIDIA AI) and Advanced
+ * (everything else, and the read-only Dev Log). One sticky save bar for all four: it names the unsaved changes,
  * and a field error blocks saving and points at the field. Secrets are never sent to the page: they show as
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
-  const t: SettingsTab = tab === "defaults" || tab === "advanced" ? tab : "accounts";
+  const t: SettingsTab = tab === "defaults" || tab === "integrations" || tab === "advanced" ? tab : "accounts";
   const { st } = useStatus();
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -193,6 +198,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
         <LinkTabs label="Settings sections" current={t} tabs={[
           { id: "accounts", href: "#/settings", label: "Accounts" },
           { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
+          { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
           { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
         ]} />
       </div>
@@ -214,7 +220,13 @@ export default function SettingsPage({ tab }: { tab?: string }) {
             <AppearancePanel />
           </>
         )}
-        {t === "advanced" && <AdvancedTab c={c} health={health} st={st} />}
+        {t === "integrations" && <IntegrationsTab c={c} changed={changed} reload={load} />}
+        {t === "advanced" && (
+          <>
+            <AdvancedTab c={c} health={health} st={st} />
+            <DevLogPanel />
+          </>
+        )}
       </div>
 
       <section className="savebar" aria-label="Save settings">
@@ -455,7 +467,7 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <Pill tone={autopilotOn ? "good" : "neutral"} icon={autopilotOn ? "check" : "dot"}>
               {autopilotOn ? "On" : "Off"}
             </Pill>{" "}
-            <a className="textlink" href="#/autopilot">Open Autopilot</a>
+            <a className="textlink" href="#/missions">Open Autopilot</a>
           </span>
         </SettingRow>
         <SettingRow k="autopilot_daily_target" label="Daily target"
@@ -567,6 +579,28 @@ function AdvancedTab({ c, health, st }: {
 
       <AutopilotSettings s={s} set={set} errors={errors} saved={c.saved} />
 
+      <SettingsPanel id="adv-brain" title="Brain (learning)"
+        intro={<>How carefully ClipFoundry learns from your viewers' results. These are lower limits: it never learns
+          from fewer than 30 clips or changes a value by more than 10% at once. Pause, reset and roll back are in the
+          Office's <a className="textlink" href="#/">Brain Room</a>.</>}>
+        <SettingRow k="brain_min_clips" label="Clips before any change" errors={errors}
+          hint="Mature clips in one comparable audience before a strategy may change (30 to 1,000)">
+          <NumInput k="brain_min_clips" c={c} />
+        </SettingRow>
+        <SettingRow k="brain_max_step" label="Largest step" errors={errors}
+          hint="The most one update may change a value, as a fraction (0.01 to 0.10, that is 1% to 10%)">
+          <NumInput k="brain_max_step" c={c} step={0.01} />
+        </SettingRow>
+        <SettingRow k="brain_min_views" label="Views for a reading" errors={errors}
+          hint="A platform reading counts once a clip has this many views">
+          <NumInput k="brain_min_views" c={c} />
+        </SettingRow>
+        <SettingRow k="brain_min_testers" label="Testers for a reading" errors={errors}
+          hint="...or once this many different testers rated it">
+          <NumInput k="brain_min_testers" c={c} />
+        </SettingRow>
+      </SettingsPanel>
+
       <SettingsPanel id="adv-render" title="Rendering, AI scoring and system">
         <SettingRow k="encoder" label="Video encoder"
           hint={health ? (health.nvenc ? "NVENC is available" : "NVENC is not available on this PC") : undefined} group>
@@ -606,8 +640,16 @@ function AdvancedTab({ c, health, st }: {
             { value: "ollama", label: "Ollama (local AI, free)" },
             { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
+            { value: "nvidia", label: "NVIDIA AI (optional; set it up under Integrations)" },
           ]} />
         </SettingRow>
+        {provider === "nvidia" && (
+          <p className="small muted">
+            NVIDIA AI is set up, agreed to and tested under{" "}
+            <a className="textlink" href="#/settings/integrations">Settings → Integrations</a>. Without that
+            agreement nothing is sent and the local analysis is used.
+          </p>
+        )}
         {provider === "ollama" && (
           <>
             <SettingRow k="ollama_url" label="Ollama address"><TextInput k="ollama_url" c={c} /></SettingRow>

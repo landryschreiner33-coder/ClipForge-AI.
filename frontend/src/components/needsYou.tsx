@@ -20,8 +20,8 @@ export const needLook = (i: NeedsYouItem): [NeedTone, IconName] => LOOK[i.type] 
 
 /** The backend still names the older addresses; they redirect, but a link should say where it really goes. */
 const NEW_ADDRESS: [RegExp, string][] = [
-  [/^#\/publish-center\/problems$/, "#/posts/problems"],
-  [/^#\/publish-center.*$/, "#/posts/review"],
+  [/^#\/publish-center\/problems$/, "#/queue/problems"],
+  [/^#\/publish-center.*$/, "#/queue/review"],
 ];
 const address = (link?: string) => {
   if (!link) return "";
@@ -93,7 +93,7 @@ export function NeedActions({ item, platforms, refresh, primary, first }: {
   } else if (item.type === "sleep") {
     // Nothing to press: it goes away by itself once Windows keeps the PC awake, or Autopilot is turned off. The
     // short list (Home) has no room for the steps, so it links to Autopilot, where the item shows them.
-    buttons = first ? [<a key="steps" className="btn btn-small" href="#/autopilot">See what to do</a>] : [];
+    buttons = first ? [<a key="steps" className="btn btn-small" href="#/missions">See what to do</a>] : [];
   } else {
     const link = address(item.link);
     buttons = [

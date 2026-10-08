@@ -22,6 +22,11 @@ def status() -> dict:
         "ratings": brain.RATINGS, "provenance": brain.PROVENANCE_LABELS, "cohorts": brain.COHORT_LABELS}}
 
 
+@router.get("/feedback-clips", dependencies=READ)
+def feedback_clips() -> list[dict]:
+    return brain.feedback_clips()
+
+
 @router.get("/clips/{clip_id}", dependencies=READ)
 def clip(clip_id: str) -> dict:
     if not db.get_clip(clip_id):

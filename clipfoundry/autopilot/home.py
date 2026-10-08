@@ -260,11 +260,15 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "link": "#/posts/review"})
         elif kind == "publish":
             items.append({"key": key, "type": "publish", "title": a["title"], "detail": a["detail"],
-                          "fix": a["fix"], "link": f"#/post/{a['ref_id']}" if a.get("ref_type") == "scheduled"
-                          and a.get("ref_id") else "#/posts/scheduled"})
+                          "fix": a["fix"], "link": "#/settings/integrations" if key.startswith("audience:") else
+                          f"#/post/{a['ref_id']}" if a.get("ref_type") == "scheduled" and a.get("ref_id")
+                          else "#/posts/scheduled"})
         elif kind == "gpu":
             items.append({"key": key, "type": "gpu", "title": "GPU transcription is not working",
                           "detail": a["detail"], "fix": a["fix"], "link": "#/settings/advanced"})
+        elif kind == "audience":
+            items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
+                          "link": "#/settings/integrations"})
         else:
             items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
                           "link": "#/autopilot/system"})

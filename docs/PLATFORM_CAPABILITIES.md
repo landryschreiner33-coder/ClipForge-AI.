@@ -53,7 +53,8 @@ saw.
 | Unaudited projects | Uploads are locked to Private until the project passes the audit | `docs/AUTOPILOT.md`, `publish/jobs.py` (`locked_private`) | Reported before and after upload; never claims public | contract-tested |
 | User control over published data | The app may suggest, the user decides (title, description, privacy) | Developer Policies (as recorded in `docs/AUTOPILOT.md`) | Every Autopilot post needs approval in the Publish Center; approval bound to content | unit-tested |
 | Made-for-kids | Must be answered | YouTube API / COPPA | Required in approval (`scheduler.check_platform`) | unit-tested |
-| Native scheduling | Upload as private with `publishAt` | YouTube Data API | Upload lead time (default 30 min) then YouTube publishes | contract-tested |
+| Native scheduling | Upload as private with `publishAt` | YouTube Data API | **Not used since the robot office (2026-10-07):** uploads are Private without `publishAt`, so nothing becomes public; the owner shares each video privately in YouTube Studio (the API has no call for invitations) | contract-tested (`test_audience.py`) |
+| Sharing a private video | Private videos are shared by email invitation from YouTube Studio | YouTube Help (private sharing), as recorded in the owner's brief | The post waits as *Awaiting viewer invitations* until the owner presses *I shared it*; labeled as the owner's confirmation | unit-tested; the Studio step is the owner's |
 | Derived metrics from API data | Not without Google's approval | Developer Policies III.E.4 (as recorded) | Momentum/learning from YouTube data only with the explicit setting | unit-tested |
 | Stored API data | Refresh or delete within 30 days (Authorized Data of the user's own channel may be kept by approved projects) | Developer Policies (as recorded) | Maintenance step deletes older YouTube data | unit-tested |
 | Downloading platform videos | Only through means YouTube authorizes, or with permission | YouTube Terms (as recorded) | Off by default; own files preferred | unit-tested |
@@ -63,6 +64,10 @@ saw.
 
 | Check | Why it cannot be done here | Evidence to collect |
 | --- | --- | --- |
-| YouTube OAuth, upload (private), `publishAt`, status read-back | needs the user's Google Cloud client and channel | video ID, privacy reported by YouTube, scheduled time |
+| YouTube OAuth, upload (Private, no `publishAt`), status read-back | needs the user's Google Cloud client and channel | video ID, privacy reported by YouTube (private), no scheduled publishing in Studio |
 | TikTok Login Kit, creator info, inbox draft | needs the user's TikTok developer app | creator nickname and privacy options read from TikTok, draft visible in the app |
 | TikTok Direct Post | depends on TikTok accepting the app and use case | TikTok's decision; until then inbox or manual upload |
+
+The in-app capability matrix (Settings → Integrations, `clipfoundry/office/capabilities.py`) and
+[OFFICE.md](OFFICE.md#what-each-integration-can-do) list, per platform, what this version implements, what needs the
+platform's approval and what the platform does not offer.

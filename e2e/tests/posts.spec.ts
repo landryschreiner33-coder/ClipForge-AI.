@@ -1,7 +1,8 @@
 import { expect, getJson, test } from "../fixtures";
 
-// Looks at Posts and the post pages only. Approve, Publish now, Cancel post, Save and the resolve and link buttons
-// are never pressed; a dialog that is opened is closed with its cancel button or Escape. Writes are blocked anyway.
+// Looks at the Queue (posts) and the post pages only. Approve, Publish now, Cancel post, Save, I shared it and the
+// resolve and link buttons are never pressed; a dialog that is opened is closed with its cancel button or Escape.
+// Writes are blocked anyway.
 
 type Item = {
   id: string; status: string; planned_at: number | null; approval_valid: boolean; platform: string;
@@ -29,17 +30,18 @@ const VIEW: Record<string, (p: Item) => boolean> = {
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
 };
 const EMPTY: Record<string, string> = {
-  review: "Nothing waits for your OK", scheduled: "Nothing is scheduled", published: "Nothing published yet",
+  review: "Nothing waits for your OK", scheduled: "Nothing is scheduled", published: "Nothing uploaded yet",
   history: "No history yet", problems: "No problems",
 };
 
 test("every tab lists the posts it should", async ({ page, request }) => {
   for (const v of Object.keys(VIEW)) {
-    await page.goto(`/#/posts/${v}`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Posts");
+    await page.goto(`/#/queue/${v}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Queue");
     const current = v === "history" ? "Published" : { review: "Needs review", scheduled: "Scheduled",
       published: "Published", problems: "Problems" }[v]!;
-    await expect(page.getByRole("navigation", { name: "Posts" }).locator("[aria-current=page]")).toContainText(current);
+    await expect(page.getByRole("navigation", { name: "Queue sections" }).locator("[aria-current=page]"))
+      .toContainText(current);
     await expect(async () => {
       const { items } = await allPosts(request);
       const n = items.filter(VIEW[v]).length;
@@ -50,8 +52,8 @@ test("every tab lists the posts it should", async ({ page, request }) => {
 });
 
 test("the tab counts match the posts that wait for you", async ({ page, request }) => {
-  await page.goto("/#/posts/review");
-  const tabs = page.getByRole("navigation", { name: "Posts" });
+  await page.goto("/#/queue/review");
+  const tabs = page.getByRole("navigation", { name: "Queue sections" });
   await expect(async () => {
     const { items } = await allPosts(request);
     for (const [name, v] of [["Needs review", "review"], ["Problems", "problems"]] as const) {
@@ -65,16 +67,17 @@ test("the tab counts match the posts that wait for you", async ({ page, request 
 
 test("the time zone is stated once, under the title", async ({ page, request }) => {
   const { timezone } = await allPosts(request);
-  await page.goto("/#/posts/review");
+  await page.goto("/#/queue/review");
   await expect(page.locator(".page-head p")).toContainText(timezone);
 });
 
-test("old Publish Center addresses open Posts", async ({ page }) => {
-  for (const [from, to] of [["publish-center", "posts/review"], ["publish-center/problems", "posts/problems"],
-    ["publish-center/history", "posts/history"], ["posts/no-such-tab", "posts/review"]]) {
+test("old Publish Center and Posts addresses open the Queue", async ({ page }) => {
+  for (const [from, to] of [["publish-center", "queue/review"], ["publish-center/problems", "queue/problems"],
+    ["publish-center/history", "queue/history"], ["posts/no-such-tab", "queue/review"], ["posts/scheduled",
+      "queue/scheduled"], ["queue/no-such-tab", "queue/review"]]) {
     await page.goto(`/#/${from}`);
     await expect(page).toHaveURL(new RegExp(`#/${to}$`));
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Posts");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Queue");
   }
 });
 
@@ -87,7 +90,7 @@ test("each post's row and page show the same status, and Publish now only on an 
   const sample = items.filter((p, i) => items.slice(0, i).filter((x) => x.status === p.status).length < 2);
   for (const p of sample) {
     const view = Object.keys(VIEW).find((v) => VIEW[v](p))!;
-    await page.goto(`/#/posts/${view}`);
+    await page.goto(`/#/queue/${view}`);
     const word = (await page.locator(`.post-row[data-id="${p.id}"] .post-meta .pill`).innerText()).trim();
     await page.goto(`/#/post/${p.id}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -112,7 +115,7 @@ test("Cancel this post asks first and says what happens", async ({ page, request
   const { items } = await allPosts(request);
   const p = items.find((x) => ["awaiting_approval", "approved"].includes(x.status));
   test.skip(!p, "no planned post to look at");
-  await page.goto(`/#/posts/${VIEW.review(p!) ? "review" : "scheduled"}`);
+  await page.goto(`/#/queue/${VIEW.review(p!) ? "review" : "scheduled"}`);
   await page.locator(`.post-row[data-id="${p!.id}"]`).getByRole("button", { name: /^More for this/ }).click();
   await page.getByRole("menuitem", { name: "Cancel this post…" }).click();
   const dialog = page.getByRole("dialog");
@@ -124,7 +127,7 @@ test("Cancel this post asks first and says what happens", async ({ page, request
 
 test("Results show real numbers, or a dash with the reason", async ({ page, request }) => {
   const perf = await getJson(request, "/api/performance");
-  await page.goto("/#/posts/results");
+  await page.goto("/#/queue/results");
   await expect(page.getByRole("heading", { name: "Results", level: 2 })).toBeVisible();
   if (perf.published === 0) {
     await expect(page.getByText("Nothing published yet.")).toBeVisible();
@@ -139,5 +142,5 @@ test("Results show real numbers, or a dash with the reason", async ({ page, requ
 test("an unknown post says so", async ({ page }) => {
   await page.goto("/#/post/no-such-post");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Post not found");
-  await expect(page.getByRole("link", { name: "Open Posts" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open the Queue" })).toBeVisible();
 });

@@ -18,9 +18,9 @@ export default function AdvancedView({ which, st, refresh }: {
   return (
     <>
       <LinkTabs label="Advanced" current={which} tabs={[
-        { id: "system", href: "#/autopilot/system", label: "System" },
-        { id: "jobs", href: "#/autopilot/jobs", label: "Jobs" },
-        { id: "learning", href: "#/autopilot/learning", label: "Learning" },
+        { id: "system", href: "#/missions/system", label: "System" },
+        { id: "jobs", href: "#/missions/jobs", label: "Jobs" },
+        { id: "learning", href: "#/missions/learning", label: "Learning" },
       ]} />
       <p className="small muted">For troubleshooting. Normal use never needs these pages.</p>
       {which === "jobs" ? <JobsView />
@@ -42,9 +42,9 @@ const PROVIDER: Record<string, [Tone, string]> = {
   error: ["bad", "Error"], quota: ["warn", "Quota used up"],
 };
 const ACTION_LINK: Record<string, string> = {
-  approve: "#/posts/review", publish: "#/posts/problems", rights: "#/autopilot/sources",
-  source_file: "#/autopilot/sources", youtube: "#/settings", quota: "#/settings/advanced",
-  gpu: "#/settings/advanced", workers: "#/autopilot/jobs",
+  approve: "#/queue/review", publish: "#/queue/problems", rights: "#/missions/sources",
+  source_file: "#/missions/sources", youtube: "#/settings", quota: "#/settings/advanced",
+  gpu: "#/settings/advanced", workers: "#/missions/jobs",
 };
 const ACTION_LOOK: Record<string, [Tone, IconName]> = {
   error: ["bad", "alert"], warning: ["warn", "alert"], action: ["warn", "clock"],
@@ -58,7 +58,7 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
       <section className="panel" style={TOP} aria-labelledby="sys-today">
         <div className="panel-head">
           <h2 id="sys-today">Today's numbers</h2>
-          <a className="btn btn-quiet btn-small" href="#/posts/scheduled">Open Posts</a>
+          <a className="btn btn-quiet btn-small" href="#/queue/scheduled">Open the Queue</a>
         </div>
         <dl className="kv daily">
           <dt>Daily target</dt>

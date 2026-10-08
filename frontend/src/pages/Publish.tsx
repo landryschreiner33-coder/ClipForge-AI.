@@ -117,9 +117,9 @@ export default function PublishPage({ id }: { id: string }) {
   if (loadError) {
     return (
       <div className="page">
-        <PageHead title="Prepare post" crumbs={[{ label: "Library", href: "#/library" }, { label: "Prepare post" }]} />
+        <PageHead title="Prepare post" crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Prepare post" }]} />
         <EmptyState icon="alert" title="This clip could not be opened"
-          actions={<a className="btn" href="#/library">Open Library</a>}>{loadError}</EmptyState>
+          actions={<a className="btn" href="#/clips">Open Library</a>}>{loadError}</EmptyState>
       </div>
     );
   }
@@ -139,13 +139,13 @@ export default function PublishPage({ id }: { id: string }) {
     <div className="page">
       <PageHead title="Prepare post"
         crumbs={[
-          { label: "Library", href: "#/library" },
+          { label: "Clips", href: "#/clips" },
           { label: <span className="clamp-1 crumb-title">{project.name}</span>, href: `#/project/${project.id}` },
           { label: <span className="clamp-1 crumb-title">{clip.title}</span>, href: `#/clip/${clip.id}` },
           { label: "Prepare post" },
         ]}
         sub={<>Post this clip yourself, now. Nothing goes out until you press a platform's button and confirm. Posts
-          Autopilot planned are in <a className="textlink" href="#/posts/review">Posts</a>.</>}
+          Autopilot planned are in <a className="textlink" href="#/queue/review">Posts</a>.</>}
         actions={<>
           <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>

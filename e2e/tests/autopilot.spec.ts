@@ -1,11 +1,11 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, getJson, test } from "../fixtures";
 
-// Looks at Autopilot without operating it. Never pressed: Start or Pause Autopilot, Resume jobs, Open videos folder,
-// Connect, Use it, the answers under Needs you, switches, Scan now, Learn now, Dismiss, Retry, Cancel and Log.
-// Dialogs are only opened and closed (Stop all jobs… with Keep running, the add dialogs with Cancel or Escape).
-// Each test checks that Autopilot's on/off and paused state are the same afterwards, and the fixture blocks (and
-// fails on) any request from the page that would change something.
+// Looks at Missions (the Autopilot page) without operating it. Never pressed: Start or Pause Autopilot, Resume jobs,
+// Open videos folder, Connect, Use it, the answers under Needs you, switches, Scan now, Learn now, Dismiss, Retry,
+// Cancel and Log. Dialogs are only opened and closed (Stop all jobs… with Keep running, the add dialogs with Cancel
+// or Escape). Each test checks that Autopilot's on/off and paused state are the same afterwards, and the fixture
+// blocks (and fails on) any request from the page that would change something.
 
 const onOff = async (request: APIRequestContext) => {
   const st = await getJson(request, "/api/autopilot/status");
@@ -13,15 +13,15 @@ const onOff = async (request: APIRequestContext) => {
 };
 /** Until Autopilot was started once, the overview points to Setup instead. */
 const notSetUp = (st: any) => !st.enabled && !st.home.setup.started;
-const sections = (page: Page) => page.getByRole("navigation", { name: "Autopilot sections" });
+const sections = (page: Page) => page.getByRole("navigation", { name: "Missions sections" });
 const fact = (page: Page, label: string) =>
   page.locator(".fact", { has: page.locator(".k", { hasText: label }) }).locator(".v");
 let before: { enabled: boolean; paused: boolean };
 
 test.beforeEach(async ({ page, request }) => {
   before = await onOff(request);
-  await page.goto("/#/autopilot");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Autopilot");
+  await page.goto("/#/missions");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Missions");
 });
 
 test.afterEach(async ({ request }) => {
@@ -163,7 +163,7 @@ test("nothing technical on the overview: that lives under Advanced", async ({ pa
     await expect(page.getByRole("heading", { name: h, exact: true })).toHaveCount(0);
   }
   await sections(page).getByRole("link", { name: "Advanced" }).click();
-  await expect(page).toHaveURL(/#\/autopilot\/system$/);
+  await expect(page).toHaveURL(/#\/missions\/system$/);
   await expect(page.getByRole("navigation", { name: "Advanced" }).getByRole("link", { name: "System" }))
     .toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: /^Workers/ })).toBeVisible();
@@ -171,7 +171,7 @@ test("nothing technical on the overview: that lives under Advanced", async ({ pa
 
 test("Activity shows what Autopilot found and what it did with each video", async ({ page, request }) => {
   await sections(page).getByRole("link", { name: "Activity" }).click();
-  await expect(page).toHaveURL(/#\/autopilot\/activity$/);
+  await expect(page).toHaveURL(/#\/missions\/activity$/);
   await expect(page.getByRole("heading", { name: "What Autopilot found" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
   await expect(async () => {
@@ -183,7 +183,7 @@ test("Activity shows what Autopilot found and what it did with each video", asyn
 
 test("Permissions & sources lists agreements, places, rules and found videos", async ({ page, request }) => {
   await sections(page).getByRole("link", { name: "Permissions & sources" }).click();
-  await expect(page).toHaveURL(/#\/autopilot\/sources$/);
+  await expect(page).toHaveURL(/#\/missions\/sources$/);
   for (const h of ["Creator agreements", "Where videos come from", "Permission rules",
     "Found videos and their permission"]) {
     await expect(page.getByRole("heading", { name: h })).toBeVisible();
@@ -201,7 +201,7 @@ test("Permissions & sources lists agreements, places, rules and found videos", a
 });
 
 test("the add dialogs on Permissions & sources open and close without a change", async ({ page }) => {
-  await page.goto("/#/autopilot/sources");
+  await page.goto("/#/missions/sources");
   // Record an agreement: the fields it needs, then Cancel
   await page.getByRole("button", { name: "Record an agreement…" }).click();
   let dialog = page.getByRole("dialog", { name: "Record an agreement with a creator" });
@@ -225,7 +225,7 @@ test("the add dialogs on Permissions & sources open and close without a change",
 });
 
 test("System shows today's numbers and every status panel", async ({ page, request }) => {
-  await page.goto("/#/autopilot/system");
+  await page.goto("/#/missions/system");
   const st = await getJson(request, "/api/autopilot/status");
   await expect(page.locator(".daily")).toContainText(`of ${st.target.daily} unique clips posted today`);
   for (const h of ["Today's numbers", "Workers", "GPU", "This computer", "Platforms", "YouTube API quota",
@@ -240,29 +240,29 @@ test("System shows today's numbers and every status panel", async ({ page, reque
   await expect(page.getByText("FFmpeg is required.")).toHaveCount(health.ffmpeg ? 0 : 1);
 });
 
-test("Open Posts goes to the scheduled posts", async ({ page }) => {
-  await page.goto("/#/autopilot/system");
-  await page.getByRole("link", { name: "Open Posts" }).click();
-  await expect(page).toHaveURL(/#\/posts\/scheduled$/);
+test("Open the Queue goes to the scheduled posts", async ({ page }) => {
+  await page.goto("/#/missions/system");
+  await page.getByRole("link", { name: "Open the Queue" }).click();
+  await expect(page).toHaveURL(/#\/queue\/scheduled$/);
 });
 
 test("a section opens directly, the old Overview address goes to System, an unknown one to the overview",
   async ({ page }) => {
     const advanced = page.getByRole("navigation", { name: "Advanced" });
-    await page.goto("/#/autopilot/jobs");
+    await page.goto("/#/missions/jobs");
     await expect(sections(page).getByRole("link", { name: "Advanced" })).toHaveAttribute("aria-current", "page");
     await expect(advanced.getByRole("link", { name: "Jobs" })).toHaveAttribute("aria-current", "page");
-    await page.goto("/#/autopilot/overview");
-    await expect(page).toHaveURL(/#\/autopilot\/system$/);
+    await page.goto("/#/autopilot/overview");  // the old address
+    await expect(page).toHaveURL(/#\/missions\/system$/);
     await expect(advanced.getByRole("link", { name: "System" })).toHaveAttribute("aria-current", "page");
-    await page.goto("/#/autopilot/no-such-tab");
-    await expect(page).toHaveURL(/#\/autopilot$/);
+    await page.goto("/#/missions/no-such-tab");
+    await expect(page).toHaveURL(/#\/missions$/);
     await expect(sections(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
     await expect(advanced).toHaveCount(0);
   });
 
 test("Jobs lists what the queue holds", async ({ page, request }) => {
-  await page.goto("/#/autopilot/jobs");
+  await page.goto("/#/missions/jobs");
   await expect(async () => {
     const jobs = await getJson<any[]>(request,
       "/api/autopilot/jobs?status=queued,running,waiting,retrying,failed&worker=&limit=150");
@@ -272,7 +272,7 @@ test("Jobs lists what the queue holds", async ({ page, request }) => {
 });
 
 test("Learning shows what the results show and how scores are weighted", async ({ page }) => {
-  await page.goto("/#/autopilot/learning");
+  await page.goto("/#/missions/learning");
   await expect(page.getByRole("heading", { name: "What your results show" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "How the scores are weighted" })).toBeVisible();
 });

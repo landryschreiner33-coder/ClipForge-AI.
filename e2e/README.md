@@ -1,8 +1,8 @@
 # ClipFoundry browser tests (Playwright)
 
 End-to-end tests that open ClipFoundry in a real Chromium on **your own PC** and check that every page
-works: Home, Autopilot, the Library (Add video, the source video page and the clip editor), Posts and
-Settings. They also check that Autopilot and publishing refuse requests that do not come from the app itself.
+works: the Office and Team, Missions (Autopilot), Clips (Add video, the source video page, the clip editor and Test
+feedback), the Queue and Settings. They also check that Autopilot and publishing refuse requests that do not come from the app itself.
 
 They test the ClipFoundry that is **already running** on your computer, with your real data. That is why
 they are **read-only**:
@@ -58,18 +58,18 @@ computer ClipFoundry runs on, so those tests would fail.
 
 | File | Checks |
 | --- | --- |
-| `tests/app-shell.spec.ts` | Health API, the built UI is served, the sidebar reaches Home, Autopilot, Library, Posts and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/projects`, `#/publish-center/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
-| `tests/home.spec.ts` | The next step comes from the real state (Needs you, welcome, current work), the Autopilot status line, Recent videos and clips and Coming up match the API, no stats or system details, Add video |
+| `tests/app-shell.spec.ts` | Health API, the built UI is served, the top bar reaches Office, Missions, Clips, Queue and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/home`, `#/projects`, `#/library`, `#/posts/...`, `#/publish-center/...`, `#/autopilot/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
+| `tests/office.spec.ts` | The bottom bar shows the real state and only the controls that fit it (none pressed), rooms and robot states match the office API, on-duty robots stand at their stations, a robot's card and a room's details, Activity newest first, the overview's health headline, Team (25 robots and CORE), the developer gallery |
 | `tests/autopilot.spec.ts` | The overview shows the real state and Stop all jobs asks first (the test cancels), Now, Progress, Next, Posts and This PC match the API, link intake and Needs you; Activity; Permissions & sources and its add dialogs (opened and canceled); System, Jobs and Learning under Advanced; section addresses |
 | `tests/create.spec.ts` | Make clips only enabled with a video or an http(s) link, non-video files refused, a chosen video can be swapped, options start from your saved defaults and changing them does not save anything |
 | `tests/library.spec.ts` | The Library matches the API, the name filter and chips, Delete and Make clips again ask first (the test cancels), a video and a clip open, leaving the editor with an unsaved change asks first, an unknown video or clip shows a message |
 | `tests/posts.spec.ts` | Each tab lists the posts it should, tab counts, the time zone stated once, old Publish Center addresses, a post's row and page show the same status, Publish now only on an approved post, Cancel this post asks first (the test keeps the post), Results show real numbers or a dash with the reason, an unknown post |
-| `tests/settings.spec.ts` | Accounts first, Defaults and Advanced sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
+| `tests/settings.spec.ts` | Accounts first, Defaults, Integrations (who watches, each connection's capabilities, NVIDIA AI) and Advanced (incl. the Brain and the Dev Log) sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
 
 ## Beginner flow and complete Autopilot loop (sandbox)
 
-One more test goes through what a new user does: open ClipFoundry, press Get started on Home, choose
+One more test goes through what a new user does: open ClipFoundry, press Set up ClipFoundry on the Office, choose
 Autopilot and keep the suggested topics, connect YouTube and TikTok, press Start Autopilot, and watch Autopilot find
 trending videos, create sources by itself and skip the ones nothing covers (listed in Activity, never asked about). The test then records
 one agreement with a creator, naming the folder where they share their raw files, and Autopilot takes that
@@ -85,6 +85,16 @@ second discovery after the worker host restarts. Upload bytes must match the che
 also pastes a link through the page, pastes its alternate address to check duplicate handling, and keeps its locally
 completed clip when publishing permission is unknown. An upcoming stream waits across another restart before real
 segmented capture and post-live clipping finish it. It never approves an individual post or retries a failed job.
+
+`sandbox/robot-office.spec.ts` checks how the Office draws real state, with controlled answers from the office API
+in the browser only: robots stand where their work is and go back to the Lounge after it, a report is carried to the
+manager, a decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, Reduce
+animations, and the layout at 1366×768, 1280×720 and narrow widths. `sandbox/motion.spec.ts` checks the motion
+preference. The sandbox tests write the screenshots in `design/robot-office/screenshots`.
+
+Known (October 2026): with public video discovery on (the default since `eff96fb`) the beginner flow fails at its
+older expectation that videos nothing covers are never clipped; it passes with that setting off. It waits for the
+owner's decision on public videos.
 
 The full sandbox replaces external account APIs, fixture DNS, original-file access and Whisper. Rendering, quality
 checks, approvals, queue dispatch, uploads and learning use the application itself. Small generated originals stand

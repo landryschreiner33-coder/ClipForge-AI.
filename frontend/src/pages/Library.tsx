@@ -5,6 +5,7 @@ import { plural } from "../format";
 import {
   addedLine, cancelProcessing, DeleteProjectDialog, isWorking, LibProject, projectMenu, ProjectStatus,
 } from "../components/libParts";
+import { ClipsTabs } from "./Feedback";
 import { Banner, EmptyState, Icon, MoreMenu, PageHead, Skel, Thumb, toast, usePoll } from "../components/ui";
 import { useStatus } from "../status";
 import "./library.css";
@@ -34,9 +35,12 @@ export default function Library() {
   const [deleting, setDeleting] = useState<LibProject | null>(null);
 
   const head = (
-    <PageHead title="Library"
-      sub="Your source videos and the clips made from them. Everything is stored on this computer."
-      actions={<a className="btn btn-primary" href="#/create"><Icon name="plus" />Add video</a>} />
+    <>
+      <PageHead title="Clips"
+        sub="Your source videos and the clips made from them. Everything is stored on this computer."
+        actions={<a className="btn btn-primary" href="#/create"><Icon name="plus" />Add video</a>} />
+      <ClipsTabs current="clips" />
+    </>
   );
 
   if (!data) {

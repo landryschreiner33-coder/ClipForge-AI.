@@ -150,8 +150,8 @@ export function postStatus(p: Post): StatusWord {
         : { tone: "good", word: "Approved by you", icon: "check" };
     case "publishing": return { tone: "info", word: "Uploading now", icon: "upload" };
     case "published":
-      return onPlatform(p) ? { tone: "info", word: "Uploaded, waiting for its time", icon: "clock" }
-        : { tone: "good", word: "Published", icon: "check" };
+      if (onPlatform(p)) return { tone: "info", word: "Uploaded early as Private", icon: "clock" };
+      return DELIVERY_WORD[p.delivery_state || ""] || { tone: "good", word: p.delivery_label || "Uploaded", icon: "check" };
     case "reconciling": return { tone: "warn", word: "Upload not confirmed", icon: "question" };
     case "failed": return { tone: "bad", word: "Failed", icon: "alert" };
     case "blocked":
@@ -165,6 +165,16 @@ export function postStatus(p: Post): StatusWord {
     default: return { tone: "neutral", word: p.status, icon: "info" };
   }
 }
+
+/** An uploaded post says how far its delivery got (uploaded is not watched; publish/audience.py DELIVERY_LABELS). */
+const DELIVERY_WORD: Record<string, StatusWord> = {
+  awaiting_invitations: { tone: "warn", word: "Uploaded, awaiting invitations", icon: "clock" },
+  uploaded_owner_only: { tone: "info", word: "Uploaded, only you can see it", icon: "shield" },
+  audience_user_confirmed: { tone: "good", word: "Shared with your viewers", icon: "check" },
+  restricted_api_verified: { tone: "good", word: "Restricted audience (platform confirmed)", icon: "check" },
+  restricted_requested: { tone: "good", word: "Posted for your chosen group", icon: "check" },
+  manual_handoff: { tone: "warn", word: "Ready for you to post on TikTok", icon: "info" },
+};
 
 /** Blocked by the final quality check of the file (audit event "quality"), not by the rights check. */
 export const blockedByCheck = (p: Post) =>

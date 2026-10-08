@@ -79,10 +79,10 @@ export default function ProjectView({ id }: { id: string }) {
     if (!error) return <LoadingPage label="Loading the video" />;
     return (
       <div className="page">
-        <PageHead crumbs={[{ label: "Library", href: "#/library" }, { label: "Video" }]} kind="Source video"
+        <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Video" }]} kind="Source video"
           title="This video isn't in your library" />
         <EmptyState icon="film" title="Nothing to show" actions={<>
-          <a className="btn" href="#/library"><Icon name="library" />Open the Library</a>
+          <a className="btn" href="#/clips"><Icon name="library" />Open the Library</a>
           <button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>
         </>}>
           <p>ClipFoundry answered: {error}. It may have been deleted.</p>
@@ -130,7 +130,7 @@ export default function ProjectView({ id }: { id: string }) {
 
   return (
     <div className="page source-video-page">
-      <PageHead crumbs={[{ label: "Library", href: "#/library" }, { label: p.name }]} kind="Source video" title={p.name}
+      <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: p.name }]} kind="Source video" title={p.name}
         sub={facts}
         actions={<>
           <ProjectStatus p={p} clipCount={clips.length} />
@@ -257,7 +257,7 @@ export default function ProjectView({ id }: { id: string }) {
       )}
       {dialog === "delete" && (
         <DeleteProjectDialog p={p} clipCount={clips.length} onClose={() => setDialog(null)}
-          onDeleted={() => navigate("library")} />
+          onDeleted={() => navigate("clips")} />
       )}
     </div>
   );
@@ -349,7 +349,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
                 {PLATFORM[x.platform] || x.platform}: {postWord(x)}
               </a>
             ))}
-            {posts.length > 2 && <a className="textlink" href="#/posts/review">{posts.length - 2} more</a>}
+            {posts.length > 2 && <a className="textlink" href="#/queue/review">{posts.length - 2} more</a>}
           </span>
         ) : <span className="tiny faint">No posts yet</span>)}
         <div className="ccard-actions">

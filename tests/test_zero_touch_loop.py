@@ -85,7 +85,7 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
                 upload = next(u for u in initial["uploads"] if u["id"] == pub["remote_id"])
                 assert upload["sha256"] == report["artifact_sha256"]
                 assert Path(clip["output_path"]).stat().st_size == upload["bytes"]
-                assert upload["status"]["privacyStatus"] == "private" and upload["status"]["publishAt"]
+                assert upload["status"]["privacyStatus"] == "private" and "publishAt" not in upload["status"]
             done = {j["kind"] for j in initial["jobs"] if j["status"] == "completed"}
             assert {"trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip", "quality_check",
                     "schedule_tick", "publish"} <= done
@@ -106,7 +106,7 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert len(readings) == 2 and all(r["views"] == 1234 for r in readings)
             assert all(r["avg_view_percentage"] is None for r in readings)
             learned = state.get("learning:status")
-            assert learned["weights"] == {} and "2 of 10 posts with real numbers" in learned["message"]
+            assert learned["weights"] == {} and "2 of 30 posts with real numbers" in learned["message"]
             assert not any(a["type"] in ("rights", "failed") for a in client.get("/api/autopilot/status").json()
                            ["home"]["needs_you"])
     finally:

@@ -129,6 +129,23 @@ def test_platform_readings_are_mirrored_once_with_their_provenance(data):
     assert clip["id"] not in brain.evidence().get(("youtube", "selected", 1), {}).get("measured", {})
 
 
+def test_mirrored_youtube_readings_follow_the_30_day_rule(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import brain, scout
+
+    clip, pub = published("youtube", days_ago=40)
+    for age in (35, 2):
+        db.execute("INSERT INTO performance (id, publication_id, clip_id, platform, fetched_at, views) "
+                   "VALUES (?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], "youtube", time.time() - age * DAY,
+                                            100 + age))
+    assert brain.ingest_platform(pub) == 2
+    brain.add(clip["id"], "youtube", "owner_import", {"views": 150}, observed_at=time.time() - 35 * DAY)
+    scout.youtube_retention()
+    left = {(o["provenance"], o["metrics"]["views"]) for o in brain.observations(clip["id"])}
+    assert left == {("platform_api", 102), ("owner_import", 150)}  # what you typed in yourself is not API data
+    assert brain.ingest_platform(pub) == 0  # the deleted reading does not come back
+
+
 # ------------------------------------------------------------------ CSV import
 def test_a_studio_export_is_previewed_then_imported_once(data):
     from clipfoundry.autopilot import brain

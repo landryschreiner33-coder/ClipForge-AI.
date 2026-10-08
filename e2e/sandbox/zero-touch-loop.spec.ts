@@ -17,7 +17,7 @@ async function post(request: APIRequestContext, url: string, data?: any): Promis
 }
 
 test("one Start continues through real clips, checked uploads, results and a second discovery", async ({ page, request }) => {
-  const screenshots = path.resolve(process.cwd(), "..", "design", "retro-studio", "screenshots");
+  const screenshots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
   await mkdir(screenshots, { recursive: true });
   // Only this test server exposes /sandbox. Every media and account belongs to its throwaway data folder.
   const fixture = await get(request, "/sandbox/state");
@@ -41,17 +41,21 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await page.getByRole("button", { name: "Start Autopilot" }).click();
   // Finish the setup handler's own navigation before choosing the main control page.
   await expect(page).toHaveURL(/#\/$/);
-  await expect(page.getByRole("heading", { name: "Home", exact: true, level: 1 })).toBeVisible();
-  await page.goto("/#/autopilot");
-  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
+  await expect(page.locator("#office-run-state")).toHaveText("Running");
 
   // The unreadable original is selected first. It fails normally and the next discovered video still finishes.
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.external_id === "loopbroken1")?.status, { timeout: 120_000 }).toBe("failed");
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.external_id === "loopfirst01")?.status, { timeout: 120_000 }).toMatch(/ingesting|analyzing/);
-  await expect(page.locator('.robot-station[data-state="working"]').first()).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "working.png"), fullPage: true });
+  // The office shows the real work: a robot at its station for each running job
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await expect(page.locator('.robot-hit[data-state="working"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "working.png") });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/missions");
+  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
   await expect.poll(async () => (await get(request, "/sandbox/state")).publications
     .filter((p: any) => p.status === "done").length,
     { timeout: 240_000 }).toBeGreaterThanOrEqual(1);
@@ -124,7 +128,7 @@ test("one Start continues through real clips, checked uploads, results and a sec
   state = await get(request, "/sandbox/state");
   expect(state.performance).toHaveLength(2);
   expect(state.performance.every((p: any) => p.views === 1234 && p.avg_view_percentage === null)).toBe(true);
-  expect(state.learning.message).toContain("2 of 10 posts with real numbers");
+  expect(state.learning.message).toContain("2 of 30 posts with real numbers");
   expect(state.learning.weights).toEqual({});
   const status = await get(request, "/api/autopilot/status");
   expect(status.enabled).toBe(true);
@@ -141,17 +145,19 @@ test("one Start continues through real clips, checked uploads, results and a sec
     .find((i: any) => i.url.includes("loopstream1"))?.status, { timeout: 30_000 }).toBe("waiting_stream");
   await expect(page.locator(".ap-link-row", { hasText: "A live conversation about diets" }))
     .toContainText("Waiting for stream");
-  await expect(page.locator('.station-finder[data-state="waiting"]')).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "waiting.png"), fullPage: true });
+  await page.goto("/#/");
+  await expect(page.locator('.robot-hit[data-state="waiting"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "waiting.png") });
   const waitingStream = (await get(request, "/api/autopilot/links"))
     .find((i: any) => i.url.includes("loopstream1"));
   await post(request, "/sandbox/restart-workers");
   expect((await get(request, "/api/autopilot/links")).find((i: any) => i.id === waitingStream.id).status)
     .toBe("waiting_stream");
   await page.reload();
-  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
-  await expect(page.locator('.station-finder[data-state="waiting"]')).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "restarted.png"), fullPage: true });
+  await expect(page.locator("#office-run-state")).toHaveText("Running");
+  await expect(page.locator('.robot-hit[data-state="waiting"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "restarted.png") });
+  await page.goto("/#/missions");
   await post(request, "/sandbox/start-stream");
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.id === waitingStream.id)?.live_status, { timeout: 150_000 }).toBe("ended");
@@ -170,6 +176,8 @@ test("one Start continues through real clips, checked uploads, results and a sec
   // Deliberately pausing is the sole final stop. It is a real saved setting, and the office reflects it.
   await page.getByRole("button", { name: "Pause Autopilot", exact: true }).click();
   await expect.poll(async () => (await get(request, "/api/autopilot/status")).enabled).toBe(false);
-  await expect(page.locator('.robot-station[data-state="paused"]').first()).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "paused.png"), fullPage: true });
+  await page.goto("/#/");
+  await expect(page.locator("#office-run-state")).toHaveText("Paused");
+  await expect(page.locator('.robot-hit[data-state="working"]')).toHaveCount(0);
+  await page.screenshot({ path: path.join(screenshots, "paused.png") });
 });

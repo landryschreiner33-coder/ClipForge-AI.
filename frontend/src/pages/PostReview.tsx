@@ -66,7 +66,7 @@ export default function PostReview({ id }: { id: string }) {
     if (error) {
       return (
         <div className="page">
-          <PageHead title="Post" crumbs={[{ label: "Posts", href: "#/posts/review" }, { label: "Post" }]} />
+          <PageHead title="Post" crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post" }]} />
           <EmptyState icon="alert" title="This post could not be loaded"
             actions={<button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>}>
             {error}
@@ -80,9 +80,9 @@ export default function PostReview({ id }: { id: string }) {
     return (
       <div className="page">
         <PageHead title="Post not found"
-          crumbs={[{ label: "Posts", href: "#/posts/review" }, { label: "Post not found" }]} />
+          crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post not found" }]} />
         <EmptyState icon="posts" title="There is no post at this address"
-          actions={<a className="btn" href="#/posts/review">Open Posts</a>}>
+          actions={<a className="btn" href="#/queue/review">Open the Queue</a>}>
           It may have been removed with its clip.
         </EmptyState>
       </div>
@@ -219,7 +219,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     <div className="page">
       <PageHead kind={`${name} post`} title={needsOk ? `Review for ${name}` : title}
         crumbs={[
-          { label: `Posts: ${VIEW_NAME[view]}`, href: `#/posts/${view}` },
+          { label: `Queue: ${VIEW_NAME[view]}`, href: `#/queue/${view}` },
           { label: <span className="clamp-1 crumb-title">{title}</span> },
         ]}
         sub={<span className="row wrap" style={{ gap: 8 }}><Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
@@ -250,7 +250,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
         </div>
 
         <div className="stack-4">
-          <StatusBlock p={p} tz={tz} autoPublish={autoPublish} accountOk={accountOk} onAction={setDialog} />
+          <StatusBlock p={p} tz={tz} autoPublish={autoPublish} accountOk={accountOk} onAction={setDialog}
+            onChanged={onChanged} />
           {p.replaces && p.status === "awaiting_approval" && (
             <p className="small">
               <Icon name="refresh" className="sm" /> If you approve it, it takes the time of a weaker{" "}
@@ -270,6 +271,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
                 {yt && !!p.tags?.length && <><dt>Tags</dt><dd>{p.tags.join(", ")}</dd></>}
                 <dt>Who can see it</dt>
                 <dd>{privacyLabel(p.platform, p.publication?.privacy || p.privacy)}</dd>
+                {p.audience_label && <><dt>Who it is for</dt><dd>{p.audience_label}</dd></>}
+                {p.delivery_label && <><dt>Delivery</dt><dd>{p.delivery_label}</dd></>}
+                {p.analytics_label && p.status === "published" && <><dt>Results</dt><dd>{p.analytics_label}</dd></>}
               </dl>
             </section>
           )}
@@ -367,8 +371,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 }
 
 // ------------------------------------------------------------------ the status, with the fix for a problem
-function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
+function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged }: {
   p: Post; tz?: string; autoPublish: boolean; accountOk: boolean; onAction: (a: PostAction) => void;
+  onChanged: (p: Post) => void;
 }) {
   const name = PLATFORM_LABEL[p.platform] || p.platform;
   const fix = (text?: string) => (text ? <span><b>What to do:</b> {text}</span> : null);
@@ -436,12 +441,13 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
     case "published":
       if (onPlatform(p)) {
         return (
-          <Banner tone="info" icon="clock" title="Uploaded and waiting for its time">
-            {name} publishes it {atLabel(p.planned_at, tz)} by itself, even if this PC is off then. {p.status_note}
+          <Banner tone="info" icon="clock" title="Uploaded early as Private">
+            It was uploaded ahead of its time ({atLabel(p.planned_at, tz)}) and stays Private: {name} never makes it
+            public by itself. {p.status_note}
           </Banner>
         );
       }
-      return <PublishedBlock p={p} />;
+      return <PublishedBlock p={p} onChanged={onChanged} />;
     case "reconciling":
       return (
         <Banner tone="warn" icon="question" title="Upload not confirmed"
@@ -538,8 +544,9 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
   }
 }
 
-/** A live post: links to it, and its real numbers (read from the platform, never estimated). */
-function PublishedBlock({ p }: { p: Post }) {
+/** An uploaded post: links to it, the step only you can do (sharing a private video), and its real numbers (read
+ * from the platform, never estimated). */
+function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => void }) {
   const name = PLATFORM_LABEL[p.platform] || p.platform;
   const [pub, setPub] = useState<Publication | null>(null);
   useEffect(() => {
@@ -549,10 +556,34 @@ function PublishedBlock({ p }: { p: Post }) {
       .catch(() => undefined);
   }, [p.clip_id, p.publication?.id]);
   const studio = p.publication?.info?.studio_url as string | undefined;
+  const [sharing, setSharing] = useState(false);
+  const shared = async () => {
+    if (!p.publication?.id) return;
+    setSharing(true);
+    try {
+      await api.audienceConfirmed(p.publication.id);
+      toast("Noted: you shared it with your invited viewers");
+      onChanged(p);
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setSharing(false);
+    }
+  };
   return (
     <section className="panel" aria-labelledby="st-h">
-      <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>Published</h2>
+      <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{postStatus(p).word}</h2>
       {p.status_note && <p className="small muted">{p.status_note}</p>}
+      {p.delivery_state === "awaiting_invitations" && (
+        <Banner tone="warn" icon="user" title="Share it with your invited viewers"
+          actions={<button type="button" className="btn btn-small" disabled={sharing} onClick={shared}>
+            <Icon name="check" />I shared it</button>}>
+          It is Private on YouTube, so nobody but you can watch it yet. In YouTube Studio choose Visibility → Private
+          → Share privately, add your viewers' email addresses and save. ClipFoundry cannot check this; your word is
+          recorded as yours.
+        </Banner>
+      )}
+      {p.analytics_label && <p className="small"><b>Results:</b> {p.analytics_label}</p>}
       <div className="row wrap">
         {p.publication?.url && (
           <a className="btn btn-small" href={p.publication.url} target="_blank" rel="noreferrer">

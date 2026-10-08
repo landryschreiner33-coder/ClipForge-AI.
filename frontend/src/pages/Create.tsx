@@ -135,7 +135,7 @@ export default function Create() {
   const pct = progress === null ? 0 : Math.round(progress * 100);
   return (
     <div className="page narrow">
-      <PageHead crumbs={[{ label: "Library", href: "#/library" }, { label: "Add video" }]} title="Add video"
+      <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Add video" }]} title="Add video"
         sub={"Choose a long video on this computer. ClipFoundry copies it into its data folder, finds the best "
           + "moments and makes captioned vertical clips."} />
 

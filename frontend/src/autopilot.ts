@@ -415,6 +415,14 @@ export interface ScheduledItemRow {
   last_error: string;
   fix: string;
   audit: { at: number; event: string; detail: string }[];
+  /** Delivery, kept apart from the upload status (publish/audience.py): uploaded is not "watched". */
+  delivery_state?: string;
+  delivery_label?: string;
+  /** What results the Brain has for it, never a guess. */
+  analytics_state?: string;
+  analytics_label?: string;
+  /** Who it is for, in your words ("Invited viewers", "Only you (staging)"). */
+  audience_label?: string;
 }
 
 export interface MetadataOption {

@@ -16,7 +16,8 @@ const VIEWS = ["review", "scheduled", "published", "history", "problems", "resul
 const INTRO: Record<string, string> = {
   review: "Nothing is posted until it's approved. TikTok needs your OK on every post; YouTube does too unless you " +
     "turned on automatic publishing.",
-  published: "Posts that are live on YouTube or TikTok.",
+  published: "Posts uploaded to YouTube or TikTok for the viewers you chose. Uploaded is not the same as watched: "
+    + "each post says how far it got.",
   history: "Published, canceled and replaced posts.",
   problems: "Posts that could not go out, or where ClipFoundry needs you to check something. Nothing here is tried " +
     "again behind your back.",
@@ -24,12 +25,12 @@ const INTRO: Record<string, string> = {
 const EMPTY: Record<string, [string, string]> = {
   review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
   scheduled: ["Nothing is scheduled", "Approved posts wait here for their time."],
-  published: ["Nothing published yet", "Posts appear here once they are live."],
+  published: ["Nothing uploaded yet", "Posts appear here once they are uploaded for your viewers."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
 };
 const VIEW_TITLE: Record<string, string> = {
-  review: "Ready for your review", scheduled: "Your posting agenda", published: "Out in the world",
+  review: "Ready for your review", scheduled: "Your posting agenda", published: "Uploaded for your viewers",
   history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
 };
 
@@ -57,13 +58,13 @@ export default function Posts({ view }: { view?: string }) {
   const count = (k: string) => items.filter(VIEW_OF[k]).length;
   const faint = (n: number) => (n ? <span className="faint tiny">{n}</span> : null);
   const tabs = [
-    { id: "review", href: "#/posts/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
-    { id: "scheduled", href: "#/posts/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
-    { id: "published", href: "#/posts/published", label: <>Published {faint(count("published"))}</> },
+    { id: "review", href: "#/queue/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
+    { id: "scheduled", href: "#/queue/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
+    { id: "published", href: "#/queue/published", label: <>Published {faint(count("published"))}</> },
     {
-      id: "problems", href: "#/posts/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
+      id: "problems", href: "#/queue/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
     },
-    { id: "results", href: "#/posts/results", label: "Results" },
+    { id: "results", href: "#/queue/results", label: "Results" },
   ];
   const replace = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
@@ -72,11 +73,11 @@ export default function Posts({ view }: { view?: string }) {
 
   return (
     <div className="page posts-page">
-      <PageHead title="Posts"
+      <PageHead title="Queue"
         sub={<>
           Every planned and published post. One clip can have a YouTube post and a TikTok post. {zoneLine(tz)}
         </>} />
-      <LinkTabs label="Posts" tabs={tabs} current={v === "history" ? "published" : v} />
+      <LinkTabs label="Queue sections" tabs={tabs} current={v === "history" ? "published" : v} />
       <div className="post-ledger-heading">
         <div className="stack">
           <span className="kind-label">Posting desk</span>
@@ -127,7 +128,7 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction
       {(view === "published" || history) && (
         <label className="choice">
           <input type="checkbox" checked={history} onChange={(e) => {
-            window.location.hash = e.target.checked ? "#/posts/history" : "#/posts/published";
+            window.location.hash = e.target.checked ? "#/queue/history" : "#/queue/published";
           }} />
           <span className="small">Also show canceled and replaced posts</span>
         </label>
@@ -235,8 +236,12 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
           <span className="tnum">{timeLabel(p.planned_at, tz)}</span>
           {p.privacy && <span className="post-privacy">{privacyLabel(p.publication?.privacy || p.privacy)}</span>}
           <Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
+          {p.audience_label && <span className="tag">For: {p.audience_label}</span>}
           {p.replaces && p.status === "awaiting_approval" && <span className="tag">Replaces a weaker post</span>}
         </div>
+        {p.status === "published" && p.analytics_label && (
+          <span className="tiny faint">Results: {p.analytics_label}</span>
+        )}
         {/* An approved post's note ("Approved: it will be published…") is out of date once its OK no longer
             covers it. */}
         {okOutdated(p) ? <span className="small">You approved it, but it changed since: it needs your OK again.</span>

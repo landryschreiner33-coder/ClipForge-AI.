@@ -769,6 +769,11 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
                "platform = 'youtube')", (cutoff,))
     perf = 0 if keep_own else db.execute("DELETE FROM performance WHERE platform = 'youtube' AND fetched_at < ?",
                                          (cutoff,))
+    # the Brain's mirror of those readings (brain.ingest_platform) is YouTube API data too; numbers you typed in
+    # yourself (owner_import) and tester answers are not, so they stay
+    if not keep_own:
+        perf += db.execute("DELETE FROM brain_observations WHERE platform = 'youtube' AND provenance = 'platform_api' "
+                           "AND observed_at < ?", (cutoff,))
     db.execute("DELETE FROM api_cache WHERE fetched_at < ?", (cutoff,))
     return {"youtube_signals_deleted": len(old), "youtube_sources_deleted": unused,
             "youtube_sources_cleared": cleared, "youtube_snapshots_deleted": perf,

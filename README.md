@@ -24,6 +24,41 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 > **Windows quick start:** install Python 3.11/3.12 and FFmpeg (`winget install Gyan.FFmpeg`), then double-click
 > **`start.bat`**. The app opens at <http://127.0.0.1:8765>. Full instructions are in [INSTALL.md](INSTALL.md).
 
+## Getting started (beginner steps)
+
+1. **Start it.** In the ClipFoundry folder, double-click **`start.bat`**. The browser opens ClipFoundry at
+   <http://127.0.0.1:8765>. Keep the black `start.bat` window open; closing it closes ClipFoundry.
+2. **Check the graphics card once.** Double-click **`gpu-check.bat`** in the same folder. It should say the GPU (CUDA)
+   was used. If it does not, see [INSTALL.md](INSTALL.md#nvidia-gpu-acceleration).
+3. **Set it up.** The app opens on the **Office**. Press **Set up ClipFoundry**: put your videos in the videos folder,
+   choose *Let Autopilot do it*, connect YouTube (and TikTok if you like), then press **Start Autopilot**.
+4. **Say who watches.** Open **Settings → Integrations → Who watches**. For each platform choose *My invited viewers*
+   (YouTube) or *My approved followers* (TikTok), tick *I understand…* and press **Confirm who watches**. Nothing is
+   ever posted publicly:
+   * **YouTube** uploads are Private. After an upload, open YouTube Studio, choose the video and share it privately
+     with the people you pick (Visibility → Share privately). Then open the post in **Queue** and press
+     **I shared it**.
+   * **TikTok** posts are for your followers on a private account (TikTok app → Settings and privacy → Privacy →
+     Private account; you approve each follower). Until TikTok audits your TikTok developer app, ClipFoundry cannot
+     post to followers by itself: it prepares the clip and its text, and you post it in the TikTok app.
+5. **Watch the office.** Each robot shows real work: it stands at its desk while its job runs and rests in the Lounge
+   when it has none. Click a robot or a room for details. The bar at the bottom has **Start**, **Pause**, **Resume**,
+   **Stop all** and **Pause publishing** (clips are still made and checked, nothing is uploaded).
+6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says
+   who it is for and what really happened.
+7. **Tell it what your viewers thought.** **Clips → Test feedback**: enter what a tester said about a clip, or copy
+   the numbers from YouTube Studio or TikTok. The Brain changes its clip length only after enough results (at least
+   30 clips from 5 videos), by at most 10% at a time, and you can roll a change back (click the Brain Room on the
+   Office).
+
+**What keeps running.** Closing the browser does not stop anything: open <http://127.0.0.1:8765> again to look.
+Closing the `start.bat` window stops ClipFoundry and its background work; it continues where it was at the next
+start. While Autopilot is on, ClipFoundry asks Windows not to sleep. If the PC sleeps or is shut down anyway, nothing
+runs meanwhile; at the next start interrupted steps run again and missed posts get a new time.
+
+**Back up and export.** To back up, close ClipFoundry and copy the `data` folder. To keep a clip outside the app, use
+**Export** on the clip, or **Download all (ZIP)** on the video's page in Clips.
+
 ## Features
 
 | Area | What you get |
@@ -41,14 +76,17 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Versions | In the clip editor (**Versions**, under the timeline), **Create versions…** renders **Faster pacing** (tighter pauses, no fillers, 8% faster), **Alternative hook** (another hook line from the clip, and a stronger first line when the clip has one) and **Alternative caption style** (contrasting style with key words emphasized) next to the **Original**. **Compare** them side by side (played together, sound from the one you pick) or one after another, then choose which one is published and exported (*Used for export and posts*). |
 | Editor | Simple manual controls in the groups **Trim** (click transcript words), **Captions** (with the hook), **Layout** (framing), **Audio** and **Post text**, then **Save and render**. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
-| YouTube Shorts | **Connect YouTube** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
-| TikTok | **Connect TikTok** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
-| Prepare post | One page per clip (**Prepare post**): video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube *Who can see it* and made-for-kids, TikTok privacy/interactions/disclosure, and explicit **Publish to YouTube now…**, **Post to TikTok now…** (or **Send to TikTok inbox…**) and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there (*Uploads you started here*). |
-| Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Posts → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Posts → Results) or JSON as the basis for tuning the ranking later. |
+| YouTube Shorts | **Connect YouTube** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags and the made-for-kids answer, always as **Private** and never with a publishing time, so YouTube never makes them public. You share each video privately in YouTube Studio with the viewers you pick (the API cannot), then mark it shared. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
+| TikTok | **Connect TikTok** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags to your **followers or friends** (never "Everyone"; never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
+| Prepare post | One page per clip (**Prepare post**): video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube made-for-kids (the video is Private), TikTok followers or friends, interactions and disclosure, and explicit **Publish to YouTube now…**, **Post to TikTok now…** (or **Send to TikTok inbox…**) and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there (*Uploads you started here*). |
+| Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Queue → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Queue → Results) or JSON as the basis for tuning the ranking later. |
 | Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Final Quality Gate, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. A simple **Overview** (**Start Autopilot** / **Pause Autopilot**, this PC and the GPU, **Needs you**, what it is working on, your videos folder, upcoming posts and how they go out), an **Activity** tab (top opportunities, and what it did with each video it found) and **Permissions & sources**, with a three-step first-time setup (add your videos, choose how to work, set up posting, then **Start Autopilot**); workers, GPU, quota, jobs and learning under **Advanced**; **Stop all jobs…** always at hand. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
-| Posts | Every planned and published post in one place, with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (required by YouTube and TikTok), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
+| Queue | Every planned and published post in one place (formerly Posts), with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (required by YouTube and TikTok), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
 | Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Discovery is not authorization: only sources you have rights to are clipped automatically. |
-| Library | **Home**, **Autopilot**, **Library** (your source videos and their clips), **Posts** and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and the Brain Core, each standing for one part of the real job system. They move only when real work starts, finishes or fails, and the office says when it cannot update. A list view and Reduce animations show the same without movement. See [docs/OFFICE.md](docs/OFFICE.md). |
+| Who watches | One audience policy for every upload: YouTube Private shared with invited viewers, TikTok approved followers (or friends), *Only me* as staging, or keep clips on this PC. Public, unlisted and Everyone are blocked everywhere. Settings → Integrations. |
+| Brain | Results with where they came from (platform, your import, tester feedback). It changes a strategy only with enough evidence from your selected viewers, at most 10% at a time, with rollback. |
 
 ## How clip discovery works
 
@@ -116,10 +154,16 @@ clipfoundry/            Python backend (FastAPI)
   gpu.py, locks.py      cross-process GPU manager (one heavy GPU job at a time, VRAM check) and file locks
   autopilot/            persistent workers: queue.py (durable jobs), host.py (worker threads/process), scout.py,
                         providers.py, trends.py, rights.py, quota.py, hunter.py, live.py, packaging.py,
-                        scheduler.py, publisher.py, learner.py, routes.py (/api/autopilot)
+                        scheduler.py, publisher.py, learner.py, brain.py (results and guarded strategy),
+                        routes.py (/api/autopilot), brain_routes.py (/api/brain)
+  office/               the robot office: roles.py (cast), feed.py (events, reports, decisions), view.py
+                        (snapshot), health.py, capabilities.py (integration matrix), routes.py (/api/office)
+  publish/audience.py   who may watch an upload (one policy for every path)
+  pipeline/nvidia.py    optional NVIDIA-hosted text AI (off by default)
   secure.py             token/secret storage (Windows DPAPI)
   assets/               bundled fonts (OFL) and the YuNet face model (MIT)
-docs/                   AUTOPILOT.md (Autopilot guide) and legal/ (the website: product page, Privacy Policy, Terms)
+docs/                   AUTOPILOT.md (Autopilot guide), OFFICE.md (robot office, audience, capabilities, Brain) and
+                        legal/ (the website: product page, Privacy Policy, Terms)
 frontend/               React + Vite + TypeScript UI (prebuilt into frontend/dist)
 tests/                  unit + end-to-end tests
 data/                   created at runtime: clipfoundry.db, projects/<id>/..., models/<model>/ (verified)
@@ -131,7 +175,7 @@ Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.jso
 
 ## Usage
 
-* **Add video** (on Home or in the Library) → drop a video or **Choose a video** (or open *Import from a link
+* **Add video** (in Clips) → drop a video or **Choose a video** (or open *Import from a link
   instead*) → optionally open *More options* to choose 3 / 5 / 10 clips, length, caption style, framing →
   **Make clips**.
 * Watch the progress on the video's page (Prepare → Transcribe → Find moments → Score & hooks → Render 9:16). The
@@ -158,8 +202,33 @@ Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.jso
 | Ollama | free, local | `ollama pull llama3.1:8b` (or `qwen2.5:7b`), then select Ollama. |
 | LM Studio / OpenAI-compatible | free, local | Any local server exposing `/v1/chat/completions`. |
 | Claude API | paid per use | Optional. Paste an API key; only the top candidates are sent (cap: *Max candidates*, same section). |
+| NVIDIA AI | see below | Optional, off by default. Set it up in Settings → Integrations first. |
 
 If a provider is unreachable, ClipFoundry falls back to the heuristic automatically and shows a notice.
+
+## Optional NVIDIA AI
+
+ClipFoundry works fully without it. When on, NVIDIA's hosted models can re-score and title the strongest clip
+candidates from short transcript excerpts (never video, audio or account details). NVIDIA's terms, free access and
+model list change; check them on NVIDIA's pages before you use it (this guide was not checked against them live).
+
+1. Open <https://build.nvidia.com>, sign in, and open the page of the model you want (the default is
+   `nvidia/nemotron-3.5-lightning-30b-a3b`, a candidate, not a promise it stays listed). Get an API key there through
+   NVIDIA's own steps. Read NVIDIA's terms, including what they keep and whether you are eligible.
+2. In ClipFoundry open **Settings → Integrations → NVIDIA AI (optional)**. Turn on **Use NVIDIA AI**, paste the key
+   into **NVIDIA API key** (it is stored sealed on this PC; never paste it into a chat or a message), keep or change
+   **Model**, leave **Mode** on *Development*, and press **Save settings**.
+3. Read *What is sent*, tick the agreement and press **Save my agreement**.
+4. In **Settings → Advanced → Rendering, AI scoring and system → AI scoring** choose *NVIDIA AI* and press **Save
+   settings**.
+5. Back in Integrations, press **Check the setup** (reads NVIDIA's model list), then **Run a small AI test** (one
+   short made-up text, counted against today's limits).
+
+Limits: a daily number of requests and tokens (Settings → Integrations, *Limits*). In *Development* mode it is only
+used for videos you process yourself; Autopilot keeps using local analysis, because NVIDIA describes the catalog as
+development and prototyping access. *Production* needs your own endpoint whose terms allow your use, its price and a
+daily spending cap; ClipFoundry never assumes an unknown price is free. To stop: **Disconnect** removes the key and
+your agreement and turns it off. Any failed or refused request falls back to local analysis for that step.
 
 ## Development
 
@@ -172,6 +241,10 @@ npm run build                              # rebuild frontend/dist (committed so
 .venv/bin/python -m pytest -m "not slow"   # skip the slow end-to-end render tests
 .venv/bin/python -m clipfoundry workers    # run the Autopilot workers on their own (normally started by the app)
 ```
+
+Browser tests: `cd e2e && npm install && npm test` (read-only, against a running app) and `npm run test:sandbox`
+(a throwaway app with fake YouTube and TikTok). For AI assistants: start with [AGENTS.md](AGENTS.md), then
+[AI_HANDOFF.md](AI_HANDOFF.md) and [AI_CHANGELOG.md](AI_CHANGELOG.md).
 
 `tests/make_test_video.py` builds a synthetic talking-head video (espeak-ng speech + a moving face with scene cuts)
 for exercising the whole pipeline.
@@ -195,12 +268,14 @@ TikTok developer app they must be public; see
 [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy). When the code changes what is
 stored or sent, update these pages in the same change.
 
-## Retro robot studio
+## Robot office
 
-The working app uses original pixel robots and a local heading font, with readable controls and original video
-previews. Autopilot's four stations follow real activity; selecting one shows its task and reported progress.
-Settings → Defaults → Appearance saves Reduce motion in this browser and also respects the operating system.
-See [the design and actual screenshots](design/retro-studio/SPEC.md) and [Windows update steps](INSTALL.md#updating).
+The app opens on the **Office**: an office of original pixel robots (layout and characters after the owner's
+reference images) whose movements follow real jobs. **Team** lists all 25 robots and the Brain Core; the developer
+gallery at `#/dev/robots` shows each one in four directions and every pose. How it works, the event feed and the
+capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend it:
+[design/robots/README.md](design/robots/README.md). Screenshots (first run, working, waiting, after a restart,
+paused, a controlled error state, Team): [design/robot-office/screenshots](design/robot-office/screenshots/README.md).
 
 ## Third-party assets
 

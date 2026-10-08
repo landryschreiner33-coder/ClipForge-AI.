@@ -16,6 +16,7 @@ from . import feed, health, roles
 
 REACT_SECONDS = 8.0      # how long a manager shows "reviewing" after a real report (or COMMAND after a decision)
 ERROR_SECONDS = 30 * 60  # a failure is shown on its robot this long, unless newer work started
+QUEUED_TEXT = "Waiting in queue"  # queue.enqueue's first message, still there until the handler reports a step
 
 
 def run_state(settings: dict) -> dict:
@@ -49,8 +50,11 @@ def _recent_failures(now: float) -> dict[str, dict]:
 
 def _task(j: dict) -> dict:
     measured = j["status"] == "running" and float(j.get("progress") or 0) > 0
+    message = j.get("message") or ""
+    if j["status"] == "running" and message == QUEUED_TEXT:  # claimed, but its handler has not said anything yet
+        message = "Started"
     return {"job_id": j["id"], "kind": j["kind"], "stage": j.get("stage") or "", "status": j["status"],
-            "message": (j.get("message") or "")[:200], "progress": round(float(j["progress"]), 3) if measured else None,
+            "message": message[:200], "progress": round(float(j["progress"]), 3) if measured else None,
             "ref_type": j.get("ref_type") or "", "ref_id": j.get("ref_id") or "", "updated_at": j.get("updated_at")}
 
 

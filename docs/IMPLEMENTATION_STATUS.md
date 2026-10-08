@@ -16,7 +16,8 @@ from here without repeating the audit.
 | UI redesign (2026-10-01) | branch `claude/ui-redesign-prototype-f47izp`, PR #7: the owner approved the prototype (2026-09-30) and asked for the real screens, tested and merged into the default branch |
 | Codex follow-up (2026-10-01) | `codex/fix-autopilot-idle` (one commit, `519c25f`, built on `97b5c9a`), integrated into the redesigned app on `claude/finish-clipfoundry-knj4r4`; see *Overnight-idle regressions* below |
 | Website and legal pages (2026-10-01) | branch `claude/finish-clipfoundry-knj4r4`, PR #9: `docs/legal` is the public website (product page, Privacy Policy, Terms) written from a code audit, plus three fixes the audit found; public deployment waits for the owner's OK |
-| Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
+| Next concrete task | The checklist at the end (your PC, GPU and accounts); the public-video decision; then the TikTok inbox-draft decision |
+| Robot office (2026-10-07/08) | branch `claude/project-thread-vw1n9y`, draft PR #14 (not merged), from the owner's master prompt on top of `eff96fb`: see *Robot office* below, `docs/OFFICE.md` and `AI_HANDOFF.md` |
 | Link intake and retro studio (2026-10-02) | `codex/retro-robot-autopilot` (PR #11, ChatGPT/Codex, based on `992431e`): durable link intake and the retro robot studio. Final review on `claude/final-review-6u6bvj` (PR #12): PR #11's commit plus four fixes, see *Final review* below; both merged into the default branch |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -329,6 +330,43 @@ feature. Each defect was reproduced with a failing test first.
 Kept as PR #11 built it (the owner's brief): Codex P2, a lack of videos is not a Needs you item (Home and the overview
 say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to Autopilot → Advanced → System.
 
+## Robot office (2026-10-07, master prompt)
+
+The owner's master prompt (October 7, 2026) asked for the robot-office app: selected-audience uploads on both
+platforms, a real organization of roles over the job system, a Brain with provenance and guarded learning, optional
+NVIDIA AI, the office screens and robots, honest integration cards, and development history. How it works:
+`docs/OFFICE.md`. Labels below: **Implemented and tested** (automated tests here, with fakes where a platform is
+involved), **Implemented; live verification pending**, **Needs credentials/user action**, **Unsupported by the
+current platform**, **Incomplete**.
+
+| Requirement or dependency | Status | Evidence / what remains |
+| --- | --- | --- |
+| Selected audience on every upload path (no public, unlisted, Everyone; old public posts held; approvals bound to the audience stamp) | Implemented and tested | `tests/test_audience.py`, `test_autopilot_publish.py`, `test_youtube.py`, `test_tiktok.py`, sandbox complete loop |
+| YouTube upload as Private without `publishAt` | Implemented and tested (fake YouTube); live verification pending | needs a real upload on the owner's account |
+| YouTube viewer invitations | Unsupported by the current platform (no API) | handoff: the owner shares in YouTube Studio and presses *I shared it*; labeled as the owner's confirmation |
+| TikTok Direct Post to followers or friends | Needs credentials/user action | needs TikTok's audit of the owner's developer app; until then "Only me" is staging and the clip becomes a ready-to-post package |
+| TikTok results for follower-only posts | Unsupported by the current platform | TikTok's video list covers public posts only; Clips → Test feedback instead |
+| YouTube results for a private group | Implemented; live verification pending | the Data API counts are read; the Analytics API may report little for a small group |
+| Office: cast registry (1 + 8 + 16, CORE separate), event feed with cursor, reports, decisions, health, controls | Implemented and tested | `tests/test_office.py`; `e2e/sandbox/robot-office.spec.ts` (placement, carry and review, decision reaction, old events ignored, paused, lost connection, Reduce animations, 1280×720 and 1366×768 fit, no sideways scroll at 683 and 390 px) |
+| Office screens, Team, gallery, Integrations, Test feedback, Dev Log, new navigation | Implemented and tested | read-only `e2e` suite and sandbox flows; screenshots in `design/robot-office/screenshots` |
+| Distinct robots (25, four directions, all poses) | Implemented; owner's visual review pending | `design/robots/contact-sheet.png`; drawn in code from the reference sheets, compared by eye only |
+| Brain: provenance, null ≠ 0, idempotent imports, corrections, cohorts, 30-clip / 10% guards, rollback, clip length used by the next videos | Implemented and tested (synthetic data) | `tests/test_brain.py`; real learning needs 30 real clips from the owner's viewers |
+| Optional NVIDIA text AI | Implemented and tested (fake transport); Needs credentials/user action for live use | `tests/test_nvidia.py`; no real request was made, NVIDIA's current terms were not read live |
+| GPU transcription and rendering on the RTX 3050 | Implemented; live verification pending | **GPU runtime not verified here** (no NVIDIA GPU in the cloud machine). On the PC: `gpu-check.bat`, or `.venv\Scripts\python.exe -m clipfoundry gpu-check` in the ClipFoundry folder |
+| Twitch, Kick, Reddit, X, Instagram and podcast discovery connectors | Incomplete | not in this version (the capability matrix says so); a pasted public link still goes through the link importer where supported |
+| Google Trends signal | Unsupported by the current platform | no supported public API; ClipFoundry does not scrape it |
+| Preview-based screening before download, novelty and search signals, creator-relative baselines | Incomplete | Trend Score and Source Score (the Clip Opportunity Score) are documented in `docs/OFFICE.md#scores`; moments are judged from the transcript after the download |
+| Development history (AI_CHANGELOG.md, AI_HANDOFF.md, `.clipfoundry/ai-change-log.jsonl`, Dev Log) | Implemented | entries start with this build; earlier work is in this file and the Git history |
+
+End-to-end proof in the sandbox (`e2e/sandbox/zero-touch-loop.spec.ts`, fake YouTube and TikTok, a synthetic
+transcript instead of Whisper, real ffmpeg rendering, no GPU): one Start discovers videos, makes clips that pass the
+final check, uploads to the fake YouTube as Private (Needs you then asks to share it privately), reads results,
+changes nothing with too few of them (2 of 30 posts with real numbers), waits for a stream link across a worker
+restart and records it once the stream starts, with no duplicate upload, and the office shows the running,
+waiting, restarted and paused states. The beginner flow passes with
+public video discovery off; with the `eff96fb` default (on) it fails at its old expectation that uncovered videos are
+never clipped (it fails the same way on `eff96fb` itself); that waits for the owner's public-video decision.
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -371,6 +409,11 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
     Requirements are unchanged; an existing install can also run `pip install "av<19"`.
 25. [x] Public internet video import (owner request 2026-10-03): default local discovery mode, public webpage
     extraction, bounded native downloads, safe live-page resolution, separate reuse/publishing gates, committed UI.
+26. [x] Selected-audience uploads, office backend, Brain guards and optional NVIDIA AI (2026-10-07, `26f6b8f`).
+27. [x] The robot office screens, Team and gallery, Integrations, Test feedback, Dev Log, new navigation, docs and
+    handoff (2026-10-07/08, PR #14).
+28. [ ] The owner's review of PR #14 and the checks on the PC below (GPU, real uploads, Who watches, the office look).
+29. [ ] The owner's public-video decision; then align `e2e/sandbox/beginner-flow.spec.ts` with it.
 
 ## Test log
 
@@ -504,6 +547,15 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
 | PyAV 19 fix (2026-10-02) | `audio.read_samples` against faster-whisper's `decode_audio` (PyAV 18.0) on a WAV made by `extract_audio` from a synthetic video | identical float32 samples (320171, max difference 0) |
 | PyAV 19 fix (2026-10-02) | `pytest -m "not slow"` on `d4f100c` | 478 passed, 7 slow deselected (242 s) |
 | PyAV 19 fix (2026-10-02) | `pytest -m slow` on `d4f100c` | 7 passed (685 s); imported transcripts, so no real Whisper model (Hugging Face is blocked here) |
+| robot office (2026-10-07) | `pytest -m "not slow"` on `26f6b8f` (backend wave) | 543 passed |
+| robot office (2026-10-08) | `pytest -m "not slow"` on the screens-and-docs commit | 545 passed, 7 slow deselected (309 s) |
+| robot office (2026-10-08) | `pytest -m slow` on the screens-and-docs commit | 5 passed, 2 failed (639 s): two video tests not updated by `26f6b8f` still expected `publishAt` on the YouTube upload; fixed to expect Private without it, then those 2 passed (334 s). Real ffmpeg and eSpeak NG, imported transcripts, fake platforms, no GPU |
+| robot office (2026-10-08) | `npx tsc --noEmit` and `npm run build` in `frontend/` | pass; the build reproduces the committed `dist/` (index 614 kB) |
+| robot office (2026-10-07) | read-only `e2e` suite against a sandbox after a complete loop (`CLIPFOUNDRY_E2E_CHROMIUM=/opt/pw-browsers/chromium`) | 62 passed, 2 failed, 1 skipped; both failures were test locators (a Team card name matched three cards; two settings the test did not know), fixed; the office, settings and shell files then 28 passed |
+| robot office (2026-10-07) | `npm run test:sandbox` (Chromium at `/opt/pw-browsers/chromium`) | 7 passed, 2 failed: the complete loop still expected *2 of 10 posts* (now 30, fixed in the test) and the beginner flow (below) |
+| robot office (2026-10-08) | `robot-office.spec.ts` and `zero-touch-loop.spec.ts` again after the fix | 5 passed (8.1 min) |
+| robot office (2026-10-08) | `beginner-flow.spec.ts` on `eff96fb` itself, in a separate worktree | failed at *nothing uncovered is ever clipped*: the same failure exists before this work (public video discovery default on) |
+| robot office (2026-10-08) | `beginner-flow.spec.ts` on this branch with `autopilot_public_videos` turned off by a temporary, uncommitted line | 1 passed (1.0 min) |
 
 ## Checklist for the user's machine
 
@@ -514,15 +566,17 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 1 | Update and start (keep `data`, `.venv`, `tools`; see INSTALL.md → Updating) | `git pull` or the ZIP steps, then `start.bat` | App opens at http://127.0.0.1:8765; your videos (Library), settings and account connections are still there; Autopilot → Advanced → System lists 12 workers incl. *Final Quality Gate* | new tables (`slot_replacements` and earlier ones) are created on first start; posts approved before this version ask for approval once more |
 | 2 | Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16 or int8_float16, speed several times realtime | this environment has no GPU; detection alone is not transcription |
 | 3 | Strict GPU in Autopilot | temporarily break CUDA (e.g. rename the cuBLAS DLL folder), add an owned source | the hunt pauses; action item "Autopilot transcription is paused"; no CPU run; restore and the source continues | proves the pause on real hardware |
-| 4 | Local vertical slice | Autopilot → Permissions & sources: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the Library; Posts → Needs review shows the posts, and each post's page shows *Final check* with every check listed | the slice ran here only on synthetic espeak video |
-| 5 | Look at and listen to one Autopilot clip | open it from a post's page in Posts | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
+| 4 | Local vertical slice | Missions → Permissions & sources: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in Clips; Queue → Needs review shows the posts, and each post's page shows *Final check* with every check listed | the slice ran here only on synthetic espeak video |
+| 5 | Look at and listen to one Autopilot clip | open it from a post's page in Queue | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
 | 6 | Measure throughput | time one 60-minute source through hunt → analyze (worker log `data/logs/workers.log`), watch VRAM in Task Manager | minutes per source, peak VRAM, disk used per source | whether 15 clips/day is plausible must be measured, not assumed |
 | 7 | Browser tests | `e2e\run-tests.bat` with the app running; `e2e\run-beginner-test.bat` (sandbox, app need not run) | 60 passed (some skipped without videos or posts); beginner flow passed | read-only check of every page against your real data; the beginner flow on Windows |
-| 8 | YouTube, real account | connect in first-time setup (step 3) or Settings → Accounts, approve one post as Private | the post's page in Posts shows it published with its link; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
+| 8 | YouTube, real account | connect in first-time setup (step 3) or Settings → Accounts; Settings → Integrations → Who watches → *My invited viewers* → Confirm who watches; approve one post | the post's page in Queue shows it uploaded, *Awaiting viewer invitations*; YouTube Studio shows it Private with no scheduled publishing; after sharing it there and pressing *I shared it*, the post says *Audience set up (you confirmed)* | only fake platforms were used here |
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
 | 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
 | 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
 | 14 | Overnight run | *Start Autopilot*, press *Open videos folder*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips in the Library, posts planned between 9 AM and 9 PM in Posts; the Autopilot overview's *This PC* says *Kept awake*, and Autopilot → Advanced → System events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here. If the page says *Windows did not let ClipFoundry keep this PC awake*, follow its Needs you steps. To try it before merging with no chance of posting, run a separate test copy with its own new data folder (`CLIPFOUNDRY_DATA`) and videos folder (`CLIPFOUNDRY_VIDEOS`), with the normal ClipFoundry closed |
-| 15 | Look at the new screens on Windows | open Home, Autopilot, Library, a clip in the editor, Posts and Settings; make the window narrow | text fits, nothing scrolls sideways, the Menu button appears on a narrow window, your old bookmarks (`#/projects`, `#/publish-center`) open the new pages | the redesign was checked here in Chromium on Linux only (other fonts, no Windows display scaling) |
+| 15 | Look at the new screens on Windows | open the Office, Team, Missions, Clips, a clip in the editor, Queue and Settings → Integrations; make the window narrow | text fits, nothing scrolls sideways, the Menu button appears on a narrow window, your old bookmarks (`#/projects`, `#/publish-center`, `#/autopilot`) open the new pages | the screens were checked here in Chromium on Linux only (other fonts, no Windows display scaling) |
+| 16 | The office follows real work | with Autopilot running on one of your videos, watch the Office for a few minutes; tick Reduce animations | robots go to their desks while their step runs and back to the Lounge after; a manager reviews after a report; with Reduce animations nothing moves; compare the robots with your reference sheets | movement was checked here only in the sandbox |
+| 17 | Optional NVIDIA AI | README → *Optional NVIDIA AI*; Check the setup, then Run a small AI test | *Check* lists the model; the test answers; Today's usage counts one request | no real NVIDIA request was made here |

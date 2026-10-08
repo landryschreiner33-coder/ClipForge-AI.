@@ -624,9 +624,10 @@ def test_one_complete_path_from_discovery_to_a_post_scheduled_on_youtube(env, cl
     scheduler.process_due(db.get_settings(), due + 1)
     drain("publisher")
     done = db.fetch("scheduled_publications", first["id"])
-    assert done["status"] == "published" and "scheduled" in done["status_note"].lower(), done["status_note"]
+    assert done["status"] == "published" and "share it privately" in done["status_note"], done["status_note"]
     meta = next(iter(g.sessions.values()))["meta"]
-    assert meta["status"]["privacyStatus"] == "private" and meta["status"]["publishAt"]  # YouTube makes it public
+    # Private for the viewers you invite; no publishAt, so YouTube never makes it public later
+    assert meta["status"]["privacyStatus"] == "private" and "publishAt" not in meta["status"]
     # a restart does not upload it again: the publish job is idempotent and the post is recorded as done
     assert queue.enqueue("publish", {"scheduled_id": first["id"]}, idem_key=f"publish:{first['id']}")
     drain("publisher")

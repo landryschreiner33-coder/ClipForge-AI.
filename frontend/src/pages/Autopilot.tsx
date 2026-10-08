@@ -1,4 +1,3 @@
-import RobotOffice from "../components/RobotOffice";
 import { useState } from "react";
 import { api, errorText, Platform, Project, projectThumbUrl, timeAgo } from "../api";
 import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
@@ -18,7 +17,7 @@ import { useStatus } from "../status";
 
 /**
  * Autopilot, the control room: the switch, the truthful state, what needs you, the current work, your videos folder,
- * upcoming posts and how posts go out (#/autopilot). Activity, Permissions & sources and Advanced (System, Jobs,
+ * upcoming posts and how posts go out (#/missions). Activity, Permissions & sources and Advanced (System, Jobs,
  * Learning) are one tab away. Before Autopilot was ever started, the overview points to Setup instead.
  */
 const ADVANCED = ["system", "jobs", "learning"];
@@ -33,14 +32,14 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Autopilot" sub="Finds videos you may use, makes clips, checks them and plans posts. Nothing is
+      <PageHead title="Missions" sub="Finds videos you may use, makes clips, checks them and plans posts. Nothing is
         posted without your OK, or the permission you gave for YouTube." />
       {st.paused && <StoppedBanner refresh={refresh} />}
-      <LinkTabs label="Autopilot sections" current={advanced ? "system" : slug || "overview"} tabs={[
-        { id: "overview", href: "#/autopilot", label: "Overview" },
-        { id: "activity", href: "#/autopilot/activity", label: "Activity" },
-        { id: "sources", href: "#/autopilot/sources", label: "Permissions & sources" },
-        { id: "system", href: "#/autopilot/system", label: "Advanced" },
+      <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
+        { id: "overview", href: "#/missions", label: "Overview" },
+        { id: "activity", href: "#/missions/activity", label: "Activity" },
+        { id: "sources", href: "#/missions/sources", label: "Permissions & sources" },
+        { id: "system", href: "#/missions/system", label: "Advanced" },
       ]} />
       {advanced ? <AdvancedView which={slug} st={st} refresh={refresh} />
         : slug === "activity" ? <ActivityView st={st} refresh={refresh} />
@@ -123,7 +122,6 @@ function Overview({ st, lost, since, refresh, setData }: {
           </div>
         </section>
         <div className="ap-control-room">
-          <RobotOffice />
           <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
         </div>
       </>
@@ -180,7 +178,6 @@ function Overview({ st, lost, since, refresh, setData }: {
       </section>
 
       <div className="ap-control-room">
-        <RobotOffice />
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
       </div>
 
@@ -243,7 +240,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         <section className="panel" aria-labelledby="ap-up">
           <div className="panel-head">
             <h2 id="ap-up">Coming up</h2>
-            <a className="btn btn-quiet btn-small" href="#/posts/scheduled">All posts</a>
+            <a className="btn btn-quiet btn-small" href="#/queue/scheduled">All posts</a>
           </div>
           {h.upcoming.length ? (
             <>
@@ -263,7 +260,7 @@ function Overview({ st, lost, since, refresh, setData }: {
       <p className="small muted">
         {h.skipped_today ? `${plural(h.skipped_today, "video")} skipped in the last 24 hours (not covered, no `
           + "allowed way to get the file, too short or a repeat). " : ""}
-        <a className="textlink" href="#/autopilot/activity">See Activity</a> for what it did with each video it found.
+        <a className="textlink" href="#/missions/activity">See Activity</a> for what it did with each video it found.
       </p>
 
       <section className="panel tight" aria-labelledby="ap-stop">
@@ -467,7 +464,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
           </div>
         ) : <p className="muted small">Nothing yet.</p>}
         <p className="small muted">Videos from creators you have an agreement with are used without asking. Record
-          agreements under <a className="textlink" href="#/autopilot/sources">Permissions &amp; sources</a>.</p>
+          agreements under <a className="textlink" href="#/missions/sources">Permissions &amp; sources</a>.</p>
       </section>
       {adding && (
         <TextPromptDialog title="Add the video file" label="Full path of the video file on this computer"

@@ -48,6 +48,26 @@ def test_the_cast_is_one_director_eight_managers_and_sixteen_workers():
                 assert rid != "patch", kind
 
 
+def test_the_drawn_cast_matches_the_registry():
+    """frontend/src/office/cast.ts draws the robots: the same 25 ids, names, ranks, rooms and managers as roles.py,
+    so the office never draws a robot the job system does not know (or the other way round)."""
+    import re
+    from pathlib import Path
+
+    from clipfoundry.office import roles
+
+    src = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "office" / "cast.ts").read_text("utf-8")
+    drawn = {m["id"]: m for m in (re.search(
+        r'id: "(?P<id>[a-z]+)", name: "(?P<name>[A-Z]+)", title: "(?P<title>[^"]+)", rank: "(?P<rank>[a-z]+)", '
+        r'dept: "(?P<dept>[a-z]+)", room: "(?P<room>[a-z]+)",\s*manager: "(?P<manager>[a-z]*)"', line)
+        for line in re.split(r"\n  \{ ", src)) if m}
+    assert set(drawn) == set(roles.BY_ID), "cast.ts and roles.py list different robots"
+    for rid, role in roles.BY_ID.items():
+        d = drawn[rid]
+        assert (d["name"], d["title"], d["rank"], d["dept"], d["room"], d["manager"]) == (
+            role["name"], role["title"], role["rank"], role["department"], role["room"], role["manager"]), rid
+
+
 def test_stages_move_work_between_robots():
     from clipfoundry.office import roles
 
@@ -129,6 +149,8 @@ def test_robot_states_come_only_from_the_jobs(data):
     assert by_id()["gavel"]["state"] == "idle" and by_id()["gavel"]["task"] is None
     job = queue.enqueue("rights_check", ref=("source", "s1"))
     j = queue.claim(queue.KIND_WORKER["rights_check"], "w")
+    task = by_id()["gavel"]["task"]
+    assert task["message"] == "Started" and task["progress"] is None  # running, not "Waiting in queue"; unmeasured
     queue.progress(j["id"], 0.5, "Reading the license", stage="rights")
     now = by_id()
     assert now["gavel"]["state"] == "working" and now["gavel"]["task"]["job_id"] == job["id"]
