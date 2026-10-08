@@ -41,14 +41,15 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 | Versions | In the clip editor (**Versions**, under the timeline), **Create versions…** renders **Faster pacing** (tighter pauses, no fillers, 8% faster), **Alternative hook** (another hook line from the clip, and a stronger first line when the clip has one) and **Alternative caption style** (contrasting style with key words emphasized) next to the **Original**. **Compare** them side by side (played together, sound from the one you pick) or one after another, then choose which one is published and exported (*Used for export and posts*). |
 | Editor | Simple manual controls in the groups **Trim** (click transcript words), **Captions** (with the hook), **Layout** (framing), **Audio** and **Post text**, then **Save and render**. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
-| YouTube Shorts | **Connect YouTube** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, privacy (Public / Unlisted / Private) and the made-for-kids answer, with progress and success/failure status. Unaudited API projects are locked to Private by Google; ClipFoundry explains that before and after the upload. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
-| TikTok | **Connect TikTok** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, the privacy options TikTok offers for your account (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
+| YouTube Shorts | **Connect YouTube** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags, the made-for-kids answer, progress and status. **Always private**: public, unlisted and "public later" are blocked; you share a private video with the viewers you invite in YouTube Studio ([docs/AUDIENCE.md](docs/AUDIENCE.md)). Passwords are never stored; tokens are encrypted with Windows DPAPI. |
+| TikTok | **Connect TikTok** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags, *Only me* or (audited apps) *Followers*/*Friends* of a private account, never *Everyone*; otherwise a **manual posting package** for your approved followers ([docs/AUDIENCE.md](docs/AUDIENCE.md)), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallback is the official **Send to TikTok inbox** draft flow, or exporting and uploading in TikTok Studio. No scraping, no unofficial automation. |
 | Prepare post | One page per clip (**Prepare post**): video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube *Who can see it* and made-for-kids, TikTok privacy/interactions/disclosure, and explicit **Publish to YouTube now…**, **Post to TikTok now…** (or **Send to TikTok inbox…**) and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there (*Uploads you started here*). |
 | Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Posts → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Posts → Results) or JSON as the basis for tuning the ranking later. |
 | Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Final Quality Gate, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. A simple **Overview** (**Start Autopilot** / **Pause Autopilot**, this PC and the GPU, **Needs you**, what it is working on, your videos folder, upcoming posts and how they go out), an **Activity** tab (top opportunities, and what it did with each video it found) and **Permissions & sources**, with a three-step first-time setup (add your videos, choose how to work, set up posting, then **Start Autopilot**); workers, GPU, quota, jobs and learning under **Advanced**; **Stop all jobs…** always at hand. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
 | Posts | Every planned and published post in one place, with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (required by YouTube and TikTok), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
 | Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Discovery is not authorization: only sources you have rights to are clipped automatically. |
-| Library | **Home**, **Autopilot**, **Library** (your source videos and their clips), **Posts** and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Navigation | **Office** (the robot office: what is happening, health, today, next upload, what needs you), **Missions** (Autopilot), **Clips** (your source videos and their clips), **Queue** (posts) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
+| Test feedback and the Brain | Enter the numbers you see on the platform or what your testers told you (**Clips → Test feedback**), or import a CSV. The Brain keeps platform numbers, your imports and tester answers apart per test group and only nudges the target clip length (at most 10 % per step, with rollback) once there is enough independent evidence ([docs/BRAIN.md](docs/BRAIN.md)). |
 
 ## How clip discovery works
 
@@ -158,6 +159,7 @@ Per project on disk: `data/projects/<id>/source.*`, `audio.wav`, `transcript.jso
 | Ollama | free, local | `ollama pull llama3.1:8b` (or `qwen2.5:7b`), then select Ollama. |
 | LM Studio / OpenAI-compatible | free, local | Any local server exposing `/v1/chat/completions`. |
 | Claude API | paid per use | Optional. Paste an API key; only the top candidates are sent (cap: *Max candidates*, same section). |
+| NVIDIA AI (build.nvidia.com) | development preview; paid endpoints need a cap | Optional, off by default, opt-in, daily request/token/spend budgets, validated answers with local fallback; never used by unattended Autopilot in preview mode ([docs/NVIDIA.md](docs/NVIDIA.md)). |
 
 If a provider is unreachable, ClipFoundry falls back to the heuristic automatically and shows a notice.
 
@@ -195,12 +197,24 @@ TikTok developer app they must be public; see
 [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-and-privacy-policy). When the code changes what is
 stored or sent, update these pages in the same change.
 
-## Retro robot studio
+## The robot office
 
-The working app uses original pixel robots and a local heading font, with readable controls and original video
-previews. Autopilot's four stations follow real activity; selecting one shows its task and reported progress.
-Settings → Defaults → Appearance saves Reduce motion in this browser and also respects the operating system.
-See [the design and actual screenshots](design/retro-studio/SPEC.md) and [Windows update steps](INSTALL.md#updating).
+The **Office** screen shows 25 original pixel robots (a Director, eight department managers and sixteen workers) plus
+the Brain's CORE. They are responsibilities over ClipFoundry's one durable job queue, not separate AI programs, and
+they move only when a real job starts, reports, is reviewed or fails ([docs/OFFICE.md](docs/OFFICE.md)). Click a
+room or a robot for its live details; **List view** and **Reduce animations** show the same information without
+motion. The full roster is at `#/team`, the character gallery at `#/dev/characters`
+([design/characters/README.md](design/characters/README.md)).
+
+**Start / Pause / Resume / Stop** sit in the bar at the bottom, with **Pause publishing** (keeps making local clips,
+uploads nothing). Autopilot runs in ClipFoundry's own background process: closing the browser tab does not stop it,
+closing ClipFoundry does, and nothing runs while the PC sleeps or is off. Paused and stopped are remembered across
+restarts.
+
+## For AI assistants
+
+Read [AGENTS.md](AGENTS.md), then [AI_HANDOFF.md](AI_HANDOFF.md) (current state) and [AI_CHANGELOG.md](AI_CHANGELOG.md)
+(development history, also shown read-only in the Office's Dev Log).
 
 ## Third-party assets
 

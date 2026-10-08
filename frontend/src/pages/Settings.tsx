@@ -8,6 +8,7 @@ import {
 } from "../components/accounts";
 import { AutopilotSettings, Errors } from "../components/autopilotSettings";
 import { AutoPublishLine } from "../components/autoPublish";
+import { IntegrationsTab } from "../office/Integrations";
 import {
   Check, FieldCtx, fieldId, FIELDS, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, SettingsTab, Switch,
   TextInput, validate,
@@ -17,9 +18,12 @@ import {
 } from "../components/ui";
 
 const WHISPER_MODELS = ["auto", "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"];
-const TAB_NAME: Record<SettingsTab, string> = { accounts: "Accounts", defaults: "Defaults", advanced: "Advanced" };
+const TAB_NAME: Record<SettingsTab, string> = {
+  accounts: "Accounts", defaults: "Defaults", advanced: "Advanced", integrations: "Integrations",
+};
 const TAB_HREF: Record<SettingsTab, string> = {
   accounts: "#/settings", defaults: "#/settings/defaults", advanced: "#/settings/advanced",
+  integrations: "#/settings/integrations",
 };
 const ACCOUNT_KEYS: Record<Platform, string[]> = {
   youtube: ["youtube_client_id", "youtube_client_secret", "youtube_project_verified"],
@@ -37,7 +41,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
-  const t: SettingsTab = tab === "defaults" || tab === "advanced" ? tab : "accounts";
+  const t: SettingsTab = tab === "defaults" || tab === "advanced" || tab === "integrations" ? tab : "accounts";
   const { st } = useStatus();
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
@@ -194,6 +198,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
           { id: "accounts", href: "#/settings", label: "Accounts" },
           { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
           { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
+          { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
         ]} />
       </div>
       {notes.length > 0 && (
@@ -215,9 +220,11 @@ export default function SettingsPage({ tab }: { tab?: string }) {
           </>
         )}
         {t === "advanced" && <AdvancedTab c={c} health={health} st={st} />}
+        {/* Integrations saves its own forms (each with its own button), so the shared save bar is not shown there. */}
+        {t === "integrations" && <IntegrationsTab />}
       </div>
 
-      <section className="savebar" aria-label="Save settings">
+      <section className="savebar" aria-label="Save settings" hidden={t === "integrations" && !changed.length}>
         <div className="grow">
           <b className="small">{changed.length ? `Unsaved changes: ${what}` : justSaved ? "Saved" : "No changes"}</b>
           {changed.length > 0 && firstError && (
@@ -606,8 +613,15 @@ function AdvancedTab({ c, health, st }: {
             { value: "ollama", label: "Ollama (local AI, free)" },
             { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
+            { value: "nvidia", label: "NVIDIA AI (optional; set it up in Settings → Integrations)" },
           ]} />
         </SettingRow>
+        {provider === "nvidia" && (
+          <p className="hint">
+            Uses the NVIDIA AI integration only when it is on, opted in and within today's limits; otherwise the
+            local heuristic scores clips. <a href="#/settings/integrations">Open Integrations</a>
+          </p>
+        )}
         {provider === "ollama" && (
           <>
             <SettingRow k="ollama_url" label="Ollama address"><TextInput k="ollama_url" c={c} /></SettingRow>

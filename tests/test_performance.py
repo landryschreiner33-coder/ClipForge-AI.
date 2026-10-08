@@ -52,7 +52,11 @@ def client(fakes, tmp_path):
                                                                                   "context": 80, "engagement": 50}})
         c.put("/api/settings", json={"youtube_client_id": "cid.apps.googleusercontent.com",
                                      "youtube_client_secret": "csecret", "tiktok_client_key": "tkkey",
-                                     "tiktok_client_secret": "tksecret", "tiktok_app_audited": True})
+                                     "tiktok_client_secret": "tksecret", "tiktok_app_audited": True,
+                                     "audience_youtube_intent": "SELECTED_AUDIENCE",
+                                     "audience_tiktok_intent": "SELECTED_AUDIENCE", "audience_tiktok_group": "FRIENDS",
+                                     "audience_tiktok_private_confirmed": True,
+                                     "audience_tiktok_followers_reviewed": True})
         yield c
 
 
@@ -79,7 +83,7 @@ def _youtube_pub(c, g) -> dict:
     return _wait(c, r.json()["id"])
 
 
-def _tiktok_pub(c, t, privacy: str = "PUBLIC_TO_EVERYONE", mode: str = "direct") -> dict:
+def _tiktok_pub(c, t, privacy: str = "MUTUAL_FOLLOW_FRIENDS", mode: str = "direct") -> dict:
     _connect(c, t, "tiktok")
     r = c.post(f"/api/clips/{c.clip['id']}/publish/tiktok", headers=H, json={
         "description": "caption", "privacy": privacy if mode == "direct" else "", "mode": mode, "confirm": True})
@@ -129,9 +133,29 @@ def test_youtube_without_analytics_permission(client, fakes):
     assert any("allow analytics access" in n for n in s["notes"])
 
 
-def test_tiktok_public_post_stats(client, fakes):
+def _legacy_public_tiktok(c, t) -> dict:
+    """A public TikTok post made by an older version (this build never posts publicly); its numbers stay readable
+    and separate from the selected-audience test results."""
+    from clipfoundry import db
+
+    _connect(c, t, "tiktok")
+    return db.create_publication(c.clip["id"], "tiktok", project_id=c.clip["project_id"], status="done",
+                                 requested_privacy="PUBLIC_TO_EVERYONE", privacy="PUBLIC_TO_EVERYONE",
+                                 remote_id="p1", url="https://www.tiktok.com/@testcreator/video/7300000000000000001",
+                                 info={"post_ids": ["7300000000000000001"], "username": "testcreator"},
+                                 features={"viral_potential": 77.0, "duration": 20.0})
+
+
+def test_restricted_tiktok_posts_have_no_api_numbers(client, fakes):
     _, t = fakes
     pub = _tiktok_pub(client, t)
+    s = client.post(f"/api/publications/{pub['id']}/stats", headers=H).json()["stats"]
+    assert s["views"] is None and any("Test feedback" in n for n in s["notes"])  # unavailable, never zero
+
+
+def test_tiktok_public_post_stats(client, fakes):
+    _, t = fakes
+    pub = _legacy_public_tiktok(client, t)
     t.stats["7300000000000000001"] = {"view_count": 900, "like_count": 80, "comment_count": 5, "share_count": 4}
     s = client.post(f"/api/publications/{pub['id']}/stats", headers=H).json()["stats"]
     assert (s["views"], s["likes"], s["comments"], s["shares"]) == (900, 80, 5, 4)
@@ -158,7 +182,7 @@ def test_youtube_numbers_are_not_summed_without_googles_approval(client, fakes):
     g, t = fakes
     yt = _youtube_pub(client, g)
     g.videos[yt["remote_id"]]["statistics"] = {"viewCount": "100", "commentCount": "2"}
-    _tiktok_pub(client, t)
+    _legacy_public_tiktok(client, t)
     t.stats["7300000000000000001"] = {"view_count": 50, "like_count": 5, "comment_count": 1, "share_count": 2}
     client.post("/api/performance/refresh", headers=H)
     ov = client.get("/api/performance").json()
@@ -172,7 +196,7 @@ def test_overview_totals_and_dataset_only_use_real_numbers(client, fakes):
     client.put("/api/settings", json={"youtube_derived_metrics_approved": True})
     yt = _youtube_pub(client, g)
     g.videos[yt["remote_id"]]["statistics"] = {"viewCount": "100", "commentCount": "2"}
-    tt = _tiktok_pub(client, t)
+    tt = _legacy_public_tiktok(client, t)
     t.stats["7300000000000000001"] = {"view_count": 50, "like_count": 5, "comment_count": 1, "share_count": 2}
     assert client.post("/api/performance/refresh", headers=H).json() == {"refreshed": 2, "failed": []}
     ov = client.get("/api/performance").json()

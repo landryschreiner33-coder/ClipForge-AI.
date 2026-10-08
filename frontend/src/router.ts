@@ -1,26 +1,47 @@
 import { useEffect, useState } from "react";
 
 /**
- * Addresses (design/ui-redesign/ROUTE_MAP.md). Old addresses keep working: they are replaced in place
- * (history.replaceState), so they open the new page and Back never bounces on them.
+ * Addresses (design/ui-redesign/ROUTE_MAP.md, renamed for the Office: Office, Missions, Clips, Queue, Settings). Old
+ * addresses keep working: they are replaced in place (history.replaceState), so they open the new page and Back
+ * never bounces on them. Rules apply in turn, so an old address can pass through several ("posts/x" → "queue/x" →
+ * "queue/review" when x is not a Queue tab).
  */
 const ALIASES: [RegExp, string][] = [
-  [/^projects$/, "library"],
-  [/^publish-center$/, "posts/review"],
-  [/^publish-center\/upcoming$/, "posts/review"],
-  [/^publish-center\/problems$/, "posts/problems"],
-  [/^publish-center\/published$/, "posts/published"],
-  [/^publish-center\/history$/, "posts/history"],
-  [/^publish-center\/.*$/, "posts/review"],
-  [/^posts$/, "posts/review"],
-  [/^posts\/(?!(review|scheduled|published|history|problems|results)$).*$/, "posts/review"],
-  [/^autopilot\/overview$/, "autopilot/system"],
-  [/^autopilot\/(?!(activity|sources|system|jobs|learning)$).*$/, "autopilot"],
-  [/^settings\/(?!(defaults|advanced)$).*$/, "settings"],
+  [/^projects$/, "clips"],
+  [/^library$/, "clips"],
+  [/^publish-center$/, "queue/review"],
+  [/^publish-center\/upcoming$/, "queue/review"],
+  [/^publish-center\/problems$/, "queue/problems"],
+  [/^publish-center\/published$/, "queue/published"],
+  [/^publish-center\/history$/, "queue/history"],
+  [/^publish-center\/.*$/, "queue/review"],
+  [/^posts$/, "queue/review"],
+  [/^posts\/(.*)$/, "queue/$1"],
+  [/^queue$/, "queue/review"],
+  [/^queue\/(?!(review|scheduled|published|history|problems|results|manual)$).*$/, "queue/review"],
+  [/^autopilot$/, "missions"],
+  [/^autopilot\/overview$/, "missions/system"],
+  [/^autopilot\/(.*)$/, "missions/$1"],
+  [/^missions\/(?!(activity|sources|system|jobs|learning)$).*$/, "missions"],
+  [/^settings\/(?!(defaults|advanced|integrations)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
+  [/^dev(\/(?!characters$).*)?$/, "dev/characters"],
 ];
-const PAGES = ["", "create", "library", "project", "clip", "publish", "autopilot", "posts", "post", "setup", "settings"];
-const NEEDS_ID = ["project", "clip", "publish", "post"];
+const PAGES = ["", "office", "home", "create", "clips", "project", "clip", "publish", "missions", "queue", "post",
+  "setup", "settings", "team", "dev"];
+const NEEDS_ID = ["project", "clip", "publish", "post", "dev"];
+
+/** Apply the alias rules until none matches (bounded, so a mistake in the table cannot loop). */
+export function resolveAlias(path: string): string {
+  for (let i = 0; i < 6; i++) {
+    const rule = ALIASES.find(([re]) => re.test(path));
+    if (!rule) break;
+    const next = path.replace(rule[0], rule[1]);
+    if (next === path) break;
+    path = next;
+  }
+  return path;
+}
 
 export type Route = {
   /** The path after "#/", without a trailing slash ("posts/review"). */
@@ -32,12 +53,10 @@ export type Route = {
 
 function read(): Route {
   let path = decodeURIComponent(window.location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
-  for (const [re, to] of ALIASES) {
-    if (re.test(path)) {
-      history.replaceState(history.state, "", `#/${to}`);
-      path = to;
-      break;
-    }
+  const to = resolveAlias(path);
+  if (to !== path) {
+    history.replaceState(history.state, "", `#/${to}`);
+    path = to;
   }
   const parts = path.split("/").filter(Boolean);
   const first = parts[0] || "";

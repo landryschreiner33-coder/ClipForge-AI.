@@ -626,9 +626,11 @@ def _count(table: str, column: str, where: str = "") -> list[dict]:
 
 
 # ------------------------------------------------------------------ Publish Center
-VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'action_needed')",
+VIEWS = {"upcoming": "status IN ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'action_needed', "
+                     "'manual_handoff')",
          "published": "status = 'published'",
          "problems": "status IN ('failed', 'blocked', 'action_needed', 'reconciling')",
+         "manual": "status = 'manual_handoff'",
          "history": "status IN ('published', 'canceled', 'replaced', 'failed', 'blocked')",
          "all": ""}
 
@@ -896,6 +898,24 @@ def resolve_uncertain(item_id: str, body: ResolveBody) -> dict:
                   audit=_audit(item, "resolved", "You confirmed the upload is not on the platform"))
         _manual("schedule_tick")
     state.resolve(f"review:{item_id}")
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+class ManualPostedBody(BaseModel):
+    link: str = ""
+    note: str = ""
+
+
+@router.post("/scheduled/{item_id}/manual-posted", dependencies=WRITE)
+def manual_posted(item_id: str, body: ManualPostedBody) -> dict:
+    """You posted a manual TikTok package yourself (with Followers/Friends on your private account)."""
+    from .scheduler import manual_posted as mark
+
+    _item_or_404(item_id)
+    try:
+        mark(item_id, body.link, body.note)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return _public_item(_item_or_404(item_id), db.get_settings())
 
 

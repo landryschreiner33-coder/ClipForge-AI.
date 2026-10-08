@@ -956,3 +956,41 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 @media (max-width: 680px) {
   .ap-control-room .station-art { height: 118px; }
 }
+
+/* ----------------------------------------- app bar (Office, Missions, Clips, Queue, Settings) */
+/* A top bar instead of the sidebar, so the Office gets the full width (reference image A). */
+:root { --appbar-h: 56px; }
+.appbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: var(--s4); height: var(--appbar-h);
+  padding: 0 var(--s4); background: #0b1020; border-bottom: 1px solid #26324d;
+}
+.appbar .brand { padding: 0; }
+.appbar .spacer { flex: 1; }
+.appbar-menu { display: none; }
+.appnav { display: flex; align-items: center; gap: var(--s1); }
+.appnav a {
+  display: inline-flex; align-items: center; gap: var(--s2); min-height: 40px; padding: 0 var(--s3);
+  border-radius: var(--r-control); color: var(--text-2); text-decoration: none; font-weight: 600;
+  border: 1px solid transparent;
+}
+.appnav a:hover { background: var(--surface); color: var(--text); }
+.appnav a[aria-current="page"] { background: #241a3f; border-color: #7b3dff; color: var(--text); }
+.appnav a[aria-current="page"] .icon { color: #c9a8ff; }
+.appnav .count {
+  min-width: 22px; padding: 0 6px; border-radius: var(--r-pill); background: var(--warn-tint); color: var(--warn);
+  font-size: var(--fs-tiny); font-weight: 700; text-align: center; line-height: 22px;
+}
+.appnav .count.bad, .nav .count.bad { background: var(--bad-tint); color: var(--bad); }
+.main.is-office { padding: 0; }
+.main.is-office > .banners:empty { display: none; }
+.main.is-office > .banners { margin: var(--s2) var(--s3) 0; max-width: none; }
+.main > .sidebar-foot {
+  max-width: var(--content-max); margin: var(--s6) auto 0; padding: var(--s3) 0 0; border-top: 1px solid var(--border);
+}
+@media (max-width: 1023px) {
+  .appnav { display: none; }
+  .appbar-menu { display: inline-flex; }
+  .appbar { gap: var(--s3); padding: 0 var(--s4); }
+  .appbar #top-state { min-width: 0; }
+}
+@media (max-width: 479px) { .appbar .brand-name { display: none; } }

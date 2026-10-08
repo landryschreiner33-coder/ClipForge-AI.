@@ -6,12 +6,13 @@ import {
   VIEW_OF,
 } from "../components/postShared";
 import { PostResults } from "../components/postResults";
+import { AudienceFacts, ManualPackage, ViewersInvitedButton } from "../components/queueAudience";
 import {
   EmptyState, Icon, LinkTabs, MenuItem, MoreMenu, PageHead, Pill, PLATFORM_LABEL, PlatformName, Skel, Thumb, usePoll,
 } from "../components/ui";
 import "./posts.css";
 
-const VIEWS = ["review", "scheduled", "published", "history", "problems", "results"];
+const VIEWS = ["review", "scheduled", "published", "history", "problems", "manual", "results"];
 
 const INTRO: Record<string, string> = {
   review: "Nothing is posted until it's approved. TikTok needs your OK on every post; YouTube does too unless you " +
@@ -20,6 +21,8 @@ const INTRO: Record<string, string> = {
   history: "Published, canceled and replaced posts.",
   problems: "Posts that could not go out, or where ClipFoundry needs you to check something. Nothing here is tried " +
     "again behind your back.",
+  manual: "TikTok can't post these to your chosen followers from this app, so each one is a manual posting package: " +
+    "the checked video, its caption and the steps. Post it on your phone, then press I posted it.",
 };
 const EMPTY: Record<string, [string, string]> = {
   review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
@@ -27,10 +30,13 @@ const EMPTY: Record<string, [string, string]> = {
   published: ["Nothing published yet", "Posts appear here once they are live."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
+  manual: ["Nothing to post yourself", "Manual posting packages appear here when TikTok can't reach your followers "
+    + "through the app."],
 };
 const VIEW_TITLE: Record<string, string> = {
   review: "Ready for your review", scheduled: "Your posting agenda", published: "Out in the world",
   history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
+  manual: "Manual posting packages",
 };
 
 // Problems, grouped by what you do about them (one section each).
@@ -57,13 +63,15 @@ export default function Posts({ view }: { view?: string }) {
   const count = (k: string) => items.filter(VIEW_OF[k]).length;
   const faint = (n: number) => (n ? <span className="faint tiny">{n}</span> : null);
   const tabs = [
-    { id: "review", href: "#/posts/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
-    { id: "scheduled", href: "#/posts/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
-    { id: "published", href: "#/posts/published", label: <>Published {faint(count("published"))}</> },
+    { id: "review", href: "#/queue/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
+    { id: "scheduled", href: "#/queue/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
+    { id: "published", href: "#/queue/published", label: <>Published {faint(count("published"))}</> },
     {
-      id: "problems", href: "#/posts/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
+      id: "problems", href: "#/queue/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
     },
-    { id: "results", href: "#/posts/results", label: "Results" },
+    ...(count("manual") ? [{ id: "manual", href: "#/queue/manual", label: "Post yourself", count: count("manual"),
+      countTone: "warn" as const }] : []),
+    { id: "results", href: "#/queue/results", label: "Results" },
   ];
   const replace = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
@@ -72,11 +80,11 @@ export default function Posts({ view }: { view?: string }) {
 
   return (
     <div className="page posts-page">
-      <PageHead title="Posts"
+      <PageHead title="Queue"
         sub={<>
           Every planned and published post. One clip can have a YouTube post and a TikTok post. {zoneLine(tz)}
         </>} />
-      <LinkTabs label="Posts" tabs={tabs} current={v === "history" ? "published" : v} />
+      <LinkTabs label="Queue" tabs={tabs} current={v === "history" ? "published" : v} />
       <div className="post-ledger-heading">
         <div className="stack">
           <span className="kind-label">Posting desk</span>
@@ -98,7 +106,7 @@ export default function Posts({ view }: { view?: string }) {
         )
       ) : (
         <PostList view={v} items={items.filter(VIEW_OF[v])} autoPublish={data.autoPublish} capped={data.capped}
-          setupStarted={st?.home.setup.started ?? true} tz={tz}
+          setupStarted={st?.home.setup.started ?? true} tz={tz} refresh={refresh}
           onAction={(action, post) => setDialog({ action, post })} />
       )}
       {dialog && (
@@ -109,9 +117,9 @@ export default function Posts({ view }: { view?: string }) {
   );
 }
 
-function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction }: {
+function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction, refresh }: {
   view: string; items: Post[]; autoPublish: boolean; capped: boolean; setupStarted: boolean; tz?: string;
-  onAction: (a: PostAction, p: Post) => void;
+  onAction: (a: PostAction, p: Post) => void; refresh: () => void;
 }) {
   const history = view === "history";
   const intro = view === "scheduled"
@@ -120,14 +128,14 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction
         "so each one needs Publish now."
     : INTRO[view];
   const [emptyTitle, emptyText] = EMPTY[view];
-  const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} onAction={onAction} />;
+  const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} onAction={onAction} refresh={refresh} />;
   return (
     <>
       <p className="small muted post-list-intro">{intro}</p>
       {(view === "published" || history) && (
         <label className="choice">
           <input type="checkbox" checked={history} onChange={(e) => {
-            window.location.hash = e.target.checked ? "#/posts/history" : "#/posts/published";
+            window.location.hash = e.target.checked ? "#/queue/history" : "#/queue/published";
           }} />
           <span className="small">Also show canceled and replaced posts</span>
         </label>
@@ -204,7 +212,9 @@ function agendaDays(items: Post[], tz?: string, newestFirst = false) {
   });
 }
 
-function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: PostAction, p: Post) => void }) {
+function PostRow({ p, tz, onAction, refresh }: {
+  p: Post; tz?: string; onAction: (a: PostAction, p: Post) => void; refresh: () => void;
+}) {
   const { st } = useStatus();
   const s = postStatus(p);
   const name = PLATFORM_LABEL[p.platform] || p.platform;
@@ -241,6 +251,8 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
             covers it. */}
         {okOutdated(p) ? <span className="small">You approved it, but it changed since: it needs your OK again.</span>
           : p.status_note && <span className={`small ${s.tone === "bad" ? "" : "muted"}`}>{p.status_note}</span>}
+        <AudienceFacts p={p} />
+        <ManualPackage p={p} onDone={refresh} />
         {(p.status === "awaiting_approval" || p.status === "approved") && (
           <span className="tiny faint">
             Permission to use: {p.source?.rights_label || p.source?.rights_status || "unknown"}
@@ -249,6 +261,7 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
         )}
       </div>
       <div className="post-actions">
+        <ViewersInvitedButton p={p} onDone={refresh} />
         <a className="btn btn-small" href={href}>{mainAction(p)}</a>
         <MoreMenu label={`More for this ${name} post: ${title}`} items={items} />
       </div>

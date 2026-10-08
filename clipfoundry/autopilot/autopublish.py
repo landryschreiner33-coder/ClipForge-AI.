@@ -72,8 +72,8 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError(NOT_SUPPORTED.get(platform, "Unknown platform"))
     if not agreed:
         raise ValueError("Read and confirm what automatic publishing will do")
-    if visibility not in config.YOUTUBE_PRIVACY:
-        raise ValueError("Choose who can see the posts (public, unlisted or private)")
+    if visibility != "private":  # the audience policy: no public or unlisted posts in this build (audience.py)
+        raise ValueError("Automatic publishing uploads as Private only; you invite your test viewers in YouTube Studio")
     if made_for_kids is None:
         raise ValueError("Say whether your videos are made for kids (YouTube requires this answer)")
     if not 1 <= int(daily_limit) <= 15:

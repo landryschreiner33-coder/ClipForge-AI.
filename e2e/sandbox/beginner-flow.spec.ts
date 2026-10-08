@@ -1,12 +1,11 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import path from "node:path";
 
-// The whole beginner experience, in the throwaway sandbox (never your real ClipFoundry):
-// open ClipFoundry → Get started → choose Autopilot and keep the suggested topics → connect accounts (test
-// connections) → Start Autopilot → no source configuration (only your videos folder) → trend discovery starts →
-// sources are created internally → videos nothing covers are skipped, not asked about → one agreement with a
-// creator (with the folder they share) → that creator's video goes to the
-// pipeline by itself, with no per-video question.
+// The whole beginner experience, in the throwaway sandbox (never your real ClipFoundry): open ClipFoundry (the Office)
+// → Get started → choose Autopilot and keep the suggested topics → connect accounts (test connections) → Start
+// Autopilot → no source configuration (only your videos folder) → trend discovery starts → sources are created
+// internally → videos nothing covers are skipped, not asked about → one agreement with a creator (with the folder they
+// share) → that creator's video goes to the pipeline by itself, with no per-video question.
 
 const get = async <T = any>(request: APIRequestContext, url: string): Promise<T> => {
   const res = await request.get(url);
@@ -20,12 +19,20 @@ const nothingTechnical = async (page: Page) => {
 
 test("Get started, choose Autopilot, connect accounts, Start Autopilot, and ClipFoundry does the rest",
   async ({ page, request }) => {
-    // OPEN CLIPFOUNDRY: Home welcomes you, with nothing technical on it
+    // SETUP: this flow is about videos nothing covers being skipped, so "Find public videos to clip" (on by default,
+    // Settings → Advanced) is turned off first, as tests/test_autopilot_simple.py does. With it on, Autopilot tries
+    // such videos for local clips instead, and the sandbox's stand-in for YouTube has no files to give.
+    const off = await request.put("/api/settings", { data: { autopilot_public_videos: false } });
+    expect(off.ok(), await off.text()).toBe(true);
+
+    // OPEN CLIPFOUNDRY: the Office, whose detail panel welcomes you, with nothing technical on it
     await page.goto("/#/");
-    const lead = page.locator("section.lead");
-    await expect(lead.locator("#lead-title")).toHaveText(/^Start by adding a video you made/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
+    const needs = page.getByRole("complementary", { name: "Details" })
+      .getByRole("region", { name: "Needs your action" });
+    await expect(needs).toContainText("Start by adding a video you made, or set up Autopilot.");
     await nothingTechnical(page);
-    await lead.getByRole("link", { name: "Get started" }).click();
+    await needs.getByRole("link", { name: "Get started" }).click();
 
     // STEP 1, YOUR VIDEOS: one video now, or your videos folder (not opened here: Start sets it up)
     await expect(page).toHaveURL(/#\/setup\/videos$/);
@@ -53,13 +60,17 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     // Connecting does not allow posting by itself; the page says so before you start
     await expect(page.getByText("does not let ClipFoundry post by itself", { exact: false })).toBeVisible();
 
-    // START AUTOPILOT: one button, then Home
+    // START AUTOPILOT: one button, then the Office, where Autopilot runs
     await page.getByRole("button", { name: "Start Autopilot" }).click();
     await expect(page).toHaveURL(/#\/$/);
-    await expect(page.locator(".page-head").getByRole("link", { name: "Autopilot: On" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
+    await expect(page.getByRole("link", { name: "Autopilot: On" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Autopilot controls and today's summary" }))
+      .toContainText("Running");
 
-    // THE AUTOPILOT PAGE: on, simple, and honest about the PC
-    await page.goto("/#/autopilot");
+    // THE MISSIONS PAGE: on, simple, and honest about the PC
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Missions" }).click();
+    await expect(page).toHaveURL(/#\/missions$/);
     await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
     await expect(page.getByRole("button", { name: "Pause Autopilot" })).toBeVisible();
     for (const h of [/^Needs you/, /^Working on$/, /^Your videos$/, /^Coming up$/, /^How posts go out$/]) {
@@ -90,20 +101,21 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     await expect(page.getByRole("region", { name: "Working on" }).getByRole("button", { name: "Open videos folder" }))
       .toBeVisible();
     await page.getByRole("link", { name: "See Activity" }).click();
-    await expect(page).toHaveURL(/#\/autopilot\/activity$/);
+    await expect(page).toHaveURL(/#\/missions\/activity$/);
     const skipped = page.locator(".activity-row.skipped", { hasText: "The podcast moment everyone is talking about" });
     await expect(skipped).toContainText("Skipped");
     await expect(skipped).toContainText("Not covered");
 
-    // HOME SAYS THE SAME: waiting is visible, without a normal question in Needs you.
-    await page.goto("/#/");
-    await expect(lead.locator("#lead-title")).toHaveText("Nothing needs you. Add a video to make clips.");
+    // THE SUMMARY SAYS THE SAME: waiting is visible, without a normal question in Needs you.
+    await page.goto("/#/home");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Summary");
+    await expect(page.locator("section.lead #lead-title")).toHaveText("Nothing needs you. Add a video to make clips.");
     expect((await get(request, "/api/autopilot/status")).home.needs_you
       .filter((need: any) => ["videos", "rights"].includes(need.type))).toEqual([]);
 
     // ONE AGREEMENT, RECORDED ONCE: the creator allows clipping and shares their raw files in a folder
     const health = await get(request, "/api/health");
-    await page.goto("/#/autopilot/sources");
+    await page.goto("/#/missions/sources");
     await page.getByRole("button", { name: "Record an agreement…" }).click();
     const dialog = page.getByRole("dialog", { name: "Record an agreement with a creator" });
     await dialog.getByLabel("Creator", { exact: true }).fill("The Podcast Channel");
@@ -131,7 +143,7 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     const others = (await get<any[]>(request, "/api/autopilot/sources")).filter((s) => s.external_id !== "pod1");
     expect(others.every((s) => s.rights_status === "MANUAL_CONFIRMATION_REQUIRED")).toBe(true);
 
-    await page.goto("/#/autopilot");
+    await page.goto("/#/missions");
     await expect(page.locator('.needs-you .need[data-type="rights"]')).toHaveCount(0);
     await expect(page.locator('.needs-you .need[data-type="videos"]')).toHaveCount(0); // it has a video to work on
     await expect(page.locator("#ap-state")).toContainText("Autopilot is on");

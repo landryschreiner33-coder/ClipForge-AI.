@@ -189,7 +189,8 @@ class CompleteLoopFixture:
                           "autopilot_upload_lead_minutes": 720,
                           "autopilot_tiktok": False, "autopilot_youtube": True,
                           "min_duration": 12.0, "max_duration": 45.0, "target_duration": 25.0,
-                          "youtube_derived_metrics_approved": True})
+                          "youtube_derived_metrics_approved": True,
+                          "audience_youtube_intent": "SELECTED_AUDIENCE"})
         self.add_catalog(FIRST, "Podcast business mistakes and talking to customers", self.first)
         self.add_catalog(BROKEN, "Podcast with an unreadable original recording", self.broken, views=990_000)
         # This manually pasted video has accessible media but no reuse permission. It must produce a local

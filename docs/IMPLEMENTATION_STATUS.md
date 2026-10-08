@@ -24,6 +24,24 @@ Verification levels used below: **source reviewed** (read the code path and its 
 **RTX 3050 verified**, **real account verified**. Imported/synthetic transcripts and fake platform adapters are
 always labeled as such.
 
+## Selected audiences, Brain, NVIDIA adapter and robot office (2026-10-07)
+
+Owner's brief `ClipFoundry_Claude_Final_Master_Prompt_2.md`; branch `claude/clipfoundry-office-audience`, PR #15.
+Details and exact test results: [AI_CHANGELOG.md](../AI_CHANGELOG.md); state and next work:
+[AI_HANDOFF.md](../AI_HANDOFF.md).
+
+| Requirement | Status |
+| --- | --- |
+| Never public; selected audience on YouTube (private + invited viewers) | Implemented and tested (fake API); real-account verification pending |
+| TikTok Followers/Friends (audited app) or manual posting package | Implemented and tested; audit needs user action |
+| Approvals bound to audience; drift halt; legacy migration without widening | Implemented and tested |
+| Brain: provenance, cohorts, CSV import, guarded clip-length loop, rollback | Implemented and tested |
+| Office feed from real job transitions; reports, reviews, Boss decisions | Implemented and tested |
+| Health: Healthy / Degraded / Error / Unknown | Implemented and tested; GPU check needs the owner's PC |
+| 25 robots + CORE, roster, dev gallery; Office UI and navigation | Implemented; checked in Chromium with scratch data |
+| Optional NVIDIA adapter | Implemented and tested (mocked); live verification pending; needs key and terms review |
+| AI handoff files and Dev Log | Implemented |
+
 ## Public internet video imports (2026-10-03)
 
 Owner request: expand automatic pulling and local use beyond the prior reuse-covered-only discovery.

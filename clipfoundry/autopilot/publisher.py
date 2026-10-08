@@ -20,7 +20,7 @@ import time
 
 import httpx
 
-from .. import db
+from .. import audience, db
 from ..pipeline import fingerprint
 from ..publish import jobs as publish_jobs
 from ..publish import tiktok, youtube
@@ -148,9 +148,8 @@ def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     if pub:
         return pub
     opts = dict(item.get("options") or {})
-    if item["platform"] == "youtube":
-        opts["publish_at"] = item["planned_at"]
-    else:
+    opts.pop("publish_at", None)  # never a later public release (audience policy)
+    if item["platform"] != "youtube":
         opts["duration"] = float(clip.get("duration") or 0)
     from ..publish.jobs import feature_snapshot
 
@@ -205,6 +204,9 @@ def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> No
                 "scope_not_authorized", "insufficientPermissions"):
         _action_needed(item, f"connect:{platform}", f"Reconnect {platform.title()} to publish", str(exc), exc.fix)
         raise queue.Fail(str(exc), exc.fix)
+    if code == "audience_blocked":
+        _set(item, "blocked", f"{exc} {exc.fix}", "audience_blocked", last_error=str(exc), fix=exc.fix, approval={})
+        raise queue.Fail(str(exc), exc.fix)
     if code in ("unaudited", "unaudited_client_can_only_post_to_private_accounts", "privacy_level_option_mismatch",
                 "duration", "spam_risk_user_banned_from_posting", "user_banned_from_posting"):
         _action_needed(item, f"review:{item['id']}", f"Review “{item['title'][:50]}” for {platform.title()}", str(exc),
@@ -242,6 +244,20 @@ def publish(job: Job) -> dict:
     if not allowed:
         _set(item, "blocked", why, "blocked")
         raise queue.Fail(why, "The agreement for this video does not cover this platform.")
+    if not item.get("publication_id"):  # a started upload is reconciled, never re-judged halfway
+        if settings.get("autopilot_publish_paused"):
+            _set(item, "approved", "Publishing is paused; it goes out after you resume publishing.", "publish_paused",
+                 planned_at=None)
+            return {"message": "Publishing is paused"}
+        try:
+            # visibility and destination first (public, unlisted, local-only: blocked); an audience change after the
+            # approval is caught by approval_problem below and asks for a new approval
+            audience.check(item["platform"], item.get("privacy") or "", settings,
+                           mode=(item.get("options") or {}).get("mode") or "direct", options=item.get("options"))
+        except audience.AudienceBlocked as exc:
+            _set(item, "blocked", f"{exc} {exc.fix}", "audience_blocked", last_error=str(exc), fix=exc.fix,
+                 approval={})
+            raise queue.Fail(str(exc), exc.fix) from exc
     problem = approval_problem({**item, "status": "approved"})
     if problem:
         _set(item, "awaiting_approval", f"Needs a new approval: {problem}.", "approval_invalidated", approval={})
@@ -314,12 +330,23 @@ def finish(item: dict, pub: dict) -> dict:
     item = _item(item["id"]) or item
     if pub["status"] == "done":
         info = pub.get("info") or {}
-        if info.get("scheduled"):
-            note = pub.get("message") or "Uploaded and scheduled on YouTube"
-        elif info.get("locked_private"):
-            note = f"Published as Private: the platform did not allow {item['privacy']}. {pub.get('message', '')}"
-        else:
-            note = pub.get("message") or "Published"
+        drift = audience.visibility_mismatch(item["platform"], item.get("privacy") or "", pub.get("privacy") or "")
+        if drift:
+            # the platform reports a wider audience than requested: halt this destination and tell the user. Local
+            # clips stay; nothing remote is deleted automatically, and changing privacy cannot recall copies.
+            block_platform(item["platform"], time.time() + 365 * 86400, f"Visibility mismatch: {drift}")
+            _set(item, "blocked", drift, "visibility_mismatch", last_error=drift,
+                 fix="Check the video on the platform and set it back to the audience you chose.")
+            state.action(f"visibility:{item['platform']}", "publish", f"{item['platform'].title()} uploads stopped",
+                         drift, "Open the video on the platform, correct its visibility, then resume publishing "
+                                "in Settings → Integrations.", ref_type="scheduled", ref_id=item["id"])
+            return {"message": drift}
+        a = info.get("audience") or {}
+        note = pub.get("message") or "Uploaded"
+        if a.get("setup") == audience.SETUP_AWAITING_INVITES:
+            state.action(f"share:{pub['id']}", "publish", f"Share “{item['title'][:50]}” privately in YouTube Studio",
+                         "It is uploaded as Private. Your test viewers can only watch after you invite them.",
+                         audience.YOUTUBE_SHARE_STEPS, ref_type="scheduled", ref_id=item["id"])
         _set(item, "published", note, "published", last_error="", fix="")
         state.resolve(f"review:{item['id']}")
         state.event("published", f"{item['platform']}: “{item['title'][:60]}” — {note[:160]}", ref_type="scheduled",

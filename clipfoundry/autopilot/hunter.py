@@ -52,8 +52,13 @@ def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
 
 
 def project_options(settings: dict) -> dict:
+    # the Brain's active test-audience strategy (or the baseline) ranks new clips; the project keeps which version
+    # it used, so a later rollback or comparison knows what each clip was made with
+    from .. import brain
+
     return {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
-            "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0)}
+            "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0),
+            **brain.ranking_options(settings)}
 
 
 # ------------------------------------------------------------------ media

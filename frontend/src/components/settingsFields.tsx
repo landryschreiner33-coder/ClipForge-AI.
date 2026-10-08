@@ -7,7 +7,7 @@ import { Icon, Segmented, Toggle } from "./ui";
  * table (label and tab of every key, used by the save bar and to point at an invalid field) and validation.
  */
 
-export type SettingsTab = "accounts" | "defaults" | "advanced";
+export type SettingsTab = "accounts" | "defaults" | "advanced" | "integrations";
 export type FieldCtx = {
   s: Settings; set: (patch: Settings) => void; errors?: Record<string, string>; saved?: Settings;
 };

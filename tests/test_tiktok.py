@@ -53,8 +53,13 @@ def clip(app_client, tmp_path):
 
 
 def _connect(client, tt, audited: bool = False) -> None:
+    # audience policy: an unaudited app can only stage ("Only me"); an audited one posts to the private account's
+    # friends here (the fake account offers Friends, not Followers)
+    audience = {"audience_tiktok_intent": "SELECTED_AUDIENCE", "audience_tiktok_group": "FRIENDS",
+                "audience_tiktok_private_confirmed": True, "audience_tiktok_followers_reviewed": True} if audited \
+        else {"audience_tiktok_intent": "OWNER_ONLY"}
     client.put("/api/settings", json={"tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
-                                      "tiktok_app_audited": audited})
+                                      "tiktok_app_audited": audited, **audience})
     acc = client.get("/api/publish/accounts").json()["tiktok"]
     assert acc["redirect_uri"] == "http://127.0.0.1:8765/api/oauth/tiktok/callback"  # what to register at TikTok
     auth_url = client.post("/api/publish/tiktok/connect", headers=H).json()["auth_url"]
@@ -137,12 +142,16 @@ def test_a_rate_limited_chunk_waits_as_long_as_tiktok_asks(app_client, tt, clip)
     assert pub["status"] == "done" and bytes(tt.uploads[pub["remote_id"]]["data"]) == data
 
 
-def test_public_post_after_audit_links_to_the_video(app_client, tt, clip):
+def test_friends_post_after_audit_links_to_the_video(app_client, tt, clip):
     c, _ = clip
     _connect(app_client, tt, audited=True)
-    pub = _wait(app_client, _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE", allow_comment=True).json()["id"])
-    assert pub["status"] == "done" and pub["url"] == "https://www.tiktok.com/@testcreator/video/7300000000000000001"
+    pub = _wait(app_client, _post(app_client, c["id"], privacy="MUTUAL_FOLLOW_FRIENDS",
+                                  allow_comment=True).json()["id"])
+    assert pub["status"] == "done" and pub["privacy"] == "MUTUAL_FOLLOW_FRIENDS"
     assert tt.inits[-1]["post_info"]["disable_comment"] is False
+    assert tt.inits[-1]["post_info"]["privacy_level"] == "MUTUAL_FOLLOW_FRIENDS"
+    assert pub["info"]["audience"]["setup"] == "api_verified" and pub["info"]["audience"]["intent"] == \
+        "SELECTED_AUDIENCE"
 
 
 def test_unaudited_app_is_limited_to_only_me(app_client, tt, clip):
@@ -150,6 +159,16 @@ def test_unaudited_app_is_limited_to_only_me(app_client, tt, clip):
     _connect(app_client, tt, audited=False)
     r = _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE")
     assert r.status_code == 400 and "Only me" in r.json()["detail"] and "inbox" in r.json()["fix"]
+    assert not tt.inits
+
+
+def test_everyone_and_only_me_never_reach_selected_viewers(app_client, tt, clip):
+    c, _ = clip
+    _connect(app_client, tt, audited=True)
+    r = _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE")
+    assert r.status_code == 400 and r.json()["code"] == "audience_blocked"
+    r = _post(app_client, c["id"], privacy="SELF_ONLY")
+    assert r.status_code == 400 and "cannot reach your test viewers" in r.json()["detail"]
     assert not tt.inits
 
 
@@ -174,7 +193,7 @@ def test_branded_content_cannot_be_only_me(app_client, tt, clip):
     _connect(app_client, tt, audited=True)
     r = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="SELF_ONLY")
     assert r.status_code == 400 and "Branded content" in r.json()["detail"]
-    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="PUBLIC_TO_EVERYONE")
+    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="MUTUAL_FOLLOW_FRIENDS")
     assert ok.status_code == 200
     _wait(app_client, ok.json()["id"])
     assert tt.inits[-1]["post_info"]["brand_content_toggle"] is True

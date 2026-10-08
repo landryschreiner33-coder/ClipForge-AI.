@@ -233,8 +233,8 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
                category_id: str = "22", publish_at: float | None = None) -> dict:
     """snippet + status for videos.insert, validated against YouTube's limits.
 
-    With `publish_at` (a public post planned for later), the video is uploaded as private with status.publishAt and
-    YouTube itself makes it public at that time, even if this computer is off."""
+    Only Private is sent (audience.py: selected viewers are invited in YouTube Studio). `publish_at` is refused: a
+    later public release (status.publishAt) is never scheduled in this build."""
     title = _clean(title)
     if not title:
         raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
@@ -244,7 +244,11 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
     if len(description.encode("utf-8")) > 5000:
         raise PublishError("YouTube descriptions can have at most 5000 bytes.", "Shorten the description.")
     if privacy not in PRIVACY:
-        raise PublishError("Choose Public, Unlisted or Private.")
+        raise PublishError("Choose Private.")
+    if privacy != "private" or publish_at:
+        raise PublishError("Only Private YouTube uploads are allowed in this version (no public, unlisted or scheduled "
+                           "public release).", "Choose Private, then invite your test viewers in YouTube Studio.",
+                           "audience_blocked")
     clean_tags, total = [], 0
     for t in tags:
         t = _clean(t).lstrip("#").replace(",", " ").strip()
@@ -252,12 +256,7 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
         if t and t not in clean_tags and total + cost <= 480:
             clean_tags.append(t)
             total += cost
-    status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids), "embeddable": True}
-    if publish_at and privacy == "public":
-        import datetime as dt
-
-        status["privacyStatus"] = "private"  # YouTube requires private + publishAt for scheduled publishing
-        status["publishAt"] = dt.datetime.fromtimestamp(publish_at, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    status = {"privacyStatus": "private", "selfDeclaredMadeForKids": bool(made_for_kids), "embeddable": True}
     return {"snippet": {"title": title, "description": description, "tags": clean_tags,
                         "categoryId": str(category_id or "22")}, "status": status}
 

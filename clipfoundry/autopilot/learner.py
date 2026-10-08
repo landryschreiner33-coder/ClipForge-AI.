@@ -105,6 +105,8 @@ def rows(settings: dict) -> list[dict]:
     for pub in db.list_publications():
         if pub["status"] not in ("done", "action_needed"):
             continue
+        if (pub.get("info") or {}).get("audience"):  # test-audience results belong to the Brain's cohorts only
+            continue
         snap = _snapshot(pub)
         if not snap:
             continue
@@ -248,10 +250,25 @@ def findings(metrics: list[dict], limit: int = 8) -> list[str]:
     return out
 
 
+def _brain(settings: dict) -> None:
+    """Test-audience evidence goes to the Brain, which keeps cohorts apart and changes strategy only with enough of
+    it. Its failure is its own Error state and never stops public learning or clipping."""
+    from .. import brain
+
+    if not settings.get("autopilot_learning", True):
+        return
+    try:
+        brain.collect_platform_numbers(settings)
+        brain.evaluate_all(settings)
+    except Exception as exc:  # noqa: BLE001 - recorded, shown as the Brain's Error state
+        state.event("brain_error", f"Brain: {exc}", level="error")
+
+
 @handler("learn")
 def learn(job: Job) -> dict:
     settings = db.get_settings()
     refreshed = refresh_due(settings, job)
+    _brain(settings)
     all_rows = rows(settings)
     allowed = [r for r in all_rows if usable(r["platform"], settings)]
     excluded = len(all_rows) - len(allowed)

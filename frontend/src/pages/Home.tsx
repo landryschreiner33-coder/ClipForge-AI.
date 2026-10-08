@@ -1,4 +1,3 @@
-import RobotOffice from "../components/RobotOffice";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, Clip, clipThumbUrl, Project, projectThumbUrl, timeAgo } from "../api";
 import { NeedsYouItem } from "../autopilot";
@@ -204,7 +203,7 @@ export default function Home() {
 
   return (
     <div className="page">
-      <PageHead title="Home"
+      <PageHead title="Summary"
         sub={<span className="small"><a className="textlink" href="#/autopilot">Autopilot: {state.word}</a>
           {detail ? ` · ${detail}` : ""}</span>}
         actions={<a className="btn" href="#/create"><Icon name="plus" />Add video</a>} />
@@ -243,8 +242,6 @@ export default function Home() {
           <Skel className="skel-line" style={{ width: "60%" }} />
         </section>
       )}
-
-      <RobotOffice compact />
 
       <div className="cols-main">
         <section className="panel" aria-labelledby="recent-title">

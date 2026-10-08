@@ -284,11 +284,21 @@ class WorkerHost:
         with self._lock:
             self._running[job.id] = job
         self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
+        from .. import office
+
+        started_at = time.time()
+        office.record_safely(office.job_started, row)
         fn = HANDLERS.get(row["kind"])
         try:
             if fn is None:
                 raise queue.Fail(f"No handler for job kind {row['kind']}")
-            result = fn(job) or {}
+            from ..pipeline import nvidia
+
+            unattended = nvidia.UNATTENDED.set(True)  # preview cloud AI is never used by unattended work
+            try:
+                result = fn(job) or {}
+            finally:
+                nvidia.UNATTENDED.reset(unattended)
             job.check()
             queue.complete(row, token, result, str(result.get("message") or "Done"))
             self.set_state(name, "completed", job, message=str(result.get("message") or f"{row['kind']} done"))
@@ -325,6 +335,7 @@ class WorkerHost:
             with self._lock:
                 self._running.pop(job.id, None)
             outcome = queue.get(job.id) or {}
+            office.record_safely(office.job_finished, row, outcome, started_at)
             if outcome.get("status") in ("failed", "canceled") and row["kind"] in ("hunt_source", "analyze_source"):
                 from . import scout
 

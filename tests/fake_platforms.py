@@ -80,6 +80,7 @@ class FakeGoogle(_Server):
         self.expire_sessions = False             # ...and forget the upload session right away
         self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
         self.lock_private = False                # behave like an unaudited API project
+        self.force_privacy = ""                  # report this visibility after an upload (drift / mismatch tests)
         self.quota_exceeded = False
         self.chunk_delay = 0.0
         self.analytics: dict | None = None      # a YouTube Analytics row for every video, or None = no data yet
@@ -259,7 +260,8 @@ class FakeGoogle(_Server):
             return h._send(308, None, headers)
         vid = "vid" + secrets.token_hex(4)
         wanted = s["meta"]["status"]["privacyStatus"]
-        status = {"uploadStatus": "uploaded", "privacyStatus": "private" if self.lock_private else wanted,
+        status = {"uploadStatus": "uploaded", "privacyStatus": self.force_privacy or ("private" if self.lock_private
+                                                                                  else wanted),
                   "selfDeclaredMadeForKids": s["meta"]["status"]["selfDeclaredMadeForKids"]}
         if s["meta"]["status"].get("publishAt"):
             assert wanted == "private"  # YouTube only accepts publishAt on private videos

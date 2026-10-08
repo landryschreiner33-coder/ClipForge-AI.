@@ -10,7 +10,9 @@ const PROVIDER_KEYS: Record<string, string[]> = {
   ollama: ["ollama_url", "ollama_model"], openai_compatible: ["openai_url", "openai_model", "openai_api_key"],
   anthropic: ["anthropic_api_key", "anthropic_model"],
 };
+// The tabs that share the save bar. Integrations (NVIDIA AI and who sees your clips) saves its own forms.
 const TABS = [["Accounts", "#/settings"], ["Defaults", "#/settings/defaults"], ["Advanced", "#/settings/advanced"]];
+const INTEGRATIONS = ["Integrations", "#/settings/integrations"];
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/#/settings");
@@ -19,7 +21,7 @@ test.beforeEach(async ({ page }) => {
 
 test("Accounts comes first, with both platforms and how their posts get approved", async ({ page }) => {
   const tabs = page.getByRole("navigation", { name: "Settings sections" });
-  for (const [name, href] of TABS) {
+  for (const [name, href] of [...TABS, INTEGRATIONS]) {
     await expect(tabs.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   }
   await expect(tabs.locator("[aria-current=page]")).toHaveText("Accounts");
@@ -60,10 +62,16 @@ test("every setting has a place on one of the tabs", async ({ page, request }) =
       if (await page.locator(`[id="set-${k}"], [id="set-${k}-label"]`).count()) found.add(k);
     }
   }
-  // Turned on and off on the Autopilot page; the caption style is a picker of named styles; the way of working is
-  // chosen in first-time setup.
-  const elsewhere = ["autopilot_enabled", "caption_style", "setup_mode", ...hidden];
-  const missing = Object.keys(s).filter((k) => !found.has(k) && !elsewhere.includes(k));
+  // NVIDIA AI and the audience settings have their own forms on Integrations (only looked at, never saved here)
+  await page.goto(`/${INTEGRATIONS[1]}`);
+  await expect(page.getByRole("heading", { name: "Who sees your clips" })).toBeVisible();
+  await expect(page.getByText("Use NVIDIA AI", { exact: true })).toBeVisible();
+  // Turned on and off on the Missions page and the Office's control bar (Pause publishing too); the caption style is
+  // a picker of named styles; the way of working is chosen in first-time setup; the Brain's guards (brain_*,
+  // docs/BRAIN.md) have no field on the Settings page.
+  const elsewhere = ["autopilot_enabled", "autopilot_publish_paused", "caption_style", "setup_mode", ...hidden];
+  const onItsOwn = (k: string) => /^(nvidia|audience|brain)_/.test(k);
+  const missing = Object.keys(s).filter((k) => !found.has(k) && !elsewhere.includes(k) && !onItsOwn(k));
   expect(missing, "settings without a place on the Settings page").toEqual([]);
 });
 
@@ -91,7 +99,7 @@ test("Save stays off until something changes, switching tabs keeps the change, a
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(bar).toContainText("Unsaved changes: Hook on screen");
   // leaving the page asks; Stay keeps you here
-  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Library" }).click();
+  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Clips" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Leave without saving?");
   await dialog.getByRole("button", { name: "Stay" }).click();

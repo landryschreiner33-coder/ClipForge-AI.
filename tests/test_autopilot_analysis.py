@@ -274,6 +274,7 @@ def test_clip_hunter_and_analyzer_end_to_end(talk_video, tmp_path, monkeypatch):
         rep = gate.report_for(c)
         assert rep and rep["status"] == "passed", (rep or {}).get("blockers")
         assert rep["bindings"]["blueprint"]["sha256"] == bpm.plan_of(c["id"]).sha256()
+    db.save_settings({"audience_youtube_intent": "SELECTED_AUDIENCE"})  # default keeps clips local: no plan at all
     planned = scheduler.plan_new(db.get_settings(), time.time())
     assert planned["created"] >= 1
     items = db.select("scheduled_publications")

@@ -38,7 +38,8 @@ def env(monkeypatch, tmp_path):
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
                       "autopilot_youtube": True, "autopilot_tiktok": False, "autopilot_min_gap_minutes": 60,
-                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3})
+                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3,
+                      "audience_youtube_intent": "SELECTED_AUDIENCE", "audience_tiktok_intent": "OWNER_ONLY"})
     yield {"g": g, "t": t, "tmp": tmp_path}
     g.stop()
     t.stop()
@@ -96,7 +97,7 @@ def local(day: dt.date, hour: int, minute: int = 0) -> float:
 def consent_youtube() -> dict:
     from clipfoundry.autopilot import autopublish
 
-    return autopublish.enable("youtube", "public", False, 3, 9, 21, True, "")
+    return autopublish.enable("youtube", "private", False, 3, 9, 21, True, "")
 
 
 def item_for(clip: dict, platform: str = "youtube") -> dict:
@@ -244,7 +245,7 @@ def test_a_clip_changed_in_place_needs_a_new_approval_across_restarts(env):
         cur = db.fetch("scheduled_publications", i["id"])
         assert not scheduler.approval_valid(cur)
         assert scheduler.approval_problem(cur) == "the clip or its text changed after approval"
-    db.update("scheduled_publications", yt["id"], planned_at=now + 600)  # due: YouTube uploads 30 minutes early
+    db.update("scheduled_publications", yt["id"], planned_at=now - 60)  # due: uploads start at their time
     db.update("scheduled_publications", tt["id"], planned_at=now - 60)  # due: TikTok posts at its time
     scheduler.process_due(db.get_settings(), now)
     for i in (yt, tt):
@@ -288,7 +289,7 @@ def test_youtube_is_approved_again_automatically_only_after_the_gate_checked_the
 
     rewrite_in_place(clip["output_path"])
     restart()
-    db.update("scheduled_publications", yt["id"], planned_at=now + 600)
+    db.update("scheduled_publications", yt["id"], planned_at=now - 60)
     scheduler.process_due(db.get_settings(), now)  # due: the approval no longer covers the file
     assert db.fetch("scheduled_publications", yt["id"])["status"] == "awaiting_approval"
     db.update("scheduled_publications", yt["id"], planned_at=now + 7200)
@@ -329,7 +330,7 @@ def test_missing_or_unreadable_video_is_never_approved(env, monkeypatch):
     with pytest.raises(ValueError, match="missing or cannot be read"):
         scheduler.approve(approved["id"], NO_KIDS)
     assert scheduler.approval_problem(approved) == "the video file is missing or cannot be read"
-    db.update("scheduled_publications", approved["id"], planned_at=now + 600)
+    db.update("scheduled_publications", approved["id"], planned_at=now - 60)
     scheduler.process_due(db.get_settings(), now)
     gone = db.fetch("scheduled_publications", approved["id"])
     assert gone["status"] == "awaiting_approval" and "missing or cannot be read" in gone["status_note"]
@@ -360,7 +361,7 @@ def test_approvals_from_before_the_content_hash_are_asked_again(env):
     yt, tt = item_for(clip), item_for(clip, "tiktok")
     old = {"at": now - 3600, "by": "you", "hash": "0" * 40}  # what an earlier version stored (size + time)
     db.update("scheduled_publications", yt["id"], status="approved", approval=old, options={"made_for_kids": False},
-              planned_at=now + 600)  # due: YouTube uploads 30 minutes early
+              planned_at=now - 60)  # due: uploads start at their time
     db.update("scheduled_publications", tt["id"], status="approved", approval=old, privacy="SELF_ONLY",
               planned_at=now - 60)  # due: TikTok posts at its time
     restart()
@@ -485,7 +486,7 @@ def test_missed_posts_are_replanned_once_each_without_a_burst_across_the_change(
         clip = make_clip(env, f"Missed clip {k} about customers")
         item = db.insert("scheduled_publications", {
             "clip_id": clip["id"], "platform": "youtube", "title": clip["title"], "description": "d", "tags": [],
-            "privacy": "public", "options": {"made_for_kids": False}, "planned_at": at,
+            "privacy": "private", "options": {"made_for_kids": False}, "planned_at": at,
             "status": "awaiting_approval"})
         scheduler.approve(item["id"], {})
         ids.append(item["id"])
@@ -511,7 +512,7 @@ def test_missed_posts_are_replanned_once_each_without_a_burst_across_the_change(
     assert again["missed"] == 0 and again["publishing"] == 0
     assert sorted(db.fetch("scheduled_publications", i)["planned_at"] for i in ids) == times
     first = min(rows, key=lambda r: r["planned_at"])
-    due = first["planned_at"] - 60 * float(db.get_settings()["autopilot_upload_lead_minutes"])
+    due = first["planned_at"]  # uploads start at the planned time (no early upload with a later public release)
     assert scheduler.process_due(db.get_settings(), due + 1)["publishing"] == 1  # one at a time, at its time
 
 

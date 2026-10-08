@@ -404,7 +404,8 @@ export interface ScheduledItemRow {
   privacy: string;
   options: Record<string, any>;
   planned_at: number | null;
-  status: "awaiting_approval" | "approved" | "publishing" | "reconciling" | "published" | "failed" | "canceled" | "replaced" | "blocked" | "action_needed";
+  status: "awaiting_approval" | "approved" | "publishing" | "reconciling" | "published" | "failed" | "canceled"
+    | "replaced" | "blocked" | "action_needed" | "manual_handoff";
   status_note: string;
   final_score: number | null;
   scores: Record<string, any>;

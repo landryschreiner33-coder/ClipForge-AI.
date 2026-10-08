@@ -25,6 +25,7 @@ from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
 from .autopilot import routes as autopilot_routes
+from . import brain_routes, integrations_routes, office_routes
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -53,6 +54,9 @@ def _youtube_retention() -> None:
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(autopilot_routes.router)
+app.include_router(brain_routes.router)
+app.include_router(integrations_routes.router)
+app.include_router(office_routes.router)
 
 
 # ------------------------------------------------------------------ helpers
