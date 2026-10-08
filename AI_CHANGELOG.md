@@ -98,6 +98,12 @@ against scratch backends: layouts, keyboard, list view, connection lost, control
 
 - No GPU, no real YouTube or TikTok accounts and no NVIDIA key in this session. None of those paths was verified live.
 - NVIDIA terms and the platform help pages were not re-read here.
-- The e2e specs were still being updated when this entry was written. See the next entry, if any, or the PR.
+- e2e specs were updated for the new navigation and Office (commit `5a251ce`). Results:
+  - `npm run test:sandbox`: 8 passed.
+  - Read-only `e2e/tests` against a throwaway sandbox (never real data): 61 passed, 1 skipped (no post was waiting
+    for approval).
+  - Both ran with the preinstalled Chromium 1194 via `CLIPFOUNDRY_E2E_CHROMIUM`.
+- The beginner-flow spec turns off "Find public videos to clip" as a setup step, as `tests/test_autopilot_simple.py`
+  does.
 
 **Follow-ups:** listed in `AI_HANDOFF.md` under "Next useful work".
