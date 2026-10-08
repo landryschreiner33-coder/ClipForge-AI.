@@ -1,11 +1,12 @@
 import { expect, getJson, test } from "../fixtures";
 
-// Home: the one next step, then recent videos and clips and the next few posts. Read-only: only links are followed;
-// no button on the page is pressed (the fixture blocks, and fails on, anything that would change data).
+// Summary (#/home, the former Home page; the app now opens on the Office): the one next step, then recent videos
+// and clips and the next few posts. Read-only: only links are followed; no button on the page is pressed (the
+// fixture blocks, and fails on, anything that would change data).
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/#/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Home");
+  await page.goto("/#/home");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Summary");
 });
 
 test("the next step comes from Autopilot's and the library's real state", async ({ page, request }) => {
@@ -32,13 +33,15 @@ test("the next step comes from Autopilot's and the library's real state", async 
   }).toPass();
 });
 
-test("the status line names Autopilot's real state and links to it", async ({ page, request }) => {
+test("the status line names Autopilot's real state and links to Missions", async ({ page, request }) => {
+  const link = page.locator(".page-head").getByRole("link", { name: /^Autopilot: / });
   await expect(async () => {
     const st = await getJson(request, "/api/autopilot/status");
     const word = st.paused ? "Stopped" : st.enabled ? "On" : st.home.setup.started ? "Paused" : "Off";
-    await expect(page.locator(".page-head").getByRole("link", { name: `Autopilot: ${word}` }))
-      .toHaveAttribute("href", "#/autopilot", { timeout: 1000 });
+    await expect(link).toHaveText(`Autopilot: ${word}`, { timeout: 1000 });
   }).toPass();
+  await link.click();
+  await expect(page).toHaveURL(/#\/missions$/);
 });
 
 test("Recent videos and clips match the library", async ({ page, request }) => {
@@ -54,7 +57,8 @@ test("Recent videos and clips match the library", async ({ page, request }) => {
       await expect(rows.first().locator(".post-title")).toHaveAttribute("href", `#/project/${s.recent[0].id}`);
     }
   }).toPass();
-  await expect(page.getByRole("link", { name: "Open Library" })).toHaveAttribute("href", "#/library");
+  await page.getByRole("link", { name: "Open Library" }).click();
+  await expect(page).toHaveURL(/#\/clips$/);
 });
 
 test("Coming up matches the posts Autopilot planned", async ({ page, request }) => {
@@ -70,10 +74,11 @@ test("Coming up matches the posts Autopilot planned", async ({ page, request }) 
         { timeout: 1000 });
     }
   }).toPass();
-  await expect(panel.getByRole("link", { name: "All posts" })).toHaveAttribute("href", "#/posts/scheduled");
+  await panel.getByRole("link", { name: "All posts" }).click();
+  await expect(page).toHaveURL(/#\/queue\/scheduled$/);
 });
 
-test("Home shows no stats or system details: those live under Autopilot → Advanced", async ({ page }) => {
+test("the Summary shows no stats or system details: those live under Missions → Advanced", async ({ page }) => {
   for (const h of ["Workers", "GPU", "System", "YouTube API quota", "Performance"]) {
     await expect(page.getByRole("heading", { name: h, exact: true })).toHaveCount(0);
   }
