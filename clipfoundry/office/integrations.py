@@ -1,5 +1,6 @@
-"""REST endpoints for Settings → Integrations: the cards, the capability registry, and the optional NVIDIA AI
-(explicit opt-in, a check that generates nothing, an explicit small test, and disconnect)."""
+"""REST endpoints for Settings → Integrations: the cards, the capability registry, Test connection for YouTube and
+TikTok (one read, nothing uploaded or changed), and the optional NVIDIA AI (explicit opt-in, a check that generates
+nothing, an explicit small test, and disconnect)."""
 from __future__ import annotations
 
 import time
@@ -20,6 +21,24 @@ WRITE = [Depends(app_request)]
 @router.get("", dependencies=READ)
 def cards() -> dict:
     return {"cards": capabilities.cards(), "registry": capabilities.matrix()}
+
+
+def _test(platform: str) -> dict:
+    """Test connection (only from ClipFoundry's page on this PC): one read on the platform with the connected
+    account. It never uploads, posts or changes anything there, and it costs no money."""
+    if not (db.get_account(platform) or {}).get("has_tokens"):
+        raise HTTPException(409, f"Connect {'YouTube' if platform == 'youtube' else 'TikTok'} first.")
+    return capabilities.test_connection(platform)
+
+
+@router.post("/youtube/test", dependencies=WRITE)
+def youtube_test() -> dict:
+    return _test("youtube")
+
+
+@router.post("/tiktok/test", dependencies=WRITE)
+def tiktok_test() -> dict:
+    return _test("tiktok")
 
 
 @router.get("/nvidia", dependencies=READ)

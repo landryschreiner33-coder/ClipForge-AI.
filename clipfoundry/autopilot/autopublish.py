@@ -46,6 +46,18 @@ def active(platform: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def account_id(platform: str) -> str:
+    """The account posts would go to now ("" when none is connected)."""
+    return str((db.get_account(platform) or {}).get("account_id") or "")
+
+
+def same_account(consent: dict) -> bool:
+    """Was the permission given for the account connected now? It names one channel, so it never carries over to
+    another one connected later (no account connected: nothing can be uploaded anyway)."""
+    given, now = (consent.get("settings") or {}).get("account_id") or "", account_id(consent["platform"])
+    return not given or not now or given == now
+
+
 def text_for(platform: str, cfg: dict, channel: str = "") -> str:
     """Exactly what you agree to (stored with the permission)."""
     where = f"my YouTube channel{f' “{channel}”' if channel else ''}"
@@ -87,7 +99,8 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     cfg = {"visibility": visibility, "made_for_kids": bool(made_for_kids), "daily_limit": int(daily_limit),
            "start_hour": int(start_hour), "end_hour": int(end_hour),
            "timezone": settings.get("autopilot_timezone") or "America/Chicago",
-           "min_quality": float(settings.get("autopilot_min_quality") or 0), "text_version": TEXT_VERSION}
+           "min_quality": float(settings.get("autopilot_min_quality") or 0), "text_version": TEXT_VERSION,
+           "account_id": account_id(platform)}
     now = time.time()
     for old in db.select("publish_consents", "platform = ? AND revoked_at IS NULL", (platform,)):
         db.update("publish_consents", old["id"], revoked_at=now)
@@ -130,7 +143,8 @@ def still_covers(item: dict) -> bool:
     if appr.get("by") != "automatic":
         return True
     c = active(item["platform"])
-    return bool(c) and c["id"] == appr.get("consent_id") and (c.get("settings") or {}).get("visibility") == "private"
+    return (bool(c) and c["id"] == appr.get("consent_id") and (c.get("settings") or {}).get("visibility") == "private"
+            and same_account(c))
 
 
 def qualifies(report: dict | None) -> tuple[bool, str]:

@@ -22,11 +22,15 @@ The guards (section 14 of the build brief, all in Settings → Advanced):
   least 48 hours after posting, or ratings from ``brain_min_testers`` different testers;
 * clips from the same source video are weighted down (1/sqrt(n)) and older results count less (half weight after
   60 days); outcomes are capped at their 10th and 90th percentiles;
-* a change needs both shorter and longer clips (10 each) and a difference larger than twice its standard error;
+* a change needs both shorter and longer clips (20 each) and a difference larger than twice its standard error;
   otherwise the result is "not enough evidence" or "inconclusive" and the strategy stays;
 * one accepted update moves the target by at most ``brain_max_step`` (10%), inside your min/max clip length;
 * every version stores its evidence, the old and new value and the version it replaced; later results are checked
-  and a clearly worse version is rolled back automatically; Reset returns to your own setting.
+  and a clearly worse version is rolled back automatically (10 clips under each version are enough to go back);
+  Reset returns to your own setting. After a rollback or Reset, the results already seen never change it again:
+  the next change waits for 10 new clips;
+* each platform's audience has its own strategy. One clip goes to every platform Autopilot posts to, so a learned
+  length is used only when every such platform learned the same value; otherwise your own setting.
 
 The Brain never changes code, secrets, privacy, who watches, spending limits or safety checks. These are correlations
 in your own results, not proof that a length causes more views, and a small selected group is not the public.
@@ -70,12 +74,13 @@ TESTER_FIELDS = (*RATINGS, "stopped_at_s")
 MATURE_HOURS = 48.0
 RECENCY_DAYS = 60.0
 MIN_SOURCES = 5
-MIN_SIDE = 10
+MIN_ARM = 20  # clips on each side of the shorter/longer comparison before it may change anything
+MIN_SIDE = 10  # clips under each version before a rollback; new clips before the next step after a change
 STRATEGY = "clip_length"
 STRATEGY_COHORTS = ("selected",)  # only your selected viewers' results may change a strategy
 COHORT_LABELS = {"selected": "Selected viewers", "owner_only": "Only you (staging)",
                  "public_legacy": "Public (before this version)", "testers": "Shown to testers directly",
-                 "unlinked": "Not linked to a post"}
+                 "unlinked": "Not linked to a post", "unconfirmed": "Your viewers could not watch it yet"}
 STATE_LABELS = {"cold_start": "Cold start", "collecting": "Collecting data", "evaluating": "Evaluating",
                 "updated": "Strategy updated", "paused": "Paused", "error": "Error"}
 
@@ -91,7 +96,7 @@ def _settings(settings: dict | None) -> dict:
 # ------------------------------------------------------------------ recording evidence
 def _destination(clip_id: str, platform: str, publication_id: str = "") -> dict:
     """Which post (and so which audience) an observation belongs to."""
-    from .learner import cohort
+    from .learner import cohort, shown_at
 
     pubs = [p for p in db.list_publications(clip_id=clip_id, platform=platform or None)
             if p["status"] in ("done", "action_needed") and (not publication_id or p["id"] == publication_id)]
@@ -100,7 +105,7 @@ def _destination(clip_id: str, platform: str, publication_id: str = "") -> dict:
         stamp = pub.get("audience") or {}
         return {"publication_id": pub["id"], "cohort": cohort(pub), "group_version": int(stamp.get("group_version")
                                                                                          or 0),
-                "posted_at": float(pub["created_at"])}
+                "posted_at": shown_at(pub)}  # results mature 48 h after your viewers could watch, not the upload
     # feedback on a clip shown to testers directly, or numbers for a post ClipFoundry does not know about: kept, but
     # never mixed with a platform audience
     return {"publication_id": "", "cohort": "unlinked" if platform else "testers", "group_version": 0,
@@ -484,16 +489,17 @@ def clip_length(settings: dict | None = None) -> dict | None:
     settings = _settings(settings)
     if settings.get("brain_paused"):
         return None
-    found = []
-    for platform in ("youtube", "tiktok"):
-        if not settings.get(f"autopilot_{platform}"):
-            continue
+    found, platforms = [], [p for p in ("youtube", "tiktok") if settings.get(f"autopilot_{p}")]
+    for platform in platforms:
         s = active(platform, "selected", _group_version(platform, settings))
         if s:
             found.append(s)
-    if not found:
+    # one clip goes to every platform Autopilot posts to: a length learned from one audience is used only when each
+    # of them learned that same length, so one platform's viewers never set the clips another audience is shown
+    targets = {round(float(s["params"]["target_duration"]), 1) for s in found}
+    if not found or len(found) < len(platforms) or len(targets) > 1:
         return None
-    target = round(sum(float(s["params"]["target_duration"]) for s in found) / len(found), 1)
+    target = targets.pop()
     lo, hi = float(settings.get("min_duration") or 15), float(settings.get("max_duration") or 60)
     used = [{"id": s["id"], "platform": s["platform"], "version": s["version"]} for s in found]
     feed.emit("brain_lookup", "core", message=f"Clip length {target:g} s from the learned strategy "
@@ -514,12 +520,22 @@ def _save(platform: str, cohort: str, group_version: int, params: dict, evidence
         "evidence": evidence_, "status": "active", "reason": reason[:500]})
 
 
+def _undone(row: dict, reason: str) -> dict:
+    """A rolled-back version's evidence, plus the clips that had results in its audience when it was rolled back:
+    evaluate_group never lets those same results adopt a change again (only new clips can)."""
+    group = (row["platform"], row["cohort"], int((row.get("params") or {}).get("group_version") or 0))
+    ev = evidence().get(group) or {}
+    seen = sorted(set(ev.get("measured") or {}) | set(ev.get("rated") or {}))
+    return {**(row.get("evidence") or {}), "rolled_back": {"at": time.time(), "reason": reason[:200], "clips": seen}}
+
+
 def rollback(strategy_id: str, reason: str = "Rolled back by you") -> dict:
     """Return to the version this one replaced (or to your own setting)."""
     row = db.fetch("brain_strategies", strategy_id)
     if not row or row["status"] != "active":
         raise Invalid("Only the strategy in use can be rolled back")
-    db.update("brain_strategies", row["id"], status="rolled_back", reason=f"{row['reason']} | {reason}"[:500])
+    db.update("brain_strategies", row["id"], status="rolled_back", reason=f"{row['reason']} | {reason}"[:500],
+              evidence=_undone(row, reason))
     back = (row.get("params") or {}).get("rollback_to") or "baseline"
     prev = db.fetch("brain_strategies", back) if back != "baseline" else None
     if prev:
@@ -536,7 +552,8 @@ def reset(platform: str = "") -> dict:
     n = 0
     for row in db.select("brain_strategies", "status = 'active'" + (" AND platform = ?" if platform else ""),
                          (platform,) if platform else ()):
-        db.update("brain_strategies", row["id"], status="rolled_back", reason=f"{row['reason']} | Reset by you"[:500])
+        db.update("brain_strategies", row["id"], status="rolled_back", reason=f"{row['reason']} | Reset by you"[:500],
+                  evidence=_undone(row, "Reset by you"))
         n += 1
     state.event("strategy_reset", f"Learned clip length reset ({n} version(s)); Autopilot uses your own setting")
     feed.emit("strategy_rolled_back", "curator", message="Learned strategy reset to your own setting")
@@ -546,9 +563,10 @@ def reset(platform: str = "") -> dict:
 def _check_active(pts: list[dict], s: dict) -> str | None:
     """Later results under the version in use against those under the version it replaced: a clearly worse
     version is rolled back (returns the message)."""
-    mine = [p for p in pts if p["strategy"] == s["id"]]
+    # a clip made while both platforms' versions were in use records both ids ("a+b"): it counts for each of them
+    mine = [p for p in pts if s["id"] in p["strategy"].split("+")]
     before_id = (s.get("params") or {}).get("rollback_to") or "baseline"
-    before = [p for p in pts if p["strategy"] == before_id]
+    before = [p for p in pts if before_id in p["strategy"].split("+")]
     if len(mine) < MIN_SIDE or len(before) < MIN_SIDE:
         return None
     m_new, se_new, _ = _stats(mine)
@@ -587,18 +605,29 @@ def evaluate_group(platform: str, cohort: str, gv: int, ev: dict, settings: dict
     if len(pts) < min_clips or sources < MIN_SOURCES:
         return {**base, "result": "not_enough", "message": f"Not enough evidence yet: {len(pts)} of {min_clips} "
                 f"clips with mature results from {sources} of {MIN_SOURCES} videos."}
-    if current:  # the same evidence never moves the value twice: the next step waits for new results
-        seen = set((current.get("evidence") or {}).get("clips") or [])
+    # the same evidence never moves the value twice, and a rollback or Reset is never undone by the results it was
+    # made with (automatic, by you, or a reset): the next step waits for new results
+    undone = [r for r in db.select("brain_strategies", "name = ? AND platform = ? AND cohort = ? AND status = "
+                                   "'rolled_back'", (STRATEGY, platform, cohort))
+              if int((r.get("params") or {}).get("group_version") or 0) == gv]
+    if current or undone:
+        seen = set(((current or {}).get("evidence") or {}).get("clips") or [])
+        for r in undone:
+            ev_r = r.get("evidence") or {}
+            seen |= set(ev_r.get("clips") or []) | set((ev_r.get("rolled_back") or {}).get("clips") or [])
         fresh = sum(p["clip_id"] not in seen for p in pts)
+        last_undo = max((float(r["updated_at"]) for r in undone), default=0.0)
+        since = f"version {current['version']}" if current and float(current["created_at"]) >= last_undo else \
+            "the last rollback"
         if fresh < MIN_SIDE:
-            return {**base, "result": "waiting", "message": f"Waiting for new results since version "
-                    f"{current['version']}: {fresh} of {MIN_SIDE} new clips."}
+            return {**base, "result": "waiting", "message": f"Waiting for new results since {since}: {fresh} of "
+                    f"{MIN_SIDE} new clips."}
     target = float(current["params"]["target_duration"]) if current else _baseline(settings)
     short = [p for p in pts if p["duration"] < target]
     long = [p for p in pts if p["duration"] >= target]
-    if len(short) < MIN_SIDE or len(long) < MIN_SIDE:
-        return {**base, "result": "inconclusive", "message": f"Inconclusive: needs at least {MIN_SIDE} clips shorter "
-                f"and {MIN_SIDE} longer than {target:g} s ({len(short)} and {len(long)} so far)."}
+    if len(short) < MIN_ARM or len(long) < MIN_ARM:
+        return {**base, "result": "inconclusive", "message": f"Inconclusive: needs at least {MIN_ARM} clips shorter "
+                f"and {MIN_ARM} longer than {target:g} s ({len(short)} and {len(long)} so far)."}
     m_s, se_s, n_s = _stats(short)
     m_l, se_l, n_l = _stats(long)
     se = math.sqrt(se_s ** 2 + se_l ** 2)
@@ -607,7 +636,10 @@ def evaluate_group(platform: str, cohort: str, gv: int, ev: dict, settings: dict
              "long": {"n": len(long), "mean": round(m_l, 2), "n_eff": round(n_l, 1)}, "diff": round(diff, 2),
              "standard_error": round(se, 2), "sources": sources, "clips": [p["clip_id"] for p in pts][:1000],
              "provenance": sorted({outcomes[p["clip_id"]]["provenance"] for p in pts}), "at": now}
-    if se == 0 or abs(diff) <= 2 * se:
+    if se < 1e-9:  # rounding leaves ~1e-16 where every result on a side is the same: that is no spread, not certainty
+        return {**base, "result": "inconclusive", "evidence": found, "message": f"Inconclusive: every clip on each "
+                f"side had the same result ({m_s:.1f} vs {m_l:.1f}), so there is no spread to judge how sure it is."}
+    if abs(diff) <= 2 * se:
         return {**base, "result": "inconclusive", "evidence": found, "message": f"Inconclusive: shorter and longer "
                 f"clips did about the same ({m_s:.1f} vs {m_l:.1f}, uncertainty ±{2 * se:.1f})."}
     better = long if diff > 0 else short

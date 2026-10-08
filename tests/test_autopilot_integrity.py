@@ -315,6 +315,44 @@ def test_youtube_is_approved_again_automatically_only_after_the_gate_checked_the
     assert db.fetch("scheduled_publications", tt["id"])["status"] == "awaiting_approval"
 
 
+def test_approvals_and_automatic_publishing_stay_with_the_account_they_were_given_for(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    connect_youtube(env["g"])
+    db.save_settings({"autopilot_tiktok": True})
+    clip = make_clip(env, "Talk to customers first")
+    now = time.time()
+    scheduler.plan_new(db.get_settings(), now)
+    yt = scheduler.approve(item_for(clip)["id"], NO_KIDS)
+    assert yt["approval"]["account"] == "UC123"
+    other = make_clip(env, "Ask what they got wrong")
+    consent_youtube()  # given while UC123 is connected
+    scheduler.plan_new(db.get_settings(), now)
+    auto = item_for(other)
+    assert auto["status"] == "approved" and auto["approval"]["by"] == "automatic"
+
+    db.save_account("youtube", account_id="UCsomeoneelse", display_name="Another channel")  # another channel signed in
+    restart()
+    for i in (yt, auto):
+        cur = db.fetch("scheduled_publications", i["id"])
+        assert scheduler.approval_problem(cur) == "another account is connected now than the one it was approved for"
+        db.update("scheduled_publications", i["id"], planned_at=now + 600)
+    scheduler.process_due(db.get_settings(), now)
+    for i in (yt, auto):
+        cur = db.fetch("scheduled_publications", i["id"])
+        assert cur["status"] == "awaiting_approval" and cur["approval"] == {}
+    scheduler.process_due(db.get_settings(), now)  # the permission names UC123: nothing is approved for the new one
+    held = db.fetch("scheduled_publications", auto["id"])
+    assert held["status"] == "awaiting_approval" and "another channel" in held["status_note"]
+    with pytest.raises(queue.Fail):
+        run_publish(yt["id"])
+    assert not env["g"].videos
+
+    db.save_account("youtube", account_id="UC123", display_name="Channel")  # the first channel again
+    assert scheduler.approval_valid(scheduler.approve(yt["id"], NO_KIDS))
+
+
 def test_missing_or_unreadable_video_is_never_approved(env, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler

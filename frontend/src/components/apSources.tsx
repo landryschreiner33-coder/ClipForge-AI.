@@ -196,7 +196,7 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
                 </div>
               ))}
             </div>
-          ) : <p className="small muted">No rules yet: videos nothing covers are skipped.</p>}
+          ) : <p className="small muted">No rules yet: videos nothing covers are never posted.</p>}
         </section>
       </div>
 

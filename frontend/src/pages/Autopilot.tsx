@@ -268,8 +268,8 @@ function Overview({ st, lost, since, refresh, setData }: {
         <div className="estop">
           <div className="grow stack small muted">
             <span><b>Pause Autopilot</b> (at the top) stops new work: nothing new is found, clipped or posted, and
-              what's queued waits. Posts already uploaded to YouTube with a publish time still go public then, because
-              YouTube does that itself.</span>
+              what's queued waits. Videos already uploaded stay as they are: YouTube videos are uploaded Private and
+              never set to go public later.</span>
             <span><b>Stop all jobs</b> is the emergency stop: queued work is canceled and running jobs stop at their
               next safe point, including videos and uploads you started yourself. Nothing starts again until you press
               Resume jobs.</span>
@@ -454,6 +454,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
                     <span className="sr-only"> (opens a new tab)</span></a> : <b className="break">{a.title}</b>}
                   <span className="tiny faint">{[a.channel, a.rights, a.access].filter(Boolean).join(" · ")}</span>
                   {!a.used && a.why && <span className="small">{a.why}</span>}
+                  {a.used && a.posting && <span className="small not-posted">{a.posting}</span>}
                 </span>
                 <span className="tiny faint nowrap">{a.at ? timeAgo(a.at) : ""}</span>
                 {a.can_add_file && (

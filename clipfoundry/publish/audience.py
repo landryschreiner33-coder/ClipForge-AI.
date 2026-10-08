@@ -180,7 +180,7 @@ def check(platform: str, privacy: str, settings: dict, *, mode: str = "direct", 
         if want == SELECTED and not settings.get("tiktok_app_audited"):
             raise AudienceBlocked("TikTok only lets audited apps post for followers; this app can post “Only me”.",
                                   "Use the ready-to-post package (or a draft in your TikTok inbox) and choose "
-                                  f"{TIKTOK_GROUP_LABELS[tiktok_group(settings)].split(' (')[0].title()} in the app.")
+                                  f"{'Friends' if tiktok_group(settings) == 'friends' else 'Followers'} in the app.")
     else:
         route = "manual"  # inbox draft or package: the owner picks the audience in the TikTok app
     return {"intent": want, "platform": platform, "policy_version": POLICY_VERSION, "group": dest["group"],
@@ -241,7 +241,7 @@ DELIVERY_LABELS = {
     "uploaded_owner_only": "Uploaded, only you can see it", "awaiting_invitations": "Awaiting viewer invitations",
     "audience_user_confirmed": "Audience set up (you confirmed)",
     "restricted_api_verified": "Restricted audience (platform confirmed)",
-    "restricted_requested": "Posted for your chosen group (TikTok accepted it)",
+    "restricted_requested": "Posted for your chosen group (as asked; TikTok does not report who can see it)",
     "manual_handoff": "Ready for you to post on TikTok", "awaiting_analytics": "Awaiting viewer results",
     "blocked": "Blocked", "failed": "Failed", "retrying": "Retrying", "uncertain": "Upload not confirmed",
     "canceled": "Canceled", "published": "Posted before this version",

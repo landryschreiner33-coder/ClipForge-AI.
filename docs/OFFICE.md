@@ -118,9 +118,12 @@ retries, resumed uploads, and posts planned before this version.
   for those invitations, so the post shows *Awaiting viewer invitations* until you press *I shared it*. That is your
   confirmation, not a platform check. Comments are not promised on private videos.
 * **TikTok: approved followers.** Posts go to your Followers (or Friends) on a private account. Only an app TikTok
-  has audited may Direct Post to those groups. An unaudited app can only post *Only me*, which is staging for you and
-  is never shown as delivered to viewers. Without an eligible route the clip becomes a ready-to-post package
-  (*Ready for you to post on TikTok*) that you post in the TikTok app.
+  has audited may Direct Post to those groups, and TikTok's Content Sharing Guidelines turn down "a utility tool to
+  help upload contents to the account(s) you or your team manages" and apps that copy content from other platforms,
+  so a personal ClipFoundry should not expect the audit. An unaudited app can only post *Only me*, which is staging
+  for you and is never shown as delivered to viewers. Without an eligible route the clip becomes a ready-to-post
+  package (Queue → Problems → *Ready for you to post on TikTok*: download video, copy caption, steps, then *Link the
+  post…* or *I posted it, no link*) that you post in the TikTok app.
 * **Confirmation.** Before any upload you confirm, once per platform in Settings → Integrations, how your audience
   works. *My viewers changed* makes earlier approvals stale. Every approval is bound to the exact file, the text and
   the audience stamp (policy version and group version, `scheduler.APPROVAL_SCHEME = 3`), and automatic YouTube
@@ -182,20 +185,44 @@ make every capability available, and signing in never grants downloads or full a
 ## Scores
 
 All scores are 0-100 ranking estimates made by ClipFoundry, not platform numbers and not probabilities of going
-viral. Each one lists its parts, their weights and what was not counted.
+viral. Each one stores its parts with their weights, the parts that had no data with the reason, its coverage and its
+confidence.
 
-* **Trend Score** (`autopilot/trends.py: score`). Weights: velocity 0.35, recency 0.18, engagement 0.12, acceleration
-  0.10, live 0.10, recurrence 0.10, size 0.05. Only the parts with data count, and the total is divided by their
-  weights; a missing velocity, engagement or recency is named under the score.
+* **Missing data** (`autopilot/trends.py: combine`). Every part that applies to a video counts. A part without data
+  is neither left out nor counted as 0: it counts as the neutral 0.5 and is listed as missing with its reason.
+  * *Coverage* = Σ weight of the parts with data ÷ Σ weight of the parts that apply. In the Source Score the trend
+    part counts with the Trend Score's own coverage.
+  * *Score* = 100 × Σ weight × value ÷ Σ weight over the parts that apply, a part without data counting as 0.5.
+    For the Trend Score that is 100 × (c × weighted average of the parts with data + (1 − c) × 0.5) with coverage
+    c, so it stays between 50 × (1 − c) and 50 + 50 × c and one or two numbers cannot rank a video high: a
+    ten-minute-old web result without views (coverage 31%) scores at most 65.5 (it scored 99.7 before this rule).
+    The Source Score's trend part is that already shrunk Trend Score.
+  * *Confidence* (`trends.confidence`), in words, never as a percentage: **high** with coverage of at least 75% and
+    two readings at least 20 minutes apart; **medium** with coverage of at least 50% and at least one reading of the
+    numbers; **low** otherwise. A reading is a timestamped set of the platform's numbers; readings less than 20
+    minutes apart count once.
+  * Stored with the score: `trend_signals.components` and `sources.components` hold the parts with data and an
+    `evidence` entry (weight 0) with `coverage`, `confidence`, `readings` and `missing` (part → reason). The Trend
+    Score's notes name the missing parts and the evidence in words.
+* **Trend Score** (`trends.score`). Weights: velocity 0.35, recency 0.18, engagement 0.12, acceleration 0.10, live
+  0.10 (live streams only; it does not apply to a recording), recurrence 0.10, size 0.05.
   * *Velocity* is observed only from two readings at least 20 minutes apart (change in views ÷ hours between them).
     Without two readings it is views ÷ hours since upload, labeled *average since upload* (an estimate).
   * *Acceleration* needs a third reading at least 20 minutes before the previous one.
+  * *Engagement* is (likes + 2 × comments) ÷ views; with 0 views (a measured zero) there is no rate yet, so it is
+    missing. *Recurrence* counts other creators whose titles share one of the two main topic words; a title without
+    topic words leaves it missing.
   * YouTube numbers without Google's derived-metrics approval are not scored at all: the score is YouTube's own
-    order (`PLATFORM_ORDER`).
+    order (`PLATFORM_ORDER`, one part with weight 1). A video without a list position has no data for it and gets
+    the neutral 50 with low confidence.
 * **Clip Opportunity Score** is the **Source Score** (`autopilot/scout.py: score_source`), computed before anything
   is downloaded: trend 0.35, clip potential 0.30 (expected strong clips from the video's length and the yield
-  learned per category), creator history 0.15, topic results 0.15, freshness 0.10, live 0.10. It decides which
-  videos are worth downloading and transcribing.
+  learned per category; missing while the length is unknown and for live streams, which are judged while they run),
+  creator history 0.15 (missing until a video of this creator or category was finished), topic results 0.15 (missing
+  until your posts on the topic have results; it does not apply with learning off), freshness 0.10 (missing without
+  an upload time, and for YouTube data without the derived-metrics approval), live 0.10 (live streams only). Its
+  confidence uses its own coverage and the trend signal's readings. It decides which videos are worth downloading
+  and transcribing; the expected number of strong clips still decides whether a video is worth reading at all.
 * After transcription each moment gets its **Clip Score** (Viral Potential with eleven factors and the hook →
   context → payoff structure), and each planned post a **Final Opportunity Score** (docs/AUTOPILOT.md#scores).
 

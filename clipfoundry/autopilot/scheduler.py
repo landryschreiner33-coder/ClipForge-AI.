@@ -516,7 +516,7 @@ def approval_record(item: dict, **fields: object) -> dict | None:
     if not basis:
         return None
     return {**fields, "hash": artifact.sha256_json(basis), "scheme": APPROVAL_SCHEME,
-            "video_sha256": basis["video_sha256"]}
+            "video_sha256": basis["video_sha256"], "account": autopublish.account_id(item["platform"])}
 
 
 def approval_problem(item: dict, quick: bool = False) -> str:
@@ -527,6 +527,9 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     if appr.get("scheme") != APPROVAL_SCHEME:
         return ("approved before ClipFoundry checked who may watch it" if appr.get("scheme") == 2 else
                 "approved before ClipFoundry checked the exact video file")
+    now_account = autopublish.account_id(item["platform"])
+    if appr.get("account") and now_account and appr["account"] != now_account:
+        return "another account is connected now than the one it was approved for"
     stamp = item.get("audience") or {}
     if stamp.get("group_version"):
         dest = audience.destination(item["platform"], db.get_settings())
@@ -581,6 +584,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         return False  # you changed this post yourself: you decide when it is ready
     cfg = consent.get("settings") or {}
     if cfg.get("visibility") != "private":  # a permission given for public videos covers nothing now
+        return False
+    if not autopublish.same_account(consent):
+        _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "
+                    "connected now")
         return False
     clip = db.get_clip(item["clip_id"]) or {}
     report = gate.report_for(clip) if clip else None

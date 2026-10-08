@@ -95,7 +95,7 @@ export const CAST: Character[] = [
   // managers
   { id: "tracker", name: "TRACKER", title: "Discovery Manager", rank: "manager", dept: "discover", room: "discover",
     manager: "command", job: "Reviews what the scouts found and reports the candidates to COMMAND.",
-    palette: pal("#a6e94b", "#5f9a1e", "#d9ff7a", "#d9c58f", "#9c8a55"),
+    palette: pal("#a6e94b", "#5f9a1e", "#7dff5a", "#5fd35a", "#2f7a2a"),
     head: "radar-arch", body: "manager", visor: "binocular", top: "radar-arch", gear: "map-tablet", work: "map",
     hand: "both", workMs: 500 },
   { id: "vector", name: "VECTOR", title: "Analysis Manager", rank: "manager", dept: "analyze", room: "analyze",
@@ -156,7 +156,7 @@ export const CAST: Character[] = [
     workMs: 400 },
   { id: "spark", name: "SPARK", title: "Moment Finder", rank: "worker", dept: "studio", room: "studio",
     manager: "frame", job: "Scans the transcript and marks the moments that make complete clips.",
-    palette: pal("#ffe14a", "#b39a14", "#fff6b8", "#ffe14a", "#b39a14"),
+    palette: pal("#ffe14a", "#b39a14", "#4fb4ff", "#ffe14a", "#b39a14"),
     head: "round", body: "round", visor: "cyclops", top: "star", gear: "waveform", work: "markers", hand: "right",
     workMs: 300 },
   { id: "story", name: "STORY", title: "Story Editor", rank: "worker", dept: "studio", room: "studio",

@@ -10,6 +10,7 @@ a platform needs approval (TikTok's audit, Google's derived-metrics exception) t
 """
 from __future__ import annotations
 
+import hashlib
 import time
 
 from .. import db
@@ -51,8 +52,10 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "metadata": (IMPLEMENTED, "Creator and title from TikTok's public embed endpoint; no view counts."),
         "transcript": (LOCAL, "Made on this PC with Whisper."),
         "media": (IMPLEMENTED, "Only where the video is accessible to the link importer; nothing is bypassed."),
-        "upload": (APPROVAL, "Direct Post to your followers needs TikTok's app audit. Without it ClipFoundry sends "
-                             "a draft to your TikTok inbox or prepares a ready-to-post package."),
+        "upload": (APPROVAL, "Direct Post to your followers needs TikTok's app audit, and TikTok's guidelines turn "
+                             "away personal tools and apps that repost other platforms' videos, so expect a refusal. "
+                             "Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise "
+                             "ClipFoundry prepares a ready-to-post package that you post in the TikTok app."),
         "visibility": (APPROVAL, "Followers or friends on a private account (audited apps); an unaudited app can "
                                  "only post 'Only me', which is staging, not a test."),
         "consent": (IMPLEMENTED, "Your OK on every post (TikTok requires it)."),
@@ -103,13 +106,156 @@ def _card(cid: str, name: str, status: str, detail: str, *, identity: str = "", 
             "checked_at": checked_at, **extra}
 
 
-def _limited(prefix: str) -> dict | None:
+# ------------------------------------------------------------------ waits and limits the platforms set
+def _platform_wait(platform: str, settings: dict) -> dict | None:
+    """A wait that stops uploads to a platform right now, from where the code records it: the platform's own refusal
+    (`platform_limits`, written by scheduler.block_platform after a long Retry-After or a posting cap) and, for YouTube,
+    the daily quota of the Google Cloud project (autopilot/quota.py)."""
+    from ..autopilot import quota, scheduler
+
+    name = "YouTube" if platform == "youtube" else "TikTok"
+    until, note = scheduler.blocked_until(platform)
+    if until:
+        return {"until": until, "detail": f"{(note or name + ' asked ClipFoundry to wait').rstrip('.')}. New uploads "
+                                          f"to {name} wait until then; everything else continues."}
+    if platform != "youtube":
+        return None
+    q = quota.status(settings)
+    for bucket in ("uploads", "default"):
+        b = q["buckets"][bucket]
+        if b["exhausted"] or (bucket == "uploads" and b["budget"] and b["used"] >= b["budget"]):
+            why = "YouTube reported" if b["exhausted"] else "ClipFoundry counted"
+            return {"until": q["resets_at"], "detail": f"{why} today's quota for {b['label'].lower()} as used up. "
+                                                       "New uploads wait until it resets at midnight Pacific Time; "
+                                                       "everything else continues."}
+    return None
+
+
+# ------------------------------------------------------------------ Test connection
+CHECK_KEY = "integration_check:"   # autopilot_state: the last connection test of each platform
+QUOTA_CODES = ("quotaExceeded", "dailyLimitExceeded", "quota_budget")
+RATE_CODES = ("rateLimitExceeded", "userRateLimitExceeded", "rate_limit_exceeded", *QUOTA_CODES)
+PERMISSION_CODES = ("insufficientPermissions", "forbidden", "scope_not_authorized", "scope")
+SETUP_CODES = ("setup", "accessNotConfigured", "no_channel", "youtubeSignupRequired")
+
+
+def _failure_status(code: str, retry_after: float | None) -> str:
+    if code in RATE_CODES or retry_after is not None:
+        return "rate_limited"
+    if code in PERMISSION_CODES:
+        return "permission_required"
+    if code in SETUP_CODES:
+        return "requires_user_action"
+    return "error"  # a token the platform no longer accepts too: like the card's "Error: connect again"
+
+
+def _grant(platform: str) -> str:
+    """Which sign-in a check tested: connecting again (new refresh token or permissions) makes an older failed check
+    irrelevant. Only a short hash is kept, and it never leaves the server."""
+    try:
+        tokens = db.account_tokens(platform) or {}
+    except Exception:  # noqa: BLE001 - a token sealed on another PC must not break the Integrations page
+        tokens = {}
+    scopes = ",".join(sorted((db.get_account(platform) or {}).get("scopes") or []))
+    return hashlib.sha256(f"{tokens.get('refresh_token', '')}|{scopes}".encode()).hexdigest()[:16]
+
+
+def last_check(platform: str) -> dict:
+    """The last Test connection result as the page may see it: without the sign-in hash, but with whether it tested
+    the current sign-in (`current`)."""
     from ..autopilot import state
 
-    for key, value in (state.get_many(prefix) or {}).items():
-        if isinstance(value, dict) and float(value.get("until") or 0) > time.time():
-            return {"key": key, **value}
-    return None
+    chk = state.get(CHECK_KEY + platform) or {}
+    if not isinstance(chk, dict) or not chk:
+        return {}
+    return {**{k: v for k, v in chk.items() if k != "grant"}, "current": chk.get("grant") == _grant(platform)}
+
+
+def _probe(platform: str, settings: dict) -> tuple[str, str]:
+    """One read on the platform; returns (identity, what it answered) or raises PublishError."""
+    from ..publish import tiktok, youtube
+    from ..publish.common import PublishError
+
+    acc = db.get_account(platform) or {}
+    if platform == "youtube":
+        if not youtube.configured(settings):
+            raise PublishError("Your Google Cloud app is not set up yet.", youtube.SETUP_FIX, "setup")
+        token = youtube.Token(settings)
+        try:
+            ch = youtube.channel(token.get())
+        except PublishError as exc:
+            if exc.code != "reconnect":
+                raise
+            ch = youtube.channel(token.get(force=True))  # 401: the access token ended early; refresh it once
+        if acc.get("account_id") and ch.get("id") != acc["account_id"]:
+            raise PublishError("YouTube answered for a different channel than the one you connected.",
+                               "Connect YouTube again and pick the channel you want to use.", "reconnect")
+        name = ch.get("title") or ""
+        return name, f"YouTube answered for your channel {name}." if name else "YouTube answered."
+    if not tiktok.configured(settings):
+        raise PublishError("Your TikTok developer app is not set up yet.", tiktok.SETUP_FIX, "setup")
+    token = tiktok.Token(settings)
+    if "video.publish" in (acc.get("scopes") or []):
+        info = tiktok.creator_info(token)  # refreshes and retries once by itself on an invalid token
+        name = info.get("nickname") or info.get("username") or ""
+        # "Everyone" is left out: ClipFoundry never posts publicly (publish/audience.py), so it is not an option here
+        offers = ", ".join(tiktok.PRIVACY_LABELS.get(o, o) for o in info.get("privacy_options") or []
+                           if o != "PUBLIC_TO_EVERYONE")
+        return name, f"TikTok answered for {name or 'your account'}" + (
+            f". Audiences it offers for your posts: {offers}." if offers else ".")
+    try:
+        user = tiktok.user_info(token.get())
+    except PublishError as exc:
+        if exc.code != "access_token_invalid":
+            raise
+        user = tiktok.user_info(token.get(force=True))
+    name = user.get("display_name") or ""
+    return name, f"TikTok answered for {name or 'your account'}. Direct Post was not granted, so it was not checked."
+
+
+def test_connection(platform: str, settings: dict | None = None) -> dict:
+    """Test connection: one cheap read with the stored account, the token refreshed first when it expired. YouTube:
+    channels.list for your own channel (1 unit of the daily API quota, no money). TikTok: creator_info, the query
+    TikTok asks for before every post (user info when Direct Post was not granted). It never uploads, posts or
+    changes anything on the account. The time and the result are kept; the card shows the last successful check."""
+    from ..autopilot import quota, state
+    from ..publish.common import PublishError, asked_to_wait
+
+    assert platform in ("youtube", "tiktok")
+    settings = settings or db.get_settings()
+    now = time.time()
+    prev = last_check(platform)
+    try:
+        identity, detail = _probe(platform, settings)
+    except PublishError as exc:
+        status = _failure_status(exc.code or "", exc.retry_after)
+        wait = asked_to_wait(exc)  # the platform's Retry-After, or a minute for a rate limit that named no time
+        until = quota.next_reset() if exc.code in QUOTA_CODES else now + wait if wait is not None else None
+        result = {"ok": False, "at": now, "status": status, "status_label": CARD_LABELS[status],
+                  "detail": str(exc)[:300], "fix": exc.fix or "", "code": exc.code or "", "until": until,
+                  "last_ok_at": prev.get("last_ok_at")}
+    else:
+        result = {"ok": True, "at": now, "status": "connected", "status_label": CARD_LABELS["connected"],
+                  "detail": detail[:300], "fix": "", "code": "", "until": None, "identity": identity,
+                  "last_ok_at": now}
+    state.put(CHECK_KEY + platform, {**result, "grant": _grant(platform)})
+    result["current"] = True
+    state.event("connection_test", f"Test connection, {platform}: {result['status_label']}. {result['detail']}",
+                "info" if result["ok"] else "warning")
+    return result
+
+
+def _with_check(platform: str, st: str, detail: str, action: str) -> tuple[str, str, str]:
+    """A failed Test connection decides the card until a later check works, a rate limit only until its wait ends,
+    and nothing once you connected again (the tokens it tested were replaced)."""
+    from ..autopilot import state
+
+    chk = state.get(CHECK_KEY + platform) or {}
+    if not chk or chk.get("ok") or chk.get("grant") != _grant(platform):
+        return st, detail, action
+    if chk.get("status") == "rate_limited" and float(chk.get("until") or 0) <= time.time():
+        return st, detail, action
+    return chk["status"], chk.get("detail") or detail, chk.get("fix") or action
 
 
 def cards(settings: dict | None = None) -> list[dict]:
@@ -133,12 +279,18 @@ def cards(settings: dict | None = None) -> list[dict]:
             "Confirm the audience"
     else:
         st, detail, action = "connected", f"Uploads go to {dest['label'].lower()} as Private.", ""
-    if st == "connected" and _limited("quota_wait:youtube"):
-        st, detail = "rate_limited", "YouTube asked ClipFoundry to wait; uploads continue after the wait."
+    wait = _platform_wait("youtube", settings) if yt["connected"] else None
+    if st == "connected" and wait:
+        st, detail = "rate_limited", wait["detail"]
+    if yt["configured"] and yt["connected"] and not yt["needs_reconnect"]:
+        st, detail, action = _with_check("youtube", st, detail, action)
+    chk = last_check("youtube")
     out.append(_card("youtube", "YouTube", st, detail, identity=yt["name"], action=action,
                      missing=[] if yt["analytics"] or not yt["connected"] else
                      ["YouTube Analytics (average percentage viewed)"],
-                     checked_at=yt.get("connected_at"), audience=dest, steps=audience.YOUTUBE_SHARE_STEPS))
+                     checked_at=chk.get("last_ok_at"), last_check=chk or None, can_test=bool(yt["connected"]),
+                     connected_at=yt.get("connected_at"), limit=wait, audience=dest,
+                     steps=audience.YOUTUBE_SHARE_STEPS))
     # TikTok
     dest = audience.destination("tiktok", settings)
     missing = []
@@ -161,8 +313,16 @@ def cards(settings: dict | None = None) -> list[dict]:
             "Confirm the audience"
     else:
         st, detail, action = "connected", f"Posts go to {dest['label'].lower()} on your private account.", ""
+    wait = _platform_wait("tiktok", settings) if tt["connected"] else None
+    if st == "connected" and wait:
+        st, detail = "rate_limited", wait["detail"]
+    if tt["configured"] and tt["connected"] and not tt["needs_reconnect"]:
+        st, detail, action = _with_check("tiktok", st, detail, action)
+    chk = last_check("tiktok")
     out.append(_card("tiktok", "TikTok", st, detail, identity=tt["name"], action=action, missing=missing,
-                     checked_at=tt.get("connected_at"), audience=dest, steps=audience.TIKTOK_PRIVATE_STEPS))
+                     checked_at=chk.get("last_ok_at"), last_check=chk or None, can_test=bool(tt["connected"]),
+                     connected_at=tt.get("connected_at"), limit=wait, audience=dest,
+                     steps=audience.TIKTOK_PRIVATE_STEPS))
     # Web search
     key = bool(settings.get("tavily_api_key"))
     out.append(_card("web", "Web search (Tavily)", "connected" if key else "not_connected",

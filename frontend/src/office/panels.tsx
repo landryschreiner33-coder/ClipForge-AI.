@@ -5,7 +5,7 @@ import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
 import { BY_ID, CAST, DEPARTMENTS, Dept, RoomId, ROOM_NAMES } from "./cast";
 import { brainApi, BrainSummary, Health, HealthStatus, office, OfficeDecision, OfficeEvent, RoleRow, RoomDetails,
-  Snapshot } from "./api";
+  Snapshot, staleHealth } from "./api";
 import Portrait from "./Portrait";
 import { Card, STATE_WORDS } from "./OfficeMap";
 import { Pose } from "./sprites";
@@ -335,9 +335,12 @@ export function RobotPanel({ id, row, card, onRobot }: {
 }
 
 // ------------------------------------------------------------------ one room
-export function RoomPanel({ id, snap, onRobot }: { id: RoomId; snap: Snapshot; onRobot: (id: string) => void }) {
+export function RoomPanel({ id, snap, onRobot, stale = false }: {
+  id: RoomId; snap: Snapshot; onRobot: (id: string) => void; stale?: boolean;
+}) {
   const [d, setD] = useState<RoomDetails | null>(null);
   const [err, setErr] = useState("");
+  const [lastOk, setLastOk] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
     setD(null);
@@ -345,6 +348,7 @@ export function RoomPanel({ id, snap, onRobot }: { id: RoomId; snap: Snapshot; o
       if (alive) {
         setD(x);
         setErr("");
+        setLastOk(Date.now());
       }
     }).catch((e) => alive && setErr(errorText(e)));
     load();
@@ -375,12 +379,14 @@ export function RoomPanel({ id, snap, onRobot }: { id: RoomId; snap: Snapshot; o
       {id === "workspace" && <p className="muted small">Handoffs between departments: each card is a real report a manager received.</p>}
       {err && <p className="error-text small">{err}</p>}
       {!d && !err && <p className="muted small">Loading…</p>}
-      {d && <RoomBody d={d} snap={snap} />}
+      {d && <RoomBody d={d} snap={snap} stale={stale || !!err} lastOk={lastOk} />}
     </div>
   );
 }
 
-function RoomBody({ d, snap }: { d: RoomDetails; snap: Snapshot }) {
+function RoomBody({ d, snap, stale, lastOk }: {
+  d: RoomDetails; snap: Snapshot; stale: boolean; lastOk: number | null;
+}) {
   const tz = useStatus().st?.timezone;
   switch (d.id) {
     case "boss":
@@ -483,7 +489,8 @@ function RoomBody({ d, snap }: { d: RoomDetails; snap: Snapshot }) {
     }
     case "system":
       return (<>
-        <HealthList health={d.health as Health} />
+        {/* the last readings this panel received; while it cannot read new ones they are shown as Unknown */}
+        <HealthList health={d.health && stale ? staleHealth(d.health as Health, lastOk) : d.health as Health} />
         <Section title="Dev Log (read-only)">
           {(d.devlog || []).length ? (
             <ul className="op-list">{d.devlog.slice(0, 8).map((x: any, i: number) => (

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, toast } from "../components/ui";
 import { useMotion } from "../motion";
 import { useStatus } from "../status";
 import { BY_ID, RoomId, ROOM_NAMES } from "../office/cast";
-import { Control, office, Snapshot } from "../office/api";
+import { Control, office, Snapshot, staleHealth } from "../office/api";
 import { useOffice } from "../office/useOffice";
 import OfficeMap, { Card } from "../office/OfficeMap";
 import { ActivityPanel, DepartmentCards, HealthBadge, OverviewPanel, RobotPanel, RoomPanel } from "../office/panels";
@@ -41,7 +41,11 @@ export default function Office() {
       /* the choice lasts for this visit */
     }
   };
-  const snap = feed.snap;
+  // While the feed is lost, health is shown as Unknown, never as the last green readings (the map's rack lights, the
+  // overview and the bottom bar's GPU badge all read it from here).
+  const snap = useMemo(() => (feed.snap && feed.lost
+    ? { ...feed.snap, health: staleHealth(feed.snap.health, feed.lastOk) } : feed.snap),
+  [feed.snap, feed.lost, feed.lastOk]);
   const onRobot = (id: string, card: Card | null = null) => setSel({ type: "robot", id, card });
   const onRoom = (id: RoomId) => setSel({ type: "room", id });
 
@@ -113,7 +117,7 @@ export default function Office() {
           {sel?.type === "robot" ? (
             <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={(id) => onRobot(id)} />
           ) : sel?.type === "room" ? (
-            <RoomPanel key={sel.id} id={sel.id} snap={snap} onRobot={(id) => onRobot(id)} />
+            <RoomPanel key={sel.id} id={sel.id} snap={snap} onRobot={(id) => onRobot(id)} stale={feed.lost} />
           ) : sel?.type === "activity" ? (
             <ActivityPanel events={feed.events} skew={feed.skew} onRobot={(id) => onRobot(id)} />
           ) : (

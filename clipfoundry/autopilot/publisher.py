@@ -199,7 +199,8 @@ def _handle_error(job: Job, item: dict, exc: PublishError, settings: dict) -> No
         until = quota.next_reset()
         _set(item, "approved", f"Waiting for the YouTube quota to reset. {exc}", "quota")
         raise queue.Wait("quota", until - time.time() + 120, str(exc))
-    if code in ("uploadLimitExceeded", "spam_risk_too_many_posts", "reached_active_user_cap"):
+    if code in ("uploadLimitExceeded", "spam_risk_too_many_posts", "reached_active_user_cap",
+                "spam_risk_too_many_pending_share"):  # TikTok: at most 5 drafts waiting in 24 hours
         until = time.time() + 24 * 3600 if code != "spam_risk_too_many_posts" else _next_local_midnight(settings)
         block_platform(platform, until, str(exc))
         _set(item, "approved", f"{exc} It will be tried again after the limit resets.", "platform_limit",
@@ -412,7 +413,9 @@ def remind_audience_setup() -> None:
     if manual:
         state.action("audience_post:tiktok", "audience", f"Post {manual} clip{'s' if manual != 1 else ''} on TikTok",
                      "TikTok lets only audited apps post for followers, so these are ready for you to post in the "
-                     "TikTok app.", "Queue → Ready for you to post: download, post for your followers, paste the link.")
+                     "TikTok app.",
+                     "Queue → Problems → Ready for you to post on TikTok: download the video, post it for your "
+                     "followers in the TikTok app, then paste its link.")
     else:
         state.resolve("audience_post:tiktok")
 

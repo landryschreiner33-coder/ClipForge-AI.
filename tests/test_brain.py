@@ -28,7 +28,8 @@ def source() -> dict:
 
 
 def published(platform: str = "tiktok", duration: float = 30.0, src: dict | None = None, days_ago: float = 5,
-              intent: str = "SELECTED_AUDIENCE", group_version: int = 1, strategy: str = "") -> tuple[dict, dict]:
+              intent: str = "SELECTED_AUDIENCE", group_version: int = 1, strategy: str = "",
+              delivery: dict | None = None) -> tuple[dict, dict]:
     from clipfoundry import db
 
     src = src or source()
@@ -37,7 +38,8 @@ def published(platform: str = "tiktok", duration: float = 30.0, src: dict | None
     clip = db.create_clip(project["id"], start=0, end=duration, title="Talk", status="ready", duration=duration,
                           caption_text="Start with the customer.")
     pub = db.create_publication(clip["id"], platform, status="done", remote_id=f"v{time.time_ns()}",
-                                audience={"intent": intent, "group_version": group_version, "policy_version": 1})
+                                audience={"intent": intent, "group_version": group_version, "policy_version": 1},
+                                delivery=delivery or {})
     db.execute("UPDATE publications SET created_at = ? WHERE id = ?", (time.time() - days_ago * DAY, pub["id"]))
     db.execute("UPDATE clips SET created_at = ? WHERE id = ?", (time.time() - days_ago * DAY - 3600, clip["id"]))
     clip = db.get_clip(clip["id"])
@@ -191,13 +193,13 @@ def test_tester_feedback_file(data):
 
 # ------------------------------------------------------------------ the guards and the clip-length loop
 def _cohort(n: int, value, *, platform: str = "tiktok", intent: str = "SELECTED_AUDIENCE", group_version: int = 1,
-            sources: int = 8, strategy: str = "", durations=None) -> list[dict]:
+            sources: int = 8, strategy: str = "", durations=None, delivery: dict | None = None) -> list[dict]:
     srcs = [source() for _ in range(sources)]
     clips = []
     for k in range(n):
         d = durations[k] if durations else 18 + (k % 14) * 2  # 18..44 s, both sides of the 30 s target
         clip, _ = published(platform, d, srcs[k % sources], intent=intent, group_version=group_version,
-                            strategy=strategy)
+                            strategy=strategy, delivery=delivery)
         reading(clip, value(d, k), platform=platform)
         clips.append(clip)
     return clips
@@ -229,7 +231,7 @@ def test_enough_selected_evidence_moves_the_clip_length_ten_percent_and_later_cl
     from clipfoundry.autopilot import brain, hunter
     from clipfoundry.office import feed
 
-    _cohort(40, lambda d, k: 20 + d + (k % 3))  # longer clips were watched further, in this synthetic cohort
+    _cohort(50, lambda d, k: 20 + d + (k % 3))  # longer clips were watched further, in this synthetic cohort
     _cohort(40, lambda d, k: 90 - d, intent="LEGACY_PUBLIC")  # the old public posts said the opposite: ignored
     out = brain.evaluate()
     group = out["groups"][0]
@@ -257,9 +259,34 @@ def test_enough_selected_evidence_moves_the_clip_length_ten_percent_and_later_cl
 def test_no_difference_is_inconclusive(data):
     from clipfoundry.autopilot import brain
 
-    _cohort(40, lambda d, k: 50 + (k % 5))
+    _cohort(50, lambda d, k: 50 + (k % 5))
     out = brain.evaluate()
-    assert out["groups"][0]["result"] == "inconclusive" and not brain.history()
+    assert out["groups"][0]["result"] == "inconclusive" and "about the same" in out["message"]
+    assert not brain.history()
+
+
+def test_each_side_of_the_comparison_needs_twenty_clips(data):
+    from clipfoundry.autopilot import brain
+
+    _cohort(40, lambda d, k: 20 + d + (k % 3))  # 40 clips, but only 18 shorter than the 30 s target
+    group = brain.evaluate()["groups"][0]
+    assert group["result"] == "inconclusive" and "at least 20 clips shorter" in group["message"]
+    assert not brain.history() and brain.clip_length() is None
+
+
+def test_identical_ratings_show_no_uncertainty_and_change_nothing(data):
+    from clipfoundry.autopilot import brain
+
+    srcs, when = [source() for _ in range(8)], time.time() - 3600
+    for k in range(52):  # three testers gave every longer clip 5 and every shorter one 2: no spread to judge by
+        d = 18 + (k % 14) * 2
+        clip, _ = published("tiktok", d, srcs[k % 8])
+        for tester in ("ana", "ben", "cy"):
+            brain.add(clip["id"], "tiktok", "tester_feedback", {"overall": 5 if d >= 30 else 2}, tester=tester,
+                      observed_at=when)
+    # rounding left a standard error of about 1e-16 here, which used to pass for a measured, significant difference
+    group = brain.evaluate(now=when + 600)["groups"][0]
+    assert group["result"] == "inconclusive" and "no spread" in group["message"] and not brain.history()
 
 
 def test_paused_brain_collects_but_changes_nothing(data):
@@ -275,17 +302,117 @@ def test_paused_brain_collects_but_changes_nothing(data):
 def test_worse_later_results_roll_back_and_you_can_reset(data):
     from clipfoundry.autopilot import brain
 
-    _cohort(40, lambda d, k: 20 + d + (k % 3))
+    _cohort(50, lambda d, k: 20 + d + (k % 3))
     s = brain.evaluate()["groups"][0]["strategy"]
     _cohort(12, lambda d, k: 5 + (k % 2), strategy=s["id"], durations=[33] * 12)  # clips made under v1 did worse
     out = brain.evaluate()
     assert out["groups"][0]["result"] == "rolled_back" and "later results were worse" in out["message"]
     assert brain.db.fetch("brain_strategies", s["id"])["status"] == "rolled_back"
     assert brain.clip_length() is None  # back to your own setting
+    # the next evaluation does not adopt it again from the results that rolled it back
+    assert brain.evaluate()["groups"][0]["result"] == "waiting" and brain.clip_length() is None
     with pytest.raises(brain.Invalid):
         brain.rollback(s["id"])
     brain.reset()
     assert not brain.db.select("brain_strategies", "status = 'active'")
+
+
+def test_a_rollback_or_reset_by_you_is_not_undone_by_the_same_results(data):
+    from clipfoundry.autopilot import brain
+
+    _cohort(50, lambda d, k: 20 + d + (k % 3))
+    s = brain.evaluate()["groups"][0]["strategy"]
+    brain.rollback(s["id"])  # you pressed Roll back
+    again = brain.evaluate()["groups"][0]
+    assert again["result"] == "waiting" and "rollback" in again["message"]
+    assert brain.clip_length() is None and len(brain.history()) == 1
+    _cohort(12, lambda d, k: 20 + d + (k % 3))  # new results may change it again, one bounded step
+    assert brain.evaluate()["groups"][0]["result"] == "updated" and brain.clip_length()["target_duration"] == 33.0
+    brain.reset()  # you pressed Reset
+    assert brain.evaluate()["groups"][0]["result"] == "waiting" and brain.clip_length() is None
+
+
+def test_each_platform_keeps_its_own_strategy_and_both_still_roll_back(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import brain
+
+    db.save_settings({"autopilot_youtube": True})
+    _cohort(50, lambda d, k: 20 + d + (k % 3), platform="youtube")
+    out = brain.evaluate()
+    assert [(g["platform"], g["result"]) for g in out["groups"]] == [("youtube", "updated")]
+    assert brain.clip_length() is None  # one clip goes to both: YouTube's viewers alone do not set TikTok's length
+    _cohort(50, lambda d, k: 20 + d + (k % 3), platform="tiktok")
+    brain.evaluate()
+    both = brain.clip_length()  # both audiences agree: the next clips use both versions, and say so
+    assert both["target_duration"] == 33.0 and {u["platform"] for u in both["used"]} == {"youtube", "tiktok"}
+    tiktok_v = next(u["id"] for u in both["used"] if u["platform"] == "tiktok")
+    _cohort(12, lambda d, k: 5 + (k % 2), platform="tiktok", strategy=both["id"], durations=[33] * 12)
+    out = brain.evaluate()  # clips made under both versions did worse on TikTok: TikTok's version is rolled back
+    assert {g["platform"]: g["result"] for g in out["groups"]} == {"tiktok": "rolled_back", "youtube": "waiting"}
+    assert db.fetch("brain_strategies", tiktok_v)["status"] == "rolled_back" and brain.clip_length() is None
+
+
+def test_posts_nobody_else_could_watch_yet_are_not_selected_viewers_evidence(data):
+    from clipfoundry import db
+    from clipfoundry.autopilot import brain, learner
+
+    db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": True})
+    # uploaded Private and nobody invited yet, and a TikTok package not posted or linked yet: your own views at most
+    _cohort(50, lambda d, k: 20 + d + (k % 3), platform="youtube",
+            delivery={"audience_setup": "awaiting_invitations"})
+    _cohort(50, lambda d, k: 20 + d + (k % 3), platform="tiktok", delivery={"audience_setup": "manual_pending"})
+    assert brain.evaluate()["groups"] == [] and not brain.history()
+    assert {o["cohort"] for o in brain.observations(limit=500)} == {"unconfirmed"}
+    assert learner.cohort({"platform": "tiktok", "audience": {"intent": "SOMETHING_NEW"}}) != "selected"
+    # shared with your viewers a day ago: results count from then, not from the upload five days ago
+    clip, _ = published("youtube", delivery={"audience_setup": "user_confirmed", "confirmed_at": time.time() - DAY})
+    row = reading(clip, 50, platform="youtube")["observation"]
+    assert row["cohort"] == "selected" and row["age_hours"] == pytest.approx(24, abs=0.1)
+    assert clip["id"] not in brain.evidence()[("youtube", "selected", 1)]["measured"]  # not mature yet
+
+
+def test_learning_worker_needs_views_and_several_videos(data, monkeypatch):
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, learner, queue
+    from clipfoundry.publish import stats
+
+    monkeypatch.setattr(stats, "refresh", lambda pub: None)
+    chicago = ZoneInfo("America/Chicago")
+
+    def post(hour: int, views: int, src: dict) -> None:
+        when = dt.datetime.combine(dt.datetime.now(chicago).date() - dt.timedelta(days=4), dt.time(hour, 0),
+                                   chicago).timestamp()
+        project = db.create_project("p", status="ready", origin="autopilot", source_id=src["id"])
+        clip = db.create_clip(project["id"], start=0, end=30, title="t", status="ready", duration=30.0,
+                              caption_text="Why do most people quit?")
+        pub = db.create_publication(clip["id"], "tiktok", status="done",
+                                    audience={"intent": "SELECTED_AUDIENCE", "group_version": 1})
+        db.execute("UPDATE publications SET created_at = ? WHERE id = ?", (when, pub["id"]))
+        db.execute("INSERT INTO performance (id, publication_id, clip_id, platform, fetched_at, views) VALUES "
+                   "(?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], "tiktok", when + 49 * 3600, views))
+
+    def learn() -> str:
+        host.WorkerHost(periodic=False)
+        row = queue.enqueue("learn", {})
+        return host.HANDLERS["learn"](host.Job(queue.get(row["id"]), "test"))["message"]
+
+    srcs = [source() for _ in range(8)]
+    for k in range(15):  # a few approved followers: a handful of plays per post is not a result yet
+        post(19, 3, srcs[k % 8])
+        post(10, 0, srcs[k % 8])
+    assert "Not enough results yet: 0 of 30" in learn() and learner.lift("hour", "19", "tiktok") == (1.0, 0)
+    one = source()
+    for k in range(15):  # plenty of views, but every clip from one video
+        post(19, 3000, one)
+        post(10, 100, one)
+    assert "from 1 of 5 videos" in learn() and learner.lift("hour", "19", "tiktok") == (1.0, 0)
+    for k in range(15):  # the same pattern across several videos
+        post(19, 3000, srcs[k % 8])
+        post(10, 100, srcs[k % 8])
+    assert learn().startswith("Learned from 60") and learner.lift("hour", "19", "tiktok")[0] == pytest.approx(1.1)
 
 
 def test_brain_api(data):

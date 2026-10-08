@@ -19,6 +19,7 @@ const WHITE = "#f3f4f7";
 const GOOD = "#57eea0";
 const AMBER = "#ffab45";
 const BAD = "#ff5d73";
+const CROWN = "#ffc94a";
 
 /** Frames per pose and the time each frame shows (ms). Unknown combinations fall back to idle. */
 export const FRAMES: Record<Pose, { n: number; ms: number }> = {
@@ -200,7 +201,7 @@ function drawTop(p: Pix, c: Character, hx: number, hy: number, hw: number, dir: 
       break;
     case "beacon": {  // rotating beacon cap: lit only for a real incident (the error pose)
       p.px(cx - 4, hy - 4, 9, 5, INK);
-      p.px(cx - 3, hy - 3, 7, 3, lit ? AMBER : P.gearDark);
+      p.px(cx - 3, hy - 3, 7, 3, lit ? AMBER : P.trimDark);  // an orange lamp, dark until something is wrong
       if (lit) p.px(cx - 3 + ((f * 2) % 7), hy - 3, 2, 3, "#fff1b8");
       break;
     }
@@ -639,10 +640,7 @@ function bodyDecor(p: Pix, c: Character, bx: number, by: number, bw: number, bh:
     return;
   }
   const side = dir === "left" || dir === "right";
-  if (c.rank === "manager") {  // shoulder tabs and the rank badge every manager wears
-    p.px(bx, by + 1, 4, 2, P.trim); p.px(bx + bw - 4, by + 1, 4, 2, P.trim);
-    if (!side) { p.px(cx - 2, by + 3, 5, 1, P.trimDark); p.px(cx - 1, by + 4, 3, 1, P.trimDark); }
-  }
+  if (c.rank === "manager") p.px(bx + bw - 4, by + 1, 4, 2, P.trim);  // a shoulder tab in the department's color
   if (c.body === "jacket") {
     p.px(cx - 4, by + 1, 2, bh - 3, P.trim); p.px(cx + 3, by + 1, 2, bh - 3, P.trim);
     if (!side) { p.px(cx - 1, by + 1, 3, 2, P.gear); p.px(cx, by + 3, 1, 6, P.gear); }
@@ -657,6 +655,15 @@ function bodyDecor(p: Pix, c: Character, bx: number, by: number, bw: number, bh:
   if (c.body === "torso" || c.body === "slim") p.px(cx - 1, by + 3, 3, 2, P.trim);
   if (c.body === "pear") p.px(cx - 2, by + bh - 4, 5, 1, P.trimDark);
   if (c.body === "round") p.px(cx - 1, by + 3, 3, 1, P.trim);
+}
+
+/** The gold crown badge COMMAND and every manager wear on the left shoulder (the reference sheet). */
+function rankBadge(p: Pix, c: Character, bx: number, by: number, bw: number, dir: Dir) {
+  if (c.rank === "worker" || dir === "up" || dir === "right") return;
+  const x = dir === "left" ? bx + Math.floor(bw / 2) - 3 : bx - 2, y = by;
+  p.box(x, y, 7, 6, "#1b2340");
+  for (const dx of [1, 3, 5]) p.px(x + dx, y + 1, 1, 2, CROWN);
+  p.px(x + 1, y + 3, 5, 2, CROWN);
 }
 
 // ------------------------------------------------------------------ pose overlays (above the head)
@@ -737,6 +744,7 @@ export function sprite(role: string, dir: Dir = "down", pose: Pose = "idle", fra
   }
   if (c.top === "beacon" && pose === "error") drawTop(p, c, hx, hy, hw, dir, f, true);
   drawGear(p, c, bx, by, bw, body.h, dir, pose, f, true);
+  rankBadge(p, c, bx, by, bw, dir);
   if (pose === "carry") carriedCard(p, c, cx, by + 2, f);
   const above = Math.max(0, hy - 14);
   // paused robots only dim their eyes: a bubble on every resting robot would read as activity

@@ -327,6 +327,7 @@ export interface ActivityItem {
   rights: string;
   access: string;
   at: number;
+  posting: string;
   can_add_file: boolean;
 }
 
@@ -423,6 +424,8 @@ export interface ScheduledItemRow {
   analytics_label?: string;
   /** Who it is for, in your words ("Invited viewers", "Only you (staging)"). */
   audience_label?: string;
+  /** The audience stamp it was planned with (publish/audience.py). */
+  audience?: { intent?: string; visibility?: string; group?: string };
 }
 
 export interface MetadataOption {
@@ -536,6 +539,12 @@ export const ap = {
   retry: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/retry`),
   publishNow: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/publish-now`),
   link: (id: string, url: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/link`, { url }),
+  /** You posted a ready-to-post package in the TikTok app and have no link for it (your word). */
+  postedByYou: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/posted`),
+  /** You shared this Private YouTube video with your viewers in YouTube Studio (your word). */
+  audienceConfirmed: (id: string) => req<ScheduledItem>("POST", `${A}/scheduled/${id}/audience-confirmed`),
+  /** Plan posts held as public (planned before this version) for your selected viewers; each needs your OK. */
+  retarget: (ids: string[]) => req<{ retargeted: number }>("POST", `${A}/scheduled/retarget`, { ids }),
   resolve: (id: string, published: boolean, url = "") => req<ScheduledItem>("POST", `${A}/scheduled/${id}/resolve`, { published, url }),
   learning: () => req<LearningStatus>("GET", `${A}/learning`),
   activity: () => req<{ items: ActivityItem[]; events: EventRow[] }>("GET", `${A}/activity`),

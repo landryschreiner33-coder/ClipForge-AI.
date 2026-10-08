@@ -92,6 +92,26 @@ export interface Health {
   checks: HealthCheck[];
 }
 
+export const NOT_UPDATING = "Unknown — not updating";
+/**
+ * Health as a page that stopped hearing from ClipFoundry must show it: every reading Unknown, never the last green,
+ * with the last known reading kept in words (System Guardian rule: no stale green shown as current).
+ */
+export function staleHealth(h: Health, since: number | null): Health {
+  const at = since ? new Date(since).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  return {
+    ...h,
+    status: "unknown",
+    label: NOT_UPDATING,
+    headline: `ClipFoundry is not answering, so these readings may be out of date${at ? ` (last answer ${at})` : ""}.`,
+    action: "Check that the black ClipFoundry window is still open. The page catches up when it answers again.",
+    checks: h.checks.map((c) => ({
+      ...c, status: "unknown", status_label: NOT_UPDATING,
+      reason: `Last known: ${c.status_label}. ${c.reason}`,
+    })),
+  };
+}
+
 export interface Destination {
   platform: string;
   label: string;
@@ -269,6 +289,22 @@ export const brainApi = {
 
 // ------------------------------------------------------------------ integrations
 export interface CapabilityRow { id: string; label: string; state: string; detail: string }
+/** The last Test connection of a platform (office/capabilities.test_connection): one read, nothing uploaded. */
+export interface ConnectionCheck {
+  ok: boolean;
+  at: number;
+  status: string;
+  status_label: string;
+  detail: string;
+  fix: string;
+  code: string;
+  /** a rate limit's end (seconds since 1970), when the platform named one */
+  until: number | null;
+  last_ok_at: number | null;
+  identity?: string;
+  /** false once you connected again: it tested the earlier sign-in */
+  current?: boolean;
+}
 export interface IntegrationCard {
   id: string;
   name: string;
@@ -279,7 +315,12 @@ export interface IntegrationCard {
   missing: string[];
   action: string;
   capabilities: CapabilityRow[];
+  /** the last successful Test connection (YouTube, TikTok); null when none worked yet */
   checked_at: number | null;
+  last_check?: ConnectionCheck | null;
+  can_test?: boolean;
+  /** a wait the platform set (Retry-After, posting cap, YouTube quota), while it lasts */
+  limit?: { until: number; detail: string } | null;
   [k: string]: any;
 }
 export interface NvidiaView {
@@ -309,6 +350,7 @@ export const integrations = {
   check: () => req<NvidiaResult>("POST", `${I}/nvidia/check`),
   test: () => req<NvidiaResult>("POST", `${I}/nvidia/test`),
   disconnect: () => req<{ disconnected: boolean }>("POST", `${I}/nvidia/disconnect`),
+  testConnection: (platform: "youtube" | "tiktok") => req<ConnectionCheck>("POST", `${I}/${platform}/test`),
 };
 
 // ------------------------------------------------------------------ who watches (publish/audience.py)

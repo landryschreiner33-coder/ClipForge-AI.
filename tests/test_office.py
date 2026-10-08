@@ -247,3 +247,110 @@ def test_old_events_are_pruned(data):
     feed.emit("test", "radar", message="new")
     assert feed.prune() == 1
     assert [e["message"] for e in feed.events_after(0)["events"]] == ["new"]
+
+
+# ------------------------------------------------------------ Settings → Integrations: waits, Test connection
+@pytest.fixture()
+def platforms(monkeypatch, data):
+    """YouTube and TikTok stand-ins (tests/fake_platforms.py) with a connected, confirmed account on each."""
+    from fake_platforms import FakeGoogle, FakeTikTok
+
+    from clipfoundry import db
+    from clipfoundry.publish import tiktok, youtube
+
+    for var in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(var, "127.0.0.1,localhost")
+    g, t = FakeGoogle(), FakeTikTok()
+    monkeypatch.setattr(youtube, "TOKEN_URL", f"{g.url}/token")
+    monkeypatch.setattr(youtube, "API_URL", f"{g.url}/youtube/v3")
+    monkeypatch.setattr(youtube, "UPLOAD_URL", f"{g.url}/upload/youtube/v3/videos")
+    monkeypatch.setattr(tiktok, "API_URL", f"{t.url}/v2")
+    g.access, t.access = "access-1", "act.1"
+    later = time.time() + 3000
+    db.save_account("youtube", tokens={"access_token": g.access, "expires_at": later, "refresh_token": g.refresh_token},
+                    account_id="UC123", display_name="Test Channel", scopes=youtube.SCOPES[:2])
+    db.save_account("tiktok", tokens={"access_token": t.access, "expires_at": later, "refresh_token": t.refresh_token,
+                                      "refresh_expires_at": later * 2},
+                    account_id="open-1", display_name="Test Creator",
+                    scopes=["user.info.basic", "video.upload", "video.publish"])
+    db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
+                      "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "tiktok_app_audited": True,
+                      "audience_youtube_confirmed_at": time.time(), "audience_tiktok_confirmed_at": time.time()})
+    yield g, t
+    g.stop()
+    t.stop()
+
+
+def _cards(client) -> dict:
+    return {c["id"]: c for c in client.get("/api/integrations").json()["cards"]}
+
+
+def test_rate_limited_cards_read_the_waits_the_code_records(platforms, client):
+    """`platform_limits` (a long Retry-After or a posting cap) and YouTube's daily quota, for both platforms."""
+    from clipfoundry.autopilot import quota, scheduler
+
+    cards = _cards(client)
+    assert cards["youtube"]["status"] == "connected" and cards["tiktok"]["status"] == "connected"
+    scheduler.block_platform("tiktok", time.time() + 3600, "TikTok asked to wait 1 h (rate_limit_exceeded)")
+    tt = _cards(client)["tiktok"]
+    assert tt["status"] == "rate_limited" and "asked to wait 1 h" in tt["detail"] and tt["limit"]["until"] > time.time()
+    assert _cards(client)["youtube"]["status"] == "connected"  # one platform's wait does not stop the other
+    quota.mark_exhausted("videos.insert", "The request cannot be completed because you have exceeded your quota.")
+    yt = _cards(client)["youtube"]
+    assert yt["status"] == "rate_limited" and "uploads (videos.insert calls)" in yt["detail"]
+    assert yt["limit"]["until"] == quota.next_reset()
+
+
+def test_test_connection_reads_once_and_changes_nothing(platforms, client):
+    from clipfoundry import db
+
+    g, t = platforms
+    assert client.post("/api/integrations/youtube/test").status_code == 403  # only from ClipFoundry's own page
+    assert _cards(client)["youtube"]["checked_at"] is None
+    out = client.post("/api/integrations/youtube/test", headers=H).json()
+    assert out["ok"] and out["status"] == "connected" and "Test Channel" in out["detail"]
+    assert g.calls == {"/youtube/v3/channels": 1} and not g.sessions and not g.videos  # one read, no upload
+    used = db.select("quota_usage", "method = 'channels.list'")
+    assert [(u["purpose"], u["units"]) for u in used] == [("account", 1)]
+    yt = _cards(client)["youtube"]
+    assert yt["checked_at"] == out["at"] and yt["last_check"]["ok"] and yt["can_test"]
+    assert "grant" not in yt["last_check"] and g.refresh_token not in client.get("/api/integrations").text
+    # TikTok: creator_info, never an init, a chunk or a status call; "Everyone" is not offered as an audience
+    out = client.post("/api/integrations/tiktok/test", headers=H).json()
+    assert out["ok"] and "Followers" in out["detail"] and "Everyone" not in out["detail"]
+    assert not t.inits and not t.uploads and not t.status_calls
+    assert _cards(client)["tiktok"]["checked_at"] == out["at"]
+
+
+def test_a_failed_check_shows_the_state_reason_and_what_to_do(platforms, client):
+    from clipfoundry import db
+
+    _g, t = platforms
+    first = client.post("/api/integrations/youtube/test", headers=H).json()
+    # today's API budget is used: Rate limited until the reset, the last successful check stays
+    db.save_settings({"youtube_quota_default": 1})
+    out = client.post("/api/integrations/youtube/test", headers=H).json()
+    assert not out["ok"] and out["status"] == "rate_limited" and "midnight Pacific" in out["fix"]
+    yt = _cards(client)["youtube"]
+    assert yt["status"] == "rate_limited" and yt["checked_at"] == first["at"] and yt["action"] == out["fix"]
+    db.save_settings({"youtube_quota_default": 10000})
+    # TikTok no longer accepts the access token and the refresh token was revoked: connect again
+    t.access, t.revoked = "act.other", True
+    out = client.post("/api/integrations/tiktok/test", headers=H).json()
+    assert not out["ok"] and out["status"] == "error" and "Connect TikTok again" in out["fix"]
+    assert _cards(client)["tiktok"]["status"] == "error"
+    assert not t.inits and not t.uploads
+    # connecting again replaces the tokens the check tested: the old failure no longer decides the card
+    tokens = db.account_tokens("tiktok")
+    t.access, t.revoked, t.refresh_token = "act.2", False, "rft-new"
+    db.save_account("tiktok", tokens={**tokens, "access_token": "act.2", "refresh_token": "rft-new"},
+                    info={"needs_reconnect": False})
+    tt = _cards(client)["tiktok"]
+    assert tt["status"] == "connected" and tt["last_check"]["current"] is False
+    assert client.post("/api/integrations/tiktok/test", headers=H).json()["ok"]
+
+
+def test_test_connection_needs_a_connected_account(client):
+    assert client.post("/api/integrations/youtube/test", headers=H).status_code == 409
+    assert client.post("/api/integrations/tiktok/test", headers=H).status_code == 409
+    assert client.post("/api/integrations/nvidia/test", headers=H).status_code == 409  # NVIDIA's own test still routes

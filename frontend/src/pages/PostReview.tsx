@@ -180,7 +180,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     direct && !f.privacy && "choose who can see it",
     direct && !audited && f.privacy && f.privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
     direct && f.disclose && !f.brandOrganic && !f.brandContent && "choose what the commercial content is",
-    branded && f.privacy === "SELF_ONLY" && "branded content can't be “Only me”",
+    branded && f.privacy && f.privacy !== "MUTUAL_FOLLOW_FRIENDS" && "TikTok allows branded content only for Friends",
     tooLong && `trim the clip to ${creator!.max_duration} seconds`,
     p.quality?.status === "failed" && "fix what the final check found",
     !agree && "tick that you watched the video and read its text",
@@ -251,7 +251,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 
         <div className="stack-4">
           <StatusBlock p={p} tz={tz} autoPublish={autoPublish} accountOk={accountOk} onAction={setDialog}
-            onChanged={onChanged} />
+            onChanged={onChanged} videoUrl={videoUrl} />
           {p.replaces && p.status === "awaiting_approval" && (
             <p className="small">
               <Icon name="refresh" className="sm" /> If you approve it, it takes the time of a weaker{" "}
@@ -371,9 +371,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 }
 
 // ------------------------------------------------------------------ the status, with the fix for a problem
-function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged }: {
+function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, videoUrl }: {
   p: Post; tz?: string; autoPublish: boolean; accountOk: boolean; onAction: (a: PostAction) => void;
-  onChanged: (p: Post) => void;
+  onChanged: (p: Post) => void; videoUrl?: string;
 }) {
   const name = PLATFORM_LABEL[p.platform] || p.platform;
   const fix = (text?: string) => (text ? <span><b>What to do:</b> {text}</span> : null);
@@ -477,6 +477,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged }: {
         </Banner>
       );
     case "blocked":
+      if (p.audience?.intent === "LEGACY_PUBLIC") return <HeldPublic p={p} onChanged={onChanged} />;
       return (
         <Banner tone="bad" icon="shield"
           title={blockedByCheck(p) ? "Blocked: this file did not pass the final check" : "Blocked"}
@@ -511,6 +512,9 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged }: {
           </Banner>
         );
       }
+      if (p.delivery_state === "manual_handoff") {
+        return <PostItYourself p={p} videoUrl={videoUrl} onAction={onAction} onChanged={onChanged} />;
+      }
       return (
         <Banner tone="bad" icon="alert" title="Action needed" actions={<>{reconnect}{retry()}</>}>
           <span className="stack" style={{ gap: 4 }}>
@@ -544,6 +548,108 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged }: {
   }
 }
 
+/** TikTok has no route for your followers from this app (only audited apps may post for them), so the clip is a
+ * ready-to-post package: the video, its caption and who to post it for. You post it in the TikTok app, then paste
+ * its link (or say you posted it). Nothing is uploaded by ClipFoundry. */
+function PostItYourself({ p, videoUrl, onAction, onChanged }: {
+  p: Post; videoUrl?: string; onAction: (a: PostAction) => void; onChanged: (p: Post) => void;
+}) {
+  const who = (p.audience?.visibility || p.privacy) === "MUTUAL_FOLLOW_FRIENDS" ? "Friends" : "Followers";
+  const [busy, setBusy] = useState(false);
+  const caption = p.description || p.title;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(caption);
+      toast("Caption copied");
+    } catch {
+      toast("Copying is blocked here: select the caption and copy it yourself", true);
+    }
+  };
+  const posted = async () => {
+    setBusy(true);
+    try {
+      onChanged(await ap.postedByYou(p.id) as Post);
+      toast("Noted: you posted it in the TikTok app");
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const file = `${(p.title || "clip").replace(/[^\w -]+/g, "").trim().slice(0, 60) || "clip"}.mp4`;
+  return (
+    <section className="panel stack-4 post-yourself" aria-labelledby="py-h">
+      <h2 id="py-h" style={{ fontSize: "var(--fs-h3)" }}>Ready for you to post on TikTok</h2>
+      <p className="small">
+        TikTok lets only apps it has audited post for your followers, so ClipFoundry does not upload this clip. Post it
+        yourself in the TikTok app; it takes a minute.
+      </p>
+      <ol className="small stack" style={{ gap: 6, paddingLeft: 20 }}>
+        <li>
+          Save the video:{" "}
+          {videoUrl
+            ? <a className="btn btn-small" href={videoUrl} download={file}><Icon name="download" />Download video</a>
+            : <span className="muted">the video file is not ready</span>}
+          {" "}Then put it on your phone (a cable or your cloud drive), or upload it at tiktok.com on this PC.
+        </li>
+        <li>
+          Copy the caption:{" "}
+          <button type="button" className="btn btn-small" onClick={copy}><Icon name="copy" />Copy caption</button>
+          <textarea className="input" readOnly rows={3} value={caption} aria-label="Caption"
+            onFocus={(e) => e.currentTarget.select()} style={{ marginTop: 6, width: "100%" }} />
+        </li>
+        <li>
+          In TikTok: keep your account <b>private</b>, tap <b>+</b> → <b>Upload</b>, pick the video and paste the
+          caption.
+        </li>
+        <li>
+          Under <b>Who can watch this video</b> choose <b>{who}</b>. Never <b>Everyone</b>; <b>Only you</b> means nobody
+          else sees it. Then post.
+        </li>
+        <li>Back here, paste the post's link (Share → Copy link) so ClipFoundry can read its numbers.</li>
+      </ol>
+      <div className="row wrap">
+        <button type="button" className="btn btn-primary btn-small" onClick={() => onAction("link")}>
+          <Icon name="link" />Link the post…
+        </button>
+        <button type="button" className="btn btn-small btn-quiet" disabled={busy} onClick={posted}>
+          I posted it, no link
+        </button>
+      </div>
+      <p className="tiny muted">
+        Without a link ClipFoundry cannot read its numbers: add what your viewers said in Clips → Test feedback.
+        Only post clips you may reuse.
+      </p>
+    </section>
+  );
+}
+
+/** A post planned as public before this version. It never goes out as public; you can plan it for your selected
+ * viewers instead (it then needs your OK like any other post), or cancel it. */
+function HeldPublic({ p, onChanged }: { p: Post; onChanged: (p: Post) => void }) {
+  const [busy, setBusy] = useState(false);
+  const plan = async () => {
+    setBusy(true);
+    try {
+      await ap.retarget([p.id]);
+      onChanged((await loadPost(p.id)).items[0] || p);
+      toast("Planned for your selected viewers. It needs your OK before it goes out.");
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Banner tone="warn" icon="shield" title="Held: it was planned as public"
+      actions={<button type="button" className="btn btn-small" disabled={busy} onClick={plan}>
+        <Icon name="user" />Send to my selected viewers</button>}>
+      This version never posts publicly. Plan it for the viewers you chose instead (it then waits for your OK), or
+      cancel it.
+    </Banner>
+  );
+}
+
 /** An uploaded post: links to it, the step only you can do (sharing a private video), and its real numbers (read
  * from the platform, never estimated). */
 function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => void }) {
@@ -558,12 +664,10 @@ function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => voi
   const studio = p.publication?.info?.studio_url as string | undefined;
   const [sharing, setSharing] = useState(false);
   const shared = async () => {
-    if (!p.publication?.id) return;
     setSharing(true);
-    try {
-      await api.audienceConfirmed(p.publication.id);
+    try {  // recorded on the post itself, which the Queue and the Brain read (your word, not checked by YouTube)
+      onChanged(await ap.audienceConfirmed(p.id) as Post);
       toast("Noted: you shared it with your invited viewers");
-      onChanged(p);
     } catch (e) {
       toast(errorText(e), true);
     } finally {
@@ -765,8 +869,8 @@ function TextPanel({ p, f, set, creator, creatorError, account }: {
               <input type="radio" name="rv-mode" checked={f.mode === "inbox"} onChange={() => set({ mode: "inbox" })}
                 disabled={!account?.connected || !account.can_inbox} />
               <span>
-                Send to your TikTok inbox as a draft (you finish it in the TikTok app for your followers; works without
-                TikTok's app audit)
+                Send to your TikTok inbox as a draft (you finish it in the TikTok app for your followers; no audit
+                needed, but TikTok must have approved your app, and at most 5 drafts can wait at a time)
               </span>
             </label>
             <label className="choice">
@@ -784,9 +888,9 @@ function TextPanel({ p, f, set, creator, creatorError, account }: {
                   <option value="" disabled>Choose…</option>
                   {(creator?.privacy_options || []).filter((o) => o !== "PUBLIC_TO_EVERYONE").map((o) => (
                     <option key={o} value={o}
-                      disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
+                      disabled={(!audited && o !== "SELF_ONLY") || (branded && o !== "MUTUAL_FOLLOW_FRIENDS")}>
                       {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
-                      {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
+                      {branded && o !== "MUTUAL_FOLLOW_FRIENDS" ? " (branded content: Friends only)" : ""}
                     </option>
                   ))}
                 </select>

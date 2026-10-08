@@ -75,7 +75,10 @@
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
       hashtags, edits and versions</td><td>Until you delete the video</td></tr>
     <tr><td>Connected accounts</td><td>Sign-in tokens for YouTube and TikTok, your channel or profile name, a link to
-      its picture, account IDs and the permissions you granted</td><td>Until you disconnect the account</td></tr>
+      its picture, account IDs and the permissions you granted. When you press Test connection: its time and result
+      (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
+      itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
+      folder</td></tr>
     <tr><td>Posts</td><td>What you planned, approved or published, when and where, the text and choices of each post,
       each post's ID and link, and a record of approvals and changes</td><td>Until you delete the data folder (see
       section 7)</td></tr>
@@ -93,7 +96,8 @@
       folder</td></tr>
     <tr><td>Who watches your uploads</td><td>For each platform, the audience you chose (your invited viewers, your
       approved followers or friends, only you, or nothing uploaded), when you confirmed it and when you said the
-      group changed, and for each upload the audience it was approved for and whether you said you shared it.
+      group changed, and for each upload the audience it was approved for, the account it was approved for, and
+      whether you said you shared it or posted it yourself in the TikTok app.
       ClipFoundry stores no list of viewers or followers</td><td>Until you delete the data folder</td></tr>
     <tr><td>Autopilot records</td><td>Your topics; the folders, channels, live streams and lists you asked it to
       watch; video and stream links you paste, their queue order, progress, cancellation and retry records;
@@ -114,7 +118,9 @@
       error messages, and the items shown under Needs you</td><td>Background jobs that completed or were canceled, and
       the step messages of all jobs: 30 days. Failed background jobs: until you delete the data folder. Autopilot's
       event history: 90 days. Needs you items: 30 days after they are resolved or dismissed. The background log file
-      (<code>data\logs\workers.log</code>): until you delete it</td></tr>
+      (<code>data\logs\workers.log</code>): at most 5 MB, plus its 3 older copies; the oldest is overwritten. Its
+      start-up output (<code>workers-console.log</code>): once it passes 5 MB, the next start of the app makes it the
+      one older copy, replacing the previous one</td></tr>
     <tr><td>Speech-recognition model</td><td>Downloaded for transcription</td><td>Until you delete it</td></tr>
   </tbody>
 </table></div>

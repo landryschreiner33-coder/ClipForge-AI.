@@ -230,13 +230,17 @@ fixes to it). Start new work from the default branch; the tested commits are in 
     * Places: Office (`#/`), Missions (`#/missions`, the former Autopilot page), Clips (`#/clips`, the former
       Library, plus Test feedback), Queue (`#/queue/*`, the former Posts) and Settings; old addresses still work.
     * Selected audience only (rule 13): YouTube Private without `publishAt`, shared by the owner in YouTube Studio;
-      TikTok followers or friends through an audited Direct Post, else a ready-to-post package. Approvals are bound
-      to the audience stamp (`scheduler.APPROVAL_SCHEME = 3`); Pause publishing.
+      TikTok followers or friends through an audited Direct Post, else a ready-to-post package the owner posts and
+      links (or marks posted) on the post's page. Approvals are bound to the audience stamp and the connected
+      account (`scheduler.APPROVAL_SCHEME = 3`; the automatic-publishing permission names its channel); Pause
+      publishing.
     * The office: 25 robots (`office/roles.py` = `frontend/src/office/cast.ts`) moved only by the event feed of
       real job transitions; managers' reports and COMMAND's recorded decisions at the source, clip, QC and upload
       checkpoints; health readings; capability registry and integration cards.
     * Brain (`autopilot/brain.py`): provenance, null ≠ 0, idempotent imports, Test feedback; strategy changes need
-      30 mature clips from 5 videos in one selected audience and move at most 10%, with rollback.
+      30 mature clips from 5 videos in one selected audience (counted from when the owner confirmed sharing;
+      uploads nobody else could watch are not evidence), 20 clips per side for a comparison, and move at most 10%,
+      with rollback per platform that the same results cannot undo.
     * Optional NVIDIA text AI (`pipeline/nvidia.py`), off by default, with opt-in, budgets and local fallback.
 
 **Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
@@ -251,11 +255,13 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
   feed, provider, source, quota) off Home, the Autopilot overview, Setup and Settings → Accounts/Defaults;
   `test_autopilot_simple.py` checks the backend's page text.
 
-**Decided:** live monitoring is on by default (owner, 2026-09-29).
+**Decided:** live monitoring is on by default (owner, 2026-09-29). Public video discovery (`autopilot_public_videos`)
+stays on, with publishing eligibility checked separately (owner, 2026-10-08); `e2e/sandbox/beginner-flow.spec.ts`
+now expects public videos to be clipped on the PC and never planned or posted, and passes.
 
-**Open decisions for the owner:** the TikTok inbox-draft fallback if Direct Post is not granted; and whether public
-video discovery (`autopilot_public_videos`, default on since `eff96fb`) stays. `e2e/sandbox/beginner-flow.spec.ts`
-still expects uncovered videos never to be clipped, so it fails with that default (it passes with the setting off).
+**Open decisions for the owner:** TikTok. Its guidelines turn away personal tools and apps that repost videos from
+other platforms, so the audit for Direct Post is unlikely; inbox drafts also need TikTok to approve the app. Without
+either, each TikTok clip is a ready-to-post package the owner posts in the TikTok app (`docs/PLATFORM_CAPABILITIES.md`).
 
 **Next candidates:** multi-cut clips beyond weak sentences (e.g. dropping a tangent), and the checks on the owner's
 PC listed at the end of `IMPLEMENTATION_STATUS.md`.

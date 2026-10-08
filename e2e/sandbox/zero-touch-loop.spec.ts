@@ -121,6 +121,11 @@ test("one Start continues through real clips, checked uploads, results and a sec
   expect(state.sources.find((s: any) => s.external_id === "loopagain01").clips_selected).toBeGreaterThan(0);
   expect(new Set(state.publications.filter((p: any) => p.status === "done").map((p: any) => p.remote_id)).size).toBe(2);
 
+  // The owner shares the Private videos in YouTube Studio and presses "I shared it": only from then on are they
+  // results of viewers (an upload nobody else can watch teaches nothing).
+  for (const item of state.posts.filter((p: any) => p.status === "published")) {
+    await post(request, `/api/autopilot/scheduled/${item.id}/audience-confirmed`);
+  }
   // Simulate waiting a day for results. Stats still come from the platform, then the real learner executes.
   await post(request, "/sandbox/age-results");
   await expect.poll(async () => (await get(request, "/sandbox/state")).learning?.samples,

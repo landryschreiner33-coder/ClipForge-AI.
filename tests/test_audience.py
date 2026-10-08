@@ -219,6 +219,26 @@ def test_tiktok_without_an_audit_hands_the_owner_a_ready_to_post_package(env, ap
     assert "audience_post:tiktok" not in _open_actions()
 
 
+def test_a_package_posted_without_a_link_is_recorded_as_your_word(env, api):
+    """A private account's post may not offer a link: the owner can still close the handoff. It is labeled as the
+    owner's word, nothing is uploaded, and its results stay unavailable rather than zero."""
+    from clipfoundry import db
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, platform="tiktok", approve={"options": {"mode": "manual"}, "privacy": ""})
+    run_publish(item["id"])
+    assert api.post(f"/api/autopilot/scheduled/{item['id']}/posted", headers=H).status_code == 200
+    done = api.get(f"/api/autopilot/scheduled/{item['id']}").json()["item"]
+    assert done["status"] == "published" and done["delivery"]["audience_setup"] == "manual_confirmed"
+    assert done["delivery"]["audience_evidence"] == "user" and done["delivery_state"] == "audience_user_confirmed"
+    assert done["analytics_state"] == "awaiting_observations" and "Test feedback" in done["status_note"]
+    assert db.get_publication(done["publication_id"])["mode"] == "manual" and t.inits == []
+    assert "audience_post:tiktok" not in _open_actions()
+    # only a package waiting for you can be marked like this
+    assert api.post(f"/api/autopilot/scheduled/{item['id']}/posted", headers=H).status_code == 409
+
+
 def test_tiktok_direct_post_for_followers_needs_an_audited_app(env):
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler

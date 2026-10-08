@@ -128,8 +128,10 @@ def rescore(settings: dict, now: float | None = None) -> int:
             db.update("trend_signals", s["id"], status="expired")
             state.event("discovery_skipped", f"Skipped an unreadable video description: {exc}", "warning")
             continue
-        db.update("trend_signals", s["id"], score=r["score"], score_mode=r["mode"], components=r["components"],
-                  notes=r["notes"], topic=trends.topic_label(s, active) or s.get("topic") or "")
+        # the evidence entry (weight 0) keeps the coverage, confidence and missing parts next to the parts
+        db.update("trend_signals", s["id"], score=r["score"], score_mode=r["mode"],
+                  components={**r["components"], "evidence": r["evidence"]}, notes=r["notes"],
+                  topic=trends.topic_label(s, active) or s.get("topic") or "")
         db.execute("UPDATE trend_history SET score = ? WHERE id = (SELECT MAX(id) FROM trend_history WHERE "
                    "signal_id = ?)", (r["score"], s["id"]))
     return len(active)
@@ -506,51 +508,71 @@ def yield_multiplier(category: str, channel_id: str) -> tuple[float, int]:
 
 
 def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dict:
-    """Source Score (0-100), the expected number of strong clips, and the reasons."""
+    """Source Score (0-100), the expected number of strong clips, and the reasons.
+
+    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipFoundry knows
+    little about stays near 50 instead of ranking high on one or two numbers. `components` stores the parts with
+    data and an "evidence" entry (weight 0): coverage, confidence and the missing parts with their reason."""
     cps = int(settings.get("autopilot_clips_per_source") or 5)
     comps: dict[str, dict] = {}
+    readings = 0
     if sig and sig.get("score") is not None:
         mode = sig.get("score_mode") or ""
-        comps["trend"] = {"value": sig["score"] / 100, "note": f"Trend Score {sig['score']:.0f}"
-                          + (" (YouTube's order)" if mode == trends.PLATFORM_ORDER else "")}
+        ev = (sig.get("components") or {}).get("evidence") or {}
+        # a sparse Trend Score is already shrunk toward 50; its coverage only lowers this score's coverage
+        quality = float(ev["coverage"]) if ev.get("coverage") is not None else 1.0
+        readings = int(ev["readings"]) if ev.get("readings") is not None else 1  # scored before readings were kept
+        comps["trend"] = {"value": sig["score"] / 100, "quality": quality,
+                          "note": f"Trend Score {sig['score']:.0f}" + (" (YouTube's order)" if mode ==
+                                                                       trends.PLATFORM_ORDER else "")
+                          + (f", confidence {ev['confidence']}" if ev.get("confidence") else "")}
     else:
-        comps["trend"] = {"value": 0.5, "note": "no trend signal (your own file or stream)"}
+        comps["trend"] = {"value": None, "note": "no trend signal (your own file or stream, or a link you added)"}
     minutes = (src.get("duration") or 0) / 60
     rate = YIELD_PER_MINUTE.get(src.get("category") or "", DEFAULT_YIELD)
     mult, n = yield_multiplier(src.get("category") or "", src.get("channel_id") or "")
     if src.get("kind") == "live":
         expected = float(cps)
-        note = "live: judged while it runs"
+        comps["clip_potential"] = {"value": None, "note": "live: judged while it runs"}
     elif minutes:
         expected = min(float(cps), minutes * rate * mult)
-        note = f"{minutes:.0f} min × {rate:.2f}/min" + (f" × {mult:.2f} from {n} past source(s)" if n else "")
+        comps["clip_potential"] = {"value": min(1.0, expected / max(1, cps)),
+                                   "note": f"{minutes:.0f} min × {rate:.2f}/min" +
+                                   (f" × {mult:.2f} from {n} past source(s)" if n else "")}
     else:
-        expected = min(float(cps), 2.0 * mult)
-        note = "length unknown until the file is read"
-    comps["clip_potential"] = {"value": min(1.0, expected / max(1, cps)), "note": note}
-    if n:
-        comps["creator"] = {"value": max(0.0, min(1.0, mult / 2)), "note": f"{mult:.2f}x the estimate before"}
+        expected = min(float(cps), 2.0 * mult)  # only decides whether it is worth reading; not counted as evidence
+        comps["clip_potential"] = {"value": None, "note": "length unknown until the file is read"}
+    comps["creator"] = ({"value": max(0.0, min(1.0, mult / 2)), "note": f"{mult:.2f}x the estimate before"} if n else
+                        {"value": None, "note": "no finished videos of this creator or category yet"})
     if src.get("published_at") and trends.derived_allowed(src["platform"], settings):
         age_h = max(0.0, (now - src["published_at"]) / 3600)
         comps["freshness"] = {"value": math.exp(-age_h / 48), "note": f"{age_h:.0f} h old"}
+    else:
+        comps["freshness"] = {"value": None, "note": "upload time not reported" if not src.get("published_at") else
+                              "not computed from YouTube data without Google's approval"}
     if settings.get("autopilot_learning", True):
         from . import learner
 
         topic = (src.get("topic") or src.get("category") or "").lower()
         lift, posts = learner.lift("topic", topic) if topic else (1.0, 0)
-        if posts:
-            comps["topic_results"] = {"value": max(0.0, min(1.0, 0.5 * lift)),
-                                      "note": f"{lift:.2f}x your average across {posts} of your posts on “{topic}”"}
+        comps["topic_results"] = ({"value": max(0.0, min(1.0, 0.5 * lift)),
+                                   "note": f"{lift:.2f}x your average across {posts} of your posts on “{topic}”"}
+                                  if posts else {"value": None, "note": "no results of your posts on this topic yet"})
     if src.get("kind") == "live":
         comps["live"] = {"value": 1.0 if settings.get("autopilot_live_monitoring") else 0.0,
                          "note": "live now" + ("" if settings.get("autopilot_live_monitoring") else
                                                " (live monitoring is off)")}
-    total = sum(SOURCE_WEIGHTS[k] for k in comps)
-    value = sum(SOURCE_WEIGHTS[k] * c["value"] for k, c in comps.items()) / total
-    for k, c in comps.items():
+    weights = {k: SOURCE_WEIGHTS[k] for k in comps}
+    value, coverage = trends.combine(comps, weights)
+    missing = {k: c["note"] for k, c in comps.items() if c["value"] is None}
+    have = {k: c for k, c in comps.items() if c["value"] is not None}
+    for k, c in have.items():
+        c.pop("quality", None)
         c["weight"] = SOURCE_WEIGHTS[k]
         c["value"] = round(c["value"], 3)
-    return {"score": round(100 * value, 1), "expected": round(expected, 2), "components": comps}
+    ev = trends.evidence(coverage, readings, missing)
+    return {"score": round(100 * value, 1), "expected": round(expected, 2), "components": {**have, "evidence": ev},
+            "coverage": ev["coverage"], "confidence": ev["confidence"], "missing": missing}
 
 
 def today_counts(settings: dict, now: float | None = None) -> dict:
@@ -692,8 +714,10 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
                       priority=queue.source_priority(src) if src.get("user_added") else 0, revive=False,
                       max_attempts=3, timeout_s=6 * 3600)
-        state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}, "
-                                       f"about {src['expected_clips']:.1f} strong clips expected)",
+        sure = ((src.get("components") or {}).get("evidence") or {}).get("confidence")  # how far the score holds
+        state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}"
+                                       + (f", confidence {sure}" if sure else "") +
+                                       f", about {src['expected_clips']:.1f} strong clips expected)",
                     ref_type="source", ref_id=src["id"])
         picked.append(src)
         automatic_picks += not src.get("user_added")
@@ -725,6 +749,10 @@ def rights_check(job: Job) -> dict:
     rows = db.select("sources", f"status IN ({marks})", REAPPLY)
     verify.ensure(rows, settings)  # channels named by feeds that were never confirmed, or are due for another look
     changed = reapply(rows, settings)
+    # A public video clipped before a rule covered (or blocked) it keeps its clips: its stored rights must follow
+    # the rule, so the Queue and Activity say what the scheduler and publisher decide (they evaluate it afresh)
+    done = db.select("sources", "status IN ('analyzed', 'weak', 'exhausted')")
+    changed += reapply(done, settings)
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}", priority=job.row["priority"])
     return {"checked": len(rows), "changed": changed, "message": f"{changed} source(s) changed rights status"}
 

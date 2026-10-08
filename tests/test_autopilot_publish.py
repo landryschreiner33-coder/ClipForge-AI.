@@ -147,6 +147,23 @@ def test_tiktok_direct_post_and_unaudited_refusal(env):
     assert any(a["key"] == f"review:{bad['id']}" for a in state.open_actions())
 
 
+def test_a_full_tiktok_inbox_holds_tiktok_posts_for_a_day_instead_of_retrying(env):
+    """TikTok keeps at most 5 drafts waiting per 24 hours: a sixth is refused, and asking again sooner cannot help."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    t.init_error = "spam_risk_too_many_pending_share"
+    item = make_item(tmp, "tiktok", approve={"privacy": "", "options": {"mode": "inbox"}})
+    t0 = time.time()
+    with pytest.raises(queue.Fail):
+        run_publish(item["id"])
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "approved" and after["planned_at"] is None and "limit resets" in after["status_note"]
+    assert scheduler.blocked_until("tiktok")[0] >= t0 + 24 * 3600 - 5
+
+
 def test_a_platform_wait_is_never_shortened(env):
     """A rate limit: the job waits exactly as long as the platform asked (a wait uses no attempt), however long,
     and a long wait holds the platform's other posts too. Then the post goes out once."""

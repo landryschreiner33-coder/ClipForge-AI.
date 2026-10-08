@@ -146,15 +146,16 @@ export function TikTokSetupSteps() {
           Post) and <code>video.list</code> (statistics).</li>
         <li>In Login Kit, register the redirect address shown here. If you start ClipFoundry on another port, register
           that port too.</li>
-        <li>While the app is not reviewed, add your TikTok account as a <b>target user</b> (sandbox). Paste the client
-          key and secret here and save.</li>
+        <li>While the app is not reviewed, create a <b>Sandbox</b> in it and add your TikTok account as a target user
+          (there Direct Post can only post “Only me”). Paste the client key and secret here and save.</li>
         <li>Press <b>Connect TikTok</b>, sign in on TikTok's page and allow access.</li>
       </ol>
       <p className="small muted">
         Until TikTok audits your app, Direct Post only works when your TikTok account is private, every post is
-        “Only me”, and at most 5 users can post a day. <b>Send to TikTok inbox</b> works without the audit: the video
-        arrives as a draft in the TikTok app and you post it from there. You can also export the clip and upload it in
-        TikTok Studio.
+        “Only me”, and at most 5 users can post a day. <b>Send to TikTok inbox</b> needs no audit, but TikTok must
+        have approved your app for it; the video arrives as a draft and you post it for your Followers. TikTok's rules
+        turn down apps for personal use, so expect to post clips yourself: ClipFoundry prepares each one (video,
+        caption, who to post it for) in the Queue.
       </p>
     </div>
   );

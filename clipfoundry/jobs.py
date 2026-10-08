@@ -184,7 +184,12 @@ class Worker:
 
 
 class DownloadRefused(RuntimeError):
-    """The video is over the size or length limit it was downloaded with; nothing was downloaded."""
+    """The video is over the size or length limit it was downloaded with, or the disk is too full; nothing was
+    downloaded. `code` is one of media_import.ACCESS: too_large, disk_space, playlist or extraction_failed."""
+
+    def __init__(self, message: str, code: str = "too_large"):
+        super().__init__(message)
+        self.code = code
 
 
 def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | None = None,
@@ -206,7 +211,7 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
         if ctx.cancelled():
             raise Cancelled()
         if shutil.disk_usage(pdir).free < 2_000_000_000:
-            raise DownloadRefused("The download stopped to keep 2 GB of free disk space")
+            raise DownloadRefused("The download stopped to keep 2 GB of free disk space", "disk_space")
         if d.get("status") == "downloading" and d.get("total_bytes"):
             db.update_project(project_id, progress=round(0.02 * d["downloaded_bytes"] / d["total_bytes"], 4),
                               message=f"Downloading {d.get('_percent_str', '').strip()}")
@@ -226,7 +231,7 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
 
     def one_video(info, *, incomplete=False):
         if info.get("_type") in ("playlist", "multi_video"):
-            raise DownloadRefused("Use a link to one video, rather than a playlist or channel")
+            raise DownloadRefused("Use a link to one video, rather than a playlist or channel", "playlist")
         if max_seconds and (info.get("duration") or 0) > max_seconds:
             raise DownloadRefused("The video exceeds the configured duration limit")
         return None
@@ -236,14 +241,14 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
         try:
             meta = ydl.extract_info(url, download=False)
             if not isinstance(meta, dict):
-                raise DownloadRefused("No accessible video was found")
+                raise DownloadRefused("No accessible video was found", "extraction_failed")
             one_video(meta)
             expected = sum(float(f.get("filesize") or f.get("filesize_approx") or 0)
                            for f in meta.get("requested_formats") or [meta])
             if max_bytes and expected > max_bytes:
                 raise DownloadRefused("The video exceeds the configured size limit")
             if shutil.disk_usage(pdir).free < max(expected * 2, 0) + 2_000_000_000:
-                raise DownloadRefused("Not enough free disk space to download and merge this video")
+                raise DownloadRefused("Not enough free disk space to download and merge this video", "disk_space")
             meta = ydl.process_ie_result(meta, download=True)
             path = Path(ydl.prepare_filename(meta))
         except (Cancelled, DownloadRefused, MediaUnavailable):
@@ -251,11 +256,13 @@ def download_url(project_id: str, url: str, ctx: JobContext, max_bytes: int | No
         except Exception as exc:
             from . import netguard
             from .autopilot import queue
+            from .media_import import unavailable
 
             if isinstance(exc, (netguard.UnsafeUrl, queue.Wait)):
                 raise
-            raise MediaUnavailable("This video could not be downloaded. The site may require a login, "
-                                   "restrict downloads, or use an unsupported player.") from None
+            # the specific reason (a login, a private or removed video, a block, a rate limit, a network problem):
+            # the caller decides whether to wait, try again or move on; nothing is ever worked around
+            raise unavailable(exc) from None
     if not path.exists():
         candidates = sorted(p for p in staging.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS
                             and p.name.count(".") == 1)

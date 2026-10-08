@@ -241,6 +241,9 @@ class CompleteLoopFixture:
         from clipfoundry import db
 
         db.execute("UPDATE publications SET created_at = created_at - ? WHERE status = 'done'", (hours * 3600,))
+        db.execute("UPDATE publications SET delivery = json_set(delivery, '$.confirmed_at', "
+                   "json_extract(delivery, '$.confirmed_at') - ?) WHERE status = 'done' AND "
+                   "json_extract(delivery, '$.confirmed_at') IS NOT NULL", (hours * 3600,))
         db.execute("DELETE FROM performance")  # future observation is fetched again from the fake platform
         self.elapse_period("learn")
 

@@ -2,6 +2,9 @@
 
 Statuses are Healthy, Degraded, Error or Unknown. A reading that could not be taken is Unknown, never green. Every
 reading carries the time it was taken, so a page that stopped receiving updates can show it as stale.
+
+A reading marked `info` (no account connected, Autopilot off) is shown but does not count towards the overall status:
+it is a fact about the setup, not a fault, and clipping on this PC works without it.
 """
 from __future__ import annotations
 
@@ -15,11 +18,27 @@ ORDER = {"error": 3, "degraded": 2, "unknown": 1, "healthy": 0}
 LABEL = {"healthy": "Healthy", "degraded": "Degraded", "error": "Error", "unknown": "Unknown"}
 HEARTBEAT_STALE = 180.0        # a worker host that has not reported for this long is not running
 QUEUE_STUCK = 15 * 60.0        # due work nobody started for this long
+SEARCH_LATE = 2.0              # a search more than this many polling periods late: nothing is starting it
+GPU_FIX = "Run gpu-check.bat in the ClipFoundry folder; it says what to fix."
+# GpuBusy (gpu.py) is recorded as the last GPU error too, but it means another program held the GPU, not a failure
+GPU_BUSY = ("The GPU stayed busy", "MB of GPU memory was free")
 
 
 def _c(cid: str, label: str, status: str, reason: str, action: str = "", **data: object) -> dict:
     return {"id": cid, "label": label, "status": status, "status_label": LABEL[status], "reason": reason,
             "action": action, "checked_at": time.time(), **data}
+
+
+def _span(seconds: float) -> str:
+    """A duration in words (no clock times: the page shows times in the Autopilot time zone, this text cannot)."""
+    seconds = max(0.0, seconds)
+    if seconds < 90:
+        return "a minute"
+    if seconds < 5400:
+        return f"{round(seconds / 60)} min"
+    if seconds < 2 * 86400:
+        return f"{seconds / 3600:.1f} h".replace(".0 h", " h")
+    return f"{round(seconds / 86400)} days"
 
 
 def scheduler(settings: dict) -> dict:
@@ -62,21 +81,39 @@ def queue_age(settings: dict) -> dict:
 
 
 def gpu(settings: dict) -> dict:
+    """The GPU as the last real work found it: a failed CUDA run is an Error until a later transcription works on the
+    GPU again, and a transcription that ran on the CPU instead is Degraded (slower, and visible, never silent)."""
     try:
         from .. import gpu as gpu_mod
 
         st = gpu_mod.manager.status(settings)
     except Exception as exc:  # noqa: BLE001 - a broken driver must not break the health page
-        return _c("gpu", "GPU (CUDA)", "unknown", f"The GPU could not be read: {exc}"[:200],
-                  "Run: .venv\\Scripts\\python.exe -m clipfoundry gpu-check")
+        return _c("gpu", "GPU (CUDA)", "unknown", f"The GPU could not be read: {exc}"[:200], GPU_FIX)
     if not st["available"]:
         return _c("gpu", "GPU (CUDA)", "error" if not settings.get("autopilot_allow_cpu_fallback") else "degraded",
-                  st.get("problem") or "No NVIDIA GPU was found.",
-                  st.get("fix") or "Run: .venv\\Scripts\\python.exe -m clipfoundry gpu-check", name="")
+                  st.get("problem") or "No NVIDIA GPU was found.", st.get("fix") or GPU_FIX, name="")
+    name = st.get("name") or "NVIDIA GPU"
+    err = st.get("last_error") or {}
+    last = st.get("last_transcription") or {}
+    worked_at = float(last.get("at") or 0) if last.get("device") == "cuda" else 0.0
+    if err and float(err.get("at") or 0) > worked_at:
+        text = str(err.get("error") or "no details")
+        what = err.get("kind") or "GPU work"
+        if any(m in text for m in GPU_BUSY):
+            return _c("gpu", "GPU (CUDA)", "degraded", f"The last {what} could not get the GPU: {text}"[:300],
+                      "Close other programs that use the GPU (games, video editors, other AI tools); the work waits "
+                      "and tries again.", name=name, failed_at=err.get("at"))
+        return _c("gpu", "GPU (CUDA)", "error", f"The last {what} on the GPU failed: {text}"[:300],
+                  GPU_FIX + " This clears after the next transcription works on the GPU.", name=name,
+                  failed_at=err.get("at"))
+    if last.get("requested_device") == "cuda" and last.get("device") and last.get("device") != "cuda":
+        return _c("gpu", "GPU (CUDA)", "degraded", ("The last transcription ran on the CPU instead of the GPU (much "
+                  "slower). " + str(last.get("warning") or "")).strip()[:300], last.get("fix") or GPU_FIX, name=name,
+                  fallback_at=last.get("at"))
     if st.get("problem"):
-        return _c("gpu", "GPU (CUDA)", "degraded", st["problem"], st.get("fix") or "", name=st.get("name"))
-    return _c("gpu", "GPU (CUDA)", "healthy", f"{st.get('name') or 'NVIDIA GPU'} ready"
-              + (" (busy)" if st.get("busy") else ""), name=st.get("name"))
+        return _c("gpu", "GPU (CUDA)", "degraded", st["problem"], st.get("fix") or GPU_FIX, name=st.get("name"))
+    return _c("gpu", "GPU (CUDA)", "healthy", f"{name} ready" + (" (busy)" if st.get("busy") else ""),
+              name=st.get("name"))
 
 
 def ffmpeg() -> dict:
@@ -108,8 +145,10 @@ def database() -> dict:
         db.scalar("SELECT 1")
         size = os.path.getsize(config.db_path()) if os.path.exists(config.db_path()) else 0
     except Exception as exc:  # noqa: BLE001
+        # No regular backups are made (only a one-time copy before one update), so none is promised here.
         return _c("database", "Database", "error", f"The database could not be read: {exc}"[:200],
-                  "Close ClipFoundry and start it again; your data folder keeps a copy in data\\backups.")
+                  "Close ClipFoundry and start it again. If it still fails, keep a copy before trying anything else: "
+                  f"with ClipFoundry closed, copy the whole data folder ({config.data_dir()}) somewhere safe.")
     return _c("database", "Database", "healthy", f"Readable ({size / 1e6:.0f} MB).")
 
 
@@ -121,8 +160,9 @@ def accounts(settings: dict) -> dict:
         return _c("accounts", "Accounts", "degraded", f"{' and '.join(bad)} need to be connected again.",
                   "Settings → Integrations → Connect again.")
     if not any(a.get("has_tokens") for a in rows.values()):
+        # Not a fault: making clips works without accounts, so this does not decide the overall status.
         return _c("accounts", "Accounts", "unknown", "No account is connected (clips stay on this PC).",
-                  "Settings → Integrations, when you want uploads.")
+                  "Settings → Integrations, when you want uploads.", status_label="Not connected", info=True)
     return _c("accounts", "Accounts", "healthy", "Connected accounts work.")
 
 
@@ -150,12 +190,72 @@ def quotas(settings: dict) -> dict:
     return _c("quota", "Platform limits", "healthy", "Within today's limits.")
 
 
+def _places(settings: dict) -> list[str]:
+    """Where Autopilot looks for videos with the current setup (the same sources trend_scan asks)."""
+    from ..autopilot import scout
+
+    places = []
+    acc = db.get_account("youtube") or {}
+    if settings.get("youtube_api_key") or acc.get("has_tokens"):
+        places.append("YouTube")
+    if settings.get("tavily_api_key"):
+        places.append("web search")
+    if settings.get("library_discovery"):
+        places.append("the free-license library")
+    if scout.discovery_feeds(settings):
+        places.append("your folders")
+    return places
+
+
+def discovery(settings: dict) -> dict:
+    """Autopilot is on but nothing is happening: it has nowhere to look, or the regular search stopped starting."""
+    from ..autopilot import host, state
+
+    label = "Finding videos"
+    if not settings.get("autopilot_enabled") or state.paused():
+        return _c("discovery", label, "unknown", "Autopilot is off, so it is not looking for videos.",
+                  "Press Start when you want it to look.", status_label="Off", info=True)
+    places = _places(settings)  # imports scout, which registers the quota's slowdown in PERIOD_ADJUST
+    if not places:
+        return _c("discovery", label, "error", "Autopilot is on, but it has nowhere to look for videos.",
+                  "Put a video in your videos folder (Videos\\ClipFoundry), connect YouTube in Settings → "
+                  "Integrations, or turn on the free-license library in Settings → Autopilot.")
+    now = time.time()
+    where = "Looks in " + ", ".join(places) + "."
+    period = 60.0 * float(settings.get("trend_poll_minutes") or 180)
+    slower = host.PERIOD_ADJUST.get("trend_scan")  # the quota manager stretches the period near its limit
+    if slower:
+        period = slower(settings, period)
+    for job in db.select("worker_jobs", "kind = 'trend_scan' AND status IN ('running', 'queued', 'retrying', "
+                                        "'waiting')", (), "created_at DESC", 5):
+        if job["status"] == "running":
+            return _c("discovery", label, "healthy", f"Searching for videos now. {where}")
+        wake = float(job.get("run_after") or 0)
+        if wake > now:  # a platform asked to wait (Retry-After) or a retry backs off: not a fault
+            return _c("discovery", label, "healthy", f"The next search starts in {_span(wake - now)}: "
+                      f"{job.get('message') or 'a platform asked to wait'}"[:300], next_scan=wake)
+    last = float((state.get("trend:last_scan") or {}).get("at") or 0)
+    turned_on = max([float(e["at"]) for k in ("autopilot_on", "resumed") for e in state.events(1, kind=k)] or [0.0])
+    since = max(last, turned_on, float(state.get("setup:started", 0) or 0))
+    if since and now - since > SEARCH_LATE * period:
+        return _c("discovery", label, "degraded",
+                  (f"The last search for videos was {_span(now - last)} ago" if last >= since else
+                   f"No search for videos has run since Autopilot was turned on {_span(now - since)} ago")
+                  + f"; it should run every {_span(period)}.",
+                  "Check Background work above. If it is running, open Missions → Advanced → Jobs to see why the "
+                  "search did not start.", last_scan=last or None)
+    return _c("discovery", label, "healthy", where + (f" Last search {_span(now - last)} ago." if last else
+                                                      " The first search starts soon."), last_scan=last or None)
+
+
 def check(settings: dict | None = None) -> dict:
-    """All readings and the overall status (the worst one; Unknown only when nothing is worse)."""
+    """All readings and the overall status: the worst reading that counts (`info` readings do not), Unknown only
+    when nothing is worse."""
     settings = settings or db.get_settings()
-    checks = [scheduler(settings), queue_age(settings), gpu(settings), ffmpeg(), disk(), database(),
-              accounts(settings), audience_incidents(), quotas(settings)]
-    worst = max(checks, key=lambda c: ORDER[c["status"]])
+    checks = [scheduler(settings), queue_age(settings), discovery(settings), gpu(settings), ffmpeg(), disk(),
+              database(), accounts(settings), audience_incidents(), quotas(settings)]
+    counted = [c for c in checks if not c.get("info")]
+    worst = max(counted, key=lambda c: ORDER[c["status"]]) if counted else checks[0]
     overall = worst["status"]
     return {"status": overall, "label": LABEL[overall], "checked_at": time.time(),
             "headline": worst["reason"] if overall != "healthy" else "Everything checked is working.",

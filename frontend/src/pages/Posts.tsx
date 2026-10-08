@@ -34,13 +34,19 @@ const VIEW_TITLE: Record<string, string> = {
   history: "Posting history", problems: "Let's get these moving", results: "How your posts performed",
 };
 
+/** A ready-to-post package: you post it in the TikTok app (nothing was uploaded). */
+const yours = (p: Post) => p.status === "action_needed" && !inInbox(p) && p.delivery_state === "manual_handoff";
+
 // Problems, grouped by what you do about them (one section each).
 const GROUPS: { id: string; label: string; test: (p: Post) => boolean }[] = [
   { id: "reconciling", label: "Upload not confirmed", test: (p) => p.status === "reconciling" },
   { id: "failed", label: "Failed", test: (p) => p.status === "failed" },
-  { id: "blocked", label: "Blocked", test: (p) => p.status === "blocked" },
+  { id: "held", label: "Held: planned as public before this version",
+    test: (p) => p.status === "blocked" && p.audience?.intent === "LEGACY_PUBLIC" },
+  { id: "blocked", label: "Blocked", test: (p) => p.status === "blocked" && p.audience?.intent !== "LEGACY_PUBLIC" },
   { id: "inbox", label: "Finish in the TikTok app", test: (p) => inInbox(p) },
-  { id: "action", label: "Action needed", test: (p) => p.status === "action_needed" && !inInbox(p) },
+  { id: "manual", label: "Ready for you to post on TikTok", test: (p) => yours(p) },
+  { id: "action", label: "Action needed", test: (p) => p.status === "action_needed" && !inInbox(p) && !yours(p) },
 ];
 
 /**

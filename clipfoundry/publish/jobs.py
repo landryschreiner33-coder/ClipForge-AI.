@@ -93,7 +93,8 @@ def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
         # TikTok accepted the post with the requested audience; its status answer does not report the audience back
         delivery = audience.delivery_after_upload("tiktok", pub.get("audience") or {}, "", "api")
         return {"status": "done", "progress": 1.0, "url": url, "privacy": pub["requested_privacy"],
-                "message": f"Posted on TikTok for {seen}. {tiktok.PROCESSING_NOTE}"
+                "message": f"Posted on TikTok, asked for {seen} (TikTok does not report who can see it: check it "
+                           f"in the app). {tiktok.PROCESSING_NOTE}"
                            + ("" if url else " Open your TikTok profile to see it."),
                 "info": {**(pub.get("info") or {}), "post_ids": ids, "tiktok_status": status}, "delivery": delivery}
     if status == "SEND_TO_USER_INBOX":

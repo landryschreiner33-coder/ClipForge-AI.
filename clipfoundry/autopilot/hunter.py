@@ -166,9 +166,25 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
                 download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
                              max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
-            except (DownloadRefused, MediaUnavailable) as exc:
+            except DownloadRefused as exc:
+                db.update("sources", src["id"], access=access.unavailable(src, found, exc))
+                if getattr(exc, "code", "") == "disk_space":  # this PC's disk, not the video: wait for space
+                    state.action("disk:space", "disk", "Not enough free disk space for Autopilot downloads", str(exc),
+                                 "Free up space on the drive of the data folder (Settings → System).",
+                                 level="warning")
+                    raise queue.Wait("disk", 1800, "Waiting for free disk space") from exc
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
+            except MediaUnavailable as exc:  # a login, a download restriction or a protected player: never bypassed
+                # the source keeps what discovery found; its access record says why (MEDIA_ACCESS_UNAVAILABLE)
+                db.update("sources", src["id"], access=access.unavailable(src, found, exc))
+                if getattr(exc, "retry_after", None) is not None:  # the website named its wait: not sooner
+                    raise queue.Wait("server", exc.retry_after, f"{exc} Trying again in "
+                                                                f"{wait_text(exc.retry_after)}.") from exc
+                if getattr(exc, "temporary", False):  # a busy website or a network problem: the usual retries
+                    raise queue.Retry(str(exc), exc.fix) from exc
+                raise queue.Fail(str(exc), "Autopilot goes on with other videos. If you have a copy of this video, "
+                                           "add the file in Clips → Add video.") from exc
             write_provenance(pdir, src, found, settings)
             return db.get_project(project["id"]) or project
         write_provenance(pdir, src, found, settings)

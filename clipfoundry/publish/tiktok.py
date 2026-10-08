@@ -9,7 +9,9 @@ Two official ways to post:
   audits your app, it only accepts posts from private accounts, forces "Only me" (SELF_ONLY) and allows a few users
   per day.
 * Upload to inbox (scope video.upload): the video lands in your TikTok inbox as a draft; you finish and post it in the
-  TikTok app. This works without the audit and is ClipFoundry's fallback.
+  TikTok app. It needs no Direct Post audit, but TikTok must still approve the app for this scope in its app review
+  (which turns down apps for private or personal use), and at most 5 drafts may wait at a time. Without an approved
+  app, ClipFoundry prepares a ready-to-post package that you post yourself.
 
 ClipFoundry follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
 before each post and never pre-selects one, leaves comments/duet/stitch off unless you turn them on (and greys them
@@ -45,9 +47,9 @@ BRANDED_POLICY = "https://www.tiktok.com/legal/page/global/bc-policy/en"
 
 UNAUDITED_NOTE = (
     "Until TikTok audits your developer app, Direct Post only works for private TikTok accounts, every post is "
-    "limited to 'Only me', and only a few users can post per day. Use 'Send to TikTok inbox' instead: the video "
-    "arrives as a draft in the TikTok app and you post it from there with any privacy. Or export the clip and upload "
-    "it on tiktok.com/tiktokstudio/upload."
+    "limited to 'Only me', and only a few users can post per day. Use 'Send to TikTok inbox' instead (if TikTok "
+    "approved your app for it): the video arrives as a draft in the TikTok app and you post it from there for your "
+    "Followers, keeping your account private. Or download the clip and post it yourself."
 )
 SETUP_FIX = ("Settings → Publishing → TikTok: create an app on developers.tiktok.com with Login Kit (Desktop) and the "
              "Content Posting API, register the redirect URI shown in Settings, and paste the client key and secret.")
@@ -158,8 +160,8 @@ def disconnect(settings: dict) -> None:
 ERRORS = {
     "unaudited_client_can_only_post_to_private_accounts": (
         "TikTok only accepts Direct Posts from unaudited apps when your TikTok account is private.",
-        "Use 'Send to TikTok inbox' (works without the audit), set your TikTok account to private for testing, or "
-        "export the clip and upload it on tiktok.com/tiktokstudio/upload."),
+        "Use 'Send to TikTok inbox' (needs no audit, but TikTok must have approved your app), set your TikTok "
+        "account to private for testing, or download the clip and post it yourself."),
     "reached_active_user_cap": (
         "Your TikTok app reached the daily limit of users who can post through an unaudited app.",
         "Try again tomorrow, use 'Send to TikTok inbox', or apply for TikTok's audit."),
@@ -275,9 +277,10 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
         raise PublishError("Your TikTok app is not marked as audited, so TikTok only allows 'Only me' for Direct Posts.",
                            "Choose 'Only me', use 'Send to TikTok inbox', or tick 'My app passed TikTok's audit' "
                            "in Settings once it did.", "unaudited")
-    if opts.get("brand_content") and privacy == "SELF_ONLY":
-        raise PublishError("Branded content cannot be posted as 'Only me'.",
-                           "Choose another privacy option or turn off 'Branded content'.")
+    if opts.get("brand_content") and privacy not in ("MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"):
+        # TikTok's guidelines: branded content only for Everyone or Friends (and Everyone is never used here)
+        raise PublishError("TikTok allows branded content only for Friends here, not for Followers or 'Only me'.",
+                           "Choose 'Friends' or turn off 'Branded content'.")
     if opts.get("disclose") and not (opts.get("brand_content") or opts.get("brand_organic")):
         raise PublishError("You turned on the commercial content disclosure but chose no option.",
                            "Select 'Your brand', 'Branded content' or both, or turn the disclosure off.")

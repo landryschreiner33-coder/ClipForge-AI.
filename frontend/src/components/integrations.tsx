@@ -1,8 +1,9 @@
 import { ReactNode, useEffect, useState } from "react";
 import { errorText } from "../api";
+import { at } from "../format";
 import {
-  audienceApi, AudienceDestination, AudienceIntent, AudienceView, DevLogEntry, INTENT_OF, IntegrationCard,
-  integrations, NvidiaResult, NvidiaView, office,
+  audienceApi, AudienceDestination, AudienceIntent, AudienceView, ConnectionCheck, DevLogEntry, INTENT_OF,
+  IntegrationCard, integrations, NvidiaResult, NvidiaView, office,
 } from "../office/api";
 import { FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput } from "./settingsFields";
 import { Banner, ConfirmDialog, Disclosure, Icon, Pill, toast, Tone } from "./ui";
@@ -51,7 +52,7 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
         intro="Each card says what is connected, what is missing, and what each part can do in this version.">
         {cards ? (
           <div className="integration-cards">
-            {cards.filter((x) => x.id !== "nvidia").map((x) => <ConnectionCard key={x.id} card={x} />)}
+            {cards.filter((x) => x.id !== "nvidia").map((x) => <ConnectionCard key={x.id} card={x} onChange={load} />)}
           </div>
         ) : !error && <p className="small muted">Reading the connections…</p>}
       </SettingsPanel>
@@ -199,8 +200,22 @@ function Radio({ name, value, on, set, label, hint }: {
 }
 
 // ------------------------------------------------------------------ connection cards
-function ConnectionCard({ card }: { card: IntegrationCard }) {
+function ConnectionCard({ card, onChange }: { card: IntegrationCard; onChange: () => void }) {
   const link = actionLink(card);
+  const [busy, setBusy] = useState(false);
+  const chk = card.last_check;
+  const test = async () => {
+    setBusy(true);
+    try {
+      const r: ConnectionCheck = await integrations.testConnection(card.id as "youtube" | "tiktok");
+      toast(r.ok ? `${card.name}: the connection works` : `${card.name}: ${r.status_label}. ${r.detail}`, !r.ok);
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+      onChange();
+    }
+  };
   return (
     <article className="integration" aria-labelledby={`card-${card.id}`}>
       <h3 id={`card-${card.id}`}>
@@ -209,12 +224,36 @@ function ConnectionCard({ card }: { card: IntegrationCard }) {
       </h3>
       {card.identity && <p className="small" style={{ margin: 0 }}>Signed in as <b>{card.identity}</b></p>}
       <p className="small muted" style={{ margin: 0 }}>{card.detail}</p>
+      {card.limit && <p className="small" style={{ margin: 0 }}><b>Waiting until:</b> {at(card.limit.until)}</p>}
       {card.missing.length > 0 && (
         <p className="small" style={{ margin: 0 }}><b>Missing:</b> {card.missing.join("; ")}</p>
       )}
       {card.action && (link
         ? <a className="btn btn-small" href={link} style={{ justifySelf: "start" }}>{card.action}</a>
         : <p className="small" style={{ margin: 0 }}><b>What to do:</b> {card.action}</p>)}
+      {card.can_test && (
+        <div className="stack" style={{ gap: 4 }}>
+          <p className="small" style={{ margin: 0 }}>
+            <b>Last successful check:</b> {card.checked_at ? at(card.checked_at) : "none yet"}
+          </p>
+          {chk && !chk.ok && chk.current !== false && (
+            <p className="small" style={{ margin: 0 }}>
+              <Pill tone={STATUS_TONE[chk.status] || "bad"} icon="alert">{chk.status_label}</Pill>
+              {" "}Last check, {at(chk.at)}: {chk.detail}{chk.fix ? ` ${chk.fix}` : ""}
+            </p>
+          )}
+          <button type="button" className="btn btn-small" style={{ justifySelf: "start" }} disabled={busy}
+            onClick={test} aria-label={`Test connection to ${card.name}`}>
+            {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="refresh" />}
+            Test connection
+          </button>
+          <p className="tiny muted" style={{ margin: 0 }}>
+            {card.id === "youtube" ? "Reads your channel's name from YouTube (1 unit of the daily API quota)."
+              : "Asks TikTok about your account and the audiences you can post to."} Nothing is uploaded or changed, and
+            it costs no money.
+          </p>
+        </div>
+      )}
       {card.capabilities.length > 0 && (
         <details>
           <summary>What it can do ({card.capabilities.length})</summary>

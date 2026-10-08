@@ -16,6 +16,10 @@ ways:
 
 Anything else is skipped (listed in the activity log with the reason) and Source Scout moves on to the next video.
 Adding the file yourself stays possible.
+
+A way that was allowed can still fail when the file is fetched (a login, a private or removed video, a block, a rate
+limit). The source then keeps everything discovery found and its access record says MEDIA_ACCESS_UNAVAILABLE with the
+reason code (media_import.ACCESS) and a fallback (`unavailable`); Autopilot goes on with another video.
 """
 from __future__ import annotations
 
@@ -36,6 +40,7 @@ METHOD_LABELS = {"local": "File on this computer", "creator_folder": "Creator's 
                  "creator_link": "Link from the creator", "library": "Free-license library download",
                  "feed_link": "Direct link", "platform": "Platform download you allowed"}
 METHOD_LABELS["webpage"] = "Public video webpage"
+UNAVAILABLE = "MEDIA_ACCESS_UNAVAILABLE"
 
 
 def _ok(method: str, detail: str, **where: str) -> dict:
@@ -115,3 +120,18 @@ def record(source: dict, found: dict) -> dict:
     """What is stored with the source: how the file was (or could not be) obtained, and when."""
     return {"ok": found["ok"], "method": found["method"], "label": found["label"], "detail": found["detail"],
             "webpage": found["method"] == "webpage", "at": time.time()}
+
+
+def unavailable(source: dict, found: dict, exc: Exception) -> dict:
+    """The access record of a file that could not be fetched by an allowed way: state MEDIA_ACCESS_UNAVAILABLE, the
+    reason code, the specific reason and what to do instead. The way that was tried stays, and so does everything
+    discovery found (title, link, channel, numbers): only this record changes. Reuse rights are a separate question
+    (rights.py) and are not touched."""
+    from ..media_import import ACCESS, TEMPORARY
+
+    code = getattr(exc, "code", "") or "extraction_failed"
+    label, _, fix = ACCESS.get(code) or ACCESS["extraction_failed"]
+    wait = getattr(exc, "retry_after", None)
+    return {**record(source, found), "ok": False, "state": UNAVAILABLE, "reason": code, "label": label,
+            "detail": str(exc)[:300], "fix": fix, "temporary": code in TEMPORARY,
+            "retry_at": time.time() + float(wait) if wait is not None else None}

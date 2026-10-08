@@ -195,8 +195,9 @@ developer app. You sign in on TikTok's page; ClipFoundry never sees or stores yo
 4. Register the redirect URI shown in **Settings → Accounts → TikTok → Your TikTok app codes** (*Redirect address to
    register in your TikTok app*, with a *Copy* button; for example `http://127.0.0.1:8765/api/oauth/tiktok/callback`;
    use your port if you changed it).
-5. While the app is not reviewed, add your TikTok account as a target user. Paste the client key and secret there
-   (*Client key* and *Client secret*) and click **Connect TikTok** (it saves them first).
+5. While the app is not reviewed, create a **Sandbox** in it and add your TikTok account as a target user (in a
+   sandbox, Direct Post can only post "Only me"). Paste the client key and secret there (*Client key* and *Client
+   secret*) and click **Connect TikTok** (it saves them first).
 
 Two official ways to post, both on Prepare post and on each TikTok post's review page:
 
@@ -204,9 +205,14 @@ Two official ways to post, both on Prepare post and on each TikTok post's review
   has audited may do this. Until TikTok audits your app, TikTok limits Direct Posts to "Only me" (and at most 5 users
   per day); ClipFoundry treats "Only me" as staging for you, never as a delivery to viewers, and never offers
   "Everyone".
-* **Send to TikTok inbox** (draft): works without the audit. The video arrives in the TikTok app as a draft; tap the
-  notification, edit if you like, choose your followers and post it.
-* Or use **Export** and upload the MP4 on <https://www.tiktok.com/tiktokstudio/upload> yourself.
+* **Send to TikTok inbox** (draft): needs no audit, but TikTok must have approved your app for drafts in its app
+  review, and at most 5 drafts can wait at a time. The video arrives in the TikTok app as a draft; tap the
+  notification, edit if you like, choose **Followers** and post it.
+* **Post it yourself** (the usual case for a personal tool): TikTok's rules turn down apps "for private or personal
+  use" and tools that upload to your own accounts, so expect neither of the above to be approved. ClipFoundry then
+  prepares each clip in **Queue → Problems → Ready for you to post on TikTok**: download the video, copy the caption,
+  post it in the TikTok app with *Who can watch* set to **Followers** (keep the account private), then paste the
+  post's link (or press *I posted it, no link*).
 
 As TikTok's sharing guidelines require, ClipFoundry shows your TikTok nickname, never pre-selects a privacy option,
 leaves comments, duets and stitches off unless you allow them (and greys them out if your account disables them),

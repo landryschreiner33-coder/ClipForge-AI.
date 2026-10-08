@@ -21,7 +21,12 @@ WRITE = [Depends(app_request)]
 
 
 def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", "")) -> dict:
-    """A job the user started: runs even while Autopilot is off (but never during STOP ALL JOBS)."""
+    """A job the user started: runs even while Autopilot is off (but never during STOP ALL JOBS). Pressed again
+    before it ran (START twice, say), the job already waiting is the answer: the same work is not queued twice."""
+    waiting = db.select("worker_jobs", "kind = ? AND ref_id = ? AND status = 'queued' AND idem_key LIKE ?",
+                        (kind, ref[1], f"manual:{kind}:{ref[1]}:%"), "created_at DESC", 1)
+    if waiting:
+        return waiting[0]
     return queue.enqueue(kind, payload or {}, priority=MANUAL_PRIORITY, ref=ref, message="Started by you",
                          idem_key=f"manual:{kind}:{ref[1]}:{int(time.time())}")
 
@@ -877,30 +882,59 @@ def link_inbox_post(item_id: str, body: UrlBody) -> dict:
     post (its URL) so its real statistics can be read. Your link is the record that you posted it."""
     from ..publish.routes import LinkBody, link_tiktok_post
     from . import publisher
-    from .scheduler import _audit, active_version_path
+    from .scheduler import _audit
 
     item = _item_or_404(item_id)
-    pub_id = item.get("publication_id") or ""
-    if not pub_id:
-        if item["platform"] != "tiktok" or (item.get("delivery") or {}).get("audience_setup") != "manual_pending":
-            raise HTTPException(400, "Nothing was uploaded for this post yet")
-        clip = db.get_clip(item["clip_id"]) or {}
-        video, version = active_version_path(clip) if clip else ("", "")
-        pub = db.create_publication(item["clip_id"], "tiktok", project_id=clip.get("project_id") or "", mode="manual",
-                                    status="done", progress=1.0, message="Posted by you from the TikTok app",
-                                    title=item["title"], description=item["description"], tags=item.get("tags") or [],
-                                    requested_privacy=(item.get("audience") or {}).get("visibility") or "",
-                                    video_path=video, version_id=version, options=item.get("options") or {},
-                                    scheduled_id=item_id, audience=item.get("audience") or {},
-                                    delivery=item.get("delivery") or {})
-        pub_id = pub["id"]
-        db.update("scheduled_publications", item_id, publication_id=pub_id)
+    pub_id = item.get("publication_id") or _manual_publication(item)
     link_tiktok_post(pub_id, LinkBody(url=body.url))
     pub = db.get_publication(pub_id) or {}
     db.update("scheduled_publications", item_id, status="published", status_note="Posted from the TikTok app",
               delivery=pub.get("delivery") or item.get("delivery") or {},
               audit=_audit(item, "linked", "Linked to the post made in the TikTok app"))
     state.resolve(f"inbox:{item_id}")
+    publisher.remind_audience_setup()
+    return _public_item(_item_or_404(item_id), db.get_settings())
+
+
+def _manual_publication(item: dict) -> str:
+    """The record of a ready-to-post package you posted yourself from the TikTok app (nothing was uploaded)."""
+    from .scheduler import active_version_path
+
+    if item["platform"] != "tiktok" or (item.get("delivery") or {}).get("audience_setup") != "manual_pending":
+        raise HTTPException(400, "Nothing was uploaded for this post yet")
+    clip = db.get_clip(item["clip_id"]) or {}
+    video, version = active_version_path(clip) if clip else ("", "")
+    pub = db.create_publication(item["clip_id"], "tiktok", project_id=clip.get("project_id") or "", mode="manual",
+                                status="done", progress=1.0, message="Posted by you from the TikTok app",
+                                title=item["title"], description=item["description"], tags=item.get("tags") or [],
+                                requested_privacy=(item.get("audience") or {}).get("visibility") or "",
+                                video_path=video, version_id=version, options=item.get("options") or {},
+                                scheduled_id=item["id"], audience=item.get("audience") or {},
+                                delivery=item.get("delivery") or {})
+    db.update("scheduled_publications", item["id"], publication_id=pub["id"])
+    return pub["id"]
+
+
+@router.post("/scheduled/{item_id}/posted", dependencies=WRITE)
+def posted_without_link(item_id: str) -> dict:
+    """You posted a ready-to-post package in the TikTok app and have no link to give (a private account's post may
+    not offer one). Recorded as your word; without a link its numbers cannot be read, so results come from Test
+    feedback."""
+    from . import publisher
+    from .scheduler import _audit
+
+    item = _item_or_404(item_id)
+    if item["status"] != "action_needed" or (item.get("delivery") or {}).get("audience_setup") != "manual_pending":
+        raise HTTPException(409, "Only a clip that is ready for you to post on TikTok can be marked as posted")
+    pub_id = item.get("publication_id") or _manual_publication(item)
+    delivery = {**(item.get("delivery") or {}), "audience_setup": "manual_confirmed", "audience_evidence": "user",
+                "confirmed_at": time.time()}
+    pub = db.get_publication(pub_id) or {}
+    db.update_publication(pub_id, delivery={**(pub.get("delivery") or {}), **delivery})
+    db.update("scheduled_publications", item_id, status="published", delivery=delivery,
+              status_note="Posted by you from the TikTok app, without a link: add what your viewers said in "
+                          "Clips → Test feedback",
+              audit=_audit(item, "posted_manually", "You said you posted it in the TikTok app (no link)"))
     publisher.remind_audience_setup()
     return _public_item(_item_or_404(item_id), db.get_settings())
 

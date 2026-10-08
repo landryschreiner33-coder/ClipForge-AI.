@@ -6,6 +6,7 @@ SQLite queue, so the app, the host and a restarted host always agree on what is 
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import subprocess
@@ -13,6 +14,8 @@ import sys
 import threading
 import time
 import traceback
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Callable
 
 from .. import awake, config, db, locks
@@ -24,6 +27,9 @@ MANUAL_PRIORITY = 100          # jobs started by a user action run even while Au
 POLL_SECONDS = 2.0
 HEARTBEAT_SECONDS = 15.0
 APP_HEARTBEAT_STALE = 60.0     # a managed worker process exits when the app stops beating for this long
+LOG_MAX_BYTES = 5 * 1024 * 1024  # data/logs/workers.log: 5 MB, then it moves to workers.log.1 (and .2, .3)
+LOG_BACKUPS = 3
+LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"  # the console format of setup_logging() in __main__.py
 
 Handler = Callable[["Job"], "dict | None"]
 HANDLERS: dict[str, Handler] = {}
@@ -437,8 +443,12 @@ class Supervisor:
     def _spawn(self) -> bool:
         log_dir = config.data_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        # The worker writes its log itself (workers.log, size-bounded). Its raw output (a crash before logging
+        # starts, messages of native libraries) goes to a second file, cut back here at every start.
+        console = log_dir / "workers-console.log"
+        _cut_back(console)
         try:
-            out = open(log_dir / "workers.log", "ab")  # noqa: SIM115 - handed to the child process
+            out = open(console, "ab")  # noqa: SIM115 - handed to the child process
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             self.proc = subprocess.Popen([sys.executable, "-m", "clipfoundry", "workers", "--managed"],
                                          stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -511,8 +521,50 @@ class Supervisor:
 supervisor = Supervisor()
 
 
+# ------------------------------------------------------------------ the worker log file
+class _WorkerLog(RotatingFileHandler):
+    """A size-bounded log file. When Windows refuses to rename it (another program holds it open), it keeps writing
+    and tries again with the next line, instead of losing every line to an error message."""
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except OSError:
+            if self.stream is None:
+                self.stream = self._open()
+
+
+def log_to_file(log_dir: Path) -> logging.Handler:
+    """The managed worker process logs to data/logs/workers.log, at most LOG_MAX_BYTES × (1 + LOG_BACKUPS) on disk.
+    It replaces the console handler only: levels stay as setup_logging() set them, so request addresses (which can
+    carry an API key) stay out of the file."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    fmt = next((h.formatter for h in root.handlers if h.formatter), None) or logging.Formatter(LOG_FORMAT)
+    handler = _WorkerLog(log_dir / "workers.log", maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8",
+                         delay=True)
+    handler.setFormatter(fmt)
+    for old in [h for h in root.handlers if isinstance(h, logging.StreamHandler)
+                and not isinstance(h, logging.FileHandler)]:
+        root.removeHandler(old)
+    root.addHandler(handler)
+    return handler
+
+
+def _cut_back(path: Path) -> None:
+    """Keep one older copy of a file the app hands to the worker process once it passes LOG_MAX_BYTES."""
+    try:
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            os.replace(path, path.with_name(path.name + ".1"))
+    except OSError:
+        pass  # still open elsewhere: it is cut back at the next start
+
+
 def run_worker_process(managed: bool = False) -> int:
-    """`python -m clipfoundry workers`: run the worker host until stopped."""
+    """`python -m clipfoundry workers`: run the worker host until stopped. Started by the app (managed), it writes
+    its log to data/logs/workers.log; started by hand, it logs to the terminal."""
+    if managed:
+        log_to_file(config.data_dir() / "logs")
     host = WorkerHost(managed=managed)
     if not host.start(wait_for_lock=30):
         print("Another ClipFoundry worker host is already running.")

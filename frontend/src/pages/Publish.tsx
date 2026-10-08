@@ -450,7 +450,7 @@ function TikTokPanel({
     caption.length > 2200 && "shorten the caption to 2,200 characters",
     direct && !privacy && "choose who can see it",
     direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
-    branded && privacy === "SELF_ONLY" && "branded content can't be “Only me”",
+    branded && privacy && privacy !== "MUTUAL_FOLLOW_FRIENDS" && "TikTok allows branded content only for Friends",
     direct && !audited && privacy && privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
     direct && creator && creator.max_duration > 0 && duration > creator.max_duration
       && `trim the clip to ${creator.max_duration} seconds`,
@@ -493,8 +493,8 @@ function TikTokPanel({
         <label className="choice">
           <input type="radio" name="pp-tt-mode" checked={!direct} onChange={() => setMode("inbox")} />
           <span>
-            <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app. Works without TikTok's app
-            audit.
+            <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app for your Followers. No audit
+            needed, but TikTok must have approved your app; at most 5 drafts can wait at a time.
           </span>
         </label>
       </fieldset>
@@ -505,9 +505,10 @@ function TikTokPanel({
             <select id="pp-tt-priv" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
               <option value="" disabled>Choose…</option>
               {(creator?.privacy_options || []).filter((o) => o !== "PUBLIC_TO_EVERYONE").map((o) => (
-                <option key={o} value={o} disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
+                <option key={o} value={o}
+                  disabled={(!audited && o !== "SELF_ONLY") || (branded && o !== "MUTUAL_FOLLOW_FRIENDS")}>
                   {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
-                  {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
+                  {branded && o !== "MUTUAL_FOLLOW_FRIENDS" ? " (branded content: Friends only)" : ""}
                 </option>
               ))}
             </select>
@@ -614,8 +615,8 @@ function TikTokPanel({
             <span>
               {direct ? "This posts the video on your TikTok profile now. ClipFoundry can't take it back; you would "
                 + "delete it in the TikTok app. It may take a few minutes to appear."
-                : "This sends the video to your TikTok inbox as a draft now. Nothing is public until you finish and "
-                  + "post it in the TikTok app."}
+                : "This sends the video to your TikTok inbox as a draft now. Nobody else can see it until you post "
+                  + "it in the TikTok app for your Followers."}
             </span>
             <span>
               By posting, you agree to TikTok's {branded ? "Branded Content Policy and " : ""}Music Usage Confirmation.

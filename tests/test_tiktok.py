@@ -180,13 +180,17 @@ def test_guideline_checks_before_upload(app_client, tt, clip, kw, text):
     assert not tt.inits
 
 
-def test_branded_content_cannot_be_only_me(app_client, tt, clip):
+def test_branded_content_is_only_for_friends(app_client, tt, clip):
+    """TikTok's guidelines allow branded content only for Everyone or Friends; Everyone is never used here."""
     c, _ = clip
     _connect(app_client, tt, audited=True, audience="selected")
-    r = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="SELF_ONLY")
-    assert r.status_code == 400 and "Branded content" in r.json()["detail"]
-    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="FOLLOWER_OF_CREATOR")
-    assert ok.status_code == 200
+    for privacy in ("SELF_ONLY", "FOLLOWER_OF_CREATOR"):
+        r = _post(app_client, c["id"], disclose=True, brand_content=True, privacy=privacy)
+        assert r.status_code == 400 and "branded content" in r.json()["detail"], r.json()
+    assert not tt.inits
+    app_client.put("/api/settings", json={"audience_tiktok_group": "friends"})  # the narrower group, chosen by you
+    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="MUTUAL_FOLLOW_FRIENDS")
+    assert ok.status_code == 200, ok.json()
     _wait(app_client, ok.json()["id"])
     assert tt.inits[-1]["post_info"]["brand_content_toggle"] is True
 

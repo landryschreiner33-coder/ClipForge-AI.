@@ -7,7 +7,8 @@
    its title/caption, next to its real views and, when reported, retention.
 3. Compares posts only within a platform and one audience (your selected viewers, in the current version of that
    group): z-scores of log views with outliers capped, plus average percentage viewed when available. It needs at
-   least 30 posts (`brain_min_clips`) before it concludes anything, small groups are pulled toward your average
+   least 30 posts (`brain_min_clips`) with `brain_min_views` views each, from at least 5 different videos, before it
+   concludes anything, small groups are pulled toward your average
    (shrinkage), so one lucky post does not become a rule, and each update moves a learned value by at most 10%
    (`brain_max_step`) from the previous one.
 4. Feeds the results back: posting times (scheduler), topics (source ranking), packaging styles, the weights of the
@@ -80,12 +81,14 @@ def refresh_due(settings: dict, job: Job | None = None, now: float | None = None
 
 # ------------------------------------------------------------------ 2. rows
 def _snapshot(pub: dict) -> dict | None:
-    """The reading closest to 48 hours after posting (at least 20 hours in), so posts are compared fairly."""
+    """The reading closest to 48 hours after your viewers could watch (at least 20 hours in), so posts are compared
+    fairly."""
+    start = shown_at(pub)
     hist = [h for h in db.performance_history(pub["id"]) if h.get("views") is not None
-            and h["fetched_at"] - pub["created_at"] >= 20 * 3600]
+            and h["fetched_at"] - start >= 20 * 3600]
     if not hist:
         return None
-    return min(hist, key=lambda h: abs((h["fetched_at"] - pub["created_at"]) / 3600 - REFERENCE_AGE_H))
+    return min(hist, key=lambda h: abs((h["fetched_at"] - start) / 3600 - REFERENCE_AGE_H))
 
 
 def _hook_type(text: str) -> str:
@@ -101,17 +104,36 @@ def _duration_bucket(d: float | None) -> str:
     return "<20 s" if d < 20 else "20-35 s" if d < 35 else "35-50 s" if d < 50 else "50+ s"
 
 
+# what an upload's delivery record says once your viewers can watch it (publish/audience.delivery_after_upload): you
+# shared the Private YouTube video, you posted and linked the TikTok package, or TikTok posted it to the group
+DELIVERED = ("user_confirmed", "manual_confirmed", "account_group", "api_verified")
+
+
 def cohort(pub: dict) -> str:
     """Which audience a post reached: "selected" (your test viewers), "owner_only" (nobody else, nothing to learn),
-    or "public_legacy" (posted publicly before the selected-audience version). Results of different audiences are
-    never mixed: a small test group does not react like the public."""
+    "public_legacy" (posted publicly before the selected-audience version) or "unconfirmed" (meant for your viewers,
+    but they cannot watch it yet: Private with nobody invited, or a package you have not posted and linked; any
+    intent this version does not know). Results of different audiences are never mixed: a small test group does not
+    react like the public, and your own views are not your viewers'."""
     from ..publish import audience
 
     want = (pub.get("audience") or {}).get("intent") or ""
     if not want:
         want = db._legacy_intent(pub["platform"], pub.get("requested_privacy") or "")  # noqa: SLF001
-    return {audience.SELECTED: "selected", audience.OWNER_ONLY: "owner_only",
-            audience.LEGACY_PUBLIC: "public_legacy"}.get(want, "selected")
+    group = {audience.SELECTED: "selected", audience.OWNER_ONLY: "owner_only",
+             audience.LEGACY_PUBLIC: "public_legacy"}.get(want, "unconfirmed")
+    setup = (pub.get("delivery") or {}).get("audience_setup") or ""  # empty: posted before deliveries were recorded
+    if setup == "owner_only":
+        return "owner_only"
+    if group == "selected" and setup and setup not in DELIVERED:
+        return "unconfirmed"
+    return group
+
+
+def shown_at(pub: dict) -> float:
+    """When your viewers could first watch a post: the upload, or later, when you said you shared it or linked the
+    post you made yourself. Results count as mature 48 hours after this, not after the upload."""
+    return max(float(pub["created_at"]), float((pub.get("delivery") or {}).get("confirmed_at") or 0))
 
 
 def rows(settings: dict) -> list[dict]:
@@ -147,7 +169,8 @@ def rows(settings: dict) -> list[dict]:
                        "trend": scores.get("trend"), "source": scores.get("source"),
                        "diversity": scores.get("diversity"), "retention": scores.get("retention")},
             "views": snap["views"], "avg_view_percentage": snap.get("avg_view_percentage"),
-            "age_h": round((snap["fetched_at"] - pub["created_at"]) / 3600, 1)})
+            "source_key": project.get("source_id") or clip.get("project_id") or pub["clip_id"],
+            "age_h": round((snap["fetched_at"] - shown_at(pub)) / 3600, 1)})
     return out
 
 
@@ -298,23 +321,33 @@ def learn(job: Job) -> dict:
     # your selected viewers only, in the current version of that group: never mixed with another audience
     allowed = [r for r in usable_rows if r["cohort"] == "selected" and r["group_version"] == groups[r["platform"]]]
     other_audience = len(usable_rows) - len(allowed)
+    # the Brain's guards apply here too: a post counts once it has brain_min_views views (a handful of plays from a
+    # few followers is not a result), and the posts must come from at least brain.MIN_SOURCES different videos
+    min_views = int(settings.get("brain_min_views") or 10)
+    few_views = sum(r["views"] < min_views for r in allowed)
+    allowed = [r for r in allowed if r["views"] >= min_views]
+    sources = len({r["source_key"] for r in allowed})
     note = ("YouTube results are shown but not used for learning: YouTube's Developer Policies require Google's "
             "approval for metrics derived from YouTube API data." if excluded else "")
     if other_audience:
         note = (note + " " if note else "") + (
             f"{other_audience} post{'s' if other_audience != 1 else ''} reached another audience (public before this "
-            "version, only you, or an earlier version of your viewer group) and are kept apart from your selected "
-            "viewers' results.")
+            "version, only you, not yet shared with your viewers, or an earlier version of your viewer group) and are "
+            "kept apart from your selected viewers' results.")
+    if few_views:
+        note = (note + " " if note else "") + (f"{few_views} post{'s' if few_views != 1 else ''} with fewer than "
+                                               f"{min_views} views do not count yet.")
     previous = {r["id"]: float(r["lift"]) for r in db.select("learning_metrics") if r.get("lift") is not None}
     status = {"at": time.time(), "samples": len(allowed), "needed": need, "excluded_youtube": excluded,
               "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"], "findings": [], "weights": {}, "calibration": None}
+    status.update(excluded_few_views=few_views, sources=sources)
     evaluated = brain.evaluate(settings)
-    if len(allowed) < need:
+    if len(allowed) < need or sources < brain.MIN_SOURCES:
         # too few results now: the learned values stay as they were (they never jump back and forth)
-        status["message"] = (f"Not enough results yet: {len(allowed)} of {need} posts with real numbers. "
-                             "Until then posting times are spread evenly and the scores are not adjusted."
-                             if not previous else f"Not enough new results: {len(allowed)} of {need} posts; the "
-                             "values learned earlier stay.")
+        found = f"{len(allowed)} of {need} posts with real numbers from {sources} of {brain.MIN_SOURCES} videos"
+        status["message"] = (f"Not enough results yet: {found}. Until then posting times are spread evenly and the "
+                             "scores are not adjusted." if not previous else
+                             f"Not enough new results: {found}; the values learned earlier stay.")
         state.put("learning:status", status)
         return {**refreshed, "message": status["message"], "brain": evaluated["message"]}
     basis = set(state.get("learning:basis") or [])
