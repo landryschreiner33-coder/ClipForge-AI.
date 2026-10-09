@@ -1,40 +1,55 @@
 # Robot assets
 
-The office's 25 robots and the Brain Core are drawn in code, not stored as images. Each robot is a list of pixel
-rectangles built from named parts, so the office map, the Team roster and the developer gallery draw exactly the same
-art, nothing needs a paid image service, and every part can be edited as text.
+The office's 25 robots are authored pixel art built from their named identities and parts. The refined map uses
+**PixiJS 8.22.0**; Team cards, robot details and the developer gallery share the same robot artwork through cached
+Canvas portraits. The Brain Core and original Canvas artwork remain available. No paid image service, account or
+plugin connection is needed, and the drawing instructions can be edited as text.
 
 | File | What it holds |
 | --- | --- |
 | `frontend/src/office/cast.ts` | The registry: id, name, title, rank, department, room, manager, palette, head, body, visor, top, gear, work loop, hand and base for every robot, plus CORE. `validateCast()` checks 1 Director, 8 managers, 16 workers, unique ids and that no two robots share head + visor + top + gear. |
-| `frontend/src/office/sprites.ts` | The drawing: each part as rectangles on a transparent 48×64 cell, the four directions, the poses and their frame counts and timings (`FRAMES`). |
-| `frontend/src/office/Portrait.tsx` | One sprite as a crisp canvas (Team roster, details panel, gallery). |
+| `frontend/src/office/StudioArt.ts` | Refined authored robot silhouettes, faces, shading, equipment and pose animation. `createRobot()` builds a reusable rig for each existing identity. |
+| `frontend/src/office/StudioScene.ts` | Pixi office scenery, robot placement, department lights, health indicators and Brain Core. The map supplies actual feed-driven poses and handoffs. |
+| `frontend/src/office/StudioPortraits.ts` | One lazy shared offscreen renderer for the roster, details and gallery; a bounded 512-frame cache of 48×68 Canvas images avoids a graphics context per portrait. |
+| `frontend/src/office/Portrait.tsx` | A crisp Canvas portrait using the refined frame cache, with original artwork retained if the renderer/module cannot initialize. CORE uses its original drawing. |
+| `frontend/src/office/sprites.ts` | Original artwork and pose definitions (`FRAMES`), retained for the complete Canvas fallback. Original cells are 48×64. |
 | `clipfoundry/office/roles.py` | The backend's copy of the same identities and which job kinds and stages each one owns. `tests/test_office.py` fails if the two lists differ. |
 | `design/robots/contact-sheet.png` | A screenshot of the developer gallery (`#/dev/robots`, idle pose). |
+| `design/robot-office/retro/README.md` | Evidence and provenance for the refined office graphics, kept separately from earlier captures. |
 
 ## Rules the art keeps
 
-* **Cell and anchor.** Every sprite is drawn on a 48×64 cell with its feet on row 61 and its center at column 24, so
-  frames never jump. Bodies are sized by rank in whole pixels: workers, managers about 1.15×, the Director about
-  1.35×. The office scales whole cells only (nearest neighbor), never by fractions.
-* **Four directions, drawn, not mirrored.** Left and right are separate drawings, so a tablet held in the right hand
-  stays in the right hand. Seen from behind (`up`) the face is hidden and the gear is behind the body.
-* **Poses.** `idle` (2 frames), `work` (4, the role's own loop and speed), `walk` and `carry` (4, a result card in
-  the hands), `review` (2), `wait` (2), `approved`, `rework`, `paused` and `unavailable` (1), `error` (2), `retry`
-  (4). Every robot has every pose: the mechanics are shared (raised gear, a small state bubble above the head with
-  a check, a revise mark, a warning, a retry arrow, waiting dots), the parts stay the robot's own. A paused robot
-  only dims its eyes; an unavailable one is drawn faded.
+* **Pixel geometry and anchor.** Refined robots use integer-sized parts, stepped silhouettes, highlights and shadows,
+  with feet anchored at their station. Bodies and heads vary by identity and rank. Portraits use a 48×68 image with
+  feet positioned consistently; antialiasing and image smoothing are disabled. The map uses whole scale multiples
+  when space permits and fits smaller windows with nearest-neighbor sampling.
+* **Facing and identity.** The refined rig retains each robot's head shape, visor, top, gear and chosen hand. Side
+  views shift the face, while the back view hides the face and shows its rear panel. The original fallback retains
+  its separately drawn four directions.
+* **Poses.** Both renderers consume the existing pose names: idle, work, walk, carry, review, wait, approved, rework,
+  paused, unavailable, error and retry. The refined rig uses an eight-step walk, role-specific four-step work cues,
+  a carried report card, visible error accents and an approval check/raised hand. The fallback retains its original frame counts. Paused robots
+  stop movement and dim their eyes; unavailable robots fade. The office's HTML layer supplies truthful state icons.
 * **Quiet idle.** Idle only blinks. A waiting robot waits, a paused robot stops typing, and nothing animates as if a
   search, an upload or a decision were happening when it is not.
+* **Real activity and motion choices.** Backend events and snapshots choose work poses and report handoffs. The art
+  never creates work or progress. Follow system honors OS reduced motion, Full explicitly overrides it, and Reduced
+  freezes movement while actual state indicators remain. Portrait frames share the same preference.
+* **Fallback.** If the new scene module or graphics initialization fails, `OfficeMap.tsx` restores the original
+  Canvas map, including all robot buttons, details and controls. Portrait module/context failures keep original
+  Canvas sprites. No external setup is needed to activate either path.
 
 ## Adding or changing a robot
 
 1. Edit its entry in `cast.ts` (and, for a new role, add the same id to `clipfoundry/office/roles.py` with the job
    kinds and stages it owns).
-2. If it needs a new head, visor, top or gear, add the type name in `cast.ts` and its drawing in `sprites.ts` for all
-   four directions.
-3. Open `#/dev/robots` in the running app and check every direction and pose.
-4. Run `python -m pytest tests/test_office.py` (the two registries must agree) and `npm run build` in `frontend/`.
+2. If it needs a new head, visor, top or gear, add the type name in `cast.ts`, its refined drawing in `StudioArt.ts`,
+   and its original drawing in `sprites.ts` so the fallback stays complete.
+3. Open the Office, Team and `#/dev/robots` in the running app; check every direction and pose, selection, Reduced
+   motion and the original-art fallback. Clear/reload the page after changing cached portrait artwork.
+4. Run `python -m pytest tests/test_office.py` (the two registries must agree), `npm run build` in `frontend/`, and
+   `sandbox/pixel-office.spec.ts` with the isolated Playwright sandbox configuration. Record actual results
+   separately; the checks listed here are not a claim that this revision has passed them.
 
 ## Manifest
 

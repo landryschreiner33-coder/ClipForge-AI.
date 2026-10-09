@@ -4,10 +4,13 @@ import { paint } from "./draw";
 import { CELL, FRAMES, frameMs, Pose, sprite, spriteTop } from "./sprites";
 import { BY_ID } from "./cast";
 import { useMotion } from "../motion";
+import type { studioPortrait } from "./StudioPortraits";
+
+const HEIGHT = 68;
 
 /**
- * One robot drawn large (whole-pixel scale), for the detail panel, the Team roster and the gallery. It animates its
- * pose only when animations are allowed; with Reduce animations it shows the first frame.
+ * The same refined artwork as the office, delivered through one shared offscreen renderer and a frame cache.
+ * Original art remains available for CORE and browsers that cannot initialize the new graphics.
  */
 export default function Portrait({ id, pose = "idle", dir = "down", scale = 3, label, animate = true, crop }: {
   id: string; pose?: Pose; dir?: Dir; scale?: number; label?: string; animate?: boolean;
@@ -23,22 +26,54 @@ export default function Portrait({ id, pose = "idle", dir = "down", scale = 3, l
     const n = FRAMES[pose].n;
     const ms = c ? frameMs(c, pose) || 500 : 500;
     let frame = 0;
+    let active = true;
+    let version = 0;
+    let refined: typeof studioPortrait | null = null;
+    ctx.imageSmoothingEnabled = false;
+    const still = !animate || reduceMotion || pageHidden;
     const draw = () => {
-      ctx.clearRect(0, 0, CELL.w, CELL.h);
-      paint(ctx, sprite(id, dir, pose, frame));
+      const request = ++version;
+      if (refined) {
+        void refined(id, pose, dir, performance.now(), still).then((image) => {
+          if (!active || request !== version) return;
+          if (image) {
+            ctx.clearRect(0, 0, CELL.w, HEIGHT);
+            ctx.drawImage(image, 0, 0);
+            cv.dataset.art = "studio";
+          } else {
+            refined = null;
+            ctx.clearRect(0, 0, CELL.w, HEIGHT);
+            paint(ctx, sprite(id, dir, pose, frame), 0, 3);
+            cv.dataset.art = "original";
+          }
+        }).catch(() => { if (active) refined = null; });
+      } else {
+        ctx.clearRect(0, 0, CELL.w, HEIGHT);
+        paint(ctx, sprite(id, dir, pose, frame), 0, 3);
+        cv.dataset.art = "original";
+      }
     };
     draw();
-    if (!animate || reduceMotion || pageHidden || n < 2) return;
-    const timer = setInterval(() => {
-      frame = (frame + 1) % n;
+    if (c) void import("./StudioPortraits").then((module) => {
+      if (!active) return;
+      refined = module.studioPortrait;
       draw();
-    }, ms);
-    return () => clearInterval(timer);
+    }).catch(() => { /* Keep the complete original-art fallback. */ });
+    const timer = still || n < 2 ? null : setInterval(() => {
+      frame = Math.floor(performance.now() / ms) % n;
+      draw();
+    }, Math.min(ms, 110));
+    return () => {
+      active = false;
+      if (timer !== null) clearInterval(timer);
+    };
   }, [id, pose, dir, animate, reduceMotion, pageHidden]);
   const canvas = (
-    <canvas ref={ref} className="portrait" width={CELL.w} height={CELL.h}
-      style={{ width: CELL.w * scale, height: CELL.h * scale }}
+    <canvas ref={ref} className="portrait" width={CELL.w} height={HEIGHT}
+      style={{ width: CELL.w * scale, height: HEIGHT * scale }}
       role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : true} />
   );
-  return crop ? <span className="mini" style={{ ["--top" as string]: `${-Math.max(0, spriteTop(id) - 2) * scale}px` } as React.CSSProperties}>{canvas}</span> : canvas;
+  const c = BY_ID[id];
+  const top = c ? c.rank === "director" ? 3 : c.rank === "manager" ? 7 : 11 : spriteTop(id) + 1;
+  return crop ? <span className="mini" style={{ ["--top" as string]: `${-Math.max(0, top) * scale}px` } as React.CSSProperties}>{canvas}</span> : canvas;
 }

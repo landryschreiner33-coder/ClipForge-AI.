@@ -36,6 +36,11 @@ location**.
 
 ## 3. Start ClipFoundry
 
+For a ZIP download, put the extracted files in a **short folder**, such as `C:\ClipFoundry`, with `start.bat`
+directly inside it. Avoid nesting the long generated archive folder inside another copy of that folder: Python
+dependency filenames can exceed Windows' path limit. Use a new folder for a review build; the
+[PR #14 test guide](docs/WINDOWS_PR14_TEST.md) uses `C:\CF14` and separate test data.
+
 Double-click **`start.bat`**. On the first run it:
 
 1. creates a private Python environment in `.venv`,
@@ -45,6 +50,13 @@ Double-click **`start.bat`**. On the first run it:
    browser.
 
 Later runs start in seconds. Keep the console window open while you use the app; close it (or press Ctrl+C) to quit.
+
+If pip fails with `No such file or directory` for a long dependency filename and mentions **Windows long paths**,
+close the failed console and put **fresh ZIP contents** in a shorter new folder. Run its launcher to create a new
+`.venv`; do not move or copy the partially installed environment. Leave your normal installation and `data` alone.
+This workaround does not require administrator access or changing Windows settings. The launcher warns before
+dependency installation when the folder is long enough to put a known SDK filename over the standard path limit,
+and continues so computers with long-path support can still use their existing folder.
 
 Options: `start.bat --port 9000` uses a different port. `start.bat --host 0.0.0.0` exposes the app on your local
 network (only do this on a trusted network, since there is no login).

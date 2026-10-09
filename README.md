@@ -281,6 +281,10 @@ capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend i
 [design/robots/README.md](design/robots/README.md). Screenshots (first run, working, waiting, after a restart,
 paused, a controlled error state, Team): [design/robot-office/screenshots](design/robot-office/screenshots/README.md).
 
+The refined pixel-art follow-up uses PixiJS for the furnished map and matching Team/detail portraits, with the
+original Canvas artwork as a graphics fallback. It is included in the Windows build and needs no design account.
+[New screenshots, labeled animation preview and source-editing guide](design/robot-office/retro/README.md).
+
 ## Third-party assets
 
 * Poppins and Anton fonts: SIL Open Font License 1.1 (`clipfoundry/assets/fonts/OFL-*.txt`).

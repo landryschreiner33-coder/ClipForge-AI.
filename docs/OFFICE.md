@@ -29,7 +29,7 @@ Old addresses still open the right page and are replaced in place (`frontend/src
 ## The cast
 
 One Director, eight managers and sixteen workers (25 robots), plus the Brain Core, an object in the Brain Room. The
-backend registry is `clipfoundry/office/roles.py`; the drawings are `frontend/src/office/cast.ts` (see
+backend registry is `clipfoundry/office/roles.py`; the visual identities are `frontend/src/office/cast.ts` (see
 [design/robots/README.md](../design/robots/README.md)). `tests/test_office.py` fails if the two lists differ.
 
 | Room | Manager | Workers (the job kinds and stages they stand for) |
@@ -45,6 +45,33 @@ backend registry is `clipfoundry/office/roles.py`; the drawings are `frontend/sr
 | Brain Room | CURATOR | METRIC (result readings), SYNAPSE (`learn`: compares results) |
 
 `roles.role_for(kind, stage)` maps every job (and the stage it reports) to exactly one role.
+
+### Refined pixel studio
+
+The map now uses **PixiJS 8.22.0**, bundled with the frontend. `StudioScene.ts` draws the office's floors, furniture,
+desk screens and Brain Core; `StudioArt.ts` authors the 25 robots from their existing identities. Stepped metal
+silhouettes, shaded bodies, different faces and role-specific equipment distinguish the cast. This is drawn pixel
+art, with crisp edges and anchored feet; it is not an external image service or a separate AI running each robot.
+
+`OfficeMap.tsx` supplies the renderer with the poses, positions, report handoffs and reactions derived from the
+backend feed. Department screen lighting follows actual working roles, and rack indicators follow the health
+readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable button per
+robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
+
+Team cards, robot details and the developer gallery use the same authored robot art through `Portrait.tsx`.
+`StudioPortraits.ts` owns one shared offscreen renderer and a bounded cache of rendered frames, copied into ordinary
+Canvas portraits. Opening the roster does not create a separate graphics context for each robot. CORE retains its
+original portrait drawing.
+
+The Pixi scene loads when the map opens. If its module or graphics initialization fails, the map restores the
+original Canvas renderer and shows *Original artwork · new graphics unavailable in this browser*. Robot selection,
+details, state indicators and controls remain available. Portraits also retain their original Canvas artwork when
+the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
+
+Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
+freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
+also stop motion. Evidence for the refined visuals is documented separately in
+[design/robot-office/retro/README.md](../design/robot-office/retro/README.md).
 
 ### Reports and decisions
 

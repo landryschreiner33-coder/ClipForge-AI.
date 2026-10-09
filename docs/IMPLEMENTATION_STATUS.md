@@ -1,5 +1,39 @@
 # Implementation status
 
+## PR #14 refined pixel office follow-up
+
+Starts at `c33a291` on the same draft/unmerged branch. The owner chose refined retro pixel art and authorized using
+graphics tools. PixiJS **8.22.0** now paints all 25 authored robots and their furnished rooms; one lazy shared
+offscreen renderer and bounded frame cache deliver the same art to Team/detail portraits. The scoped office shell
+keeps the full map, details and controls together at laptop sizes. Existing snapshots/events and motion preferences
+drive activity; no backend, processing or publishing changes were made. An unavailable graphics bundle/context
+restores the original Canvas map with a visible compatibility notice.
+
+The posted Windows error comes from nested full-commit archive folders plus a long Anthropic SDK filename.
+`start.bat` now gives nonblocking short-folder advice when setup is at risk. The test guide puts fresh ZIP contents
+directly in `C:\CF14` and creates a fresh environment there; it never moves the partial `.venv` or normal data.
+
+| Check | Result and scope |
+| --- | --- |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; graphics library is lazy-loaded, built assets and third-party notices included. Vite reports the 904 KB graphics chunk size warning. |
+| Office Python checks | `pytest -q tests/test_office.py`: 17 passed in 7.20 s. |
+| Isolated browser checks | 10 passed in 59.3 s: motion (3), robot events/states/layout (4), Pixi navigation/fallback/portrait+approval pixels (3). |
+| Actual app captures | Desktop 1440×900 and laptop 1280×720: all 25, matching selected portrait and visible controls; mobile List at 390 px has no horizontal overflow; no browser errors recorded. |
+| Art/portrait checks | 25 Team and 100 gallery portraits rendered; Front→Back/gallery context count stable, zero page errors. Frozen Idle→Approved changes real pixels. |
+
+Browser commands used the installed Chromium and an isolated app on port 8844. The scratch Playwright configuration
+selected `motion.spec.ts`, `robot-office.spec.ts` and `pixel-office.spec.ts` from `e2e/sandbox`, one worker, 180-second
+test timeout; the repository sandbox configuration allows 600 seconds. An earlier scratch run capped at 60 seconds
+passed eight cases then timed out during the sequential laptop assertions; its browser session closed on timeout.
+Nine cases passed with the corrected cap, then the final ten-case run passed after adding the visible approval
+regression and caching the static scenery. No backend behavior changed and the full media/641-test suite was not
+repeated for this follow-up. The preceding full-suite results below remain evidence for the earlier checkpoint.
+[New visual evidence and how to edit it](../design/robot-office/retro/README.md).
+Windows CMD execution and the owner's PC graphics, fonts/scaling, CUDA/NVENC remain unverified here. Only PixiJS
+was added to frontend dependencies; GPU files, `.mcp.json`, Playwright versions and `e2e/tests` are unchanged.
+Generated JavaScript retains the library's shader-string whitespace and is marked as generated in `.gitattributes`;
+authored source/document whitespace checks passed.
+
 <!-- PR14_CONTINUATION_START -->
 ## PR #14 continuation — 2026-10-08
 

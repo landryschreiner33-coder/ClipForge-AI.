@@ -9,6 +9,7 @@ import { useOffice } from "../office/useOffice";
 import OfficeMap, { Card } from "../office/OfficeMap";
 import { ActivityPanel, DepartmentCards, HealthBadge, OverviewPanel, RobotPanel, RoomPanel } from "../office/panels";
 import { ROOM_ACCENT } from "../office/draw";
+import "../office/studio.css";
 
 /**
  * Office: the robot office (layout of reference image A) over the real job system. The map shows where work is,
@@ -59,8 +60,9 @@ export default function Office() {
 
   if (!snap) {
     return (
-      <div className="office-page">
+      <div className="office-page office-studio">
         <h1 className="sr-only" tabIndex={-1}>Office</h1>
+        <StudioHeading connected={false} loading={!feed.error} />
         {feed.error ? (
           <Banner tone="warn" title="The office could not load" actions={<button type="button" className="btn btn-small" onClick={() => feed.reload().catch(() => {})}><Icon name="refresh" />Try again</button>}>
             {feed.error}
@@ -76,8 +78,9 @@ export default function Office() {
   const setupNeeded = !!st && !st.home.setup.started && snap.run.state === "stopped";
 
   return (
-    <div className="office-page">
+    <div className="office-page office-studio">
       <h1 className="sr-only" tabIndex={-1}>Office</h1>
+      <StudioHeading connected={!feed.lost && !feed.error && feed.lastOk !== null} count={snap.roles.length} />
       {feed.lost && (
         <Banner tone="warn" icon="offline" title="The office is not updating">
           What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipFoundry answers again.
@@ -113,7 +116,10 @@ export default function Office() {
         </section>
         <aside className="office-panel" aria-label="Details" style={accent ? { ["--accent" as string]: accent } as React.CSSProperties : undefined}>
           <div className="op-head">
-            <h2>{title}</h2>
+            <div className="studio-panel-title">
+              <span className="studio-eyebrow">{sel?.type === "robot" ? "Robot details" : sel?.type === "room" ? "Department" : sel?.type === "activity" ? "Event feed" : "Studio overview"}</span>
+              <h2>{title}</h2>
+            </div>
             {sel?.type === "robot" && snap.roles.find((r) => r.id === sel.id)?.state === "working" && <span className="pill info"><Icon name="play" />Working</span>}
             <span className="spacer" />
             {sel && <button type="button" className="btn btn-small btn-icon btn-quiet" aria-label="Close details" onClick={() => setSel(null)}><Icon name="x" /></button>}
@@ -131,6 +137,25 @@ export default function Office() {
       </div>
       <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />
     </div>
+  );
+}
+
+function StudioHeading({ connected, loading = false, count }: { connected: boolean; loading?: boolean; count?: number }) {
+  return (
+    <header className="studio-heading">
+      <div>
+        <p className="studio-eyebrow">Live production studio</p>
+        <h2 className="studio-title">Your robot office</h2>
+        <p className="studio-description">A little studio. Real work behind every robot.</p>
+      </div>
+      <div className="studio-status" aria-label="Office connection">
+        <span className={`studio-connection${connected ? " connected" : ""}`}>
+          <Icon name={connected ? "dot" : loading ? "clock" : "offline"} size={14} />
+          {connected ? "Live connection" : loading ? "Connecting" : "Not updating"}
+        </span>
+        {count !== undefined && <span className="studio-roster-count"><Icon name="user" size={14} />{count} robots</span>}
+      </div>
+    </header>
   );
 }
 

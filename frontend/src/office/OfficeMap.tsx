@@ -8,6 +8,7 @@ import { drawBackdrop, drawClock, drawCore, drawRackLights, drawRobot, drawScree
   from "./draw";
 import { besideManager, Pt, ROOMS, roomOf, route, STATION, WORLD } from "./world";
 import { Listener, LIVE_SECONDS } from "./useOffice";
+import type { StudioScene } from "./StudioScene";
 
 /**
  * The office map: a small canvas renderer with an accessible HTML layer on top (a button per room and per visible
@@ -89,6 +90,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
   const reduceRef = useRef(reduce || stale || pageHidden);
   const [scale, setScale] = useState(1);
   const [shown, setShown] = useState<string[]>([]);
+  const [renderer, setRenderer] = useState<"pixi" | "canvas">("pixi");
   snapRef.current = snap;
   selRef.current = selected;
   reduceRef.current = reduce || stale || pageHidden;
@@ -201,8 +203,9 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
   // ---- the frame loop
   useEffect(() => {
     const cv = canvas.current!;
-    const ctx = cv.getContext("2d")!;
-    ctx.imageSmoothingEnabled = false;
+    let ctx: CanvasRenderingContext2D | null = null;
+    let scene: StudioScene | null = null;
+    let cancelled = false;
     let raf = 0, last = performance.now(), drawn = 0;
     const step = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000);
@@ -218,15 +221,42 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
         return;
       }
       drawn = t;
-      render(ctx, t, still);
+      render(ctx, t, still, scene);
       raf = requestAnimationFrame(step);
     };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    const initialize = async () => {
+      // StrictMode immediately cleans up its first effect; avoid opening a context for that retired effect.
+      await Promise.resolve();
+      if (cancelled) return;
+      if (renderer === "pixi") {
+        try {
+          const { StudioScene } = await import("./StudioScene");
+          if (cancelled) return;
+          scene = await StudioScene.create(cv);
+          if (cancelled) { scene.destroy(); return; }
+        } catch {
+          if (!cancelled) setRenderer("canvas");
+          return;
+        }
+      } else {
+        ctx = cv.getContext("2d");
+        if (!ctx) return;
+        ctx.imageSmoothingEnabled = false;
+      }
+      raf = requestAnimationFrame(step);
+    };
+    void initialize();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      scene?.destroy();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [renderer]);
 
   const advance = (a: Actor, dt: number, t: number, still: boolean) => {
+    const row = snapRef.current.roles.find((r) => r.id === a.id);
+    if (row?.state === "paused" || row?.state === "unavailable") return;
     if (a.react && a.react.until < t) a.react = null;
     if (a.hold && a.hold.until < t) a.hold = null;
     if (!a.path.length && a.steps.length && !a.hold) {
@@ -276,27 +306,30 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
   };
 
   const poseOf = (a: Actor): Pose => {
+    const row = snapRef.current.roles.find((r) => r.id === a.id);
+    if (row?.state === "paused" || row?.state === "unavailable") return POSE[row.state];
     if (a.path.length) return a.carry ? "carry" : "walk";
     if (a.react) return a.react.pose;
     if (a.hold) return a.hold.pose;
-    const row = snapRef.current.roles.find((r) => r.id === a.id);
     return row ? POSE[row.state] : "unavailable";
   };
 
-  const render = (ctx: CanvasRenderingContext2D, t: number, still: boolean) => {
+  const render = (ctx: CanvasRenderingContext2D | null, t: number, still: boolean, scene: StudioScene | null) => {
     const s = snapRef.current;
-    ctx.drawImage(drawBackdrop(), 0, 0);
-    const working = new Set<RoomId>();
-    for (const r of s.roles) if (r.state === "working" && BY_ID[r.id]) working.add(BY_ID[r.id].room);
-    drawScreens(ctx, working, t, still);
-    drawClock(ctx, new Date(Date.now() + skew * 1000));
     const brainBusy = s.brain && "state" in s.brain && s.brain.state === "evaluating";
-    drawCore(ctx, core.current > t || brainBusy ? 1 : 0, t, still);
-    const colors: Record<string, string> = { healthy: "#57eea0", degraded: "#ffab45", error: "#ff5d73", unknown: "#7d8494" };
-    drawRackLights(ctx, s.health.checks.map((c) => colors[c.status] || colors.unknown));
     for (const [id, until] of pulses.current) {
       if (until < t) pulses.current.delete(id);
-      else highlightRoom(ctx, id, Math.min(1, (until - t) / 600));
+    }
+    if (ctx) {
+      ctx.drawImage(drawBackdrop(), 0, 0);
+      const working = new Set<RoomId>();
+      for (const r of s.roles) if (r.state === "working" && BY_ID[r.id]) working.add(BY_ID[r.id].room);
+      drawScreens(ctx, working, t, still);
+      drawClock(ctx, new Date(Date.now() + skew * 1000));
+      drawCore(ctx, core.current > t || brainBusy ? 1 : 0, t, still);
+      const colors: Record<string, string> = { healthy: "#57eea0", degraded: "#ffab45", error: "#ff5d73", unknown: "#7d8494" };
+      drawRackLights(ctx, s.health.checks.map((c) => colors[c.status] || colors.unknown));
+      for (const [id, until] of pulses.current) highlightRoom(ctx, id, Math.min(1, (until - t) / 600));
     }
     for (const [id, b] of buttons.current) b.hidden = !actors.current.get(id)?.visible;
     const list = [...actors.current.values()].filter((a) => a.visible).sort((a, b) => a.y - b.y);
@@ -307,7 +340,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
       const ms = frameMs(c, pose) || 400;
       const frame = still || n === 1 ? 0 : Math.floor((t + a.offset) / ms) % n;
       const dir = a.path.length ? a.dir : a.hold?.dir || "down";
-      drawRobot(ctx, a.id, a.x, a.y, dir, pose, frame, selRef.current === a.id);
+      if (ctx) drawRobot(ctx, a.id, a.x, a.y, dir, pose, frame, selRef.current === a.id);
       const b = buttons.current.get(a.id);
       if (b) {
         b.style.left = `${((a.x - 18) / WORLD.w) * 100}%`;
@@ -316,6 +349,9 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
         b.dataset.room = roomOf(a)?.id || "corridor";  // where it stands now (the browser tests read it)
       }
     }
+    scene?.draw(s, list.map(a => ({ id: a.id, x: a.x, y: a.y, pose: poseOf(a),
+      dir: a.path.length ? a.dir : a.hold?.dir || "down", selected: selRef.current === a.id })),
+      t, still, pulses.current, core.current > t || !!brainBusy);
   };
 
   const label = (id: string) => {
@@ -327,10 +363,10 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
 
   return (
     <div className="office-map-frame">
-    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap}>
+    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap} data-renderer={renderer}>
       <div className="office-world" style={{ width: WORLD.w * scale, height: WORLD.h * scale,
         ["--s" as string]: scale } as React.CSSProperties}>
-        <canvas ref={canvas} width={WORLD.w} height={WORLD.h} aria-hidden="true"
+        <canvas key={renderer} ref={canvas} width={WORLD.w} height={WORLD.h} aria-hidden="true"
           style={{ imageRendering: scale >= 1 ? "pixelated" : "auto" }} />
         {ROOMS.map((r) => {
           const people = snap.roles.filter((x) => BY_ID[x.id]?.room === r.id);
@@ -370,6 +406,7 @@ export default function OfficeMap({ snap, subscribe, skew, selected, room, onRob
     </div>
     <div className="office-map-legend" aria-label="Robot states">
       <span className="small">{CAST.length} robots · {stale ? "Last known states" : "Live job states"}</span>
+      {renderer === "canvas" && <span>Original artwork · new graphics unavailable in this browser</span>}
       {(["working", "waiting", "idle", "paused", "error"] as RoleState[]).map((state) => (
         <span key={state}><Icon name={STATE_ICON[state]} size={13} />{state === "error" ? "Error" : state[0].toUpperCase() + state.slice(1)}</span>
       ))}

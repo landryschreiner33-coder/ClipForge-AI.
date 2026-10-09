@@ -5,6 +5,16 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 
 ## Current scope and branch
 
+Latest visual checkpoint starts at `c33a291`: the owner chose **refined retro pixel art** and asked to use better
+graphics tools. The office now uses pinned PixiJS 8.22.0 with authored cast-specific artwork, layered room furniture
+and a scoped studio shell. Team/detail portraits share one cached offscreen renderer. Existing job snapshots and
+events still control states, walks, reports and decisions; this adds no processing or publishing behavior.
+Graphics initialization/module failure restores the original Canvas map. Full / Reduced / Follow system remain.
+The Windows install screenshot showed nested archive folders exceeding the standard path limit: use fresh ZIP
+contents directly in `C:\CF14`, with `test-isolated.bat` there, creating a new `.venv`. Do not copy a partial environment.
+The launcher now explains this when a long root may cause dependency setup to fail; no registry change is required.
+Visual evidence and tool/edit instructions: [refined office](design/robot-office/retro/README.md).
+
 Continue existing draft PR #14 on `claude/project-thread-vw1n9y`; keep it unmerged. This continuation started at
 `fea045d` (previous code review `cf54204`). Default remains `claude/wonderful-ritchie-909tq3` at `eff96fb`.
 The owner explicitly superseded selected-only new uploads and hiding idle robots. New Public uploads require
@@ -50,6 +60,15 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
   Separate Windows launcher `test-isolated.bat`: own `data\pr14-test`, videos, `.venv` and port 8899.
 
 ## Validation
+
+The refined-art validation is recorded separately at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+Latest: TypeScript/production build passed, 17 office Python tests passed (7.20 s), and all ten focused motion/robot/
+graphics browser cases passed together (59.3 s). Actual desktop/laptop/mobile captures recorded zero browser errors;
+the separate animation video is visibly labeled as controlled test states. A pixel regression verifies COMMAND's
+approval looks different from idle even in Reduced mode. Static floor/furniture is cached once; portrait cache is bounded.
+The earlier 641-test and complete-media results below belong to the preceding `c33a291` checkpoint; they were not
+re-run in full for this graphics-only follow-up. Windows batch execution, PC graphics/scaling and GPU checks remain
+owner checks. PixiJS is the only deliberately added frontend dependency; Playwright and GPU pins remain unchanged.
 
 Current final results and exact commands are recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
 The complete final fast suite passed **641 tests** (263.21 s; seven slow cases deselected). All seven slow cases passed across the full run

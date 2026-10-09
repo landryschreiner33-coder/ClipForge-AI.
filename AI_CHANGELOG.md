@@ -7,6 +7,34 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-08 · Refined pixel office and Windows path recovery
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `c33a291`.
+  **Result:** the commit containing this entry. PR stays draft and unmerged.
+* **What changed:** pinned PixiJS 8.22.0 paints the furnished office and all 25 refined robot rigs; Team/detail/gallery
+  portraits share one lazy offscreen renderer with a bounded frame cache. Static scenery is cached separately from
+  live robot/room layers. A scoped navy studio shell fits the map, details and controls at laptop sizes. Existing
+  job events still govern work, walks, report handoffs and decisions; COMMAND visibly signals recorded approval.
+  Motion preferences remain and graphics failure restores the original Canvas artwork and controls.
+  Included third-party graphics notices and rebuilt distribution. No backend or publishing behavior changed.
+  Windows setup now explains the long-path failure shown in the owner's screenshot and recommends fresh ZIP contents
+  directly in a short folder (`C:\CF14`), creating a fresh `.venv` while preserving normal data. Both venv and pip
+  failure branches include the guarded remedy; no registry changes or administrator settings.
+* **Why:** the owner requested using better graphics tools and chose refined retro pixel art; their nested archive
+  extraction also caused a Windows dependency installation failure.
+* **Validation:** TypeScript/production build passed. Office Python: 17 passed in 7.20 s. Final isolated browser run:
+  ten passed in 59.3 s (3 motion, 4 robot, 3 graphics/portrait/visible approval cases). The earlier scratch 60-second
+  run timed out in the last sequential viewport check; a corrected timeout passed nine, then the final ten-case run
+  passed with the approval pixel regression and scenery cache. Actual desktop/laptop/mobile captures recorded zero
+  browser errors. 25 Team/100 gallery portraits rendered with a stable shared context count. Reduced-mode approval
+  differs from idle in actual rendered pixels. Diff checks passed. Prior full/media results remain the preceding
+  checkpoint's evidence and were not rerun in full for this graphics follow-up.
+* **Evidence:** [screenshots, labeled controlled animation and source-editing guide](design/robot-office/retro/README.md).
+  Pixi needs no account, plugin hookup or paid AI service. The video uses controlled test events, not real processing.
+* **Not verified:** Windows CMD execution/installation, PC fonts/scaling/graphics, RTX 3050 CUDA/NVENC and real accounts.
+  GPU dependencies, `.mcp.json`, Playwright versions and `e2e/tests` remain unchanged. No real posts, purchases,
+  account permission changes or deployment occurred.
+
 ## 2026-10-08 · Public publishing, teachable Brain and complete robot office
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `fea045d`.

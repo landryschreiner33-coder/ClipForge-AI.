@@ -34,11 +34,24 @@ if errorlevel 1 (
 )
 
 rem ------------------------------------------- virtual env + dependencies
+rem A known Anthropic SDK filename adds 133 characters under this folder.
+rem Roots of 127+ characters reach Windows' standard 260-character path limit.
+rem Warn only when installing; do not block computers with long paths enabled.
+set "CF_INSTALL_ROOT=%CD%"
+set "CF_LONG_PATH_RISK="
+if not "%CF_INSTALL_ROOT:~126,1%"=="" set "CF_LONG_PATH_RISK=1"
+
 if not exist ".venv\Scripts\python.exe" (
   echo   Creating Python environment in .venv ...
   %PY% -m venv .venv
   if errorlevel 1 (
     echo   [!] Could not create the virtual environment.
+    if defined CF_LONG_PATH_RISK (
+      echo       This folder may exceed Windows path limits during setup.
+      echo       Put fresh ZIP contents in C:\CF14 with start.bat directly inside,
+      echo       then run setup there. Keep your normal app/data untouched.
+      echo       Do not move or copy the partially created .venv.
+    )
     pause
     exit /b 1
   )
@@ -47,11 +60,25 @@ set "VPY=.venv\Scripts\python.exe"
 
 fc /b requirements.txt ".venv\installed-requirements.txt" >nul 2>nul
 if errorlevel 1 (
+  if defined CF_LONG_PATH_RISK (
+    echo   [!] This folder may be too deep for Windows dependency installation.
+    echo       If Windows long paths are disabled, pip can fail with a missing-file error.
+    echo       For a new ZIP/test copy, put the fresh ZIP contents in C:\CF14,
+    echo       with C:\CF14\start.bat directly inside that folder.
+    echo       Keep your normal app/data untouched. Do not move or copy an old .venv.
+    echo       Setup will continue for computers that support long paths.
+    echo.
+  )
   echo   Installing dependencies - the first run takes a few minutes ...
   "%VPY%" -m pip install --upgrade pip >nul
   "%VPY%" -m pip install -r requirements.txt
   if errorlevel 1 (
     echo   [!] Dependency installation failed. See the messages above.
+    if defined CF_LONG_PATH_RISK (
+      echo       If pip mentions Windows long paths or a long missing SDK filename,
+      echo       extract a fresh copy into C:\CF14 and run setup there again.
+      echo       Keep the normal installation/data intact; do not copy its .venv.
+    )
     pause
     exit /b 1
   )

@@ -4,8 +4,11 @@ This branch is a review build. PR #14 remains unmerged. Use the exact-commit ZIP
 
 1. Close your normal ClipFoundry console. Back up its entire `data` folder somewhere separate while it is closed.
    Keep the original installation and its `.venv` untouched.
-2. Download the ZIP and use **Extract All** into a new folder, for example `Documents\ClipFoundry-PR14-test`.
-   Do not extract it over your usual installation or copy your normal database into it.
+2. Download the ZIP and use **Extract All**. Open the generated folder containing `test-isolated.bat`, then copy
+   **that folder's contents** into a new short folder, **`C:\CF14`**. Check that **`C:\CF14\test-isolated.bat`** and
+   `C:\CF14\requirements.txt` exist directly there. Avoid putting the long generated archive folder inside another
+   copy of the same folder: dependency filenames can exceed Windows' path limit. Do not extract over your usual
+   installation or copy its `data` or `.venv` into this test copy.
 3. Double-click **`test-isolated.bat`** in the extracted folder. It performs the usual setup using this copy’s own
    `.venv`, then opens **http://127.0.0.1:8899**. Leave its console open. Test data and videos live under
    `data\pr14-test`; the launcher overrides inherited data, video and port settings.
@@ -31,6 +34,13 @@ project and fresh channel-bound automatic-publishing permission. Review limits a
 turning it on. Existing Private schedules stay Private. TikTok still requires per-post choices and consent; if its
 app approval is unavailable, use the manual package or an approved inbox draft. No real videos were posted during
 development.
+
+If setup already failed with `No such file or directory` for a long `anthropic\types\beta\...` filename and a
+Windows long-path hint, close that failed console and repeat step 2 with **fresh ZIP contents** in `C:\CF14`.
+Do not move the partially installed `.venv`: Python environments contain paths to their original location.
+The launcher creates a new environment in the short folder. Your normal app and its data should remain untouched;
+no administrator setting or registry edit is needed for this short-folder workaround. If `C:\CF14` is unavailable,
+use another short writable folder, such as `C:\Users\landr\CF14`, with the launcher directly inside it.
 
 For the GPU check, open PowerShell in the extracted test folder and run:
 

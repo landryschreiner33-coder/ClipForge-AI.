@@ -94,6 +94,33 @@ including Full overriding system reduced motion. `sandbox/brain-workspace.spec.t
 approval, reload, lookup preview, disable/delete/export and responsive layout. The sandbox tests write the
 screenshots in `design/robot-office/screenshots`.
 
+`sandbox/pixel-office.spec.ts` targets the refined **PixiJS 8.22.0** office in the isolated sandbox. It checks that
+the production scene paints actual pixels, all 25 selectable roles remain present, repeated Map/List changes and
+Team navigation restore the map, and robot selection opens the details panel without uncaught page errors. A second
+case aborts the scene bundle to verify the original Canvas fallback, all 25 robot buttons, details and the controls.
+A third checks the refined Team/gallery portraits and an actual rendered COMMAND approval cue in Reduced mode.
+It does not start work or connect accounts. These cases describe coverage; their results belong in the validation
+log after they are run.
+
+The refined robots are authored in `StudioArt.ts`; the map uses `StudioScene.ts`, and Team/detail/gallery portraits
+reuse one shared offscreen renderer with a bounded frame cache in `StudioPortraits.ts`. The original artwork stays
+available if the graphics context or module cannot initialize. Existing backend snapshots and events govern poses,
+work cues and report handoffs; pixel rendering does not manufacture activity. Follow system honors OS reduced
+motion, Full overrides it explicitly, and Reduced freezes motion while the state labels keep updating. No account
+or plugin hookup is required for these graphics. New visual evidence is documented separately in
+[`design/robot-office/retro/README.md`](../design/robot-office/retro/README.md).
+
+Run the graphics checks alone, using sandbox data:
+
+```bat
+cd e2e
+npm run test:sandbox -- --project=chromium sandbox/pixel-office.spec.ts
+```
+
+The Pixi dependency is part of the frontend's npm installation. This graphics change does not change
+`e2e/tests`, pin Playwright, or alter GPU dependencies. The tests above use the existing sandbox configuration;
+Windows display scaling, real GPU rendering and real connected accounts remain separate checks.
+
 The current beginner flow passes with public video discovery on. Uncovered videos can be clipped locally, but
 cannot be automatically posted. The complete loop explicitly confirms Public YouTube setup and project audit,
 gives channel-bound standing consent, and checks Public fake-account uploads without `publishAt`. Its sandbox-only
