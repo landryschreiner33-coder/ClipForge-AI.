@@ -1,7 +1,8 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
 import { OfficeEvent, RoleRow, Snapshot } from "./api";
-import { Pt, REST_SEAT, roomOf, route, STATION } from "./world";
+import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION } from "./world";
+import { LoungeLife } from "./LoungeLife";
 import type { Pose } from "./sprites";
 import type { RobotPosture } from "./StudioArt";
 
@@ -48,6 +49,8 @@ export class OfficeMotion {
   private jobOwners = new Map<string, Owner>();
   private refOwners = new Map<string, Owner>();
   private cutoff: number;
+  private lounge = new LoungeLife();
+  private stopped = false;
 
   constructor(snap: Snapshot) {
     this.cutoff = snap.cursor;
@@ -56,10 +59,15 @@ export class OfficeMotion {
 
   reconcile(snap: Snapshot, reduced: boolean) {
     this.cutoff = Math.max(this.cutoff, snap.cursor);
+    this.stopped = snap.run.state === "stopped";
     this.rows = new Map(snap.roles.map(r => [r.id, r]));
     this.targets = placements(snap.roles);
+    if (reduced) this.lounge.reset();
+    // Release every real worker's place first, before assigning any returning off-duty worker.
+    for (const c of CAST) if (!this.targets[c.id].lounge) this.lounge.release(c.id);
+    for (const c of CAST) this.lounge.sync(c.id, this.targets[c.id].lounge, this.canBreak(c.id));
     for (const c of CAST) {
-      const target = this.targets[c.id].at;
+      const target = this.destination(c.id);
       let actor = this.actors.get(c.id);
       if (!actor) {
         actor = { id: c.id, ...target, dir: "down", path: [], card: null, transfer: null, reaction: null };
@@ -68,7 +76,8 @@ export class OfficeMotion {
       if (actor.transfer !== null && this.blocked(actor.id)) this.cancel(actor.transfer);
       if (this.blocked(actor.id)) actor.reaction = null;
       if (actor.transfer !== null) continue;
-      this.go(actor, target, reduced || this.blocked(actor.id));
+      this.go(actor, target, reduced);
+      this.faceBreak(actor);
     }
     this.seedOwners(snap);
     this.trim(this.jobOwners); this.trim(this.refOwners);
@@ -117,10 +126,14 @@ export class OfficeMotion {
 
   tick(dt: number, now: number, reduced: boolean, frozen: boolean) {
     if (frozen) return;
+    if (!reduced) this.lounge.tick(dt, this.actors.values());
     for (const a of this.actors.values()) {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
-      if (this.blocked(a.id)) continue;
+      // Individually paused/unavailable workers may finish returning to a reserved resting place,
+      // but only eligible workers rotate through decorative activities once they arrive.
+      if (a.transfer === null) this.go(a, this.destination(a.id), reduced);
       this.walk(a, dt, reduced);
+      this.faceBreak(a);
     }
     for (const tr of [...this.transfers.values()]) {
       const from = this.actors.get(tr.from)!, to = this.actors.get(tr.to)!;
@@ -139,16 +152,16 @@ export class OfficeMotion {
       }
     }
     // Every completed transfer returns to the latest actual destination, without waiting for another poll.
-    for (const a of this.actors.values()) if (a.transfer === null && !this.blocked(a.id)) {
-      this.go(a, this.targets[a.id].at, reduced);
+    for (const a of this.actors.values()) if (a.transfer === null) {
+      this.go(a, this.destination(a.id), reduced); this.faceBreak(a);
     }
   }
 
   pose(a: MotionActor): Pose {
     const state = this.rows.get(a.id)?.state || "unavailable";
-    if (this.blocked(a.id)) return POSE[state];
     const transfer = a.transfer === null ? null : this.transfers.get(a.transfer);
     if (a.path.length) return a.card ? "carry" : "walk";
+    if (this.blocked(a.id)) return POSE[state];
     if (transfer) {
       if (transfer.phase === "approach") return a.id === transfer.from ? "carry" : "wait";
       if (transfer.phase === "pass") return "review";
@@ -158,11 +171,22 @@ export class OfficeMotion {
   }
 
   posture(a: MotionActor): RobotPosture {
-    if (this.blocked(a.id)) return this.targets[a.id]?.lounge ? "rest" : "stand";
     if (a.path.length || a.transfer !== null || a.reaction) return "stand";
-    if (this.targets[a.id]?.lounge && same(a, REST_SEAT[a.id])) return "rest";
+    if (this.targets[a.id]?.lounge && same(a, this.destination(a.id))) {
+      return this.breakActivity(a) ? this.lounge.spot(a.id)?.posture || "rest" : "rest";
+    }
     if (["working", "reviewing"].includes(this.rows.get(a.id)?.state || "") && same(a, STATION[a.id])) return "desk";
     return "stand";
+  }
+
+  /** Break metadata is decorative; pose/state badges still retain the authoritative job state. */
+  breakActivity(a: MotionActor): BreakActivity | null {
+    return a.path.length || a.transfer !== null || a.reaction || !this.targets[a.id]?.lounge
+      || !same(a, this.destination(a.id)) ? null : this.lounge.activity(a.id);
+  }
+  breakPhase(a: MotionActor): number { return this.lounge.phase(a.id); }
+  breakSpot(a: MotionActor): string | null {
+    return a.transfer !== null || !this.targets[a.id]?.lounge ? null : this.lounge.spot(a.id)?.id || null;
   }
 
   passes(now: number): DocumentPass[] {
@@ -187,6 +211,7 @@ export class OfficeMotion {
     if (reduced) { this.react(to, "review", now); return; }
     if (sender.transfer !== null) this.cancel(sender.transfer);
     if (receiver.transfer !== null) this.cancel(receiver.transfer);
+    this.lounge.release(from); this.lounge.release(to);
     const card: WorkCard = { job_id: event.job_id, kind: event.kind, ref_type: event.ref_type,
       ref_id: event.ref_id, state: event.data?.state || "stage", summary: event.message, from, to };
     const station = STATION[to], room = roomOf(station)!;
@@ -207,11 +232,24 @@ export class OfficeMotion {
       const a = this.actors.get(who)!;
       if (a.transfer !== id) continue;
       a.transfer = null; a.card = null; a.path = [];
+      this.lounge.sync(who, this.targets[who]?.lounge || false, this.canBreak(who));
     }
     this.transfers.delete(id);
   }
 
   private blocked(id: string) { return ["paused", "unavailable"].includes(this.rows.get(id)?.state || "unavailable"); }
+  private canBreak(id: string) {
+    const state = this.rows.get(id)?.state;
+    return state === "idle" || state === "waiting" || state === "retrying" || (state === "paused" && this.stopped);
+  }
+  private destination(id: string): Pt {
+    return this.targets[id]?.lounge ? this.lounge.target(id) : this.targets[id].at;
+  }
+  private faceBreak(a: MotionActor) {
+    if (!a.path.length && a.transfer === null && this.targets[a.id]?.lounge && same(a, this.destination(a.id))) {
+      a.dir = this.lounge.direction(a.id);
+    }
+  }
   private go(a: MotionActor, target: Pt, reduced: boolean) {
     if (reduced) { a.x = target.x; a.y = target.y; a.path = []; a.dir = "down"; return; }
     const end = a.path[a.path.length - 1] || a;

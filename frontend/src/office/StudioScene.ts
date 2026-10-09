@@ -1,16 +1,19 @@
 /** Furnished PixiJS living studio. Real feed states drive work, reports and handoffs. */
-import { Application, Container, Graphics } from "pixi.js";
+import { Application, Assets, Container, Graphics, Texture } from "pixi.js";
 import { CAST, BY_ID, Dir, RoomId } from "./cast";
 import { ROOM_ACCENT } from "./draw";
 import { Snapshot } from "./api";
-import { CORE_AT, Pt, REST_SEAT, ROBOT_SCALE, ROOMS, STATION, WORLD } from "./world";
+import { BreakActivity, CORE_AT, Pt, ROBOT_SCALE, ROOMS, STATION, WORLD } from "./world";
 import { Pose } from "./sprites";
 import { createRobot } from "./StudioArt";
 import { createBrainCore } from "./BrainCore";
+import { cachedLightPool, createLoungeDecor, skylineWindow } from "./LoungeDecor";
 
 export interface SceneActor {
   id: string; x: number; y: number; pose: Pose; dir: Dir; selected: boolean;
   posture?: "stand" | "desk" | "rest";
+  breakActivity?: BreakActivity | null;
+  breakPhase?: number;
 }
 export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
 type RobotArt = ReturnType<typeof createRobot>;
@@ -112,26 +115,47 @@ export class StudioScene {
   private core = createBrainCore();
   private actors = new Container();
   private transfers = new Graphics();
+  private skyline: Texture | null;
+  private croppedTextures: Texture[] = [];
+  private lounge: ReturnType<typeof createLoungeDecor> | null = null;
   private destroyed = false;
 
-  private constructor(app: Application) { this.app = app; }
+  private constructor(app: Application, skyline: Texture | null) { this.app = app; this.skyline = skyline; }
   static async create(canvas: HTMLCanvasElement): Promise<StudioScene> {
     const app = new Application();
+    let scene: StudioScene | undefined;
     try {
       await app.init({ canvas, width: WORLD.w, height: WORLD.h, resolution: 1, antialias: false,
         autoStart: false, preference: "webgl", preserveDrawingBuffer: true, backgroundAlpha: 0,
         powerPreference: "low-power" });
-      const scene = new StudioScene(app);
+      // This optional decoration cannot hold the first office frame indefinitely. Assets owns the shared texture;
+      // a request finishing after the deadline only populates its cache, with no late scene mutation or ticker.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const requestedSkyline = Assets.load<Texture>("/office-art/skyline.png").catch(() => null);
+      const skyline = await Promise.race([requestedSkyline, new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), 1500);
+      })]);
+      if (timer !== undefined) clearTimeout(timer);
+      if (skyline) skyline.source.scaleMode = "nearest";
+      scene = new StudioScene(app, skyline);
       scene.build();
       return scene;
     } catch (error) {
-      try { app.destroy(false, { children: true }); } catch { /* init may not have completed */ }
+      try {
+        if (scene) scene.destroy();
+        else app.destroy(false, { children: true });
+      } catch { /* init may not have completed */ }
       throw error;
     }
   }
   private foreground(g: Graphics, feet: number) {
     g.zIndex = feet + 1;
     this.actors.addChild(g);
+  }
+  private window(g: Graphics, x: number, y: number, w = 36, section = .5) {
+    windowPanel(g, x, y, w);
+    const cropped = skylineWindow(g, this.skyline, x + 2, y + 2, w - 4, 12, section);
+    if (cropped) this.croppedTextures.push(cropped);
   }
   private build() {
     const g = new Graphics();
@@ -186,26 +210,7 @@ export class StudioScene {
       if (r.id === "boss") rug(g, x + 43, y + 65, 108, 52, "#525040");
 
       if (r.id === "lounge") {
-        rug(g, x + 12, y + 33, 372, 226, "#425751");
-        for (const c of CAST) {
-          const p = REST_SEAT[c.id];
-          chairBack(g, p, c.rank === "director" ? "#927559" : c.rank === "manager" ? "#5e7774" : "#6c737c", true);
-          const front = new Graphics();
-          for (const side of [-1, 1]) {
-            const sx = p.x + (side < 0 ? -18 : 13);
-            box(front, sx, p.y - 18, 6, 16, "#72817f", "#25323b");
-            px(front, sx + 1, p.y - 17, 4, 2, "#b3b1a0", .45);
-          }
-          px(front, p.x - 12, p.y - 5, 24, 2, "#37464e");
-          this.foreground(front, p.y);
-        }
-        windowPanel(g, x + 84, y + 17, 52); windowPanel(g, x + 238, y + 17, 52);
-        shelf(g, x + 8, y + 14, 46, 22);
-        // Coffee unit and lamp sit against the back wall, leaving every seating aisle clear.
-        box(g, x + 336, y + 17, 32, 18, "#766c5d");
-        box(g, x + 341, y + 14, 15, 17, "#34424a"); px(g, x + 344, y + 16, 9, 4, "#93b9b1");
-        box(g, x + 362, y + 19, 5, 6, "#e0d3b9");
-        breakRoomLamp(g, x + 397, y + 26);
+        this.lounge = createLoungeDecor(g, this.actors, this.skyline, chairBack);
       } else {
         for (const c of CAST.filter(character => character.room === r.id)) {
           const p = STATION[c.id], width = c.id === "command" ? 74 : 56;
@@ -215,16 +220,18 @@ export class StudioScene {
           this.foreground(front, p.y);
         }
       }
+      if (r.id !== "lounge") cachedLightPool(g, x + r.w / 2, y + r.h * .55,
+        r.w * .36, r.h * .2, r.id === "brain" ? "#b6a0da" : "#e6d3ac", .04);
       switch (r.id) {
         case "boss":
-          windowPanel(g, x + 55, y + 19, 78);
+          this.window(g, x + 55, y + 19, 78);
           shelf(g, x + 10, y + 23, 25, 35); plant(g, x + 165, y + 61, true);
           box(g, x + 152, y + 21, 22, 21, "#66594d");
           px(g, x + 155, y + 24, 16, 15, "#cfb685"); px(g, x + 162, y + 27, 2, 10, "#695c49");
           break;
         case "brain":
           rug(g, x + 45, y + 54, 175, 112, "#424759");
-          windowPanel(g, x + 18, y + 21, 29); windowPanel(g, x + r.w - 48, y + 21, 29);
+          this.window(g, x + 18, y + 21, 29); this.window(g, x + r.w - 48, y + 21, 29);
           shelf(g, x + 9, y + 59, 30, 46); shelf(g, x + r.w - 40, y + 61, 29, 45);
           plant(g, x + 21, y + 142, true); plant(g, x + r.w - 27, y + 143, true);
           // Archive cabinets flank the pedestal and never masquerade as performance data.
@@ -241,7 +248,7 @@ export class StudioScene {
           }
           box(g, x + 43, y + 51, 105, 22, WOOD); px(g, x + 45, y + 52, 101, 2, "#e0bd95");
           box(g, x + 68, y + 57, 12, 7, "#d8d3c3"); box(g, x + 112, y + 59, 5, 5, "#ddd4bb");
-          windowPanel(g, x + 51, y + 16, 91); plant(g, x + 13, y + 44); plant(g, x + r.w - 20, y + 43);
+          this.window(g, x + 51, y + 16, 91); plant(g, x + 13, y + 44); plant(g, x + r.w - 20, y + 43);
           break;
         }
         case "system":
@@ -265,9 +272,9 @@ export class StudioScene {
             box(g, x + dx, y + dy, w, 18, "#ae8e69"); px(g, x + dx + Math.floor(w / 2), y + dy + 1, 2, 15, "#dac396");
             box(g, x + dx + 3, y + dy + 4, 6, 5, "#d6cfb5");
           }
-          windowPanel(g, x + 86, y + 26, 79); break;
+          this.window(g, x + 86, y + 26, 79); break;
         case "discover":
-          windowPanel(g, x + 67, y + 22, 65); windowPanel(g, x + 170, y + 22, 65);
+          this.window(g, x + 67, y + 22, 65); this.window(g, x + 170, y + 22, 65);
           plant(g, x + 16, y + 59, true); shelf(g, x + r.w - 36, y + 22, 25, 30); break;
         case "analyze":
           for (let j = 0; j < 3; j++) {
@@ -295,6 +302,7 @@ export class StudioScene {
     }
     // Cache all static floor, furniture backs and ambient lighting once.
     g.cacheAsTexture({ resolution: 1, antialias: false });
+    if (this.lounge) this.app.stage.addChild(this.lounge.container);
     this.app.stage.addChild(this.core.container, this.racks, this.selector, this.actors, this.transfers);
     for (const c of CAST) {
       const art = createRobot(c); art.container.scale.set(ROBOT_SCALE);
@@ -315,6 +323,7 @@ export class StudioScene {
     const mode = offline ? "offline" : ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused" ? "paused"
       : coreBusy || busy.has("brain") ? "active" : "standby";
     this.core.update(t, still, mode);
+    this.lounge?.update(t, still || offline || ["paused", "pausing"].includes(snap.run.state));
     this.racks.clear();
     const colors: Record<string, string> = { healthy: "#8bbc96", degraded: "#dcc080", error: "#e08788", unknown: "#71849c" };
     for (let j = 0; j < Math.min(this.rackLamps.length, snap.health.checks.length); j++) {
@@ -329,7 +338,7 @@ export class StudioScene {
       if (!art) continue;
       art.container.position.set(Math.round(actor.x), Math.round(actor.y));
       art.container.zIndex = actor.y;
-      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand");
+      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand", actor.breakActivity, actor.breakPhase || 0);
       if (actor.selected) {
         const x = Math.round(actor.x), y = Math.round(actor.y);
         this.selector.poly([x - 19, y - 4, x, y - 8, x + 19, y - 4, x, y + 3])
@@ -358,12 +367,7 @@ export class StudioScene {
     this.destroyed = true;
     this.core.destroy();
     this.app.destroy(false, { children: true });
+    for (const texture of this.croppedTextures) texture.destroy(false);
+    this.lounge?.destroy();
   }
-}
-function breakRoomLamp(g: Graphics, x: number, y: number) {
-  px(g, x, y - 6, 2, 27, "#8c7961");
-  box(g, x - 7, y - 12, 17, 10, "#d7bd85");
-  px(g, x - 4, y - 2, 10, 1, "#f5dbae", .6);
-  px(g, x - 4, y + 19, 10, 3, "#3b434b");
-  px(g, x - 12, y + 1, 26, 24, "#f0d097", .035);
 }

@@ -4,13 +4,19 @@
  * Equipment markings are identity motifs, never invented progress, charts or app results.
  */
 import { Container, Graphics } from "pixi.js";
+import { gsap } from "gsap";
 import type { Character, Dir } from "./cast";
 import type { Pose } from "./sprites";
+import type { BreakActivity } from "./world";
 
 const INK = "#101725";
 const JOINT = "#364354";
 const LIGHT = "#f8faf2";
 const EDGE = "#7f94a5";
+const loungeEase = gsap.parseEase("power2.inOut");
+const softEase = gsap.parseEase("sine.inOut");
+const progress = (phase: number, start: number, end: number) =>
+  Math.max(0, Math.min(1, (phase - start) / (end - start)));
 
 function px(g: Graphics, x: number, y: number, w: number, h: number, color: string, alpha = 1) {
   if (w > 0 && h > 0) g.rect(x, y, w, h).fill({ color, alpha });
@@ -390,7 +396,8 @@ export type RobotPosture = "stand" | "desk" | "rest";
 
 export interface StudioRobot {
   container: Container;
-  animate: (pose: Pose, timeMs: number, reduce: boolean, dir?: Dir, posture?: RobotPosture) => void;
+  animate: (pose: Pose, timeMs: number, reduce: boolean, dir?: Dir, posture?: RobotPosture,
+    breakActivity?: BreakActivity | null, breakPhase?: number) => void;
 }
 
 /** Feet are anchored at 0,0. Create once, then animate from the office's actual reported pose. */
@@ -571,16 +578,115 @@ export function createRobot(c: Character): StudioRobot {
   px(approval, 16, ay + 2, 1, 2, "#a8f5bc");
   approval.visible = false;
   rig.addChild(approval);
+  // Off-duty props are explicitly decorative. They never represent a job, results or learned knowledge.
+  const breakArms = [new Graphics(), new Graphics()];
+  const breakArmKeys = ["", ""];
+  rig.addChild(breakArms[0], breakArms[1]);
+  const loungeProps = new Container();
+  rig.addChild(loungeProps);
+  const mug = new Container(), uprightMug = new Graphics(), tippedMug = new Graphics(), steam = new Graphics();
+  box(uprightMug, -4, -6, 8, 9, "#e4dccb");
+  box(uprightMug, 3, -4, 5, 5, "#c1c6bb");
+  px(uprightMug, 4, -3, 2, 3, INK);
+  px(uprightMug, -3, -5, 6, 1, "#644538");
+  px(uprightMug, -3, -4, 1, 5, LIGHT, 0.8);
+  px(uprightMug, -2, 0, 4, 1, p.trim);
+  px(tippedMug, -5, -6, 7, 8, INK);
+  px(tippedMug, -4, -5, 7, 8, "#e4dccb");
+  px(tippedMug, -3, -6, 5, 1, LIGHT);
+  px(tippedMug, -4, -5, 5, 1, "#644538");
+  px(tippedMug, -4, -4, 1, 5, LIGHT);
+  box(tippedMug, 2, -4, 5, 4, "#c1c6bb");
+  px(tippedMug, 3, -3, 2, 2, INK);
+  px(tippedMug, -2, 0, 3, 1, p.trim);
+  px(steam, -2, -11, 1, 2, "#d6dfd6", 0.7);
+  px(steam, -1, -14, 1, 2, "#d6dfd6", 0.4);
+  px(steam, 2, -10, 1, 1, "#d6dfd6", 0.65);
+  px(steam, 3, -13, 1, 2, "#d6dfd6", 0.35);
+  mug.addChild(uprightMug, tippedMug, steam);
+  const sandwich = new Container(), fullSandwich = new Graphics(), bittenSandwich = new Graphics();
+  const makeSandwich = (g: Graphics, bitten: boolean) => {
+    px(g, -5, -5, bitten ? 8 : 10, 9, INK);
+    px(g, -4, -4, bitten ? 6 : 8, 2, "#e1b982");
+    px(g, -3, -4, bitten ? 4 : 6, 1, "#f1d7a7");
+    px(g, -4, -2, bitten ? 7 : 9, 1, "#84ad6e");
+    px(g, -4, -1, bitten ? 7 : 9, 2, "#bd785e");
+    px(g, -3, -1, bitten ? 6 : 7, 1, "#e7c67d");
+    px(g, -4, 1, 8, 2, "#c19361");
+    px(g, -3, 1, 6, 1, "#e8c58d");
+    if (bitten) px(g, 2, -1, 2, 2, "#f4dfb4");
+  };
+  makeSandwich(fullSandwich, false);
+  makeSandwich(bittenSandwich, true);
+  sandwich.addChild(fullSandwich, bittenSandwich);
+  const plate = new Graphics();
+  px(plate, -8, -1, 16, 4, INK);
+  px(plate, -7, -2, 14, 2, "#dddccc");
+  px(plate, -6, 1, 12, 1, "#9baaa9");
+  const book = new Container(), pages = new Graphics(), turningPage = new Graphics();
+  box(pages, -10, -6, 20, 13, p.trimDark);
+  px(pages, -8, -5, 7, 10, "#e9dfc4");
+  px(pages, 1, -5, 7, 10, "#f0e8d2");
+  px(pages, -1, -5, 2, 11, "#ae9f80");
+  for (const y of [-3, 0, 3]) {
+    px(pages, -7, y, 5, 1, "#a3a58e");
+    px(pages, 2, y, 5, 1, "#a3a58e");
+  }
+  px(turningPage, -1, -5, 2, 10, "#fff5db");
+  px(turningPage, 1, -5, 1, 10, "#b8ad91");
+  book.addChild(pages, turningPage);
+  const gamePiece = new Graphics();
+  box(gamePiece, -2, -3, 5, 5, "#f1e9d4");
+  px(gamePiece, -1, -2, 1, 1, p.trimDark);
+  px(gamePiece, 1, 0, 1, 1, p.trimDark);
+  loungeProps.addChild(plate, mug, sandwich, book, gamePiece);
+  const mouth = new Graphics();
+  head.addChild(mouth);
   const eyesY = eyes.position.y;
   const phaseOffset = Array.from(c.id).reduce((sum, letter) => sum + letter.charCodeAt(0), 0) * 29;
+  let mouthKey = "";
+
+  function breakArm(i: number, handX: number, handY: number, shoulderY: number) {
+    const side = i === 0 ? -1 : 1;
+    const shoulderX = i === 0 ? bx - 2 : bx + bw;
+    const hx = Math.round(handX), hy = Math.round(handY);
+    const key = `${hx}|${hy}|${shoulderY}`;
+    if (breakArmKeys[i] === key) return;
+    breakArmKeys[i] = key;
+    const g = breakArms[i];
+    g.clear();
+    const elbowX = shoulderX + side * 2;
+    const elbowY = Math.round((shoulderY + hy) / 2) + 5;
+    const line = (x0: number, y0: number, x1: number, y1: number, width: number, color: string) => {
+      const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+      const inset = Math.floor(width / 2);
+      for (let k = 0; k <= steps; k++)
+        px(g, Math.round(x0 + (x1 - x0) * k / steps) - inset,
+          Math.round(y0 + (y1 - y0) * k / steps) - inset, width, width, color);
+    };
+    line(shoulderX, shoulderY, elbowX, elbowY, 5, INK);
+    line(elbowX, elbowY, hx, hy, 5, INK);
+    line(shoulderX, shoulderY, elbowX, elbowY, 3, p.shade);
+    line(elbowX, elbowY, hx, hy, 3, p.shell);
+    box(g, shoulderX - 2, shoulderY - 2, 5, 5, p.trimDark);
+    px(g, shoulderX - 1, shoulderY - 1, 3, 1, p.trim);
+    box(g, elbowX - 2, elbowY - 2, 5, 5, JOINT);
+    px(g, elbowX - 1, elbowY - 1, 2, 1, EDGE);
+    box(g, hx - 3, hy - 2, 6, 5, p.shell);
+    px(g, hx - 2, hy - 1, 3, 1, LIGHT, 0.75);
+    px(g, hx + 1, hy, 1, 2, p.shade);
+  }
 
   function animate(pose: Pose, timeMs: number, reduce: boolean, dir: Dir = "down",
-    posture: RobotPosture = "stand") {
+    posture: RobotPosture = "stand", breakActivity: BreakActivity | null = null, breakPhase = 0) {
     const stopped = pose === "paused" || pose === "unavailable";
-    const still = reduce || stopped;
-    const time = still ? 0 : timeMs + phaseOffset;
     const walking = pose === "walk" || pose === "carry";
-    const working = pose === "work" || pose === "review" || pose === "retry";
+    const workingPose = pose === "work" || pose === "review" || pose === "retry";
+    // STOPPED work may have explicitly authorized off-duty animation; lost connections always freeze.
+    const onBreak = !!breakActivity && (!workingPose || pose === "retry") && !walking && pose !== "unavailable";
+    const working = workingPose && !onBreak;
+    const still = reduce || (stopped && !onBreak);
+    const time = still ? 0 : timeMs + phaseOffset;
     const seated = posture !== "stand";
     const resting = posture === "rest";
     const holding = pose === "carry" || pose === "review";
@@ -631,16 +737,156 @@ export function createRobot(c: Character): StudioRobot {
       if (seated) arms[1].position.x = 8;
       if (c.hand === "right") gear.position.y = gearY - 4;
     }
+    loungeProps.visible = onBreak;
+    for (let i = 0; i < 2; i++) {
+      arms[i].visible = !onBreak;
+      breakArms[i].visible = onBreak;
+    }
+    mug.visible = false;
+    sandwich.visible = false;
+    plate.visible = false;
+    book.visible = false;
+    gamePiece.visible = false;
+    mouth.visible = false;
+    let gazeX = 0, gazeY = 0;
+    if (onBreak) {
+      const phase = still || !Number.isFinite(breakPhase) ? 0 : ((breakPhase % 1) + 1) % 1;
+      const tableBreak = breakActivity === "boardgame" && seated;
+      if (tableBreak) {
+        seatedBody.position.y = -7;
+        neck.position.y = seatedY - by - 7;
+        head.position.set(0, seatedHeadY - hy - 9);
+      }
+      const shoulderY = seated ? seatedY + (tableBreak ? -4 : resting ? 4 : -4) : by + 5;
+      const wave = Math.sin(phase * Math.PI * 2);
+      const faceY = eyesY + head.position.y + 3;
+      let leftX = -6, leftY = seated ? -11 : gearY;
+      let rightX = 7, rightY = leftY;
+      gear.visible = true;
+      gear.position.set(-14, seated ? -8 : gearY);
+      report.visible = false;
+      rig.position.x = Math.round(wave * 0.8);
+      switch (breakActivity) {
+        case "arcade": {
+          // Independent stick movement and button presses are visible from the back of the cabinet player.
+          const press = softEase(1 - Math.abs((phase * 4) % 2 - 1));
+          leftX = -7 + Math.round(wave * 2);
+          leftY = -29 + Math.round(Math.cos(phase * Math.PI * 2));
+          rightX = 7;
+          rightY = -29 + Math.round(press * 2);
+          head.position.x += Math.round(wave);
+          head.position.y += Math.round(press);
+          gazeX = Math.round(wave);
+          break;
+        }
+        case "boardgame": {
+          const reach = phase < 0.6 ? loungeEase(progress(phase, 0.12, 0.4))
+            : 1 - loungeEase(progress(phase, 0.68, 0.95));
+          leftX = -7;
+          leftY = -29;
+          rightX = 8 - Math.round(reach * 4);
+          rightY = (seated ? -12 : gearY) - Math.round(reach * (seated ? 17 : 29 + gearY));
+          head.position.y -= Math.round(reach);
+          head.position.x += Math.round(reach);
+          gazeX = 1;
+          gazeY = 1;
+          gamePiece.visible = true;
+          if (phase < 0.42) gamePiece.position.set(rightX - 1, rightY - 3);
+          else {
+            const drop = loungeEase(progress(phase, 0.42, 0.65));
+            gamePiece.position.set(Math.round(3 + drop * 5),
+              Math.round(-32 + drop * 4 - Math.sin(drop * Math.PI) * 4));
+          }
+          break;
+        }
+        case "drink": case "snack": {
+          const lift = phase < 0.55 ? loungeEase(progress(phase, 0.13, 0.4))
+            : 1 - loungeEase(progress(phase, 0.66, 0.95));
+          const baseY = seated ? -11 : gearY;
+          const objectY = Math.round(baseY + (faceY + 6 - baseY) * lift);
+          const objectX = 9 - Math.round(lift * 3);
+          leftX = -6;
+          leftY = baseY;
+          rightX = objectX + (breakActivity === "drink" ? 5 : 2);
+          rightY = objectY + 1;
+          gazeX = Math.round(lift);
+          gazeY = 1;
+          head.position.x -= Math.round(lift);
+          if (breakActivity === "drink") {
+            mug.visible = true;
+            mug.position.set(objectX, objectY);
+            const sipping = lift > 0.9 && phase > 0.4 && phase < 0.67;
+            uprightMug.visible = !sipping;
+            tippedMug.visible = sipping;
+            steam.position.y = still ? 0 : -Math.round(softEase((phase * 2) % 1) * 3);
+            steam.alpha = sipping ? 0.25 : 0.55 + 0.25 * (1 - Math.abs(wave));
+            head.position.y += sipping ? 1 : 0;
+          } else {
+            sandwich.visible = true;
+            plate.visible = true;
+            plate.position.set(leftX, leftY + 1);
+            sandwich.position.set(objectX, objectY);
+            fullSandwich.visible = phase < 0.46;
+            bittenSandwich.visible = phase >= 0.46;
+            const chewing = phase > 0.46 && phase < 0.8;
+            const chew = Math.floor(phase * 32) % 2;
+            mouth.visible = chewing;
+            if (chewing) {
+              const key = `snack-${chew}`;
+              if (mouthKey !== key) {
+                mouthKey = key;
+                mouth.clear();
+                px(mouth, chew ? -1 : -2, hy + hh - 5, chew ? 2 : 4, chew ? 2 : 1, p.eye);
+              }
+              head.position.y += chew;
+            }
+          }
+          break;
+        }
+        case "read": {
+          const turn = phase < 0.66 ? loungeEase(progress(phase, 0.36, 0.6))
+            : 1 - loungeEase(progress(phase, 0.72, 0.95));
+          book.visible = true;
+          book.position.set(0, seated ? -18 : gearY - 6);
+          leftX = -8;
+          leftY = book.position.y + 2;
+          rightX = 8 - Math.round(turn * 7);
+          rightY = book.position.y + 2 - Math.round(turn * 3);
+          turningPage.visible = phase > 0.36 && phase < 0.8;
+          turningPage.position.x = -4 + Math.round(turn * 8);
+          head.position.x += Math.round(turn);
+          head.position.y += Math.round(turn);
+          gazeY = 1;
+          legRight.position.x += Math.round(wave);
+          break;
+        }
+        case "rest": {
+          const stretch = phase < 0.68 ? softEase(progress(phase, 0.38, 0.62))
+            : 1 - softEase(progress(phase, 0.72, 0.97));
+          leftX -= Math.round(stretch * 5);
+          leftY -= Math.round(stretch * 13);
+          rightX += Math.round(stretch * 5);
+          rightY -= Math.round(stretch * 24);
+          head.position.x -= Math.round(stretch);
+          head.position.y -= Math.round(stretch);
+          gazeX = -Math.round(stretch);
+          break;
+        }
+      }
+      breakArm(0, leftX, leftY, shoulderY);
+      breakArm(1, rightX, rightY, shoulderY);
+      approval.position.copyFrom(head.position);
+    }
     // A short eye blink is an expression, never a representation of completed work.
     const blinking = !still && pose !== "error" && time % 5300 > 5140;
     visor.visible = dir !== "up";
     eyes.visible = dir !== "up";
     back.visible = dir === "up";
     visor.position.x = side;
-    eyes.position.x = side * 2;
+    eyes.position.x = side * 2 + gazeX;
     eyes.scale.y = blinking ? 0 : 1;
-    eyes.position.y = eyesY + (posture === "desk" && working ? 1 : 0);
-    eyes.alpha = pose === "unavailable" ? 0.25 : pose === "paused" ? 0.55 : 1;
+    eyes.position.y = eyesY + (posture === "desk" && working ? 1 : 0) + gazeY;
+    eyes.alpha = pose === "unavailable" ? 0.25 : pose === "paused" && !onBreak ? 0.55 : 1;
     incident.visible = pose === "error" || pose === "rework";
     incident.alpha = pose === "error" && !still ? (Math.floor(time / 650) % 2 ? 0.6 : 1) : 1;
     rig.alpha = pose === "unavailable" ? 0.58 : 1;

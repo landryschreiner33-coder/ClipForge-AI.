@@ -319,6 +319,9 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
 14. **The office only shows what happened.** Robots move because of real job events (`office/feed.py`); a progress
     bar shows only measured progress; old events are listed, never replayed as live work; nothing in the office
     starts, approves or finishes work. The Brain's numbers keep their provenance and never turn missing into zero.
+    The owner's 2026-10-09 request also authorizes decorative off-duty lounge activities and movement: games,
+    food, drinks and reading. These do not represent job progress. Preserve actual status icons and accessible
+    labels; real work takes priority, and Pause, Reduced motion, hidden or disconnected views freeze recreation.
 
 ## Current continuation scope (2026-10-08)
 

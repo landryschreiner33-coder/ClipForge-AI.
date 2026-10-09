@@ -6,8 +6,8 @@ really do, how the scores are made, and the Brain's guards. Written for the vers
 `claude/project-thread-vw1n9y` (October 2026); the code is the source of truth where they differ.
 
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
-not a separate program or AI: it walks because its actual state changes, carries a card for a fresh stage handoff or
-report, and rests because nothing of its kind is running. Nothing in the office starts, approves or finishes work.
+not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
+games, food, drinks and reading are decorative. Nothing in the office drawing starts, approves or finishes work.
 
 ## Places
 
@@ -53,10 +53,23 @@ desk screens and Brain Core; `StudioArt.ts` authors the 25 robots from their exi
 silhouettes, shaded bodies, different faces and role-specific equipment distinguish the cast. This is drawn pixel
 art, with crisp edges and anchored feet; it is not an external image service or a separate AI running each robot.
 
+**GSAP 3.15.0** supplies easing curves for the authored lounge gestures: controller/button presses, moving a game
+piece, lifting and tipping a mug, taking a bite, turning a page and resting. The art uses pure `parseEase` functions
+driven by the office's own visual clock, without independent animation timelines. These tools are bundled with the
+frontend; they do not require a plugin connection, paid account or live graphics service.
+GSAP uses its standard no-charge license; the bundled copyright/license notice and links to its terms are in
+[third-party-graphics.txt](../frontend/public/third-party-graphics.txt).
+
+`LoungeDecor.ts` authors distinct arcade, café, board-game and sofa areas. Pixi's `BlurFilter` softens decorative
+light pools; the static floor, furniture backs and lighting are cached once, while robot outlines stay crisp.
+Windows crop the locally bundled `office-art/skyline.png`, an original skyline generated once with native image
+generation. Missing optional skyline art leaves procedural glass and the Pixi office available. Ambient arcade
+screens, café steam and game pieces are decorative, separate from actual department work lights and health readings.
+
 `OfficeMap.tsx` and `OfficeMotion.ts` supply the renderer with the poses, positions, document handoffs and reactions
 derived from the backend feed. Department screen lighting follows actual working roles, and rack indicators follow
-the health readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable button per
-robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
+the health readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable
+button per robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
 
 Team cards, robot details and the developer gallery use the same authored robot art through `Portrait.tsx`.
 `StudioPortraits.ts` owns one shared offscreen renderer and a bounded cache of rendered frames, copied into ordinary
@@ -65,15 +78,17 @@ original portrait drawing.
 
 The Pixi scene loads when the map opens. If its module or graphics initialization fails, the map restores the
 original Canvas artwork through `LivingFallback.ts` and shows *Original artwork · new graphics unavailable in this
-browser*. This path retains the furnished floor plan, lounge seats, seated desks and document transfers. Robot
-selection, details, state indicators and controls remain available. Portraits also retain their original Canvas
+browser*. This path retains the furnished floor plan, lounge places, seated desks and document transfers, with
+simpler Canvas game, food, drink and reading gestures driven by the same controller phases. Robot selection,
+details, state indicators and controls remain available. Portraits also retain their original Canvas
 artwork when the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
 
 Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
 freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
 also stop motion. Earlier refined-art evidence remains in
-[design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the new lounge, desks and Brain captures
-are kept separately in [design/robot-office/living/](../design/robot-office/living/).
+[design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the seated-work and Brain captures are in
+[design/robot-office/living/](../design/robot-office/living/). The later recreational lounge evidence belongs in
+[design/robot-office/lounge/](../design/robot-office/lounge/), with controlled animation captures labeled separately.
 
 ### Reports and decisions
 
@@ -109,19 +124,20 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
 
 ### Where a robot stands
 
-* All 25 robots have their own lounge seat and their own department desk. Idle, waiting, retrying, paused and
-  unavailable robots rest in the lounge. Working and reviewing robots walk to their desks and sit; a robot with an
-  error remains at its station with an error cue. State icons and selection expose the actual job,
+* All 25 robots have their own default lounge place and their own department desk. Idle, waiting, retrying, paused
+  and unavailable roles stay in the lounge when off duty. Working and reviewing robots walk to their desks and sit;
+  a robot with an error remains at its station with an error cue. State icons and selection expose the actual job,
   source/project/clip identifiers, dependencies, blocked reason and next role. No overflow counter hides the cast.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
-* When Autopilot is paused or stopped, robots that are not running a job show `paused`.
+* When Autopilot is paused or stopped, robots that are not running a job show `paused`. A stopped office may still
+  show explicitly decorative recreation; its icons and details continue to say paused, never working.
 * A fresh `job_stage` can pass a document between the roles handling the same job, kind and source/clip reference.
   Across jobs, only `hunt_source` → `analyze_source`, `package_clip` → `quality_check` and `regenerate_clip` →
   `package_clip` may transfer a document for the same reference within 30 seconds. A fresh `report` can also pass
   from its worker to its manager. Queued work alone, unrelated references and old events do not create a handoff.
 * Both sender and receiver approach the meeting point, face each other, pass one document and show its receipt.
-  They then return to the desk or lounge seat dictated by the latest snapshot, even if state changed during the
+  They then return to the desk or reserved lounge place dictated by the latest state, even if it changed during the
   transfer. Paused or unavailable participants cancel it; Pause, Reduced, a hidden tab or a stale feed clears it.
   After a hidden tab, pause or lost connection, the map waits for a fresh authoritative snapshot and recovers each
   running job's current role before accepting the next handoff. Missed transfers are not replayed, and an older
@@ -133,6 +149,27 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
 
 The **Office camera** selects the whole office or a closer view of any room, including the lounge and Brain Room.
 It changes only the view; robot selection and the details panel still use the same actual state.
+
+### Off-duty lounge life
+
+The lounge has 29 activity places: five arcade cabinets, four café places, eight board-game seats, eight sofa
+places for reading, drinks, snacks or rest, and four extra guest places. The first 25 give the cast stable individual
+homes. `LoungeLife.ts` reserves destinations exclusively, holding both old and new places until arrival so two robots
+cannot claim the same spot. Each identity has its own phased routine; after roughly 15–28 seconds of visible full
+animation it can visit another free activity. At most two recreational visitors walk at once, along furniture-aware
+routes. Activity names are identified as *lounge animation*, while the state badge still comes from the backend.
+
+Idle, waiting and retrying roles may take breaks. The stopped office also permits recreation for its otherwise
+paused off-duty roles, as requested by the owner. An individually paused role while the office is running, or an
+unavailable role, does not perform recreational gestures or rotate activities; it can finish returning to its
+reserved resting place. Actual work and document handoffs preempt recreation as soon as their state/event arrives,
+release the lounge reservation and preserve the same robot identity and real job references. A completed worker
+can return to a free lounge place afterward.
+
+Global Pause, Reduced, hidden tabs and a stale feed freeze recreational movement and gestures. Reduced and Pause
+restore the stable home arrangement with a still frame; hidden/stale views do not catch up missed leisure time on
+return. Full still overrides the operating system's reduced-motion preference. Recreation never sends API writes,
+starts a job, changes progress, files a report or creates a document handoff.
 
 CORE is a decorative neural sculpture. Its slow **Standby** orbit means the office display is powered, not that a
 job is running. **Processing** uses brighter, faster neural cues only while the snapshot reports Brain evaluation

@@ -28,11 +28,11 @@ const task = () => ({ job_id: "stage-job", kind: "analyze_source", stage: "rende
   ref_type: "source", ref_id: "source-1", message: "Rendering an isolated fixture", progress: null,
   updated_at: Date.now() / 1000 });
 
-test("all idle robots have individual lounge seats and the camera can inspect a room", async ({ page, request }) => {
+test("all idle robots have individual lounge places and the camera can inspect a room", async ({ page, request }) => {
   await fixture(page, request);
   await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations", exact: true }).selectOption("reduced");
-  await expect(page.locator('.robot-hit[data-room="lounge"][data-posture="rest"]')).toHaveCount(25);
+  await expect(page.locator('.robot-hit[data-room="lounge"]')).toHaveCount(25);
   const places = await page.locator(".robot-hit").evaluateAll(elements => elements.map(el => `${(el as HTMLElement).style.left}|${(el as HTMLElement).style.top}`));
   expect(new Set(places).size, "each robot owns a seat instead of sharing a pile of sprites").toBe(25);
   await page.getByRole("combobox", { name: "Office camera", exact: true }).selectOption("lounge");
@@ -46,7 +46,7 @@ test("a robot walks from its seat, sits to work and returns to the lounge when f
   const feed = await fixture(page, request);
   await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations", exact: true }).selectOption("full");
-  await expect(robot(page, "splice")).toHaveAttribute("data-posture", "rest");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "lounge");
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.emit("job_started", "splice");
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "walk", { timeout: 8000 });
@@ -55,7 +55,7 @@ test("a robot walks from its seat, sits to work and returns to the lounge when f
   Object.assign(feed.role("splice"), { state: "idle", task: null });
   feed.emit("job_done", "splice");
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "walk", { timeout: 8000 });
-  await expect(robot(page, "splice")).toHaveAttribute("data-posture", "rest", { timeout: 20_000 });
+  await expect(robot(page, "splice")).toHaveAttribute("data-break-activity", /.+/, { timeout: 20_000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "lounge");
 });
 

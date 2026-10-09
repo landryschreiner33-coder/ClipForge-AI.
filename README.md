@@ -26,6 +26,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 
 For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
 [Processing measurements and server advice](docs/PERFORMANCE.md).
+[Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).
 
 ## Getting started (beginner steps)
 
@@ -45,7 +46,10 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
      post. A personal tool may be refused. Expect to use the supported manual package:
      ClipFoundry prepares each one in **Queue → Problems → Ready for you to post on TikTok** (download the video, copy
      the caption, choose **Everyone** in the TikTok app for a Public post, then paste its link).
-5. **Watch the office.** All 25 robots have named seats and state icons. Working robots sit at their desks; idle robots return to the lounge. Confirmed transitions can pass a document between robots. Use the room camera to inspect the animated Brain and seating.
+5. **Watch the office.** All 25 robots keep their names and real state icons. Working robots sit at their desks;
+   off-duty robots play arcade and board games, drink coffee, eat snacks and read in the lounge. They change
+   activities without sharing a spot, and real work takes priority. Confirmed transitions can pass a document
+   between robots. Use the room camera to inspect the animated Brain, café, game tables and dusk skyline.
    Choose **Follow system**, **Full** or **Reduced** animations; Full overrides the system’s reduced-motion preference. Click a robot or a room for details. The bar at the bottom has **Start**, **Pause**, **Resume**,
    **Stop all** and **Pause publishing** (clips are still made and checked, nothing is uploaded).
 6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says

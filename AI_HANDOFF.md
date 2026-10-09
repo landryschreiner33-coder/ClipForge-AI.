@@ -1,11 +1,31 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-08. Fetch before trusting branch state.
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-09 (America/Chicago).
+Fetch before trusting branch state.
 
 ## Current scope and branch
 
-Latest living-office checkpoint starts at `a119dfd`: the owner asked for believable proportions, idle robots in a
+Latest social-pixel-office checkpoint starts at `5b1f7a9`: the owner asked to use better graphics tools and give
+off-duty robots games, food and drinks. Six authored gestures animate arcade controls, board-game pieces, mugs,
+bites, page turns and stretches. There are 29 exclusive activity places, 25 stable cast homes and at most two
+recreational walkers. Identity-phased routines rotate through free destinations; work and confirmed document
+handoffs take precedence, preserve real references and clear leisure props. State badges remain authoritative.
+The owner explicitly authorized stopped-office recreation even when those off-duty roles are marked Paused.
+An individual pause while Running or an unavailable role remains quiet; global Pause, Reduced, hidden and stale
+views freeze recreation. Recovery does not replay missed leisure time or old job stages.
+
+PixiJS 8.22.0 now uses cached BlurFilter light pools and distinct arcade/café/game/sofa zones. New dependency
+GSAP 3.15.0 supplies pure gesture-easing functions on the office clock, without independent timelines; its standard
+no-charge license notice is included (it is not MIT). Native image generation produced the original bundled skyline.
+Optional skyline loading is bounded to 1.5 seconds; failure/stall leaves procedural windows, and late completion
+cannot mutate the scene. Cropped textures are destroyed without deleting the shared asset source. Canvas retains
+simpler phase-driven gestures and a frozen Brain cue cannot change its pixels when activity expires. Lounge names
+are staggered on the whole map and compact in the close camera. Portrait caching and all 25 identities remain.
+[Current evidence, provenance and editing guide](design/robot-office/lounge/README.md).
+This follow-up changes no backend, media processing or publishing behavior. PR #14 stays draft/unmerged.
+
+The preceding living-office checkpoint started at `a119dfd`: the owner asked for believable proportions, idle robots in a
 lounge, seated work, actual document transfers and an animated Brain. This supersedes idle-at-station placement.
 The 960×640 floor plan now gives all 25 identities individual lounge seats, room-sized desks/chairs and walkable
 aisles. `OfficeMotion.ts` follows current snapshots and fresh confirmed report/stage events: both robots approach,
@@ -36,9 +56,10 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Implemented in this continuation
 
-* All 25 robot identities remain individually visible at workstations or individual lounge seats, with named labels and overhead state
-  icons. Task selection includes shared references, dependencies, blocked reason and next robot. Saved motion
-  choices: Follow system / Full / Reduced; Full overrides OS reduced motion. Stale state stops animation.
+* All 25 robot identities remain individually visible at desks or reserved lounge places, with named labels and
+  overhead state icons. Task selection includes shared references, dependencies, blocked reason and next robot.
+  Saved motion choices: Follow system / Full / Reduced; Full overrides OS reduced motion. Stale state stops
+  animation. Decorative recreation preserves actual state, work priority and genuine document handoffs.
 * Brain at `#/brain`: durable searchable documents/instructions/skill guides, good/bad example uploads and feature
   labels, revision approval, edit/disable/delete/export, performance history and recorded per-clip influence.
   `autopilot/knowledge.py`, `knowledge_routes.py`, additive `brain_knowledge`/`brain_influences` tables. Uploaded prose
@@ -74,7 +95,17 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Validation
 
-The living-office validation is recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+Latest lounge validation is recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+The full fast suite passed **641 tests**, with seven slow cases deselected, in 280.30 s. All **23 focused browser
+checks passed together in 6.4 min**. Final TypeScript/Vite build passed (5.83 s; existing lazy 904 KB graphics chunk
+warning); all 14 distribution files are SHA-256 identical to the assets used in that final browser run.
+Actual isolated desktop/laptop/mobile captures have 25 robots, visible laptop controls, no mobile horizontal
+overflow and zero page errors. Both 1440×900 H.264 recordings have zero page errors: 33.24 s of actual stopped
+off-duty animation, and 33.48 s of visibly labeled controlled work/Brain/stage fixtures. Only startup before the first
+visible provenance banner was trimmed; animation was not retimed. Neither measures processing
+speed. Prior slow media cases were not repeated for this frontend-only checkpoint.
+
+At the preceding living-office checkpoint:
 Production TypeScript/build passed; 17 office Python checks passed in 6.10 s and all 17 focused browser cases passed
 together in 3.1 min. The browser cases cover lounge seats,
 walk/sit/return, same-job document passing, event freshness/identity, Pause cancellation, Brain standby/processing/
@@ -86,12 +117,14 @@ The preceding refined-art validation: TypeScript/production build passed, 17 off
 graphics browser cases passed together (59.3 s). Actual desktop/laptop/mobile captures recorded zero browser errors;
 the separate animation video is visibly labeled as controlled test states. A pixel regression verifies COMMAND's
 approval looks different from idle even in Reduced mode. Static floor/furniture is cached once; portrait cache is bounded.
-The earlier 641-test and complete-media results below belong to the preceding `c33a291` checkpoint; they were not
-re-run in full for this graphics-only follow-up. Windows batch execution, PC graphics/scaling and GPU checks remain
-owner checks. PixiJS is the only deliberately added frontend dependency; Playwright and GPU pins remain unchanged.
+The earlier 641-test and complete-media results below belong to `c33a291`; those suites were not repeated during
+that refined-art checkpoint. The latest fast rerun above is separate. Windows batch execution, PC graphics/scaling
+and GPU checks remain owner checks. That refined-art checkpoint added only PixiJS; the latest lounge also adds GSAP.
+Playwright and GPU pins remain unchanged.
 
-Current final results and exact commands are recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
-The complete final fast suite passed **641 tests** (263.21 s; seven slow cases deselected). All seven slow cases passed across the full run
+The original master-continuation results below belong to the earlier `c33a291` checkpoint, separately from the
+latest fast rerun. Its complete fast suite passed **641 tests** (263.21 s; seven slow cases deselected).
+All seven slow cases passed across the full run
 (six passed) and the corrected complete-loop rerun (one passed); the test now waits for both durable published
 schedules before advancing fake result maturity. Ten browser checks passed across the sandbox run and targeted
 Brain/Public-loop reruns. The Public browser loop includes two posts, restart, results, live capture and pause.
@@ -124,5 +157,6 @@ screen was added. Knowledge controls are intentionally typed; arbitrary prose do
 
 Keep `.mcp.json`, GPU dependencies and `e2e/tests` unchanged; no Playwright pins. Commit built `frontend/dist`.
 Preserve exact-file quality/approval hashes, reuse eligibility, access guards, account-bound consent, limits,
-duplicate prevention/recovery and emergency stop. No silent CPU fallback in Autopilot. Never fabricate progress,
-metrics, visibility or animation activity. PR #14 stays draft/unmerged until the owner decides otherwise.
+duplicate prevention/recovery and emergency stop. No silent CPU fallback in Autopilot. Never fabricate processing
+progress, metrics or visibility; keep decorative recreation visibly separate from actual job activity.
+PR #14 stays draft/unmerged until the owner decides otherwise.

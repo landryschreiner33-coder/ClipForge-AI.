@@ -23,6 +23,15 @@ const STATE_ICON: Record<RoleState, IconName> = {
   paused: "pause", unavailable: "x",
 };
 const DECISION_POSE = { approved: "approved", rework: "rework", rejected: "error", held: "wait" } as const;
+const BREAK_WORDS: Record<string, string> = {
+  arcade: "Playing an arcade game", boardgame: "Playing a tabletop game", snack: "Having a snack",
+  drink: "Having a drink", read: "Reading", rest: "Relaxing",
+};
+// Alternate names along the dense arcade/cafe and sofa edges so the whole-office camera stays readable.
+const LOWER_LOUNGE_LABELS = new Set([
+  "arcade-2", "arcade-4", "cafe-drink-1", "cafe-drink-2",
+  "sofa-read-2", "sofa-read-4", "sofa-read-5", "sofa-snack",
+]);
 
 /** The canvas is decorative; accessible robot/room controls continue to expose actual backend states. */
 export default function OfficeMap({ snap, subscribe, selected, room, onRobot, onRoom, reduce, stale }: {
@@ -117,12 +126,13 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       for (const [id, until] of pulses.current) if (until < now) pulses.current.delete(id);
       const actors = [...motion.actors.values()].sort((a, b) => a.y - b.y);
       const painted = actors.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, pose: motion.pose(a),
-        posture: motion.posture(a), selected: state.selected === a.id }));
+        posture: motion.posture(a), selected: state.selected === a.id,
+        breakActivity: motion.breakActivity(a), breakPhase: motion.breakPhase(a) }));
       const busy = core.current > now || state.snap.brain?.state === "evaluating"
         || state.snap.roles.some(r => BY_ID[r.id]?.room === "brain" && r.state === "working");
       const passes = motion.passes(now);
       scene?.draw(state.snap, painted, now, still, pulses.current, busy, state.stale, passes);
-      fallback?.draw(state.snap, painted, now, still, busy, passes);
+      fallback?.draw(state.snap, painted, now, still, busy, passes, state.stale);
       for (const a of actors) {
         const button = buttons.current.get(a.id); if (!button) continue;
         const posture = motion.posture(a), height = posture === "rest" ? 48 : 65;
@@ -133,6 +143,12 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         button.dataset.room = roomOf(a)?.id || "corridor";
         button.dataset.carrying = a.card ? "true" : "false";
         button.dataset.offering = motion.isSender(a) ? "true" : "false";
+        const activity = motion.breakActivity(a);
+        button.dataset.breakActivity = activity || "";
+        button.dataset.breakPhase = motion.breakPhase(a).toFixed(3);
+        button.dataset.breakSpot = motion.breakSpot(a) || "";
+        button.dataset.labelRow = LOWER_LOUNGE_LABELS.has(button.dataset.breakSpot) ? "lower" : "base";
+        button.title = activity ? `${BY_ID[a.id].name} · ${BREAK_WORDS[activity]} (lounge animation)` : "";
       }
       const brainMode = state.stale ? "offline" : frozen || state.snap.brain?.state === "paused" ? "paused" : busy ? "active" : "standby";
       if (brainLink.current) {
@@ -167,7 +183,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       raf = requestAnimationFrame(frame);
     };
     void init();
-    return () => { cancelled = true; cancelAnimationFrame(raf); scene?.destroy(); };
+    return () => { cancelled = true; cancelAnimationFrame(raf); scene?.destroy(); fallback?.destroy(); };
   }, [renderer, motion]);
 
   const label = (id: string) => {
@@ -182,7 +198,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         {ROOMS.map(r => <button key={r.id} type="button" className={`room-hit${room === r.id ? " on" : ""}`}
           style={{ left: `${r.x / WORLD.w * 100}%`, top: `${r.y / WORLD.h * 100}%`, width: `${r.w / WORLD.w * 100}%`,
             height: `${r.h / WORLD.h * 100}%`, ["--accent" as string]: ROOM_ACCENT[r.id] } as React.CSSProperties}
-          aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} resting` : ""}. Open details`}
+          aria-label={`${ROOM_NAMES[r.id]}${r.id === "lounge" ? `: ${resting} off duty` : ""}. Open details`}
           aria-pressed={room === r.id} onClick={() => onRoom(r.id)}>
           <span className="room-sign" aria-hidden="true">{ROOM_NAMES[r.id]}</span>
         </button>)}
@@ -216,6 +232,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       {(["working", "waiting", "idle", "paused", "error"] as RoleState[]).map(state =>
         <span key={state}><Icon name={STATE_ICON[state]} size={13} />{state[0].toUpperCase() + state.slice(1)}</span>)}
     </div>
+    <span className="lounge-life-caption"
+      title="Games, snacks and coffee are off-duty animations. Job icons show the actual status.">Lounge life · decorative</span>
   </div>;
 }
 export const STATE_WORDS: Record<RoleState, string> = {

@@ -1,5 +1,46 @@
 # Implementation status
 
+## PR #14 social pixel office — 2026-10-09
+
+Starts at `5b1f7a9` on `claude/project-thread-vw1n9y`; PR #14 stays draft/unmerged. The owner requested better
+graphics tools and off-duty games, food and drinks. Six authored arcade/board-game/snack/drink/read/rest gestures
+use 29 exclusive places and 25 stable cast homes, with phased rotation and at most two recreational walkers.
+Real work and confirmed document handoffs preempt breaks; state badges and job references remain authoritative.
+The explicit stopped-office recreation exception preserves Paused badges. Individual pause during Running and
+unavailable roles remain quiet; global Pause, Reduced, hidden and stale views freeze recreation.
+
+Pinned GSAP **3.15.0** supplies pure easing on the existing office clock under its standard no-charge license.
+PixiJS **8.22.0** caches soft BlurFilter light pools with static scenery in distinct arcade/café/game/sofa zones.
+The original generated skyline is a local optional asset: loading is bounded to 1.5 seconds, failure/stall leaves
+procedural windows, late completion cannot mutate the scene, and cropped textures are destroyed without deleting
+the shared source. Canvas retains simpler controller-driven gestures, including frozen Brain cue expiry.
+Whole-map lounge names are staggered; the closer camera uses compact labels. Backend, media and publishing
+behavior are unchanged, as are shared portraits, all 25 identities and true job handoffs.
+
+| Check | Result and scope |
+| --- | --- |
+| `.venv/bin/python -m pytest -m 'not slow'` | **641 passed**, seven slow cases deselected, in **280.30 s**. |
+| `npm run build` in `frontend/` | Final TypeScript + Vite production build passed in **5.83 s**; all 14 distribution files are SHA-256 identical to the assets used in the final browser run. Built distribution included; existing lazy 904 KB graphics chunk warning remains. GSAP is the new frontend dependency. |
+| Five-file focused browser suite | **23 passed together in 6.4 min**: lounge 6, living 7, motion 3, pixel 3, robot-office 4. |
+| Geometry and controller checks | 2916 + 4770 route checks; 600 simulated seconds with all 25 identities rotating, exclusive reservations and at most two ambient walkers; 150 mixed-state transitions preserve safe returns and work/handoff priority. |
+| Actual pixel checks | All six Full gestures change rendered pixels; Reduced drift is zero, actual work suppresses leisure props, and a frozen Canvas Brain does not change when its activity cue expires. |
+| Final actual isolated captures | Desktop 1440×900, laptop 1280×720 and mobile 390 px List: all 25, visible laptop controls, no mobile horizontal overflow, zero page errors. Laptop map is 696×464; controls end at y=717 inside its 720 px viewport. |
+| Final recordings | Both 1440×900 H.264/yuv420p, zero page errors: actual stopped recreation 33.24 s; visibly labeled controlled work/Brain/stage fixtures 33.48 s. Only startup before the visible provenance banner was trimmed, without retiming. Neither measures real processing speed. |
+
+The focused browser run uses installed Linux Chromium, the disposable app on port 8844 and a scratch configuration
+selecting `lounge-life.spec.ts`, `living-office.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and
+`robot-office.spec.ts`, one worker and a 180-second timeout. A stalled skyline request verifies bounded startup;
+a fresh failed scene bundle verifies animated Canvas recreation and Reduced stillness. The repository sandbox
+configuration includes these cases without changing Playwright pins or the read-only `e2e/tests` suite.
+The initial 23-case run passed in 5.9 min before the final fallback/label refinements; it is separate from the final
+run above. An initial controlled recording timed out while three browsers competed, then succeeded standalone.
+
+[Current evidence, provenance and editing guide](../design/robot-office/lounge/README.md). Previous living/refined
+and master-continuation results below remain separate historical checkpoints. The seven slow media cases were not
+repeated because this changes no backend/media behavior. Windows CMD/installation/fonts/scaling, RTX 3050 CUDA/NVENC
+and real platform accounts remain owner checks. GPU files, `.mcp.json`, Playwright pins and `e2e/tests` are unchanged.
+No real upload, account change, hosting purchase or deployment occurred.
+
 ## PR #14 living office follow-up
 
 Starts at `a119dfd`, on the same draft/unmerged branch. The owner requested realistic furniture/robot proportions,

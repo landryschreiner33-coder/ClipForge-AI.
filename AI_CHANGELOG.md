@@ -7,6 +7,40 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-09 · Social pixel office and off-duty lounge life
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, draft PR #14. **Base:** `5b1f7a9`.
+  **Result:** the commit containing this entry. PR stays draft/unmerged.
+* **What changed:** six authored arcade/game/drink/snack/read/rest gestures in furnished lounge zones, with 29
+  exclusive places, 25 stable cast homes, phased rotation and at most two recreational walkers. Real work and
+  document transfers preempt breaks; job icons and references remain truthful. The owner's stopped-office
+  recreation exception preserves Paused badges; individual pause while Running/unavailable remains quiet, and
+  global Pause/Reduced/hidden/stale views freeze. Added pinned GSAP 3.15.0 pure easing with its standard no-charge
+  license notice, cached Pixi BlurFilter light pools and an original locally bundled generated skyline. Optional
+  image loading has a 1.5-second bound/procedural fallback and safe cropped-texture cleanup. Canvas has simpler
+  phase-driven gestures; frozen Brain cues stay still on expiry. Dense whole-map names are staggered and the close
+  lounge camera uses compact labels. Built frontend; no backend/media/publishing behavior changed.
+* **Why:** the owner requested better graphics tools and off-duty robots that play, eat and drink while retaining
+  the refined retro style and actual job behavior.
+* **Validation:** full fast pytest: 641 passed, seven slow cases deselected, in 280.30 s. Final TypeScript/Vite build
+  passed in 5.83 s with the existing 904 KB lazy graphics chunk warning. All 23 focused browser cases passed together
+  in 6.4 min (lounge 6, living 7, motion 3, pixel 3, robot 4). All 14 distribution files are SHA-256 identical to the
+  assets used in that final run after source-formatting cleanup.
+  Geometry/controller checks covered 2916 + 4770 routes, 600 simulated seconds with all 25 identities rotating
+  safely, exclusive reservations/max two walkers, and 150 mixed-state transitions. Actual rendered checks show
+  all six Full gestures changing pixels, zero Reduced drift and real-work suppression of leisure props; frozen
+  Canvas Brain pixels remain unchanged when an activity cue expires.
+* **Evidence:** [actual isolated screenshots, labeled recordings and editing guide](design/robot-office/lounge/README.md).
+  Final desktop/laptop/mobile captures retain all 25, visible laptop controls, no mobile overflow and zero page
+  errors. Actual stopped lounge recording: 33.24 s; labeled controlled work/Brain/handoff recording: 33.48 s.
+  Both are 1440×900 H.264 and have zero page errors. An initial controlled recording timed out with three browsers
+  competing; its standalone rerun succeeded. Only startup before the provenance banner was trimmed, without retiming.
+  These recordings do not measure clipping speed or GPU performance.
+* **Not verified:** Windows CMD/installation/PC graphics/scaling, RTX 3050 CUDA/NVENC and real accounts/uploads.
+  The seven slow media cases were not repeated for this frontend-only scope; prior results remain historical.
+  GPU pins, `.mcp.json`, Playwright versions and `e2e/tests` remain unchanged. No real posts, account changes,
+  hosting purchase or deployment occurred.
+
 ## 2026-10-08 · Living office, seated robots and animated Brain
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, draft PR #14. **Base:** `a119dfd`.
