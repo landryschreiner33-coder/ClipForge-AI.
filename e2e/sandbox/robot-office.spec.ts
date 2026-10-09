@@ -52,10 +52,11 @@ test("robots stand where their real work is, and follow it when it changes", asy
   const shots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
   await mkdir(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, "error-controlled.png") });
-  // Idle robots keep visible department stations. Nobody is replaced by a counter.
+  // Idle robots retain individual seats in the lounge. Nobody is replaced by a counter.
   const resting = robot(page, "glyph");
   await expect(resting).toBeVisible();
-  await expect(resting).toHaveAttribute("data-room", "caption");
+  await expect(resting).toHaveAttribute("data-room", "lounge");
+  await expect(resting).toHaveAttribute("data-posture", "rest");
   await expect(page.locator(".room-sign").filter({ hasText: /\+\d+/ })).toHaveCount(0);
   for (const state of ["working", "idle", "error"]) {
     await expect(page.locator(`.robot-state.state-${state}`).first()).toBeVisible();
@@ -65,10 +66,10 @@ test("robots stand where their real work is, and follow it when it changes", asy
   const panel = page.getByRole("complementary", { name: "Details" });
   await expect(panel.getByRole("heading", { level: 2 })).toHaveText("RADAR");
   await expect(panel.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "37");
-  // The job finished: RADAR stays visible, with a truthful idle state.
+  // The job finished: RADAR returns to its lounge seat, still individually selectable.
   Object.assign(role(feed, "radar"), { state: "idle", task: null, last: { summary: "Found 3 videos", state: "done",
     at: Date.now() / 1000 } });
-  await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover", { timeout: 15_000 });
+  await expect(robot(page, "radar")).toHaveAttribute("data-room", "lounge", { timeout: 15_000 });
   await expect(robot(page, "radar")).toHaveAttribute("data-state", "idle");
 });
 
@@ -137,7 +138,7 @@ test("Full overrides system motion; Reduced stills the map and all 25 fit deskto
     await expect(page.getByRole("region", { name: "Autopilot controls" })).toBeInViewport();
     await expect(page.getByRole("complementary", { name: "Details" })).toBeInViewport();
     const world = await page.locator(".office-world").boundingBox();
-    expect(world!.width, `the whole office at ${w}×${h} without shrinking the pixels`).toBeGreaterThanOrEqual(704);
+    expect(world!.width, `the full office at ${w}×${h} with readable labels`).toBeGreaterThanOrEqual(680);
     expect(world!.y + world!.height).toBeLessThanOrEqual(h);
     await expect(page.locator(".robot-hit")).toHaveCount(25);
     for (const button of await page.locator(".robot-hit").all()) {

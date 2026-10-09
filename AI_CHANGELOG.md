@@ -7,6 +7,32 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-08 · Living office, seated robots and animated Brain
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, draft PR #14. **Base:** `a119dfd`.
+  **Result:** the commit containing this entry. PR stays draft/unmerged.
+* **What changed:** a 960×640 furnished office with consistent robot/desk/chair proportions, clear aisles and 25
+  individual lounge seats. Idle/waiting/paused/unavailable robots rest there; working/reviewing robots walk to
+  their own desks and sit with bent knees and keyboard hand motion. Confirmed fresh job transitions and worker
+  reports bring both robots together, pass one visible document and return them to the latest actual destination.
+  Ownership/cursor recovery prevents outdated senders after hidden/paused/offline periods and history resets.
+  The animated Brain has neural hemispheres, synapses and layered orbits; decorative Standby and true Processing
+  are labeled separately. Paused/Reduced/offline states still the art. Added a room camera, matching Canvas
+  compatibility layout, separated handoff names and built frontend. No new dependency or backend behavior.
+* **Why:** the owner requested realistic proportions, idle lounge behavior, seated work, actual handoffs and a
+  cooler animated Brain while keeping refined retro pixel art. Existing PixiJS supplies the needed tools.
+* **Validation:** TypeScript/production build passed; 17 office Python checks passed in 6.10 s. All 17 focused browser
+  checks passed together in 3.1 min. Browser coverage is seven
+  living-office cases plus three motion, three pixel and four robot-office cases; exact final outcomes are at the
+  top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). Both suspension and reset sender regressions
+  passed. Actual desktop/laptop/mobile captures reported zero browser errors; all 25 identities and laptop controls
+  fit. The earlier full backend/media suites were not repeated for this frontend-only change.
+* **Evidence:** [actual isolated screenshots, labeled controlled animation and editing guide](design/robot-office/living/README.md).
+  The controlled video demonstrates graphics and event choreography, not real clipping time or GPU processing.
+* **Not verified:** Windows CMD/PC graphics/scaling, RTX 3050 CUDA/NVENC and real connected accounts. Dependencies,
+  GPU pins, `.mcp.json`, Playwright versions and `e2e/tests` are unchanged in this checkpoint. No real posts,
+  account changes, purchases or deployment occurred.
+
 ## 2026-10-08 · Refined pixel office and Windows path recovery
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `c33a291`.

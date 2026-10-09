@@ -6,14 +6,14 @@ really do, how the scores are made, and the Brain's guards. Written for the vers
 `claude/project-thread-vw1n9y` (October 2026); the code is the source of truth where they differ.
 
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
-not a separate program or AI: it walks because a real job started, carries a card because a real job finished, and
-rests because nothing of its kind is running. Nothing in the office starts, approves or finishes work.
+not a separate program or AI: it walks because its actual state changes, carries a card for a fresh stage handoff or
+report, and rests because nothing of its kind is running. Nothing in the office starts, approves or finishes work.
 
 ## Places
 
 | Place | Address | What is there |
 | --- | --- | --- |
-| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view and Follow system / Full / Reduced animations are above the map. |
+| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view, room camera and Follow system / Full / Reduced animations are above the map. |
 | Team | `#/office/team` | All 25 robots and the Brain Core, read-only, with their job, room and manager. |
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
@@ -53,9 +53,9 @@ desk screens and Brain Core; `StudioArt.ts` authors the 25 robots from their exi
 silhouettes, shaded bodies, different faces and role-specific equipment distinguish the cast. This is drawn pixel
 art, with crisp edges and anchored feet; it is not an external image service or a separate AI running each robot.
 
-`OfficeMap.tsx` supplies the renderer with the poses, positions, report handoffs and reactions derived from the
-backend feed. Department screen lighting follows actual working roles, and rack indicators follow the health
-readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable button per
+`OfficeMap.tsx` and `OfficeMotion.ts` supply the renderer with the poses, positions, document handoffs and reactions
+derived from the backend feed. Department screen lighting follows actual working roles, and rack indicators follow
+the health readings. Rendering does not start jobs or invent measurements. The HTML layer retains one selectable button per
 robot and per room, the state icons, details and controls; all 25 roles remain present when idle or paused.
 
 Team cards, robot details and the developer gallery use the same authored robot art through `Portrait.tsx`.
@@ -64,14 +64,16 @@ Canvas portraits. Opening the roster does not create a separate graphics context
 original portrait drawing.
 
 The Pixi scene loads when the map opens. If its module or graphics initialization fails, the map restores the
-original Canvas renderer and shows *Original artwork · new graphics unavailable in this browser*. Robot selection,
-details, state indicators and controls remain available. Portraits also retain their original Canvas artwork when
-the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
+original Canvas artwork through `LivingFallback.ts` and shows *Original artwork · new graphics unavailable in this
+browser*. This path retains the furnished floor plan, lounge seats, seated desks and document transfers. Robot
+selection, details, state indicators and controls remain available. Portraits also retain their original Canvas
+artwork when the refined renderer cannot load. Neither renderer needs an account, plugin connection or additional setup.
 
 Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
 freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
-also stop motion. Evidence for the refined visuals is documented separately in
-[design/robot-office/retro/README.md](../design/robot-office/retro/README.md).
+also stop motion. Earlier refined-art evidence remains in
+[design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the new lounge, desks and Brain captures
+are kept separately in [design/robot-office/living/](../design/robot-office/living/).
 
 ### Reports and decisions
 
@@ -99,23 +101,45 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
   `brain_evaluation`, `brain_evaluated`, `strategy_changed`, `strategy_rolled_back`, `brain_lookup`.
 * The page reads the snapshot, then polls the events every 1.5 s (8 s in a hidden tab) and re-reads the snapshot
   every 10 s. Duplicate ids are dropped. `reset` (the cursor is older than the kept history, or from another
-  database) or a backlog over 150 events reloads the snapshot instead of replaying. Only events from the last 30
-  seconds move robots; older ones are listed in Activity, never walked. After two missed answers the page says *The
+  database) or a backlog over 150 events reloads the snapshot instead of replaying. Recent-looking events fetched
+  as history do not move robots or replace the current job's owner. Only new events from the last 30 seconds move
+  robots; older ones are listed in Activity, never walked. After two missed answers the page says *The
   office is not updating* and marks the map stale.
 * Kept: the newest 20,000 events, at most 14 days; reports 90 days; decisions until the data folder is deleted.
 
 ### Where a robot stands
 
-* All 25 robots have individually named stations on the desktop map, including idle and paused workers.
-  State icons appear above their heads. Selection shows the actual job, source/project/clip identifiers,
-  dependencies, blocked reason and next role. No overflow counter hides the cast.
+* All 25 robots have their own lounge seat and their own department desk. Idle, waiting, retrying, paused and
+  unavailable robots rest in the lounge. Working and reviewing robots walk to their desks and sit; a robot with an
+  error remains at its station with an error cue. State icons and selection expose the actual job,
+  source/project/clip identifiers, dependencies, blocked reason and next role. No overflow counter hides the cast.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
 * When Autopilot is paused or stopped, robots that are not running a job show `paused`.
-* A fresh `report` event makes the worker carry a card to its manager, who then reviews; a fresh `decision` gives
-  COMMAND an approved, rework or rejected reaction. Progress bars show only progress a job measured.
+* A fresh `job_stage` can pass a document between the roles handling the same job, kind and source/clip reference.
+  Across jobs, only `hunt_source` → `analyze_source`, `package_clip` → `quality_check` and `regenerate_clip` →
+  `package_clip` may transfer a document for the same reference within 30 seconds. A fresh `report` can also pass
+  from its worker to its manager. Queued work alone, unrelated references and old events do not create a handoff.
+* Both sender and receiver approach the meeting point, face each other, pass one document and show its receipt.
+  They then return to the desk or lounge seat dictated by the latest snapshot, even if state changed during the
+  transfer. Paused or unavailable participants cancel it; Pause, Reduced, a hidden tab or a stale feed clears it.
+  After a hidden tab, pause or lost connection, the map waits for a fresh authoritative snapshot and recovers each
+  running job's current role before accepting the next handoff. Missed transfers are not replayed, and an older
+  snapshot or historical stage cannot move ownership backward. These walks never delay durable jobs.
+* A fresh `decision` gives COMMAND an approved, rework or rejected reaction. Progress bars show only progress a job
+  measured.
 * Follow system honors the operating system’s motion preference. Full explicitly overrides reduced motion.
   Reduced stops movement; truthful state icons and the list view remain. The saved choice survives reloads.
+
+The **Office camera** selects the whole office or a closer view of any room, including the lounge and Brain Room.
+It changes only the view; robot selection and the details panel still use the same actual state.
+
+CORE is a decorative neural sculpture. Its slow **Standby** orbit means the office display is powered, not that a
+job is running. **Processing** uses brighter, faster neural cues only while the snapshot reports Brain evaluation
+or working Brain roles, or after a fresh Brain evaluation, lookup or strategy-change event. Pausing the Brain or
+office freezes the sculpture; Reduced freezes its drawing without changing the reported state. A stale feed shows
+**Offline**, dims CORE and stops motion. Selecting CORE opens the Brain workspace. These effects are not measured
+learning progress, result quality or video-processing time.
 
 ## Controls
 

@@ -87,8 +87,8 @@ completed clip when publishing permission is unknown. An upcoming stream waits a
 segmented capture and post-live clipping finish it. It never approves an individual post or retries a failed job.
 
 `sandbox/robot-office.spec.ts` checks how the Office draws real state, with controlled answers from the office API
-in the browser only: all 25 identities remain visible at named stations, a report is carried to the manager, a
-decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, and the layout at
+in the browser only: all 25 identities remain visible at their own desks or lounge seats, a report is carried to the
+manager, a decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, and the layout at
 1366×768, 1280×720 and narrow widths. `sandbox/motion.spec.ts` checks saved Follow system / Full / Reduced,
 including Full overriding system reduced motion. `sandbox/brain-workspace.spec.ts` checks actual document upload,
 approval, reload, lookup preview, disable/delete/export and responsive layout. The sandbox tests write the
@@ -102,19 +102,39 @@ A third checks the refined Team/gallery portraits and an actual rendered COMMAND
 It does not start work or connect accounts. These cases describe coverage; their results belong in the validation
 log after they are run.
 
+`sandbox/living-office.spec.ts` adds seven controlled visual checks: 25 distinct lounge seats and room-camera
+selection; walking to a desk, seated work and returning to the lounge; a fresh same-job stage handoff with sender
+and receiver approach/pass/receipt; rejecting queued, unrelated and old handoffs and canceling one on Pause; and
+Brain standby/processing animation with paused and Reduced freezes. Two recovery regressions verify the current
+sender after hidden/paused stages, and a feed reset that neither animates recent-looking history nor moves the
+current owner backward. The Brain check also verifies its close camera and the link to its workspace. These seven,
+the three motion checks, three pixel checks and four robot-office checks form a 17-case focused visual suite.
+This is its coverage, not a claim of final rerun results.
+
 The refined robots are authored in `StudioArt.ts`; the map uses `StudioScene.ts`, and Team/detail/gallery portraits
 reuse one shared offscreen renderer with a bounded frame cache in `StudioPortraits.ts`. The original artwork stays
 available if the graphics context or module cannot initialize. Existing backend snapshots and events govern poses,
-work cues and report handoffs; pixel rendering does not manufacture activity. Follow system honors OS reduced
+work cues and document handoffs; pixel rendering does not manufacture activity. `OfficeMotion.ts` sends idle,
+waiting, retrying, paused and unavailable roles to unique lounge seats, and working/reviewing roles to seated desks.
+Only fresh same-job stages, the three allowed cross-job reference transitions and reports create document passes;
+both robots return to the latest actual destination afterward. After hidden, paused or disconnected stages, a fresh
+snapshot restores the current sender; reset/backlog history never replays handoffs or rolls ownership backward.
+CORE's slow standby orbit is decorative; its
+Processing label and brighter cues require actual Brain state or fresh Brain events. Follow system honors OS reduced
 motion, Full overrides it explicitly, and Reduced freezes motion while the state labels keep updating. No account
 or plugin hookup is required for these graphics. New visual evidence is documented separately in
 [`design/robot-office/retro/README.md`](../design/robot-office/retro/README.md).
+
+The new [living-office evidence directory](../design/robot-office/living/) keeps actual isolated app screenshots
+separate from controlled visual transitions. The current seated-work image uses controlled browser feed state.
+Any recording of these transitions documents the renderer's choreography; it does not establish real backend
+video-processing times, GPU performance or connected-account behavior.
 
 Run the graphics checks alone, using sandbox data:
 
 ```bat
 cd e2e
-npm run test:sandbox -- --project=chromium sandbox/pixel-office.spec.ts
+npm run test:sandbox -- --project=chromium sandbox/living-office.spec.ts sandbox/motion.spec.ts sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
 ```
 
 The Pixi dependency is part of the frontend's npm installation. This graphics change does not change

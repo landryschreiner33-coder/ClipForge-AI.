@@ -1,5 +1,40 @@
 # Implementation status
 
+## PR #14 living office follow-up
+
+Starts at `a119dfd`, on the same draft/unmerged branch. The owner requested realistic furniture/robot proportions,
+idle lounge rest, seated work, visible hand-to-hand transfers and a cooler animated Brain. This supersedes the
+preceding idle-at-station placement. Existing PixiJS now paints the 960×640 furnished plan with 25 stable lounge
+seats, scaled desks/chairs, seated rigs and furniture-aware aisle routes. The room camera shows each room up close.
+Fresh actual job-stage/reference/report events drive both-party approach/pass/receipt, followed by the latest real
+desk or lounge destination. No guessed next step or animation delay changes a backend job. Snapshot ownership,
+event-cursor and timestamp guards keep skipped/replayed stages from inventing an outdated sender.
+
+CORE is a layered neural sculpture with pixel hemispheres, synapses and orbiting lights. Decorative powered
+Standby is labeled separately from Processing, which follows actual Brain state/events. Brain/global pause,
+Reduced and offline freeze it. Canvas compatibility shares the layout, seating and transfer controller. Existing
+portrait caching, saved motion choices, controls, task details and all 25 identities remain.
+
+| Check | Result and scope |
+| --- | --- |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; built distribution included. Existing lazy 904 KB graphics-library chunk warning remains. No dependency added. |
+| `.venv/bin/python -m pytest -q tests/test_office.py` | 17 passed in 6.10 s; backend role/feed contracts unchanged. |
+| Focused browser suite | **17 passed together in 3.1 min**: seven living-office, three motion, three pixel and four robot-office checks. |
+| Actual isolated captures | 1440×900 desktop, 1280×720 laptop, 390 px mobile List; all 25, visible laptop controls, no mobile horizontal overflow, zero browser errors. Room cameras show actual standby Brain and lounge states. |
+| Controlled preview | Browser-only running/evaluating snapshots and actual-format stage events; seated SPLICE/SYNAPSE, SPLICE→GLYPH approach/pass/receipt, GLYPH at its desk, sender back in lounge, active Brain and Reduced. Visible controlled-state banner; no real clip job or speed claim. |
+
+The browser run uses installed Linux Chromium, the isolated app on port 8844 and a scratch Playwright configuration
+selecting `living-office.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and `robot-office.spec.ts`, one worker,
+180-second timeout. The repository sandbox config includes living-office without changing package pins. Two
+initial 15-case runs passed before the recovery review added hidden/paused sender and reset-history regressions.
+The final 17-case run passed together in 3.1 min, including both recovery fixes. Brain rendering checks use
+actual pixels, including a frozen Brain crop while the rest of the office remains running.
+
+[Latest evidence and editing guide](../design/robot-office/living/README.md). Earlier backend/media suite results
+below belong to earlier checkpoints; those full suites were not rerun for this frontend-only change. Windows/PC
+graphics/scaling and RTX 3050 CUDA/NVENC remain owner checks. GPU files, `.mcp.json`, Playwright pins, `e2e/tests`
+and package dependencies were unchanged in this checkpoint. No real posts, purchases, account changes or deployment.
+
 ## PR #14 refined pixel office follow-up
 
 Starts at `c33a291` on the same draft/unmerged branch. The owner chose refined retro pixel art and authorized using

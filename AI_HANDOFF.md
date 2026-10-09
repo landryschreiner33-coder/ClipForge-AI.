@@ -5,7 +5,20 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 
 ## Current scope and branch
 
-Latest visual checkpoint starts at `c33a291`: the owner chose **refined retro pixel art** and asked to use better
+Latest living-office checkpoint starts at `a119dfd`: the owner asked for believable proportions, idle robots in a
+lounge, seated work, actual document transfers and an animated Brain. This supersedes idle-at-station placement.
+The 960×640 floor plan now gives all 25 identities individual lounge seats, room-sized desks/chairs and walkable
+aisles. `OfficeMotion.ts` follows current snapshots and fresh confirmed report/stage events: both robots approach,
+one document passes between them, then both return to their latest actual destination. It never delays a backend
+job or guesses a future transition. Paused/unavailable roles rest; Reduced skips walking; stale/hidden views freeze
+and recovery uses the current snapshot without replaying old transfers. `BrainCore.ts` has layered neural lobes,
+synapse lights and depth-sorted orbits: ambient **Standby** is decorative, **Processing** follows actual Brain
+state/events, and Paused/Reduced/offline still the art. A room camera makes the furniture and robots inspectable.
+The Canvas compatibility renderer now uses the same floor plan, seats and transfer controller.
+Evidence: [living office and labeled controlled preview](design/robot-office/living/README.md).
+This frontend-only follow-up adds no dependencies or processing/publishing behavior. PR #14 stays draft/unmerged.
+
+The preceding visual checkpoint started at `c33a291`: the owner chose **refined retro pixel art** and asked to use better
 graphics tools. The office now uses pinned PixiJS 8.22.0 with authored cast-specific artwork, layered room furniture
 and a scoped studio shell. Team/detail portraits share one cached offscreen renderer. Existing job snapshots and
 events still control states, walks, reports and decisions; this adds no processing or publishing behavior.
@@ -23,7 +36,7 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Implemented in this continuation
 
-* All 25 robot identities remain individually visible at desktop stations, with named labels and overhead state
+* All 25 robot identities remain individually visible at workstations or individual lounge seats, with named labels and overhead state
   icons. Task selection includes shared references, dependencies, blocked reason and next robot. Saved motion
   choices: Follow system / Full / Reduced; Full overrides OS reduced motion. Stale state stops animation.
 * Brain at `#/brain`: durable searchable documents/instructions/skill guides, good/bad example uploads and feature
@@ -61,8 +74,15 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Validation
 
-The refined-art validation is recorded separately at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
-Latest: TypeScript/production build passed, 17 office Python tests passed (7.20 s), and all ten focused motion/robot/
+The living-office validation is recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+Production TypeScript/build passed; 17 office Python checks passed in 6.10 s and all 17 focused browser cases passed
+together in 3.1 min. The browser cases cover lounge seats,
+walk/sit/return, same-job document passing, event freshness/identity, Pause cancellation, Brain standby/processing/
+pause, Reduced still frames, camera, fallback, portrait/navigation and desktop/laptop/mobile layout, plus current
+sender recovery after hidden/paused stages and protection against reset-history replay. Evidence is
+separated into actual isolated snapshots and visibly labeled controlled animations; neither is a GPU benchmark.
+
+The preceding refined-art validation: TypeScript/production build passed, 17 office Python tests passed (7.20 s), and all ten focused motion/robot/
 graphics browser cases passed together (59.3 s). Actual desktop/laptop/mobile captures recorded zero browser errors;
 the separate animation video is visibly labeled as controlled test states. A pixel regression verifies COMMAND's
 approval looks different from idle even in Reduced mode. Static floor/furniture is cached once; portrait cache is bounded.

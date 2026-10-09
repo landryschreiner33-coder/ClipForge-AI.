@@ -386,9 +386,11 @@ function equipment(g: Graphics, c: Character) {
   }
 }
 
+export type RobotPosture = "stand" | "desk" | "rest";
+
 export interface StudioRobot {
   container: Container;
-  animate: (pose: Pose, timeMs: number, reduce: boolean, dir?: Dir) => void;
+  animate: (pose: Pose, timeMs: number, reduce: boolean, dir?: Dir, posture?: RobotPosture) => void;
 }
 
 /** Feet are anchored at 0,0. Create once, then animate from the office's actual reported pose. */
@@ -411,10 +413,16 @@ export function createRobot(c: Character): StudioRobot {
   const bw = (c.body === "slim" ? 18 : c.body === "stocky" || c.body === "cart" ? 25 : 21) + large * 2;
   const bh = 17 + large * 3;
   const bx = -Math.floor(bw / 2);
+  const seatedHeight = 12 + large;
+  const seatedY = -9 - seatedHeight;
+  const seatedHeadY = seatedY - 2 - hh;
   const head = new Container();
   const eyes = new Graphics();
   const legLeft = new Container(), legRight = new Container();
   const arms = [new Container(), new Container()];
+  const standingLegs: Graphics[] = [], seatedLegs: Graphics[] = [];
+  const standingArms: Graphics[] = [], deskArms: Graphics[] = [], restingArms: Graphics[] = [];
+  const carryingArms: Graphics[] = [];
   for (const [i, leg] of [legLeft, legRight].entries()) {
     const g = new Graphics();
     const x = i === 0 ? -8 : 3;
@@ -428,7 +436,26 @@ export function createRobot(c: Character): StudioRobot {
       box(g, x - 1, -5, 9, 5, p.trimDark);
       px(g, x, -4, 5, 1, p.trim);
     }
-    leg.addChild(g);
+    const bent = new Graphics();
+    if (c.base === "wheels") {
+      box(bent, x + 1, -16, 5, 9, p.shade);
+      box(bent, x - 1, -8, 8, 8, JOINT);
+      px(bent, x + 1, -7, 3, 5, INK);
+      px(bent, x + 2, -6, 1, 2, EDGE);
+    } else {
+      // Horizontal thighs, visible knee joints and short shins give the feet a seated stance.
+      box(bent, x + 1, -16, 5, 9, p.shade);
+      box(bent, i === 0 ? -11 : 2, -10, 10, 5, p.shade);
+      box(bent, i === 0 ? -13 : 8, -7, 6, 5, JOINT);
+      px(bent, i === 0 ? -11 : 10, -6, 2, 2, EDGE);
+      box(bent, i === 0 ? -13 : 8, -4, 5, 4, p.shade);
+      box(bent, i === 0 ? -15 : 7, -3, 10, 3, p.trimDark);
+      px(bent, i === 0 ? -14 : 8, -2, 6, 1, p.trim);
+    }
+    bent.visible = false;
+    standingLegs.push(g);
+    seatedLegs.push(bent);
+    leg.addChild(g, bent);
     rig.addChild(leg);
   }
   for (let i = 0; i < 2; i++) {
@@ -437,30 +464,61 @@ export function createRobot(c: Character): StudioRobot {
     box(g, x + (i === 0 ? 0 : 1), by + 8, 5, 8, p.shade);
     box(g, x - (i === 0 ? 1 : 0), by + 13, 6, 5, p.shell);
     px(g, x + (i === 0 ? 1 : 2), by + 5, 2, 1, p.trim);
-    arms[i].addChild(g);
+    const deskHand = new Graphics();
+    const sx = i === 0 ? bx - 4 : bx + bw - 1;
+    box(deskHand, sx, seatedY - 5, 5, 5, p.trimDark);
+    box(deskHand, sx, -24, 5, seatedY + 35, p.shade);
+    // At the office's 0.8 scale these palms reach over the foreground desktop at feet -21.
+    box(deskHand, i === 0 ? sx + 2 : 4, -27, Math.max(6, Math.abs(sx) - 2), 5, p.shade);
+    box(deskHand, i === 0 ? -7 : 2, -29, 6, 5, p.shell);
+    px(deskHand, i === 0 ? -6 : 3, -28, 3, 1, LIGHT, 0.65);
+    const relaxed = new Graphics();
+    box(relaxed, sx, seatedY + 3, 5, 5, p.trimDark);
+    box(relaxed, sx, seatedY + 7, 5, 6, p.shade);
+    box(relaxed, i === 0 ? sx + 2 : 3, -11, Math.max(6, Math.abs(sx) - 1), 4, p.shade);
+    box(relaxed, i === 0 ? -7 : 2, -12, 6, 4, p.shell);
+    const documentHand = new Graphics();
+    box(documentHand, x, by + 3, 6, 6, p.trimDark);
+    box(documentHand, x + (i === 0 ? 0 : 1), by + 8, 5, 5, p.shade);
+    box(documentHand, i === 0 ? bx - 3 : 3, by + 11, Math.max(6, Math.abs(bx) - 1), 4, p.shade);
+    box(documentHand, i === 0 ? -8 : 2, by + 10, 6, 5, p.shell);
+    deskHand.visible = false;
+    relaxed.visible = false;
+    documentHand.visible = false;
+    standingArms.push(g);
+    deskArms.push(deskHand);
+    restingArms.push(relaxed);
+    carryingArms.push(documentHand);
+    arms[i].addChild(g, deskHand, relaxed, documentHand);
     rig.addChild(arms[i]);
   }
-  const body = new Graphics();
-  const profile = c.body === "shield" ? (r: number) => r < 4 ? Math.max(0, 2 - r) : Math.floor((r - 4) / 4)
-    : c.body === "pear" ? (r: number) => r < 6 ? Math.max(0, 4 - r) : r > bh - 3 ? r - (bh - 3) : 0
-      : c.body === "round" ? oval(bw, bh) : chamfer(bh, 2);
-  shell(body, bx, by, bw, bh, profile, p.shell, p.shade);
-  px(body, bx + 3, by + 3, bw - 6, 3, p.trim);
-  px(body, bx + 4, by + 3, bw - 10, 1, LIGHT, 0.4);
-  box(body, -4, by + 8, 9, 5, p.trimDark);
-  px(body, -2, by + 9, 5, 1, p.trim);
-  px(body, bx + 3, by + bh - 4, 3, 1, JOINT, 0.6);
-  px(body, bx + bw - 6, by + bh - 4, 3, 1, JOINT, 0.6);
-  if (c.rank !== "worker") {
-    for (const x of [bx + 1, bx + bw - 5]) box(body, x, by + 1, 4, 3, p.trim);
-    px(body, -1, by + 7, 2, 2, c.rank === "director" ? "#ffe295" : LIGHT);
-  }
-  if (c.body === "jacket") {
-    px(body, -1, by + 5, 2, bh - 8, p.trimDark);
-    px(body, bx + 4, by + 7, 3, 2, p.trim);
-    px(body, bx + bw - 7, by + 7, 3, 2, p.trim);
-  }
-  rig.addChild(body);
+  const drawBody = (g: Graphics, y: number, height: number) => {
+    const profile = c.body === "shield" ? (r: number) => r < 4 ? Math.max(0, 2 - r) : Math.floor((r - 4) / 4)
+      : c.body === "pear" ? (r: number) => r < 6 ? Math.max(0, 4 - r) : r > height - 3 ? r - (height - 3) : 0
+        : c.body === "round" ? oval(bw, height) : chamfer(height, 2);
+    shell(g, bx, y, bw, height, profile, p.shell, p.shade);
+    px(g, bx + 3, y + 3, bw - 6, 3, p.trim);
+    px(g, bx + 4, y + 3, bw - 10, 1, LIGHT, 0.4);
+    const badgeY = y + Math.min(8, height - 5);
+    box(g, -4, badgeY, 9, 4, p.trimDark);
+    px(g, -2, badgeY + 1, 5, 1, p.trim);
+    px(g, bx + 3, y + height - 4, 3, 1, JOINT, 0.6);
+    px(g, bx + bw - 6, y + height - 4, 3, 1, JOINT, 0.6);
+    if (c.rank !== "worker") {
+      for (const x of [bx + 1, bx + bw - 5]) box(g, x, y + 1, 4, 3, p.trim);
+      px(g, -1, y + 7, 2, 2, c.rank === "director" ? "#ffe295" : LIGHT);
+    }
+    if (c.body === "jacket") {
+      px(g, -1, y + 5, 2, height - 8, p.trimDark);
+      px(g, bx + 4, y + 7, 3, 2, p.trim);
+      px(g, bx + bw - 7, y + 7, 3, 2, p.trim);
+    }
+  };
+  const body = new Graphics(), seatedBody = new Graphics();
+  drawBody(body, by, bh);
+  drawBody(seatedBody, seatedY, seatedHeight);
+  seatedBody.visible = false;
+  rig.addChild(body, seatedBody);
   const neck = new Graphics();
   box(neck, -4, by - 5, 8, 6, JOINT);
   px(neck, -3, by - 4, 5, 1, EDGE);
@@ -495,6 +553,8 @@ export function createRobot(c: Character): StudioRobot {
   report.position.y = gearY;
   report.visible = false;
   rig.addChild(report);
+  // Palms sit over the document or keyboard rather than disappearing behind the torso.
+  rig.addChild(arms[0], arms[1]);
   const incident = new Graphics();
   box(incident, -2, hy + hh - 1, 5, 3, "#ff687c");
   incident.visible = false;
@@ -510,57 +570,81 @@ export function createRobot(c: Character): StudioRobot {
   px(approval, 14, ay + 3, 2, 3, "#a8f5bc");
   px(approval, 16, ay + 2, 1, 2, "#a8f5bc");
   approval.visible = false;
-  head.addChild(approval);
+  rig.addChild(approval);
   const eyesY = eyes.position.y;
   const phaseOffset = Array.from(c.id).reduce((sum, letter) => sum + letter.charCodeAt(0), 0) * 29;
 
-  function animate(pose: Pose, timeMs: number, reduce: boolean, dir: Dir = "down") {
+  function animate(pose: Pose, timeMs: number, reduce: boolean, dir: Dir = "down",
+    posture: RobotPosture = "stand") {
     const stopped = pose === "paused" || pose === "unavailable";
     const still = reduce || stopped;
     const time = still ? 0 : timeMs + phaseOffset;
     const walking = pose === "walk" || pose === "carry";
     const working = pose === "work" || pose === "review" || pose === "retry";
+    const seated = posture !== "stand";
+    const resting = posture === "rest";
+    const holding = pose === "carry" || pose === "review";
+    const walkMotion = walking && !still && !seated;
+    const side = dir === "left" ? -1 : dir === "right" ? 1 : 0;
     const frame = Math.floor(time / 110) % 8;
     const step = [0, 1, 2, 1, 0, -1, -2, -1][frame];
     const beat = Math.floor(time / Math.max(120, c.workMs || 350)) % 4;
-    rig.position.set(0, walking && !still ? [0, -1, -1, 0, 0, -1, -1, 0][frame] : 0);
-    legLeft.position.set(walking && !still ? step : 0, walking && !still && step > 0 ? -1 : 0);
-    legRight.position.set(walking && !still ? -step : 0, walking && !still && step < 0 ? -1 : 0);
-    head.position.set(0, working && !still && beat === 1 ? -1 : 0);
-    arms[0].position.set(0, walking && !still ? -Math.sign(step) : 0);
-    arms[1].position.set(0, walking && !still ? Math.sign(step) : 0);
+    body.visible = !seated;
+    seatedBody.visible = seated;
+    // Desk chairs support an upright torso; lounge seats let the same robot settle lower and relax.
+    seatedBody.position.y = resting ? 1 : -7;
+    neck.position.y = seated ? seatedY - by + (resting ? 1 : -7) : 0;
+    for (let i = 0; i < 2; i++) {
+      standingLegs[i].visible = !seated;
+      seatedLegs[i].visible = seated;
+      standingArms[i].visible = !seated && !holding;
+      carryingArms[i].visible = !seated && holding;
+      deskArms[i].visible = seated && !resting;
+      restingArms[i].visible = resting;
+    }
+    rig.position.set(0, walkMotion ? [0, -1, -1, 0, 0, -1, -1, 0][frame] : 0);
+    legLeft.position.set(walkMotion ? step : resting ? -1 : 0, walkMotion && step > 0 ? -1 : 0);
+    legRight.position.set(walkMotion ? -step : resting ? 1 : 0, walkMotion && step < 0 ? -1 : 0);
+    head.position.set(resting ? 1 : 0, (seated ? seatedHeadY - hy + (resting ? 1 : -9) : 0)
+      + (working && !still && !resting && beat === 1 ? -1 : 0));
+    arms[0].position.set(holding && !seated ? side * 3 : 0,
+      resting ? 1 : walkMotion && !holding ? -Math.sign(step) : 0);
+    arms[1].position.set(holding && !seated ? side * 3 : 0,
+      resting ? 1 : walkMotion && !holding ? Math.sign(step) : 0);
     gear.position.set(gearX, gearY);
-    gear.visible = pose !== "carry";
-    report.visible = pose === "carry";
-    if (working && !still) {
+    gear.visible = !seated && !holding;
+    report.visible = holding;
+    report.position.set(holding && !seated ? side * 3 : 0, seated ? resting ? -11 : -25 : gearY - 4);
+    if (working && !still && !resting) {
       const tapping = c.work === "type" || c.work === "proofread" || c.work === "draft" || c.work === "pages";
       const scanning = c.work === "sweep" || c.work === "scan" || c.work === "verify";
       const down = c.work === "weigh" || c.work === "repair";
-      arms[0].position.y = tapping ? (beat % 2 ? -2 : 0) : beat === 1 ? -1 : 0;
-      arms[1].position.y = tapping ? (beat % 2 ? 0 : -2) : beat === 2 ? -2 : 0;
+      arms[0].position.y = tapping || seated ? (beat % 2 ? -1 : 0) : beat === 1 ? -1 : 0;
+      arms[1].position.y = tapping || seated ? (beat % 2 ? 0 : -1) : beat === 2 ? -2 : 0;
       gear.position.x = gearX + (scanning ? [-1, 0, 1, 0][beat] : 0);
       gear.position.y = gearY + (down ? [0, -2, 1, 0][beat] : beat === 2 ? -1 : 0);
     }
     approval.visible = pose === "approved";
+    approval.position.copyFrom(head.position);
     if (pose === "approved") {
       arms[1].position.y = -4;
+      if (seated) arms[1].position.x = 8;
       if (c.hand === "right") gear.position.y = gearY - 4;
     }
     // A short eye blink is an expression, never a representation of completed work.
     const blinking = !still && pose !== "error" && time % 5300 > 5140;
-    const side = dir === "left" ? -1 : dir === "right" ? 1 : 0;
     visor.visible = dir !== "up";
     eyes.visible = dir !== "up";
     back.visible = dir === "up";
     visor.position.x = side;
     eyes.position.x = side * 2;
     eyes.scale.y = blinking ? 0 : 1;
-    eyes.position.y = eyesY;
+    eyes.position.y = eyesY + (posture === "desk" && working ? 1 : 0);
     eyes.alpha = pose === "unavailable" ? 0.25 : pose === "paused" ? 0.55 : 1;
     incident.visible = pose === "error" || pose === "rework";
     incident.alpha = pose === "error" && !still ? (Math.floor(time / 650) % 2 ? 0.6 : 1) : 1;
     rig.alpha = pose === "unavailable" ? 0.58 : 1;
-    shadow.alpha = walking && !still && frame % 4 === 1 ? 0.8 : 1;
+    shadow.alpha = walkMotion && frame % 4 === 1 ? 0.8 : 1;
   }
   animate("idle", 0, true);
   return { container, animate };

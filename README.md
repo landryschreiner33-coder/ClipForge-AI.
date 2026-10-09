@@ -45,7 +45,7 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
      post. A personal tool may be refused. Expect to use the supported manual package:
      ClipFoundry prepares each one in **Queue → Problems → Ready for you to post on TikTok** (download the video, copy
      the caption, choose **Everyone** in the TikTok app for a Public post, then paste its link).
-5. **Watch the office.** Each robot shows real work: all 25 robots have named stations and icons for working, waiting, idle, paused and error.
+5. **Watch the office.** All 25 robots have named seats and state icons. Working robots sit at their desks; idle robots return to the lounge. Confirmed transitions can pass a document between robots. Use the room camera to inspect the animated Brain and seating.
    Choose **Follow system**, **Full** or **Reduced** animations; Full overrides the system’s reduced-motion preference. Click a robot or a room for details. The bar at the bottom has **Start**, **Pause**, **Resume**,
    **Stop all** and **Pause publishing** (clips are still made and checked, nothing is uploaded).
 6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says
@@ -88,7 +88,7 @@ runs meanwhile; at the next start interrupted steps run again and missed posts g
 | Queue | Every planned and published post in one place (formerly Posts), with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (YouTube can use explicit standing permission; TikTok still needs per-post consent), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
 | Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Public accessible videos can be clipped locally; scheduling/publishing still requires recorded reuse eligibility. Discovery alone grants no rights. |
 | Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts), **Brain** (knowledge, examples and decisions) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
-| Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and the Brain Core, each standing for one part of the real job system. They move only when real work starts, finishes or fails, and the office says when it cannot update. All 25 have named stations and state icons. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
+| Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
 | Brain | A visible workspace for searchable documents, instructions, skill guides, good/bad example clips, approved typed preferences, clip decision influence and performance history. Uploads do not fine-tune a model or execute code. Public and selected-viewer results stay in separate cohorts; bounded learning uses mature evidence and rollback. |
 
@@ -281,9 +281,12 @@ capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend i
 [design/robots/README.md](design/robots/README.md). Screenshots (first run, working, waiting, after a restart,
 paused, a controlled error state, Team): [design/robot-office/screenshots](design/robot-office/screenshots/README.md).
 
-The refined pixel-art follow-up uses PixiJS for the furnished map and matching Team/detail portraits, with the
-original Canvas artwork as a graphics fallback. It is included in the Windows build and needs no design account.
-[New screenshots, labeled animation preview and source-editing guide](design/robot-office/retro/README.md).
+The living pixel office uses PixiJS for proportionate furniture, seated robot rigs, actual document passes and an
+animated neural Brain. Idle robots rest in their own lounge seats. The room camera zooms in; Full / Reduced / Follow
+system controls the motion. Canvas compatibility keeps the same layout, seats and controls with the original robot
+identities. It is included in the Windows build and needs no design account or paid service.
+[Latest screenshots, labeled animation preview and source-editing guide](design/robot-office/living/README.md).
+[Preceding refined artwork checkpoint](design/robot-office/retro/README.md).
 
 ## Third-party assets
 

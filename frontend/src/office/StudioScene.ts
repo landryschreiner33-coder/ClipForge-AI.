@@ -1,74 +1,104 @@
-/** PixiJS scene for the refined pixel office. Every animated work cue comes from the live feed. */
+/** Furnished PixiJS living studio. Real feed states drive work, reports and handoffs. */
 import { Application, Container, Graphics } from "pixi.js";
 import { CAST, BY_ID, Dir, RoomId } from "./cast";
 import { ROOM_ACCENT } from "./draw";
 import { Snapshot } from "./api";
-import { CORE_AT, ENTRANCE, ROOM, ROOMS, STATION, WORLD } from "./world";
+import { CORE_AT, Pt, REST_SEAT, ROBOT_SCALE, ROOMS, STATION, WORLD } from "./world";
 import { Pose } from "./sprites";
 import { createRobot } from "./StudioArt";
+import { createBrainCore } from "./BrainCore";
 
-export interface SceneActor { id: string; x: number; y: number; pose: Pose; dir: Dir; selected: boolean }
+export interface SceneActor {
+  id: string; x: number; y: number; pose: Pose; dir: Dir; selected: boolean;
+  posture?: "stand" | "desk" | "rest";
+}
+export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
 type RobotArt = ReturnType<typeof createRobot>;
-const INK = "#101925", WOOD = "#bb9672", WOOD_EDGE = "#886b52";
+const INK = "#101925", WOOD = "#b89570", WOOD_EDGE = "#80644d";
 const FLOOR: Record<RoomId, string> = {
-  lounge: "#3d383d", boss: "#303a4b", brain: "#353449", discover: "#30433f", workspace: "#35414a",
-  analyze: "#344157", studio: "#433543", system: "#3d403c", caption: "#38364d", schedule: "#494038", dock: "#30433e",
+  lounge: "#343e42", boss: "#343b49", brain: "#353448", discover: "#30423e", workspace: "#35424a",
+  analyze: "#354256", studio: "#423644", system: "#3a403f", caption: "#3c394e", schedule: "#464039", dock: "#34433f",
 };
-
 const px = (g: Graphics, x: number, y: number, w: number, h: number, color: string, alpha = 1) => {
-  g.rect(Math.round(x), Math.round(y), w, h).fill({ color, alpha });
+  g.rect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)).fill({ color, alpha });
 };
 const box = (g: Graphics, x: number, y: number, w: number, h: number, color: string, edge = INK) => {
   px(g, x, y, w, h, edge); px(g, x + 1, y + 1, w - 2, h - 2, color);
 };
 function plant(g: Graphics, x: number, y: number, tall = false) {
-  px(g, x - 5, y + 7, 16, 3, "#07101b", 0.3);
-  box(g, x - 1, y, 11, 9, "#b77d59"); px(g, x, y + 1, 9, 2, "#dfb18e");
-  px(g, x + 3, y - (tall ? 20 : 12), 2, tall ? 22 : 14, "#77995e");
-  const crown = tall ? [[-7, -22, 9, 7], [3, -27, 8, 8], [7, -15, 9, 6], [-6, -12, 9, 6]]
-    : [[-4, -10, 7, 6], [3, -15, 7, 7], [6, -8, 7, 5]];
-  for (const [dx, dy, w, h] of crown) {
+  px(g, x - 6, y + 7, 17, 3, "#07101b", .3);
+  box(g, x - 2, y, 12, 10, "#b77d59"); px(g, x - 1, y + 1, 10, 2, "#dfb18e");
+  px(g, x + 3, y - (tall ? 23 : 12), 2, tall ? 25 : 14, "#77995e");
+  for (const [dx, dy, w, h] of tall ? [[-8, -24, 10, 8], [3, -29, 9, 9], [7, -17, 10, 7], [-7, -13, 10, 7]]
+    : [[-5, -10, 8, 6], [3, -16, 8, 8], [6, -8, 8, 6]]) {
     box(g, x + dx, y + dy, w, h, "#537a58", "#233e38");
     px(g, x + dx + 1, y + dy + 1, w - 3, 2, "#91b47a");
   }
 }
-function desk(g: Graphics, x: number, y: number, w: number, accent: string) {
-  px(g, x + 3, y + 12, w + 2, 6, "#07101b", 0.28);
-  box(g, x, y + 3, w, 13, WOOD_EDGE);
-  px(g, x + 2, y + 4, w - 4, 2, "#e1ba90");
-  box(g, x - 2, y - 1, w + 4, 9, WOOD);
-  px(g, x, y, w, 2, "#e3c09b");
-  px(g, x + 3, y + 3, w - 8, 1, "#b18b67");
-  px(g, x + 4, y + 15, 3, 5, "#252b35"); px(g, x + w - 7, y + 15, 3, 5, "#252b35");
-  px(g, x + w - 10, y + 9, 4, 2, accent, 0.65);
+function rug(g: Graphics, x: number, y: number, w: number, h: number, color: string) {
+  box(g, x, y, w, h, color, "#232b36");
+  px(g, x + 3, y + 3, w - 6, 1, "#ede1c0", .18);
+  px(g, x + 3, y + h - 4, w - 6, 1, "#ede1c0", .18);
+  for (let xx = x + 8; xx < x + w - 5; xx += 8) px(g, xx, y + 5, 1, h - 10, "#13232a", .08);
 }
-function monitor(g: Graphics, lights: Graphics, x: number, y: number, accent: string, w = 21) {
-  px(g, x + 3, y + 15, w - 1, 3, "#0d1827", 0.25);
-  box(g, x, y, w, 15, "#38465a"); px(g, x + 2, y + 2, w - 4, 10, "#112338");
-  px(g, x + 1, y + 1, w - 2, 1, "#728294");
-  px(g, x + Math.floor(w / 2) - 1, y + 15, 3, 3, "#273343");
-  px(g, x + Math.floor(w / 2) - 5, y + 18, 11, 2, "#556070");
-  px(lights, x + 3, y + 3, w - 6, 7, accent, 0.19);
-  // A powered screen is a room-activity cue, never an invented chart or progress meter.
-  px(lights, x + 4, y + 5, 3, 2, accent, 0.75);
-  px(lights, x + w - 4, y + 12, 1, 1, accent);
-}
-function shelf(g: Graphics, x: number, y: number, w = 20) {
-  box(g, x, y, w, 26, "#70605c");
-  const books = ["#c77c72", "#b9a075", "#709db2", "#779c82", "#a190b4"];
+function shelf(g: Graphics, x: number, y: number, w = 28, h = 32) {
+  box(g, x, y, w, h, "#76645b");
+  const books = ["#b88377", "#c2ab7c", "#729cae", "#779e84", "#ac91bd"];
   for (let row = 0; row < 2; row++) {
-    px(g, x + 1, y + 12 + row * 12, w - 2, 2, "#433b41");
-    for (let j = 0; j < 4; j++) {
-      const yy = y + 3 + row * 12 + j % 2;
-      px(g, x + 3 + j * 4, yy, 3, 9 - j % 2, books[(j + row) % books.length]);
-      px(g, x + 3 + j * 4, yy + 2, 1, 1, "#e4d5b0");
+    const sy = y + 3 + row * Math.floor(h / 2);
+    px(g, x + 1, sy + 10, w - 2, 2, "#433b41");
+    for (let j = 0; j < Math.floor((w - 5) / 4); j++) {
+      box(g, x + 3 + j * 4, sy + j % 2, 3, 10 - j % 2, books[(j + row) % books.length]);
+      px(g, x + 3 + j * 4, sy + 2, 1, 1, "#e4d5b0");
     }
   }
 }
-function rug(g: Graphics, x: number, y: number, w: number, h: number, color: string) {
-  box(g, x, y, w, h, color, "#232a36");
-  px(g, x + 3, y + 3, w - 6, 1, "#ede1c0", 0.18);
-  px(g, x + 3, y + h - 4, w - 6, 1, "#ede1c0", 0.18);
+function windowPanel(g: Graphics, x: number, y: number, w = 36) {
+  box(g, x - 2, y - 2, w + 4, 23, "#172638", "#131e2b");
+  box(g, x, y, w, 18, "#41606a", "#819293");
+  px(g, x + 2, y + 2, w - 4, 5, "#a8c5bf", .36);
+  px(g, x + Math.floor(w / 2), y + 1, 2, 16, "#8b9391");
+  px(g, x + 1, y + 9, w - 2, 1, "#707e83");
+  px(g, x - 3, y + 18, w + 6, 3, "#a5a493");
+  g.poly([x + 2, y + 21, x + w - 2, y + 21, x + w + 14, y + 57, x + 18, y + 57])
+    .fill({ color: "#cce4d8", alpha: .045 });
+}
+function chairBack(g: Graphics, p: Pt, color: string, rest = false) {
+  const w = rest ? 34 : 30;
+  px(g, p.x - w / 2 + 2, p.y - 3, w + 1, 6, "#09131f", .24);
+  box(g, p.x - w / 2, p.y - 34, w, 22, color, "#1a2530");
+  px(g, p.x - w / 2 + 2, p.y - 32, w - 4, 3, "#ccddd0", .22);
+  px(g, p.x - w / 2 + 2, p.y - 29, 2, 14, "#18232b", .23);
+  box(g, p.x - w / 2 + 1, p.y - 17, w - 2, 12, color, "#24303a");
+  px(g, p.x - w / 2 + 3, p.y - 16, w - 6, 2, "#d8d2b3", .14);
+  px(g, p.x - 9, p.y - 4, 2, 7, "#253142"); px(g, p.x + 7, p.y - 4, 2, 7, "#253142");
+}
+function deskBack(g: Graphics, p: Pt, w: number) {
+  px(g, p.x - w / 2 + 2, p.y - 11, w + 2, 17, "#091421", .25);
+  px(g, p.x - w / 2 + 4, p.y - 16, 4, 18, "#253140");
+  px(g, p.x + w / 2 - 8, p.y - 16, 4, 18, "#253140");
+  box(g, p.x - w / 2 + 2, p.y - 20, w - 4, 12, WOOD_EDGE);
+}
+function deskFront(g: Graphics, p: Pt, w: number, accent: string) {
+  box(g, p.x - w / 2 - 1, p.y - 22, w + 2, 12, WOOD);
+  px(g, p.x - w / 2 + 1, p.y - 21, w - 2, 2, "#e0bf96");
+  px(g, p.x - w / 2 + 2, p.y - 12, w - 4, 4, WOOD_EDGE);
+  px(g, p.x - w / 2 + 4, p.y - 10, w - 8, 1, "#c6a681", .5);
+  box(g, p.x - 10, p.y - 21, 20, 4, "#5d6872");
+  for (let j = 0; j < 6; j++) px(g, p.x - 8 + j * 3, p.y - 20, 2, 1, "#b4bbc0");
+  box(g, p.x + w / 2 - 11, p.y - 23, 6, 5, "#d3c6ae");
+  px(g, p.x + w / 2 - 9, p.y - 22, 2, 2, accent, .7);
+}
+function monitor(g: Graphics, lights: Graphics, p: Pt, accent: string) {
+  const x = p.x - 20, y = p.y - 57, w = 26;
+  box(g, x, y, w, 18, "#435267");
+  px(g, x + 2, y + 2, w - 4, 12, "#12283b");
+  px(g, x + 1, y + 1, w - 2, 1, "#81909c");
+  px(g, x + 12, y + 18, 3, 5, "#263243");
+  box(g, x + 6, y + 22, 15, 3, "#636f7c");
+  px(lights, x + 3, y + 3, w - 6, 10, accent, .24);
+  px(lights, x + 4, y + 5, 4, 3, accent, .7);
+  px(lights, x + w - 5, y + 15, 2, 1, accent, .85);
 }
 
 export class StudioScene {
@@ -78,12 +108,13 @@ export class StudioScene {
   private roomHighlights = new Map<RoomId, Graphics>();
   private selector = new Graphics();
   private racks = new Graphics();
-  private core = new Container();
+  private rackLamps: Pt[] = [];
+  private core = createBrainCore();
   private actors = new Container();
+  private transfers = new Graphics();
   private destroyed = false;
 
   private constructor(app: Application) { this.app = app; }
-
   static async create(canvas: HTMLCanvasElement): Promise<StudioScene> {
     const app = new Application();
     try {
@@ -94,171 +125,202 @@ export class StudioScene {
       scene.build();
       return scene;
     } catch (error) {
-      // Context creation can fail on a browser/driver; the caller restores the existing Canvas renderer.
       try { app.destroy(false, { children: true }); } catch { /* init may not have completed */ }
       throw error;
     }
   }
-
+  private foreground(g: Graphics, feet: number) {
+    g.zIndex = feet + 1;
+    this.actors.addChild(g);
+  }
   private build() {
     const g = new Graphics();
     this.app.stage.addChild(g);
-    px(g, 0, 0, WORLD.w, WORLD.h, "#1b2738");
-    // Quiet stone corridor, with small inset lighting and no high-contrast checkerboard.
+    px(g, 0, 0, WORLD.w, WORLD.h, "#1c293a");
     for (let y = 0; y < WORLD.h; y += 16) for (let x = 0; x < WORLD.w; x += 24) {
-      px(g, x + 1, y + 1, 23, 15, "#263449");
-      if ((x / 24 + y / 16) % 4 === 0) px(g, x + 3, y + 3, 4, 1, "#465264", 0.18);
+      px(g, x + 1, y + 1, 23, 15, "#28374a");
+      if ((x / 24 + y / 16) % 4 === 0) px(g, x + 3, y + 3, 5, 1, "#71829a", .12);
     }
+    // Inset hall light strips mark the real clear circulation space, without drawing fake job paths.
+    for (const [y, x1, x2] of [[280, 8, 952], [446, 8, 952], [144, 440, 664]]) {
+      px(g, x1, y, x2 - x1, 1, "#94a9bd", .14);
+      px(g, x1, y + 1, x2 - x1, 3, "#9dbfbe", .035);
+    }
+    this.actors.sortableChildren = true;
     for (const r of ROOMS) {
-      const a = ROOM_ACCENT[r.id], x = r.x, y = r.y;
-      px(g, x + 4, y + 6, r.w, r.h, "#090f1a", 0.35);
-      box(g, x, y, r.w, r.h, FLOOR[r.id], "#172234");
-      // Floor planks and a bevel give each room depth, with the names remaining readable above.
+      const accent = ROOM_ACCENT[r.id], x = r.x, y = r.y;
+      px(g, x + 4, y + 6, r.w, r.h, "#08101b", .3);
+      box(g, x, y, r.w, r.h, FLOOR[r.id], "#142234");
       for (let yy = y + 20; yy < y + r.h - 1; yy += 12) {
-        px(g, x + 3, yy, r.w - 6, 1, "#132333", 0.18);
-        for (let xx = x + 18 + ((yy - y) % 24 ? 0 : 20); xx < x + r.w - 3; xx += 40)
-          px(g, xx, yy - 10, 1, 10, "#182536", 0.12);
+        px(g, x + 3, yy, r.w - 6, 1, "#152333", .17);
+        for (let xx = x + 16 + ((yy - y) % 24 ? 0 : 22); xx < x + r.w - 3; xx += 44)
+          px(g, xx, yy - 10, 1, 10, "#142435", .12);
       }
-      px(g, x + 1, y + 1, r.w - 2, 7, "#43516a");
-      px(g, x + 1, y + 1, r.w - 2, 1, "#788397", 0.6);
-      px(g, x + 1, y + 7, r.w - 2, 3, "#19283b");
-      px(g, x + 1, y + 10, 3, r.h - 11, "#4d5a70");
-      px(g, x + r.w - 4, y + 10, 3, r.h - 11, "#23344a");
-      px(g, x + 4, y + r.h - 3, r.w - 8, 2, "#1c2b3e");
-      px(g, x + 6, y + 10, r.w - 12, 1, a, 0.28);
+      // Layered ambient light is decorative and static. Work lights below remain tied to real roles.
+      for (let layer = 0; layer < 5; layer++)
+        px(g, x + 10 + layer * 9, y + 18 + layer * 5, r.w - 20 - layer * 18, r.h - 28 - layer * 10,
+          r.id === "lounge" ? "#d1c394" : "#d5dded", .012);
+      px(g, x + 1, y + 1, r.w - 2, 8, "#47556a");
+      px(g, x + 1, y + 1, r.w - 2, 1, "#8291a2", .55);
+      px(g, x + 1, y + 8, r.w - 2, 3, "#1b2b3b");
+      px(g, x + 1, y + 10, 3, r.h - 11, "#536074");
+      px(g, x + r.w - 4, y + 10, 3, r.h - 11, "#23354b");
+      px(g, x + 4, y + r.h - 3, r.w - 8, 2, "#1d2c3c");
+      px(g, x + 6, y + 10, r.w - 12, 1, accent, .24);
+      const d = r.door;
+      if (d.y === y + r.h) {
+        px(g, d.x - 17, d.y - 4, 34, 8, "#344153");
+        px(g, d.x - 17, d.y - 3, 2, 7, "#809094"); px(g, d.x + 15, d.y - 3, 2, 7, "#809094");
+      } else {
+        px(g, d.x - 4, d.y - 56, 8, 64, "#2b3b4e");
+        px(g, d.x - 4, d.y - 57, 8, 2, "#849296"); px(g, d.x - 4, d.y + 7, 8, 2, "#6c797f");
+        px(g, d.x - 2, d.y - 55, 4, 61, "#2b3b4e");
+      }
       const glow = new Graphics();
-      px(glow, x + 6, y + 11, r.w - 12, 3, a, 0.12);
-      px(glow, x + 6, y + 11, r.w - 12, 1, a, 0.45);
-      this.lights.set(r.id, glow);
-      this.app.stage.addChild(glow);
+      px(glow, x + 6, y + 11, r.w - 12, 2, accent, .3);
+      this.lights.set(r.id, glow); this.app.stage.addChild(glow);
       const pulse = new Graphics();
-      pulse.rect(x + 2, y + 2, r.w - 4, r.h - 4).stroke({ color: a, width: 1, alpha: 0.7 });
-      pulse.visible = false;
-      this.roomHighlights.set(r.id, pulse);
-      this.app.stage.addChild(pulse);
-      // Rooms have curated role-specific furniture, rather than a shelf in every corner.
-      const ids = CAST.filter(c => c.room === r.id);
-      for (const c of ids) {
-        const at = STATION[c.id];
-        desk(g, at.x - 19, y + 42, 38, a);
-        monitor(g, glow, at.x - 11, y + 22, a);
-        // Small keyboard and a cast-colored desk mat.
-        box(g, at.x - 10, y + 39, 19, 4, "#657180");
-        for (let j = 0; j < 5; j++) px(g, at.x - 8 + j * 3, y + 40, 2, 1, "#bcc3c9");
+      pulse.rect(x + 2, y + 2, r.w - 4, r.h - 4).stroke({ color: accent, width: 1, alpha: .7 });
+      pulse.visible = false; this.roomHighlights.set(r.id, pulse); this.app.stage.addChild(pulse);
+
+      if (r.id === "boss") rug(g, x + 43, y + 65, 108, 52, "#525040");
+
+      if (r.id === "lounge") {
+        rug(g, x + 12, y + 33, 372, 226, "#425751");
+        for (const c of CAST) {
+          const p = REST_SEAT[c.id];
+          chairBack(g, p, c.rank === "director" ? "#927559" : c.rank === "manager" ? "#5e7774" : "#6c737c", true);
+          const front = new Graphics();
+          for (const side of [-1, 1]) {
+            const sx = p.x + (side < 0 ? -18 : 13);
+            box(front, sx, p.y - 18, 6, 16, "#72817f", "#25323b");
+            px(front, sx + 1, p.y - 17, 4, 2, "#b3b1a0", .45);
+          }
+          px(front, p.x - 12, p.y - 5, 24, 2, "#37464e");
+          this.foreground(front, p.y);
+        }
+        windowPanel(g, x + 84, y + 17, 52); windowPanel(g, x + 238, y + 17, 52);
+        shelf(g, x + 8, y + 14, 46, 22);
+        // Coffee unit and lamp sit against the back wall, leaving every seating aisle clear.
+        box(g, x + 336, y + 17, 32, 18, "#766c5d");
+        box(g, x + 341, y + 14, 15, 17, "#34424a"); px(g, x + 344, y + 16, 9, 4, "#93b9b1");
+        box(g, x + 362, y + 19, 5, 6, "#e0d3b9");
+        breakRoomLamp(g, x + 397, y + 26);
+      } else {
+        for (const c of CAST.filter(character => character.room === r.id)) {
+          const p = STATION[c.id], width = c.id === "command" ? 74 : 56;
+          chairBack(g, p, c.rank === "director" ? "#766047" : "#526772");
+          deskBack(g, p, width); monitor(g, glow, p, accent);
+          const front = new Graphics(); deskFront(front, p, width, accent);
+          this.foreground(front, p.y);
+        }
       }
       switch (r.id) {
-        case "lounge": {
-          rug(g, x + 30, y + 47, 164, 32, "#49605e");
-          px(g, x + 44, y + 30, 132, 14, "#152132", 0.3);
-          box(g, x + 40, y + 26, 128, 18, "#ac6d68");
-          px(g, x + 44, y + 27, 120, 3, "#d29b88");
-          for (let j = 0; j < 3; j++) box(g, x + 48 + j * 36, y + 35, 32, 12, "#c18175");
-          box(g, x + 39, y + 32, 8, 20, "#945e61"); box(g, x + 164, y + 32, 8, 20, "#945e61");
-          desk(g, x + 92, y + 62, 46, "#cba878");
-          box(g, x + 103, y + 59, 6, 5, "#e1cab2");
-          plant(g, x + 16, y + 81, true); shelf(g, x + r.w - 27, y + 28);
-          px(g, x + 21, y + 30, 2, 27, "#987c61"); box(g, x + 14, y + 25, 15, 9, "#ddbd88");
+        case "boss":
+          windowPanel(g, x + 55, y + 19, 78);
+          shelf(g, x + 10, y + 23, 25, 35); plant(g, x + 165, y + 61, true);
+          box(g, x + 152, y + 21, 22, 21, "#66594d");
+          px(g, x + 155, y + 24, 16, 15, "#cfb685"); px(g, x + 162, y + 27, 2, 10, "#695c49");
           break;
-        }
-        case "boss": {
-          box(g, x + 30, y + 21, 18, 23, "#252d42");
-          px(g, x + 34, y + 25, 10, 3, "#b39a67"); px(g, x + 38, y + 28, 2, 11, "#b39a67");
-          plant(g, x + r.w - 20, y + 79, true);
-          shelf(g, x + 9, y + 23, 20);
+        case "brain":
+          rug(g, x + 45, y + 54, 175, 112, "#424759");
+          windowPanel(g, x + 18, y + 21, 29); windowPanel(g, x + r.w - 48, y + 21, 29);
+          shelf(g, x + 9, y + 59, 30, 46); shelf(g, x + r.w - 40, y + 61, 29, 45);
+          plant(g, x + 21, y + 142, true); plant(g, x + r.w - 27, y + 143, true);
+          // Archive cabinets flank the pedestal and never masquerade as performance data.
+          for (const dx of [43, 206]) {
+            box(g, x + dx, y + 127, 23, 28, "#54536a");
+            for (let row = 0; row < 3; row++) { box(g, x + dx + 2, y + 130 + row * 7, 19, 5, "#373e53"); px(g, x + dx + 10, y + 132 + row * 7, 4, 1, "#aea3ba"); }
+          }
+          this.core.container.position.set(CORE_AT.x, CORE_AT.y);
           break;
-        }
-        case "brain": {
-          const crystal = new Graphics();
-          box(g, CORE_AT.x - 17, CORE_AT.y + 2, 34, 10, "#404259");
-          px(g, CORE_AT.x - 15, CORE_AT.y + 4, 30, 2, "#76708e");
-          px(crystal, -9, -29, 18, 30, "#c4a8ff", 0.1);
-          box(crystal, -8, -23, 16, 25, "#8870b5", "#3d355d");
-          px(crystal, -5, -20, 5, 18, "#cbb9ec"); px(crystal, 1, -17, 4, 15, "#ad8de0");
-          px(crystal, -5, -22, 10, 2, "#ece1ff");
-          this.core.addChild(crystal); this.core.position.set(CORE_AT.x, CORE_AT.y);
-          shelf(g, x + 5, y + 24, 18); plant(g, x + r.w - 13, y + 79);
-          break;
-        }
         case "workspace": {
-          rug(g, x + 19, y + 30, r.w - 38, 61, "#405b64");
-          desk(g, x + 45, y + 57, r.w - 90, "#6d9da0");
+          rug(g, x + 24, y + 26, r.w - 48, 62, "#43616a");
+          for (const dy of [42, 76]) for (const dx of [58, 90, 122]) {
+            box(g, x + dx, y + dy, 16, 11, "#63838b"); px(g, x + dx + 2, y + dy + 1, 12, 2, "#95b0b3", .4);
+          }
+          box(g, x + 43, y + 51, 105, 22, WOOD); px(g, x + 45, y + 52, 101, 2, "#e0bd95");
+          box(g, x + 68, y + 57, 12, 7, "#d8d3c3"); box(g, x + 112, y + 59, 5, 5, "#ddd4bb");
+          windowPanel(g, x + 51, y + 16, 91); plant(g, x + 13, y + 44); plant(g, x + r.w - 20, y + 43);
+          break;
+        }
+        case "system":
+          for (const dx of [14, 65]) {
+            box(g, x + dx, y + 23, 42, 39, "#465261");
+            px(g, x + dx + 2, y + 25, 38, 2, "#91a0a8", .5);
+            for (let j = 0; j < 4; j++) {
+              box(g, x + dx + 4, y + 29 + j * 7, 34, 5, "#263549");
+              this.rackLamps.push({ x: x + dx + 7, y: y + 31 + j * 7 });
+              px(g, x + dx + 13, y + 31 + j * 7, 18, 1, "#718395", .6);
+            }
+          }
+          shelf(g, x + 146, y + 22, 43, 34); break;
+        case "schedule":
+          box(g, x + 32, y + 26, 144, 36, "#beaf8e"); px(g, x + 35, y + 29, 138, 5, "#877464");
+          for (let row = 0; row < 2; row++) for (let col = 0; col < 9; col++)
+            box(g, x + 39 + col * 14, y + 39 + row * 10, 10, 7, "#e0d2b4", "#a49880");
+          plant(g, x + 21, y + 88, true); plant(g, x + r.w - 31, y + 91, true); break;
+        case "dock":
+          for (const [dx, dy, w] of [[13, 28, 21], [40, 36, 24], [17, 48, 23]]) {
+            box(g, x + dx, y + dy, w, 18, "#ae8e69"); px(g, x + dx + Math.floor(w / 2), y + dy + 1, 2, 15, "#dac396");
+            box(g, x + dx + 3, y + dy + 4, 6, 5, "#d6cfb5");
+          }
+          windowPanel(g, x + 86, y + 26, 79); break;
+        case "discover":
+          windowPanel(g, x + 67, y + 22, 65); windowPanel(g, x + 170, y + 22, 65);
+          plant(g, x + 16, y + 59, true); shelf(g, x + r.w - 36, y + 22, 25, 30); break;
+        case "analyze":
           for (let j = 0; j < 3; j++) {
-            box(g, x + 54 + j * 31, y + 38, 15, 14, "#68828b");
-            box(g, x + 54 + j * 31, y + 74, 15, 12, "#526c77");
-          }
-          box(g, x + 64, y + 23, 64, 13, "#907b65"); px(g, x + 67, y + 25, 58, 8, "#d6c29b");
-          plant(g, x + 14, y + 33); plant(g, x + r.w - 20, y + 33);
-          box(g, x + 73, y + 54, 12, 6, "#ddd4c4");
-          break;
-        }
-        case "system": {
-          for (const dx of [184, 205]) {
-            box(g, x + dx, y + 23, 16, 39, "#3b4759");
-            for (let j = 0; j < 4; j++) { box(g, x + dx + 2, y + 26 + j * 8, 12, 6, "#202e42"); }
+            box(g, x + 38 + j * 73, y + 23, 51, 20, "#738491");
+            px(g, x + 41 + j * 73, y + 26, 45, 14, "#273d51");
+            px(g, x + 47 + j * 73, y + 30, 10, 6, "#9ebdc2", .45);
+            px(g, x + 62 + j * 73, y + 30, 18, 1, "#a3b5bc", .45);
           }
           break;
-        }
-        case "schedule": {
-          box(g, x + 146, y + 26, 55, 35, "#cab692");
-          px(g, x + 148, y + 28, 51, 5, "#8e7160");
-          for (let row = 0; row < 3; row++) for (let col = 0; col < 7; col++)
-            px(g, x + 150 + col * 7, y + 36 + row * 7, 5, 5, "#ead9b8");
-          plant(g, x + 16, y + 77, true);
-          break;
-        }
-        case "dock": {
-          for (const [dx, dy] of [[16, 29], [29, 36], [15, 46]]) {
-            box(g, x + dx, y + dy, 11, 10, "#b08c66"); px(g, x + dx + 5, y + dy + 1, 2, 8, "#dbc293");
+        case "studio":
+          shelf(g, x + 11, y + 20, 35, 30);
+          for (let j = 0; j < 3; j++) {
+            box(g, x + 82 + j * 62, y + 23, 43, 21, "#666077");
+            box(g, x + 85 + j * 62, y + 26, 37, 15, "#253748");
+            for (const dx of [0, 5, 10]) px(g, x + 88 + j * 62 + dx, y + 28, 3, 2, "#bc94b0", .65);
           }
-          px(g, x + 7, y + 60, 218, 2, "#8bac8a", 0.3);
           break;
-        }
-        case "discover": plant(g, x + 16, y + 76, true); break;
-        case "caption": shelf(g, x + 7, y + 28, 21); break;
-        case "studio": {
-          box(g, x + 10, y + 28, 15, 20, "#4c435b");
-          for (let j = 0; j < 4; j++) px(g, x + 11, y + 30 + j * 4, 2, 2, "#c0a0b4");
+        case "caption":
+          shelf(g, x + 16, y + 23, 40, 34); shelf(g, x + 152, y + 23, 40, 34);
+          box(g, x + 78, y + 24, 48, 26, "#88758a"); px(g, x + 81, y + 27, 42, 20, "#dbd0bd");
+          for (const dy of [32, 38, 43]) px(g, x + 87, y + dy, dy === 43 ? 22 : 30, 1, "#726579");
           break;
-        }
         default: break;
       }
     }
-    const e = ENTRANCE;
-    rug(g, e.x + 28, e.y + 42, e.w - 56, 46, "#374353");
-    box(g, e.x + 74, e.y + 22, 44, 48, "#455a72");
-    box(g, e.x + 79, e.y + 27, 34, 42, "#23364b");
-    px(g, e.x + 83, e.y + 31, 10, 30, "#7aadb8", 0.58);
-    px(g, e.x + 97, e.y + 31, 10, 30, "#7aadb8", 0.58);
-    box(g, e.x + 77, e.y + 18, 38, 7, "#b09771");
-    plant(g, e.x + 35, e.y + 52, true); plant(g, e.x + e.w - 42, e.y + 52, true);
-    // The furnished floor never changes. Render it once instead of replaying every plank/desk at each frame.
+    // Cache all static floor, furniture backs and ambient lighting once.
     g.cacheAsTexture({ resolution: 1, antialias: false });
-    this.app.stage.addChild(this.core, this.racks, this.selector, this.actors);
-    this.actors.sortableChildren = true;
+    this.app.stage.addChild(this.core.container, this.racks, this.selector, this.actors, this.transfers);
     for (const c of CAST) {
-      const robot = createRobot(c);
-      this.robots.set(c.id, robot);
-      this.actors.addChild(robot.container);
+      const art = createRobot(c); art.container.scale.set(ROBOT_SCALE);
+      this.robots.set(c.id, art); this.actors.addChild(art.container);
     }
   }
 
-  draw(snap: Snapshot, actors: SceneActor[], t: number, still: boolean, pulseUntil: Map<RoomId, number>, coreBusy: boolean) {
+  draw(snap: Snapshot, actors: SceneActor[], t: number, still: boolean, pulseUntil: Map<RoomId, number>,
+    coreBusy: boolean, offline = false, handoffs: SceneHandoff[] = []) {
     if (this.destroyed) return;
     const busy = new Set(snap.roles.filter(r => r.state === "working" && BY_ID[r.id]).map(r => BY_ID[r.id].room));
-    for (const [id, lights] of this.lights) lights.alpha = busy.has(id) ? 0.9 : 0.24;
+    for (const [id, lights] of this.lights) lights.alpha = busy.has(id) && !offline ? .9 : .22;
     for (const [id, highlight] of this.roomHighlights) {
       const until = pulseUntil.get(id) || 0;
       highlight.visible = until > t;
-      highlight.alpha = still ? 0.5 : Math.min(0.7, Math.max(0, (until - t) / 900));
+      highlight.alpha = still ? .5 : Math.min(.7, Math.max(0, (until - t) / 900));
     }
-    this.core.alpha = coreBusy ? 1 : 0.75;
-    this.core.y = CORE_AT.y + (coreBusy && !still ? Math.round(Math.sin(t / 400)) : 0);
+    const mode = offline ? "offline" : ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused" ? "paused"
+      : coreBusy || busy.has("brain") ? "active" : "standby";
+    this.core.update(t, still, mode);
     this.racks.clear();
-    const sy = ROOM.system;
     const colors: Record<string, string> = { healthy: "#8bbc96", degraded: "#dcc080", error: "#e08788", unknown: "#71849c" };
-    for (let j = 0; j < Math.min(8, snap.health.checks.length); j++)
-      px(this.racks, sy.x + (j < 4 ? 194 : 215), sy.y + 28 + (j % 4) * 8, 2, 2,
-        colors[snap.health.checks[j].status] || colors.unknown);
+    for (let j = 0; j < Math.min(this.rackLamps.length, snap.health.checks.length); j++) {
+      const p = this.rackLamps[j];
+      px(this.racks, p.x, p.y, 3, 2, offline ? colors.unknown : colors[snap.health.checks[j].status] || colors.unknown);
+    }
     this.selector.clear();
     const present = new Set(actors.map(a => a.id));
     for (const [id, art] of this.robots) art.container.visible = present.has(id);
@@ -267,19 +329,41 @@ export class StudioScene {
       if (!art) continue;
       art.container.position.set(Math.round(actor.x), Math.round(actor.y));
       art.container.zIndex = actor.y;
-      art.animate(actor.pose, t, still, actor.dir);
+      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand");
       if (actor.selected) {
         const x = Math.round(actor.x), y = Math.round(actor.y);
-        this.selector.poly([x - 21, y - 4, x, y - 10, x + 21, y - 4, x, y + 3]).fill({ color: "#c9b98c", alpha: 0.13 })
-          .stroke({ color: "#e5cf96", width: 1 });
+        this.selector.poly([x - 19, y - 4, x, y - 8, x + 19, y - 4, x, y + 3])
+          .fill({ color: "#c9b98c", alpha: .14 }).stroke({ color: "#e5cf96", width: 1 });
       }
+    }
+    // The single card exists only during the controller's genuine pass phase; it never invents a handoff.
+    this.transfers.clear();
+    for (const handoff of handoffs) {
+      const p = Math.max(0, Math.min(1, handoff.progress));
+      const x = Math.round(handoff.from.x + (handoff.to.x - handoff.from.x) * p);
+      const y = Math.round(handoff.from.y + (handoff.to.y - handoff.from.y) * p - 22 - Math.sin(Math.PI * p) * 3);
+      if (!still && p > .1 && p < .9) {
+        const dx = Math.sign(handoff.to.x - handoff.from.x);
+        px(this.transfers, x - dx * 10 - 2, y, 4, 1, "#d8cbb0", .3);
+        px(this.transfers, x - dx * 7 - 1, y - 2, 3, 1, "#d8cbb0", .5);
+      }
+      box(this.transfers, x - 5, y - 5, 10, 10, "#efe4c9", "#263142");
+      px(this.transfers, x - 3, y - 3, 6, 2, "#ad89c3");
+      px(this.transfers, x - 3, y + 1, 5, 1, "#74818a");
     }
     this.app.renderer.render(this.app.stage);
   }
-
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.core.destroy();
     this.app.destroy(false, { children: true });
   }
+}
+function breakRoomLamp(g: Graphics, x: number, y: number) {
+  px(g, x, y - 6, 2, 27, "#8c7961");
+  box(g, x - 7, y - 12, 17, 10, "#d7bd85");
+  px(g, x - 4, y - 2, 10, 1, "#f5dbae", .6);
+  px(g, x - 4, y + 19, 10, 3, "#3b434b");
+  px(g, x - 12, y + 1, 26, 24, "#f0d097", .035);
 }

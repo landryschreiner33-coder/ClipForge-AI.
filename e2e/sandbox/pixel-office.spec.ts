@@ -7,7 +7,7 @@ test("the Pixi office keeps its full cast through navigation and repeated Map/Li
   await page.goto("/#/office");
   await page.getByRole("button", { name: "Map", exact: true }).click();
   await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "pixi");
-  await expect(page.locator('.robot-hit[data-id="command"]')).toHaveAttribute("data-room", "boss");
+  await expect(page.locator('.robot-hit[data-id="command"]')).toHaveAttribute("data-room", "lounge");
   await expect(page.locator(".robot-hit")).toHaveCount(25);
   const painted = await page.locator(".office-world canvas").evaluate((source: HTMLCanvasElement) => {
     const copy = document.createElement("canvas");
@@ -24,7 +24,7 @@ test("the Pixi office keeps its full cast through navigation and repeated Map/Li
     await page.getByRole("button", { name: "List", exact: true }).click();
     await expect(page.locator(".office-map")).toHaveCount(0);
     await page.getByRole("button", { name: "Map", exact: true }).click();
-    await expect(page.locator('.robot-hit[data-id="radar"]')).toHaveAttribute("data-room", "discover");
+    await expect(page.locator('.robot-hit[data-id="radar"]')).toHaveAttribute("data-room", "lounge");
     await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "pixi");
   }
   await page.locator('.robot-hit[data-id="radar"]').click();
@@ -33,7 +33,7 @@ test("the Pixi office keeps its full cast through navigation and repeated Map/Li
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Team");
   await page.goto("/#/office");
   await expect(page.locator(".robot-hit")).toHaveCount(25);
-  await expect(page.locator('.robot-hit[data-id="command"]')).toHaveAttribute("data-room", "boss");
+  await expect(page.locator('.robot-hit[data-id="command"]')).toHaveAttribute("data-room", "lounge");
   expect(errors).toEqual([]);
 });
 
@@ -43,7 +43,7 @@ test("an unavailable graphics bundle keeps the original map, robot details and c
   await page.getByRole("button", { name: "Map", exact: true }).click();
   await expect(page.locator(".office-map")).toHaveAttribute("data-renderer", "canvas");
   await expect(page.locator(".robot-hit")).toHaveCount(25);
-  await expect(page.locator('.robot-hit[data-id="radar"]')).toHaveAttribute("data-room", "discover");
+  await expect(page.locator('.robot-hit[data-id="radar"]')).toHaveAttribute("data-room", "lounge");
   await expect(page.getByText("Original artwork · new graphics unavailable in this browser")).toBeVisible();
   await page.locator('.robot-hit[data-id="radar"]').click();
   await expect(page.getByRole("complementary", { name: "Details" }).getByRole("heading", { level: 2 })).toHaveText("RADAR");
