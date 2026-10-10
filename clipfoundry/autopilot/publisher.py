@@ -2,9 +2,9 @@
 
 Before every upload it checks again that the source may be used (rights, including the platforms its coverage
 allows), that the approval still matches the exact content (and, for a post approved automatically, that your
-automatic-publishing permission is still in force), that the clip was not published already, that the platform accepts posts right now and that the
-account is connected. If the user has to do something (reconnect, approve again, pick another visibility, get the
-app audited), the post stops there with a clear action item.
+automatic-publishing permission is still in force), that the clip was not published already, that the platform
+accepts posts right now and that the account is connected. If the user has to do something (reconnect, approve
+again, pick another visibility, get the app audited), the post stops there with a clear action item.
 
 Uploads are idempotent: the YouTube upload session and the TikTok publish ID are stored as soon as they exist, so
 after a crash or restart the upload is resumed or its outcome is read back, instead of posting the video twice.
@@ -16,6 +16,7 @@ exactly that time and the upload keeps its place (see _platform_wait).
 from __future__ import annotations
 
 import datetime as dt
+import math
 import time
 
 import httpx
@@ -72,8 +73,8 @@ def already_published(item: dict) -> str:
 
 
 # ------------------------------------------------------------------ recovering an interrupted upload
-def _youtube_upload_by_title(pub: dict) -> dict | None:
-    """After an expired upload session: did the video arrive anyway? (recent uploads of the channel, 2 units)"""
+def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) -> dict | None:
+    """Look among recent channel uploads after an expired session; manual recovery also verifies metadata."""
     token = youtube.Token(db.get_settings())
     acc = db.get_account("youtube") or {}
     youtube._quota("channels.list", "publish")  # noqa: SLF001
@@ -89,12 +90,34 @@ def _youtube_upload_by_title(pub: dict) -> dict | None:
         r = c.get(f"{youtube.API_URL}/playlistItems", params={"part": "snippet,contentDetails", "playlistId": playlist,
                                                               "maxResults": 10},
                   headers={"Authorization": f"Bearer {token.get()}"})
-    since = float((pub.get("info") or {}).get("session_started") or 0) - 120  # never an older video of that title
+    info = pub.get("info") or {}
+    started = float(info.get("session_started") or 0)
+    since = started - 120  # the historical scheduled lookup keeps its existing clock allowance
+    submitted = info.get("upload_snippet") or {}
+    if require_exact_metadata and (not math.isfinite(started) or started <= 0 or not submitted):
+        return None  # Without the actual submitted metadata, a common title is not enough to clear a manual hold.
+    candidates = []
     for it in (r.json().get("items") or []) if r.status_code == 200 else []:
         sn = it.get("snippet") or {}
         published = iso_time(sn.get("publishedAt"))
+        if require_exact_metadata:
+            # Platform timestamps have whole-second precision; an older/missing time never establishes identity.
+            if sn.get("title") != submitted.get("title") or published is None or published < math.floor(started):
+                continue
+            video_id = (it.get("contentDetails") or {}).get("videoId") or sn.get("resourceId", {}).get("videoId")
+            if video_id:
+                candidates.append(video_id)
+            continue
         if sn.get("title") == pub["title"] and (published is None or published >= since):
             return {"id": (it.get("contentDetails") or {}).get("videoId") or sn.get("resourceId", {}).get("videoId")}
+    if require_exact_metadata and len(candidates) == 1:
+        items = youtube._get(token, f"{youtube.API_URL}/videos", {"part": "snippet", "id": candidates[0]},
+                             purpose="publish").get("items") or []
+        if len(items) == 1 and items[0].get("id") == candidates[0]:
+            seen = items[0].get("snippet") or {}
+            if all(seen.get(k, [] if k == "tags" else "") == submitted.get(k, [] if k == "tags" else "")
+                   for k in ("title", "description", "tags")):
+                return {"id": candidates[0]}
     return None
 
 

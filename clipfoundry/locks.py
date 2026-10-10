@@ -73,8 +73,9 @@ class FileLock:
         while not self._thread_lock.acquire(timeout=poll):
             if (cancelled and cancelled()) or (deadline is not None and time.monotonic() >= deadline):
                 return False
-        fd = os.open(str(self.path), os.O_RDWR | os.O_CREAT, 0o600)
+        fd: int | None = None
         try:
+            fd = os.open(str(self.path), os.O_RDWR | os.O_CREAT, 0o600)
             if os.fstat(fd).st_size == 0:
                 os.write(fd, b"0")  # msvcrt locks a byte range, so the file needs one byte
             while not _try_lock(fd):
@@ -82,12 +83,18 @@ class FileLock:
                     raise TimeoutError
                 time.sleep(poll)
         except TimeoutError:
-            os.close(fd)
-            self._thread_lock.release()
+            try:
+                if fd is not None:
+                    os.close(fd)
+            finally:
+                self._thread_lock.release()
             return False
         except BaseException:
-            os.close(fd)
-            self._thread_lock.release()
+            try:
+                if fd is not None:
+                    os.close(fd)
+            finally:
+                self._thread_lock.release()
             raise
         self._fd = fd
         return True

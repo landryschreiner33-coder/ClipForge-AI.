@@ -47,8 +47,9 @@ def workspace() -> dict:
 
 @router.get("/export", dependencies=READ)
 def export() -> JSONResponse:
-    return JSONResponse(knowledge.export(), headers={"Content-Disposition": 'attachment; filename="brain-knowledge.json"',
-                                                     "X-Content-Type-Options": "nosniff"})
+    return JSONResponse(knowledge.export(), headers={
+        "Content-Disposition": 'attachment; filename="brain-knowledge.json"', "X-Content-Type-Options": "nosniff",
+    })
 
 
 @router.post("", dependencies=WRITE)
@@ -72,7 +73,8 @@ async def upload(file: UploadFile = File(...), metadata: str = Form(...)) -> dic
         example = data["kind"] == "example"
         allowed = knowledge.VIDEOS if example else knowledge.DOCUMENTS
         if extension not in allowed:
-            raise knowledge.Invalid("Upload MP4, MOV, or WebM for an example; TXT, MD, CSV, JSON, or DOCX for a document")
+            raise knowledge.Invalid("Upload MP4, MOV, or WebM for an example; "
+                                    "TXT, MD, CSV, JSON, or DOCX for a document")
         limit = knowledge.MAX_VIDEO if example else knowledge.MAX_DOCUMENT
         knowledge_id = db.new_id()
         directory = config.data_dir() / "brain" / "knowledge" / knowledge_id
@@ -130,6 +132,8 @@ def preview(body: Preview) -> dict:
 def edit(knowledge_id: str, body: dict) -> dict:
     try:
         return knowledge.edit(knowledge_id, body)
+    except knowledge.Conflict as exc:
+        raise invalid(exc, 409) from None
     except knowledge.Invalid as exc:
         raise invalid(exc) from None
 

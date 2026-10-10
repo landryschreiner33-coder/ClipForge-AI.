@@ -286,10 +286,14 @@ capability matrix: [docs/OFFICE.md](docs/OFFICE.md). The art and how to extend i
 paused, a controlled error state, Team): [design/robot-office/screenshots](design/robot-office/screenshots/README.md).
 
 The living pixel office uses PixiJS for proportionate furniture, seated robot rigs, actual document passes and an
-animated neural Brain. Idle robots rest in their own lounge seats. The room camera zooms in; Full / Reduced / Follow
-system controls the motion. Canvas compatibility keeps the same layout, seats and controls with the original robot
-identities. It is included in the Windows build and needs no design account or paid service.
-[Latest screenshots, labeled animation preview and source-editing guide](design/robot-office/living/README.md).
+animated neural Brain. Real work gathers the whole department: workers use their own desks, managers oversee them,
+and idle teammates sit ready without invented jobs. Off-duty robots play, eat, drink and read in the lounge.
+Processing Brain art has holographic scans, moving neural trails and rising sparks. The room camera zooms in;
+Full / Reduced / Follow system controls the motion. Canvas compatibility keeps the same layout, duties and controls
+with the original robot identities. It is included in the Windows build and needs no design account or paid service.
+[Latest department screenshots and labeled animation preview](design/robot-office/departments/README.md).
+[Lounge graphics and source-editing guide](design/robot-office/lounge/README.md).
+[Preceding seated-work checkpoint](design/robot-office/living/README.md).
 [Preceding refined artwork checkpoint](design/robot-office/retro/README.md).
 
 ## Third-party assets

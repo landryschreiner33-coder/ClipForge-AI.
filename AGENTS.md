@@ -322,6 +322,10 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     The owner's 2026-10-09 request also authorizes decorative off-duty lounge activities and movement: games,
     food, drinks and reading. These do not represent job progress. Preserve actual status icons and accessible
     labels; real work takes priority, and Pause, Reduced motion, hidden or disconnected views freeze recreation.
+    The owner's later 2026-10-09 request also authorizes department attendance and manager supervision: real
+    work or substantive assigned backlog gathers the whole department; actual workers appear immediately at their
+    own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
+    or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
 
 ## Current continuation scope (2026-10-08)
 

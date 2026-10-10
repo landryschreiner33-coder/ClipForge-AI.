@@ -286,7 +286,10 @@ def mark_canceled(job: dict, owner: str, message: str = "Canceled") -> bool:
     return ok
 
 
-def progress(job_id: str, fraction: float | None = None, message: str | None = None, stage: str | None = None) -> None:
+def progress(job_id: str, fraction: float | None = None, message: str | None = None, stage: str | None = None,
+             *, owner: str | None = None) -> bool:
+    """Update running work; a handler must supply its lease token so recovered threads cannot report new stages.
+    Unowned callers retain the direct progress helper, but cannot change pending or finished work."""
     fields: dict[str, Any] = {}
     if fraction is not None:
         fields["progress"] = round(max(0.0, min(1.0, fraction)), 4)
@@ -294,11 +297,26 @@ def progress(job_id: str, fraction: float | None = None, message: str | None = N
         fields["message"] = message[:500]
     if stage is not None:
         fields["stage"] = stage
-    if fields:
-        before = db.fetch("worker_jobs", job_id) if stage is not None else None
-        db.update("worker_jobs", job_id, **fields)
-        if before and before.get("stage") != stage:  # a new stage can mean another role takes over
-            feed.job_event({**before, **fields}, "job_stage", message or "", stage=stage)
+    if not fields:
+        return False
+    fields["updated_at"] = _now()
+    cols = ", ".join(f"{key} = ?" for key in fields)
+    guard = "id = ? AND status = 'running'"
+    args: list[Any] = [job_id]
+    if owner is not None:
+        guard += " AND lease_owner = ?"
+        args.append(owner)
+    with db.connect() as conn:
+        # Keep the previous stage and the ownership check in the same write transaction.
+        conn.execute("BEGIN IMMEDIATE")
+        before = db._decode("worker_jobs", conn.execute(f"SELECT * FROM worker_jobs WHERE {guard}", args).fetchone())
+        if before is None:
+            return False
+        updated = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE {guard}",
+                               [*fields.values(), *args]).rowcount
+    if updated and stage is not None and before["stage"] != stage:
+        feed.job_event({**before, **fields}, "job_stage", message or "", stage=stage)
+    return bool(updated)
 
 
 # ------------------------------------------------------------------ control
@@ -342,7 +360,11 @@ def recover(now: float | None = None) -> dict:
     """Jobs whose worker vanished (crash, restart, hang past the lease): retry them, or fail after max attempts."""
     now = now or _now()
     counts = {"retrying": 0, "failed": 0, "canceled": 0}
+    recovered = []
     with db.connect() as conn:
+        # Maintenance and the supervisor can recover at the same time as a heartbeat or cancellation.
+        # Decide the outcome under the write lock so none can change the selected lease underneath us.
+        conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute("SELECT id, worker, attempts, max_attempts, cancel_requested FROM worker_jobs "
                             "WHERE status = 'running' AND lease_until < ?", (now,)).fetchall()
         for r in rows:
@@ -352,13 +374,16 @@ def recover(now: float | None = None) -> dict:
                 status, msg = "retrying", "Interrupted (the app or worker stopped); resuming"
             else:
                 status, msg = "failed", f"Interrupted {r['attempts']} times; not retrying"
-            conn.execute("UPDATE worker_jobs SET status = ?, lease_owner = '', lease_until = 0, run_after = ?, "
-                         "message = ?, error = CASE WHEN ? = 'failed' THEN ? ELSE error END, updated_at = ?, "
-                         "finished_at = CASE WHEN ? IN ('failed', 'canceled') THEN ? ELSE finished_at END "
-                         "WHERE id = ? AND status = 'running'",
-                         (status, now, msg, status, msg, now, status, now, r["id"]))
-            counts[status] += 1
-    for r in rows:
+            changed = conn.execute(
+                "UPDATE worker_jobs SET status = ?, lease_owner = '', lease_until = 0, run_after = ?, "
+                "message = ?, error = CASE WHEN ? = 'failed' THEN ? ELSE error END, updated_at = ?, "
+                "finished_at = CASE WHEN ? IN ('failed', 'canceled') THEN ? ELSE finished_at END "
+                "WHERE id = ? AND status = 'running' AND lease_until < ?",
+                (status, now, msg, status, msg, now, status, now, r["id"], now)).rowcount
+            if changed:
+                counts[status] += 1
+                recovered.append(r)
+    for r in recovered:
         log_line(r["id"], r["worker"], "warning", "recovered", "lease expired; job recovered")
     return counts
 

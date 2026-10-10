@@ -397,7 +397,7 @@ export type RobotPosture = "stand" | "desk" | "rest";
 export interface StudioRobot {
   container: Container;
   animate: (pose: Pose, timeMs: number, reduce: boolean, dir?: Dir, posture?: RobotPosture,
-    breakActivity?: BreakActivity | null, breakPhase?: number) => void;
+    breakActivity?: BreakActivity | null, breakPhase?: number, supervising?: boolean) => void;
 }
 
 /** Feet are anchored at 0,0. Create once, then animate from the office's actual reported pose. */
@@ -640,6 +640,16 @@ export function createRobot(c: Character): StudioRobot {
   px(gamePiece, -1, -2, 1, 1, p.trimDark);
   px(gamePiece, 1, 0, 1, 1, p.trimDark);
   loungeProps.addChild(plate, mug, sandwich, book, gamePiece);
+  const clipboard = new Graphics();
+  box(clipboard, -8, -7, 16, 16, p.trimDark);
+  px(clipboard, -6, -5, 12, 12, "#eee5ce");
+  box(clipboard, -3, -9, 6, 4, "#8999a5");
+  px(clipboard, -2, -8, 4, 1, LIGHT, 0.65);
+  px(clipboard, -4, -2, 8, 1, p.trimDark);
+  px(clipboard, -4, 1, 6, 1, EDGE);
+  px(clipboard, -4, 4, 8, 1, EDGE);
+  const pointingFinger = new Graphics();
+  rig.addChild(clipboard, pointingFinger);
   const mouth = new Graphics();
   head.addChild(mouth);
   const eyesY = eyes.position.y;
@@ -678,17 +688,20 @@ export function createRobot(c: Character): StudioRobot {
   }
 
   function animate(pose: Pose, timeMs: number, reduce: boolean, dir: Dir = "down",
-    posture: RobotPosture = "stand", breakActivity: BreakActivity | null = null, breakPhase = 0) {
+    posture: RobotPosture = "stand", breakActivity: BreakActivity | null = null, breakPhase = 0,
+    supervising = false) {
     const stopped = pose === "paused" || pose === "unavailable";
     const walking = pose === "walk" || pose === "carry";
     const workingPose = pose === "work" || pose === "review" || pose === "retry";
     // STOPPED work may have explicitly authorized off-duty animation; lost connections always freeze.
     const onBreak = !!breakActivity && (!workingPose || pose === "retry") && !walking && pose !== "unavailable";
-    const working = workingPose && !onBreak;
+    const overseeing = supervising && c.rank === "manager" && !onBreak
+      && (pose === "idle" || pose === "wait" || pose === "retry");
+    const working = workingPose && !onBreak && !overseeing;
     const still = reduce || (stopped && !onBreak);
     const time = still ? 0 : timeMs + phaseOffset;
-    const seated = posture !== "stand";
-    const resting = posture === "rest";
+    const seated = posture !== "stand" && !overseeing;
+    const resting = posture === "rest" && !overseeing;
     const holding = pose === "carry" || pose === "review";
     const walkMotion = walking && !still && !seated;
     const side = dir === "left" ? -1 : dir === "right" ? 1 : 0;
@@ -739,8 +752,8 @@ export function createRobot(c: Character): StudioRobot {
     }
     loungeProps.visible = onBreak;
     for (let i = 0; i < 2; i++) {
-      arms[i].visible = !onBreak;
-      breakArms[i].visible = onBreak;
+      arms[i].visible = !onBreak && !overseeing;
+      breakArms[i].visible = onBreak || overseeing;
     }
     mug.visible = false;
     sandwich.visible = false;
@@ -748,7 +761,41 @@ export function createRobot(c: Character): StudioRobot {
     book.visible = false;
     gamePiece.visible = false;
     mouth.visible = false;
+    clipboard.visible = overseeing;
+    pointingFinger.visible = false;
     let gazeX = 0, gazeY = 0;
+    if (overseeing) {
+      // Oversight reads the supplied job state; this calm glance/point cycle never claims completed work.
+      const phase = ((time % 7200) + 7200) % 7200 / 7200;
+      const point = phase < 0.6 ? loungeEase(progress(phase, 0.2, 0.44))
+        : 1 - loungeEase(progress(phase, 0.68, 0.94));
+      const facing = dir === "left" ? -1 : 1;
+      const pointingHand = facing < 0 ? 0 : 1;
+      const tabletX = -facing * 3;
+      const tabletY = by + 12;
+      clipboard.position.set(tabletX, tabletY);
+      gear.visible = true;
+      gear.position.set(-facing * 15, gearY + 4);
+      report.visible = false;
+      const holderX = tabletX - facing * 4;
+      const handX = Math.round(tabletX + facing * 4 + facing * point * 14);
+      const handY = Math.round(tabletY + 2 - point * 9);
+      breakArm(pointingHand, handX, handY, by + 5);
+      breakArm(1 - pointingHand, holderX, tabletY + 2, by + 5);
+      pointingFinger.visible = point > 0.55;
+      pointingFinger.clear();
+      if (pointingFinger.visible) {
+        const fx = facing > 0 ? handX + 2 : handX - 6;
+        px(pointingFinger, fx, handY - 2, 5, 3, INK);
+        px(pointingFinger, fx + 1, handY - 1, 3, 1, p.shell);
+      }
+      rig.position.x = Math.round(facing * point * 0.8);
+      head.position.x += Math.round(facing * point);
+      head.position.y += phase < 0.18 ? 1 : 0;
+      gazeX = Math.round(facing * point * 2);
+      gazeY = phase < 0.18 ? 1 : 0;
+      approval.position.copyFrom(head.position);
+    }
     if (onBreak) {
       const phase = still || !Number.isFinite(breakPhase) ? 0 : ((breakPhase % 1) + 1) % 1;
       const tableBreak = breakActivity === "boardgame" && seated;

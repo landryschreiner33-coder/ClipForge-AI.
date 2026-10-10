@@ -266,3 +266,385 @@ def test_queue_retry_label_is_derived_from_durable_job(env, api):
               message="Retrying connection")
     shown = api.get(f"/api/autopilot/scheduled/{item['id']}").json()["item"]
     assert shown["delivery_state"] == "retrying" and shown["publishing_job"]["attempts"] == 1
+
+
+@pytest.mark.parametrize("mode", ["direct", "inbox"])
+def test_manual_tiktok_approval_stays_bound_to_the_shown_account(env, api, monkeypatch, mode):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api, "tiktok")
+    db.save_settings({"tiktok_app_audited": True})
+    clip_id = make_item(tmp, "tiktok")["clip_id"]
+    account_id = db.get_account("tiktok")["account_id"]
+    # Hold the worker so the account can change after the user's per-post confirmation.
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    result = api.post(f"/api/clips/{clip_id}/publish/tiktok", headers=H, json={
+        "description": "A confirmed public clip", "privacy": "PUBLIC_TO_EVERYONE", "mode": mode,
+        "confirm": True, "expected_account_id": account_id})
+    assert result.status_code == 200, result.text
+    publication = result.json()
+    assert publication["options"]["approved_account"] == account_id
+    db.save_account("tiktok", account_id="another-creator", display_name="Another creator")
+    jobs.worker._run(publication["id"])
+    after = db.get_publication(publication["id"])
+    assert after["status"] == "failed" and after["info"]["code"] == "reconnect"
+    assert "Another TikTok account" in after["error"]
+    assert not tiktok.inits  # Neither the direct post nor the inbox draft reaches the unseen account.
+
+
+@pytest.mark.parametrize("platform", ["youtube", "tiktok"])
+def test_emergency_pause_holds_manual_queue_before_upload_and_resume_starts_once(env, api, monkeypatch, platform):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api, platform)
+    db.save_settings({"tiktok_app_audited": True})
+    clip_id = make_item(tmp, platform)["clip_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    waits = []
+    monkeypatch.setattr(jobs.worker, "later", lambda pub_id, at: waits.append((pub_id, at)))
+    result = api.post(f"/api/clips/{clip_id}/publish/{platform}", headers=H, json={
+        "title": "A confirmed public clip", "description": "A confirmed public clip", "confirm": True,
+        "privacy": "public" if platform == "youtube" else "PUBLIC_TO_EVERYONE", "made_for_kids": False})
+    assert result.status_code == 200, result.text
+    publication_id = result.json()["id"]
+    db.save_settings({"autopilot_publishing_paused": True})
+    before = time.time()
+    jobs.worker._run(publication_id)
+    after = db.get_publication(publication_id)
+    assert after["status"] == "queued" and "paused" in after["message"]
+    assert waits == [(publication_id, after["info"]["retry_at"])]
+    assert before + 30 <= waits[0][1] <= time.time() + 30
+    assert not google.sessions and not tiktok.inits
+    db.save_settings({"autopilot_publishing_paused": False})
+    jobs.worker._run(publication_id)
+    after = db.get_publication(publication_id)
+    assert after["status"] == "done"
+    assert len(google.videos) == (1 if platform == "youtube" else 0)
+    assert len(tiktok.inits) == (1 if platform == "tiktok" else 0)
+
+
+def test_emergency_pause_preserves_an_already_started_manual_youtube_session(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    clip_id = make_item(tmp)["clip_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    monkeypatch.setattr(jobs.worker, "later", lambda _pub_id, _at: None)
+    google.rate_limit_puts, google.retry_after = 1, "600"
+    result = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json={
+        "title": "One exact upload", "description": "One exact upload", "confirm": True,
+        "privacy": "public", "made_for_kids": False})
+    assert result.status_code == 200, result.text
+    publication_id = result.json()["id"]
+    jobs.worker._run(publication_id)
+    waiting = db.get_publication(publication_id)
+    assert waiting["status"] == "queued" and waiting["info"]["upload_session"]
+    assert len(google.sessions) == 1 and not google.videos
+    db.save_settings({"autopilot_publishing_paused": True})
+    jobs.worker._run(publication_id)  # Simulate the platform's Retry-After becoming due.
+    after = db.get_publication(publication_id)
+    assert after["status"] == "done" and len(google.videos) == 1 and len(google.sessions) == 1
+    assert after["info"]["upload_session"] == waiting["info"]["upload_session"]
+
+
+@pytest.mark.parametrize("status", ["MANUAL_CONFIRMATION_REQUIRED", "BLOCKED"])
+def test_manual_publish_cannot_bypass_linked_source_reuse_gate(env, api, monkeypatch, status):
+    from clipfoundry import db
+    from clipfoundry.autopilot import rights
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    item = make_item(tmp)
+    clip = db.get_clip(item["clip_id"])
+    source = db.insert("sources", {"platform": "local", "external_id": "uncovered-local-fixture"})
+    db.update("projects", clip["project_id"], source_id=source["id"])
+    if status == rights.BLOCKED:
+        rights.add_rule("source", source["id"], rights.BLOCKED, "Explicitly blocked")
+    submitted = []
+    monkeypatch.setattr(jobs.worker, "submit", submitted.append)
+    result = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
+        "title": "Local source clip", "privacy": "public", "made_for_kids": False, "confirm": True})
+    assert result.status_code == 400 and result.json()["code"] == "rights", result.text
+    assert not submitted and not db.list_publications(clip["id"]) and not google.sessions
+
+
+@pytest.mark.parametrize("change", ["unchanged", "rights", "bytes", "version"])
+def test_manual_publish_rechecks_owned_source_and_exact_confirmed_file_at_start(env, api, monkeypatch, change):
+    from pathlib import Path
+
+    from clipfoundry import db
+    from clipfoundry.autopilot import rights
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    item = make_item(tmp)
+    clip = db.get_clip(item["clip_id"])
+    source = db.insert("sources", {"platform": "local", "external_id": "owned-local-fixture"})
+    rights.add_rule("source", source["id"], rights.OWNED, "My own video")
+    db.update("projects", clip["project_id"], source_id=source["id"])
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    result = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
+        "title": "My own clip", "privacy": "public", "made_for_kids": False, "confirm": True})
+    assert result.status_code == 200, result.text  # Eligible owned source and passing artifact are accepted.
+    publication = result.json()
+    if change == "rights":
+        rights.add_rule("source", source["id"], rights.BLOCKED, "Permission withdrawn")
+    elif change == "bytes":
+        Path(clip["output_path"]).write_bytes(b"different bytes after confirmation")
+    elif change == "version":
+        alternative = tmp / "alternative.mp4"
+        alternative.write_bytes(b"a newly selected version")
+        version = db.create_version(clip["id"], "custom", status="ready", output_path=str(alternative))
+        db.update_clip(clip["id"], active_version=version["id"])
+    jobs.worker._run(publication["id"])
+    after = db.get_publication(publication["id"])
+    if change == "unchanged":
+        assert after["status"] == "done" and len(google.videos) == 1
+        return
+    assert after["status"] == "failed", after
+    assert after["info"]["code"] == ("rights" if change == "rights" else "approval_invalidated")
+    assert not google.sessions and not google.videos
+
+
+def test_manual_publish_respects_platform_agreement_and_failed_quality(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import gate, rights
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    public_setup(api, "tiktok")
+    db.save_settings({"tiktok_app_audited": True})
+    item = make_item(tmp)
+    clip = db.get_clip(item["clip_id"])
+    source = db.insert("sources", {"platform": "local", "external_id": "licensed-local-fixture"})
+    rights.add_rule("source", source["id"], rights.LICENSED, "License for YouTube only",
+                    conditions={"platforms": ["youtube"], "third_party": True})
+    db.update("projects", clip["project_id"], source_id=source["id"])
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    forbidden = api.post(f"/api/clips/{clip['id']}/publish/tiktok", headers=H, json={
+        "description": "Licensed clip", "privacy": "PUBLIC_TO_EVERYONE", "confirm": True})
+    assert forbidden.status_code == 400 and forbidden.json()["code"] == "rights", forbidden.text
+    assert "allowed only on Youtube" in forbidden.json()["detail"]
+    report = gate.report_for(clip)
+    db.update("quality_reports", report["id"], status="failed", blockers=["Silence: no spoken story"])
+    failed_qc = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
+        "title": "Licensed clip", "privacy": "public", "made_for_kids": False, "confirm": True})
+    assert failed_qc.status_code == 400 and failed_qc.json()["code"] == "quality", failed_qc.text
+    assert "Silence" in failed_qc.json()["detail"]
+    assert not db.list_publications(clip["id"]) and not google.sessions and not tiktok.inits
+
+
+def test_manual_legacy_clip_does_not_invent_an_autopilot_source_or_quality_requirement(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    video = tmp / "manual-original.mp4"
+    video.write_bytes(b"manual legacy render fixture")
+    project = db.create_project("Manual legacy project", origin="manual", status="ready")
+    clip = db.create_clip(project["id"], start=0, end=20, duration=20, status="ready", output_path=str(video))
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    result = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
+        "title": "My manual clip", "privacy": "public", "made_for_kids": False, "confirm": True})
+    assert result.status_code == 200, result.text
+    jobs.worker._run(result.json()["id"])
+    assert db.get_publication(result.json()["id"])["status"] == "done" and len(google.videos) == 1
+    assert not db.select("sources") and not db.select("quality_reports")
+
+
+def test_manual_unknown_final_outcome_holds_republish_and_recovers_read_only_once(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    clip_id = make_item(tmp)["clip_id"]
+    account_id = db.get_account("youtube")["account_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    google.drop_final_reply, google.expire_sessions, google.hide_uploads = True, True, True
+    body = {"title": "One confirmed upload despite a lost final reply", "privacy": "public",
+            "made_for_kids": False, "confirm": True}
+    first = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body)
+    assert first.status_code == 200, first.text
+    publication_id = first.json()["id"]
+    jobs.worker._run(publication_id)
+    held = db.get_publication(publication_id)
+    assert held["status"] == "processing" and held["info"]["outcome_unknown"]
+    assert len(google.videos) == 1 and not held["remote_id"]
+    again = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body)
+    assert again.status_code == 409 and "outcome is unknown" in again.json()["detail"]
+    jobs.worker._run(publication_id)  # A delayed queue entry may only read, never start another upload.
+    assert db.get_publication(publication_id)["info"]["outcome_unknown"] and len(google.videos) == 1
+    db.save_account("youtube", account_id="another-channel", display_name="Another channel")
+    wrong_account = api.post(f"/api/publications/{publication_id}/refresh", headers=H)
+    assert wrong_account.status_code == 400 and wrong_account.json()["code"] == "reconnect"
+    assert db.get_publication(publication_id)["status"] == "processing" and len(google.videos) == 1
+    db.save_account("youtube", account_id=account_id, display_name="Original channel")
+    refreshed = api.post(f"/api/publications/{publication_id}/refresh", headers=H)
+    assert refreshed.status_code == 200 and refreshed.json()["info"]["outcome_unknown"]
+    from clipfoundry.autopilot import publisher
+    from clipfoundry.publish.common import PublishError
+
+    def unavailable(*_args, **_kwargs):
+        raise PublishError("YouTube is temporarily unavailable", "Use Refresh status later", "network")
+
+    with monkeypatch.context() as unavailable_api:
+        unavailable_api.setattr(publisher, "_youtube_upload_by_title", unavailable)
+        response = api.post(f"/api/publications/{publication_id}/refresh", headers=H)
+        assert response.status_code == 400 and response.json()["code"] == "network"
+    assert db.get_publication(publication_id)["info"]["outcome_unknown"] and len(google.videos) == 1
+    google.hide_uploads = False
+    resolved = api.post(f"/api/publications/{publication_id}/refresh", headers=H)
+    assert resolved.status_code == 200, resolved.text
+    result = resolved.json()
+    assert result["status"] == "done" and not result["info"]["outcome_unknown"]
+    assert result["remote_id"] in google.videos and result["privacy"] == "public"
+    assert result["delivery"]["audience_setup"] == "public_api_verified"
+    calls_after_resolution = len(google.log)
+    jobs.worker._run(publication_id)
+    assert len(google.log) == calls_after_resolution and len(google.videos) == 1
+    assert sum(1 for method, url in google.log if method == "POST" and "uploadType=resumable" in url) == 1
+
+
+@pytest.mark.parametrize("evidence", ["older", "missing_time", "different_metadata", "ambiguous"])
+def test_manual_unknown_recovery_never_accepts_an_unrelated_or_ambiguous_title(env, api, monkeypatch, evidence):
+    import copy
+
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    clip_id = make_item(tmp)["clip_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    google.drop_final_reply, google.expire_sessions, google.hide_uploads = True, True, True
+    body = {"title": "A common title is insufficient evidence", "description": "Exact approved description",
+            "tags": ["#science"], "privacy": "public", "made_for_kids": False, "confirm": True}
+    first = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body)
+    assert first.status_code == 200, first.text
+    publication_id = first.json()["id"]
+    jobs.worker._run(publication_id)
+    held = db.get_publication(publication_id)
+    assert held["info"]["outcome_unknown"]
+    video = next(iter(google.videos.values()))
+    if evidence == "older":
+        video["uploaded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(
+            held["info"]["session_started"] - 60))
+    elif evidence == "missing_time":
+        video["uploaded_at"] = "not a platform date"
+    elif evidence == "different_metadata":
+        video["snippet"]["description"] = "An unrelated same-title video"
+    else:
+        duplicate = copy.deepcopy(video)
+        duplicate["id"] = "unrelated-same-title-video"
+        google.videos[duplicate["id"]] = duplicate
+    google.hide_uploads = False
+    reads = api.post(f"/api/publications/{publication_id}/refresh", headers=H)
+    assert reads.status_code == 200, reads.text
+    assert reads.json()["status"] == "processing" and reads.json()["info"]["outcome_unknown"]
+    assert not reads.json()["remote_id"] and not reads.json()["url"]
+    assert api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body).status_code == 409
+    assert sum(1 for method, url in google.log if method == "POST" and "uploadType=resumable" in url) == 1
+
+
+def test_duplicate_processing_queue_entry_reads_tiktok_outcome_without_another_init(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api, "tiktok")
+    db.save_settings({"tiktok_app_audited": True})
+    clip_id = make_item(tmp, "tiktok")["clip_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    result = api.post(f"/api/clips/{clip_id}/publish/tiktok", headers=H, json={
+        "description": "One confirmed TikTok post", "privacy": "PUBLIC_TO_EVERYONE", "confirm": True})
+    assert result.status_code == 200, result.text
+    publication_id = result.json()["id"]
+    jobs.worker._run(publication_id)
+    assert db.get_publication(publication_id)["status"] == "done" and len(tiktok.inits) == 1
+    db.update_publication(publication_id, status="processing")  # Recovered/stale queue state, known platform handle.
+    jobs.worker._run(publication_id)
+    assert db.get_publication(publication_id)["status"] == "done" and len(tiktok.inits) == 1
+
+
+def test_known_manual_failure_remains_retryable_with_new_explicit_confirmation(env, api, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+    from clipfoundry.publish.common import PublishError
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    clip_id = make_item(tmp)["clip_id"]
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    body = {"title": "A retry after a known refusal", "privacy": "public", "made_for_kids": False,
+            "confirm": True}
+    first = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body)
+    assert first.status_code == 200, first.text
+    def refuse_title(*_args, **_kwargs):
+        raise PublishError("YouTube rejected this title before starting a transfer.", "Review the title.",
+                           "invalidTitle")
+
+    with monkeypatch.context() as refusal:
+        refusal.setattr(jobs.youtube, "_start_session", refuse_title)
+        jobs.worker._run(first.json()["id"])
+    failed = db.get_publication(first.json()["id"])
+    assert failed["status"] == "failed" and failed["info"]["code"] == "invalidTitle"
+    assert not google.videos and not jobs.unknown_outcome(failed)
+    retry = api.post(f"/api/clips/{clip_id}/publish/youtube", headers=H, json=body)
+    assert retry.status_code == 200, retry.text
+    jobs.worker._run(retry.json()["id"])
+    assert db.get_publication(retry.json()["id"])["status"] == "done" and len(google.videos) == 1
+
+
+@pytest.mark.parametrize("final_chunk", [False, True])
+def test_manual_resume_never_sends_changed_bytes_into_an_existing_session(env, api, monkeypatch, final_chunk):
+    from pathlib import Path
+
+    from clipfoundry import db
+    from clipfoundry.publish import jobs
+
+    google, tiktok, tmp = env
+    connect(google, tiktok)
+    public_setup(api)
+    item = make_item(tmp, size=100000 if final_chunk else 300000)
+    clip = db.get_clip(item["clip_id"])
+    monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
+    monkeypatch.setattr(jobs.worker, "later", lambda _pub_id, _at: None)
+    google.rate_limit_puts, google.retry_after = 1, "600"
+    first = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
+        "title": "The exact confirmed bytes", "privacy": "public", "made_for_kids": False, "confirm": True})
+    assert first.status_code == 200, first.text
+    publication_id = first.json()["id"]
+    jobs.worker._run(publication_id)
+    waiting = db.get_publication(publication_id)
+    assert waiting["status"] == "queued" and waiting["info"]["upload_session"]
+    Path(clip["output_path"]).write_bytes(b"changed video bytes")
+    jobs.worker._run(publication_id)
+    after = db.get_publication(publication_id)
+    if final_chunk:
+        assert after["status"] == "processing" and after["info"]["outcome_unknown"]
+    else:
+        assert after["status"] == "failed" and after["info"]["code"] == "approval_invalidated"
+    assert not google.videos and len(google.sessions) == 1
+    assert all(not session["data"] for session in google.sessions.values())

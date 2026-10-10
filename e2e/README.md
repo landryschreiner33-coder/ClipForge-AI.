@@ -103,11 +103,13 @@ It does not start work or connect accounts. These cases describe coverage; their
 log after they are run.
 
 `sandbox/living-office.spec.ts` adds seven controlled visual checks: 25 distinct lounge places and room-camera
-selection; walking to a desk, seated work and returning to the lounge; a fresh same-job stage handoff with sender
+selection; immediate seated work in the robot's own office and returning to the lounge; a fresh same-job stage
+handoff with sender
 and receiver approach/pass/receipt; rejecting queued, unrelated and old handoffs and canceling one on Pause; and
 Brain standby/processing animation with paused and Reduced freezes. Two recovery regressions verify the current
 sender after hidden/paused stages, and a feed reset that neither animates recent-looking history nor moves the
-current owner backward. The Brain check also verifies its close camera and the link to its workspace.
+current owner backward. The Brain check verifies its close camera, workspace link, frozen transient-cue expiry
+and genuine work completion in Reduced.
 
 `sandbox/lounge-life.spec.ts` adds six controlled checks for recreational games, food, drinks and reading while all
 25 backend badges retain their actual paused state in a stopped office; visible Full gestures and Reduced/Pause
@@ -116,14 +118,29 @@ activities with exclusive reservations. The sixth holds the optional skyline req
 the office within six seconds, then aborts it. It aborts the production scene chunk after a fresh reload to check
 Canvas recreation and its Reduced freeze. Each case
 checks that recreation sends no API writes. The rotation test advances real animation frames through Playwright's
-clock. These six plus living seven, motion three, pixel three and robot-office four form a 23-case focused visual
-suite. This is its coverage, not a claim of final run results.
+clock.
+
+`sandbox/department-office.spec.ts` adds six controlled read-only checks: all eight complete departments attend;
+managers supervise and support peers retain honest idle badges; new workers immediately appear at their own desks;
+teams remain until their last job finishes; substantive backlog/error attention gathers quiet peers without timer
+or paused-task false attendance; a real handoff returns to a still-busy sender department; Canvas supervision
+animates and freezes in Reduced; and a new own job preempts an outgoing old document. These six plus lounge six,
+living seven, motion three, pixel three and robot-office four form a 29-case focused visual suite. This describes
+coverage; final run results are recorded in the implementation log.
+
+`sandbox/manual-publish.spec.ts` uses controlled responses for an uncertain fake YouTube upload. It verifies the
+visible outcome hold, absence of another Publish confirmation/request, and Refresh status finding the existing
+upload. Its one POST refresh is fulfilled inside the browser; no write, upload or account request reaches the app
+or a platform. Ordinary status reads use the disposable sandbox. This supplements the department graphics suite;
+it does not change the read-only `e2e/tests` suite that runs against an owner's data.
 
 The refined robots are authored in `StudioArt.ts`; the map uses `StudioScene.ts`, and Team/detail/gallery portraits
 reuse one shared offscreen renderer with a bounded frame cache in `StudioPortraits.ts`. The original artwork stays
 available if the graphics context or module cannot initialize. Existing backend snapshots and events govern poses,
 work cues and document handoffs. `OfficeMotion.ts` sends off-duty roles to reserved lounge places, and
-working/reviewing roles to seated desks. `LoungeLife.ts` supplies explicitly decorative off-duty activities with
+working/reviewing roles immediately to seated desks. `DepartmentDuty.ts` gathers the whole assigned department;
+managers watch from safe floor anchors unless handling their own job or report. Idle support peers do not type or
+change their status. `LoungeLife.ts` supplies explicitly decorative off-duty activities with
 29 places, 25 stable homes, phased 15–28-second routines and at most two recreational walkers. Stopped-office
 recreation preserves paused badges; individually paused roles while Running and unavailable roles stay quiet.
 Work and real handoffs take precedence. Global Pause, Reduced, hidden and stale views freeze leisure motion.
@@ -143,7 +160,8 @@ which uses the same activity phases for simpler game, eating, drinking and readi
 
 The new [living-office evidence directory](../design/robot-office/living/) keeps actual isolated app screenshots
 separate from controlled visual transitions. The current seated-work image uses controlled browser feed state.
-The later [recreational lounge evidence](../design/robot-office/lounge/) uses the same provenance distinction.
+The later [recreational lounge evidence](../design/robot-office/lounge/) and
+[department evidence](../design/robot-office/departments/) use the same provenance distinction.
 Any recording of these transitions documents the renderer's choreography; it does not establish real backend
 video-processing times, GPU performance or connected-account behavior.
 
@@ -151,7 +169,9 @@ Run the graphics checks alone, using sandbox data:
 
 ```bat
 cd e2e
-npm run test:sandbox -- --project=chromium sandbox/lounge-life.spec.ts sandbox/living-office.spec.ts sandbox/motion.spec.ts sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
+npm run test:sandbox -- --project=chromium ^
+  sandbox/department-office.spec.ts sandbox/lounge-life.spec.ts sandbox/living-office.spec.ts ^
+  sandbox/motion.spec.ts sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
 ```
 
 PixiJS 8.22.0 and GSAP 3.15.0 are frontend npm dependencies. GSAP supplies pure gesture-easing functions driven by

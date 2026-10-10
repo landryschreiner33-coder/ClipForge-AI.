@@ -8,6 +8,18 @@ import type { SceneActor } from "./StudioScene";
 import type { DocumentPass } from "./OfficeMotion";
 
 type Ctx = CanvasRenderingContext2D;
+type Pair = readonly [number, number];
+const BRAIN_LOBE: Pair[] = [
+  [-2, -22], [-10, -22], [-10, -26], [-20, -26], [-20, -23], [-26, -23], [-26, -18],
+  [-31, -18], [-31, -11], [-35, -11], [-35, 3], [-32, 3], [-32, 11], [-27, 11],
+  [-27, 17], [-20, 17], [-20, 21], [-12, 21], [-12, 18], [-5, 18], [-5, 14], [-2, 14],
+];
+const LEFT_CIRCUITS: Pair[][] = [
+  [[-27, -14], [-21, -14], [-21, -7], [-12, -7], [-12, -13], [-6, -13]],
+  [[-30, -6], [-25, -6], [-25, 1], [-17, 1], [-17, -2], [-9, -2]],
+  [[-29, 7], [-22, 7], [-22, 12], [-14, 12], [-14, 7], [-7, 7]],
+];
+const NEURAL_PATHS = [...LEFT_CIRCUITS, ...LEFT_CIRCUITS.map(points => points.map(([x, y]): Pair => [-x, y]))];
 const pixel = (c: Ctx, x: number, y: number, w: number, h: number, color: string) => {
   c.fillStyle = color; c.fillRect(Math.round(x), Math.round(y), w, h);
 };
@@ -226,6 +238,19 @@ export class LivingFallback {
     }
   }
 
+  private supervise(c: Ctx, a: SceneActor, frame: number) {
+    if (!(a.duty === "supervising" || a.supervising) || BY_ID[a.id].rank !== "manager"
+      || a.breakActivity || a.posture !== "stand"
+      || !["idle", "wait", "retry"].includes(a.pose)) return;
+    const metal = BY_ID[a.id].palette, side = a.dir === "left" ? -1 : 1;
+    const x = side * 9, y = -28 - frame % 2;
+    box(c, x - 5, y, 11, 15, "#e3d2b1");
+    pixel(c, x - 3, y - 1, 7, 2, "#bca474");
+    for (const dy of [4, 7, 10]) pixel(c, x - 2, y + dy, dy === 10 ? 4 : 6, 1, "#8b9290");
+    pixel(c, x - 7, y + 8, 3, 4, metal.shade);
+    pixel(c, -side * 12 - 2, -20, 5, 3, metal.shade);
+  }
+
   draw(snap: Snapshot, actors: SceneActor[], time: number, still: boolean, busy: boolean,
     passes: DocumentPass[], offline = false) {
     if (this.destroyed) return;
@@ -258,7 +283,7 @@ export class LivingFallback {
         pixel(c, -13, -5, 12, 4, character.palette.trimDark); pixel(c, 2, -5, 12, 4, character.palette.trimDark);
       }
       // The controller owns every leisure phase. Wall time never advances a mug, page, bite or game piece.
-      this.leisure(c, a); c.restore();
+      this.leisure(c, a); this.supervise(c, a, frame); c.restore();
     }
     for (const a of actors) if (a.posture === "desk") {
       pixel(c, a.x - 29, a.y - 21, 58, 7, "#c6ac88");
@@ -282,23 +307,56 @@ export class LivingFallback {
     box(c, x - 24, CORE_AT.y - 18, 48, 9, "#6c7c8d");
     box(c, x - 18, CORE_AT.y - 29, 36, 12, "#3e4e65");
     pixel(c, x - 16, CORE_AT.y - 28, 32, 2, "#b0b3c3");
-    for (const side of [-1, 1]) {
-      pixel(c, x + side * 5 - (side < 0 ? 28 : 0), y - 22, 28, 42, busy ? "#bdabed" : "#9792bc");
-      pixel(c, x + side * 5 - (side < 0 ? 33 : -3), y - 12, 24, 30, busy ? "#aeafe0" : "#8d96b7");
-      for (const dy of [-14, -1, 11]) {
-        pixel(c, x + side * 10 - (side < 0 ? 15 : 0), y + dy, 15, 1, "#d3cef1");
-        pixel(c, x + side * 17, y + dy, 1, 7, "#6aa5ab");
+    const lobes = () => {
+      c.beginPath();
+      for (const side of [-1, 1]) {
+        c.moveTo(x + BRAIN_LOBE[0][0] * side, y + BRAIN_LOBE[0][1]);
+        for (const [xx, yy] of BRAIN_LOBE.slice(1)) c.lineTo(x + xx * side, y + yy);
+        c.closePath();
       }
-    }
-    for (let i = 0; i < 3; i++) {
+    };
+    const orbit = (i: number, front: boolean) => {
       const color = ["#e8d394", "#aaacf0", "#80c8cb"][i];
-      c.strokeStyle = color; c.lineWidth = 1;
-      c.beginPath(); c.ellipse(x, y, 57, 12, (i - 1) * .45, 0, Math.PI * 2); c.stroke();
+      c.save(); c.globalAlpha *= front ? .75 : .4; c.strokeStyle = color; c.lineWidth = 1;
+      c.beginPath(); c.ellipse(x, y, 57, 12, (i - 1) * .45,
+        front ? 0 : Math.PI, front ? Math.PI : Math.PI * 2); c.stroke(); c.restore();
       const angle = phase + i * Math.PI * 2 / 3;
+      const normalized = (angle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      if ((normalized < Math.PI) !== front) return;
       const xx = Math.cos(angle) * 57, yy = Math.sin(angle) * 12, tilt = (i - 1) * .45;
       pixel(c, x + xx * Math.cos(tilt) - yy * Math.sin(tilt) - 1,
         y + xx * Math.sin(tilt) + yy * Math.cos(tilt) - 1, 3, 3, color);
+    };
+    for (let i = 0; i < 3; i++) orbit(i, false);
+    lobes(); c.fillStyle = busy ? "#b5a6df" : "#9695bd"; c.fill();
+    c.strokeStyle = "#484967"; c.lineWidth = 2; c.stroke();
+    pixel(c, x - 20, y - 25, 10, 2, "#dbcbf2"); pixel(c, x + 10, y - 25, 10, 2, "#d9e0ee");
+    pixel(c, x - 1, y - 20, 2, 34, "#535371");
+    pixel(c, x, y - 18, 1, 29, "#dcd3ed");
+    for (let i = 0; i < NEURAL_PATHS.length; i++) {
+      const path = NEURAL_PATHS[i];
+      c.beginPath(); c.moveTo(x + path[0][0], y + path[0][1]);
+      for (const [xx, yy] of path.slice(1)) c.lineTo(x + xx, y + yy);
+      c.strokeStyle = "#5c6e88"; c.lineWidth = 3; c.stroke();
+      c.strokeStyle = busy ? "#adeadb" : "#a0c6ce"; c.lineWidth = 1; c.stroke();
+      if (busy) {
+        const segment = (phase * 1.5 + i * .3) % (path.length - 1);
+        const index = Math.floor(segment), mix = segment - index;
+        const [sx, sy] = path[index], [ex, ey] = path[index + 1];
+        pixel(c, x + sx + (ex - sx) * mix, y + sy + (ey - sy) * mix, 2, 2, "#f1fff5");
+      }
     }
+    if (busy) {
+      c.save(); lobes(); c.clip(); c.globalAlpha *= .16;
+      const scan = -26 + (phase * 12) % 48;
+      pixel(c, x - 36, y + scan - 4, 72, 4, "#a5ece0");
+      c.globalAlpha *= 3; pixel(c, x - 36, y + scan, 72, 1, "#defff3"); c.restore();
+      for (let i = 0; i < 3; i++) {
+        const height = (phase * 14 + i * 8) % 24;
+        pixel(c, x + (i - 1) * 9, CORE_AT.y - 32 - height, 1, 2, "#9ed9d4");
+      }
+    }
+    for (let i = 0; i < 3; i++) orbit(i, true);
     c.restore();
   }
 

@@ -35,6 +35,10 @@ class Invalid(ValueError):
     pass
 
 
+class Conflict(Invalid):
+    """Another edit replaced the revision this write was prepared from."""
+
+
 def _text(value: object, maximum: int, label: str) -> str:
     if not isinstance(value, str) or len(value) > maximum or "\x00" in value:
         raise Invalid(f"{label} must be text of at most {maximum:,} characters")
@@ -108,10 +112,20 @@ def edit(knowledge_id: str, data: dict) -> dict:
     combined["enabled"] = bool(row["enabled"])
     combined.update(data)
     new = clean(combined)
+    if all(new[k] == row[k] for k in new):
+        return view(get(knowledge_id))
     changed = any(new[k] != row[k] for k in new if k != "enabled")
     if changed:
-        new.update(revision=int(row["revision"]) + 1, approved_at=None)
-    db.update("brain_knowledge", knowledge_id, **new)
+        new["approved_at"] = None
+    # All edits advance the revision, including enable/disable. Otherwise a delayed content edit could restore
+    # a disabled rule, or overwrite another lesson with the same revision an owner has already reviewed.
+    new.update(revision=int(row["revision"]) + 1, updated_at=time.time())
+    encoded = {key: json.dumps(value) if key in db.JSON_FIELDS["brain_knowledge"] else value
+               for key, value in new.items()}
+    count = db.execute("UPDATE brain_knowledge SET " + ", ".join(f"{key} = ?" for key in encoded) +
+                       " WHERE id = ? AND revision = ?", (*encoded.values(), knowledge_id, row["revision"]))
+    if not count:
+        raise Conflict("This knowledge changed. Reload and review the current revision before saving your changes")
     return view(get(knowledge_id))
 
 
@@ -199,7 +213,8 @@ def probe_example(path: Path) -> dict:
                                 capture_output=True, timeout=15, creationflags=NO_WINDOW)
         data = json.loads(result.stdout) if result.returncode == 0 else {}
     except (FFmpegError, OSError, subprocess.TimeoutExpired, ValueError):
-        raise Invalid("Could not read this example. Use a playable MP4, MOV, or WebM clip and installed FFmpeg") from None
+        raise Invalid("Could not read this example. Use a playable MP4, MOV, or WebM clip and installed FFmpeg") \
+            from None
     streams = data.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video" and not
                   s.get("disposition", {}).get("attached_pic")), None)

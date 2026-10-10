@@ -135,7 +135,8 @@ export default function PublishPage({ id }: { id: string }) {
   const thumbUrl = version ? versionThumbUrl(clip, version) : clipThumbUrl(clip);
   const downloadUrl = versionDownloadUrl(clip, version);
   const acc = (p: "youtube" | "tiktok") => accounts?.[p];
-  const busy = (p: string) => pubs.some((x) => x.platform === p && ACTIVE.includes(x.status));
+  const busy = (p: string) => pubs.some((x) => x.platform === p && (ACTIVE.includes(x.status)
+    || x.info?.outcome_unknown || x.info?.code === "outcome_unknown"));
   const setM = (patch: Partial<Meta>) => setMeta((m) => ({ ...m, ...patch }));
 
   return (
@@ -231,9 +232,12 @@ export default function PublishPage({ id }: { id: string }) {
           </section>
 
           <YouTubePanel audience={audience?.youtube} account={acc("youtube")} setAccounts={setAccounts}
-            meta={meta} duration={duration} ready={ready} busy={busy("youtube")} onPublish={publish} />
+            meta={meta} duration={duration} ready={ready} busy={busy("youtube")} onPublish={publish}
+            outcomeUnknown={pubs.some(p => p.platform === "youtube" && (p.info?.outcome_unknown
+              || p.info?.code === "outcome_unknown"))} />
           <TikTokPanel audience={audience?.tiktok} account={acc("tiktok")} setAccounts={setAccounts}
-            meta={meta} duration={duration} ready={ready} busy={busy("tiktok")} onPublish={publish} onExport={exportClip} downloadUrl={downloadUrl} />
+            meta={meta} duration={duration} ready={ready} busy={busy("tiktok")} onPublish={publish}
+            onExport={exportClip} downloadUrl={downloadUrl} />
 
           <section className="panel tight" aria-labelledby="pp-status">
             <h2 id="pp-status" style={{ fontSize: "var(--fs-h3)" }}>Uploads you started here</h2>
@@ -293,7 +297,9 @@ function PlannedPosts({ posts, tz }: { posts: Post[]; tz?: string }) {
 // ------------------------------------------------------------------ one panel per platform
 type PanelProps = {
   audience?: AudienceDestination; account?: PlatformAccount; setAccounts: (a: Accounts) => void;
-  meta: Meta; duration: number; ready: boolean; busy: boolean; onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
+  outcomeUnknown?: boolean;
+  meta: Meta; duration: number; ready: boolean; busy: boolean;
+  onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
 };
 
 function PlatformPanel({ id, name, account, platform, setAccounts, children }: {
@@ -325,7 +331,8 @@ function Note({ children }: { children: ReactNode }) {
   return <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {children}</p>;
 }
 
-function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, busy, onPublish }: PanelProps) {
+function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, busy, onPublish,
+  outcomeUnknown }: PanelProps) {
   const privacy = audience?.intent === "PUBLIC" ? "public" : "private";
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [shortsTag, setShortsTag] = useState(false);
@@ -391,8 +398,9 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
         <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
           onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
             : !busy && setConfirming(true))}>
-          {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="upload" />}
-          {busy ? "Uploading…" : "Publish to YouTube now…"}
+          {busy && !outcomeUnknown ? <span className="inline-spinner" aria-hidden="true" />
+            : <Icon name={outcomeUnknown ? "question" : "upload"} />}
+          {outcomeUnknown ? "Check upload outcome below" : busy ? "Uploading…" : "Publish to YouTube now…"}
         </button>
       </div>
       {confirming && (
@@ -688,7 +696,9 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
     owner_only: ["Uploaded for you only", "info", "shield"],
   };
   const retryAt = Number(p.info?.retry_at || 0);
-  const [word, tone, icon] = p.status === "done" && delivery[setup] ? delivery[setup]
+  const outcomeUnknown = !!p.info?.outcome_unknown || p.info?.code === "outcome_unknown";
+  const [word, tone, icon] = outcomeUnknown ? ["Upload outcome unknown", "warn" as Tone, "question" as IconName]
+    : p.status === "done" && delivery[setup] ? delivery[setup]
     : p.status === "queued" && retryAt > Date.now() / 1000
       ? ["Waiting for platform retry time", "warn" as Tone, "clock" as IconName] : [baseWord, baseTone, baseIcon];
   const [canceling, setCanceling] = useState(false);
@@ -734,7 +744,8 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
             YouTube Studio
           </a>
         )}
-        {(p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id && (
+        {((p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id
+          || outcomeUnknown) && (
           <button type="button" className="btn btn-small btn-quiet"
             onClick={() => act(() => api.refreshPublication(p.id))}>
             <Icon name="refresh" />Refresh status

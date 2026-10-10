@@ -1,5 +1,94 @@
 # Implementation status
 
+## PR #14 department office and reliability review — 2026-10-10
+
+Starts at `e896632` on `claude/project-thread-vw1n9y`; requested October 9, resumed/completed October 10.
+PR #14 stays draft/unmerged. Whole departments attend their rooms when real jobs or substantive assigned backlog
+need them. Actual working/reviewing robots appear immediately at their own desks. Supporting peers sit ready while
+their real badges remain idle; managers oversee from clear floor positions with clipboard/pointing gestures.
+Own jobs and actual report reviews take priority over supervision. Paused/unavailable peers can attend quietly;
+bare queue counts, stale paused tasks and unreferenced recurring timers do not summon a team. Completed workers
+remain while their department is busy, then resume lounge activities. Confirmed document transfers meet inside the
+receiver's office and return to current attendance; a newer own job preempts leaving with an older document.
+
+Processing Brain art adds clipped holographic scans, travelling synapse trails, emitter sparks and orbital light
+trails. Standby is decorative; Brain/global Pause, Reduced, hidden and stale views freeze motion. Pixi and Canvas
+share supervisor/attendance semantics and all 25 identities. Existing PixiJS 8.22.0 and GSAP 3.15.0 are reused;
+no dependencies were added. Floor, desk, chair and contact-shadow details are polished in the same production build.
+
+The owner's broad review also fixed reproduced backend faults: stale lease owners reporting progress/host states;
+lease recovery racing a heartbeat; lock-file creation retaining its mutex; quality-check deduplication ignoring a
+rule upgrade; regeneration restoring only video rather than the complete artifact; delayed Brain edits overwriting
+reviewed/disabled lessons; paused learning still changing/applying learned values; confirmed visibility drift
+entering new audience cohorts; and manual publishing bypasses around linked-source rights, current quality/version,
+confirmed bytes, account binding, emergency Pause or unknown upload outcomes. Unknown manual YouTube outcomes now
+hold new uploads and allow read-only, original-account status resolution only when one recent candidate matches
+submitted metadata; unrelated/ambiguous candidates stay held. Already-processing uploads only read status.
+The Publish page exposes the hold and Refresh status. Privacy text covers recovery copies and file fingerprints.
+
+| Check | Result and scope |
+| --- | --- |
+| Full fast Python suite | **685 passed**, seven slow deselected, in **347.07 s**. |
+| Seven real-media cases | **7 passed together**, 685 fast deselected, in **676.84 s**. |
+| Final isolated Chromium suite | **31 passed together in 7.8 min**; eight selected specs below. |
+| TypeScript/Vite production build and captured asset identity | Passed in **5.96 s**; all 14 hashes match. |
+| Review/controller/pixel/source checks | Routing, duty and actual pixel/freeze checks pass; details below. |
+| Department visual evidence | Nine screenshots, 37.40 s controlled video; details below. |
+
+The final formatting build preserves all 14 tested/captured production-file SHA-256 hashes and file sets; the
+existing 904 KB lazy graphics chunk warning remains. Geometry/controller checks cover 3,844 + 36,304 routes,
+600 virtual seconds and 150 mixed transitions. Actual Brain and supervisor pixels animate in Full and freeze in
+Reduced while true state updates still render. All 32 touched/new code files meet 120 columns; whitespace checks
+pass. `.mcp.json`, requirements, package/lock versions, GPU code and all eight read-only `e2e/tests` files remain
+unchanged.
+
+[Evidence and provenance](../design/robot-office/departments/README.md) record all 25 identities, laptop controls
+inside the viewport, mobile List/Studio without horizontal overflow, zero page/console errors and SHA-256 hashes
+for all 14 captured production files. The nine screenshots and 37.40 s, 1440×900 H.264 recording separate controlled
+work, manager, Brain and stage-handoff states from an actual stopped-sandbox lounge screenshot. The video exercises
+the production controller; its controlled SPLICE → GLYPH stage returns SPLICE to Studio while STORY still works.
+No job or post is started by these visual fixtures, and they do not measure real processing speed or GPU performance.
+
+The Python commands ran from the repository root; the isolated tools directory supplies the installed FFmpeg and
+espeak-ng wrapper. The final build ran `npm run build` in `frontend/`:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m 'not slow' -q --durations=12
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m slow -q --durations=12
+```
+
+The final browser command ran from `e2e/` against the disposable app on port 8844:
+
+```bash
+./node_modules/.bin/playwright test --config=/workspace/work/clipfoundry/department-final.config.cjs
+```
+
+That scratch configuration selects eight repository specs: `brain-workspace.spec.ts`, `department-office.spec.ts`,
+`living-office.spec.ts`, `lounge-life.spec.ts`, `manual-publish.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and
+`robot-office.spec.ts`. It uses one worker, no retries, a 180-second test timeout, 15-second action/assertion timeouts,
+`http://127.0.0.1:8844`, a 1440×900 viewport and installed `/usr/bin/chromium`. The repository sandbox configuration
+includes all eight specs; equivalent selected coverage can be reproduced with its disposable app:
+
+```bash
+CLIPFOUNDRY_E2E_CHROMIUM=/usr/bin/chromium npm run test:sandbox -- --project=chromium \
+  sandbox/brain-workspace.spec.ts sandbox/department-office.spec.ts sandbox/living-office.spec.ts \
+  sandbox/lounge-life.spec.ts sandbox/manual-publish.spec.ts sandbox/motion.spec.ts \
+  sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
+```
+
+Earlier browser runs were **28 passed/one failed** (29 cases), then **30 passed/one failed** (31 cases). The first
+report fixture paired unrelated task/event identities, so the new-job guard correctly kept the worker at its own
+desk; the fixture now uses matching job, kind and reference. The Canvas supervision assertion sampled the same
+900 ms idle frame twice; it now polls across frames rather than relying on a single fixed delay. The production
+guard that keeps newer own work in its office remains intact. These initial runs are not final passes; the final
+31-case result is recorded separately above. Prior checkpoint results below remain historical.
+
+The backend tests use disposable data and fake platforms; media tests use real FFmpeg and synthetic speech with
+imported transcripts. Browser tests use the isolated app, installed Linux Chromium and existing sandbox tooling.
+Windows CMD/setup/PC graphics/fonts/scaling, RTX 3050 CUDA/NVENC and real connected-account behavior remain owner
+checks. GPU dependency files, `.mcp.json`, Playwright versions and read-only `e2e/tests` are unchanged.
+No real upload, owner account change, hosting purchase or deployment occurred.
+
 ## PR #14 social pixel office — 2026-10-09
 
 Starts at `5b1f7a9` on `claude/project-thread-vw1n9y`; PR #14 stays draft/unmerged. The owner requested better

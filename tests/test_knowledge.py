@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import subprocess
+import threading
 import zipfile
 
 import pytest
@@ -143,6 +144,109 @@ def test_edit_disable_delete_and_stale_approval_preserve_explanation(data):
     assert saved["revision"] == 1
 
 
+@pytest.mark.parametrize("newer_edit", [
+    {"preferences": {"caption_position": "middle"}},
+    {"enabled": False},
+])
+def test_concurrent_edit_cannot_overwrite_reviewed_revision_or_reenable_rule(client, monkeypatch, newer_edit):
+    from clipfoundry.autopilot import knowledge
+
+    row = knowledge.create(material(preferences={"caption_position": "bottom"}))
+    knowledge.approve(row["id"], 1)
+    fetched, release = threading.Event(), threading.Event()
+    once = threading.Lock()
+    delayed = False
+    original_get = knowledge.get
+
+    def delay_first_get(knowledge_id):
+        nonlocal delayed
+        saved = original_get(knowledge_id)
+        with once:
+            should_delay = not delayed
+            delayed = True
+        if should_delay:
+            fetched.set()
+            assert release.wait(10), "The newer edit did not release the stale editor"
+        return saved
+
+    monkeypatch.setattr(knowledge, "get", delay_first_get)
+    responses, errors = [], []
+
+    def stale_request():
+        try:
+            responses.append(client.patch(f"/api/brain/knowledge/{row['id']}", headers=H,
+                                          json={"preferences": {"caption_position": "top"}}))
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=stale_request)
+    thread.start()
+    try:
+        assert fetched.wait(10), "The stale editor did not read revision 1"
+        newer = client.patch(f"/api/brain/knowledge/{row['id']}", headers=H, json=newer_edit)
+        assert newer.status_code == 200
+        reviewed = newer.json()
+        assert reviewed["revision"] == 2
+    finally:
+        release.set()
+        thread.join(10)
+    assert not thread.is_alive() and not errors
+    assert responses[0].status_code == 409
+    assert "Reload and review" in responses[0].json()["detail"]
+    saved = original_get(row["id"])
+    assert saved["revision"] == reviewed["revision"]
+    assert saved["preferences"] == reviewed["preferences"]
+    assert bool(saved["enabled"]) == reviewed["enabled"]
+    if reviewed["enabled"]:
+        approved = client.post(f"/api/brain/knowledge/{row['id']}/approve", headers=H,
+                               json={"revision": reviewed["revision"]})
+        assert approved.status_code == 200
+        assert approved.json()["preferences"] == {"caption_position": "middle"}
+    else:
+        assert reviewed["approved"] and reviewed["state"] == "disabled"
+        enabled = knowledge.edit(row["id"], {"enabled": True})
+        assert enabled["revision"] == 3 and enabled["approved"]
+        assert enabled["preferences"] == {"caption_position": "bottom"}
+
+
+def test_edit_between_approval_read_and_write_requires_review_of_new_revision(data, monkeypatch):
+    from clipfoundry.autopilot import knowledge
+
+    row = knowledge.create(material(preferences={"caption_position": "bottom"}))
+    fetched, release = threading.Event(), threading.Event()
+    original_get = knowledge.get
+
+    def delayed_approval_get(knowledge_id):
+        saved = original_get(knowledge_id)
+        if threading.current_thread().name == "stale-approval":
+            fetched.set()
+            assert release.wait(10), "The newer edit did not release the stale approval"
+        return saved
+
+    monkeypatch.setattr(knowledge, "get", delayed_approval_get)
+    errors = []
+
+    def approve():
+        try:
+            knowledge.approve(row["id"], 1)
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=approve, name="stale-approval")
+    thread.start()
+    try:
+        assert fetched.wait(10)
+        reviewed = knowledge.edit(row["id"], {"preferences": {"caption_position": "middle"}})
+    finally:
+        release.set()
+        thread.join(10)
+    assert not thread.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], knowledge.Invalid)
+    assert "changed" in str(errors[0])
+    assert reviewed["revision"] == 2 and not original_get(row["id"])["approved_at"]
+    assert knowledge.approve(row["id"], 2)["preferences"] == {"caption_position": "middle"}
+
+
 def test_scoped_instruction_wins_example_and_pausing_stops_new_influence(data):
     from clipfoundry.autopilot import knowledge
     from clipfoundry import db
@@ -199,11 +303,13 @@ def test_uploads_do_not_execute_code_or_import_fake_results(client, data):
                            files={"file": ("../../instructions.md", text)}, data={"metadata": json.dumps(material())})
     assert response.status_code == 200 and response.json()["filename"] == "instructions.md"
     assert not sentinel.exists() and not response.json()["approved"]
-    response = client.post("/api/brain/knowledge/upload", headers=H, files={"file": ("results.csv", b"clip_id,views\nfake,9999999\n")},
+    response = client.post("/api/brain/knowledge/upload", headers=H,
+                           files={"file": ("results.csv", b"clip_id,views\nfake,9999999\n")},
                            data={"metadata": json.dumps(material("reference", preferences={}))})
     assert response.status_code == 200 and not db.select("brain_observations")
     assert client.post("/api/brain/knowledge", headers=H, json=material(approved_at=1)).status_code == 422
-    assert client.post("/api/brain/knowledge", headers=H, json=material(preferences={"privacy": "public"})).status_code == 422
+    assert client.post("/api/brain/knowledge", headers=H,
+                       json=material(preferences={"privacy": "public"})).status_code == 422
     assert client.post("/api/brain/knowledge", json=material()).status_code == 403
 
 
@@ -241,16 +347,19 @@ def test_public_visibility_cohorts_and_selected_learning_do_not_leak(data):
     assert learner.cohort(pub) == "unconfirmed"
     pub["delivery"]["audience_setup"] = "public_requested"
     assert learner.cohort(pub) == "public_requested"
-    selected = {"platform": "youtube", "audience": {"intent": audience.SELECTED}, "delivery": {"audience_setup": "user_confirmed"}}
+    selected = {"platform": "youtube", "audience": {"intent": audience.SELECTED},
+                "delivery": {"audience_setup": "user_confirmed"}}
     assert learner.cohort(selected) == "selected"
-    db.insert("learning_metrics", {"id": "hour:19:youtube:performance", "dimension": "hour", "key": "19", "platform": "youtube",
+    db.insert("learning_metrics", {"id": "hour:19:youtube:performance", "dimension": "hour", "key": "19",
+                                   "platform": "youtube",
                                    "metric": "performance", "lift": 1.1, "n": 30, "data": {"reliable": True}})
     assert learner.lift("hour", "19", "youtube") == (1.1, 30)
     assert scheduler.Timing("youtube", db.get_settings()).hour == {19: 1.1}
     db.save_settings({"audience_youtube": "public", "autopilot_youtube": True, "autopilot_tiktok": False})
     assert learner.lift("hour", "19", "youtube") == (1.0, 0)
     assert scheduler.Timing("youtube", db.get_settings()).hour == {}
-    old = db.insert("brain_strategies", {"name": "clip_length", "platform": "youtube", "cohort": "selected", "version": 1,
+    old = db.insert("brain_strategies", {"name": "clip_length", "platform": "youtube", "cohort": "selected",
+                                        "version": 1,
                                         "params": {"group_version": 1, "target_duration": 33}, "evidence": {}})
     assert brain.clip_length() is None
     db.update("brain_strategies", old["id"], cohort="public")

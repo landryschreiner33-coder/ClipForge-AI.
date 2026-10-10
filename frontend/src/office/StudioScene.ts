@@ -8,12 +8,15 @@ import { Pose } from "./sprites";
 import { createRobot } from "./StudioArt";
 import { createBrainCore } from "./BrainCore";
 import { cachedLightPool, createLoungeDecor, skylineWindow } from "./LoungeDecor";
+import type { OfficeDuty } from "./DepartmentDuty";
 
 export interface SceneActor {
   id: string; x: number; y: number; pose: Pose; dir: Dir; selected: boolean;
   posture?: "stand" | "desk" | "rest";
   breakActivity?: BreakActivity | null;
   breakPhase?: number;
+  supervising?: boolean;
+  duty?: OfficeDuty;
 }
 export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
 type RobotArt = ReturnType<typeof createRobot>;
@@ -119,6 +122,9 @@ export class StudioScene {
   private croppedTextures: Texture[] = [];
   private lounge: ReturnType<typeof createLoungeDecor> | null = null;
   private destroyed = false;
+  private brainBusy = false;
+  private lastActualBrainBusy: boolean | undefined;
+  private brainSuppressed = false;
 
   private constructor(app: Application, skyline: Texture | null) { this.app = app; this.skyline = skyline; }
   static async create(canvas: HTMLCanvasElement): Promise<StudioScene> {
@@ -237,7 +243,10 @@ export class StudioScene {
           // Archive cabinets flank the pedestal and never masquerade as performance data.
           for (const dx of [43, 206]) {
             box(g, x + dx, y + 127, 23, 28, "#54536a");
-            for (let row = 0; row < 3; row++) { box(g, x + dx + 2, y + 130 + row * 7, 19, 5, "#373e53"); px(g, x + dx + 10, y + 132 + row * 7, 4, 1, "#aea3ba"); }
+            for (let row = 0; row < 3; row++) {
+              box(g, x + dx + 2, y + 130 + row * 7, 19, 5, "#373e53");
+              px(g, x + dx + 10, y + 132 + row * 7, 4, 1, "#aea3ba");
+            }
           }
           this.core.container.position.set(CORE_AT.x, CORE_AT.y);
           break;
@@ -320,12 +329,22 @@ export class StudioScene {
       highlight.visible = until > t;
       highlight.alpha = still ? .5 : Math.min(.7, Math.max(0, (until - t) / 900));
     }
-    const mode = offline ? "offline" : ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused" ? "paused"
-      : coreBusy || busy.has("brain") ? "active" : "standby";
+    const paused = ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused";
+    const actualBrainBusy = snap.brain?.state === "evaluating" || busy.has("brain");
+    if (paused || offline) this.brainBusy = false;
+    else if (!still || this.lastActualBrainBusy === undefined || this.brainSuppressed) {
+      this.brainBusy = coreBusy || actualBrainBusy;
+    } else if (actualBrainBusy !== this.lastActualBrainBusy) this.brainBusy = actualBrainBusy;
+    this.lastActualBrainBusy = actualBrainBusy;
+    this.brainSuppressed = paused || offline;
+    // Retain transient cues at their frozen phase, while genuine snapshot state changes stay visible.
+    const mode = offline ? "offline" : paused ? "paused" : this.brainBusy ? "active" : "standby";
     this.core.update(t, still, mode);
     this.lounge?.update(t, still || offline || ["paused", "pausing"].includes(snap.run.state));
     this.racks.clear();
-    const colors: Record<string, string> = { healthy: "#8bbc96", degraded: "#dcc080", error: "#e08788", unknown: "#71849c" };
+    const colors: Record<string, string> = {
+      healthy: "#8bbc96", degraded: "#dcc080", error: "#e08788", unknown: "#71849c",
+    };
     for (let j = 0; j < Math.min(this.rackLamps.length, snap.health.checks.length); j++) {
       const p = this.rackLamps[j];
       px(this.racks, p.x, p.y, 3, 2, offline ? colors.unknown : colors[snap.health.checks[j].status] || colors.unknown);
@@ -338,7 +357,8 @@ export class StudioScene {
       if (!art) continue;
       art.container.position.set(Math.round(actor.x), Math.round(actor.y));
       art.container.zIndex = actor.y;
-      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand", actor.breakActivity, actor.breakPhase || 0);
+      art.animate(actor.pose, t, still, actor.dir, actor.posture || "stand",
+        actor.breakActivity, actor.breakPhase || 0, actor.duty === "supervising" || actor.supervising || false);
       if (actor.selected) {
         const x = Math.round(actor.x), y = Math.round(actor.y);
         this.selector.poly([x - 19, y - 4, x, y - 8, x + 19, y - 4, x, y + 3])

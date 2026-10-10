@@ -169,7 +169,11 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if not clip:
         raise HTTPException(404, "Clip not found")
     video_path, version = _video_for(clip)
-    if any(p["status"] in jobs.ACTIVE for p in db.list_publications(clip_id, platform)):
+    publications = db.list_publications(clip_id, platform)
+    if any(jobs.unknown_outcome(p) for p in publications):
+        raise HTTPException(409, "An earlier upload's outcome is unknown. Check it in YouTube Studio and use "
+                                 "Refresh status before starting another upload.")
+    if any(p["status"] in jobs.ACTIVE for p in publications):
         raise HTTPException(409, "This clip is already being uploaded to this platform.")
     settings = db.get_settings()
     current_account = (db.get_account(platform) or {}).get("account_id") or ""
@@ -178,7 +182,11 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if settings.get("autopilot_publishing_paused"):
         raise PublishError("Publishing is paused, so nothing new is uploaded.",
                            "Resume publishing in the Office (bottom bar), then publish again.", "paused")
+    jobs.manual_eligibility(clip, platform, video_path, (version or {}).get("id", ""), settings)
+    from ..pipeline import artifact
+
     options: dict = {"approved_account": current_account}
+    options["approved_video_sha256"] = artifact.sha256_file(video_path)
     if platform == "youtube":
         if not (db.get_account("youtube") or {}).get("has_tokens"):
             raise PublishError("YouTube is not connected.", "Click Connect YouTube first.", "not_connected")
@@ -200,8 +208,8 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
             raise PublishError(f"ClipFoundry does not have TikTok's {needed} permission.",
                                "Use the other posting option, or add the Content Posting API to your TikTok app and "
                                "connect again.", "scope")
-        options = {k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
-                                                 "brand_organic", "brand_content")}
+        options.update({k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
+                                                    "brand_organic", "brand_content")})
         options["duration"] = float((version or clip).get("duration") or 0)
         if not body.disclose:
             options["brand_organic"] = options["brand_content"] = False
@@ -387,7 +395,8 @@ def performance_overview() -> dict:
         clip = db.get_clip(p["clip_id"]) or {}
         items.append({"id": p["id"], "clip_id": p["clip_id"], "platform": p["platform"], "title": p["title"] or
                       clip.get("title", ""), "privacy": p.get("privacy") or p["requested_privacy"], "url": p["url"],
-                      "created_at": p["created_at"], "viral_potential": (p.get("features") or {}).get("viral_potential"),
+                      "created_at": p["created_at"],
+                      "viral_potential": (p.get("features") or {}).get("viral_potential"),
                       "stats": latest.get(p["id"])})
     return {"published": len(pubs), "with_stats": sum(1 for p in pubs if p["id"] in latest), "totals": totals,
             "last_refreshed": last, "items": items, "check": learning.ranking_check(settings=settings),

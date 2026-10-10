@@ -149,7 +149,8 @@ class FakeGoogle(_Server):
                                      "refresh_token": self.refresh_token, "scope": self.scope})
             if form["grant_type"] == "refresh_token":
                 if self.revoked or form.get("refresh_token") != self.refresh_token:
-                    return h._send(400, {"error": "invalid_grant", "error_description": "Token has been expired or revoked."})
+                    return h._send(400, {"error": "invalid_grant",
+                                         "error_description": "Token has been expired or revoked."})
                 self.access = "access-" + secrets.token_hex(4)
                 return h._send(200, {"access_token": self.access, "expires_in": 3599, "scope": self.scope})
         if u.path == "/revoke":
@@ -180,7 +181,8 @@ class FakeGoogle(_Server):
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             if self.search_quota_exceeded:
-                return h._send(403, {"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}})
+                return h._send(403, {"error": {"code": 403, "message": "quota",
+                                             "errors": [{"reason": "quotaExceeded"}]}})
             words = q.get("q", [""])[0].lower().split()
             live = q.get("eventType") == ["live"]
             hits = [it for it in self.catalog.values()
@@ -198,7 +200,8 @@ class FakeGoogle(_Server):
             if len(ids) > 1 or ids[0] in self.catalog:
                 return h._send(200, {"items": [self.catalog[v] for v in ids if v in self.catalog]})
             v = self.videos.get(ids[0])
-            items = [{"id": v["id"], "status": v["status"], "processingDetails": {"processingStatus": "succeeded"},
+            items = [{"id": v["id"], "snippet": v["snippet"], "status": v["status"],
+                      "processingDetails": {"processingStatus": "succeeded"},
                       "statistics": v.get("statistics", {})}] if v else []
             return h._send(200, {"items": items})
         if u.path == "/v2/reports":
@@ -216,7 +219,8 @@ class FakeGoogle(_Server):
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             if self.quota_exceeded:
-                return h._send(403, {"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}})
+                return h._send(403, {"error": {"code": 403, "message": "quota",
+                                             "errors": [{"reason": "quotaExceeded"}]}})
             assert q["uploadType"] == ["resumable"]
             sid = secrets.token_hex(6)
             self.sessions[sid] = {"meta": json.loads(body), "size": int(h.headers["X-Upload-Content-Length"]),
@@ -363,7 +367,8 @@ class FakeTikTok(_Server):
             return self._ok(h, {"user": {"open_id": "open-1", "display_name": "Test Creator",
                                          "avatar_url": "https://p16.example/avatar.jpg"}})
         if u.path == "/v2/post/publish/creator_info/query/":
-            return self._ok(h, {"creator_avatar_url": "https://p16.example/avatar.jpg", "creator_username": "testcreator",
+            return self._ok(h, {"creator_avatar_url": "https://p16.example/avatar.jpg",
+                                "creator_username": "testcreator",
                                 "creator_nickname": "Test Creator", "comment_disabled": False,
                                 "duet_disabled": self.duet_disabled, "stitch_disabled": False,
                                 "max_video_post_duration_sec": 600,

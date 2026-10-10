@@ -117,12 +117,22 @@ def cohort(pub: dict) -> str:
     react like the public, and your own views are not your viewers'."""
     from ..publish import audience
 
-    want = (pub.get("audience") or {}).get("intent") or ""
+    stamp = pub.get("audience") or {}
+    want = stamp.get("intent") or ""
     if not want:
         want = db._legacy_intent(pub["platform"], pub.get("requested_privacy") or "")  # noqa: SLF001
     group = {audience.SELECTED: "selected", audience.PUBLIC: "public", audience.OWNER_ONLY: "owner_only",
              audience.LEGACY_PUBLIC: "public_legacy"}.get(want, "unconfirmed")
-    setup = (pub.get("delivery") or {}).get("audience_setup") or ""  # empty: posted before deliveries were recorded
+    delivery = pub.get("delivery") or {}
+    seen = delivery.get("visibility") or {}
+    expected = stamp.get("visibility") or pub.get("requested_privacy") or seen.get("requested")
+    if want in (audience.SELECTED, audience.OWNER_ONLY) and int(stamp.get("policy_version") or 0) >= 1 \
+            and seen.get("evidence") == "api" and seen.get("returned") and expected \
+            and seen["returned"] != expected:
+        # A wider or different audience cannot become selected-viewer evidence merely because it was requested.
+        # Previously collected observations retain their original provenance and cohort snapshot.
+        return "unconfirmed"
+    setup = delivery.get("audience_setup") or ""  # empty: posted before deliveries were recorded
     if setup == "owner_only":
         return "owner_only"
     if group == "public":
@@ -292,7 +302,7 @@ def retention_calibration(rs: list[dict], minimum: int = MIN_SAMPLES) -> dict | 
 # ------------------------------------------------------------------ 4. what the other workers read
 def lift(dimension: str, key: str, platform: str = "all") -> tuple[float, int]:
     """(multiplier, posts) for a learned group; (1.0, 0) when there is no reliable result."""
-    if not _context_matches():
+    if db.get_settings().get("brain_paused") or not _context_matches():
         return 1.0, 0
     row = db.fetch("learning_metrics", f"{dimension}:{key}:{platform}:performance")
     if not row or not (row.get("data") or {}).get("reliable"):
@@ -301,13 +311,13 @@ def lift(dimension: str, key: str, platform: str = "all") -> tuple[float, int]:
 
 
 def weights() -> dict[str, float]:
-    if not _context_matches():
+    if db.get_settings().get("brain_paused") or not _context_matches():
         return {}
     return {r["key"]: float(r["lift"]) for r in db.select("learning_metrics", "dimension = 'weight'")}
 
 
 def expected_retention(estimate: float | None) -> tuple[float | None, str]:
-    if not _context_matches():
+    if db.get_settings().get("brain_paused") or not _context_matches():
         return estimate, ""
     row = db.fetch("learning_metrics", "calibration:retention:all:retention")
     if estimate is None or not row:
@@ -351,6 +361,12 @@ def learn(job: Job) -> dict:
     for pub in db.list_publications():
         if pub["status"] in ("done", "action_needed"):
             brain.ingest_platform(pub)  # the Brain's copy, with its provenance; repeats add nothing
+    if settings.get("brain_paused"):
+        evaluated = brain.evaluate(settings)
+        message = "Learning is paused: results are collected, and learned values stay unchanged."
+        state.put("learning:status", {**(state.get("learning:status") or {}), "at": time.time(),
+                                      "refreshed": refreshed["refreshed"], "message": message})
+        return {**refreshed, "message": message, "brain": evaluated["message"]}
     job.progress(0.5, "Comparing results", stage="evaluate")
     all_rows = rows(settings)
     usable_rows = [r for r in all_rows if usable(r["platform"], settings)]
@@ -381,7 +397,8 @@ def learn(job: Job) -> dict:
     previous = {r["id"]: float(r["lift"]) for r in db.select("learning_metrics") if r.get("lift") is not None} \
         if _context_matches() else {}
     status = {"at": time.time(), "samples": len(allowed), "needed": need, "excluded_youtube": excluded,
-              "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"], "findings": [], "weights": {}, "calibration": None}
+              "excluded_other_audience": other_audience, "note": note, "refreshed": refreshed["refreshed"],
+              "findings": [], "weights": {}, "calibration": None}
     status.update(excluded_few_views=few_views, sources=sources)
     evaluated = brain.evaluate(settings)
     if len({r["cohort"] for r in allowed}) > 1:

@@ -49,6 +49,13 @@ export const STATION: Record<string, Pt> = {
   lock: at("dock", 44, 118), dock: at("dock", 108, 118), harbor: at("dock", 172, 118),
   metric: at("brain", 40, 236), synapse: at("brain", 120, 236), curator: at("brain", 208, 236),
 };
+/** Managers oversee their teams from clear floor space, away from desk and doorway footprints. */
+export const SUPERVISE: Record<string, Pt> = {
+  tracker: at("discover", 194, 76), vector: at("analyze", 144, 76),
+  frame: at("studio", 144, 76), switch: at("system", 140, 84),
+  script: at("caption", 76, 84), harbor: at("dock", 76, 84),
+  curator: at("brain", 80, 194), clock: at("schedule", 151, 86),
+};
 export const CORE_AT: Pt = { x: 812, y: 146 };
 
 export type BreakActivity = "arcade" | "boardgame" | "snack" | "drink" | "read" | "rest";

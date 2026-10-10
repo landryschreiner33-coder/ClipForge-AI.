@@ -74,13 +74,18 @@
       <td>Until you delete the video in ClipFoundry, or delete the data folder</td></tr>
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
       hashtags, edits and versions</td><td>Until you delete the video</td></tr>
+    <tr><td>Temporary recovery copies</td><td>When an automatic clip needs a fresh render: local copies of its
+      completed video, captions, edit decisions, final transcript, render plan and thumbnail, with a recovery
+      checkpoint</td><td>Deleted after the new render or restoration finishes successfully. If recovery cannot
+      finish safely, kept until it succeeds or you delete the video or data folder</td></tr>
     <tr><td>Connected accounts</td><td>Sign-in tokens for YouTube and TikTok, your channel or profile name, a link to
       its picture, account IDs and the permissions you granted. When you press Test connection: its time and result
       (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
       itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
       folder</td></tr>
     <tr><td>Posts</td><td>What you planned, approved or published, when and where, the text and choices of each post,
-      each post's ID and link, and a record of approvals and changes</td><td>Until you delete the data folder (see
+      each post's ID and link, a record of approvals and changes, and a SHA-256 fingerprint of the exact video
+      file you confirmed, so a changed file needs a new review</td><td>Until you delete the data folder (see
       section 7)</td></tr>
     <tr><td>Results</td><td>Views, likes, comments, shares and watch time that YouTube and TikTok report for your own
       posts</td><td>YouTube: deleted after 30 days, unless you tell ClipFoundry your Google project was approved to

@@ -27,6 +27,10 @@ const BREAK_WORDS: Record<string, string> = {
   arcade: "Playing an arcade game", boardgame: "Playing a tabletop game", snack: "Having a snack",
   drink: "Having a drink", read: "Reading", rest: "Relaxing",
 };
+const DUTY_WORDS = {
+  work: "At work", supervising: "Supervising the department", support: "Ready in the department",
+  break: "Off duty", quiet: "Present and inactive",
+};
 // Alternate names along the dense arcade/cafe and sofa edges so the whole-office camera stays readable.
 const LOWER_LOUNGE_LABELS = new Set([
   "arcade-2", "arcade-4", "cafe-drink-1", "cafe-drink-2",
@@ -126,7 +130,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       for (const [id, until] of pulses.current) if (until < now) pulses.current.delete(id);
       const actors = [...motion.actors.values()].sort((a, b) => a.y - b.y);
       const painted = actors.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, pose: motion.pose(a),
-        posture: motion.posture(a), selected: state.selected === a.id,
+        posture: motion.posture(a), duty: motion.duty(a), selected: state.selected === a.id,
         breakActivity: motion.breakActivity(a), breakPhase: motion.breakPhase(a) }));
       const busy = core.current > now || state.snap.brain?.state === "evaluating"
         || state.snap.roles.some(r => BY_ID[r.id]?.room === "brain" && r.state === "working");
@@ -140,6 +144,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         button.style.top = `${(a.y - height) / WORLD.h * 100}%`;
         button.style.height = `${height / WORLD.h * 100}%`;
         button.dataset.pose = motion.pose(a); button.dataset.posture = posture;
+        button.dataset.duty = motion.duty(a);
         button.dataset.room = roomOf(a)?.id || "corridor";
         button.dataset.carrying = a.card ? "true" : "false";
         button.dataset.offering = motion.isSender(a) ? "true" : "false";
@@ -148,9 +153,11 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         button.dataset.breakPhase = motion.breakPhase(a).toFixed(3);
         button.dataset.breakSpot = motion.breakSpot(a) || "";
         button.dataset.labelRow = LOWER_LOUNGE_LABELS.has(button.dataset.breakSpot) ? "lower" : "base";
-        button.title = activity ? `${BY_ID[a.id].name} · ${BREAK_WORDS[activity]} (lounge animation)` : "";
+        button.title = `${BY_ID[a.id].name} · ${activity ? `${BREAK_WORDS[activity]} (lounge animation)`
+          : DUTY_WORDS[motion.duty(a)]}`;
       }
-      const brainMode = state.stale ? "offline" : frozen || state.snap.brain?.state === "paused" ? "paused" : busy ? "active" : "standby";
+      const brainMode = state.stale ? "offline" : frozen || state.snap.brain?.state === "paused"
+        ? "paused" : busy ? "active" : "standby";
       if (brainLink.current) {
         brainLink.current.dataset.mode = brainMode;
         const word = { offline: "Offline", paused: "Paused", active: "Processing", standby: "Standby" }[brainMode];
@@ -163,7 +170,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         note.dataset.phase = transfer?.phase || "idle";
         note.dataset.from = transfer?.from || ""; note.dataset.to = transfer?.to || "";
         const label = transfer ? `${BY_ID[transfer.from].name} → ${BY_ID[transfer.to].name} · ${
-          transfer.phase === "approach" ? "Bringing work" : transfer.phase === "pass" ? "Passing document" : "Received"}` : "";
+          transfer.phase === "approach" ? "Bringing work" : transfer.phase === "pass"
+            ? "Passing document" : "Received"}` : "";
         if (note.textContent !== label) note.textContent = label;
       }
       raf = requestAnimationFrame(frame);
@@ -191,7 +199,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     return `${c.name}, ${c.title}, ${stale ? "last known: " : ""}${STATE_WORDS[r?.state || "unavailable"]}${task}`;
   };
   return <div className="office-map-frame">
-    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap} data-renderer={renderer} data-camera={focus || "office"}>
+    <div className={`office-map${stale ? " stale" : ""}`} ref={wrap}
+      data-renderer={renderer} data-camera={focus || "office"}>
       <div className="office-world" style={{ width: WORLD.w * scale * zoom, height: WORLD.h * scale * zoom,
         transform: pan, ["--s" as string]: scale * zoom } as React.CSSProperties}>
         <canvas key={renderer} ref={canvas} width={WORLD.w} height={WORLD.h} aria-hidden="true" />
@@ -204,13 +213,15 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         </button>)}
         <a ref={brainLink} href="#/brain" className="brain-core-hit" data-mode="standby"
           aria-label="Brain Core: Standby. Open Brain workspace" style={{ left: `${(CORE_AT.x - 66) / WORLD.w * 100}%`,
-            top: `${(CORE_AT.y - 130) / WORLD.h * 100}%`, width: `${132 / WORLD.w * 100}%`, height: `${132 / WORLD.h * 100}%` }}>
+            top: `${(CORE_AT.y - 130) / WORLD.h * 100}%`, width: `${132 / WORLD.w * 100}%`,
+            height: `${132 / WORLD.h * 100}%` }}>
           <span aria-hidden="true">CORE · Standby</span>
         </a>
         {CAST.map(c => <button key={c.id} type="button" className={`robot-hit${selected === c.id ? " on" : ""}`}
           ref={el => { if (el) buttons.current.set(c.id, el); else buttons.current.delete(c.id); }}
           style={{ width: `${38 / WORLD.w * 100}%`, height: `${65 / WORLD.h * 100}%` }}
-          aria-label={label(c.id)} aria-pressed={selected === c.id} data-id={c.id} data-state={rows[c.id]?.state || "unavailable"}
+          aria-label={label(c.id)} aria-pressed={selected === c.id} data-id={c.id}
+          data-state={rows[c.id]?.state || "unavailable"}
           onClick={() => onRobot(c.id, motion.actors.get(c.id)?.card || null)}>
           <span className={`robot-state state-${rows[c.id]?.state || "unavailable"}`} aria-hidden="true"
             title={stale ? "Last known state" : STATE_WORDS[rows[c.id]?.state || "unavailable"]}>
@@ -233,7 +244,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         <span key={state}><Icon name={STATE_ICON[state]} size={13} />{state[0].toUpperCase() + state.slice(1)}</span>)}
     </div>
     <span className="lounge-life-caption"
-      title="Games, snacks and coffee are off-duty animations. Job icons show the actual status.">Lounge life · decorative</span>
+      title="Games, snacks and coffee are off-duty animations. Job icons show the actual status.">
+      Lounge life · decorative</span>
   </div>;
 }
 export const STATE_WORDS: Record<RoleState, string> = {

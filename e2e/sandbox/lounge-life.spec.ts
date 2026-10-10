@@ -172,8 +172,8 @@ async ({ page, request }) => {
   await expect(splice).toHaveAttribute("data-break-spot", "");
   await expect(robot(page, "command")).toHaveAttribute("data-break-activity", "");
   await expect(robot(page, "radar")).toHaveAttribute("data-break-activity", "");
-  await expect(splice).toHaveAttribute("data-pose", "walk");
-  await expect(splice).toHaveAttribute("data-posture", "desk", { timeout: 20_000 });
+  await expect(splice).toHaveAttribute("data-pose", "work");
+  await expect(splice).toHaveAttribute("data-posture", "desk");
   await expect(splice).toHaveAttribute("data-room", "studio");
   await expect(splice).toHaveAttribute("data-break-activity", "");
   await uniqueClaims(page);

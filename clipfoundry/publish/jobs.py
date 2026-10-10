@@ -5,7 +5,10 @@ import os
 import queue
 import threading
 import time
+from pathlib import Path
 from typing import Callable
+
+import httpx
 
 from .. import db
 from ..pipeline.common import log
@@ -13,6 +16,71 @@ from . import audience, tiktok, youtube
 from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_exactly, wait_text
 
 ACTIVE = ("queued", "uploading", "processing")
+
+
+def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict) -> None:
+    """Manual Publish keeps the existing source terms and checks the selected Autopilot artifact, too."""
+    from ..autopilot import gate, queue as work_queue, rights, verify
+    from ..pipeline import artifact
+
+    project = db.get_project(clip["project_id"]) or {}
+    source_id = project.get("source_id") or ""
+    source = db.fetch("sources", source_id) if source_id else None
+    if source_id and not source:
+        raise PublishError("This clip's source record is missing.", "Restore its source and review the clip again.",
+                           "rights")
+    if source and verify.ensure([source], settings):
+        source = db.fetch("sources", source["id"]) or source
+    try:
+        rights.gate(source, "publish", settings)
+    except rights.RightsBlocked as exc:
+        raise PublishError(str(exc), "Review the source's reuse terms in Autopilot → Sources.", "rights") from exc
+    allowed, why = rights.platform_allowed(source, platform, settings)
+    if not allowed:
+        raise PublishError(why, "The agreement for this video does not cover this platform.", "rights")
+    current_path, current_version, _ = artifact.active(clip)
+    if current_version != version_id or not current_path or Path(current_path).resolve() != Path(path).resolve():
+        raise PublishError("The selected video version changed after confirmation.",
+                           "Review the selected version and publish again.", "approval_invalidated")
+    applicable = source_id or project.get("origin") == "autopilot" or bool(
+        db.select("quality_reports", "clip_id = ?", (clip["id"],), limit=1))
+    if applicable:
+        try:
+            gate.verify_file(clip, path)
+        except work_queue.Wait as exc:
+            raise PublishError(exc.message, "Wait for the final quality check, then publish again.", "quality") \
+                from exc
+        except work_queue.Fail as exc:
+            raise PublishError(str(exc), exc.fix, "quality") from exc
+
+
+def _check_manual_publication(pub: dict, settings: dict) -> None:
+    """Recheck just before starting; resumable transfers keep their original bytes and platform handle."""
+    if pub.get("scheduled_id"):
+        return
+    info = pub.get("info") or {}
+    expected = (pub.get("options") or {}).get("approved_video_sha256")
+    if expected:
+        from ..pipeline import artifact
+
+        try:
+            actual = artifact.sha256_file(pub["video_path"])
+        except OSError as exc:
+            if info.get("final_chunk_at"):
+                raise youtube._outcome_unknown() from exc
+            raise PublishError("The confirmed video file is missing.", "Render it and review it again.",
+                               "approval_invalidated") from exc
+        if actual != expected:
+            if info.get("final_chunk_at"):
+                raise youtube._outcome_unknown()
+            raise PublishError("The video file changed after confirmation.", "Review the file and publish again.",
+                               "approval_invalidated")
+    if info.get("upload_session") or pub.get("remote_id"):
+        return  # Continue the same bytes without rejudging an upload halfway through its transfer.
+    clip = db.get_clip(pub["clip_id"])
+    if not clip or clip["status"] != "ready":
+        raise PublishError("The clip is missing or not rendered.", "Render the clip and review it again.", "quality")
+    manual_eligibility(clip, pub["platform"], pub["video_path"], pub.get("version_id") or "", settings)
 
 
 def feature_snapshot(clip: dict, version: dict | None = None) -> dict:
@@ -46,6 +114,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
             "account_id"):
         raise PublishError("Another YouTube account is connected than the one this upload was approved for.",
                            "Reconnect the original account, or review a new post for this account.", "reconnect")
+    _check_manual_publication(pub, settings)
     info = pub.get("info") or {}
     stamp = pub.get("audience") or {}
     if not info.get("upload_session"):  # an upload under way keeps going; a new one is checked against the policy
@@ -57,6 +126,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     requested = pub["requested_privacy"]
     db.update_publication(pub["id"], status="uploading", progress=0,
                           message=f"Uploading to YouTube as {requested.capitalize()}",
+                          info={**info, "upload_snippet": body["snippet"]},
                           delivery={**(pub.get("delivery") or {}), "transfer": "uploading"})
 
     def remember(session: str) -> None:  # lets an interrupted upload resume instead of uploading twice
@@ -138,6 +208,7 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
             "account_id"):
         raise PublishError("Another TikTok account is connected than the one this upload was approved for.",
                            "Reconnect the original account, or review a new post for this account.", "reconnect")
+    _check_manual_publication(pub, settings)
     mode = pub.get("mode") or "direct"
     username = ""
     creator = None
@@ -179,11 +250,60 @@ def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
                                              "or check your TikTok profile.")
 
 
+def unknown_outcome(pub: dict) -> bool:
+    info = pub.get("info") or {}
+    return bool(info.get("outcome_unknown") or info.get("code") == youtube.OUTCOME_UNKNOWN)
+
+
+def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
+    db.update_publication(pub["id"], status="processing", progress=1.0, error=str(exc),
+                          message="Upload outcome unknown: YouTube may already have the video. Another upload "
+                                  "is held to avoid a duplicate.",
+                          fix="Open YouTube Studio → Content and use Refresh status to find the existing upload. "
+                              "ClipFoundry will not upload this clip again while the outcome is unknown.",
+                          info={**(pub.get("info") or {}), "outcome_unknown": True,
+                                "code": youtube.OUTCOME_UNKNOWN, "studio_url": "https://studio.youtube.com/"},
+                          delivery={**(pub.get("delivery") or {}), "transfer": "outcome_unknown"})
+    return db.get_publication(pub["id"]) or pub
+
+
+def _refresh_manual_unknown(pub: dict) -> dict:
+    """Read the original account's recent uploads; uncertainty never starts another transfer."""
+    from ..autopilot.publisher import _youtube_upload_by_title
+
+    approved_account = (pub.get("options") or {}).get("approved_account")
+    if not approved_account or approved_account != (db.get_account("youtube") or {}).get("account_id"):
+        raise PublishError("Reconnect the original YouTube account before checking this upload's outcome.",
+                           "The uncertain upload stays held; no video is uploaded to the current account.",
+                           "reconnect")
+    try:
+        found = _youtube_upload_by_title(pub, require_exact_metadata=True)
+        video_id = (found or {}).get("id") or ""
+        status = youtube.video_status(youtube.Token(db.get_settings()), video_id) if video_id else None
+    except (httpx.HTTPError, ValueError) as exc:
+        raise PublishError("YouTube's upload outcome could not be checked.",
+                           "Check the connection and use Refresh status again; no new upload is started.",
+                           "network") from exc
+    if not status or not status.get("exists"):
+        return _hold_manual_unknown(pub, youtube._outcome_unknown())
+    info = {**(pub.get("info") or {}), "outcome_unknown": False, "code": "",
+            "studio_url": youtube.studio_url(video_id), "checked_at": time.time(),
+            "locked_private": pub.get("requested_privacy") == "public" and status.get("privacy") == "private"}
+    delivery = audience.delivery_after_upload("youtube", pub.get("audience") or {},
+                                               status.get("privacy") or "", "api")
+    db.update_publication(pub["id"], status="done", remote_id=video_id, url=youtube.video_url(video_id),
+                          privacy=status.get("privacy") or "", progress=1.0, error="", fix="", info=info,
+                          delivery=delivery, message="The upload was found on YouTube; only its final reply was lost.")
+    return refresh(db.get_publication(pub["id"]) or pub)
+
+
 RUNNERS: dict[str, Callable[[dict, Callable[[], bool]], None]] = {"youtube": run_youtube, "tiktok": run_tiktok}
 
 
 def refresh(pub: dict) -> dict:
     """Ask the platform for the current state of an uploaded video."""
+    if pub["platform"] == "youtube" and not pub.get("scheduled_id") and unknown_outcome(pub):
+        return _refresh_manual_unknown(pub)
     if pub["platform"] == "youtube" and pub.get("remote_id"):
         st = youtube.video_status(youtube.Token(db.get_settings()), pub["remote_id"])
         info = {**(pub.get("info") or {}), **{k: v for k, v in st.items() if k != "exists"}, "checked_at": time.time()}
@@ -315,10 +435,33 @@ class PublishWorker:
 
     def _run(self, pub_id: str) -> None:
         pub = db.get_publication(pub_id)
-        if not pub or pub["status"] == "cancelled":
+        if not pub or pub["status"] in ("cancelled", "done", "action_needed"):
+            return
+        if not pub.get("scheduled_id") and pub["platform"] == "youtube" and unknown_outcome(pub):
+            try:
+                refresh(pub)  # A stale retry/recovered queue entry may only read the uncertain outcome.
+            except PublishError as exc:
+                db.update_publication(pub_id, message=f"Upload outcome still unknown: {exc}", fix=exc.fix)
+            return
+        if pub["status"] == "processing" and pub.get("remote_id"):
+            try:
+                refresh(pub)  # The bytes arrived already; only ask the platform whether processing finished.
+            except PublishError as exc:
+                db.update_publication(pub_id, message=f"Uploaded; the platform's outcome could not be read: {exc}",
+                                      fix=exc.fix)
             return
         if pub_id in self.cancelled:
             db.update_publication(pub_id, status="cancelled", message="Cancelled before the upload started.")
+            return
+        info = pub.get("info") or {}
+        if not pub.get("scheduled_id") and db.get_settings().get("autopilot_publishing_paused") \
+                and not info.get("upload_session") and not pub.get("remote_id"):
+            # Submission and upload can be separated by a queue or a platform wait. Recheck the pause at start;
+            # transfers already under way keep their existing session and may finish, as scheduled uploads do.
+            at = time.time() + 30.0
+            db.update_publication(pub_id, status="queued", message="Publishing is paused: waiting for Resume",
+                                  info={**info, "retry_at": at})
+            self.later(pub_id, at)
             return
         runner = RUNNERS.get(pub["platform"])
         if runner is None:
@@ -331,6 +474,14 @@ class PublishWorker:
         except PublishError as exc:
             current = db.get_publication(pub_id) or pub
             name = "YouTube" if pub["platform"] == "youtube" else "TikTok"
+            if pub["platform"] == "youtube" and not pub.get("scheduled_id") and exc.code == youtube.OUTCOME_UNKNOWN:
+                held = _hold_manual_unknown(current, exc)
+                try:
+                    refresh(held)
+                except PublishError as lookup_error:
+                    db.update_publication(pub_id, message=f"Upload outcome still unknown: {lookup_error}",
+                                          fix=lookup_error.fix)
+                return
             if current["status"] == "processing":  # uploaded: only reading the outcome failed; never upload it twice
                 db.update_publication(pub_id, message=f"Uploaded; {name} did not say yet whether it is posted ({exc}). "
                                                       "Use Refresh status later, or check your profile.")

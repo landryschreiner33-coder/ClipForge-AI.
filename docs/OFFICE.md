@@ -124,20 +124,26 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
 
 ### Where a robot stands
 
-* All 25 robots have their own default lounge place and their own department desk. Idle, waiting, retrying, paused
-  and unavailable roles stay in the lounge when off duty. Working and reviewing robots walk to their desks and sit;
-  a robot with an error remains at its station with an error cue. State icons and selection expose the actual job,
+* All 25 robots have their own default lounge place and their own department desk. Real running/review work or a
+  substantive assigned queued/retrying job gathers the entire department into its room. Actual working/reviewing
+  robots appear immediately at their own desks; supporting peers may walk in and sit ready while their badges
+  remain idle. Paused/unavailable peers are quiet, and an error retains its error cue. State icons expose the actual job,
   source/project/clip identifiers, dependencies, blocked reason and next role. No overflow counter hides the cast.
+  Bare queue counts, stale tasks on paused roles and unreferenced recurring timers do not summon a department.
+  A real failed/blocked task gathers its team for attention; a bare health error keeps only its own robot at work.
 * A manager is `working` while its department has running work and `reviewing` after a real report. COMMAND reviews
   after a decision. A failed job shows `error` on its robot for 30 minutes unless newer work of that robot started.
+  Managers supervising their teams stand at a clear room position, face their workers and check a clipboard.
+  Their own jobs and actual reviews take priority and use their desks. Supervision never creates a report or progress.
 * When Autopilot is paused or stopped, robots that are not running a job show `paused`. A stopped office may still
   show explicitly decorative recreation; its icons and details continue to say paused, never working.
 * A fresh `job_stage` can pass a document between the roles handling the same job, kind and source/clip reference.
   Across jobs, only `hunt_source` → `analyze_source`, `package_clip` → `quality_check` and `regenerate_clip` →
   `package_clip` may transfer a document for the same reference within 30 seconds. A fresh `report` can also pass
   from its worker to its manager. Queued work alone, unrelated references and old events do not create a handoff.
-* Both sender and receiver approach the meeting point, face each other, pass one document and show its receipt.
-  They then return to the desk or reserved lounge place dictated by the latest state, even if it changed during the
+* The confirmed receiver meets the sender inside its own office. They face each other, pass one document and show
+  its receipt. They then return to the desk, supervisor position or reserved lounge place dictated by current department
+  attendance, even if it changed during the
   transfer. Paused or unavailable participants cancel it; Pause, Reduced, a hidden tab or a stale feed clears it.
   After a hidden tab, pause or lost connection, the map waits for a fresh authoritative snapshot and recovers each
   running job's current role before accepting the next handoff. Missed transfers are not replayed, and an older
@@ -164,7 +170,7 @@ paused off-duty roles, as requested by the owner. An individually paused role wh
 unavailable role, does not perform recreational gestures or rotate activities; it can finish returning to its
 reserved resting place. Actual work and document handoffs preempt recreation as soon as their state/event arrives,
 release the lounge reservation and preserve the same robot identity and real job references. A completed worker
-can return to a free lounge place afterward.
+stays ready in its department while another teammate still has work, then returns to a free lounge place afterward.
 
 Global Pause, Reduced, hidden tabs and a stale feed freeze recreational movement and gestures. Reduced and Pause
 restore the stable home arrangement with a still frame; hidden/stale views do not catch up missed leisure time on
@@ -173,7 +179,8 @@ starts a job, changes progress, files a report or creates a document handoff.
 
 CORE is a decorative neural sculpture. Its slow **Standby** orbit means the office display is powered, not that a
 job is running. **Processing** uses brighter, faster neural cues only while the snapshot reports Brain evaluation
-or working Brain roles, or after a fresh Brain evaluation, lookup or strategy-change event. Pausing the Brain or
+or working Brain roles, or after a fresh Brain evaluation, lookup or strategy-change event. Processing has clipped
+holographic scan bands, travelling synapse trails, rising emitter sparks and layered orbital light. Pausing the Brain or
 office freezes the sculpture; Reduced freezes its drawing without changing the reported state. A stale feed shows
 **Offline**, dims CORE and stops motion. Selecting CORE opens the Brain workspace. These effects are not measured
 learning progress, result quality or video-processing time.

@@ -1,13 +1,50 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-09 (America/Chicago).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-10 (UTC).
 Fetch before trusting branch state.
 
 ## Current scope and branch
 
-Latest social-pixel-office checkpoint starts at `5b1f7a9`: the owner asked to use better graphics tools and give
-off-duty robots games, food and drinks. Six authored gestures animate arcade controls, board-game pieces, mugs,
+Latest department-office and reliability checkpoint starts at `e896632`, requested October 9 and completed
+October 10 on the same draft/unmerged PR #14. Real working/reviewing jobs or substantive assigned backlog gather
+the whole department into its own room. Actual workers appear immediately at their own desks; idle teammates sit
+ready without typing, progress or invented jobs. Managers oversee from safe floor positions with clipboard checks
+and brief pointing gestures; their own jobs and real report reviews take priority. Quiet paused/unavailable peers
+may attend, but stale paused tasks, bare queue counts and unreferenced recurring timers do not summon a team.
+A completed robot stays ready while another teammate has work, then resumes its reserved lounge activities.
+Confirmed handoffs meet inside the receiver's office and return both robots to their latest department assignment.
+A newer own job preempts carrying an older document out of its office. Actual badges and task details stay truthful.
+
+The Brain's Processing animation now adds clipped holographic scans, travelling synapse trails, emitter sparks and
+orbital light trails. Standby remains visibly decorative; Brain/global Pause, Reduced, hidden and stale views still
+the art. Pixi and Canvas share department duties and supervisor cues. No dependency was added; the existing PixiJS
+8.22.0 and GSAP 3.15.0 remain. [Latest department evidence and provenance](design/robot-office/departments/README.md).
+
+The owner's full-code-review request also uncovered and fixed concrete backend faults:
+
+* Job progress and host state now reject recovered lease owners and finished/pending jobs; recovery chooses an
+  expired lease under the same write transaction as its update, protecting concurrent heartbeat/cancellation.
+  Failed lock-file creation releases the in-process mutex, allowing the next GPU/startup lock acquisition.
+* Final-check job identity includes the quality-rule version. Regeneration saves/restores the video and complete
+  captions, transcript, edit decisions, render plan and thumbnail together. Interrupted rollback remains non-Ready
+  until restoration succeeds, retaining its checkpoint on failure. Validated future plans are preserved.
+* Brain edits use atomic revision checks, including enable/disable, so a delayed edit cannot overwrite a reviewed
+  lesson or re-enable a disabled rule. Paused learning still collects results but preserves learned values and
+  applies no cached learned weights/calibration. Confirmed audience drift is excluded from new cohort readings;
+  prior observations keep their original provenance.
+* Manual publishing checks linked-source rights, platform coverage, current quality/version and exact confirmed
+  file bytes before a new transfer. Ordinary manual clips retain their existing workflow. Account binding survives
+  TikTok options; emergency Pause also holds queued manual transfers while existing sessions may finish.
+  An unknown manual YouTube outcome blocks another upload. Refresh status only reads the original account and
+  requires one recent candidate with matching submitted metadata; ambiguity keeps the hold. Already-processing
+  queue entries only read status. The Publish page exposes the hold and its refresh action.
+
+Privacy documentation now covers local recovery copies and confirmed-file fingerprints. `.mcp.json`, GPU files,
+Playwright versions and read-only `e2e/tests` remain unchanged. No real posts or owner account changes occurred.
+
+The preceding social-pixel-office checkpoint starts at `5b1f7a9`: the owner requested better graphics tools and
+off-duty games, food and drinks. Six authored gestures animate arcade controls, board-game pieces, mugs,
 bites, page turns and stretches. There are 29 exclusive activity places, 25 stable cast homes and at most two
 recreational walkers. Identity-phased routines rotate through free destinations; work and confirmed document
 handoffs take precedence, preserve real references and clear leisure props. State badges remain authoritative.
@@ -95,7 +132,23 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Validation
 
-Latest lounge validation is recorded at the top of [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+Latest department/reliability validation is recorded at the top of
+[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). Full fast Python passed 685 tests, seven slow deselected,
+in 347.07 s. All seven slow media cases passed together in 676.84 s, with 685 fast cases deselected. All 31 isolated
+browser checks passed together in 7.8 min. Final TypeScript/Vite build passed in 5.96 s with the existing 904 KB
+lazy graphics warning.
+All 14 build files and file sets match both tested and captured SHA-256 manifests. Routing/controller checks cover
+3,844 + 36,304 routes, 600 virtual seconds and 150 mixed transitions. Actual Brain/supervisor pixels animate and
+freeze in Reduced while true states update. All 32 touched/new code files meet 120 columns; whitespace checks pass.
+Earlier 29/31-case browser runs each had one fixture/sampling failure, corrected without weakening the new-job
+guard; the implementation log records their details separately from the final 31-case pass.
+The new evidence has nine screenshots and one 37.40-second 1440×900 H.264 recording. Controlled work, supervisor,
+Brain and handoff fixtures are visibly labeled separately from an actual stopped-sandbox lounge screenshot.
+All 25 identities, laptop controls and mobile List/Studio layout were inspected, with no horizontal mobile overflow
+and zero page/console errors. Evidence records all 14 captured production-file hashes. The recording documents
+animation and confirmed-event choreography, not actual video-processing speed, Windows or RTX 3050 performance.
+
+At the preceding lounge checkpoint:
 The full fast suite passed **641 tests**, with seven slow cases deselected, in 280.30 s. All **23 focused browser
 checks passed together in 6.4 min**. Final TypeScript/Vite build passed (5.83 s; existing lazy 904 KB graphics chunk
 warning); all 14 distribution files are SHA-256 identical to the assets used in that final browser run.
@@ -118,12 +171,12 @@ graphics browser cases passed together (59.3 s). Actual desktop/laptop/mobile ca
 the separate animation video is visibly labeled as controlled test states. A pixel regression verifies COMMAND's
 approval looks different from idle even in Reduced mode. Static floor/furniture is cached once; portrait cache is bounded.
 The earlier 641-test and complete-media results below belong to `c33a291`; those suites were not repeated during
-that refined-art checkpoint. The latest fast rerun above is separate. Windows batch execution, PC graphics/scaling
+that refined-art checkpoint. Subsequent fast runs above are separate. Windows batch execution, PC graphics/scaling
 and GPU checks remain owner checks. That refined-art checkpoint added only PixiJS; the latest lounge also adds GSAP.
 Playwright and GPU pins remain unchanged.
 
 The original master-continuation results below belong to the earlier `c33a291` checkpoint, separately from the
-latest fast rerun. Its complete fast suite passed **641 tests** (263.21 s; seven slow cases deselected).
+subsequent reruns. Its complete fast suite passed **641 tests** (263.21 s; seven slow cases deselected).
 All seven slow cases passed across the full run
 (six passed) and the corrected complete-loop rerun (one passed); the test now waits for both durable published
 schedules before advancing fake result maturity. Ten browser checks passed across the sandbox run and targeted

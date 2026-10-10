@@ -71,8 +71,8 @@ class Job:
         now = time.monotonic()
         if force or stage is not None or now - self._last_progress >= 0.5 or (fraction or 0) >= 1.0:
             self._last_progress = now
-            queue.progress(self.id, fraction, message, stage)
-            if self.host and (message or stage):
+            accepted = queue.progress(self.id, fraction, message, stage, owner=self.owner)
+            if accepted and self.host and (message or stage):
                 self.host.set_state(self.worker, "working", self, stage=stage, message=message)
 
     def log(self, event: str, message: str = "", level: str = "info", **data: object) -> None:

@@ -38,7 +38,9 @@ const task = (message: string, progress: number | null = null) => ({ job_id: `jo
 test("robots stand where their real work is, and follow it when it changes", async ({ page, request }) => {
   const feed = await controlled(page, request);
   Object.assign(role(feed, "radar"), { state: "working", task: task("Reading search results", 0.37) });
-  Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
+  Object.assign(role(feed, "splice"), {
+    state: "working", task: task("Rendering clip 2"),
+  });
   Object.assign(role(feed, "check"), { state: "error", error: "ffmpeg is missing" });
   await page.goto("/#/");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
@@ -75,12 +77,15 @@ test("robots stand where their real work is, and follow it when it changes", asy
 
 test("a real report is carried to the manager; a decision gets COMMAND's reaction", async ({ page, request }) => {
   const feed = await controlled(page, request);
-  Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
+  Object.assign(role(feed, "splice"), { state: "working", task: {
+    ...task("Rendering clip 2"), job_id: "job-1", kind: "package_clip", stage: "render",
+    ref_type: "clip", ref_id: "c1",
+  } });
   await page.goto("/#/");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
   const now = Date.now() / 1000;
-  feed.events.push({ id: 1, at: now, type: "report", role: "frame", job_id: "job-1", kind: "analyze_source",
+  feed.events.push({ id: 1, at: now, type: "report", role: "frame", job_id: "job-1", kind: "package_clip",
     ref_type: "clip", ref_id: "c1", message: "Clip 2 rendered", data: { worker: "splice", state: "done" } });
   await expect(robot(page, "splice")).toHaveAttribute("data-pose", "carry", { timeout: 8000 });
   await expect(robot(page, "frame")).toHaveAttribute("data-pose", "review", { timeout: 15_000 });
@@ -113,7 +118,8 @@ test("paused and stopped states rest the robots; a lost connection is said and m
   await expect(page.getByText("The office is not updating", { exact: true })).toHaveCount(0, { timeout: 15_000 });
 });
 
-test("Full overrides system motion; Reduced stills the map and all 25 fit desktop screens", async ({ page, request }) => {
+test("Full overrides system motion; Reduced stills the map and all 25 fit desktop screens",
+  async ({ page, request }) => {
   const feed = await controlled(page, request);
   Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   await page.setViewportSize({ width: 1366, height: 768 });

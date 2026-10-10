@@ -43,6 +43,22 @@ function trace(g: Graphics, points: Point[], color: string, width: number, alpha
   for (let i = 1; i < points.length; i++) g.lineTo(points[i][0], points[i][1]);
   g.stroke({ color, width, alpha, cap: "square", join: "miter" });
 }
+const CIRCUIT_ROUTES = CIRCUITS.map(points => {
+  const lengths = points.slice(1).map(([x, y], i) => Math.abs(x - points[i][0]) + Math.abs(y - points[i][1]));
+  return { points, lengths, length: lengths.reduce((sum, n) => sum + n, 0) };
+});
+function circuitPoint(route: typeof CIRCUIT_ROUTES[number], phase: number): Point {
+  let distance = ((phase % 1 + 1) % 1) * route.length;
+  for (let i = 0; i < route.lengths.length; i++) {
+    const length = route.lengths[i];
+    if (distance <= length) {
+      const [sx, sy] = route.points[i], [ex, ey] = route.points[i + 1];
+      return [Math.round(sx + (ex - sx) * distance / length), Math.round(sy + (ey - sy) * distance / length)];
+    }
+    distance -= length;
+  }
+  return route.points[route.points.length - 1];
+}
 function orbitPoint(orbit: Orbit, angle: number): Point {
   const x = Math.cos(angle) * orbit.rx, y = Math.sin(angle) * orbit.ry;
   return [Math.round(x * Math.cos(orbit.tilt) - y * Math.sin(orbit.tilt)),
@@ -70,13 +86,16 @@ export function createBrainCore() {
   const halo = new Graphics();
   const body = new Graphics();
   const neuralLight = new Graphics();
+  const energy = new Graphics();
+  const scan = new Graphics();
+  const scanMask = new Graphics();
   const nodes = new Graphics();
   const backLights = new Graphics(), frontLights = new Graphics();
   const ringBack = new Graphics(), ringFront = new Graphics();
   const orbital = new Container();
 
   // Layered bevels and inset light strips give the brain a physical stand, rather than a floating UI icon.
-  rect(shadow, -33, -3, 66, 6, "#101c2c", 0.24);
+  rect(shadow, -33, -3, 66, 5, "#101c2c", 0.24);
   rect(shadow, -26, -5, 52, 4, "#101c2c", 0.25);
   rect(pedestal, -30, -11, 60, 11, INK);
   rect(pedestal, -28, -9, 56, 7, "#5b6379");
@@ -123,7 +142,10 @@ export function createBrainCore() {
     trace(body, points, "#545477", 3, 0.87);
     trace(neuralLight, points, CYAN, 1, 0.54);
   }
-  neural.addChild(halo, body, neuralLight, nodes);
+  polygon(scanMask, HEMISPHERE, "#ffffff");
+  polygon(scanMask, HEMISPHERE.map(([x, y]) => [-x, y]), "#ffffff");
+  scan.mask = scanMask;
+  neural.addChild(halo, body, neuralLight, scan, energy, nodes, scanMask);
   for (const orbit of ORBITS) {
     orbitArc(ringBack, orbit, false);
     orbitArc(ringFront, orbit, true);
@@ -170,6 +192,33 @@ export function createBrainCore() {
       offline ? 0.015 : 0.035 + breath * 0.03);
     rect(emitter, -18, -30, 36, 1, CYAN, offline ? 0.1 : 0.34 + breath * 0.2);
     rect(emitter, -12, -32, 24, 1, VIOLET, offline ? 0.05 : 0.22 + breath * 0.15);
+    if (active) for (let i = 0; i < 3; i++) {
+      const height = (t * 14 + i * 8) % 24;
+      const x = (i - 1) * 9;
+      rect(emitter, x - 1, -32 - height, 3, 4, CYAN, .08);
+      rect(emitter, x, -32 - height, 1, 2, i === 1 ? GOLD : CYAN, .55);
+    }
+
+    scan.clear(); energy.clear();
+    if (active) {
+      // The scan is confined to the sculpture, and denotes processing rather than measured progress.
+      const scanY = -26 + (t * 12) % 48;
+      rect(scan, -36, scanY - 6, 72, 7, CYAN, .045);
+      rect(scan, -36, scanY - 3, 72, 3, CYAN, .12);
+      rect(scan, -36, scanY, 72, 1, "#d8fff4", .6);
+      for (let i = 0; i < CIRCUIT_ROUTES.length; i++) {
+        const route = CIRCUIT_ROUTES[i], phase = t * .38 + i * .173;
+        if ((Math.floor(t * 2) + i) % 5 === 0) trace(energy, route.points, CYAN, 1, .35);
+        for (let tail = 3; tail >= 0; tail--) {
+          const [x, y] = circuitPoint(route, phase - tail * .055);
+          rect(energy, x - 1, y - 1, 3, 3, i % 3 === 0 ? VIOLET : CYAN, .1 - tail * .02);
+          rect(energy, x, y, tail ? 1 : 2, tail ? 1 : 2, tail ? CYAN : "#effff6", .8 - tail * .19);
+        }
+      }
+      const bridgeY = -18 + (t * 9) % 30;
+      rect(energy, -1, bridgeY - 2, 3, 6, VIOLET, .16);
+      rect(energy, 0, bridgeY, 1, 2, "#fff1d4", .9);
+    }
 
     nodes.clear();
     for (let i = 0; i < NEURONS.length; i++) {
@@ -180,17 +229,6 @@ export function createBrainCore() {
       rect(nodes, x - 1, y - 1, 3, 3, i % 4 === 0 ? GOLD : CYAN, strength);
       rect(nodes, x, y, 1, 1, "#f3efff", strength);
     }
-    if (active) {
-      // These traces mean the sculpture is active. They do not represent a measured result or job progress.
-      for (let i = 0; i < CIRCUITS.length; i++) {
-        const points = CIRCUITS[i];
-        const segment = (t * 1.1 + i * 0.23) % (points.length - 1);
-        const index = Math.floor(segment), mix = segment - index;
-        const [sx, sy] = points[index], [ex, ey] = points[index + 1];
-        rect(nodes, sx + (ex - sx) * mix, sy + (ey - sy) * mix, 2, 2, "#effcf5", 0.82);
-      }
-    }
-
     backLights.clear(); frontLights.clear();
     for (let i = 0; i < ORBITS.length; i++) {
       const orbit = ORBITS[i];
@@ -203,13 +241,14 @@ export function createBrainCore() {
         const [x, y] = orbitPoint(orbit, normalized);
         const layer = normalized < Math.PI ? frontLights : backLights;
         const alpha = offline ? 0.12 : active ? 0.88 : 0.58;
-        rect(layer, x - 3, y - 3, 7, 7, orbit.color, alpha * 0.075);
+        rect(layer, x - 3, y - 3, 6, 6, orbit.color, alpha * 0.075);
         rect(layer, x - 1, y - 1, 3, 3, orbit.color, alpha);
         rect(layer, x, y, 1, 1, "#f5eddb", alpha);
         if (active) {
           const trail: Point[] = [];
-          for (let k = 1; k <= 6; k++) trail.push(orbitPoint(orbit, normalized - k * 0.025));
-          trace(layer, trail, orbit.color, 1, 0.3);
+          for (let k = 1; k <= 10; k++) trail.push(orbitPoint(orbit, normalized - k * 0.025));
+          trace(layer, trail, orbit.color, 2, 0.065);
+          trace(layer, trail, orbit.color, 1, 0.36);
         }
       }
     }

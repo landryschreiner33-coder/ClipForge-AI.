@@ -299,6 +299,82 @@ def test_paused_brain_collects_but_changes_nothing(data):
     assert brain.summary()["label"] == "Paused" and brain.summary()["observations"]["owner_import"] == 40
 
 
+def test_paused_learning_worker_mirrors_results_but_preserves_values_and_resume_history(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import brain, learner, state
+
+    clip, pub = published()
+    db.add_performance(pub, {"views": 100, "avg_view_percentage": 45}, "isolated API fixture", [], {})
+    rows = [{"publication_id": f"p{k}", "clip_id": f"c{k}", "platform": "tiktok", "cohort": "selected",
+             "group_version": 1, "source_key": f"s{k % 5}", "views": 1000 if k % 2 else 100,
+             "avg_view_percentage": None, "hour": "19" if k % 2 else "10", "weekday": "1", "topic": "science",
+             "source_type": "manual", "style": "manual", "hook_type": "question", "duration": "20-35 s",
+             "scores": {}} for k in range(30)]
+    monkeypatch.setattr(learner, "refresh_due", lambda *_args: {"refreshed": 0})
+    monkeypatch.setattr(learner, "rows", lambda _settings: rows)
+    db.insert("learning_metrics", {"id": "hour:19:tiktok:performance", "dimension": "hour", "key": "19",
+                                   "platform": "tiktok", "metric": "performance", "n": 15, "lift": 1.05,
+                                   "data": {"reliable": True}})
+    db.insert("learning_metrics", {"id": "weight:clip:all:weight", "dimension": "weight", "key": "clip",
+                                   "platform": "all", "metric": "weight", "n": 30, "lift": 0.3})
+    db.insert("learning_metrics", {"id": "calibration:retention:all:retention", "dimension": "calibration",
+                                   "key": "retention", "platform": "all", "metric": "retention", "n": 30,
+                                   "data": {"slope": 0.5, "intercept": 10}})
+    context = learner.learning_context(db.get_settings())
+    basis = [r["publication_id"] for r in rows]
+    state.put("learning:context", context)
+    state.put("learning:basis", basis)
+    saved_metrics, saved_history = db.select("learning_metrics"), brain.history()
+
+    class Job:
+        def progress(self, *_args, **_kwargs):
+            pass
+
+    db.save_settings({"brain_paused": True})
+    result = learner.learn(Job())
+    assert "paused" in result["message"] and brain.summary()["state"] == "paused"
+    assert len(brain.observations(clip["id"])) == 1  # Collection continues while learning is paused.
+    assert db.select("learning_metrics") == saved_metrics and brain.history() == saved_history
+    assert state.get("learning:context") == context and state.get("learning:basis") == basis
+    assert learner.lift("hour", "19", "tiktok") == (1.0, 0)
+    assert learner.weights() == {} and learner.expected_retention(80) == (80, "")
+    db.save_settings({"brain_paused": False})
+    assert learner.lift("hour", "19", "tiktok") == (1.05, 15)
+    assert learner.weights() == {"clip": 0.3} and learner.expected_retention(80)[0] == 50
+    assert "Waiting for new results: 0" in learner.learn(Job())["message"]
+    assert db.select("learning_metrics") == saved_metrics and brain.history() == saved_history
+    assert state.get("learning:context") == context and state.get("learning:basis") == basis
+
+
+@pytest.mark.parametrize("intent, setup, original_cohort", [
+    ("SELECTED_AUDIENCE", "user_confirmed", "selected"), ("OWNER_ONLY", "owner_only", "owner_only")])
+def test_api_visibility_drift_excludes_new_readings_without_rewriting_historical_cohort(
+        data, intent, setup, original_cohort):
+    from clipfoundry import db
+    from clipfoundry.autopilot import brain, learner
+
+    clip, pub = published("youtube", intent=intent, delivery={"audience_setup": setup,
+        "visibility": {"requested": "private", "returned": "private", "evidence": "api"}})
+    db.update_publication(pub["id"], requested_privacy="private",
+                          audience={**pub["audience"], "visibility": "private"})
+    pub = db.get_publication(pub["id"])
+    assert learner.cohort(pub) == original_cohort
+    before = brain.add(clip["id"], "youtube", "platform_api", {"views": 100, "avg_view_percentage": 40},
+                       observed_at=time.time() - 3600, publication_id=pub["id"])["observation"]
+    db.update_publication(pub["id"], privacy="public", delivery={"audience_setup": setup,
+        "visibility": {"requested": "private", "returned": "public", "evidence": "api"}})
+    pub = db.get_publication(pub["id"])
+    assert learner.cohort(pub) == "unconfirmed"
+    after = brain.add(clip["id"], "youtube", "platform_api", {"views": 10000, "avg_view_percentage": 85},
+                      publication_id=pub["id"])["observation"]
+    assert after["cohort"] == "unconfirmed"
+    assert db.fetch("brain_observations", before["id"]) == before and before["cohort"] == original_cohort
+    settings = {**db.get_settings(), "youtube_derived_metrics_approved": True}
+    evidence = brain.evidence(settings)
+    assert evidence[("youtube", original_cohort, 1)]["measured"][clip["id"]]["value"] == 40
+    assert evidence[("youtube", "unconfirmed", 1)]["measured"][clip["id"]]["value"] == 85
+
+
 def test_worse_later_results_roll_back_and_you_can_reset(data):
     from clipfoundry.autopilot import brain
 

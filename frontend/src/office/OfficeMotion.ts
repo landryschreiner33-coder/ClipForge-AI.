@@ -1,8 +1,9 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
 import { OfficeEvent, RoleRow, Snapshot } from "./api";
-import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION } from "./world";
+import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
 import { LoungeLife } from "./LoungeLife";
+import { departmentAttendance, OfficeDuty } from "./DepartmentDuty";
 import type { Pose } from "./sprites";
 import type { RobotPosture } from "./StudioArt";
 
@@ -17,11 +18,10 @@ export interface MotionActor {
 export interface DocumentPass { id: number; from: Pt; to: Pt; progress: number }
 interface Transfer {
   id: number; from: string; to: string; card: WorkCard; phase: "approach" | "pass" | "received";
-  started: number; until: number;
+  started: number; until: number; fromJobs: string[]; toJobs: string[];
 }
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
 const SPEED = 130;
-const ACTIVE = new Set(["working", "reviewing", "error"]);
 const POSE: Record<string, Pose> = {
   idle: "idle", working: "work", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
   paused: "paused", unavailable: "unavailable",
@@ -33,11 +33,12 @@ const same = (a: Pt, b: Pt) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 0.5;
 const facing = (a: Pt, b: Pt): Dir => Math.abs(b.x - a.x) > Math.abs(b.y - a.y)
   ? b.x > a.x ? "right" : "left" : b.y > a.y ? "down" : "up";
 
-export function placements(rows: RoleRow[]): Record<string, { at: Pt; lounge: boolean }> {
-  const states = new Map(rows.map(r => [r.id, r.state]));
+export function placements(rows: RoleRow[]): Record<string, { at: Pt; lounge: boolean; duty: OfficeDuty }> {
+  const attendance = departmentAttendance(rows);
   return Object.fromEntries(CAST.map(c => {
-    const lounge = !ACTIVE.has(states.get(c.id) || "unavailable");
-    return [c.id, { at: lounge ? REST_SEAT[c.id] : STATION[c.id], lounge }];
+    const { attending, duty } = attendance[c.id], lounge = !attending;
+    const at = lounge ? REST_SEAT[c.id] : duty === "supervising" ? SUPERVISE[c.id] || STATION[c.id] : STATION[c.id];
+    return [c.id, { at, lounge, duty }];
   }));
 }
 
@@ -73,10 +74,15 @@ export class OfficeMotion {
         actor = { id: c.id, ...target, dir: "down", path: [], card: null, transfer: null, reaction: null };
         this.actors.set(c.id, actor);
       }
-      if (actor.transfer !== null && this.blocked(actor.id)) this.cancel(actor.transfer);
+      const transfer = actor.transfer === null ? null : this.transfers.get(actor.transfer);
+      if (transfer && (this.blocked(actor.id)
+        || this.foreignWork(actor.id, actor.id === transfer.from ? transfer.fromJobs : transfer.toJobs))) {
+        this.cancel(transfer.id);
+      }
       if (this.blocked(actor.id)) actor.reaction = null;
       if (actor.transfer !== null) continue;
-      this.go(actor, target, reduced);
+      // Actual work is already under way: show it in its own room immediately. Supporting peers may commute.
+      this.go(actor, target, reduced || ["working", "reviewing"].includes(this.rows.get(actor.id)?.state || ""));
       this.faceBreak(actor);
     }
     this.seedOwners(snap);
@@ -112,9 +118,9 @@ export class OfficeMotion {
         this.transfer(previous.role, event.role, event, now, reduced);
       } else if (event.type === "job_started" && event.ref_type && event.ref_id) {
         const before = this.refOwners.get(`${event.ref_type}:${event.ref_id}`);
-        if (before && before.job !== event.job_id && before.cursor < event.id && event.at - before.at <= 30 && event.at >= before.at
-          && CROSS_JOB[before.kind]?.includes(event.kind)) {
-          this.transfer(before.role, event.role, event, now, reduced);
+        if (before && before.job !== event.job_id && before.cursor < event.id && event.at - before.at <= 30
+          && event.at >= before.at && CROSS_JOB[before.kind]?.includes(event.kind)) {
+          this.transfer(before.role, event.role, event, now, reduced, before.job);
         }
       }
       const owner = { role: event.role, job: event.job_id, kind: event.kind, ref, at: event.at, cursor: event.id };
@@ -167,7 +173,7 @@ export class OfficeMotion {
       if (transfer.phase === "pass") return "review";
       return a.id === transfer.to ? "carry" : "idle";
     }
-    return a.reaction?.pose || POSE[state];
+    return a.reaction?.pose || (this.duty(a) === "supervising" ? "idle" : POSE[state]);
   }
 
   posture(a: MotionActor): RobotPosture {
@@ -175,8 +181,13 @@ export class OfficeMotion {
     if (this.targets[a.id]?.lounge && same(a, this.destination(a.id))) {
       return this.breakActivity(a) ? this.lounge.spot(a.id)?.posture || "rest" : "rest";
     }
-    if (["working", "reviewing"].includes(this.rows.get(a.id)?.state || "") && same(a, STATION[a.id])) return "desk";
+    if (!this.targets[a.id]?.lounge && this.duty(a) !== "supervising" && same(a, STATION[a.id])
+      && this.rows.get(a.id)?.state !== "error") return "desk";
     return "stand";
+  }
+
+  duty(a: MotionActor): OfficeDuty {
+    return this.targets[a.id]?.lounge && this.canBreak(a.id) ? "break" : this.targets[a.id]?.duty || "quiet";
   }
 
   /** Break metadata is decorative; pose/state badges still retain the authoritative job state. */
@@ -191,7 +202,8 @@ export class OfficeMotion {
 
   passes(now: number): DocumentPass[] {
     return [...this.transfers.values()].filter(tr => tr.phase === "pass").map(tr => ({
-      id: tr.id, from: this.actors.get(tr.from)!, to: this.actors.get(tr.to)!, progress: Math.min(1, Math.max(0, 1 - (tr.until - now) / 700)),
+      id: tr.id, from: this.actors.get(tr.from)!, to: this.actors.get(tr.to)!,
+      progress: Math.min(1, Math.max(0, 1 - (tr.until - now) / 700)),
     }));
   }
 
@@ -205,9 +217,11 @@ export class OfficeMotion {
 
   clearTransfers() { for (const id of [...this.transfers.keys()]) this.cancel(id); }
 
-  private transfer(from: string, to: string, event: OfficeEvent, now: number, reduced: boolean) {
+  private transfer(from: string, to: string, event: OfficeEvent, now: number, reduced: boolean, predecessor = "") {
     const sender = this.actors.get(from), receiver = this.actors.get(to);
     if (!sender || !receiver || from === to || this.blocked(from) || this.blocked(to)) return;
+    const fromJobs = predecessor ? [predecessor, event.job_id] : [event.job_id], toJobs = [event.job_id];
+    if (this.foreignWork(from, fromJobs) || this.foreignWork(to, toJobs)) return;
     if (reduced) { this.react(to, "review", now); return; }
     if (sender.transfer !== null) this.cancel(sender.transfer);
     if (receiver.transfer !== null) this.cancel(receiver.transfer);
@@ -215,6 +229,10 @@ export class OfficeMotion {
     const card: WorkCard = { job_id: event.job_id, kind: event.kind, ref_type: event.ref_type,
       ref_id: event.ref_id, state: event.data?.state || "stage", summary: event.message, from, to };
     const station = STATION[to], room = roomOf(station)!;
+    // The confirmed recipient starts its step in its own office, even if the previous snapshot had it on break.
+    if (roomOf(receiver)?.id !== room.id) {
+      receiver.x = station.x; receiver.y = station.y; receiver.path = [];
+    }
     const side = station.x - room.x > room.w / 2 ? -1 : 1;
     const meet = { x: station.x, y: station.y + 9 };
     const offer = { x: station.x + side * 34, y: station.y + 9 };
@@ -222,7 +240,8 @@ export class OfficeMotion {
     sender.card = card; receiver.card = null;
     sender.transfer = event.id; receiver.transfer = event.id;
     sender.reaction = null; receiver.reaction = null;
-    this.transfers.set(event.id, { id: event.id, from, to, card, phase: "approach", started: now, until: 0 });
+    this.transfers.set(event.id, { id: event.id, from, to, card, phase: "approach", started: now, until: 0,
+      fromJobs, toJobs });
   }
 
   private cancel(id: number) {
@@ -238,6 +257,11 @@ export class OfficeMotion {
   }
 
   private blocked(id: string) { return ["paused", "unavailable"].includes(this.rows.get(id)?.state || "unavailable"); }
+  private foreignWork(id: string, allowed: string[]) {
+    const row = this.rows.get(id);
+    return !!row?.task?.job_id && row.task.status === "running" && ["working", "reviewing"].includes(row.state)
+      && !allowed.includes(row.task.job_id);
+  }
   private canBreak(id: string) {
     const state = this.rows.get(id)?.state;
     return state === "idle" || state === "waiting" || state === "retrying" || (state === "paused" && this.stopped);
@@ -248,6 +272,18 @@ export class OfficeMotion {
   private faceBreak(a: MotionActor) {
     if (!a.path.length && a.transfer === null && this.targets[a.id]?.lounge && same(a, this.destination(a.id))) {
       a.dir = this.lounge.direction(a.id);
+    } else if (!a.path.length && a.transfer === null && !a.reaction && this.duty(a) === "supervising"
+      && same(a, this.destination(a.id))) {
+      const peers = CAST.filter(c => c.dept === BY_ID[a.id].dept && c.id !== a.id);
+      const workers = peers.filter(c => ["working", "reviewing"].includes(this.rows.get(c.id)?.state || ""));
+      const focus = workers.length ? workers : peers;
+      const points = focus.map(c => {
+        const peer = this.actors.get(c.id);
+        return peer && roomOf(peer)?.id === c.room ? peer : STATION[c.id];
+      });
+      const center = points.length ? { x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+        y: points.reduce((sum, p) => sum + p.y, 0) / points.length } : STATION[a.id];
+      a.dir = facing(a, center);
     }
   }
   private go(a: MotionActor, target: Pt, reduced: boolean) {
@@ -279,7 +315,8 @@ export class OfficeMotion {
       const old = this.jobOwners.get(row.task.job_id);
       if (old && old.cursor > snap.cursor) continue;
       const owner = { role: row.id, job: row.task.job_id, kind: row.task.kind,
-        ref: `${row.task.ref_type}:${row.task.ref_id}`, at: row.task.updated_at || snap.server_time, cursor: snap.cursor };
+        ref: `${row.task.ref_type}:${row.task.ref_id}`, at: row.task.updated_at || snap.server_time,
+        cursor: snap.cursor };
       this.jobOwners.set(owner.job, owner);
       if (row.task.ref_type && row.task.ref_id) {
         const before = this.refOwners.get(owner.ref);

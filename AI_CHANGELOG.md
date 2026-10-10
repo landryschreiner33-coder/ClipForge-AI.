@@ -7,6 +7,50 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-10 · Department attendance, manager supervision and reliability review
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `e896632`.
+  **Result:** the commit containing this entry. Requested October 9; resumed/completed October 10. PR stays unmerged.
+* **What changed:** real jobs or substantive assigned backlog gather each complete department into its room.
+  Workers appear immediately at their own desks; supporting peers remain honestly idle and ready. Managers stand
+  facing the team with clipboard/pointing gestures, while their own jobs and real reviews take priority. Quiet
+  paused/unavailable peers can attend; bare counts, stale paused tasks and unreferenced recurring timers cannot
+  summon a team. A finished worker remains while its teammates work, then returns to lounge activities. Confirmed
+  transfers meet inside the receiver's office and return to the latest department duty; a newer own job preempts
+  carrying an older document away. Pixi and Canvas retain motion/freeze guards and all 25 identities.
+  Brain Processing now has clipped scan bands, travelling synapse trails, rising sparks and orbital light trails.
+  Added floor/contact/furniture polish and rebuilt frontend; existing Pixi/GSAP reused without new dependencies.
+* **Reliability fixes:** lease-bound progress/host updates and transactional recovery protect current jobs from
+  recovered handlers and heartbeat races; failed lock-file creation releases its mutex. Quality-check job identity
+  includes the rule version. Regeneration checkpoints and restores video, captions, transcript, edit decisions,
+  render plan and thumbnail, remaining non-Ready until rollback succeeds and retaining recovery copies on failure.
+  Brain edits use atomic revision checks; paused learning collects results without changing/applying learned values,
+  and confirmed audience drift cannot enter new selected-viewer readings. Manual publishing rechecks linked-source
+  rights, platform coverage, current quality/version, confirmed bytes, connected account and emergency Pause.
+  Unknown YouTube outcomes hold new uploads; strict original-account metadata lookup is read-only and ambiguity
+  stays held. Already-processing entries only refresh status. The Publish page exposes the hold and Refresh status.
+  Privacy text describes temporary recovery copies and approval-file fingerprints.
+* **Why:** the owner requested full departments in their offices, a visible supervisor, a cooler Brain and a broad
+  code review before delivery. Each backend fix addresses a reproduced fault found during that review.
+* **Validation:** full fast Python: 685 passed, seven slow cases deselected, in 347.07 s. All seven slow media cases
+  passed together, 685 fast deselected, in 676.84 s. All 31 isolated browser checks passed together in 7.8 min.
+  Final TypeScript/Vite build passed in 5.96 s with the existing 904 KB lazy graphics warning;
+  all 14 distribution files and file sets are identical to tested/captured SHA-256 manifests. Routing/controller
+  checks cover 3,844 + 36,304 routes, 600 virtual seconds and 150 mixed transitions. Actual Brain/supervisor pixels
+  animate and freeze in Reduced while real states update. All 32 touched/new code files meet 120 columns, and
+  whitespace checks pass.
+  Earlier 29/31-case browser runs each had one failure: a mismatched report fixture, then sampling the same Canvas
+  idle frame twice. Matching job/kind/reference and polling across 900 ms frames corrected these; the production
+  new-own-job guard remains intact. Those runs are distinct from the final all-green run above.
+* **Evidence:** [department screenshots, controlled video and provenance](design/robot-office/departments/README.md):
+  nine screenshots, one visibly labeled 37.40-second 1440×900 H.264 recording, 25 identities, visible laptop controls,
+  no mobile horizontal overflow and zero page/console errors. The actual stopped-sandbox lounge capture is separate
+  from controlled working/Brain/handoff states. All 14 captured production-file hashes are recorded. The recording
+  demonstrates choreography, not real processing times, GPU performance or platform-account behavior.
+* **Not verified:** Windows CMD/setup/fonts/scaling, RTX 3050 CUDA/NVENC and real platform accounts/uploads remain
+  owner checks. No real post, owner account change, purchase or deployment occurred. GPU dependencies, `.mcp.json`,
+  Playwright versions and read-only `e2e/tests` are unchanged. Earlier checkpoint results below remain historical.
+
 ## 2026-10-09 · Social pixel office and off-duty lounge life
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, draft PR #14. **Base:** `5b1f7a9`.
