@@ -22,7 +22,7 @@
 </header>
 <main class="wrap doc">
 <h1>Privacy Policy</h1>
-<p class="meta">ClipFoundry · Effective October 2, 2026</p>
+<p class="meta">ClipFoundry · Effective October 7, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -74,14 +74,42 @@
       <td>Until you delete the video in ClipFoundry, or delete the data folder</td></tr>
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
       hashtags, edits and versions</td><td>Until you delete the video</td></tr>
+    <tr><td>Temporary recovery copies</td><td>When an automatic clip needs a fresh render: local copies of its
+      completed video, captions, edit decisions, final transcript, render plan and thumbnail, with a recovery
+      checkpoint</td><td>Deleted after the new render or restoration finishes successfully. If recovery cannot
+      finish safely, kept until it succeeds or you delete the video or data folder</td></tr>
     <tr><td>Connected accounts</td><td>Sign-in tokens for YouTube and TikTok, your channel or profile name, a link to
-      its picture, account IDs and the permissions you granted</td><td>Until you disconnect the account</td></tr>
+      its picture, account IDs and the permissions you granted. When you press Test connection: its time and result
+      (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
+      itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
+      folder</td></tr>
     <tr><td>Posts</td><td>What you planned, approved or published, when and where, the text and choices of each post,
-      each post's ID and link, and a record of approvals and changes</td><td>Until you delete the data folder (see
+      each post's ID and link, a record of approvals and changes, and a SHA-256 fingerprint of the exact video
+      file you confirmed, so a changed file needs a new review</td><td>Until you delete the data folder (see
       section 7)</td></tr>
     <tr><td>Results</td><td>Views, likes, comments, shares and watch time that YouTube and TikTok report for your own
       posts</td><td>YouTube: deleted after 30 days, unless you tell ClipFoundry your Google project was approved to
       keep them longer (section 4). TikTok: until you delete the data folder</td></tr>
+    <tr><td>Results you enter</td><td>Numbers you import or type in from YouTube Studio or TikTok, and the answers
+      of test viewers you enter in Clips → Test feedback (their ratings, where they stopped watching, a note, and the
+      first name or initials you give each tester; ClipFoundry refuses email addresses there), with the date and
+      who reported them</td><td>Until you delete the data folder. A corrected entry keeps its earlier values</td></tr>
+    <tr><td>Office and learning records</td><td>The robot office's activity (which step started, finished or failed,
+      with the video's title), the managers' reports, the recorded decisions at each checkpoint, and the strategy
+      settings the Brain tried, with the evidence behind each change and its rollback</td><td>Activity: the newest
+      20,000 steps, at most 14 days. Reports: 90 days. Decisions and strategy history: until you delete the data
+      folder</td></tr>
+    <tr><td>Brain teaching references</td><td>Original documents and example clips you upload, extracted text,
+      titles, notes, topic and feature labels, good/bad labels, typed preferences and approval revisions.
+      Each influenced clip keeps a snapshot of the reference’s title, labels and preferences and the changes it
+      made. Uploaded code is not executed; uploading does not fine-tune a model. These files stay on this PC</td>
+      <td>References and originals: until you delete the item or data folder. Influence snapshots: until the clip
+      or data folder is deleted. Export includes reference metadata/text and snapshots; originals download separately</td></tr>
+    <tr><td>Who watches your uploads</td><td>For each platform, the audience you chose (Public, your invited viewers, your
+      approved followers or friends, only you, or nothing uploaded), when you confirmed it and when you said the
+      group changed, and for each upload the audience it was approved for, the account it was approved for, and
+      whether you said you shared it or posted it yourself in the TikTok app.
+      ClipFoundry stores no list of viewers or followers</td><td>Until you delete the data folder</td></tr>
     <tr><td>Autopilot records</td><td>Your topics; the folders, channels, live streams and lists you asked it to
       watch; video and stream links you paste, their queue order, progress, cancellation and retry records;
       the names and locations of video files it found in your folders; the public titles, links, channel names
@@ -94,11 +122,19 @@
       agreement, or turn off automatic publishing, ClipFoundry keeps the record and marks it as ended</td></tr>
     <tr><td>Settings and keys</td><td>Your choices, and any API keys or client secrets you enter</td><td>Until you
       change or remove them</td></tr>
+    <tr><td>Optional NVIDIA AI</td><td>When you turn it on: the date you agreed to send excerpts, each request's
+      time, task, model, token counts and status (to keep the daily limits), and its answers so the same excerpt is
+      not sent twice</td><td>Request counts: until you delete the data folder. Saved answers: 30 days</td></tr>
     <tr><td>Logs</td><td>Technical messages for troubleshooting, such as file names, video titles and links, steps,
       error messages, and the items shown under Needs you</td><td>Background jobs that completed or were canceled, and
       the step messages of all jobs: 30 days. Failed background jobs: until you delete the data folder. Autopilot's
       event history: 90 days. Needs you items: 30 days after they are resolved or dismissed. The background log file
-      (<code>data\logs\workers.log</code>): until you delete it</td></tr>
+      (<code>data\logs\workers.log</code>): at most 5 MB, plus its 3 older copies; the oldest is overwritten. Its
+      start-up output (<code>workers-console.log</code>): once it passes 5 MB, the next start of the app makes it the
+      one older copy, replacing the previous one. If you use the optional unattended launcher,
+      <code>data\logs\unattended.log</code> also records app output and watchdog starts, exits and restart waits;
+      it rotates at about 5 MiB and keeps two older copies (about 15 MiB total), replacing the oldest.
+      These diagnostic files stay on this computer until rotation replaces them or you delete them</td></tr>
     <tr><td>Speech-recognition model</td><td>Downloaded for transcription</td><td>Until you delete it</td></tr>
   </tbody>
 </table></div>
@@ -135,8 +171,9 @@
     <tr><td>Google and YouTube</td><td>You connect YouTube, publish or look at results. While Autopilot is on, it
       also searches YouTube, updates your posts' results and checks which channel posted a video</td><td>Your sign-in
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
-      posts under the automatic-publishing permission you turned on, with their title, description, tags, category,
-      privacy, made-for-kids answer and publishing time; requests to read your channel, its newest uploads, and your
+      posts under the account/visibility-bound automatic-publishing permission you turned on, as explicitly chosen
+      Public or Private videos, with their title, description, tags, category and made-for-kids answer
+      (never a YouTube publishing time; public uploads start at their local due time); requests to read your channel, its newest uploads, and your
       posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of your own
       channel and of the YouTube channels you added, gave a permission to or have an agreement with, to see their new
       videos;
@@ -144,7 +181,8 @@
       one</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
       also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and your TikTok
-      app's client key and secret; the videos you approve with their caption and settings; requests for your posting
+      app's client key and secret; the videos you approve with their caption and settings (never visible to
+      everyone: only your followers or friends, or only you); requests for your posting
       options, your posts' status and results; public TikTok links, to check which account posted them</td></tr>
     <tr><td>Wikimedia Commons</td><td>Autopilot searches the free-license video library (on unless you turn it
       off)</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
@@ -158,6 +196,13 @@
       ClipFoundry sends this text only to the address you set for that program. If you choose a cloud AI service (for
       example Anthropic's Claude API, or another server address you enter), that service receives the text and your
       API key, under your own account with it</td></tr>
+    <tr><td>NVIDIA (build.nvidia.com)</td><td>Only if you turn on NVIDIA AI in Settings → Integrations, choose it
+      as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
+      only for work you start yourself, never for Autopilot's unattended work</td><td>The words said in a video's
+      strongest moments (links and email addresses removed, cut to your size limit) and the video's name, so they
+      can be scored and titled; and your NVIDIA API key. Never video, audio, account tokens or lists of viewers.
+      Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
+      under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are
       missing or damaged</td><td>A request to download the model. If you have signed in to Hugging Face on this
       computer, the download also sends your Hugging Face sign-in token</td></tr>
@@ -282,7 +327,8 @@
     permission (Autopilot → Permissions &amp; sources). While the permission stays, Autopilot still looks for that
     channel's new videos.</li>
   <li><b>Optional services:</b> turn off the free-license library or platform downloads, remove a Tavily key, or set
-    AI scoring back to "Local" in Settings → Advanced.</li>
+    AI scoring back to "Local" in Settings → Advanced. Settings → Integrations → NVIDIA AI → Disconnect removes
+    the NVIDIA key and your agreement and turns NVIDIA AI off.</li>
 </ul>
 
 <h2>8. Deleting on your computer doesn't delete on YouTube or TikTok</h2>
@@ -292,11 +338,15 @@
   YouTube and TikTok keep and handle what you posted under their own policies.
 </p>
 <p>
-  Autopilot uploads a planned YouTube post before its planned time (30 minutes before, unless you change this). If the
-  post is public, YouTube makes it public at the planned time, even if your computer is off. Once it is uploaded,
-  deleting the clip, turning off automatic publishing or disconnecting in ClipFoundry does not stop it. Change or
-  delete it in YouTube Studio. A video sent to your TikTok inbox also stays there until you delete it in the TikTok
-  app.
+  New planned Public YouTube posts upload at their planned local time only after explicit audience confirmation
+  and suitable account-bound approval or automatic-publishing permission. Existing scheduled Private posts stay
+  Private, may upload ahead of their planned time, and still need your Studio invitations for selected viewers.
+  ClipFoundry does not use YouTube’s <code>publishAt</code> field. It reads back actual visibility and reports
+  restrictions. Once uploaded, deleting the clip, stopping automation or disconnecting does not remove the video;
+  change or delete it in YouTube Studio. A TikTok inbox draft stays there until you delete it in TikTok. Older
+  public plans held by the previous migration remain held; the existing backup remains in
+  <code>data\backups</code>.
+
 </p>
 
 <h2>9. This website</h2>

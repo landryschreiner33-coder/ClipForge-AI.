@@ -9,7 +9,9 @@ Two official ways to post:
   audits your app, it only accepts posts from private accounts, forces "Only me" (SELF_ONLY) and allows a few users
   per day.
 * Upload to inbox (scope video.upload): the video lands in your TikTok inbox as a draft; you finish and post it in the
-  TikTok app. This works without the audit and is ClipFoundry's fallback.
+  TikTok app. It needs no Direct Post audit, but TikTok must still approve the app for this scope in its app review
+  (which turns down apps for private or personal use), and at most 5 drafts may wait at a time. Without an approved
+  app, ClipFoundry prepares a ready-to-post package that you post yourself.
 
 ClipFoundry follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
 before each post and never pre-selects one, leaves comments/duet/stitch off unless you turn them on (and greys them
@@ -45,9 +47,9 @@ BRANDED_POLICY = "https://www.tiktok.com/legal/page/global/bc-policy/en"
 
 UNAUDITED_NOTE = (
     "Until TikTok audits your developer app, Direct Post only works for private TikTok accounts, every post is "
-    "limited to 'Only me', and only a few users can post per day. Use 'Send to TikTok inbox' instead: the video "
-    "arrives as a draft in the TikTok app and you post it from there with any privacy. Or export the clip and upload "
-    "it on tiktok.com/tiktokstudio/upload."
+    "limited to 'Only me', and only a few users can post per day. Use 'Send to TikTok inbox' instead (if TikTok "
+    "approved your app for it): the video arrives as a draft in the TikTok app and you post it from there for your "
+    "Followers, keeping your account private. Or download the clip and post it yourself."
 )
 SETUP_FIX = ("Settings → Publishing → TikTok: create an app on developers.tiktok.com with Login Kit (Desktop) and the "
              "Content Posting API, register the redirect URI shown in Settings, and paste the client key and secret.")
@@ -158,8 +160,8 @@ def disconnect(settings: dict) -> None:
 ERRORS = {
     "unaudited_client_can_only_post_to_private_accounts": (
         "TikTok only accepts Direct Posts from unaudited apps when your TikTok account is private.",
-        "Use 'Send to TikTok inbox' (works without the audit), set your TikTok account to private for testing, or "
-        "export the clip and upload it on tiktok.com/tiktokstudio/upload."),
+        "Use 'Send to TikTok inbox' (needs no audit, but TikTok must have approved your app), set your TikTok "
+        "account to private for testing, or download the clip and post it yourself."),
     "reached_active_user_cap": (
         "Your TikTok app reached the daily limit of users who can post through an unaudited app.",
         "Try again tomorrow, use 'Send to TikTok inbox', or apply for TikTok's audit."),
@@ -264,6 +266,7 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
     """Everything TikTok (and its sharing guidelines) would reject, checked before uploading."""
     if caption_length(caption) > CAPTION_MAX:
         raise PublishError(f"TikTok captions can have at most {CAPTION_MAX} characters.", "Shorten the caption.")
+    _never_public(privacy, settings)
     if mode != "direct":
         return
     if not privacy:
@@ -274,9 +277,9 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
         raise PublishError("Your TikTok app is not marked as audited, so TikTok only allows 'Only me' for Direct Posts.",
                            "Choose 'Only me', use 'Send to TikTok inbox', or tick 'My app passed TikTok's audit' "
                            "in Settings once it did.", "unaudited")
-    if opts.get("brand_content") and privacy == "SELF_ONLY":
-        raise PublishError("Branded content cannot be posted as 'Only me'.",
-                           "Choose another privacy option or turn off 'Branded content'.")
+    if opts.get("brand_content") and privacy not in ("MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"):
+        raise PublishError("TikTok allows branded content only for Friends or Everyone, not Followers or 'Only me'.",
+                           "Choose 'Friends' or 'Everyone', or turn off 'Branded content'.")
     if opts.get("disclose") and not (opts.get("brand_content") or opts.get("brand_organic")):
         raise PublishError("You turned on the commercial content disclosure but chose no option.",
                            "Select 'Your brand', 'Branded content' or both, or turn the disclosure off.")
@@ -290,8 +293,20 @@ def validate(caption: str, privacy: str, opts: dict, mode: str, settings: dict, 
                                "Change it in the TikTok app or leave it off.")
 
 
+def _never_public(privacy: str, settings: dict | None = None, stamp: dict | None = None) -> None:
+    """Everyone requires an explicitly confirmed public audience; it is never an accidental default."""
+    if privacy == "PUBLIC_TO_EVERYONE" and not (
+            settings and settings.get("audience_tiktok") == "public" and
+            settings.get("audience_tiktok_confirmed_at") or (stamp or {}).get("intent") == "PUBLIC"):
+        from .audience import PUBLIC_OFF_FIX, AudienceBlocked
+
+        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipFoundry posts only for your approved "
+                              "followers or friends.", PUBLIC_OFF_FIX)
+
+
 def init_upload(token: Token, mode: str, size: int, caption: str = "", privacy: str = "",
-                opts: dict | None = None) -> dict:
+                opts: dict | None = None, *, audience_stamp: dict | None = None) -> dict:
+    _never_public(privacy, stamp=audience_stamp)
     chunk, total = chunking(size)
     source = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": total}
     if mode == "direct":

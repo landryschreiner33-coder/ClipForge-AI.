@@ -123,6 +123,10 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
                           "trend_region": "US", "trend_language": "en"}.get(key, True), key
     kinds = {j["kind"] for j in queue.jobs(("queued",))}
     assert {"trend_scan", "feed_scan", "schedule_tick"} <= kinds  # discovery starts right away
+    time.sleep(1.1)  # START pressed again a second later, before anything ran: the same searches are not added twice
+    client.post("/api/autopilot/start", headers=H)
+    queued = [j["kind"] for j in queue.jobs(("queued",))]
+    assert all(queued.count(k) == 1 for k in ("trend_scan", "feed_scan", "schedule_tick")), queued
     # nothing to configure: the only thing START sets up is your videos folder (watched, and yours)
     assert [f["name"] for f in db.select("source_feeds")] == ["Your videos folder"] and db.select("sources") == []
     assert [(r["scope"], r["status"]) for r in db.select("source_rights")] == [("folder", "OWNED")]

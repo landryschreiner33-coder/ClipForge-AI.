@@ -1,8 +1,9 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const H = { "X-ClipFoundry": "1" };
+test.use({ video: { mode: "on", size: { width: 1440, height: 900 } } });
 
 async function get(request: APIRequestContext, url: string): Promise<any> {
   const result = await request.get(url);
@@ -17,7 +18,7 @@ async function post(request: APIRequestContext, url: string, data?: any): Promis
 }
 
 test("one Start continues through real clips, checked uploads, results and a second discovery", async ({ page, request }) => {
-  const screenshots = path.resolve(process.cwd(), "..", "design", "retro-studio", "screenshots");
+  const screenshots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
   await mkdir(screenshots, { recursive: true });
   // Only this test server exposes /sandbox. Every media and account belongs to its throwaway data folder.
   const fixture = await get(request, "/sandbox/state");
@@ -34,24 +35,35 @@ test("one Start continues through real clips, checked uploads, results and a sec
   await expect(page.getByText(/^Connected: /)).toHaveCount(1);
 
   // A one-time account permission is required even in the fake account. No post is approved by this test.
+  // This is a fake audited project/account, never a claim about the owner's real Google project.
+  await request.put("/api/settings", { headers: H, data: { youtube_project_verified: true } });
+  await post(request, "/api/audience/youtube", { intent: "public", confirm: true });
   await post(request, "/api/autopilot/auto-publish", { platform: "youtube", visibility: "public",
     made_for_kids: false, daily_limit: 4, start_hour: 0, end_hour: 24, agreed: true });
   await page.getByRole("button", { name: "Start Autopilot" }).click();
   // Finish the setup handler's own navigation before choosing the main control page.
   await expect(page).toHaveURL(/#\/$/);
-  await expect(page.getByRole("heading", { name: "Home", exact: true, level: 1 })).toBeVisible();
-  await page.goto("/#/autopilot");
-  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
+  await expect(page.locator("#office-run-state")).toHaveText("Running");
 
   // The unreadable original is selected first. It fails normally and the next discovered video still finishes.
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.external_id === "loopbroken1")?.status, { timeout: 120_000 }).toBe("failed");
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.external_id === "loopfirst01")?.status, { timeout: 120_000 }).toMatch(/ingesting|analyzing/);
-  await expect(page.locator('.robot-station[data-state="working"]').first()).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "working.png"), fullPage: true });
-  await expect.poll(async () => (await get(request, "/sandbox/state")).publications
-    .filter((p: any) => p.status === "done").length,
+  // The office shows the real work: a robot at its station for each running job
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await expect(page.locator('.robot-hit[data-state="working"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "working.png") });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/missions");
+  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
+  // Advance approved deadlines on the isolated server rather than bypassing the production zero public lead.
+  // Rendering/checking/approval/upload/results still run through actual production handlers.
+  await expect.poll(async () => {
+    await post(request, "/sandbox/due-public-posts");
+    return (await get(request, "/sandbox/state")).publications.filter((p: any) => p.status === "done").length;
+  },
     { timeout: 240_000 }).toBeGreaterThanOrEqual(1);
   let state = await get(request, "/sandbox/state");
   const first = state.sources.find((s: any) => s.external_id === "loopfirst01");
@@ -66,8 +78,9 @@ test("one Start continues through real clips, checked uploads, results and a sec
   expect(postItem.approval.video_sha256).toBe(report.artifact_sha256);
   const received = state.uploads.find((u: any) => u.id === publication.remote_id);
   expect(received.sha256).toBe(report.artifact_sha256);
-  expect(received.status.privacyStatus).toBe("private");
-  expect(received.status.publishAt).toBeTruthy();
+  expect(received.status.privacyStatus).toBe("public");
+  expect(received.status.publishAt).toBeUndefined();
+  expect(postItem.delivery.audience_setup).toBe("public_api_verified");
   for (const kind of ["trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip",
     "quality_check", "schedule_tick", "publish"]) {
     expect(state.jobs.some((j: any) => j.kind === kind && j.status === "completed"), kind).toBe(true);
@@ -107,21 +120,23 @@ test("one Start continues through real clips, checked uploads, results and a sec
   expect((await get(request, "/api/autopilot/links")).find((i: any) => i.id === added.id).project_id)
     .toBe(added.project_id);
   await post(request, "/sandbox/next-video");
-  await expect.poll(async () => (await get(request, "/sandbox/state")).publications
-    .filter((p: any) => p.status === "done").length,
+  await expect.poll(async () => {
+    await post(request, "/sandbox/due-public-posts");
+    return (await get(request, "/sandbox/state")).publications.filter((p: any) => p.status === "done").length;
+  },
     { timeout: 240_000 }).toBe(2);
   state = await get(request, "/sandbox/state");
   expect(state.sources.find((s: any) => s.external_id === "loopagain01").clips_selected).toBeGreaterThan(0);
   expect(new Set(state.publications.filter((p: any) => p.status === "done").map((p: any) => p.remote_id)).size).toBe(2);
 
-  // Simulate waiting a day for results. Stats still come from the platform, then the real learner executes.
+  // Simulate mature results. Stats still come from the fake platform, then the actual learner executes.
   await post(request, "/sandbox/age-results");
   await expect.poll(async () => (await get(request, "/sandbox/state")).learning?.samples,
     { timeout: 60_000 }).toBe(2);
   state = await get(request, "/sandbox/state");
   expect(state.performance).toHaveLength(2);
   expect(state.performance.every((p: any) => p.views === 1234 && p.avg_view_percentage === null)).toBe(true);
-  expect(state.learning.message).toContain("2 of 10 posts with real numbers");
+  expect(state.learning.message).toContain("2 of 30 posts with real numbers");
   expect(state.learning.weights).toEqual({});
   const status = await get(request, "/api/autopilot/status");
   expect(status.enabled).toBe(true);
@@ -138,17 +153,19 @@ test("one Start continues through real clips, checked uploads, results and a sec
     .find((i: any) => i.url.includes("loopstream1"))?.status, { timeout: 30_000 }).toBe("waiting_stream");
   await expect(page.locator(".ap-link-row", { hasText: "A live conversation about diets" }))
     .toContainText("Waiting for stream");
-  await expect(page.locator('.station-finder[data-state="waiting"]')).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "waiting.png"), fullPage: true });
+  await page.goto("/#/");
+  await expect(page.locator('.robot-hit[data-state="waiting"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "waiting.png") });
   const waitingStream = (await get(request, "/api/autopilot/links"))
     .find((i: any) => i.url.includes("loopstream1"));
   await post(request, "/sandbox/restart-workers");
   expect((await get(request, "/api/autopilot/links")).find((i: any) => i.id === waitingStream.id).status)
     .toBe("waiting_stream");
   await page.reload();
-  await expect(page.locator("#ap-state")).toContainText("Autopilot is on");
-  await expect(page.locator('.station-finder[data-state="waiting"]')).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "restarted.png"), fullPage: true });
+  await expect(page.locator("#office-run-state")).toHaveText("Running");
+  await expect(page.locator('.robot-hit[data-state="waiting"]').first()).toBeVisible();
+  await page.screenshot({ path: path.join(screenshots, "restarted.png") });
+  await page.goto("/#/missions");
   await post(request, "/sandbox/start-stream");
   await expect.poll(async () => (await get(request, "/sandbox/state")).sources
     .find((s: any) => s.id === waitingStream.id)?.live_status, { timeout: 150_000 }).toBe("ended");
@@ -167,6 +184,10 @@ test("one Start continues through real clips, checked uploads, results and a sec
   // Deliberately pausing is the sole final stop. It is a real saved setting, and the office reflects it.
   await page.getByRole("button", { name: "Pause Autopilot", exact: true }).click();
   await expect.poll(async () => (await get(request, "/api/autopilot/status")).enabled).toBe(false);
-  await expect(page.locator('.robot-station[data-state="paused"]').first()).toBeVisible();
-  await page.screenshot({ path: path.join(screenshots, "paused.png"), fullPage: true });
+  await page.goto("/#/");
+  await expect(page.locator("#office-run-state")).toHaveText("Paused");
+  await expect(page.locator('.robot-hit[data-state="working"]')).toHaveCount(0);
+  await page.screenshot({ path: path.join(screenshots, "paused.png") });
+  await writeFile(path.join(screenshots, "processing-timings.json"),
+    JSON.stringify(await get(request, "/api/office/performance"), null, 2));
 });

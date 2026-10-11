@@ -186,6 +186,7 @@ class YouTubeDiscovery:
         lang = self.settings.get("trend_language") or "en"
         since = time.time() - 3600 * float(self.settings.get("trend_max_age_hours") or 72)
         ranked: dict[str, tuple[str, int, int, str]] = {}  # id -> (provider, rank, list size, query)
+        curated: set[str] = set()
         failed_calls: set[str] = set()
 
         def attempt(fn, *args, **kw):
@@ -217,20 +218,29 @@ class YouTubeDiscovery:
                 break  # the search bucket said no: no point trying the next topic
             for rank, vid in enumerate(ids, 1):
                 ranked.setdefault(vid, ("youtube_search", rank, len(ids), topic))
-        if include_live:
-            ids = attempt(self.search, "live", region, lang, None, event_type="live")
+        if include_live and topics:
+            # A generic "live" search brings ambient loops and waiting rooms rather than the owner's interests.
+            ids = attempt(self.search, topics[0], region, lang, None, event_type="live")
             for rank, vid in enumerate(ids or [], 1):
-                ranked[vid] = ("youtube_live", rank, len(ids or []), "live now")
+                ranked[vid] = ("youtube_live", rank, len(ids or []), topics[0])
         for ch in channels:
             ids = attempt(self.channel_uploads, ch["channel_id"])
             for rank, vid in enumerate(ids or [], 1):
+                curated.add(vid)
                 ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
         missing = [v for v in ranked if v not in items]
         details = attempt(self.videos, missing) if missing else {}
         items.update(details or {})
         found_from = self.originals(items, ranked, attempt)
-        return [signal_from_video(items[v], *ranked[v], region=region, language=lang, found_from=found_from.get(v, ""))
-                for v in ranked if v in items]
+        out = []
+        for vid in ranked:
+            if vid not in items:
+                continue
+            sig = signal_from_video(items[vid], *ranked[vid], region=region, language=lang,
+                                    found_from=found_from.get(vid, ""))
+            sig["raw"]["curated_channel"] = vid in curated
+            out.append(sig)
+        return out
 
     def originals(self, items: dict[str, dict], ranked: dict, attempt) -> dict[str, str]:
         """Popular short clips often link the long video they were cut from. Those originals are added (one
@@ -296,11 +306,15 @@ def signal_from_video(item: dict, provider: str, rank: int, size: int, query: st
             "channel_id": sn.get("channelId") or "", "channel_title": sn.get("channelTitle") or "",
             "category": trends.YOUTUBE_CATEGORIES.get(str(sn.get("categoryId") or ""), ""),
             "keywords": trends.keywords(title, sn.get("tags")), "query": query, "region": region,
-            "language": language, "published_at": iso_time(sn.get("publishedAt")), "platform_rank": rank,
+            "language": sn.get("defaultAudioLanguage") or sn.get("defaultLanguage") or "",
+            "published_at": iso_time(sn.get("publishedAt")), "platform_rank": rank,
             "metrics": metrics,
             "raw": {"list_size": size, "license": status.get("license", ""), "made_for_kids":
                     bool(status.get("madeForKids")), "live_status": sn.get("liveBroadcastContent", ""),
                     "duration_s": duration, "privacy": status.get("privacyStatus", ""), "found_from": found_from,
+                    "requested_language": language, "language_basis": "audio" if sn.get("defaultAudioLanguage")
+                    else "metadata" if sn.get("defaultLanguage") else "unknown",
+                    "description": (sn.get("description") or "")[:3000], "tags": (sn.get("tags") or [])[:30],
                     "observed_at": now, "reported_by": src}}
 
 
@@ -433,6 +447,7 @@ class WebSearch:
                                     "channel_title": "", "keywords": trends.keywords(title), "query": topic,
                                     "published_at": any_time(result.get("published_date")), "platform_rank": rank,
                                     "metrics": {}, "raw": {"list_size": len(results), "reported_by": TAVILY,
+                                                              "description": plain(result.get("content"), 1500),
                                                               "observed_at": now, "webpage": platform == "url"}})
                 results = self.search(topic, ["tiktok.com"], 10, "week")
                 sigs = [s for s in (tiktok_signal(x, topic, k, len(results), now) for k, x in enumerate(results, 1))
@@ -685,7 +700,10 @@ def signal_feed(feed: dict) -> list[dict]:
                     "title": title, "url": str(row.get("url") or ""), "channel_id": str(row.get("channel_id") or ""),
                     "channel_title": str(row.get("channel") or ""), "category": str(row.get("category") or ""),
                     "keywords": trends.keywords(f"{title} {row.get('topic') or ''}"), "published_at": published_at,
-                    "platform_rank": rank, "metrics": metrics, "raw": {"feed_id": feed["id"], "list_size": 0}})
+                    "language": str(row.get("language") or "")[:20],
+                    "platform_rank": rank, "metrics": metrics, "raw": {"feed_id": feed["id"], "list_size": 0,
+                    "description": str(row.get("description") or "")[:3000],
+                    "language_basis": "feed" if row.get("language") else "unknown"}})
     return out
 
 

@@ -1,5 +1,386 @@
 # Implementation status
 
+## PR #14 final merge review — 2026-10-11
+
+The owner authorized merge after one final pass. This checkpoint follows `51984a3`; GitHub records the actual
+merge state. An independent read-only production review found no material blockers in process ownership,
+startup recovery, final-byte upload holds, account-bound recovery, media deadlines or disk protection.
+The fresh targeted run passed **105 checks** and exposed **one test-only race** in **77.43 s**: a file snapshot
+overlapped a rotating-log backup rename. The test now takes the logging handler's standard lock while checking
+the completed rotation. The real stress writer and live-child assertion are preserved; production code is unchanged.
+All **16 launcher tests passed in 0.72 s** after the correction.
+The fresh full fast suite passed **757 checks**, with **8 slow cases deselected**, in **301.90 s**.
+All **14 tested frontend file hashes still match**; no frontend rebuild or browser rerun was needed.
+GitHub reported no workflow runs, commit statuses, review submissions or review threads for the reviewed head.
+Windows, RTX 3050, real platform accounts and an actual 24-hour soak remain unverified. The earlier real-media,
+32-browser-check, build and actual-app restart evidence below remains applicable.
+
+## PR #14 unattended Public operation — 2026-10-11
+
+Starts at `61f6042` on `claude/project-thread-vw1n9y`; started October 10, final validation October 11.
+PR #14 stays draft/unmerged. The owner requested autonomous
+all-day Public publishing from a personal setup. Explicit Public setup, channel/visibility-bound standing permission,
+reuse eligibility, exact-file checks and actual readback remain. Existing Private schedules stay Private; actual
+Public posts need no invitations. Midnight zero is retained throughout consent/scheduling, so 0–24 covers all day.
+
+Official YouTube `videos.insert`/`videos` documentation updated October 8 and freshly checked October 10 permits
+Public uploads from unverified projects; the obsolete project-audit gate is removed. API audits concern quota
+increases. External Google OAuth Testing grants for YouTube expire after seven days; Production then a fresh
+connection is the long-running setup, separate from API audit/verification. Authorization remains revocable.
+TikTok still requires eligible-app approval and per-post consent; a private profile cannot offer Everyone.
+[Current official sources](PLATFORM_CAPABILITIES.md).
+
+The optional `run-unattended.bat` / `--unattended` watches process exit, restarts with bounded backoff, preserves
+the selected profile and saved Pause/permissions, guards duplicate unattended instances per profile/port and owns
+its app/worker/media tree. Explicit stop does not respawn. Local diagnostics rotate at 5 MiB plus two backups.
+Same-user Windows login startup is documented, never installed automatically. [Setup and limits](UNATTENDED.md).
+Run only one app per data profile, including across different ports. The watchdog detects process exit and does
+not detect a still-running, hung main app.
+
+Failed worker startup cleans partial workers before releasing its host lock; setup errors clear phantom leases.
+Bounded cancellable media pipe/process I/O kills/reaps children. HTTP/live capacity checks retain a 2 GB reserve;
+low disk waits, keeps saved segments and never declares EOF. Final assemblies replace complete sources only after
+success. Scheduled pre-session retries recheck Pause/current permission/account/audience/final quality. Strict
+original-account, unique recent submitted-metadata readback checks actual visibility; final-chunk crashes,
+cancellation and ambiguous outcomes retain duplicate holds. Manual restart recovery offers read-only Refresh.
+After saved final-byte evidence, reconnect, setup, scope and quota errors preserve that hold and publication
+identity rather than permitting another upload.
+No existing saved media is automatically deleted to make room.
+
+| Check | Result and scope |
+| --- | --- |
+| Full fast Python suite | **757 passed**, eight slow deselected, in **390.67 s**. |
+| Eight real-media cases, including repeated Public/Private loops | **All 8 passed across runs**; provenance below. |
+| Isolated Chromium checks and controlled Public-consent coverage | **32 passed together in 8.1 min**. |
+| TypeScript/Vite production build | **Passed in 4.37 s**; all 14 tested file hashes match. |
+| Recovery, media, launcher and policy regressions | Covered by the final fast suite; POSIX smoke **11.98 s**. |
+
+The Python commands run from the repository root. The isolated tools directory supplies FFmpeg and the installed
+espeak-ng wrapper:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m 'not slow' -q --durations=12
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m slow -q --durations=12
+```
+
+The full slow batch had **6 passed, 2 failed, 757 deselected in 786.85 s**. The new Public fixture sent
+`confirmed=True` instead of the API's `confirm=True`; the app correctly left audience confirmation unset and refused
+automatic publishing before creating sources, jobs or consent. The corrected test asserts its confirmed response
+and passed in **58.73 s**. Its five-second periodic scheduler and approved-slot due-time acceleration are fixture
+timing only: real due checks, approval, handlers, restart/idempotency and exact checked/uploaded bytes remain.
+The upcoming-live fixture used a small local transport for a logically remote source while keeping the default
+8 GB capture cap. The real disk guard correctly waited: a 2 GB reserve plus that cap exceeds the cloud temp disk's
+4.9 GB free. With a valid test-only **0.5 GB** capture cap, the corrected case passed in **49.02 s**. Production's
+8 GB default, 2 GB reserve and code remained unchanged. All eight slow cases passed across these runs; they did
+not pass together in the initial batch. The corrected reruns used:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH \
+  .venv/bin/python -m pytest -q --durations=12 \
+  'tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[public]'
+PATH=/workspace/work/clipfoundry/tools:$PATH \
+  .venv/bin/python -m pytest -q --durations=12 \
+  tests/test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live
+```
+
+The production build uses `npm run build` in `frontend/`. The browser command runs from `e2e/` against a disposable
+app on port 8844:
+
+```bash
+./node_modules/.bin/playwright test --config=/workspace/work/clipfoundry/unattended-final.config.cjs
+```
+
+That scratch configuration selects nine repository specs: `brain-workspace`, `department-office`, `living-office`,
+`lounge-life`, `manual-publish`, `motion`, `pixel-office`, `public-consent` and `robot-office` (each `.spec.ts`).
+It uses one worker, no retries, a 180-second test timeout, 15-second action/assertion timeouts, a 1440×900 viewport and
+installed `/usr/bin/chromium`. The new consent case is also selected by the repository sandbox configuration for
+`npm run test:sandbox`. Its account/audience responses are visibly controlled, all mutations are intercepted, and
+no publishing permission or post is saved. It checks that an optional API-audit flag cannot block Public setup,
+while the connected-channel, made-for-kids answer and explicit standing consent still apply.
+
+An actual-app POSIX smoke test passed in **11.98 s** on port 8955 with a fresh, disconnected profile. Health and
+12 worker registrations appeared in **3.41 s**. Killing the owned app with SIGKILL produced a new app/worker in
+**5.36 s**, on the same profile, after the old worker stopped. SIGINT then stopped the watchdog with exit code zero;
+it did not respawn over three seconds, all five tracked owned PIDs were reaped and the port became free. Accounts,
+publications and projects remained zero. This tests actual process death/recovery, not an alive hung app, a media
+workload, Windows Job Objects or a 24-hour soak. Early scratch-helper process/heartbeat checks were corrected;
+production code did not change for this smoke test.
+
+Two partial Python suite runs were deliberately stopped for the final-byte error-path fix; their output is not a
+final pass. An earlier focused publishing run had one stale assertion expecting Private restriction for an
+unverified API project; that obsolete-policy expectation was corrected before the passing rerun. Final-byte
+unknown outcomes preserve measured progress rather than claiming all bytes were observed sent.
+Tests use disposable data, fake platforms and real FFmpeg/synthetic speech; real owner uploads are not exercised.
+Earlier 685/7/31 department results and visual captures below are separate historical checkpoints. No new dependency,
+real post, account change, purchase or deployment occurred. `.mcp.json`, GPU versions, Playwright versions and
+read-only `e2e/tests` remain unchanged.
+
+Designed unattended operation still requires a powered-on PC, network, functioning GPU and disk space. Rights,
+quota, expired/revoked authorization and uncertain outcomes can intentionally require action. Windows startup and
+process-tree behavior, RTX 3050 CUDA/NVENC, real account visibility and an actual 24-hour soak remain unverified here.
+
+## PR #14 department office and reliability review — 2026-10-10
+
+Starts at `e896632` on `claude/project-thread-vw1n9y`; requested October 9, resumed/completed October 10.
+PR #14 stays draft/unmerged. Whole departments attend their rooms when real jobs or substantive assigned backlog
+need them. Actual working/reviewing robots appear immediately at their own desks. Supporting peers sit ready while
+their real badges remain idle; managers oversee from clear floor positions with clipboard/pointing gestures.
+Own jobs and actual report reviews take priority over supervision. Paused/unavailable peers can attend quietly;
+bare queue counts, stale paused tasks and unreferenced recurring timers do not summon a team. Completed workers
+remain while their department is busy, then resume lounge activities. Confirmed document transfers meet inside the
+receiver's office and return to current attendance; a newer own job preempts leaving with an older document.
+
+Processing Brain art adds clipped holographic scans, travelling synapse trails, emitter sparks and orbital light
+trails. Standby is decorative; Brain/global Pause, Reduced, hidden and stale views freeze motion. Pixi and Canvas
+share supervisor/attendance semantics and all 25 identities. Existing PixiJS 8.22.0 and GSAP 3.15.0 are reused;
+no dependencies were added. Floor, desk, chair and contact-shadow details are polished in the same production build.
+
+The owner's broad review also fixed reproduced backend faults: stale lease owners reporting progress/host states;
+lease recovery racing a heartbeat; lock-file creation retaining its mutex; quality-check deduplication ignoring a
+rule upgrade; regeneration restoring only video rather than the complete artifact; delayed Brain edits overwriting
+reviewed/disabled lessons; paused learning still changing/applying learned values; confirmed visibility drift
+entering new audience cohorts; and manual publishing bypasses around linked-source rights, current quality/version,
+confirmed bytes, account binding, emergency Pause or unknown upload outcomes. Unknown manual YouTube outcomes now
+hold new uploads and allow read-only, original-account status resolution only when one recent candidate matches
+submitted metadata; unrelated/ambiguous candidates stay held. Already-processing uploads only read status.
+The Publish page exposes the hold and Refresh status. Privacy text covers recovery copies and file fingerprints.
+
+| Check | Result and scope |
+| --- | --- |
+| Full fast Python suite | **685 passed**, seven slow deselected, in **347.07 s**. |
+| Seven real-media cases | **7 passed together**, 685 fast deselected, in **676.84 s**. |
+| Final isolated Chromium suite | **31 passed together in 7.8 min**; eight selected specs below. |
+| TypeScript/Vite production build and captured asset identity | Passed in **5.96 s**; all 14 hashes match. |
+| Review/controller/pixel/source checks | Routing, duty and actual pixel/freeze checks pass; details below. |
+| Department visual evidence | Nine screenshots, 37.40 s controlled video; details below. |
+
+The final formatting build preserves all 14 tested/captured production-file SHA-256 hashes and file sets; the
+existing 904 KB lazy graphics chunk warning remains. Geometry/controller checks cover 3,844 + 36,304 routes,
+600 virtual seconds and 150 mixed transitions. Actual Brain and supervisor pixels animate in Full and freeze in
+Reduced while true state updates still render. All 32 touched/new code files meet 120 columns; whitespace checks
+pass. `.mcp.json`, requirements, package/lock versions, GPU code and all eight read-only `e2e/tests` files remain
+unchanged.
+
+[Evidence and provenance](../design/robot-office/departments/README.md) record all 25 identities, laptop controls
+inside the viewport, mobile List/Studio without horizontal overflow, zero page/console errors and SHA-256 hashes
+for all 14 captured production files. The nine screenshots and 37.40 s, 1440×900 H.264 recording separate controlled
+work, manager, Brain and stage-handoff states from an actual stopped-sandbox lounge screenshot. The video exercises
+the production controller; its controlled SPLICE → GLYPH stage returns SPLICE to Studio while STORY still works.
+No job or post is started by these visual fixtures, and they do not measure real processing speed or GPU performance.
+
+The Python commands ran from the repository root; the isolated tools directory supplies the installed FFmpeg and
+espeak-ng wrapper. The final build ran `npm run build` in `frontend/`:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m 'not slow' -q --durations=12
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m slow -q --durations=12
+```
+
+The final browser command ran from `e2e/` against the disposable app on port 8844:
+
+```bash
+./node_modules/.bin/playwright test --config=/workspace/work/clipfoundry/department-final.config.cjs
+```
+
+That scratch configuration selects eight repository specs: `brain-workspace.spec.ts`, `department-office.spec.ts`,
+`living-office.spec.ts`, `lounge-life.spec.ts`, `manual-publish.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and
+`robot-office.spec.ts`. It uses one worker, no retries, a 180-second test timeout, 15-second action/assertion timeouts,
+`http://127.0.0.1:8844`, a 1440×900 viewport and installed `/usr/bin/chromium`. The repository sandbox configuration
+includes all eight specs; equivalent selected coverage can be reproduced with its disposable app:
+
+```bash
+CLIPFOUNDRY_E2E_CHROMIUM=/usr/bin/chromium npm run test:sandbox -- --project=chromium \
+  sandbox/brain-workspace.spec.ts sandbox/department-office.spec.ts sandbox/living-office.spec.ts \
+  sandbox/lounge-life.spec.ts sandbox/manual-publish.spec.ts sandbox/motion.spec.ts \
+  sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
+```
+
+Earlier browser runs were **28 passed/one failed** (29 cases), then **30 passed/one failed** (31 cases). The first
+report fixture paired unrelated task/event identities, so the new-job guard correctly kept the worker at its own
+desk; the fixture now uses matching job, kind and reference. The Canvas supervision assertion sampled the same
+900 ms idle frame twice; it now polls across frames rather than relying on a single fixed delay. The production
+guard that keeps newer own work in its office remains intact. These initial runs are not final passes; the final
+31-case result is recorded separately above. Prior checkpoint results below remain historical.
+
+The backend tests use disposable data and fake platforms; media tests use real FFmpeg and synthetic speech with
+imported transcripts. Browser tests use the isolated app, installed Linux Chromium and existing sandbox tooling.
+Windows CMD/setup/PC graphics/fonts/scaling, RTX 3050 CUDA/NVENC and real connected-account behavior remain owner
+checks. GPU dependency files, `.mcp.json`, Playwright versions and read-only `e2e/tests` are unchanged.
+No real upload, owner account change, hosting purchase or deployment occurred.
+
+## PR #14 social pixel office — 2026-10-09
+
+Starts at `5b1f7a9` on `claude/project-thread-vw1n9y`; PR #14 stays draft/unmerged. The owner requested better
+graphics tools and off-duty games, food and drinks. Six authored arcade/board-game/snack/drink/read/rest gestures
+use 29 exclusive places and 25 stable cast homes, with phased rotation and at most two recreational walkers.
+Real work and confirmed document handoffs preempt breaks; state badges and job references remain authoritative.
+The explicit stopped-office recreation exception preserves Paused badges. Individual pause during Running and
+unavailable roles remain quiet; global Pause, Reduced, hidden and stale views freeze recreation.
+
+Pinned GSAP **3.15.0** supplies pure easing on the existing office clock under its standard no-charge license.
+PixiJS **8.22.0** caches soft BlurFilter light pools with static scenery in distinct arcade/café/game/sofa zones.
+The original generated skyline is a local optional asset: loading is bounded to 1.5 seconds, failure/stall leaves
+procedural windows, late completion cannot mutate the scene, and cropped textures are destroyed without deleting
+the shared source. Canvas retains simpler controller-driven gestures, including frozen Brain cue expiry.
+Whole-map lounge names are staggered; the closer camera uses compact labels. Backend, media and publishing
+behavior are unchanged, as are shared portraits, all 25 identities and true job handoffs.
+
+| Check | Result and scope |
+| --- | --- |
+| `.venv/bin/python -m pytest -m 'not slow'` | **641 passed**, seven slow cases deselected, in **280.30 s**. |
+| `npm run build` in `frontend/` | Final TypeScript + Vite production build passed in **5.83 s**; all 14 distribution files are SHA-256 identical to the assets used in the final browser run. Built distribution included; existing lazy 904 KB graphics chunk warning remains. GSAP is the new frontend dependency. |
+| Five-file focused browser suite | **23 passed together in 6.4 min**: lounge 6, living 7, motion 3, pixel 3, robot-office 4. |
+| Geometry and controller checks | 2916 + 4770 route checks; 600 simulated seconds with all 25 identities rotating, exclusive reservations and at most two ambient walkers; 150 mixed-state transitions preserve safe returns and work/handoff priority. |
+| Actual pixel checks | All six Full gestures change rendered pixels; Reduced drift is zero, actual work suppresses leisure props, and a frozen Canvas Brain does not change when its activity cue expires. |
+| Final actual isolated captures | Desktop 1440×900, laptop 1280×720 and mobile 390 px List: all 25, visible laptop controls, no mobile horizontal overflow, zero page errors. Laptop map is 696×464; controls end at y=717 inside its 720 px viewport. |
+| Final recordings | Both 1440×900 H.264/yuv420p, zero page errors: actual stopped recreation 33.24 s; visibly labeled controlled work/Brain/stage fixtures 33.48 s. Only startup before the visible provenance banner was trimmed, without retiming. Neither measures real processing speed. |
+
+The focused browser run uses installed Linux Chromium, the disposable app on port 8844 and a scratch configuration
+selecting `lounge-life.spec.ts`, `living-office.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and
+`robot-office.spec.ts`, one worker and a 180-second timeout. A stalled skyline request verifies bounded startup;
+a fresh failed scene bundle verifies animated Canvas recreation and Reduced stillness. The repository sandbox
+configuration includes these cases without changing Playwright pins or the read-only `e2e/tests` suite.
+The initial 23-case run passed in 5.9 min before the final fallback/label refinements; it is separate from the final
+run above. An initial controlled recording timed out while three browsers competed, then succeeded standalone.
+
+[Current evidence, provenance and editing guide](../design/robot-office/lounge/README.md). Previous living/refined
+and master-continuation results below remain separate historical checkpoints. The seven slow media cases were not
+repeated because this changes no backend/media behavior. Windows CMD/installation/fonts/scaling, RTX 3050 CUDA/NVENC
+and real platform accounts remain owner checks. GPU files, `.mcp.json`, Playwright pins and `e2e/tests` are unchanged.
+No real upload, account change, hosting purchase or deployment occurred.
+
+## PR #14 living office follow-up
+
+Starts at `a119dfd`, on the same draft/unmerged branch. The owner requested realistic furniture/robot proportions,
+idle lounge rest, seated work, visible hand-to-hand transfers and a cooler animated Brain. This supersedes the
+preceding idle-at-station placement. Existing PixiJS now paints the 960×640 furnished plan with 25 stable lounge
+seats, scaled desks/chairs, seated rigs and furniture-aware aisle routes. The room camera shows each room up close.
+Fresh actual job-stage/reference/report events drive both-party approach/pass/receipt, followed by the latest real
+desk or lounge destination. No guessed next step or animation delay changes a backend job. Snapshot ownership,
+event-cursor and timestamp guards keep skipped/replayed stages from inventing an outdated sender.
+
+CORE is a layered neural sculpture with pixel hemispheres, synapses and orbiting lights. Decorative powered
+Standby is labeled separately from Processing, which follows actual Brain state/events. Brain/global pause,
+Reduced and offline freeze it. Canvas compatibility shares the layout, seating and transfer controller. Existing
+portrait caching, saved motion choices, controls, task details and all 25 identities remain.
+
+| Check | Result and scope |
+| --- | --- |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; built distribution included. Existing lazy 904 KB graphics-library chunk warning remains. No dependency added. |
+| `.venv/bin/python -m pytest -q tests/test_office.py` | 17 passed in 6.10 s; backend role/feed contracts unchanged. |
+| Focused browser suite | **17 passed together in 3.1 min**: seven living-office, three motion, three pixel and four robot-office checks. |
+| Actual isolated captures | 1440×900 desktop, 1280×720 laptop, 390 px mobile List; all 25, visible laptop controls, no mobile horizontal overflow, zero browser errors. Room cameras show actual standby Brain and lounge states. |
+| Controlled preview | Browser-only running/evaluating snapshots and actual-format stage events; seated SPLICE/SYNAPSE, SPLICE→GLYPH approach/pass/receipt, GLYPH at its desk, sender back in lounge, active Brain and Reduced. Visible controlled-state banner; no real clip job or speed claim. |
+
+The browser run uses installed Linux Chromium, the isolated app on port 8844 and a scratch Playwright configuration
+selecting `living-office.spec.ts`, `motion.spec.ts`, `pixel-office.spec.ts` and `robot-office.spec.ts`, one worker,
+180-second timeout. The repository sandbox config includes living-office without changing package pins. Two
+initial 15-case runs passed before the recovery review added hidden/paused sender and reset-history regressions.
+The final 17-case run passed together in 3.1 min, including both recovery fixes. Brain rendering checks use
+actual pixels, including a frozen Brain crop while the rest of the office remains running.
+
+[Latest evidence and editing guide](../design/robot-office/living/README.md). Earlier backend/media suite results
+below belong to earlier checkpoints; those full suites were not rerun for this frontend-only change. Windows/PC
+graphics/scaling and RTX 3050 CUDA/NVENC remain owner checks. GPU files, `.mcp.json`, Playwright pins, `e2e/tests`
+and package dependencies were unchanged in this checkpoint. No real posts, purchases, account changes or deployment.
+
+## PR #14 refined pixel office follow-up
+
+Starts at `c33a291` on the same draft/unmerged branch. The owner chose refined retro pixel art and authorized using
+graphics tools. PixiJS **8.22.0** now paints all 25 authored robots and their furnished rooms; one lazy shared
+offscreen renderer and bounded frame cache deliver the same art to Team/detail portraits. The scoped office shell
+keeps the full map, details and controls together at laptop sizes. Existing snapshots/events and motion preferences
+drive activity; no backend, processing or publishing changes were made. An unavailable graphics bundle/context
+restores the original Canvas map with a visible compatibility notice.
+
+The posted Windows error comes from nested full-commit archive folders plus a long Anthropic SDK filename.
+`start.bat` now gives nonblocking short-folder advice when setup is at risk. The test guide puts fresh ZIP contents
+directly in `C:\CF14` and creates a fresh environment there; it never moves the partial `.venv` or normal data.
+
+| Check | Result and scope |
+| --- | --- |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; graphics library is lazy-loaded, built assets and third-party notices included. Vite reports the 904 KB graphics chunk size warning. |
+| Office Python checks | `pytest -q tests/test_office.py`: 17 passed in 7.20 s. |
+| Isolated browser checks | 10 passed in 59.3 s: motion (3), robot events/states/layout (4), Pixi navigation/fallback/portrait+approval pixels (3). |
+| Actual app captures | Desktop 1440×900 and laptop 1280×720: all 25, matching selected portrait and visible controls; mobile List at 390 px has no horizontal overflow; no browser errors recorded. |
+| Art/portrait checks | 25 Team and 100 gallery portraits rendered; Front→Back/gallery context count stable, zero page errors. Frozen Idle→Approved changes real pixels. |
+
+Browser commands used the installed Chromium and an isolated app on port 8844. The scratch Playwright configuration
+selected `motion.spec.ts`, `robot-office.spec.ts` and `pixel-office.spec.ts` from `e2e/sandbox`, one worker, 180-second
+test timeout; the repository sandbox configuration allows 600 seconds. An earlier scratch run capped at 60 seconds
+passed eight cases then timed out during the sequential laptop assertions; its browser session closed on timeout.
+Nine cases passed with the corrected cap, then the final ten-case run passed after adding the visible approval
+regression and caching the static scenery. No backend behavior changed and the full media/641-test suite was not
+repeated for this follow-up. The preceding full-suite results below remain evidence for the earlier checkpoint.
+[New visual evidence and how to edit it](../design/robot-office/retro/README.md).
+Windows CMD execution and the owner's PC graphics, fonts/scaling, CUDA/NVENC remain unverified here. Only PixiJS
+was added to frontend dependencies; GPU files, `.mcp.json`, Playwright versions and `e2e/tests` are unchanged.
+Generated JavaScript retains the library's shader-string whitespace and is marked as generated in `.gitattributes`;
+authored source/document whitespace checks passed.
+
+<!-- PR14_CONTINUATION_START -->
+## PR #14 continuation — 2026-10-08
+
+Current branch: `claude/project-thread-vw1n9y`, started at `fea045d`; PR #14 stays draft and unmerged. This section
+supersedes the earlier selected-only/new-upload and hidden-idle descriptions below. The historical record is retained.
+
+Implemented: all 25 named robot stations, clear overhead states, actual task/dependency/handoff details and persisted
+Follow system / Full / Reduced controls; Brain uploads/search/revision approval/edit/disable/delete/export with
+per-clip saved influence; audience/topic/language/weak-story discovery filters with explicit estimate labels;
+bounded responsible-stage QC repairs and A/V timestamp checks; pre-Whisper no-audio handling and preservation of
+returning audio when stitching mixed live recordings; explicit NEW Public YouTube publishing and standing consent,
+actual visibility reporting, preserved existing Private schedules, truthful TikTok per-post/manual blockers;
+separate public/selected learning cohorts and 48-hour maturity; measured stage timings and isolated Windows launcher.
+
+Final regression review also serializes database initialization across API threads and worker processes, rechecks
+Public automation audit confirmation at approval/upload, and makes Brain export include every stored reference and
+influence rather than silently limiting it to 500 rows. Atomic job claiming honors newly committed Pause/Stop.
+
+| Check | Result and scope |
+| --- | --- |
+| `.venv/bin/python -m pytest -m 'not slow' -q --durations=12` | 641 passed, 7 deselected in 263.21 s |
+| `.venv/bin/python -m pytest -m slow -q --durations=12` | 6 passed, 1 failed; corrected result-maturity fixture, then `tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart` passed in 428.10 s. All seven cases passed across runs, not a single all-green run. |
+| Sandbox browser checks | 8 passed in the sandbox run; corrected Brain selector then 1 passed (9.4 s); complete-loop recording dependency resolved with installed FFmpeg, then 1 passed (8.3 min). All ten checks covered across runs. |
+| `npm run build` in `frontend/` | TypeScript + Vite production build passed; built assets committed. |
+| Focused startup/core/office/TikTok | 66 passed (29.50 s), including concurrent old-schema startup in threads and a child process. |
+| Other focused Python checks | Publishing 44; knowledge/public 17; full Brain export 8; public-audit/automation 33; timing/office 19; returning-audio/recovery 28. These overlap the fast suite. |
+| Disposable `fea045d` database upgrade | Passed: preserved project/clip/settings/Private schedule/audience/approval/media bytes; rerun after initialization-lock change passed. |
+
+Fast/media commands used installed FFmpeg and an isolated espeak-ng wrapper on `PATH`. Browser commands used
+`CLIPFOUNDRY_E2E_CHROMIUM=/usr/bin/chromium`; the Public loop was
+`npm run test:sandbox -- --project complete-loop`, with `PLAYWRIGHT_BROWSERS_PATH` pointing to a scratch recording
+helper backed by installed FFmpeg. Brain's targeted rerun used a scratch Playwright config against the isolated
+sandbox, running `sandbox/brain-workspace.spec.ts`. No package version or Playwright pin was changed.
+
+The Public complete loop ran real media handlers and FFmpeg, two fake-account Public uploads with no `publishAt`,
+restart recovery, mature fake-result collection, actual live/post-live handlers and deliberate pause. It advances
+only the isolated fixture's approved Public due times and result age. It does not establish GPU/account/policy
+verification. During validation a stale Stop claim and duplicate-column startup race were reproduced and fixed;
+the slow fixture now waits for both durable published schedules before advancing simulated maturity.
+
+The Brain proof uses a real document upload, approval, validated later blueprint and SQLite save: bold → minimal
+captions. A bad-example upload also changes a later plan in its regression test. The UI lookup preview is labeled
+separately. [Visual evidence and provenance](../design/robot-office/screenshots/README.md).
+
+An old-schema database was created using `fea045d`, then opened with the new additive schema. Existing project,
+clip, settings, Private schedule, audience stamp, approval and media bytes were identical. This used a disposable
+fixture, never the owner's installation. Built frontend is included; `.mcp.json`, GPU dependency files, package
+versions and `e2e/tests` are unchanged.
+
+External limits: official Google/TikTok developer hosts returned proxy 403 in this continuation. Current policy
+requirements could not be freshly re-read. Google's official GitHub discovery schema confirms `publishAt` needs
+Private, an API field contract only. The audit settings record owner confirmation; real app approval and returned
+visibility still need account checks. TikTok requires per-post consent and eligible app approval; drafts/manual
+packages remain handoffs. No real videos were posted, hosting rented, account permissions changed or site deployed.
+
+PC checks: Windows installation/scaling/fonts; RTX 3050 CUDA transcription and NVENC rendering, real-video captions
+and sound sync; real account scopes, project/app audit decisions and visibility; live internet sources on the PC;
+optional NVIDIA service/current terms. [Safe separate ZIP test](WINDOWS_PR14_TEST.md) and
+[measured processing / server recommendation](PERFORMANCE.md). No server-speed claim is justified by this CPU-only
+synthetic run. Unique-viewer/dominant-video guards, a general experiment framework and additional discovery
+connectors remain outside this implementation.
+<!-- PR14_CONTINUATION_END -->
+
 Resume file for the "Audit, Finish, and Verify" task. Keep it current: another session must be able to continue
 from here without repeating the audit.
 
@@ -16,7 +397,8 @@ from here without repeating the audit.
 | UI redesign (2026-10-01) | branch `claude/ui-redesign-prototype-f47izp`, PR #7: the owner approved the prototype (2026-09-30) and asked for the real screens, tested and merged into the default branch |
 | Codex follow-up (2026-10-01) | `codex/fix-autopilot-idle` (one commit, `519c25f`, built on `97b5c9a`), integrated into the redesigned app on `claude/finish-clipfoundry-knj4r4`; see *Overnight-idle regressions* below |
 | Website and legal pages (2026-10-01) | branch `claude/finish-clipfoundry-knj4r4`, PR #9: `docs/legal` is the public website (product page, Privacy Policy, Terms) written from a code audit, plus three fixes the audit found; public deployment waits for the owner's OK |
-| Next concrete task | The checklist at the end (your PC, GPU and accounts); then the TikTok inbox-draft decision |
+| Next concrete task | The checklist at the end (your PC, GPU and accounts); the public-video decision; then the TikTok inbox-draft decision |
+| Robot office (2026-10-07/08) | branch `claude/project-thread-vw1n9y`, draft PR #14 (not merged), from the owner's master prompt on top of `eff96fb`: see *Robot office* below, `docs/OFFICE.md` and `AI_HANDOFF.md` |
 | Link intake and retro studio (2026-10-02) | `codex/retro-robot-autopilot` (PR #11, ChatGPT/Codex, based on `992431e`): durable link intake and the retro robot studio. Final review on `claude/final-review-6u6bvj` (PR #12): PR #11's commit plus four fixes, see *Final review* below; both merged into the default branch |
 
 Verification levels used below: **source reviewed** (read the code path and its callers), **unit/contract tested**
@@ -329,6 +711,50 @@ feature. Each defect was reproduced with a failing test first.
 Kept as PR #11 built it (the owner's brief): Codex P2, a lack of videos is not a Needs you item (Home and the overview
 say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to Autopilot → Advanced → System.
 
+## Robot office (2026-10-07, master prompt)
+
+The owner's master prompt (October 7, 2026) asked for the robot-office app: selected-audience uploads on both
+platforms, a real organization of roles over the job system, a Brain with provenance and guarded learning, optional
+NVIDIA AI, the office screens and robots, honest integration cards, and development history. How it works:
+`docs/OFFICE.md`. Labels below: **Implemented and tested** (automated tests here, with fakes where a platform is
+involved), **Implemented; live verification pending**, **Needs credentials/user action**, **Unsupported by the
+current platform**, **Incomplete**.
+
+| Requirement or dependency | Status | Evidence / what remains |
+| --- | --- | --- |
+| Selected audience on every upload path (no public, unlisted, Everyone; old public posts held; approvals bound to the audience stamp) | Implemented and tested | `tests/test_audience.py`, `test_autopilot_publish.py`, `test_youtube.py`, `test_tiktok.py`, sandbox complete loop |
+| YouTube upload as Private without `publishAt` | Implemented and tested (fake YouTube); live verification pending | needs a real upload on the owner's account |
+| YouTube viewer invitations | Unsupported by the current platform (no API) | handoff: the owner shares in YouTube Studio and presses *I shared it*; labeled as the owner's confirmation |
+| TikTok Direct Post to followers or friends | Needs credentials/user action | needs TikTok's audit of the owner's developer app, unlikely for a personal tool that reposts other platforms' videos (TikTok's guidelines, rechecked 2026-10-08); until then "Only me" is staging and the clip becomes a ready-to-post package |
+| TikTok ready-to-post package | Implemented and tested | the post's page: download, copy caption, steps, then *Link the post…* or *I posted it, no link* (`test_a_package_posted_without_a_link_is_recorded_as_your_word`); branded content Friends only; a full inbox holds TikTok posts for a day |
+| Approvals bound to the connected account | Implemented and tested | `test_approvals_and_automatic_publishing_stay_with_the_account_they_were_given_for` |
+| TikTok results for follower-only posts | Unsupported by the current platform | TikTok's video list covers public posts only; Clips → Test feedback instead |
+| YouTube results for a private group | Implemented; live verification pending | the Data API counts are read; the Analytics API may report little for a small group |
+| Office: cast registry (1 + 8 + 16, CORE separate), event feed with cursor, reports, decisions, health, controls | Implemented and tested | `tests/test_office.py`; `e2e/sandbox/robot-office.spec.ts` (placement, carry and review, decision reaction, old events ignored, paused, lost connection, Reduce animations, 1280×720 and 1366×768 fit, no sideways scroll at 683 and 390 px) |
+| Office screens, Team, gallery, Integrations, Test feedback, Dev Log, new navigation | Implemented and tested | read-only `e2e` suite and sandbox flows; screenshots in `design/robot-office/screenshots` |
+| Distinct robots (25, four directions, all poses) | Implemented; owner's visual review pending | `design/robots/contact-sheet.png`; compared with the reference sheets on 2026-10-08: crown badge for COMMAND and the managers, TRACKER, SPARK and PATCH colors fixed; simplified details listed in the review report |
+| Brain: provenance, null ≠ 0, idempotent imports, corrections, cohorts, 30-clip / 10% guards, rollback, clip length used by the next videos | Implemented and tested (synthetic data) | `tests/test_brain.py` (21 tests; on 2026-10-08: uploads nobody could watch excluded, maturity from sharing, per-platform rollback, rollback not undone, 20 per side, identical results inconclusive); real learning needs 30 real clips from the owner's viewers |
+| Brain: distinct people and one dominant video | Incomplete | plays are not people; one video can supply most clips once 5 videos exist; needs the owner's rule |
+| Health readings, Test connection, rate-limit cards | Implemented and tested (fake platforms) | `tests/test_office_health.py`; a real check needs the owner's accounts |
+| Trend and Source Score coverage and confidence; specific media-access reasons | Implemented and tested | `tests/test_scores_and_access.py` |
+| Rework routed to the responsible stage; audio/video sync check; Queue states retrying, waiting for results, platform-verified audience; experiment framework | Incomplete | not in this version |
+| Optional NVIDIA text AI | Implemented and tested (fake transport); Needs credentials/user action for live use | `tests/test_nvidia.py`; no real request was made, NVIDIA's current terms were not read live |
+| GPU transcription and rendering on the RTX 3050 | Implemented; live verification pending | **GPU runtime not verified here** (no NVIDIA GPU in the cloud machine). On the PC: `gpu-check.bat`, or `.venv\Scripts\python.exe -m clipfoundry gpu-check` in the ClipFoundry folder |
+| Twitch, Kick, Reddit, X, Instagram and podcast discovery connectors | Incomplete | not in this version (the capability matrix says so); a pasted public link still goes through the link importer where supported |
+| Google Trends signal | Unsupported by the current platform | no supported public API; ClipFoundry does not scrape it |
+| Preview-based screening before download, novelty and search signals, creator-relative baselines | Incomplete | Trend Score and Source Score (the Clip Opportunity Score) are documented in `docs/OFFICE.md#scores`; moments are judged from the transcript after the download |
+| Development history (AI_CHANGELOG.md, AI_HANDOFF.md, `.clipfoundry/ai-change-log.jsonl`, Dev Log) | Implemented | entries start with this build; earlier work is in this file and the Git history |
+
+End-to-end proof in the sandbox (`e2e/sandbox/zero-touch-loop.spec.ts`, fake YouTube and TikTok, a synthetic
+transcript instead of Whisper, real ffmpeg rendering, no GPU): one Start discovers videos, makes clips that pass the
+final check, uploads to the fake YouTube as Private (Needs you then asks to share it privately), reads results,
+changes nothing with too few of them (2 of 30 posts with real numbers), waits for a stream link across a worker
+restart and records it once the stream starts, with no duplicate upload, and the office shows the running,
+waiting, restarted and paused states. The beginner flow passes with public video discovery on (the owner's decision
+of 2026-10-08): public videos are clipped on the PC and pass the final check, are never planned or posted, a video
+that cannot be downloaded is reported, the beginner chooses who watches, and an agreement makes a creator's video
+plannable.
+
 ## Plan (highest priority first)
 
 1. [x] Render artifact record: persist the edit-decision time map and the final transcript (output time), sha256 and
@@ -371,6 +797,13 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
     Requirements are unchanged; an existing install can also run `pip install "av<19"`.
 25. [x] Public internet video import (owner request 2026-10-03): default local discovery mode, public webpage
     extraction, bounded native downloads, safe live-page resolution, separate reuse/publishing gates, committed UI.
+26. [x] Selected-audience uploads, office backend, Brain guards and optional NVIDIA AI (2026-10-07, `26f6b8f`).
+27. [x] The robot office screens, Team and gallery, Integrations, Test feedback, Dev Log, new navigation, docs and
+    handoff (2026-10-07/08, PR #14).
+28. [ ] The owner's review of PR #14 and the checks on the PC below (GPU, real uploads, Who watches, the office look).
+29. [x] The owner's public-video decision (keep it, 2026-10-08); `e2e/sandbox/beginner-flow.spec.ts` aligned.
+30. [x] Review round of 2026-10-08 (`cf54204`): gaps against the master prompt, TikTok package flow, account-bound
+    approvals, Brain guards, health and Test connection, score confidence, media-access reasons, robots.
 
 ## Test log
 
@@ -504,6 +937,21 @@ say it and keep OPEN VIDEOS FOLDER); the GPU details moved from the overview to 
 | PyAV 19 fix (2026-10-02) | `audio.read_samples` against faster-whisper's `decode_audio` (PyAV 18.0) on a WAV made by `extract_audio` from a synthetic video | identical float32 samples (320171, max difference 0) |
 | PyAV 19 fix (2026-10-02) | `pytest -m "not slow"` on `d4f100c` | 478 passed, 7 slow deselected (242 s) |
 | PyAV 19 fix (2026-10-02) | `pytest -m slow` on `d4f100c` | 7 passed (685 s); imported transcripts, so no real Whisper model (Hugging Face is blocked here) |
+| robot office (2026-10-07) | `pytest -m "not slow"` on `26f6b8f` (backend wave) | 543 passed |
+| robot office (2026-10-08) | `pytest -m "not slow"` on the screens-and-docs commit | 545 passed, 7 slow deselected (309 s) |
+| robot office (2026-10-08) | `pytest -m slow` on the screens-and-docs commit | 5 passed, 2 failed (639 s): two video tests not updated by `26f6b8f` still expected `publishAt` on the YouTube upload; fixed to expect Private without it, then those 2 passed (334 s). Real ffmpeg and eSpeak NG, imported transcripts, fake platforms, no GPU |
+| robot office (2026-10-08) | `npx tsc --noEmit` and `npm run build` in `frontend/` | pass; the build reproduces the committed `dist/` (index 614 kB) |
+| robot office (2026-10-07) | read-only `e2e` suite against a sandbox after a complete loop (`CLIPFOUNDRY_E2E_CHROMIUM=/opt/pw-browsers/chromium`) | 62 passed, 2 failed, 1 skipped; both failures were test locators (a Team card name matched three cards; two settings the test did not know), fixed; the office, settings and shell files then 28 passed |
+| robot office (2026-10-07) | `npm run test:sandbox` (Chromium at `/opt/pw-browsers/chromium`) | 7 passed, 2 failed: the complete loop still expected *2 of 10 posts* (now 30, fixed in the test) and the beginner flow (below) |
+| robot office (2026-10-08) | `robot-office.spec.ts` and `zero-touch-loop.spec.ts` again after the fix | 5 passed (8.1 min) |
+| robot office (2026-10-08) | `beginner-flow.spec.ts` on `eff96fb` itself, in a separate worktree | failed at *nothing uncovered is ever clipped*: the same failure exists before this work (public video discovery default on) |
+| robot office (2026-10-08) | `beginner-flow.spec.ts` on this branch with `autopilot_public_videos` turned off by a temporary, uncommitted line | 1 passed (1.0 min) |
+| review round (2026-10-08) | `beginner-flow.spec.ts` on this branch with public video discovery on (the default), after the test learned to confirm who watches in Settings → Integrations | 1 passed (4.0 min) |
+| review round (2026-10-08) | new suites `test_brain.py` (21, 7 new), `test_office_health.py` (9), `test_scores_and_access.py` (29), the account-binding and START-twice tests | pass; the new ones failed before their fixes |
+| review round (2026-10-08) | `pytest -m "not slow"` on `cf54204` | 597 passed, 7 slow deselected (329 s) |
+| review round (2026-10-08) | `pytest -m slow` on `cf54204` | 7 passed (724 s); real ffmpeg and eSpeak NG, imported transcripts, fake platforms, no GPU |
+| review round (2026-10-08) | `npx tsc --noEmit` and `npm run build` in `frontend/` | pass; committed `dist/` (index-C1kfHSbU.js) |
+| review round (2026-10-08) | `npm run test:sandbox` on `cf54204` (Chromium at `/opt/pw-browsers/chromium`) | 9 passed (10.1 min): beginner flow, motion 3, robot office 4, complete loop |
 
 ## Checklist for the user's machine
 
@@ -514,15 +962,17 @@ Everything below needs your PC, your GPU or your accounts; none of it could be d
 | 1 | Update and start (keep `data`, `.venv`, `tools`; see INSTALL.md → Updating) | `git pull` or the ZIP steps, then `start.bat` | App opens at http://127.0.0.1:8765; your videos (Library), settings and account connections are still there; Autopilot → Advanced → System lists 12 workers incl. *Final Quality Gate* | new tables (`slot_replacements` and earlier ones) are created on first start; posts approved before this version ask for approval once more |
 | 2 | Real CUDA transcription | `gpu-check.bat` (or `python -m clipfoundry gpu-check some_video.mp4`) | "device: cuda", compute type float16 or int8_float16, speed several times realtime | this environment has no GPU; detection alone is not transcription |
 | 3 | Strict GPU in Autopilot | temporarily break CUDA (e.g. rename the cuBLAS DLL folder), add an owned source | the hunt pauses; action item "Autopilot transcription is paused"; no CPU run; restore and the source continues | proves the pause on real hardware |
-| 4 | Local vertical slice | Autopilot → Permissions & sources: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in the Library; Posts → Needs review shows the posts, and each post's page shows *Final check* with every check listed | the slice ran here only on synthetic espeak video |
-| 5 | Look at and listen to one Autopilot clip | open it from a post's page in Posts | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
+| 4 | Local vertical slice | Missions → Permissions & sources: watch folder of your own recordings marked Owned; turn Autopilot on | clips appear in Clips; Queue → Needs review shows the posts, and each post's page shows *Final check* with every check listed | the slice ran here only on synthetic espeak video |
+| 5 | Look at and listen to one Autopilot clip | open it from a post's page in Queue | captions in sync, the hook line on screen, the payoff inside the clip, no cut mid-word, sound clear | automated checks cannot judge meaning; listening was not possible here |
 | 6 | Measure throughput | time one 60-minute source through hunt → analyze (worker log `data/logs/workers.log`), watch VRAM in Task Manager | minutes per source, peak VRAM, disk used per source | whether 15 clips/day is plausible must be measured, not assumed |
 | 7 | Browser tests | `e2e\run-tests.bat` with the app running; `e2e\run-beginner-test.bat` (sandbox, app need not run) | 60 passed (some skipped without videos or posts); beginner flow passed | read-only check of every page against your real data; the beginner flow on Windows |
-| 8 | YouTube, real account | connect in first-time setup (step 3) or Settings → Accounts, approve one post as Private | the post's page in Posts shows it published with its link; YouTube Studio shows it Private/scheduled | only fake platforms were used here |
+| 8 | YouTube, real account | connect in first-time setup (step 3) or Settings → Accounts; Settings → Integrations → Who watches → *My invited viewers* → Confirm who watches; approve one post | the post's page in Queue shows it uploaded, *Awaiting viewer invitations*; YouTube Studio shows it Private with no scheduled publishing; after sharing it there and pressing *I shared it*, the post says *Audience set up (you confirmed)* | only fake platforms were used here |
 | 9 | TikTok, real account | connect; approve one post with *Send to TikTok inbox* | the draft appears in the TikTok app | Direct Post eligibility of a single-user tool is TikTok's decision (`PLATFORM_CAPABILITIES.md`) |
 | 10 | Re-read the platform pages | the URLs in `docs/PLATFORM_CAPABILITIES.md` | constraints still match; update "Last verified" | the documentation hosts were blocked from this session |
 | 11 | Channel confirmation, real account | with YouTube connected, add a rule for a channel and let Autopilot find one of its videos | Activity shows the video used; a video from another channel is skipped with *channel not confirmed* | the YouTube and TikTok answers were faked here |
 | 12 | Look at and listen to a clip with a cut | find a clip whose `blueprint.json` (next to the rendered file under `data\projects`) has a *cut out … in the middle* line under `reasons`, and play it | the jump is at a pause, nothing said is lost, captions skip the removed line | cuts were checked here only on synthetic video with a synthetic transcript |
 | 13 | Approval follows the exact file | approve a post, re-render its clip | the post asks for approval again (YouTube with automatic publishing: approved again only after the final check) | checked here with fake platforms only |
 | 14 | Overnight run | *Start Autopilot*, press *Open videos folder*, put one of your own videos in it, leave the PC plugged in overnight | next morning: clips in the Library, posts planned between 9 AM and 9 PM in Posts; the Autopilot overview's *This PC* says *Kept awake*, and Autopilot → Advanced → System events show *Keeping this PC awake*; `powercfg /requests` (admin prompt) lists python under SYSTEM while Autopilot is on | sleep prevention and File Explorer opening were not run on Windows here. If the page says *Windows did not let ClipFoundry keep this PC awake*, follow its Needs you steps. To try it before merging with no chance of posting, run a separate test copy with its own new data folder (`CLIPFOUNDRY_DATA`) and videos folder (`CLIPFOUNDRY_VIDEOS`), with the normal ClipFoundry closed |
-| 15 | Look at the new screens on Windows | open Home, Autopilot, Library, a clip in the editor, Posts and Settings; make the window narrow | text fits, nothing scrolls sideways, the Menu button appears on a narrow window, your old bookmarks (`#/projects`, `#/publish-center`) open the new pages | the redesign was checked here in Chromium on Linux only (other fonts, no Windows display scaling) |
+| 15 | Look at the new screens on Windows | open the Office, Team, Missions, Clips, a clip in the editor, Queue and Settings → Integrations; make the window narrow | text fits, nothing scrolls sideways, the Menu button appears on a narrow window, your old bookmarks (`#/projects`, `#/publish-center`, `#/autopilot`) open the new pages | the screens were checked here in Chromium on Linux only (other fonts, no Windows display scaling) |
+| 16 | The office follows real work | with Autopilot running on one of your videos, watch the Office for a few minutes; tick Reduce animations | robots go to their desks while their step runs and back to the Lounge after; a manager reviews after a report; with Reduce animations nothing moves; compare the robots with your reference sheets | movement was checked here only in the sandbox |
+| 17 | Optional NVIDIA AI | README → *Optional NVIDIA AI*; Check the setup, then Run a small AI test | *Check* lists the model; the test answers; Today's usage counts one request | no real NVIDIA request was made here |

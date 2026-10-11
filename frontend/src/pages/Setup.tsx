@@ -89,7 +89,7 @@ export default function Setup({ step }: { step?: string }) {
     body = (
       <section className="panel" aria-labelledby="st1">
         <h2 id="st1">Where are your videos?</h2>
-        <p className="muted">Use videos you made, or videos you have permission to use. ClipFoundry never uses other
+        <p className="muted">Use videos you made, or videos you have permission to use. ClipFoundry never posts other
           people's videos without an agreement or a free license.</p>
         <div className="cols-2">
           <div className="choice-card stack-3" style={{ display: "grid", alignContent: "start", cursor: "auto" }}>
@@ -132,9 +132,10 @@ export default function Setup({ step }: { step?: string }) {
               onChange={() => setHow("autopilot")} />
             <span className="stack" style={{ gap: 2 }}>
               <b>Let Autopilot do it</b>
-              <span className="small muted">It clips your videos folder and videos it may use (like public-domain
-                ones), writes titles and plans posting times. Other people's videos are skipped. Nothing is posted
-                without your OK, or a permission you give separately.</span>
+              <span className="small muted">It clips your videos folder and public videos about your topics, writes
+                titles and plans posting times. Clips of other people's videos stay on this PC: only videos you may
+                reuse are planned for posting. Nothing is posted without your OK, or a permission you give
+                separately.</span>
             </span>
           </label>
         </fieldset>

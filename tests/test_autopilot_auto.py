@@ -62,7 +62,9 @@ def test_the_original_behind_a_popular_short_is_found(env):
     g = env["g"]
     g.add_video("short01aaaa", "Best podcast moment #shorts", "UCclips0000000001", views=2_000_000, duration="PT45S",
                 description="Full episode here: https://youtu.be/longvid0001 (and our merch link)")
-    g.add_video("longvid0001", "Full episode 88 with Jane", "UCorig00000000001", views=300_000, duration="PT1H12M")
+    # A linked original remains a candidate when its own metadata supports the owner's podcast preference.
+    g.add_video("longvid0001", "Full episode 88 with Jane", "UCorig00000000001", views=300_000,
+                duration="PT1H12M", description="A podcast interview with Jane")
     g.popular = ["short01aaaa"]
     run("trend_scan")
     sigs = {s["external_id"]: s for s in db.select("trend_signals")}
@@ -207,6 +209,7 @@ def client(env):
     from clipfoundry.api import app
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        c._fake_env = env
         yield c
 
 
@@ -341,20 +344,28 @@ def _clip(env, title="Talk to customers first", warn: str = "") -> dict:
 
 
 def _consent(client, **kw) -> object:
-    body = {"platform": "youtube", "visibility": "public", "made_for_kids": False, "daily_limit": 2,
+    from clipfoundry import db
+    from test_autopilot_publish import connect
+
+    if not (db.get_account("youtube") or {}).get("has_tokens"):
+        connect(client._fake_env["g"], client._fake_env["t"])
+    body = {"platform": "youtube", "visibility": "private", "made_for_kids": False, "daily_limit": 2,
             "start_hour": 9, "end_hour": 21, "agreed": True, **kw}
     return client.post("/api/autopilot/auto-publish", headers=H, json=body)
 
 
 def test_automatic_publishing_needs_an_explicit_complete_permission(env, client):
     assert _consent(client, agreed=False).status_code == 400
-    assert _consent(client, visibility="").status_code == 400  # you choose the visibility, there is no preset
+    assert _consent(client, visibility="").status_code == 400
+    assert _consent(client, visibility="public").status_code == 400  # Private only: you share it with your viewers
+    assert _consent(client, visibility="unlisted").status_code == 400
     assert _consent(client, made_for_kids=None).status_code == 400
     r = _consent(client, platform="tiktok")
     assert r.status_code == 400 and "TikTok" in r.json()["detail"]  # TikTok requires your OK on each post
     v = _consent(client).json()
     assert v["youtube"]["enabled"] and "up to 2 clips a day" in v["youtube"]["consent"]["text"]
-    assert "public" in v["youtube"]["consent"]["text"] and "not made for kids" in v["youtube"]["consent"]["text"]
+    assert "as Private videos" in v["youtube"]["consent"]["text"]
+    assert "not made for kids" in v["youtube"]["consent"]["text"]
     assert not v["tiktok"]["supported"]
 
 
@@ -370,7 +381,8 @@ def test_posts_are_approved_automatically_and_labeled_as_such(env, client):
     items = {(i["clip_id"], i["platform"]): i for i in db.select("scheduled_publications")}
     yt = items[(good["id"], "youtube")]
     assert yt["status"] == "approved" and yt["approval"]["by"] == "automatic" and yt["approval"]["consent_id"]
-    assert yt["privacy"] == "public" and yt["options"]["made_for_kids"] is False
+    assert yt["privacy"] == "private" and yt["options"]["made_for_kids"] is False
+    assert yt["audience"]["intent"] == "SELECTED_AUDIENCE" and yt["approval"]["scheme"] == 3
     assert yt["audit"][-1]["event"] == "auto_approved" and "not reviewed by you" in yt["audit"][-1]["detail"]
     assert scheduler.approval_valid(yt)
     assert items[(good["id"], "tiktok")]["status"] == "awaiting_approval"  # TikTok: your OK on each post
@@ -394,7 +406,7 @@ def test_turning_it_off_returns_posts_to_review_and_the_publisher_checks_it(env,
     item = db.select("scheduled_publications")[0]
     assert item["status"] == "approved"
     # a new permission (different settings) replaces the old one: posts approved under the old one are re-checked
-    _consent(client, visibility="unlisted")
+    _consent(client, daily_limit=3)
     assert not autopublish.still_covers(db.fetch("scheduled_publications", item["id"]))
     back = client.delete("/api/autopilot/auto-publish/youtube", headers=H).json()
     after = db.fetch("scheduled_publications", item["id"])
@@ -425,9 +437,9 @@ def test_the_daily_limit_and_your_own_edits_are_respected(env, client):
     assert db.fetch("scheduled_publications", waiting["id"])["status"] == "awaiting_approval"  # you decide
 
 
-def test_an_automatically_approved_youtube_post_is_uploaded_and_scheduled_by_youtube(env, client):
-    """The whole publishing leg against the stand-in: permission → automatic approval → due → upload with publishAt
-    → recorded as uploaded and scheduled on YouTube (mock test: no real upload)."""
+def test_an_automatically_approved_youtube_post_is_uploaded_private_for_invited_viewers(env, client):
+    """The whole publishing leg against the stand-in: permission → automatic approval → due → Private upload without
+    publishAt → recorded as uploaded and waiting for your Studio invitations (mock test: no real upload)."""
     from clipfoundry import db
     from clipfoundry.autopilot import host, queue, scheduler
     from clipfoundry.publish import youtube
@@ -439,7 +451,7 @@ def test_an_automatically_approved_youtube_post_is_uploaded_and_scheduled_by_you
     code = g.approve(youtube.auth_url(s, "http://127.0.0.1:8765/cb", "st", challenge_s256(v)))
     youtube.exchange_code(s, code, v, "http://127.0.0.1:8765/cb")
     db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": False})
-    _consent(client, visibility="public")
+    _consent(client)
     _clip(env)
     now = time.time()
     scheduler.plan_new(db.get_settings(), now)
@@ -450,12 +462,13 @@ def test_an_automatically_approved_youtube_post_is_uploaded_and_scheduled_by_you
     job = queue.claim("publisher", "test")
     host.HANDLERS["publish"](host.Job(job, "test"))
     done = db.fetch("scheduled_publications", item["id"])
-    assert done["status"] == "published" and "scheduled" in done["status_note"].lower()
-    meta = next(iter(g.sessions.values()))["meta"]  # public later: private now, YouTube publishes it at publishAt
-    assert meta["status"]["privacyStatus"] == "private" and meta["status"]["publishAt"]
+    assert done["status"] == "published" and done["delivery"]["audience_setup"] == "awaiting_invitations"
+    meta = next(iter(g.sessions.values()))["meta"]
+    assert meta["status"]["privacyStatus"] == "private" and "publishAt" not in meta["status"]
     assert meta["status"]["selfDeclaredMadeForKids"] is False
     home = client.get("/api/autopilot/status").json()["home"]
-    assert any(u["on_platform"] for u in home["upcoming"])  # uploaded: YouTube publishes it at its time
+    up = [u for u in home["upcoming"] if u["on_platform"]]
+    assert up and up[0]["delivery_label"] == "Awaiting viewer invitations"  # never "viewers can watch"
 
 
 # ------------------------------------------------------------------ schedule: downtime and daylight saving time
@@ -472,7 +485,7 @@ def test_after_downtime_missed_posts_are_spread_out_not_dumped(env):
         meta = db.select("metadata_candidates", "clip_id = ? AND platform = 'youtube'", (clip["id"],))[0]
         item = db.insert("scheduled_publications", {
             "clip_id": clip["id"], "platform": "youtube", "metadata_id": meta["id"], "title": f"Missed clip {k}",
-            "description": "d", "tags": [], "privacy": "public", "options": {"made_for_kids": False},
+            "description": "d", "tags": [], "privacy": "private", "options": {"made_for_kids": False},
             "planned_at": now - 3600 * (5 - k), "status": "awaiting_approval"})
         scheduler.approve(item["id"], {})
         ids.append(item["id"])
@@ -619,9 +632,10 @@ def test_one_complete_path_from_discovery_to_a_post_scheduled_on_youtube(env, cl
     scheduler.process_due(db.get_settings(), due + 1)
     drain("publisher")
     done = db.fetch("scheduled_publications", first["id"])
-    assert done["status"] == "published" and "scheduled" in done["status_note"].lower(), done["status_note"]
+    assert done["status"] == "published" and "share it privately" in done["status_note"], done["status_note"]
     meta = next(iter(g.sessions.values()))["meta"]
-    assert meta["status"]["privacyStatus"] == "private" and meta["status"]["publishAt"]  # YouTube makes it public
+    # Private for the viewers you invite; no publishAt, so YouTube never makes it public later
+    assert meta["status"]["privacyStatus"] == "private" and "publishAt" not in meta["status"]
     # a restart does not upload it again: the publish job is idempotent and the post is recorded as done
     assert queue.enqueue("publish", {"scheduled_id": first["id"]}, idem_key=f"publish:{first['id']}")
     drain("publisher")

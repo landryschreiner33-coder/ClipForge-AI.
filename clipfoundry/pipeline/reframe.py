@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .. import config
-from .common import Cancelled, JobContext, log
-from .ffmpeg_utils import NO_WINDOW, ffmpeg_bin
+from .common import JobContext, log
+from .ffmpeg_utils import NO_WINDOW, MediaWatchdog, ffmpeg_bin
 
 ANALYSIS_FPS = 8.0
 ANALYSIS_W = 640
@@ -64,21 +64,19 @@ def _sample_frames(src: str, start: float, dur: float, src_w: int, src_h: int, c
     cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-ss", f"{start:.3f}", "-i", src,
            "-t", f"{dur:.3f}", "-map", "0:v:0", "-vf", f"fps={ANALYSIS_FPS},scale={aw}:{ah}", "-an",
            "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
     size = aw * ah * 3
-    try:
+    with MediaWatchdog(ctx.cancelled if ctx else None, max(600.0, dur * 20)) as watch:
+        proc = watch.add(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                          creationflags=NO_WINDOW))
         k = 0
         while True:
-            if ctx and ctx.cancelled():
-                raise Cancelled()
+            watch.check()
             buf = proc.stdout.read(size)  # type: ignore[union-attr]
+            watch.check()
             if len(buf) < size:
                 break
             yield k / ANALYSIS_FPS, np.frombuffer(buf, np.uint8).reshape(ah, aw, 3)
             k += 1
-    finally:
-        proc.kill()
-        proc.wait()
 
 
 def _detector(w: int, h: int):

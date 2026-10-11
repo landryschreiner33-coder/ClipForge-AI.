@@ -4,6 +4,12 @@ Autopilot turns ClipFoundry into a persistent, local-first content opportunity e
 attention, checks whether each source may be used, finds the strongest moments, packages them for YouTube Shorts and
 TikTok, schedules them, publishes the posts you approved through the official APIs, and learns from the real results.
 
+> **Names since the robot office (October 2026):** Home is now the **Office**, the Autopilot page is **Missions**,
+> the Library is **Clips**, Posts is the **Queue**, and **Brain** has its own workspace; old addresses still open
+> the right page. New uploads can be Public after explicit setup and eligible platform permission. Existing Private
+> schedules stay Private. TikTok needs per-post consent or a manual handoff. See
+> [OFFICE.md](OFFICE.md) for the office, the audience policy, the capability matrix and the Brain.
+
 Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your
 own results. The daily numbers (3 sources, up to 5 clips per source, 15 clips a day) are **targets, never quotas**:
 quality, rights, availability and platform limits always come first, so a day can end with fewer posts.
@@ -11,6 +17,7 @@ quality, rights, availability and platform limits always come first, so a day ca
 Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-autopilot) ·
 [setup](#setting-it-up) · [how it works](#how-it-works) · [scores](#scores) · [Posts](#posts) ·
 [controls and emergency stop](#controls-and-emergency-stop) · [what is not possible](#blocked-or-limited-capabilities) ·
+[unattended operation](UNATTENDED.md) ·
 [legal pages](#legal-pages-terms-of-service-and-privacy-policy) · [troubleshooting](#troubleshooting)
 
 ## What the platforms allow (and what that means for Autopilot)
@@ -26,7 +33,14 @@ These rules come from the platforms, and they win over the 15-clips-a-day target
 | Content may only be downloaded from YouTube through means YouTube authorizes, or with permission from YouTube and the rights holders. | YouTube Terms of Service | Getting the file is decided separately from the right to reuse it (`autopilot/access.py`). Autopilot uses your own files, a folder or file links a creator shares with you under an agreement, a free-license library's own downloads, and direct links you configured. A connected account or a public link is never treated as permission to download. Downloading platform-hosted videos with the URL importer is off by default. |
 | `chart=mostPopular` now covers the Trending Music, Movies and Gaming charts only. | YouTube Data API revision history (July 2025) | Broad discovery uses topic searches (their own 100-call daily quota bucket since June 2026) plus channels you follow. |
 | Google Trends API is an application-gated alpha; TikTok has no trend API for general developers. | Google Search Central; TikTok for Developers | Not used. Shown as unavailable in the UI. ClipFoundry never scrapes either. |
-| Unaudited API projects/apps can only publish privately. | YouTube API audit; TikTok Content Posting API | Shown before scheduling and after each upload. Autopilot never claims a post is public when the platform made it private. |
+| YouTube project status | Current API docs | Unverified projects may upload Public; audits cover more quota. |
+| Unaudited TikTok apps | Content Posting API | Direct Post stays restricted; approval and per-post consent matter. |
+
+YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) and
+[videos](https://developers.google.com/youtube/v3/docs/videos) documentation, updated October 8, 2026 and checked
+October 10, now permit Public uploads from unverified projects. API audits apply to quota increases. ClipFoundry
+still requires explicit Public setup and appropriate account-bound approval/permission, then reports actual returned
+visibility. TikTok's app audit remains separate; a private TikTok account cannot offer Everyone.
 
 ## Setting it up
 
@@ -86,8 +100,18 @@ automatic publishing…* under *How posts go out* on Autopilot → Overview, or 
 shows exactly what you allow: the channel, what gets posted (only clips that passed every check, from videos you own
 or that an agreement or license covers), who can see the posts, made for kids or not, how many a day and between
 which hours, and you confirm it. Turning it off (*Turn off…*) sends every post it approved that has not started
-uploading back to Posts → *Needs review*, where it waits for your OK. Until Google audits your YouTube API project,
-YouTube keeps the uploads private whatever you choose.
+uploading back to Posts → *Needs review*, where it waits for your OK. Permission is bound to the connected channel
+and confirmed audience: new Public uploads require fresh Public permission; existing Private posts stay Private.
+Selected-viewer Private uploads still need you to share them in YouTube Studio. Public posts need no invitations.
+
+For all-day scheduling, choose **0–24** as the posting window; this does not raise the daily limit or override
+quality, rights, quota or duplicate checks. For long-running Google access, an External OAuth app in Testing has
+seven-day refresh grants for YouTube scopes. Set its OAuth publishing status to Production, then reconnect for a
+fresh grant. Personal-use apps may be exempt from OAuth verification; Production and API quota audits are separate.
+Authorization can still expire or be revoked. [UNATTENDED.md](UNATTENDED.md) covers the optional app-exit watchdog,
+same-user Windows login startup and local diagnostic logs. It preserves intentional Pause/Stop and consent holds.
+Run only one app per data profile, including across different ports. The watchdog detects process exit, not a
+still-running hung main app.
 
 Both platforms only let apps like ClipFoundry post through *your own* free developer app, so the first **Connect
 YouTube** or **Connect TikTok** on a computer asks for that app's two codes once (the steps are under *How to get
@@ -246,8 +270,25 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
 **Durable jobs.** Every job is a row in `worker_jobs` (SQLite) with a state (`queued`, `running`, `waiting`,
 `completed`, `failed`, `canceled`, `retrying`), an idempotency key, a lease that the worker renews, a timeout, attempt
 counts and a structured log (`job_logs`). Claims are atomic (`BEGIN IMMEDIATE`). If the app, the worker or the PC stops,
-leases expire and the jobs are picked up again after restart; a job that was halfway never runs twice for the same key.
+leases expire and work can resume/retry after restart, using its idempotency key and saved state to avoid duplicating
+completed work. Saved upload sessions and uncertain-outcome holds prevent blind repeat uploads.
 Jobs you start by hand (for example *Clip now*) run even while Autopilot is off.
+
+**Recovery and resource limits.** Failed worker initialization stops partially started workers before releasing its
+host lock. Job setup failures clear their running/heartbeat entry instead of retaining a phantom lease. Media
+subprocess timeouts and cancellation can interrupt blocked pipe reads/writes and waits, killing and reaping the
+children. Disk checks keep a 2 GB reserve: unknown-size downloads budget for their configured maximum, and live
+capture rechecks free space while recording. Low disk shows Needs you and a durable 30-minute wait, retaining saved
+segments and completed files; it is not treated as the stream ending. Final assemblies replace a completed recording
+only after the temporary assembly succeeds. No owner media is automatically deleted to make room.
+
+Before a new scheduled upload session begins, Pause, standing permission, account/audience and final-file checks
+run again even if a local publication row already exists. A valid existing session continues with its original
+confirmed bytes. Final-chunk crashes, cancellation or ambiguous platform replies retain an unknown-outcome hold;
+later reconnect, setup, scope and quota errors preserve that hold and publication identity after final-byte evidence.
+Recovery requires an original-account, unique recent match with the submitted title, description and tags, then
+reads actual returned visibility. A mismatch stays held for the existing Queue resolution; a restart grants no
+permission to upload another copy. Manual unknown uploads expose **Refresh status** without starting a transfer.
 
 **Clip Blueprint.** Before a clip is rendered, the Engagement Strategist stores a typed, versioned plan for it
 (`pipeline/blueprint.py`, table `clip_blueprints`, `blueprint.json` next to the render): the source intervals in
@@ -311,9 +352,11 @@ Each planned post's page shows *Why this time and score (estimates)* with the ex
 platform, permission, time and final check. Each post opens as its own page with its scores.
 
 * **Approve for YouTube** / **Approve for TikTok** (on the post's page, after ticking *I watched this video and read
-  its text*): required for every post by both platforms. For YouTube you confirm the title, description, tags,
-  visibility and the made-for-kids answer. For TikTok the page reads your creator info first, shows your nickname,
-  lets you choose the privacy (never pre-selected), interactions (off by default), the commercial content disclosure,
+  its text*): each post needs your approval or valid standing YouTube permission. For YouTube you confirm the title,
+  description, tags, made-for-kids answer and explicit Public/Private audience. For TikTok the page reads creator info
+  first, shows your nickname and lets you choose the privacy options it returns, without preselection. Everyone
+  needs a public TikTok account and eligible app; followers/friends/Only me depend on the account and app. It also shows
+  interactions (off by default), the commercial content disclosure,
   and shows TikTok's Music Usage Confirmation. An approval is bound to the exact video (its SHA-256, not its size or
   date) and text: editing either, or a new render, needs a new approval. With automatic publishing on, YouTube posts
   are approved again by themselves only after the final check passed on the new file; TikTok always asks you.
@@ -325,8 +368,9 @@ platform, permission, time and final check. Each post opens as its own page with
   jobs** or a crash during the upload). ClipFoundry first checks with the platform; if it still cannot tell, it waits
   for you: **It's on YouTube: add its link…** (or TikTok) or **It's not there: upload again…** (after you checked
   that it is not there). It never uploads a second copy on its own.
-* YouTube posts are uploaded early (default 30 minutes) as Private with `publishAt`, so YouTube itself publishes them
-  at the planned time.
+* New confirmed Public YouTube posts upload locally when due, without `publishAt`. Existing Private schedules stay
+  Private and may upload ahead of time (default 30 minutes). Selected-viewer posts show *Awaiting viewer invitations*
+  until you share them in Studio and press **I shared it**. Legacy unconfirmed public/unlisted plans remain held.
 * **Final check**: every post shows the Final Quality Gate's verdict on its exact file and text (*passed*, *passed,
   N warnings*, *failed*, *the text needs a fix* or *not done yet*), with every check listed (*All N checks of this
   exact file*) and marked as measured or as an estimate. A post whose file failed cannot be approved or uploaded; fix
@@ -340,8 +384,9 @@ platform, permission, time and final check. Each post opens as its own page with
   hand still run.
 * **Stop all jobs…** (Autopilot → Overview → *Pause or stop everything*): cancels queued work, asks running jobs to
   stop at their next safe point (including manual renders and uploads) and pauses everything until you press
-  **Resume jobs** (in the *All jobs are stopped* banner). Nothing is published while stopped. An upload that is
-  already transferring stops between chunks; check the platform if one was in flight.
+  **Resume jobs** (in the *All jobs are stopped* banner). No new transfer starts while stopped. An upload that is
+  already transferring stops at its next safe point; the platform may have accepted its final bytes already, so
+  check the existing outcome if one was in flight.
 * Per job: **Cancel…**, **Retry** and the job **Log** (Autopilot → Advanced → Jobs).
 * Per found video: **Permission…**, and in its More menu **Clip now**, **Skip this video** and **Add the file…**
   (Autopilot → Permissions & sources → *Found videos and their permission*).
@@ -360,8 +405,10 @@ These are not simulated; the UI shows them as unavailable or explains the restri
 | YouTube momentum metrics (velocity, engagement rates, derived totals, learning from YouTube results) | Only with Google's approval under the additional policies for derived metrics; enable the setting only if your project was approved. |
 | Broad YouTube trending | `chart=mostPopular` covers Music, Movies and Gaming only; general discovery uses topic searches within the 100-call search bucket. |
 | Downloading YouTube or other platform videos | Off by default. YouTube's Terms allow downloads only through YouTube's own features or with permission. Use your original files, YouTube Studio downloads of your own videos, or turn it on only with permission. |
-| Fully unattended publishing | Not allowed: YouTube and TikTok require the user's approval of each post. Once approved, publishing at the planned time is automatic. |
-| Public posts from unaudited apps | YouTube locks unaudited projects to Private; TikTok Direct Post from unaudited apps is limited to private accounts and *Only me*. Use the audit, or TikTok's inbox draft flow. |
+| Unattended YouTube publishing | Designed for it after setup and standing permission; deliberate holds still apply. |
+| Unattended TikTok publishing | Each post still needs your consent; packages/drafts need completion in TikTok. |
+| Public from an unverified YouTube project | Current API permits it; check actual returned visibility and quota. |
+| Public from a private TikTok profile | Everyone is unavailable; this app does not change your profile privacy. |
 | 15 posts/day on both platforms | Subject to the YouTube quota (by default 100 upload calls a day, shared with anything else your Google Cloud project uploads), TikTok's per-creator posting limits and your own limits. |
 | TikTok retention metrics | Not available from TikTok's API. |
 
@@ -423,7 +470,7 @@ creator agreements. These still pass the same channel, rights, file-access and f
 | "GPU transcription is not working" (Needs you), or "Autopilot transcription is paused: the GPU could not be used" (Autopilot → Advanced → System) | Run `gpu-check.bat` and follow the fix it prints. Until it is fixed, you can turn on *Allow CPU transcription in Autopilot* in Settings → Advanced → Transcription and GPU. |
 | Discovery stopped: quota ("YouTube's daily limit for searches is used up" on Overview) | The YouTube quota share for discovery is used up; it resumes after midnight Pacific. Publishing keeps its reserve. |
 | Posts wait in *Needs review* (*Needs your OK*) | Open each one in Posts and approve it (**Approve for YouTube** / **Approve for TikTok**). YouTube can instead use the automatic-publishing permission you turned on; TikTok always needs your OK on each post. |
-| YouTube posts end up Private | Your Google Cloud project has not passed the YouTube API audit. |
+| YouTube reports Private for a requested Public upload | Check its returned restrictions and YouTube Studio. |
 | TikTok: privacy options disabled | Your TikTok app is not audited; only *Only me* is possible, or use *Send to TikTok inbox*. |
 | Something is running that should not | **Stop all jobs…** (Autopilot → Overview), then look at Autopilot → Advanced → Jobs and the job logs. |
 | After an update | Close the old console window, start again, reload the page (Ctrl+F5). |

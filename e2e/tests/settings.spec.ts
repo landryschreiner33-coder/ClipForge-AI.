@@ -1,16 +1,18 @@
 import { expect, getJson, test } from "../fixtures";
 
-// Save settings, Replace, Test connection and Connect/Disconnect are never pressed. A change made to look at the
+// Save settings, Replace, Test connection, Connect/Disconnect, Confirm who watches, My viewers changed, Save my
+// agreement, Check the setup and Run a small AI test are never pressed. A change made to look at the
 // save bar is thrown away with Discard (nothing is sent; writes are blocked anyway).
 
 const SECRET_KEYS = ["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-  "youtube_api_key", "tavily_api_key"];
+  "youtube_api_key", "tavily_api_key", "nvidia_api_key"];
 // Shown only for the AI scoring choice that uses them.
 const PROVIDER_KEYS: Record<string, string[]> = {
   ollama: ["ollama_url", "ollama_model"], openai_compatible: ["openai_url", "openai_model", "openai_api_key"],
   anthropic: ["anthropic_api_key", "anthropic_model"],
 };
-const TABS = [["Accounts", "#/settings"], ["Defaults", "#/settings/defaults"], ["Advanced", "#/settings/advanced"]];
+const TABS = [["Accounts", "#/settings"], ["Defaults", "#/settings/defaults"],
+  ["Integrations", "#/settings/integrations"], ["Advanced", "#/settings/advanced"]];
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/#/settings");
@@ -33,14 +35,18 @@ test("Accounts comes first, with both platforms and how their posts get approved
   await expect(page.getByRole("heading", { name: "YouTube", level: 2, exact: true })).toHaveCount(0);
 });
 
-test("Defaults and Advanced have their sections", async ({ page }) => {
+test("Defaults, Integrations and Advanced have their sections", async ({ page }) => {
   await page.goto("/#/settings/defaults");
   for (const h of ["New clips", "Autopilot"]) {
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
+  await page.goto("/#/settings/integrations");
+  for (const h of ["Who watches", "Connections", "NVIDIA AI (optional)"]) {
+    await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
+  }
   await page.goto("/#/settings/advanced");
   for (const h of ["Transcription and GPU", "Autopilot details", "Autopilot posting", "Discovery and rights",
-    "Rendering, AI scoring and system"]) {
+    "Brain (learning)", "Rendering, AI scoring and system", "Dev Log"]) {
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("heading", { name: "System", exact: true })).toBeVisible();
@@ -61,8 +67,14 @@ test("every setting has a place on one of the tabs", async ({ page, request }) =
     }
   }
   // Turned on and off on the Autopilot page; the caption style is a picker of named styles; the way of working is
-  // chosen in first-time setup.
-  const elsewhere = ["autopilot_enabled", "caption_style", "setup_mode", ...hidden];
+  // chosen in first-time setup; who watches is set with its own Confirm button on Integrations; the NVIDIA agreement
+  // with its own button; publishing and the Brain are paused from the Office; YouTube uploads are always Private.
+  // NVIDIA's endpoint, price and spending cap show only in its production mode.
+  const own = Object.keys(s).filter((k) => k.startsWith("audience_"));
+  const production = s.nvidia_mode === "production" ? [] :
+    ["nvidia_production_url", "nvidia_price_per_mtok_usd", "nvidia_daily_spend_cap_usd"];
+  const elsewhere = ["autopilot_enabled", "caption_style", "setup_mode", "nvidia_opt_in_at",
+    "autopilot_publishing_paused", "brain_paused", "autopilot_youtube_privacy", ...own, ...production, ...hidden];
   const missing = Object.keys(s).filter((k) => !found.has(k) && !elsewhere.includes(k));
   expect(missing, "settings without a place on the Settings page").toEqual([]);
 });
@@ -91,7 +103,7 @@ test("Save stays off until something changes, switching tabs keeps the change, a
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(bar).toContainText("Unsaved changes: Hook on screen");
   // leaving the page asks; Stay keeps you here
-  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Library" }).click();
+  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Clips" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Leave without saving?");
   await dialog.getByRole("button", { name: "Stay" }).click();
@@ -129,5 +141,30 @@ test("API keys and client secrets never reach the browser", async ({ page, reque
   } else {
     await expect(secret).toHaveAttribute("type", "password");
     await expect(secret).toHaveValue("");
+  }
+});
+
+test("Integrations says who watches and what each connection can do", async ({ page, request }) => {
+  const [aud, int] = await Promise.all([getJson(request, "/api/audience"), getJson(request, "/api/integrations")]);
+  await page.goto("/#/settings/integrations");
+  for (const p of ["youtube", "tiktok"] as const) {
+    const row = page.locator(".audience-row", { has: page.getByRole("heading", { name: p === "youtube" ? "YouTube"
+      : "TikTok", level: 3, exact: true }) });
+    const d = aud[p];
+    await expect(row).toContainText(d.confirmed ? `${d.label} · confirmed` : d.intent === "LOCAL_ONLY"
+      ? "Kept on this PC" : "Not confirmed");
+    // never public, unlisted or "Everyone": those are not offered
+    await expect(row.getByRole("radio")).toHaveCount(p === "tiktok" && d.intent === "SELECTED_AUDIENCE" ? 5 : 3);
+    await expect(row.getByText(/public|unlisted|everyone/i)).toHaveCount(0);
+  }
+  const cards = page.locator(".integration");
+  await expect(cards).toHaveCount(int.cards.filter((c: any) => c.id !== "nvidia").length);
+  for (const c of int.cards.filter((x: any) => x.id !== "nvidia")) {
+    await expect(cards.filter({ has: page.getByRole("heading", { name: c.name }) })).toContainText(c.status_label);
+  }
+  const nv = await getJson(request, "/api/integrations/nvidia");
+  await expect(page.getByText(nv.data_note)).toBeVisible();
+  if (!nv.opted_in) {
+    await expect(page.getByRole("button", { name: "Save my agreement" })).toBeDisabled();
   }
 });

@@ -220,10 +220,10 @@ export default function ClipEditor({ id }: { id: string }) {
   if (loadError) {
     return (
       <div className="page">
-        <PageHead crumbs={[{ label: "Library", href: "#/library" }, { label: "Edit clip" }]} kind="Clip"
+        <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Edit clip" }]} kind="Clip"
           title="This clip isn't in your library" />
         <EmptyState icon="film" title="Nothing to edit" actions={<>
-          <a className="btn" href="#/library"><Icon name="library" />Open the Library</a>
+          <a className="btn" href="#/clips"><Icon name="library" />Open the Library</a>
           <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
             <Icon name="refresh" />Try again
           </button>
@@ -658,7 +658,7 @@ export default function ClipEditor({ id }: { id: string }) {
     <div className="page clip-editor">
       <PageHead
         crumbs={[
-          { label: "Library", href: "#/library" }, { label: project.name, href: `#/project/${project.id}` },
+          { label: "Clips", href: "#/clips" }, { label: project.name, href: `#/project/${project.id}` },
           { label: "Edit clip" },
         ]}
         kind="Clip" title={clip.title}

@@ -1,80 +1,160 @@
 import { expect, test, Page, APIRequestContext } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 
-// Controlled response tests verify rendering contracts. Actual pipeline captures are in zero-touch-loop.spec.ts.
-// These browser contexts never change application data or present synthetic statuses as observed workers.
-async function controlled(page: Page, request: APIRequestContext) {
-  const status = await (await request.get("/api/autopilot/status")).json();
-  status.enabled = true;
-  status.paused = false;
-  status.home.setup.started = true;
-  status.workers.host.alive = true;
-  status.home.needs_you = [];
-  for (const w of status.workers.workers) Object.assign(w, {
-    status: "idle", stale: false, job_kind: "", job_id: "", message: "", progress: null,
+// Rendering contracts of the Office map (docs/OFFICE.md) with controlled answers from /api/office: these browser
+// contexts never change application data, and they never present a made-up state as a real worker. The real
+// pipeline is in zero-touch-loop.spec.ts.
+
+type Feed = { snap: any; events: any[]; down: boolean };
+
+async function controlled(page: Page, request: APIRequestContext): Promise<Feed> {
+  const snap = await (await request.get("/api/office/snapshot")).json();
+  snap.run = { ...snap.run, state: "running", label: "Running", actions: ["pause", "stop"], publishing_paused: false };
+  snap.needs_you = [];
+  snap.cursor = 0;  // the controlled events below start at 1
+  for (const r of snap.roles) {
+    Object.assign(r, { state: "idle", task: null, tasks: 0, queued: 0, error: "", last: null });
+  }
+  const feed: Feed = { snap, events: [], down: false };
+  await page.route("**/api/office/snapshot", (route) => (feed.down ? route.abort()
+    : route.fulfill({ json: { ...feed.snap, server_time: Date.now() / 1000 } })));
+  await page.route("**/api/office/events**", (route) => {
+    if (feed.down) return route.abort();
+    const after = Number(new URL(route.request().url()).searchParams.get("after") || 0);
+    const rows = feed.events.filter((e) => e.id > after);
+    return route.fulfill({ json: { events: rows, cursor: rows.length ? rows[rows.length - 1].id : after,
+      latest: Math.max(after, ...feed.events.map((e) => e.id)), more: false, reset: false,
+      server_time: Date.now() / 1000 } });
   });
-  await page.route("**/api/autopilot/status", (route) => route.fulfill({ json: status }));
-  return status;
+  return feed;
 }
 
-test("stations follow simultaneous active jobs, exact progress and completion", async ({ page, request }) => {
-  const st = await controlled(page, request);
-  const names = ["source_scout", "analyzer", "quality_gate", "publisher"];
-  const kinds = ["identify_link", "analyze_source", "quality_check", "publish"];
-  names.forEach((name, i) => Object.assign(st.workers.workers.find((w: any) => w.name === name), {
-    status: "working", job_kind: kinds[i], job_id: `job-${i}`, message: `Reported step ${i}`, progress: i === 1 ? .37 : null,
-  }));
-  await page.goto("/#/autopilot");
-  await expect(page.locator('.robot-station[data-state="working"]')).toHaveCount(4);
-  const editor = page.locator(".station-editor");
-  await editor.focus();
-  await page.keyboard.press("Enter");
-  await expect(editor).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator(".office-activity")).toContainText("37% of this step");
-  await expect(page.locator(".station-editor .robot-arm").first()).toHaveCSS("animation-name", "robot-type");
-  st.workers.workers.find((w: any) => w.name === "analyzer").status = "completed";
-  await expect(editor).toHaveAttribute("data-state", "completed", { timeout: 6000 });
-  await expect(editor).toHaveAttribute("data-state", "waiting", { timeout: 3000 });
-  await expect(page.locator(".office-activity [role=progressbar]")).toHaveCount(0);
-});
+const role = (feed: Feed, id: string) => feed.snap.roles.find((r: any) => r.id === id);
+const robot = (page: Page, id: string) => page.locator(`.robot-hit[data-id="${id}"]`);
+const task = (message: string, progress: number | null = null) => ({ job_id: `job-${message}`, kind: "analyze_source",
+  stage: "", status: "running", message, progress, ref_type: "source", ref_id: "s1", updated_at: Date.now() / 1000 });
 
-test("stale, paused, stopped and disconnected states stop processing animation", async ({ page, request }) => {
-  const st = await controlled(page, request);
-  const live = st.workers.workers.find((w: any) => w.name === "live_monitor");
-  Object.assign(live, { status: "working", job_kind: "live_watch", job_id: "watch", stale: true, progress: .9 });
-  await page.goto("/#/autopilot");
-  await expect(page.locator('.robot-station[data-state="working"]')).toHaveCount(0);
-  live.stale = false;
-  await expect(page.locator(".station-finder")).toHaveAttribute("data-state", "working", { timeout: 6000 });
-  st.enabled = false;
-  await expect(page.locator('.robot-station[data-state="paused"]')).toHaveCount(4, { timeout: 6000 });
-  await expect(page.locator(".station-finder .robot-tool")).toHaveCSS("animation-name", "none");
-  st.paused = true;
-  await expect(page.locator('.robot-station[data-state="stopped"]')).toHaveCount(4, { timeout: 6000 });
-  await page.unroute("**/api/autopilot/status");
-  await page.route("**/api/autopilot/status", (route) => route.abort());
-  await expect(page.locator('.robot-station[data-state="disconnected"]')).toHaveCount(4, { timeout: 10000 });
-  await expect(page.getByText("ClipFoundry is not answering", { exact: true })).toBeVisible();
-});
-
-test("ordinary failures rest; genuine notices explain attention and respect reduced motion", async ({ page, request }) => {
-  const st = await controlled(page, request);
-  Object.assign(st.workers.workers.find((w: any) => w.name === "analyzer"), {
-    status: "failed", last_error: "Unusable input", message: "Trying the next video",
+test("robots stand where their real work is, and follow it when it changes", async ({ page, request }) => {
+  const feed = await controlled(page, request);
+  Object.assign(role(feed, "radar"), { state: "working", task: task("Reading search results", 0.37) });
+  Object.assign(role(feed, "splice"), {
+    state: "working", task: task("Rendering clip 2"),
   });
-  st.home.needs_you = [{ key: "account:test", type: "account", title: "Sign in again",
-    detail: "Your connection expired", fix: "Open Accounts to reconnect", link: "#/settings" }];
-  await page.goto("/#/autopilot");
-  await expect(page.locator(".station-editor")).toHaveAttribute("data-state", "waiting");
-  const scheduler = page.locator(".station-scheduler");
-  await expect(scheduler).toHaveAttribute("data-state", "attention");
-  await expect(scheduler).toContainText("Sign in again");
-  await scheduler.click();
-  await expect(page.locator(".office-activity")).toContainText("Open Accounts to reconnect");
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(page.locator(".station-scheduler .robot-arm").first()).toHaveCSS("animation-name", "none");
+  Object.assign(role(feed, "check"), { state: "error", error: "ffmpeg is missing" });
+  await page.goto("/#/");
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
+  await expect(page.locator(".robot-hit")).toHaveCount(25);
+  await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover");
+  await expect(robot(page, "radar")).toHaveAttribute("aria-label", "RADAR, Scout, working: Reading search results");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "check")).toHaveAttribute("data-room", "system");
+  await expect(robot(page, "check")).toHaveAttribute("data-state", "error");
+  // a controlled rendering of a failure, for design/robot-office/screenshots (README there says so)
+  const shots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
+  await mkdir(shots, { recursive: true });
+  await page.screenshot({ path: path.join(shots, "error-controlled.png") });
+  // Idle robots retain individual seats in the lounge. Nobody is replaced by a counter.
+  const resting = robot(page, "glyph");
+  await expect(resting).toBeVisible();
+  await expect(resting).toHaveAttribute("data-room", "lounge");
+  await expect(resting).toHaveAttribute("data-posture", "rest");
+  await expect(page.locator(".room-sign").filter({ hasText: /\+\d+/ })).toHaveCount(0);
+  for (const state of ["working", "idle", "error"]) {
+    await expect(page.locator(`.robot-state.state-${state}`).first()).toBeVisible();
+  }
+  // measured progress is shown as measured; a step without a measurement shows no percentage
+  await robot(page, "radar").click();
+  const panel = page.getByRole("complementary", { name: "Details" });
+  await expect(panel.getByRole("heading", { level: 2 })).toHaveText("RADAR");
+  await expect(panel.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "37");
+  // The job finished: RADAR returns to its lounge seat, still individually selectable.
+  Object.assign(role(feed, "radar"), { state: "idle", task: null, last: { summary: "Found 3 videos", state: "done",
+    at: Date.now() / 1000 } });
+  await expect(robot(page, "radar")).toHaveAttribute("data-room", "lounge", { timeout: 15_000 });
+  await expect(robot(page, "radar")).toHaveAttribute("data-state", "idle");
+});
+
+test("a real report is carried to the manager; a decision gets COMMAND's reaction", async ({ page, request }) => {
+  const feed = await controlled(page, request);
+  Object.assign(role(feed, "splice"), { state: "working", task: {
+    ...task("Rendering clip 2"), job_id: "job-1", kind: "package_clip", stage: "render",
+    ref_type: "clip", ref_id: "c1",
+  } });
+  await page.goto("/#/");
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  const now = Date.now() / 1000;
+  feed.events.push({ id: 1, at: now, type: "report", role: "frame", job_id: "job-1", kind: "package_clip",
+    ref_type: "clip", ref_id: "c1", message: "Clip 2 rendered", data: { worker: "splice", state: "done" } });
+  await expect(robot(page, "splice")).toHaveAttribute("data-pose", "carry", { timeout: 8000 });
+  await expect(robot(page, "frame")).toHaveAttribute("data-pose", "review", { timeout: 15_000 });
+  feed.events.push({ id: 2, at: Date.now() / 1000, type: "decision", role: "command", job_id: "job-2",
+    kind: "quality_check", ref_type: "clip", ref_id: "c1", message: "Passed the final check",
+    data: { point: "qc", action: "approved" } });
+  await expect(robot(page, "command")).toHaveAttribute("data-pose", "approved", { timeout: 8000 });
+  // history is listed, never walked: an old report moves nobody
+  feed.events.push({ id: 3, at: Date.now() / 1000 - 600, type: "report", role: "tracker", job_id: "job-3",
+    kind: "source_scout", ref_type: "source", ref_id: "s1", message: "Old report", data: { worker: "archive" } });
+  await page.waitForTimeout(3000);
+  await expect(robot(page, "tracker")).not.toHaveAttribute("data-pose", "review");
+});
+
+test("paused and stopped states rest the robots; a lost connection is said and marked", async ({ page, request }) => {
+  const feed = await controlled(page, request);
+  feed.snap.run = { ...feed.snap.run, state: "paused", label: "Paused", actions: ["resume", "stop"] };
+  for (const r of feed.snap.roles) r.state = "paused";
+  await page.goto("/#/");
+  const bar = page.getByRole("region", { name: "Autopilot controls" });
+  await expect(bar.locator("#office-run-state")).toHaveText("Paused");
+  await expect(bar.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+  await expect(bar.getByRole("button", { name: "Pause", exact: true })).toHaveCount(0);
+  await expect(page.locator('.robot-hit[data-state="working"]')).toHaveCount(0);
+  await expect(robot(page, "command")).toHaveAttribute("data-state", "paused");
+  feed.down = true;
+  await expect(page.getByText("The office is not updating", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".office-map")).toHaveClass(/stale/);
+  feed.down = false;
+  await expect(page.getByText("The office is not updating", { exact: true })).toHaveCount(0, { timeout: 15_000 });
+});
+
+test("Full overrides system motion; Reduced stills the map and all 25 fit desktop screens",
+  async ({ page, request }) => {
+  const feed = await controlled(page, request);
+  Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   await page.setViewportSize({ width: 1366, height: 768 });
-  await expect(page.getByLabel("Paste a video or stream link")).toBeInViewport();
-  await expect(page.getByRole("button", { name: "Pause Autopilot", exact: true })).toBeInViewport();
-  await page.setViewportSize({ width: 683, height: 384 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/#/");
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
+  await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
+  const canvas = page.locator(".office-world canvas");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  const frame = () => canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL());
+  const a = await frame();
+  await page.waitForTimeout(700);
+  expect(await frame(), "working robots move").not.toBe(a);
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
+  await page.waitForTimeout(800);
+  const b = await frame();
+  await page.waitForTimeout(1200);
+  expect(await frame(), "nothing moves with Reduce animations").toBe(b);
+  await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
+  for (const [w, h] of [[1366, 768], [1280, 720]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await expect(page.getByRole("region", { name: "Autopilot controls" })).toBeInViewport();
+    await expect(page.getByRole("complementary", { name: "Details" })).toBeInViewport();
+    const world = await page.locator(".office-world").boundingBox();
+    expect(world!.width, `the full office at ${w}×${h} with readable labels`).toBeGreaterThanOrEqual(680);
+    expect(world!.y + world!.height).toBeLessThanOrEqual(h);
+    await expect(page.locator(".robot-hit")).toHaveCount(25);
+    for (const button of await page.locator(".robot-hit").all()) {
+      await expect(button).toBeInViewport();
+      await expect(button.locator(".robot-tag")).toBeVisible();
+      await expect(button.locator(".robot-state")).toBeVisible();
+    }
+  }
+  for (const [w, h] of [[683, 384], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
 });

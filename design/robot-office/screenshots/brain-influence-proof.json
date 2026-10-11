@@ -1,0 +1,37 @@
+{
+  "provenance": "Isolated synthetic transcript; real upload, approval, blueprint build, validation and SQLite persistence. No render, model training, performance readings or publishing.",
+  "before_caption_style": "bold",
+  "after_caption_style": "minimal",
+  "blueprint_id": "d61a738a8010",
+  "clip_title": "Science explains why sleep helps memory.",
+  "influences": [
+    {
+      "id": "a1e04865605c",
+      "clip_id": "e9a2a3d53191",
+      "blueprint_id": "d61a738a8010",
+      "knowledge_id": "c17559510118",
+      "revision": 1,
+      "snapshot": {
+        "title": "Science caption guide \u2014 isolated demonstration",
+        "kind": "instruction",
+        "example_label": "",
+        "preferences": {
+          "caption_style": "minimal"
+        },
+        "features": {},
+        "tags": [
+          "science"
+        ]
+      },
+      "decisions": {
+        "caption_style": {
+          "before": "bold",
+          "after": "minimal"
+        }
+      },
+      "created_at": 1791493207.0638046,
+      "clip_title": "Science explains why sleep helps memory.",
+      "knowledge_exists": true
+    }
+  ]
+}

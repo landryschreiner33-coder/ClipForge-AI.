@@ -37,7 +37,8 @@ YIELD_PER_MINUTE = {"People & Blogs": 0.10, "Comedy": 0.10, "Education": 0.08, "
                     "Gaming": 0.05, "Film & Animation": 0.03, "Music": 0.01}
 DEFAULT_YIELD = 0.07
 SOURCE_WEIGHTS = {"trend": 0.35, "clip_potential": 0.30, "creator": 0.15, "freshness": 0.10, "live": 0.10,
-                  "topic_results": 0.15}
+                  "topic_results": 0.15, "topic_fit": 0.20, "language": 0.10, "audience_context": 0.05,
+                  "clip_structure": 0.15}
 
 
 def tz(settings: dict) -> ZoneInfo:
@@ -128,8 +129,10 @@ def rescore(settings: dict, now: float | None = None) -> int:
             db.update("trend_signals", s["id"], status="expired")
             state.event("discovery_skipped", f"Skipped an unreadable video description: {exc}", "warning")
             continue
-        db.update("trend_signals", s["id"], score=r["score"], score_mode=r["mode"], components=r["components"],
-                  notes=r["notes"], topic=trends.topic_label(s, active) or s.get("topic") or "")
+        # the evidence entry (weight 0) keeps the coverage, confidence and missing parts next to the parts
+        db.update("trend_signals", s["id"], score=r["score"], score_mode=r["mode"],
+                  components={**r["components"], "evidence": r["evidence"]}, notes=r["notes"],
+                  topic=trends.topic_label(s, active) or s.get("topic") or "")
         db.execute("UPDATE trend_history SET score = ? WHERE id = (SELECT MAX(id) FROM trend_history WHERE "
                    "signal_id = ?)", (r["score"], s["id"]))
     return len(active)
@@ -466,7 +469,36 @@ def skip_reason(src: dict, sig: dict | None, settings: dict | None = None) -> st
     limit = float((settings or {}).get("autopilot_max_source_gb") or 8) * 1e9
     if raw.get("size") and float(raw["size"]) > limit:
         return f"The file is too large ({float(raw['size']) / 1e9:.1f} GB; the limit is {limit / 1e9:.0f} GB)"
+    if sig and not src.get("user_added"):
+        why = trends.preference_reason(sig, settings or {})
+        if why:
+            return why
     return repeat_of(src)
+
+
+def clip_reason(candidate: dict, settings: dict) -> str:
+    """Transcript-based story check for automatic clips. Never infer a hook/payoff from a source's title."""
+    analysis = candidate.get("analysis") or candidate
+    if settings.get("discovery_require_complete_clips", True):
+        structure = analysis.get("structure") or {}
+        missing = [part for part in ("hook", "context", "payoff") if not structure.get(part)]
+        if missing:
+            return "Transcript story check: no clear " + ", ".join(missing) + " (a heuristic estimate)"
+        for flag in analysis.get("flags") or []:
+            if flag.get("id") == "repetitive":
+                return "Transcript story check: repetitive material (a heuristic estimate)"
+    return ""
+
+
+def transcript_reason(src: dict, language: str, settings: dict) -> str:
+    """Transcription can settle an unknown metadata language; explicitly supplied own videos keep their intent."""
+    if src.get("user_added") or src.get("platform") == "local" or src.get("rights_status") == rights.OWNED:
+        return ""
+    detected = str(language or "").lower().split("-")[0].split("_")[0]
+    preferred = str(settings.get("trend_language") or "").lower().split("-")[0].split("_")[0]
+    if detected and preferred and detected != preferred:
+        return f"Transcript language {detected} does not match your preferred language {preferred}"
+    return ""
 
 
 def repeat_of(src: dict) -> str:
@@ -506,51 +538,76 @@ def yield_multiplier(category: str, channel_id: str) -> tuple[float, int]:
 
 
 def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dict:
-    """Source Score (0-100), the expected number of strong clips, and the reasons."""
+    """Source Score (0-100), the expected number of strong clips, and the reasons.
+
+    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipFoundry knows
+    little about stays near 50 instead of ranking high on one or two numbers. `components` stores the parts with
+    data and an "evidence" entry (weight 0): coverage, confidence and the missing parts with their reason."""
     cps = int(settings.get("autopilot_clips_per_source") or 5)
     comps: dict[str, dict] = {}
+    readings = 0
     if sig and sig.get("score") is not None:
         mode = sig.get("score_mode") or ""
-        comps["trend"] = {"value": sig["score"] / 100, "note": f"Trend Score {sig['score']:.0f}"
-                          + (" (YouTube's order)" if mode == trends.PLATFORM_ORDER else "")}
+        ev = (sig.get("components") or {}).get("evidence") or {}
+        # a sparse Trend Score is already shrunk toward 50; its coverage only lowers this score's coverage
+        quality = float(ev["coverage"]) if ev.get("coverage") is not None else 1.0
+        readings = int(ev["readings"]) if ev.get("readings") is not None else 1  # scored before readings were kept
+        comps["trend"] = {"value": sig["score"] / 100, "quality": quality,
+                          "note": f"Trend Score {sig['score']:.0f}" + (" (YouTube's order)" if mode ==
+                                                                       trends.PLATFORM_ORDER else "")
+                          + (f", confidence {ev['confidence']}" if ev.get("confidence") else "")}
     else:
-        comps["trend"] = {"value": 0.5, "note": "no trend signal (your own file or stream)"}
+        comps["trend"] = {"value": None, "note": "no trend signal (your own file or stream, or a link you added)"}
     minutes = (src.get("duration") or 0) / 60
     rate = YIELD_PER_MINUTE.get(src.get("category") or "", DEFAULT_YIELD)
     mult, n = yield_multiplier(src.get("category") or "", src.get("channel_id") or "")
     if src.get("kind") == "live":
         expected = float(cps)
-        note = "live: judged while it runs"
+        comps["clip_potential"] = {"value": None, "note": "live: judged while it runs"}
     elif minutes:
         expected = min(float(cps), minutes * rate * mult)
-        note = f"{minutes:.0f} min × {rate:.2f}/min" + (f" × {mult:.2f} from {n} past source(s)" if n else "")
+        comps["clip_potential"] = {"value": min(1.0, expected / max(1, cps)),
+                                   "note": f"{minutes:.0f} min × {rate:.2f}/min" +
+                                   (f" × {mult:.2f} from {n} past source(s)" if n else "")}
     else:
-        expected = min(float(cps), 2.0 * mult)
-        note = "length unknown until the file is read"
-    comps["clip_potential"] = {"value": min(1.0, expected / max(1, cps)), "note": note}
-    if n:
-        comps["creator"] = {"value": max(0.0, min(1.0, mult / 2)), "note": f"{mult:.2f}x the estimate before"}
+        expected = min(float(cps), 2.0 * mult)  # only decides whether it is worth reading; not counted as evidence
+        comps["clip_potential"] = {"value": None, "note": "length unknown until the file is read"}
+    comps["clip_structure"] = {"value": None,
+                               "note": "hook, context and payoff unknown until the transcript is evaluated"}
+    if sig:
+        comps.update(trends.audience_parts(sig, settings))
+    comps["creator"] = ({"value": max(0.0, min(1.0, mult / 2)), "note": f"{mult:.2f}x the estimate before"} if n else
+                        {"value": None, "note": "no finished videos of this creator or category yet"})
     if src.get("published_at") and trends.derived_allowed(src["platform"], settings):
         age_h = max(0.0, (now - src["published_at"]) / 3600)
         comps["freshness"] = {"value": math.exp(-age_h / 48), "note": f"{age_h:.0f} h old"}
+    else:
+        comps["freshness"] = {"value": None, "note": "upload time not reported" if not src.get("published_at") else
+                              "not computed from YouTube data without Google's approval"}
     if settings.get("autopilot_learning", True):
         from . import learner
 
         topic = (src.get("topic") or src.get("category") or "").lower()
         lift, posts = learner.lift("topic", topic) if topic else (1.0, 0)
-        if posts:
-            comps["topic_results"] = {"value": max(0.0, min(1.0, 0.5 * lift)),
-                                      "note": f"{lift:.2f}x your average across {posts} of your posts on “{topic}”"}
+        comps["topic_results"] = ({"value": max(0.0, min(1.0, 0.5 * lift)),
+                                   "note": f"{lift:.2f}x your average across {posts} of your posts on “{topic}”"}
+                                  if posts else {"value": None, "note": "no results of your posts on this topic yet"})
     if src.get("kind") == "live":
         comps["live"] = {"value": 1.0 if settings.get("autopilot_live_monitoring") else 0.0,
                          "note": "live now" + ("" if settings.get("autopilot_live_monitoring") else
                                                " (live monitoring is off)")}
-    total = sum(SOURCE_WEIGHTS[k] for k in comps)
-    value = sum(SOURCE_WEIGHTS[k] * c["value"] for k, c in comps.items()) / total
-    for k, c in comps.items():
+    weights = {k: SOURCE_WEIGHTS[k] for k in comps}
+    value, coverage = trends.combine(comps, weights)
+    missing = {k: c["note"] for k, c in comps.items() if c["value"] is None}
+    have = {k: c for k, c in comps.items() if c["value"] is not None}
+    for k, c in have.items():
+        c.pop("quality", None)
+        c.setdefault("status", "estimated")
         c["weight"] = SOURCE_WEIGHTS[k]
         c["value"] = round(c["value"], 3)
-    return {"score": round(100 * value, 1), "expected": round(expected, 2), "components": comps}
+    ev = trends.evidence(coverage, readings, missing)
+    return {"score": round(100 * value, 1), "expected": round(expected, 2), "components": {**have, "evidence": ev},
+            "coverage": ev["coverage"], "confidence": ev["confidence"], "missing": missing}
 
 
 def today_counts(settings: dict, now: float | None = None) -> dict:
@@ -575,6 +632,13 @@ RIGHTS_QUESTIONS = 3      # open rights questions at most, however many sources 
 RIGHTS_MIN_SCORE = 50.0   # below this Source Score a video is not worth asking you about
 
 
+def _skip_discovery(src: dict, reason: str) -> None:
+    # A durable marker lets new preferences reconsider an automatic skip without reviving a user's own Skip.
+    parts = {**(src.get("components") or {}), "discovery_filter":
+             {"value": 0.0, "weight": 0.0, "status": "summary", "note": reason}}
+    db.update("sources", src["id"], status="skipped", status_note=reason, components=parts)
+
+
 @handler("source_scout")
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
@@ -591,10 +655,15 @@ def source_scout(job: Job) -> dict:
         row, new = upsert_source(src)
         created += new
         if row["status"] in ("discovered", "eligible", "needs_rights", "blocked", "skipped"):
+            if row.get("status_note") == "Skipped by you":
+                continue
             reason = skip_reason(row, sig, settings)
             if reason:
-                db.update("sources", row["id"], status="skipped", status_note=reason)
+                _skip_discovery(row, reason)
                 continue
+            if row["status"] == "skipped" and (row.get("components") or {}).get("discovery_filter"):
+                row = {**row, "status": "discovered", "status_note": ""}
+                db.update("sources", row["id"], status="discovered", status_note="")
             verify.from_signal(row, sig)  # found through the platform's API: its answer names the channel already
             pending.append((row, sig))
     verify.ensure([row for row, _ in pending], settings, now)  # the channels feeds named, 50 videos per lookup
@@ -604,6 +673,10 @@ def source_scout(job: Job) -> dict:
         sc = score_source(row, sig, settings, now)
         db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
                   components=sc["components"])
+        if not row.get("user_added") and trends.broad_discovery(sig) and \
+                sc["score"] < float(settings.get("discovery_min_source_score", 50)):
+            _skip_discovery({**row, "components": sc["components"]},
+                            f"Source estimate {sc['score']:.0f} is below your discovery minimum; no quota filler")
     job.check()
     picked = select_for_today(settings, now)
     top = rights_questions(settings, now) if settings.get("rights_ask_per_video") else []
@@ -668,6 +741,12 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         if not src.get("user_added") and (src.get("expected_clips") or 0) < 1:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
+        signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
+        curated = bool(signal and not trends.broad_discovery(signal))
+        if not src.get("user_added") and src.get("signal_id") and src.get("platform") != "local" and not curated and \
+                float(src.get("source_score") or 0) < float(settings.get("discovery_min_source_score", 50)):
+            _skip_discovery(src, "Below your discovery minimum; waiting for stronger videos")
+            continue
         if not rights.local_allowed(src, rights.evaluate(src, settings, all_rules), settings):
             rights.apply(src, settings, all_rules)
             continue
@@ -692,8 +771,10 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
                       priority=queue.source_priority(src) if src.get("user_added") else 0, revive=False,
                       max_attempts=3, timeout_s=6 * 3600)
-        state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}, "
-                                       f"about {src['expected_clips']:.1f} strong clips expected)",
+        sure = ((src.get("components") or {}).get("evidence") or {}).get("confidence")  # how far the score holds
+        state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}"
+                                       + (f", confidence {sure}" if sure else "") +
+                                       f", about {src['expected_clips']:.1f} strong clips expected)",
                     ref_type="source", ref_id=src["id"])
         picked.append(src)
         automatic_picks += not src.get("user_added")
@@ -725,6 +806,10 @@ def rights_check(job: Job) -> dict:
     rows = db.select("sources", f"status IN ({marks})", REAPPLY)
     verify.ensure(rows, settings)  # channels named by feeds that were never confirmed, or are due for another look
     changed = reapply(rows, settings)
+    # A public video clipped before a rule covered (or blocked) it keeps its clips: its stored rights must follow
+    # the rule, so the Queue and Activity say what the scheduler and publisher decide (they evaluate it afresh)
+    done = db.select("sources", "status IN ('analyzed', 'weak', 'exhausted')")
+    changed += reapply(done, settings)
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}", priority=job.row["priority"])
     return {"checked": len(rows), "changed": changed, "message": f"{changed} source(s) changed rights status"}
 
@@ -769,6 +854,11 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
                "platform = 'youtube')", (cutoff,))
     perf = 0 if keep_own else db.execute("DELETE FROM performance WHERE platform = 'youtube' AND fetched_at < ?",
                                          (cutoff,))
+    # the Brain's mirror of those readings (brain.ingest_platform) is YouTube API data too; numbers you typed in
+    # yourself (owner_import) and tester answers are not, so they stay
+    if not keep_own:
+        perf += db.execute("DELETE FROM brain_observations WHERE platform = 'youtube' AND provenance = 'platform_api' "
+                           "AND observed_at < ?", (cutoff,))
     db.execute("DELETE FROM api_cache WHERE fetched_at < ?", (cutoff,))
     return {"youtube_signals_deleted": len(old), "youtube_sources_deleted": unused,
             "youtube_sources_cleared": cleared, "youtube_snapshots_deleted": perf,

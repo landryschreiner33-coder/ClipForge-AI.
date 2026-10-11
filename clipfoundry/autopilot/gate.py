@@ -14,19 +14,44 @@ its final transcript, time map and blueprint.
 """
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
 
 from .. import db
-from ..pipeline import artifact, process, quality
+from ..office import feed
+from ..pipeline import artifact, blueprint, process, quality, render
+from ..pipeline.common import write_json
 from . import packaging, queue, rights, state
 from .host import Job, handler
 
 MAX_REGENERATIONS = 2
-# Re-encoding the same approved plan can fix output corruption and rendering defects. It cannot fix a weak moment,
-# absent source sound, reuse terms, or a bad creative decision, so those checks never trigger an automatic edit.
-REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "captions", "cuts"}
+# Rebuild damaged output/captions or conservatively repair word boundaries. Source sound, reuse terms and creative
+# judgments require their responsible stage's review, so the same impossible operation is never blindly retried.
+REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "streams", "duration", "audio_stream", "av_timing",
+                 "captions", "cuts"}
+
+
+def rework_target(rep: dict) -> tuple[str, str]:
+    """The responsible stage and robot, from the actual failed checks (no new AI loop)."""
+    failed = {c["name"] for c in rep.get("checks", []) if c["status"] == quality.FAIL}
+    if "sound_rights" in failed:
+        return "rights", "gavel"
+    if "content" in failed or "cuts" in failed:
+        return "plan", "story"
+    if failed - REGENERATABLE:
+        return "source", "archive"
+    if failed == {"captions"}:
+        return "captions", "glyph"
+    return "render", "splice"
+
+
+def _handoff(rep: dict, stage: str, role: str, attempt: int) -> dict:
+    return {"from_role": "check", "to_role": role, "stage": stage,
+            "reason": "; ".join(rep.get("blockers") or ["The rendered file is missing"])[:500],
+            "report_id": rep.get("id") or "", "artifact_sha256": rep.get("artifact_sha256") or "",
+            "attempt": attempt, "max_attempts": MAX_REGENERATIONS}
 
 
 def _source(clip: dict) -> dict | None:
@@ -145,7 +170,7 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
 
 
 def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
-    """Queue a gate run for the clip's current file and packaging (once per file and packaging). `sha`: the hash of
+    """Queue a gate run for the current rules, file and packaging. `sha`: the hash of
     bytes that were found unchecked although the file's size and time are unchanged, so it is checked once more."""
     path, _, _ = artifact.active(clip)
     source = _source(clip)
@@ -154,7 +179,8 @@ def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
     if not path or not Path(path).is_file():
         return repair_media(clip, priority=priority)
     selected = sorted(filter(None, ((_selected(clip["id"], p) or {}).get("id") for p in ("youtube", "tiktok"))))
-    key = f"quality:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}" + (f":{sha[:16]}" if sha else "")
+    key = f"quality:v{quality.GATE_VERSION}:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}" \
+        + (f":{sha[:16]}" if sha else "")
     return queue.enqueue("quality_check", {"clip_id": clip["id"]}, idem_key=key, ref=("clip", clip["id"]),
                          priority=priority, timeout_s=1800, message="Waiting for the final quality check")
 
@@ -164,11 +190,93 @@ def _render_identity(clip: dict) -> str:
                                                         "output_path", "render_info")})
 
 
-ORIGINAL_FIELDS = ("status", "progress", "error", "output_path", "render_info", "duration")
+ORIGINAL_FIELDS = ("status", "progress", "error", "output_path", "thumb_path", "render_info", "duration")
+
+
+def _sidecar_manifest(backup: Path) -> Path:
+    return backup.with_name(f"{backup.name}.sidecars.json")
+
+
+def _read_sidecar_checkpoint(backup: Path) -> list[dict]:
+    manifest = _sidecar_manifest(backup)
+    if not manifest.exists():
+        return []  # older interrupted repairs saved only the video
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        entries = data["files"]
+        if data.get("version") != 1 or not isinstance(entries, list) or \
+                any(not isinstance(e, dict) or not isinstance(e.get("path"), str) or not e["path"] or
+                    not isinstance(e.get("backup"), str) for e in entries):
+            raise ValueError("Invalid sidecar checkpoint")
+        for entry in entries:
+            if entry["backup"] and not Path(entry["backup"]).is_file():
+                raise ValueError("A saved render sidecar is missing")
+        return entries
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OSError("The saved render sidecar checkpoint is incomplete") from exc
+
+
+def _checkpoint_sidecars(clip: dict, original: Path, backup: Path) -> None:
+    """Commit the complete saved artifact before rendering can replace any of its shared files."""
+    if _sidecar_manifest(backup).exists():
+        _read_sidecar_checkpoint(backup)
+        return
+    paths = [original.parent / name for name in
+             ("captions.ass", "captions.srt", artifact.EDL_FILE, artifact.TRANSCRIPT_FILE, "blueprint.json")]
+    record = artifact.of(clip.get("render_info")) or {}
+    paths.extend(Path(record[key]) for key in ("edl", "transcript") if record.get(key))
+    paths.extend(Path(path) for path in (record.get("captions") or {}).values() if path)
+    if clip.get("thumb_path"):
+        paths.append(Path(clip["thumb_path"]))
+    entries = []
+    for index, path in enumerate(dict.fromkeys(paths)):
+        saved = backup.with_name(f"{backup.name}.sidecar-{index}.bak") if path.is_file() else None
+        if saved:
+            pending = saved.with_name(f"{saved.name}.partial")
+            try:
+                shutil.copy2(path, pending)
+                pending.replace(saved)
+            finally:
+                pending.unlink(missing_ok=True)
+        entries.append({"path": str(path), "backup": str(saved) if saved else ""})
+    write_json(_sidecar_manifest(backup), {"version": 1, "files": entries})
+
+
+def _restore_regeneration_backup(original: Path, backup: Path, clip_id: str) -> None:
+    entries = _read_sidecar_checkpoint(backup)
+    # Persist rollback intent before replacing any byte. A failed restore must not look like a completed new
+    # render, and quality/scheduling must not consume an artifact while only some of its files are restored.
+    db.update_clip(clip_id, status="error", error="Restoring the saved clip after an interrupted render")
+    shutil.copy2(backup, original)
+    for entry in entries:
+        path = Path(entry["path"])
+        if entry["backup"]:
+            shutil.copy2(entry["backup"], path)
+        else:
+            path.unlink(missing_ok=True)  # the failed attempt created a sidecar the old artifact never had
+
+
+def _discard_regeneration_backup(backup: Path) -> None:
+    # At this point the completed new artifact or restored old artifact is committed in the database.
+    # Removing the manifest first also makes a crash during cleanup safe for the legacy MP4-only recovery.
+    _sidecar_manifest(backup).unlink(missing_ok=True)
+    _sidecar_manifest(backup).with_suffix(".json.tmp").unlink(missing_ok=True)
+    for saved in backup.parent.iterdir():
+        if saved.name.startswith(f"{backup.name}.sidecar-") and \
+                saved.name.endswith((".bak", ".bak.partial")):
+            saved.unlink(missing_ok=True)
+    backup.unlink(missing_ok=True)
 
 
 def _edit_identity(clip: dict) -> str:
     return artifact.sha256_json({k: clip.get(k) for k in ("edit", "start", "end", "active_version")})
+
+
+def _upload_uses_clip(clip_id: str) -> bool:
+    return bool(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN "
+                          "('publishing', 'reconciling', 'published')", (clip_id,))) or bool(db.scalar(
+        "SELECT COUNT(*) FROM publications WHERE clip_id = ? AND status IN "
+        "('queued', 'uploading', 'processing', 'action_needed', 'done')", (clip_id,)))
 
 
 def repair_media(clip: dict, report: dict | None = None, priority: int = 0) -> dict | None:
@@ -177,15 +285,15 @@ def repair_media(clip: dict, report: dict | None = None, priority: int = 0) -> d
     project = db.get_project(clip["project_id"]) or {}
     source = _source(clip)
     if project.get("origin") not in ("autopilot", "live") or clip.get("active_version") or not source \
-            or source.get("status") in ("canceled", "removed"):
+            or source.get("status") in ("canceled", "removed") or any((source.get("intake") or {}).get(k)
+                                                                    for k in ("canceled", "removed")):
         return None
     if not Path(project.get("source_path") or "").is_file():
         return None
     failed = {c["name"] for c in (report or {}).get("checks", []) if c["status"] == quality.FAIL}
     if report and (not failed or not failed <= REGENERATABLE):
         return None
-    if db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE clip_id = ? AND status IN "
-                 "('publishing', 'reconciling', 'published')", (clip["id"],)):
+    if _upload_uses_clip(clip["id"]):
         return None  # preserve the exact file of an upload that may already have reached the platform
     jobs = [j for j in queue.jobs(ref=("clip", clip["id"]), limit=100) if j["kind"] == "regenerate_clip"]
     active = next((j for j in jobs if j["status"] in queue.ACTIVE), None)
@@ -194,13 +302,16 @@ def repair_media(clip: dict, report: dict | None = None, priority: int = 0) -> d
     if len(jobs) >= MAX_REGENERATIONS or any(j["status"] == "canceled" for j in jobs):
         return None
     count = len(jobs) + 1
+    stage, role = rework_target(report or {})
     return queue.enqueue("regenerate_clip", {"clip_id": clip["id"], "render_identity": _render_identity(clip),
                                               "edit_identity": _edit_identity(clip),
+                                              "handoff": _handoff(report or {}, stage, role, count),
                                               "original_clip": {k: clip.get(k) for k in ORIGINAL_FIELDS}},
                          idem_key=f"regenerate:{clip['id']}:{count}", ref=("clip", clip["id"]),
                          priority=queue.source_priority(source, max(10, priority)),
                          max_attempts=1, timeout_s=1800, revive=False,
-                         message="Making a fresh copy after the final check")
+                         message=f"Returned to {role.upper()}: " +
+                         _handoff(report or {}, stage, role, count)["reason"][:180])
 
 
 def recover_regenerations() -> int:
@@ -225,19 +336,20 @@ def recover_regenerations() -> int:
             # A later attempt (or this attempt just before a crash) completed the new file. The saved older
             # output must never replace it; finish its normal file/text checks instead.
             try:
-                backup.unlink()
+                _discard_regeneration_backup(backup)
             except OSError:
                 continue
             queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
-                          idem_key=f"package:regeneration-recovered:{row['id']}", priority=row["priority"], revive=False)
+                          idem_key=f"package:regeneration-recovered:{row['id']}", priority=row["priority"],
+                          revive=False)
             continue
         if db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind = 'regenerate_clip' AND ref_id = ? "
                      "AND status IN ('queued', 'running', 'waiting', 'retrying')", (clip["id"],)):
             continue
         try:
-            shutil.copy2(backup, original)
-            db.update_clip(clip["id"], **{k: before.get(k) for k in ORIGINAL_FIELDS})
-            backup.unlink()
+            _restore_regeneration_backup(original, backup, clip["id"])
+            db.update_clip(clip["id"], **{k: before[k] for k in ORIGINAL_FIELDS if k in before})
+            _discard_regeneration_backup(backup)
         except OSError as exc:
             state.event("quality_recovery_failed", f"Could not restore this saved clip: {exc}", "warning",
                         ref_type="clip", ref_id=clip["id"])
@@ -266,8 +378,37 @@ def repair_text(clip: dict, rep: dict, priority: int) -> dict | None:
     source = _source(clip)
     if source:
         priority = queue.source_priority(source, priority)
-    return queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
-                         idem_key=f"repair_text:{key}:{attempts}", priority=max(10, priority), revive=False)
+    problems = [f"{p}: " + "; ".join(m.get("problems") or ["not packaged yet"])
+                for p, m in (rep.get("metadata") or {}).items() if m.get("status") != "passed"]
+    handoff = _handoff({**rep, "blockers": problems}, "package", "quill", attempts)
+    return queue.enqueue("package_clip", {"clip_id": clip["id"], "local_only": True, "handoff": handoff},
+                         ref=("clip", clip["id"]), idem_key=f"repair_text:{key}:{attempts}",
+                         priority=max(10, priority), revive=False, max_attempts=1,
+                         message="Returned to QUILL: " + handoff["reason"][:180])
+
+
+def _repair_cut_plan(clip: dict, reason: str) -> None:
+    """Keep complete boundary words and disable optional audio cuts. Never invent a new story or transcript."""
+    project = db.get_project(clip["project_id"]) or {}
+    words = process.load_words(project)
+    base = blueprint.plan_of(clip["id"])
+    if not base or clip.get("edit"):
+        raise queue.Fail("The cut needs an editor review; an automatic plan cannot replace your edit.")
+    updated = blueprint.Blueprint.from_dict(base.to_dict())
+    for iv in updated.intervals:
+        first = next((w for w in words if w["start"] < iv.start < w["end"]), None)
+        last = next((w for w in words if w["start"] < iv.end < w["end"]), None)
+        if first:
+            iv.start = max(0.0, float(first["start"]) - 0.08)
+        if last:
+            iv.end = min(float(project.get("duration") or last["end"]), float(last["end"]) + 0.08)
+    updated.audio.silence, updated.audio.remove_fillers = "off", False
+    updated.reasons.append("Final check returned the cut to STORY: " + reason[:300])
+    issues = blueprint.validate(updated, project.get("duration"), words)
+    if blueprint.errors(issues):
+        raise queue.Fail("The story repair cannot keep safe word boundaries: " +
+                         "; ".join(blueprint.errors(issues)[:2]), "Review the clip in the editor.")
+    blueprint.save(updated, issues)
 
 
 @handler("regenerate_clip")
@@ -282,9 +423,18 @@ def regenerate_clip(job: Job) -> dict:
         return {"message": "The clip changed; keeping the newer edit"}
     source = _source(clip)
     settings = db.get_settings()
-    if not source or not rights.local_allowed(source, rights.recheck(source, settings), settings):
+    if _upload_uses_clip(clip["id"]):
+        return {"message": "An upload now uses this file; keeping its exact checked bytes"}
+    if not source or any((source.get("intake") or {}).get(k) for k in ("canceled", "removed")) or \
+            not rights.local_allowed(source, rights.recheck(source, settings), settings):
         return {"message": "This video can no longer be processed; keeping the saved clip"}
-    job.progress(0.1, "Making a fresh copy of the same clip", stage="render")
+    handoff = job.payload.get("handoff") or {}
+    stage = handoff.get("stage") or "render"
+    if stage == "plan":
+        job.progress(0.05, "Correcting the cut from the final check", stage="plan")
+        _repair_cut_plan(clip, handoff.get("reason") or "Cut clipped a word")
+    job.progress(0.1, "Rebuilding captions" if stage == "captions" else "Making a fresh copy of the same clip",
+                 stage="captions" if stage == "captions" else "render")
     original = Path(clip.get("output_path") or "")
     backup = original.with_name(f"{original.name}.regeneration-{job.id}.bak") if original.is_file() else None
     if backup and not backup.exists():
@@ -294,9 +444,22 @@ def regenerate_clip(job: Job) -> dict:
             pending.replace(backup)
         finally:
             pending.unlink(missing_ok=True)
+    if backup:
+        _checkpoint_sidecars(clip, original, backup)
     release_backup = False
     try:
-        process.render_single(clip["id"], job.pipeline_ctx(0.1, 0.9))
+        ctx = job.pipeline_ctx(0.1, 0.9)
+
+        current_stage = ["captions" if stage == "captions" else "render"]
+
+        def report(fraction: float, message: str) -> None:
+            actual = "captions" if message == render.CAPTIONS_STEP else "render"
+            if actual != current_stage[0]:
+                job.progress(None, message, stage=actual)
+                current_stage[0] = actual
+            ctx.progress(fraction, message)
+
+        process.render_single(clip["id"], process.JobContext(report, job.cancelled))
         job.check()
         updated = db.get_clip(clip["id"]) or {}
         if updated.get("status") != "ready":
@@ -304,13 +467,13 @@ def regenerate_clip(job: Job) -> dict:
         release_backup = True
     except Exception:
         if backup and backup.is_file():
-            shutil.copy2(backup, original)
+            _restore_regeneration_backup(original, backup, clip["id"])
             db.update_clip(clip["id"], **{k: clip.get(k) for k in ORIGINAL_FIELDS})
             release_backup = True
         raise
     finally:
         if release_backup and backup and backup.exists():
-            backup.unlink()
+            _discard_regeneration_backup(backup)
     queue.enqueue("package_clip", {"clip_id": clip["id"]}, ref=("clip", clip["id"]),
                   idem_key=f"package:regenerated:{job.id}", priority=job.row["priority"], revive=False)
     state.event("quality_regenerated", "Made a fresh copy; checking its file and text again",
@@ -382,23 +545,44 @@ def quality_check(job: Job) -> dict:
     if rep["status"] != "passed":
         state.event("quality_failed", f"“{title}” did not pass the final quality check: {rep['blockers'][0]}",
                     "warning", ref_type="clip", ref_id=clip["id"], blockers=rep["blockers"])
-        if repair_media(clip, rep, job.row["priority"]):
-            return {"status": "repairing", "message": "Making a fresh copy after the final check"}
+        stage, role = rework_target(rep)
+        repair = repair_media(clip, rep, job.row["priority"])
+        if repair:
+            feed.decide("qc", "rework", ("clip", clip["id"]), f"Returned to {role.upper()}: " +
+                        rep["blockers"][0][:200], job_id=job.id, reported_by="check", next_role=role,
+                        repair_stage=stage, repair_job_id=repair["id"], sha256=rep["artifact_sha256"],
+                        blockers=rep["blockers"][:5])
+            return {"status": "repairing", "next_role": role, "repair_job_id": repair["id"],
+                    "message": f"Returned to {role.upper()}: " + rep["blockers"][0]}
+        reason = "Automatic repair limit reached" if {c["name"] for c in rep["checks"] if
+                 c["status"] == quality.FAIL} <= REGENERATABLE else "This needs a source or editorial review"
+        feed.decide("qc", "rejected", ("clip", clip["id"]), "Did not pass: " + rep["blockers"][0][:200],
+                    job_id=job.id, reported_by="check", next_role=role, repair_stage=stage, blocked_reason=reason,
+                    sha256=rep["artifact_sha256"], blockers=rep["blockers"][:5])
         from . import scout
 
         scout.refill(_source(clip) or {})
         return {"status": "failed", "blockers": len(rep["blockers"]), "message": "Did not pass: " + rep["blockers"][0]}
-    stale = [p for p, m in rep["metadata"].items() if m.get("stale")]
-    if stale:  # packaging written for an earlier render: write it again for this one, then check again
-        repair_text(clip, rep, job.row["priority"])
     ok = [p for p, m in rep["metadata"].items() if m["status"] == "passed"]
-    bad = {p: m["problems"] for p, m in rep["metadata"].items() if m["status"] != "passed" and not m.get("stale")}
+    bad = {p: m["problems"] for p, m in rep["metadata"].items() if m["status"] != "passed"}
     if bad:
         state.event("quality_text", f"“{title}”: packaging not usable for " + ", ".join(
             f"{p} ({'; '.join(v[:2])})" for p, v in bad.items()), "warning", ref_type="clip", ref_id=clip["id"])
-        repair_text(clip, rep, job.row["priority"])
+        repair = repair_text(clip, rep, job.row["priority"])
+        feed.decide("qc", "rework" if repair else "held", ("clip", clip["id"]), "Returned to QUILL: " +
+                    "; ".join(f"{p}: {', '.join(v)}" for p, v in bad.items())[:200], job_id=job.id,
+                    reported_by="check", next_role="quill", repair_stage="package",
+                    repair_job_id=repair["id"] if repair else "", sha256=rep["artifact_sha256"],
+                    blocked_reason="" if repair else "Automatic text repair limit reached", text_ready=ok)
+        if not ok:
+            return {"status": "repairing" if repair else "blocked", "next_role": "quill",
+                    "message": "File passed; post text returned to QUILL" if repair else
+                    "File passed; post text is blocked after the automatic repair limit"}
     if ok:
         queue.enqueue("schedule_tick", {"reason": "quality"}, idem_key=f"schedule_tick:{int(time.time() // 60)}")
     warn = f", {len(rep['warnings'])} warning(s)" if rep["warnings"] else ""
+    feed.decide("qc", "approved", ("clip", clip["id"]), f"Passed the final check{warn}; bound to this exact file",
+                job_id=job.id, reported_by="switch", once=False, sha256=rep["artifact_sha256"],
+                warnings=[str(w)[:160] for w in rep["warnings"][:5]], text_ready=ok)
     return {"status": "passed", "platforms": ok, "warnings": len(rep["warnings"]),
             "message": f"Passed{warn}; text ready for " + (", ".join(ok) or "no platform yet")}

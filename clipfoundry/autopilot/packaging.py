@@ -232,7 +232,7 @@ def ai_candidates(settings: dict, platform: str, sents: list[str], clip: dict, a
     cta = (clip.get("post") or {}).get("cta") or postpack.CTA_DEFAULT
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            text = llm.complete(settings, _ai_prompt(platform, sents, feedback))
+            text = llm.complete(settings, _ai_prompt(platform, sents, feedback), unattended=True, task="packaging")
             m = re.search(r"\{.*\}", text or "", re.S)
             data = json.loads(m.group(0)) if m else {}
         except (llm.ProviderError, ValueError):
@@ -350,6 +350,8 @@ def platforms(settings: dict) -> list[str]:
 @handler("package_clip")
 def package_clip(job: Job) -> dict:
     settings = db.get_settings()
+    if job.payload.get("local_only"):
+        settings = {**settings, "ai_provider": "heuristic", "nvidia_enabled": False}
     clip = db.get_clip(job.payload.get("clip_id", ""))
     if not clip or clip["status"] != "ready":
         raise queue.Fail("The clip is missing or not rendered")

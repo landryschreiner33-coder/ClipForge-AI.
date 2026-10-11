@@ -62,7 +62,7 @@ export function projectMenu(
       label: "Cancel processing", icon: "stop",
       disabled: "Autopilot is making these clips. You can stop it on the Autopilot page.",
     });
-    items.push({ label: "Open Autopilot", icon: "autopilot", href: "#/autopilot" });
+    items.push({ label: "Open Autopilot", icon: "autopilot", href: "#/missions" });
   }
   if (act.remake) {
     items.push({

@@ -26,6 +26,10 @@ SPEECH = ("Here is the thing nobody tells you about starting a podcast. You do n
           "good question. Ask your guest what they got wrong last year. That answer is always the best part of the "
           "episode. People love honest stories about mistakes. Keep the recording short and cut the slow parts. Your "
           "first ten episodes are practice, so publish them anyway. ")
+INTERVIEW = ("I almost quit the company in the second year. We had three months of money left and no customers. "
+             "Then one buyer called back and asked a simple question. Could we deliver in a week instead of a month? "
+             "We said yes before we knew how. That promise changed the whole business. The lesson is simple: "
+             "listen to customers first. That is why speed mattered more than features. ")
 TRENDING = [  # what the stand-in for YouTube reports as trending (other creators' videos: skipped unless covered)
     ("pod1", "The podcast moment everyone is talking about", "UCpodcast000000001", 950_000, "PT1H10M"),
     ("int1", "Podcast interview: the founder who almost quit", "UCinterview0000001", 610_000, "PT48M"),
@@ -86,8 +90,10 @@ def main() -> None:
     old = time.time() - 600
     os.utime(raw, (old, old))
 
+    said: dict[str, str] = {}  # project folder → what its video says (the stand-in's videos say different things)
+
     def synthetic_transcript(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
-        text = (SPEECH * 8).split()
+        text = (said.get(str(Path(wav).parent), SPEECH) * 8).split()
         words = [w for w in words_from(" ".join(text), step=0.36, length=0.28) if w["end"] < duration - 0.5]
         return {"segments": [{"start": words[0]["start"], "end": words[-1]["end"], "words": words,
                               "text": " ".join(w["w"] for w in words)}], "language": "en",
@@ -95,6 +101,30 @@ def main() -> None:
                             "model": "sandbox transcript"}}
 
     transcribe.transcribe = synthetic_transcript
+
+    if args.scenario == "beginner":
+        # Public discovery (autopilot_public_videos, on by default) clips the trending videos on this PC. The
+        # stand-in for YouTube serves no media, so the importer gets the synthetic talk for the stand-in's own
+        # videos and refuses every other address: the sandbox never downloads anything from the internet.
+        from urllib.parse import parse_qs, urlparse
+
+        from clipfoundry.autopilot import hunter
+        from clipfoundry.media_import import MediaUnavailable
+
+        def public_video(project_id, url, ctx, max_bytes=None, max_seconds=None):
+            vid = (parse_qs(urlparse(url).query).get("v") or [""])[0]
+            if urlparse(url).hostname != "www.youtube.com" or vid not in google.catalog:
+                raise MediaUnavailable("The sandbox downloads nothing from the internet")
+            if vid == "pod2":  # like a video behind a login: Autopilot says so and goes on with the others
+                raise MediaUnavailable("This video could not be downloaded. The site may require a login, "
+                                       "restrict downloads, or use an unsupported player.")
+            project = db.get_project(project_id)
+            target = Path(project["source_path"])
+            shutil.copyfile(original, target)
+            said[str(target.parent)] = INTERVIEW if vid == "int1" else SPEECH
+            db.update_project(project_id, source_path=str(target), source_filename=target.name)
+
+        hunter.download_url = public_video
 
     import uvicorn
 
@@ -122,6 +152,10 @@ def main() -> None:
         def sandbox_age_results():
             scenario.age_results()
             return {"ok": True}
+
+        @app.post("/sandbox/due-public-posts")
+        def sandbox_due_public_posts():
+            return scenario.due_public_posts()
 
         @app.post("/sandbox/upcoming-stream")
         def sandbox_upcoming_stream():

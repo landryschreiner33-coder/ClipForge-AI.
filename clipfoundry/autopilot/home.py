@@ -46,6 +46,8 @@ STAGE = {
     "exhausted": "Done", "failed": "Could not be processed",
 }
 NOT_OPPORTUNITIES = ("skipped", "blocked", "needs_rights", "needs_file")  # listed in the activity log instead
+NOT_POSTED = ("Its clips stay on this PC and are never posted: nothing shows you may reuse this video. Record an "
+              "agreement with the creator if they allow it.")
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
 PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
@@ -260,11 +262,15 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "link": "#/posts/review"})
         elif kind == "publish":
             items.append({"key": key, "type": "publish", "title": a["title"], "detail": a["detail"],
-                          "fix": a["fix"], "link": f"#/post/{a['ref_id']}" if a.get("ref_type") == "scheduled"
-                          and a.get("ref_id") else "#/posts/scheduled"})
+                          "fix": a["fix"], "link": "#/settings/integrations" if key.startswith("audience:") else
+                          f"#/post/{a['ref_id']}" if a.get("ref_type") == "scheduled" and a.get("ref_id")
+                          else "#/posts/scheduled"})
         elif kind == "gpu":
             items.append({"key": key, "type": "gpu", "title": "GPU transcription is not working",
                           "detail": a["detail"], "fix": a["fix"], "link": "#/settings/advanced"})
+        elif kind == "audience":
+            items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
+                          "link": "#/settings/integrations"})
         else:
             items.append({"key": key, "type": "other", "title": a["title"], "detail": a["detail"], "fix": a["fix"],
                           "link": "#/autopilot/system"})
@@ -342,13 +348,21 @@ def opportunities(limit: int = 5) -> list[dict]:
 
 
 def upcoming(limit: int = 5) -> list[dict]:
-    """The next posts, including ones already uploaded that the platform will publish at their time."""
+    """The next posts, including ones uploaded ahead of their time (Private: they still wait for your sharing step,
+    nothing makes them public)."""
+    from ..publish import audience
+
     marks = ",".join("?" * len(UPCOMING))
     rows = db.select("scheduled_publications", f"status IN ({marks}) OR (status = 'published' AND planned_at > ?)",
                      (*UPCOMING, time.time()), "planned_at IS NULL, planned_at", limit)
-    return [{"id": r["id"], "platform": r["platform"], "title": r.get("title") or "", "planned_at": r.get("planned_at"),
-             "status": r["status"], "auto": (r.get("approval") or {}).get("by") == "automatic",
-             "on_platform": r["status"] == "published"} for r in rows]
+    out = []
+    for r in rows:
+        state_ = audience.delivery_state(r)
+        out.append({"id": r["id"], "platform": r["platform"], "title": r.get("title") or "",
+                    "planned_at": r.get("planned_at"), "status": r["status"],
+                    "auto": (r.get("approval") or {}).get("by") == "automatic", "on_platform": r["status"] == "published",
+                    "delivery_state": state_, "delivery_label": audience.DELIVERY_LABELS.get(state_, "")})
+    return out
 
 
 def _why_not(src: dict) -> str:
@@ -360,6 +374,10 @@ def _why_not(src: dict) -> str:
         return src.get("status_note") or "No allowed way to get the video file"
     if st == "blocked":
         return "Blocked: " + (src.get("rights_basis") or "by your rule")
+    got = src.get("access") or {}
+    if st == "failed" and not got.get("ok", True) and got.get("reason"):
+        # the file could not be fetched (access.unavailable): the specific reason and what to do instead
+        return f"Could not get the video file: {got.get('detail') or got.get('label')} {got.get('fix') or ''}".strip()
     return src.get("status_note") or STAGE.get(st, st)
 
 
@@ -375,10 +393,13 @@ def activity(limit: int = 40) -> list[dict]:
         stage = STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped"
         if made and s["status"] in ("analyzed", "weak", "exhausted"):
             stage = f"{made} clip{'s' if made != 1 else ''} made"  # a weak video still gave you these clips
+        covered = bool(rights.evaluate(s)["auto_allowed"])
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
-                    "can_add_file": s["status"] == "needs_file" and bool(rights.evaluate(s)["auto_allowed"])})
+                    # clipping a public video (getting its file) is a separate question from posting it
+                    "posting": "" if covered or not used else NOT_POSTED,
+                    "can_add_file": s["status"] == "needs_file" and covered})
     return out
 
 

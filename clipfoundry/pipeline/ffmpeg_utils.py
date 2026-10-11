@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Callable, Sequence
@@ -21,6 +22,109 @@ EXE = ".exe" if sys.platform == "win32" else ""
 
 class FFmpegError(RuntimeError):
     pass
+
+
+class MediaWatchdog:
+    """Interrupt blocking media pipe I/O as well as waits, including on Windows.
+
+    A queue cancellation flag alone cannot wake a thread blocked inside read/write. The independent watcher
+    kills its media children so those operations return, and the owning thread reports the original reason.
+    """
+
+    def __init__(self, cancel: Callable[[], bool] | None = None, timeout: float = 600.0):
+        self.cancel = cancel
+        self.deadline = time.monotonic() + max(0.1, timeout)
+        self.processes: list[subprocess.Popen] = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._reason = ""
+        self._cancel_error: Exception | None = None
+        self._thread = threading.Thread(target=self._watch, daemon=True, name="cf-media-watchdog")
+
+    def __enter__(self) -> "MediaWatchdog":
+        self.check()
+        self._thread.start()
+        return self
+
+    def add(self, proc: subprocess.Popen) -> subprocess.Popen:
+        with self._lock:
+            self.processes.append(proc)
+            stopped = bool(self._reason)
+        if stopped and proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        return proc
+
+    def _watch(self) -> None:
+        while not self._stop.wait(0.1):
+            requested = self._cancelled()
+            reason = "cancel_check" if self._cancel_error else ("canceled" if requested else (
+                "timeout" if time.monotonic() >= self.deadline else ""))
+            if reason:
+                with self._lock:
+                    self._reason = reason
+                    processes = list(self.processes)
+                for proc in processes:
+                    if proc.poll() is None:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass  # another child may have exited while its peer was being stopped
+                return
+
+    def _cancelled(self) -> bool:
+        try:
+            return bool(self.cancel and self.cancel())
+        except Exception as exc:
+            # A future callback may read durable state. An unreadable cancellation state must stop the child,
+            # rather than kill the watcher thread and silently lose the time limit as well.
+            self._cancel_error = exc
+            return False
+
+    def check(self) -> None:
+        if self._reason == "timeout" or time.monotonic() >= self.deadline:
+            raise FFmpegError("The media process took too long; stopped safely")
+        requested = self._cancelled()
+        if self._cancel_error:
+            raise FFmpegError("The media process stopped because cancellation state could not be checked") \
+                from self._cancel_error
+        if self._reason == "canceled" or requested:
+            raise Cancelled()
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+        for proc in self.processes:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+            proc.wait()  # reap every child before its GPU/file resources can be reused
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+        self.check()  # a killed pipe may otherwise turn cancellation into BrokenPipeError or a false EOF
+
+
+def run_process(args: Sequence[str], *, timeout: float = 600.0,
+                cancel: Callable[[], bool] | None = None, check: bool = False,
+                cwd: str | Path | None = None) -> subprocess.CompletedProcess:
+    """Run a noninteractive media helper with cancellable, bounded communication and complete cleanup."""
+    with MediaWatchdog(cancel, timeout) as watch:
+        proc = watch.add(subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE, cwd=cwd, creationflags=NO_WINDOW))
+        stdout, stderr = proc.communicate()
+        watch.check()
+        result = subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        if check:
+            result.check_returncode()
+        return result
 
 
 def _candidate_dirs(explicit: str) -> list[Path]:
@@ -52,7 +156,8 @@ def ffmpeg_bin() -> str:
     exe = find_binary("ffmpeg", db.get_settings().get("ffmpeg_path", ""))
     if not exe:
         raise FFmpegError(
-            "FFmpeg was not found. Install it (e.g. `winget install Gyan.FFmpeg`) or put ffmpeg.exe in tools/ffmpeg/bin."
+            "FFmpeg was not found. Install it (e.g. `winget install Gyan.FFmpeg`) "
+            "or put ffmpeg.exe in tools/ffmpeg/bin."
         )
     return exe
 
@@ -82,29 +187,28 @@ def run(
 ) -> None:
     """Run ffmpeg with `-progress` parsing. `args` excludes the executable."""
     cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y", "-progress", "pipe:1", "-nostats", *args]
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, creationflags=NO_WINDOW
-    )
-    tail: deque = deque(maxlen=40)
-    t = threading.Thread(target=_drain, args=(proc.stderr, tail), daemon=True)
-    t.start()
-    assert proc.stdout is not None
-    try:
-        for raw in iter(proc.stdout.readline, b""):
-            if cancel and cancel():
+    with MediaWatchdog(cancel, max(600.0, duration * 20)) as watch:
+        proc = watch.add(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          cwd=cwd, creationflags=NO_WINDOW))
+        tail: deque = deque(maxlen=40)
+        t = threading.Thread(target=_drain, args=(proc.stderr, tail), daemon=True)
+        t.start()
+        assert proc.stdout is not None
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                watch.check()
+                line = raw.decode("ascii", "replace").strip()
+                if progress and duration > 0 and line.startswith("out_time_us="):
+                    try:
+                        progress(min(1.0, int(line.split("=", 1)[1]) / 1e6 / duration))
+                    except ValueError:
+                        pass
+            proc.wait()
+        finally:
+            if proc.poll() is None:
                 proc.kill()
-                raise Cancelled()
-            line = raw.decode("ascii", "replace").strip()
-            if progress and duration > 0 and line.startswith("out_time_us="):
-                try:
-                    progress(min(1.0, int(line.split("=", 1)[1]) / 1e6 / duration))
-                except ValueError:
-                    pass
-        proc.wait()
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-        t.join(timeout=2)
+            proc.wait()
+            t.join(timeout=2)
     if proc.returncode != 0:
         raise FFmpegError("ffmpeg failed:\n" + "\n".join(list(tail)[-12:]))
 
@@ -124,15 +228,13 @@ def _parse_rate(rate: str | None) -> float:
         return 0.0
 
 
-def probe(path: str | Path) -> dict:
-    out = subprocess.run(
+def probe(path: str | Path, *, cancel: Callable[[], bool] | None = None) -> dict:
+    out = run_process(
         [ffprobe_bin(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
-        capture_output=True,
-        text=True,
-        creationflags=NO_WINDOW,
+        timeout=60.0, cancel=cancel,
     )
     if out.returncode != 0:
-        raise FFmpegError(f"Could not read video file: {out.stderr.strip()[-400:]}")
+        raise FFmpegError(f"Could not read video file: {out.stderr.decode('utf-8', 'replace').strip()[-400:]}")
     data = json.loads(out.stdout or "{}")
     streams = data.get("streams", [])
     video = next(
@@ -168,6 +270,10 @@ def probe(path: str | Path) -> dict:
         "video_codec": video.get("codec_name", ""),
         "has_audio": audio is not None,
         "audio_codec": (audio or {}).get("codec_name", ""),
+        "video_start": float(video["start_time"]) if video.get("start_time") not in (None, "N/A") else None,
+        "audio_start": float(audio["start_time"]) if audio and audio.get("start_time") not in (None, "N/A") else None,
+        "video_duration": float(video["duration"]) if video.get("duration") not in (None, "N/A") else None,
+        "audio_duration": float(audio["duration"]) if audio and audio.get("duration") not in (None, "N/A") else None,
         "size_bytes": int(fmt.get("size") or 0),
     }
 
@@ -188,9 +294,10 @@ def make_silent_wav(dst: Path, duration: float) -> None:
          "-c:a", "pcm_s16le", str(dst)])
 
 
-def thumbnail(src: Path, t: float, dst: Path, width: int = 480) -> None:
+def thumbnail(src: Path, t: float, dst: Path, width: int = 480,
+              *, cancel: Callable[[], bool] | None = None) -> None:
     run(["-ss", f"{max(0.0, t):.3f}", "-i", str(src), "-frames:v", "1",
-         "-vf", f"scale={width}:-2", "-q:v", "3", str(dst)])
+         "-vf", f"scale={width}:-2", "-q:v", "3", str(dst)], cancel=cancel)
 
 
 @functools.lru_cache(maxsize=4)

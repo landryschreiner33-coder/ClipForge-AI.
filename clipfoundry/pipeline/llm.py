@@ -176,7 +176,18 @@ def _anthropic(settings: dict, prompt: str) -> str:
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
-PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic}
+def _nvidia(settings: dict, prompt: str) -> str:
+    """Optional NVIDIA-hosted model (pipeline/nvidia.py): its own guards, budget and fallback to local analysis."""
+    from . import nvidia
+
+    try:
+        return nvidia.complete(settings, SYSTEM_PROMPT, prompt, task=str(settings.get("_ai_task") or "clip_scoring"),
+                               unattended=settings.get("origin") == "autopilot" or bool(settings.get("_unattended")))
+    except nvidia.NvidiaUnavailable as exc:
+        raise ProviderError(str(exc)) from exc
+
+
+PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic, "nvidia": _nvidia}
 LOCAL_PROVIDERS = {"ollama", "openai_compatible"}
 
 
@@ -188,12 +199,18 @@ def provider_label(settings: dict) -> str:
         return f"Local server {settings.get('openai_model') or ''}".strip()
     if p == "anthropic":
         return f"Claude {settings.get('anthropic_model')}"
+    if p == "nvidia":
+        mode = "production" if settings.get("nvidia_mode") == "production" else "development"
+        return f"NVIDIA {settings.get('nvidia_model')} ({mode})"
     return "Local heuristic"
 
 
-def complete(settings: dict, prompt: str) -> str:
-    """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure)."""
+def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str = "") -> str:
+    """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure).
+    `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it)."""
     provider = settings.get("ai_provider", "heuristic")
+    if unattended or task:
+        settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task}
     fn = PROVIDERS.get(provider)
     if fn is None:
         raise ProviderError("heuristic mode")
@@ -235,6 +252,12 @@ def check_provider(settings: dict) -> dict:
             r = httpx.get(f"{base}/models", timeout=3)
             models = [m.get("id") for m in r.json().get("data", [])]
             return {"ok": r.status_code == 200, "detail": "server reachable", "models": models}
+        if provider == "nvidia":
+            from . import nvidia
+
+            v = nvidia.view(settings)
+            return {"ok": not v["problems"], "detail": v["problems"][0] if v["problems"] else
+                    "Set up. Use Check connection or Run small AI test in Settings → Integrations."}
         if provider == "anthropic":
             try:
                 import anthropic  # noqa: F401

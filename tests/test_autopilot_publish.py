@@ -32,7 +32,9 @@ def env(monkeypatch, tmp_path):
     db.init()
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
-                      "autopilot_youtube": True, "autopilot_tiktok": True})
+                      "autopilot_youtube": True, "autopilot_tiktok": True,
+                      # these tests are about uploads; an unaudited app's TikTok Direct Post is "Only me" staging
+                      "audience_tiktok": "owner_only"})
     yield g, t, tmp_path
     g.stop()
     t.stop()
@@ -70,7 +72,7 @@ def make_item(tmp, platform: str = "youtube", size: int = 300_000, planned_in: f
     item = db.insert("scheduled_publications", {
         "clip_id": clip["id"], "platform": platform, "title": "Talk to customers first, then build",
         "description": text if platform == "tiktok" else f"{text}\n\nFollow for more clips like this.",
-        "tags": ["customers"], "privacy": "public" if platform == "youtube" else "",
+        "tags": ["customers"], "privacy": "private" if platform == "youtube" else "",
         "options": {"made_for_kids": None} if platform == "youtube" else {"mode": "direct"},
         "planned_at": time.time() + planned_in, "status": "awaiting_approval", "final_score": 70})
     if approve is not None:
@@ -91,7 +93,8 @@ def run_publish(item_id: str) -> dict:
     return host.HANDLERS["publish"](host.Job(queue.get(row["id"]), "test"))
 
 
-def test_youtube_post_is_scheduled_with_publish_at(env):
+def test_youtube_post_is_uploaded_private_without_publish_at(env):
+    """The selected-audience version: Private upload, never a publishAt that would make it public later."""
     from clipfoundry import db
 
     g, t, tmp = env
@@ -101,22 +104,25 @@ def test_youtube_post_is_scheduled_with_publish_at(env):
     after = db.fetch("scheduled_publications", item["id"])
     pub = db.get_publication(after["publication_id"])
     video = g.videos[pub["remote_id"]]
-    assert video["status"]["privacyStatus"] == "private" and video["status"]["publishAt"]  # YouTube publishes it
-    assert after["status"] == "published" and "scheduled" in after["status_note"].lower()
-    assert pub["info"]["scheduled"] and pub["scheduled_id"] == item["id"]
+    assert video["status"]["privacyStatus"] == "private" and "publishAt" not in video["status"]
+    assert after["status"] == "published" and "Private" in after["status_note"]
+    assert not pub["info"].get("scheduled") and pub["scheduled_id"] == item["id"]
+    assert "publish_at" not in (pub.get("options") or {})
 
 
-def test_locked_private_is_reported_honestly(env):
+def test_a_public_planned_post_is_never_approved(env):
     from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+    from clipfoundry.publish.common import PublishError
 
     g, t, tmp = env
     connect(g, t)
-    g.lock_private = True  # an API project that has not passed YouTube's audit
-    item = make_item(tmp, planned_in=60, approve={"options": {"made_for_kids": False}})
-    run_publish(item["id"])
-    after = db.fetch("scheduled_publications", item["id"])
-    assert after["status"] == "published" and "Published as Private" in after["status_note"]
-    assert db.get_publication(after["publication_id"])["privacy"] == "private"
+    item = make_item(tmp)
+    db.update("scheduled_publications", item["id"], privacy="public")
+    with pytest.raises(PublishError, match="Public and unlisted YouTube uploads are turned off"):
+        scheduler.approve(item["id"], {"options": {"made_for_kids": False}})
+    assert db.fetch("scheduled_publications", item["id"])["status"] == "awaiting_approval"
+    assert not g.videos
 
 
 def test_tiktok_direct_post_and_unaudited_refusal(env):
@@ -139,6 +145,23 @@ def test_tiktok_direct_post_and_unaudited_refusal(env):
     after = db.fetch("scheduled_publications", bad["id"])
     assert after["status"] == "action_needed" and after["approval"] == {}  # the user decides what to do
     assert any(a["key"] == f"review:{bad['id']}" for a in state.open_actions())
+
+
+def test_a_full_tiktok_inbox_holds_tiktok_posts_for_a_day_instead_of_retrying(env):
+    """TikTok keeps at most 5 drafts waiting per 24 hours: a sixth is refused, and asking again sooner cannot help."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    t.init_error = "spam_risk_too_many_pending_share"
+    item = make_item(tmp, "tiktok", approve={"privacy": "", "options": {"mode": "inbox"}})
+    t0 = time.time()
+    with pytest.raises(queue.Fail):
+        run_publish(item["id"])
+    after = db.fetch("scheduled_publications", item["id"])
+    assert after["status"] == "approved" and after["planned_at"] is None and "limit resets" in after["status_note"]
+    assert scheduler.blocked_until("tiktok")[0] >= t0 + 24 * 3600 - 5
 
 
 def test_a_platform_wait_is_never_shortened(env):
@@ -316,6 +339,7 @@ def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     path = clip["output_path"]
     db.insert("quality_reports", {"clip_id": clip["id"], "artifact_path": path, "artifact_sha256":
                                   artifact.sha256_file(path), "file_stamp": quality.file_stamp(path),
+                                  "gate_version": quality.GATE_VERSION,
                                   "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"]})
     with pytest.raises(queue.Fail, match="did not pass"):
         run_publish(item["id"])
@@ -362,7 +386,7 @@ def test_publish_center_api(env):
                       json={"made_for_kids": False}).status_code == 400  # no explicit confirmation
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H,
                    json={"privacy": "PUBLIC_TO_EVERYONE", "confirm": True})
-        assert r.status_code == 400 and "Only me" in r.json()["detail"]
+        assert r.status_code == 400 and "turned off" in r.json()["detail"]
         r = c.post(f"/api/autopilot/scheduled/{tt['id']}/approve", headers=H, json={"privacy": "SELF_ONLY",
                                                                                    "confirm": True})
         assert r.status_code == 200 and r.json()["status"] == "approved" and r.json()["approval_valid"]
@@ -371,7 +395,10 @@ def test_publish_center_api(env):
         assert c.get("/api/autopilot/scheduled/nope").status_code == 404
         r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
                    json={"made_for_kids": False, "privacy": "unlisted", "confirm": True})
-        assert r.json()["privacy"] == "unlisted"
+        assert r.status_code == 400 and "Unlisted" in r.json()["detail"]  # unsupported link-only visibility
+        r = c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H,
+                   json={"made_for_kids": False, "privacy": "private", "confirm": True})
+        assert r.json()["privacy"] == "private" and r.json()["status"] == "approved"
         r = c.patch(f"/api/autopilot/scheduled/{yt['id']}", headers=H, json={"title": "Invented: 5 secrets of Elon"})
         assert r.json()["status"] == "awaiting_approval" and r.json()["warnings"]
         c.post(f"/api/autopilot/scheduled/{yt['id']}/approve", headers=H, json={"confirm": True})
@@ -553,3 +580,29 @@ def test_closing_the_app_mid_upload_resumes_the_exact_session_after_restart(env,
     assert finished["status"] == "published" and finished["publication_id"] == pub["id"]
     assert len(g.sessions) == 1 and len(g.videos) == 1
     assert queue.get(job["id"])["status"] == "completed"
+
+
+def test_paused_publishing_uploads_nothing_new_but_finishes_an_upload_under_way(env):
+    """Pause publishing (Office bottom bar): clip-making continues, nothing new is uploaded, and the reason is shown."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    g, t, tmp = env
+    connect(g, t)
+    item = make_item(tmp, approve={"options": {"made_for_kids": False}}, planned_in=-60)
+    db.save_settings({"autopilot_publishing_paused": True, "autopilot_auto_publish": True})
+    scheduler.process_due(db.get_settings(), time.time())
+    assert not db.select("worker_jobs", "kind = 'publish'")
+    assert "Publishing is paused" in db.fetch("scheduled_publications", item["id"])["status_note"]
+    with pytest.raises(queue.Wait):
+        run_publish(item["id"])
+    assert not g.videos and db.fetch("scheduled_publications", item["id"])["status"] == "approved"
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        assert c.post(f"/api/autopilot/scheduled/{item['id']}/publish-now", headers=H).status_code == 409
+    db.save_settings({"autopilot_publishing_paused": False})
+    run_publish(item["id"])
+    assert len(g.videos) == 1 and db.fetch("scheduled_publications", item["id"])["status"] == "published"

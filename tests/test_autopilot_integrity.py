@@ -93,10 +93,13 @@ def local(day: dt.date, hour: int, minute: int = 0) -> float:
     return dt.datetime.combine(day, dt.time(hour, minute), CHI).timestamp()
 
 
-def consent_youtube() -> dict:
+def consent_youtube(env) -> dict:
+    from clipfoundry import db
     from clipfoundry.autopilot import autopublish
 
-    return autopublish.enable("youtube", "public", False, 3, 9, 21, True, "")
+    if not (db.get_account("youtube") or {}).get("has_tokens"):
+        connect_youtube(env["g"])
+    return autopublish.enable("youtube", "private", False, 3, 9, 21, True, "")
 
 
 def item_for(clip: dict, platform: str = "youtube") -> dict:
@@ -200,7 +203,7 @@ def test_an_automatic_swap_keeps_the_whole_audit_trail(env):
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler
 
-    consent_youtube()  # (it also sets the YouTube posts per day to its own limit)
+    consent_youtube(env)  # (it also sets the YouTube posts per day to its own limit)
     db.save_settings({"autopilot_youtube_daily_limit": 1})
     now = local(dt.datetime.now(CHI).date(), 6)
     for k in range(3):
@@ -277,7 +280,7 @@ def test_youtube_is_approved_again_automatically_only_after_the_gate_checked_the
     from clipfoundry.pipeline import artifact
 
     db.save_settings({"autopilot_tiktok": True})
-    consent_youtube()
+    consent_youtube(env)
     clip = make_clip(env, "Talk to customers first")
     now = time.time()
     scheduler.plan_new(db.get_settings(), now)
@@ -315,6 +318,44 @@ def test_youtube_is_approved_again_automatically_only_after_the_gate_checked_the
     assert db.fetch("scheduled_publications", tt["id"])["status"] == "awaiting_approval"
 
 
+def test_approvals_and_automatic_publishing_stay_with_the_account_they_were_given_for(env):
+    from clipfoundry import db
+    from clipfoundry.autopilot import queue, scheduler
+
+    connect_youtube(env["g"])
+    db.save_settings({"autopilot_tiktok": True})
+    clip = make_clip(env, "Talk to customers first")
+    now = time.time()
+    scheduler.plan_new(db.get_settings(), now)
+    yt = scheduler.approve(item_for(clip)["id"], NO_KIDS)
+    assert yt["approval"]["account"] == "UC123"
+    other = make_clip(env, "Ask what they got wrong")
+    consent_youtube(env)  # given while UC123 is connected
+    scheduler.plan_new(db.get_settings(), now)
+    auto = item_for(other)
+    assert auto["status"] == "approved" and auto["approval"]["by"] == "automatic"
+
+    db.save_account("youtube", account_id="UCsomeoneelse", display_name="Another channel")  # another channel signed in
+    restart()
+    for i in (yt, auto):
+        cur = db.fetch("scheduled_publications", i["id"])
+        assert scheduler.approval_problem(cur) == "another account is connected now than the one it was approved for"
+        db.update("scheduled_publications", i["id"], planned_at=now + 600)
+    scheduler.process_due(db.get_settings(), now)
+    for i in (yt, auto):
+        cur = db.fetch("scheduled_publications", i["id"])
+        assert cur["status"] == "awaiting_approval" and cur["approval"] == {}
+    scheduler.process_due(db.get_settings(), now)  # the permission names UC123: nothing is approved for the new one
+    held = db.fetch("scheduled_publications", auto["id"])
+    assert held["status"] == "awaiting_approval" and "another channel" in held["status_note"]
+    with pytest.raises(queue.Fail):
+        run_publish(yt["id"])
+    assert not env["g"].videos
+
+    db.save_account("youtube", account_id="UC123", display_name="Channel")  # the first channel again
+    assert scheduler.approval_valid(scheduler.approve(yt["id"], NO_KIDS))
+
+
 def test_missing_or_unreadable_video_is_never_approved(env, monkeypatch):
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler
@@ -343,7 +384,7 @@ def test_missing_or_unreadable_video_is_never_approved(env, monkeypatch):
     assert not scheduler.approval_valid(db.fetch("scheduled_publications", ok["id"]))
     with pytest.raises(ValueError, match="missing or cannot be read"):
         scheduler.approve(ok["id"], NO_KIDS)
-    consent_youtube()
+    consent_youtube(env)
     db.update("scheduled_publications", ok["id"], status="awaiting_approval", approval={})
     assert not scheduler.auto_approve(db.fetch("scheduled_publications", ok["id"]), db.get_settings(), now)
     assert "missing or cannot be read" in db.fetch("scheduled_publications", ok["id"])["status_note"]
@@ -368,7 +409,7 @@ def test_approvals_from_before_the_content_hash_are_asked_again(env):
         cur = db.fetch("scheduled_publications", i["id"])
         assert not scheduler.approval_valid(cur)
         assert scheduler.approval_problem(cur) == "approved before ClipFoundry checked the exact video file"
-    consent_youtube()
+    consent_youtube(env)
     scheduler.process_due(db.get_settings(), now)  # due: both go back to approval
     assert {db.fetch("scheduled_publications", i["id"])["status"] for i in (yt, tt)} == {"awaiting_approval"}
     db.update("scheduled_publications", yt["id"], planned_at=now + 7200)
@@ -485,7 +526,7 @@ def test_missed_posts_are_replanned_once_each_without_a_burst_across_the_change(
         clip = make_clip(env, f"Missed clip {k} about customers")
         item = db.insert("scheduled_publications", {
             "clip_id": clip["id"], "platform": "youtube", "title": clip["title"], "description": "d", "tags": [],
-            "privacy": "public", "options": {"made_for_kids": False}, "planned_at": at,
+            "privacy": "private", "options": {"made_for_kids": False}, "planned_at": at,
             "status": "awaiting_approval"})
         scheduler.approve(item["id"], {})
         ids.append(item["id"])

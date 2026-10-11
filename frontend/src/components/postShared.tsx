@@ -51,13 +51,14 @@ export async function loadPost(id: string): Promise<PostList> {
 
 const nowS = () => Date.now() / 1000;
 
-/** Uploaded early to YouTube, which publishes it at its time (even if this PC is off by then). */
+/** Accepted before its local agenda time. Its actual visibility comes from its delivery record. */
 export const onPlatform = (p: Post) => p.status === "published" && !!p.planned_at && p.planned_at > nowS();
 
 /** A TikTok draft waiting in the TikTok app (not a missing account or a refused setting). */
-export const inInbox = (p: Post) => p.status === "action_needed" && p.publication?.status === "action_needed";
+export const inInbox = (p: Post) => p.status === "action_needed" && p.options?.mode !== "manual"
+  && (p.options?.mode === "inbox" || p.publication?.status === "action_needed");
 
-/** An approved post whose OK no longer covers the file that would be uploaded (APPROVAL_SCHEME 2: the file's hash). */
+/** An approved post whose authorization no longer covers its exact file, text, account or audience. */
 export const okOutdated = (p: Post) => p.status === "approved" && !p.approval_valid;
 
 /** Which Posts tab a post belongs to. */
@@ -83,7 +84,8 @@ export const viewOf = (p: Post) =>
 export function newOkReason(p: Post): { word: string; detail: string } | null {
   const current = p.quality?.sha256 || "";
   if (okOutdated(p)) {
-    if (p.approval?.scheme !== 2) return OLD_SCHEME;
+    if (!p.approval?.video_sha256) return OLD_SCHEME;
+    if (p.approval.scheme !== 3) return OLD_AUTHORIZATION;
     return changed(p.approval?.video_sha256 || "", current);
   }
   if (p.status !== "awaiting_approval") return null;
@@ -97,6 +99,16 @@ export function newOkReason(p: Post): { word: string; detail: string } | null {
       detail: "You changed the text after approving it, so it needs your OK again.",
     };
   }
+  if (/audience|group changed|who watches|privacy/i.test(why)) return {
+    word: "Needs your OK again: audience changed",
+    detail: "The audience authorization changed. This post keeps its planned visibility; review that audience "
+      + "before approving it again.",
+  };
+  if (/account|channel|sign.in/i.test(why)) return {
+    word: "Needs your OK again: account changed",
+    detail: "The connected account no longer matches the earlier authorization. Check the destination account "
+      + "and give your OK again.",
+  };
   if (/changed after approval/i.test(why)) return changed(last?.approved_sha256 || "", current);
   if (/missing or cannot be read/i.test(why)) {
     return {
@@ -129,6 +141,11 @@ function changed(approvedSha: string, currentSha: string): { word: string; detai
       "earlier OK covered what you saw then only, so it needs your OK again.",
   };
 }
+const OLD_AUTHORIZATION = {
+  word: "Needs your OK again: earlier authorization",
+  detail: "The earlier authorization did not record all current account and audience checks. Review the post’s "
+    + "planned visibility and approve this exact file again.",
+};
 const OLD_SCHEME = {
   word: "Needs a new OK: approved before exact-file checks",
   detail: "You approved it with an older version of ClipFoundry, which didn't record the exact video file. Approve " +
@@ -140,6 +157,12 @@ export type StatusWord = { tone: Tone; word: string; icon: IconName };
 /** The exact status words (design/ui-redesign/prototype/app.js postStatus): never softened. */
 export function postStatus(p: Post): StatusWord {
   const again = newOkReason(p);
+  const job = p.publishing_job;
+  if (!again && ["approved", "publishing"].includes(p.status)) {
+    if (job?.status === "retrying") return { tone: "warn", word: "Waiting to retry upload", icon: "refresh" };
+    if (job?.status === "waiting") return { tone: "warn",
+      word: job.wait_reason === "publishing_paused" ? "Publishing paused" : "Waiting before upload", icon: "clock" };
+  }
   switch (p.status) {
     case "awaiting_approval":
       return again ? { tone: "warn", word: again.word, icon: "alert" }
@@ -150,8 +173,10 @@ export function postStatus(p: Post): StatusWord {
         : { tone: "good", word: "Approved by you", icon: "check" };
     case "publishing": return { tone: "info", word: "Uploading now", icon: "upload" };
     case "published":
-      return onPlatform(p) ? { tone: "info", word: "Uploaded, waiting for its time", icon: "clock" }
-        : { tone: "good", word: "Published", icon: "check" };
+      if (onPlatform(p)) return { tone: "info",
+        word: `Uploaded early as ${privacyLabel(p.platform, p.publication?.privacy || p.privacy)}`, icon: "clock" };
+      return DELIVERY_WORD[p.delivery_state || ""]
+        || { tone: "good", word: p.delivery_label || "Uploaded", icon: "check" };
     case "reconciling": return { tone: "warn", word: "Upload not confirmed", icon: "question" };
     case "failed": return { tone: "bad", word: "Failed", icon: "alert" };
     case "blocked":
@@ -165,6 +190,19 @@ export function postStatus(p: Post): StatusWord {
     default: return { tone: "neutral", word: p.status, icon: "info" };
   }
 }
+
+/** An uploaded post says how far its delivery got (uploaded is not watched; publish/audience.py DELIVERY_LABELS). */
+const DELIVERY_WORD: Record<string, StatusWord> = {
+  awaiting_invitations: { tone: "warn", word: "Uploaded, awaiting invitations", icon: "clock" },
+  uploaded_owner_only: { tone: "info", word: "Uploaded, only you can see it", icon: "shield" },
+  audience_user_confirmed: { tone: "good", word: "Audience confirmed by you", icon: "check" },
+  restricted_api_verified: { tone: "good", word: "Restricted audience (platform confirmed)", icon: "check" },
+  restricted_requested: { tone: "info", word: "Posted; chosen group requested", icon: "check" },
+  public_api_verified: { tone: "good", word: "Public (platform confirmed)", icon: "check" },
+  public_requested: { tone: "warn", word: "Posted; Public requested", icon: "question" },
+  public_restricted: { tone: "warn", word: "Uploaded; Public not confirmed", icon: "alert" },
+  manual_handoff: { tone: "warn", word: "Ready for you to post on TikTok", icon: "info" },
+};
 
 /** Blocked by the final quality check of the file (audit event "quality"), not by the rights check. */
 export const blockedByCheck = (p: Post) =>
@@ -270,7 +308,8 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         onClose={onClose}
         onSubmit={(url) => ap.resolve(p.id, true, url).then(done("Marked as published. It won't be uploaded again."))}>
         <p className="small muted">
-          ClipFoundry marks it as published, reads its real numbers from {name}, and never uploads it again.
+          ClipFoundry records your confirmation and keeps it from uploading again. Platform results are collected
+          when the account and API allow it; a link alone does not prove public visibility.
         </p>
       </TextPromptDialog>
     );
@@ -296,8 +335,8 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         placeholder="https://www.tiktok.com/@…/video/…" onClose={onClose}
         onSubmit={(url) => ap.link(p.id, url).then(done("Linked. Its real numbers are read from TikTok."))}>
         <p className="small muted">
-          Paste the link of the post you finished in the TikTok app. ClipFoundry marks it as published and reads its
-          real numbers from TikTok.
+          Paste the link of the post you finished in TikTok. This records your confirmation; it is separate from
+          TikTok verifying visibility. Results are collected when the connected account has permission.
         </p>
       </TextPromptDialog>
     );

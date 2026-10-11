@@ -110,6 +110,7 @@ class Blueprint:
     payoff: Payoff = field(default_factory=Payoff)
     reasons: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
+    knowledge: list[dict] = field(default_factory=list)  # approved reference revisions that changed this plan
     origin: str = "strategist"
     schema_version: int = SCHEMA_VERSION
 
@@ -139,7 +140,8 @@ class Blueprint:
             emphasis=[{"at": float(e["at"]), "word": str(e.get("word", ""))} for e in data.get("emphasis") or []],
             audio=sub(Audio, data.get("audio"), "audio"), hook=sub(Hook, data.get("hook"), "hook"),
             payoff=sub(Payoff, data.get("payoff"), "payoff"), reasons=[str(r) for r in data.get("reasons") or []],
-            unsupported=list(dict.fromkeys(extra)), origin=str(data.get("origin") or "strategist"),
+            unsupported=list(dict.fromkeys(extra)), knowledge=list(data.get("knowledge") or []),
+            origin=str(data.get("origin") or "strategist"),
             schema_version=int(data.get("schema_version") or 0))
 
     def window(self) -> tuple[float, float]:
@@ -411,13 +413,18 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     and sound, the words worth stressing, the hook and the payoff. `video_path` is the file to look for scene cuts
     in; `video_offset` is where it starts in source time (a live window file)."""
     from . import render
+    from ..autopilot import knowledge
     from .postpack import _payoff_sentence  # noqa: PLC2701 - the shared "which line delivers the point" rule
     from .text_utils import build_sentences
 
     opts = render.effective_options(settings, project.get("options") or {}, {})
+    opts, influences = knowledge.choose(clip, opts, settings)
     start, end = float(clip["start"]), float(clip["end"])
     reasons = [r for r in [clip.get("reason") or ""] if r] + [str(x) for x in ((selection or {}).get("explanation")
                                                                                 or [])[:4]]
+    reasons += [f"Approved {i['snapshot']['kind']} '{i['snapshot']['title']}' (revision {i['revision']}): "
+                + ", ".join(f"{k.replace('_', ' ')} = {d['after']}" for k, d in i["decisions"].items())
+                for i in influences]
     if video_path:
         local = [{**w, "start": w["start"] - video_offset, "end": w["end"] - video_offset} for w in words]
         start, end, snapped = render.snap_to_cuts(video_path, start - video_offset, end - video_offset, local, {})
@@ -452,8 +459,10 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
         hook=Hook(text=clip.get("hook") or "", overlay=bool(opts.get("hook_overlay")),
                   seconds=float(opts.get("hook_seconds") or 3.0)),
         payoff=Payoff(text=payoff_text, at=round(payoff_at, 3) if payoff_at is not None else None),
-        reasons=reasons)
+        reasons=reasons, knowledge=influences)
     shortest = {**settings, **{k: v for k, v in (project.get("options") or {}).items() if v is not None}}
+    if opts.get("pacing") == "continuous":
+        return bp
     return with_middle_cuts(bp, heard, words, float(shortest.get("min_duration") or 0.0))
 
 
@@ -540,16 +549,22 @@ def emphasis_indices(bp: Blueprint, words: list[dict]) -> set[int]:
 def save(bp: Blueprint, issues: list[dict], version_id: str = "") -> dict:
     """Store a plan (every render's plan is stored before the render). The same plan is stored once."""
     from .. import db
+    from ..autopilot import knowledge
 
     sha = bp.sha256()
     rows = db.select("clip_blueprints", "clip_id = ? AND sha256 = ? AND version_id = ?", (bp.clip_id, sha, version_id),
                      "created_at DESC", 1)
     if rows:
+        if rows[0]["status"] == "valid" and rows[0]["origin"] == "strategist":
+            knowledge.record(rows[0])
         return rows[0]
-    return db.insert("clip_blueprints", {"clip_id": bp.clip_id, "version_id": version_id, "origin": bp.origin,
+    saved = db.insert("clip_blueprints", {"clip_id": bp.clip_id, "version_id": version_id, "origin": bp.origin,
                                          "schema_version": bp.schema_version, "sha256": sha,
                                          "blueprint": bp.to_dict(), "status": "invalid" if errors(issues) else "valid",
                                          "issues": issues, "created_at": time.time()})
+    if saved["status"] == "valid" and saved["origin"] == "strategist":
+        knowledge.record(saved)
+    return saved
 
 
 def plan_of(clip_id: str) -> Blueprint | None:

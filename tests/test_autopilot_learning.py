@@ -39,7 +39,7 @@ def post(platform: str, hour: int, views: int, clip_score: float = 60, style: st
                                 features={"viral_potential": clip_score, "duration": 30.0})
     db.execute("UPDATE publications SET created_at = ? WHERE id = ?", (when, pub["id"]))
     db.execute("INSERT INTO performance (id, publication_id, clip_id, platform, fetched_at, views, avg_view_percentage) "
-               "VALUES (?,?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], platform, when + 47 * 3600, views, pct))
+               "VALUES (?,?,?,?,?,?,?)", (db.new_id(), pub["id"], clip["id"], platform, when + 49 * 3600, views, pct))
     return pub
 
 
@@ -64,7 +64,7 @@ def test_nothing_is_concluded_from_too_few_posts(data, monkeypatch):
     out = run_learn()
     st = state.get("learning:status")
     assert st["samples"] == 5 and st["excluded_youtube"] == 8 and "Developer Policies" in st["note"]
-    assert "Not enough results yet: 5 of 10" in out["message"]
+    assert "Not enough results yet: 5 of 30" in out["message"]
     assert not db.select("learning_metrics") and learner.lift("hour", "19", "tiktok") == (1.0, 0)
 
 
@@ -74,13 +74,14 @@ def test_learns_posting_times_styles_and_weights(data, monkeypatch):
     from clipfoundry.publish import stats
 
     monkeypatch.setattr(stats, "refresh", lambda pub: None)
-    for k in range(6):  # evenings do much better on this account; higher clip scores did better too
+    for k in range(15):  # evenings do much better on this account; higher clip scores did better too
         post("tiktok", 19, 20000 + 1000 * k, clip_score=70 + k, style="debate")
         post("tiktok", 10, 800 + 50 * k, clip_score=50 + k, style="direct")
     post("tiktok", 3, 900000, clip_score=40)  # one lucky post at 3 am
     run_learn()
     evening, n = learner.lift("hour", "19", "tiktok")
-    assert evening > 1.2 and n == 6
+    assert evening == pytest.approx(1.1) and n == 15  # the data says far more, but one update moves 10% at most
+    assert db.fetch("learning_metrics", "hour:19:tiktok:performance")["data"]["aim"] > 1.2
     assert learner.lift("hour", "3", "tiktok") == (1.0, 0)  # a single post is not a rule
     assert learner.lift("style", "debate", "tiktok")[0] > learner.lift("style", "direct", "tiktok")[0]
     w = learner.weights()
@@ -92,7 +93,14 @@ def test_learns_posting_times_styles_and_weights(data, monkeypatch):
     at10am = dt.datetime.combine(dt.date.today(), dt.time(10, 0), CHI)
     assert timing.quality(at7pm)[0] > timing.quality(at10am)[0]
     st = state.get("learning:status")
-    assert st["samples"] == 13 and any("19:00" in f for f in st["findings"])
+    assert st["samples"] == 31 and any("19:00" in f and "used as 1.10x" in f for f in st["findings"])
+    assert "Waiting for new results: 0 of 10" in run_learn()["message"]  # the same posts never move it twice
+    assert learner.lift("hour", "19", "tiktok")[0] == pytest.approx(1.1)
+    for k in range(5):
+        post("tiktok", 19, 21000 + 1000 * k, clip_score=72, style="debate")
+        post("tiktok", 10, 900 + 50 * k, clip_score=52, style="direct")
+    run_learn()  # with new posts it may move another 10% from there, toward what the data shows
+    assert learner.lift("hour", "19", "tiktok")[0] == pytest.approx(1.21)
     from clipfoundry.autopilot import packaging
 
     meta = {"title": "Here's the biggest mistake most people make", "caption": "Here's the biggest mistake",
@@ -108,11 +116,11 @@ def test_retention_calibration_and_youtube_with_approval(data, monkeypatch):
 
     monkeypatch.setattr(stats, "refresh", lambda pub: None)
     db.save_settings({"youtube_derived_metrics_approved": True})
-    for k in range(12):
+    for k in range(30):
         post("youtube", 12 + k % 5, 1000 + 100 * k, retention=40 + 4 * k, pct=30 + 3 * k)
     run_learn()
     est, note = learner.expected_retention(60)
-    assert est == pytest.approx(45, abs=1.5) and "12 of your posts" in note
+    assert est == pytest.approx(45, abs=1.5) and "30 of your posts" in note
 
 
 def test_stats_refresh_cadence(data, monkeypatch):

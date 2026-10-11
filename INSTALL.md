@@ -36,6 +36,11 @@ location**.
 
 ## 3. Start ClipFoundry
 
+For a ZIP download, put the extracted files in a **short folder**, such as `C:\ClipFoundry`, with `start.bat`
+directly inside it. Avoid nesting the long generated archive folder inside another copy of that folder: Python
+dependency filenames can exceed Windows' path limit. Use a new folder for a review build; the
+[PR #14 test guide](docs/WINDOWS_PR14_TEST.md) uses `C:\CF14` and separate test data.
+
 Double-click **`start.bat`**. On the first run it:
 
 1. creates a private Python environment in `.venv`,
@@ -45,6 +50,13 @@ Double-click **`start.bat`**. On the first run it:
    browser.
 
 Later runs start in seconds. Keep the console window open while you use the app; close it (or press Ctrl+C) to quit.
+
+If pip fails with `No such file or directory` for a long dependency filename and mentions **Windows long paths**,
+close the failed console and put **fresh ZIP contents** in a shorter new folder. Run its launcher to create a new
+`.venv`; do not move or copy the partially installed environment. Leave your normal installation and `data` alone.
+This workaround does not require administrator access or changing Windows settings. The launcher warns before
+dependency installation when the folder is long enough to put a known SDK filename over the standard path limit,
+and continues so computers with long-path support can still use their existing folder.
 
 Options: `start.bat --port 9000` uses a different port. `start.bat --host 0.0.0.0` exposes the app on your local
 network (only do this on a trusted network, since there is no login).
@@ -142,6 +154,16 @@ Choose *Claude API (optional, paid)* under Settings → Advanced → Rendering, 
 paste an API key (*Claude API key*). This costs money per call. Use *Max candidates* to cap how many clips per video
 are sent. The key is stored only in your local `data\clipfoundry.db`.
 
+## Optional: NVIDIA AI
+
+Off by default and never needed. The steps (build.nvidia.com, the key in Settings → Integrations, the agreement, the
+check and the small test, and how to turn it off) are in the [README](README.md#optional-nvidia-ai).
+
+## Separate PR #14 test copy
+
+For this review ZIP, use [the separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
+Keep your original folder/data intact; do not copy its database into the test copy.
+
 ## Optional: publishing to YouTube Shorts
 
 ClipFoundry uploads through the official **YouTube Data API v3** with your own free Google Cloud project. You sign in on
@@ -155,19 +177,25 @@ encrypted with Windows DPAPI (only your Windows account on this PC can read them
    under *Test users*.
 4. **Credentials → Create credentials → OAuth client ID**, application type **Desktop app**. Copy the client ID and
    secret into **Settings → Accounts → YouTube → Your YouTube app codes** (*OAuth client ID* and *Client secret*), or
-   into the dialog that **Connect YouTube…** opens in the first-time setup or on the Autopilot page.
+   into the dialog that **Connect YouTube…** opens in the first-time setup or on the Missions page.
 5. Click **Connect YouTube** (it saves the codes first), sign in and allow access. The connected channel's name appears
    in Settings → Accounts.
 
 Things Google enforces, which ClipFoundry explains on screen:
 
-* **Unaudited projects upload Private only.** Google locks every video uploaded by an API project that has not passed
-  the [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to Private, even if you choose Public
-  or Unlisted. Private uploads work for testing. After the audit, tick *My Google Cloud project passed YouTube's API
-  audit* in Settings → Accounts → YouTube → Your YouTube app codes.
-* **Testing-mode connections expire after 7 days.** While the consent screen is in *Testing*, connect again weekly
-  (**Reconnect YouTube** in Settings → Accounts once the sign-in has expired), or set it to *In production* (for your
-  own use you can continue past the "unverified app" screen).
+* **Public is an explicit choice for new uploads.** Settings → Integrations → Who watches → Public audience,
+  then confirm. Public automation needs a new channel/visibility-bound automatic-publishing permission.
+  YouTube's current API documentation allows Public uploads without an API-project audit. The optional audit
+  checkbox records owner-reported quota information; it does not verify Google’s approval or gate Public posting.
+  Actual returned visibility is checked after uploading. Public posts upload at the local scheduled
+  time, with no `publishAt`. Existing Private schedules stay Private.
+* **Selected-viewer uploads stay Private.** Share them in YouTube Studio and mark them shared in Queue; the API
+  cannot send invitations. Unlisted is unsupported.
+
+* **Testing-mode connections expire after 7 days.** For continuous posting, set your Google OAuth app's publishing
+  status to **Production**, then reconnect in Settings → Accounts to obtain a new grant. Personal use may qualify
+  for Google's OAuth verification exception; that is separate from a YouTube API audit. Revoked or invalid account
+  access can still require reconnection. Testing remains suitable for development, with weekly reconnection.
 * **Quota.** Uploads count against your project's daily YouTube API quota. If it runs out, ClipFoundry says so; try
   again the next day (quotas reset at midnight Pacific Time).
 * Vertical videos of up to 3 minutes are classified as Shorts by YouTube automatically.
@@ -188,18 +216,22 @@ developer app. You sign in on TikTok's page; ClipFoundry never sees or stores yo
 4. Register the redirect URI shown in **Settings → Accounts → TikTok → Your TikTok app codes** (*Redirect address to
    register in your TikTok app*, with a *Copy* button; for example `http://127.0.0.1:8765/api/oauth/tiktok/callback`;
    use your port if you changed it).
-5. While the app is not reviewed, add your TikTok account as a target user. Paste the client key and secret there
-   (*Client key* and *Client secret*) and click **Connect TikTok** (it saves them first).
+5. While the app is not reviewed, create a **Sandbox** in it and add your TikTok account as a target user (in a
+   sandbox, Direct Post can only post "Only me"). Paste the client key and secret there (*Client key* and *Client
+   secret*) and click **Connect TikTok** (it saves them first).
 
 Two official ways to post, both on Prepare post and on each TikTok post's review page:
 
-* **Post directly** (Direct Post): posted to your profile with the privacy you choose from the options TikTok offers
-  for your account. Until TikTok audits your app, TikTok only accepts Direct Posts when your account is private,
-  limits them to "Only me", and allows at most 5 users per day. ClipFoundry explains this and blocks settings TikTok
-  would reject.
-* **Send to TikTok inbox** (draft): works without the audit. The video arrives in the TikTok app as a draft; tap the
-  notification, edit if you like, choose who can see it and post it.
-* Or use **Export** and upload the MP4 on <https://www.tiktok.com/tiktokstudio/upload> yourself.
+* **Post directly** (Direct Post): an eligible audited app may request Everyone for a confirmed Public audience,
+  or followers/friends for selected viewers. TikTok must offer the option for this creator. You choose it on each
+  post and give consent after reviewing the preview, caption, disclosures and Music Usage Confirmation.
+  Unaudited apps can only request Only me; that is staging, not public delivery.
+* **Send to TikTok inbox** (draft): needs TikTok’s app approval for `video.upload`. You finish the draft and choose
+  the audience in TikTok. A draft is not a published post.
+* **Post it yourself**: the practical fallback if a personal tool is refused. Download the video, copy the caption
+  and follow Queue’s audience-specific steps; choose Everyone for Public, then link or mark the post. This is a
+  manual handoff, not unattended posting. See [platform requirements and verification limits](docs/PLATFORM_CAPABILITIES.md).
+
 
 As TikTok's sharing guidelines require, ClipFoundry shows your TikTok nickname, never pre-selects a privacy option,
 leaves comments, duets and stitches off unless you allow them (and greys them out if your account disables them),
@@ -211,7 +243,7 @@ if you started it with `--host 0.0.0.0`.
 
 ## Performance statistics
 
-After publishing, **Refresh numbers** (under Posts → Results for every post, or under *Real numbers* of one upload on
+After publishing, **Refresh numbers** (under Queue → Results for every post, or under *Real numbers* of one upload on
 its post page or on Prepare post) reads the real numbers of your own uploads from the official APIs:
 
 | | Views | Likes | Comments | Shares | Watch time / retention |
@@ -222,31 +254,39 @@ its post page or on Prepare post) reads the real numbers of your own uploads fro
 TikTok only reports public posts. For an inbox draft you finished in the TikTok app, paste the post's link under the
 upload on Prepare post (*Posted it in the TikTok app?*), or use **Link the post…** on a planned post's page, to track
 it. Anything a platform does not report is shown as "—" with the reason; ClipFoundry never estimates it. Every
-refresh is kept as a snapshot, and **Download data (CSV)** under Posts → Results downloads each clip's scores at
+refresh is kept as a snapshot, and **Download data (CSV)** under Queue → Results downloads each clip's scores at
 publish time next to its real results.
+
+TikTok reports nothing for posts only your followers can see, and YouTube may report little for a small private
+group. Enter what you learn yourself in **Clips → Test feedback**: a tester's answers (a first name or initials is
+enough to tell testers apart), or numbers you copy from YouTube Studio or TikTok, one by one or as a CSV file
+(previewed before anything is saved). Each entry keeps where it came from; the Brain never treats it as public
+results.
 
 ## Optional: Autopilot
 
 Autopilot is off until you turn it on. The full guide, including what the platforms allow, is in
-[docs/AUTOPILOT.md](docs/AUTOPILOT.md). The short version: press **Get started** on Home (or **Set up Autopilot** on
-the Autopilot page) and follow the three steps of the setup.
+[docs/AUTOPILOT.md](docs/AUTOPILOT.md). The short version: press **Set up ClipFoundry** on the Office (or **Set up
+Autopilot** on the Missions page) and follow the three steps of the setup.
 
 1. **Add your videos**: **Open videos folder** and put videos you made in it (or **Choose a video** to start with one).
 2. **Choose how to work**: *Let Autopilot do it*, and keep or change the suggested topics.
 3. **Set up posting**: **Connect YouTube** (the first time, paste your Google app's client ID and secret; see above),
    **Connect TikTok** (optional), then **Start Autopilot**.
+4. **Say who watches**: Settings → Integrations → *Who watches*, once per platform (see the README's beginner steps).
+   Nothing is uploaded before that.
 
 Autopilot then finds trending videos by itself; you do not add sources, feeds or rules. It asks you (under
 **Needs you**) only when it must: whether you have permission to use a strong video, for the original file of a
-YouTube-hosted video you said yes to, and to approve posts (both platforms require your approval of each post;
-approved posts are published at their time). Your own videos can be added any time: put them in your videos folder,
-or use *Add…* under Autopilot → Permissions & sources. Everything technical is on the Autopilot page (sources and
+YouTube-hosted video you said yes to, and to approve posts where required (YouTube can use your explicit standing permission;
+TikTok still needs consent on each post; approved posts upload at their time). Your own videos can be added any time: put them in your videos folder,
+or use *Add…* under Missions → Permissions & sources. Everything technical is on the Missions page (sources and
 permission rules under **Permissions & sources**; jobs, quota and workers under **Advanced**) and in Settings →
 Advanced, for example a YouTube Data API key or your project's raised daily quota (both in Settings → Advanced →
 Discovery and rights).
 
-The workers run in a separate background process that starts and stops with the app. **Stop all jobs…** on the
-Autopilot page (under *Pause or stop everything*) halts everything until you press **Resume jobs**. GPU transcription
+The workers run in a separate background process that starts and stops with the app. **Stop all** in the Office's
+bottom bar (or **Stop all jobs…** on the Missions page) halts everything until you start again. GPU transcription
 is unchanged: Autopilot uses the same CUDA path and runs one heavy GPU job at a time.
 
 For the Google OAuth consent screen (production) and the TikTok developer app you need public **Terms of Service** and
@@ -264,7 +304,7 @@ data\projects\<id>\            source video, transcript, candidates, rendered cl
 data\models\<model>\           downloaded Whisper models, one verified folder each (e.g. large-v3-turbo)
 ```
 
-To back up, copy the `data` folder. Deleting a video in the Library (*Delete video and clips…*) removes its folder.
+To back up, close ClipFoundry and copy the `data` folder. Deleting a video in Clips (*Delete video and clips…*) removes its folder.
 
 ## Updating
 
@@ -290,7 +330,7 @@ With the ZIP (https://github.com/landryschreiner33-coder/ClipForge-AI./archive/r
 6. Move `data`, `.venv` and `tools` (if they exist) from `ClipFoundry-old` into the new `ClipFoundry` folder. Keeping
    `.venv` at the same path keeps your working CUDA setup; nothing is downloaded again.
 7. Start `start.bat`. It reinstalls packages only when `requirements.txt` or `requirements-gpu.txt` changed. Check that
-   your videos are in the Library and your accounts are still connected (Settings → Accounts), then delete
+   your videos are in Clips and your accounts are still connected (Settings → Accounts), then delete
    `ClipFoundry-old`.
 
 Account connections are encrypted for your Windows user on this PC, so they keep working only in the same Windows

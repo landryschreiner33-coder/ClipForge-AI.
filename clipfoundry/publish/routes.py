@@ -1,14 +1,15 @@
 """REST endpoints for accounts and publishing. Every publish needs an explicit confirmation from the publish screen."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from .. import db, learning, secure
-from . import jobs, stats, tiktok, youtube
+from .. import config, db, learning, secure
+from . import audience, jobs, stats, tiktok, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
 
@@ -26,7 +27,8 @@ def _youtube_state(settings: dict) -> dict:
         "scopes": acc.get("scopes") or [], "connected_at": acc.get("connected_at"),
         "analytics": youtube.SCOPES[2] in (acc.get("scopes") or []),
         "verified": bool(settings.get("youtube_project_verified")),
-        "restriction": "" if settings.get("youtube_project_verified") else youtube.UNVERIFIED_NOTE,
+        # Kept as owner-reported audit information; current YouTube docs allow Public without an API audit.
+        "restriction": "",
         "setup": youtube.SETUP_FIX, "testing_note": youtube.TESTING_NOTE,
     }
 
@@ -142,6 +144,7 @@ class PublishBody(BaseModel):
     brand_organic: bool = False    # "Your brand"
     brand_content: bool = False    # "Branded content" (paid partnership)
     confirm: bool = False
+    expected_account_id: str = ""
 
 
 def _video_for(clip: dict) -> tuple[str, dict | None]:
@@ -167,18 +170,33 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if not clip:
         raise HTTPException(404, "Clip not found")
     video_path, version = _video_for(clip)
-    if any(p["status"] in jobs.ACTIVE for p in db.list_publications(clip_id, platform)):
+    publications = db.list_publications(clip_id, platform)
+    if any(jobs.unknown_outcome(p) for p in publications):
+        raise HTTPException(409, "An earlier upload's outcome is unknown. Check it in YouTube Studio and use "
+                                 "Refresh status before starting another upload.")
+    if any(p["status"] in jobs.ACTIVE for p in publications):
         raise HTTPException(409, "This clip is already being uploaded to this platform.")
     settings = db.get_settings()
-    options: dict = {}
+    current_account = (db.get_account(platform) or {}).get("account_id") or ""
+    if body.expected_account_id and body.expected_account_id != current_account:
+        raise HTTPException(409, "Another account is connected now. Review the destination and publish again")
+    if settings.get("autopilot_publishing_paused"):
+        raise PublishError("Publishing is paused, so nothing new is uploaded.",
+                           "Resume publishing in the Office (bottom bar), then publish again.", "paused")
+    jobs.manual_eligibility(clip, platform, video_path, (version or {}).get("id", ""), settings)
+    from ..pipeline import artifact
+
+    options: dict = {"approved_account": current_account}
+    options["approved_video_sha256"] = artifact.sha256_file(video_path)
     if platform == "youtube":
         if not (db.get_account("youtube") or {}).get("has_tokens"):
             raise PublishError("YouTube is not connected.", "Click Connect YouTube first.", "not_connected")
         if body.made_for_kids is None:
             raise PublishError("Say whether this video is made for kids.",
                                "YouTube requires this answer (COPPA). Choose Yes or No on the publish screen.")
+        stamp = audience.check("youtube", body.privacy, settings)
         youtube.video_body(body.title, body.description, body.tags, body.privacy, body.made_for_kids,
-                           settings.get("youtube_category_id") or "22")  # validate before queueing
+                           settings.get("youtube_category_id") or "22", audience_intent=stamp["intent"])
         options["made_for_kids"] = body.made_for_kids
     mode = "direct"
     if platform == "tiktok":
@@ -191,18 +209,20 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
             raise PublishError(f"ClipFoundry does not have TikTok's {needed} permission.",
                                "Use the other posting option, or add the Content Posting API to your TikTok app and "
                                "connect again.", "scope")
-        options = {k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
-                                                 "brand_organic", "brand_content")}
+        options.update({k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",
+                                                    "brand_organic", "brand_content")})
         options["duration"] = float((version or clip).get("duration") or 0)
         if not body.disclose:
             options["brand_organic"] = options["brand_content"] = False
         info = tiktok.creator_info(tiktok.Token(settings)) if mode == "direct" else None
         tiktok.validate(body.description, body.privacy, options, mode, settings, info, options["duration"])
+        stamp = audience.check("tiktok", body.privacy, settings, mode=mode, creator=info)
     pub = db.create_publication(
         clip_id, platform, project_id=clip["project_id"], mode=mode, status="queued", message="Waiting to upload",
         title=body.title.strip(), description=body.description.strip(), tags=body.tags,
         requested_privacy=body.privacy, video_path=video_path, version_id=(version or {}).get("id", ""),
-        options=options, features=jobs.feature_snapshot(clip, version))
+        options=options, features=jobs.feature_snapshot(clip, version), audience=stamp,
+        delivery={"transfer": "not_started"})
     jobs.worker.submit(pub["id"])
     return pub
 
@@ -276,8 +296,80 @@ def link_tiktok_post(pub_id: str, body: LinkBody) -> dict:
     post_id = m.group(1)
     username = (pub.get("info") or {}).get("username", "")
     url = body.url.strip() if body.url.strip().startswith("http") else tiktok.post_url(username, post_id)
-    db.update_publication(pub_id, url=url, info={**(pub.get("info") or {}), "post_ids": [post_id], "linked": True})
+    delivery = dict(pub.get("delivery") or {})
+    if delivery.get("audience_setup") == "manual_pending":  # you posted it yourself and said for whom
+        delivery.update(audience_setup="manual_confirmed", audience_evidence="user", confirmed_at=time.time())
+    db.update_publication(pub_id, url=url, info={**(pub.get("info") or {}), "post_ids": [post_id], "linked": True},
+                          delivery=delivery)
     return refresh_stats(pub_id)
+
+
+@router.post("/api/publications/{pub_id}/audience-confirmed", dependencies=[Depends(app_request)])
+def confirm_publication_audience(pub_id: str) -> dict:
+    """You shared this private YouTube video with your invited viewers in YouTube Studio (your word, not verified:
+    YouTube's API does not report invitations)."""
+    pub = _pub_or_404(pub_id)
+    if pub["status"] != "done":
+        raise HTTPException(409, "This video is not uploaded yet")
+    delivery = {**(pub.get("delivery") or {}), "audience_setup": "user_confirmed", "audience_evidence": "user",
+                "confirmed_at": time.time()}
+    db.update_publication(pub_id, delivery=delivery)
+    return db.get_publication(pub_id) or pub
+
+
+# ------------------------------------------------------------------ who watches (publish/audience.py)
+@router.get("/api/audience", dependencies=[Depends(local_only)])
+def audience_view() -> dict:
+    settings = db.get_settings()
+    out = audience.view(settings)
+    for platform in PLATFORMS:
+        out[platform]["halted"] = audience.halted(platform)
+    return out
+
+
+class AudienceBody(BaseModel):
+    intent: str = "selected"        # selected | owner_only | local_only | public
+    group: str = ""                 # TikTok: followers | friends
+    confirm: bool = False           # "I understand how this audience works" (needed before any upload)
+    group_changed: bool = False     # the people in the test group changed: older approvals no longer apply
+
+
+@router.post("/api/audience/{platform}", dependencies=[Depends(app_request)])
+def audience_set(platform: str, body: AudienceBody) -> dict:
+    if platform not in PLATFORMS:
+        raise HTTPException(404, "Unknown platform")
+    if body.intent not in config.AUDIENCE_INTENTS:
+        raise HTTPException(400, "Choose Public audience, selected viewers, only you, or keep clips on this PC")
+    settings = db.get_settings()
+    changes: dict = {f"audience_{platform}": body.intent}
+    if platform == "tiktok" and body.group:
+        if body.group not in audience.TIKTOK_GROUPS:
+            raise HTTPException(400, "Choose followers or friends")
+        changes["audience_tiktok_group"] = body.group
+    before = audience.destination(platform, settings)
+    group_moved = body.group_changed or (platform == "tiktok" and body.group and body.group != before["group"]) or \
+        body.intent != settings.get(f"audience_{platform}", "selected")
+    if group_moved:
+        changes[f"audience_{platform}_group_version"] = before["group_version"] + 1
+    changes[f"audience_{platform}_confirmed_at"] = time.time() if body.confirm and body.intent != "local_only" else 0.0
+    db.save_settings(changes)
+    from ..autopilot import state
+
+    state.event("audience_set", f"{platform.title()}: who watches set to “"
+                f"{audience.destination(platform, db.get_settings())['label']}”"
+                + (" (confirmed)" if body.confirm else " (not confirmed yet: nothing uploads)"))
+    if body.confirm:
+        state.resolve(f"audience_setup:{platform}")
+    return audience_view()
+
+
+@router.post("/api/audience/{platform}/checked", dependencies=[Depends(app_request)])
+def audience_checked(platform: str) -> dict:
+    """You looked at the video an audience incident named and set it right on the platform."""
+    if platform not in PLATFORMS:
+        raise HTTPException(404, "Unknown platform")
+    audience.clear_incident(platform)
+    return audience_view()
 
 
 @router.post("/api/performance/refresh", dependencies=[Depends(app_request)])
@@ -304,7 +396,8 @@ def performance_overview() -> dict:
         clip = db.get_clip(p["clip_id"]) or {}
         items.append({"id": p["id"], "clip_id": p["clip_id"], "platform": p["platform"], "title": p["title"] or
                       clip.get("title", ""), "privacy": p.get("privacy") or p["requested_privacy"], "url": p["url"],
-                      "created_at": p["created_at"], "viral_potential": (p.get("features") or {}).get("viral_potential"),
+                      "created_at": p["created_at"],
+                      "viral_potential": (p.get("features") or {}).get("viral_potential"),
                       "stats": latest.get(p["id"])})
     return {"published": len(pubs), "with_stats": sum(1 for p in pubs if p["id"] in latest), "totals": totals,
             "last_refreshed": last, "items": items, "check": learning.ranking_check(settings=settings),

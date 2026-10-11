@@ -17,8 +17,8 @@ async function readyClip(request: Parameters<typeof getJson>[0]) {
 }
 
 test("the library lists every video", async ({ page, request }) => {
-  await page.goto("/#/library");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Library");
+  await page.goto("/#/clips");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Clips");
   await expect(async () => {
     const projects = await getJson<any[]>(request, "/api/projects");
     if (projects.length === 0) {
@@ -35,7 +35,7 @@ test("the name filter and the chips only filter the page", async ({ page, reques
   const projects = await getJson<any[]>(request, "/api/projects");
   test.skip(projects.length === 0, "the library is empty");
 
-  await page.goto("/#/library");
+  await page.goto("/#/clips");
   await expect(page.locator(".grid-cards .pcard").first()).toBeVisible();
   const all = await page.locator(".grid-cards .pcard").count();
   await page.getByLabel("Find a video by name").fill("zz-e2e no video has this name zz");
@@ -56,7 +56,7 @@ test("Delete asks first, and nothing is deleted when you cancel", async ({ page,
   const idle = projects.find((p) => !BUSY.includes(p.status));
   test.skip(!idle, "no video that can be deleted");
 
-  await page.goto("/#/library");
+  await page.goto("/#/clips");
   await card(page, idle.id).getByRole("button", { name: `More for ${idle.name}` }).click();
   await page.getByRole("menuitem", { name: /Delete video and clips/ }).click();
   const dialog = page.getByRole("dialog");
@@ -64,7 +64,7 @@ test("Delete asks first, and nothing is deleted when you cancel", async ({ page,
   await expect(dialog.getByRole("button", { name: /^Delete video/ })).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/library$/);
+  await expect(page).toHaveURL(/#\/clips$/);
   expect((await getJson<any[]>(request, "/api/projects")).some((p) => p.id === idle.id)).toBe(true);
 });
 
@@ -73,12 +73,12 @@ test("a video opens from the library", async ({ page, request }) => {
   test.skip(projects.length === 0, "the library is empty");
   const p = projects[0];
 
-  await page.goto("/#/library");
+  await page.goto("/#/clips");
   await card(page, p.id).getByRole("link", { name: p.name }).click();
   await expect(page).toHaveURL(new RegExp(`#/project/${p.id}$`));
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(p.name);
   await expect(page.locator(".page-head .kind-label")).toHaveText("Source video");
-  await expect(page.getByRole("link", { name: /^Library$/ }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Clips$/ }).first()).toBeVisible();
 });
 
 test("Make clips again asks first and can be canceled", async ({ page, request }) => {
@@ -100,9 +100,9 @@ test("a clip opens in the editor, and leaving with an unsaved change asks first"
   const clip = await readyClip(request);
   test.skip(!clip, "no ready clip in the library");
 
-  // Arrive from the Library so Back has somewhere to go.
-  await page.goto("/#/library");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Library");
+  // Arrive from Clips so Back has somewhere to go.
+  await page.goto("/#/clips");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Clips");
   await page.evaluate((id) => { window.location.hash = `#/clip/${id}`; }, clip.id);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(clip.title);
   const save = page.getByRole("button", { name: "Save", exact: true });
@@ -132,10 +132,10 @@ test("a clip opens in the editor, and leaving with an unsaved change asks first"
   await expect(page.locator(".savebar")).toContainText("Unsaved changes: Layout");
 
   // A link asks too; Discard and leave forgets the change without saving anything.
-  await page.getByRole("navigation").getByRole("link", { name: /^Library$/ }).first().click();
+  await page.getByRole("navigation").getByRole("link", { name: /^Clips$/ }).first().click();
   await expect(dialog).toContainText("Leave without saving?");
   await dialog.getByRole("button", { name: "Discard and leave" }).click();
-  await expect(page).toHaveURL(/#\/library$/);
+  await expect(page).toHaveURL(/#\/clips$/);
 });
 
 test("an unknown video or clip shows a message instead of crashing", async ({ page }) => {

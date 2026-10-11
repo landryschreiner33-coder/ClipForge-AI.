@@ -20,11 +20,12 @@ from pathlib import Path
 from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
 from ..media_import import MediaUnavailable
-from ..pipeline import blueprint, cuda, fingerprint, process, transcribe
+from ..office import feed
+from ..pipeline import blueprint, cuda, fingerprint, process, render, transcribe
 from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
 from ..publish.common import client, retry_after, wait_text
-from . import access, queue, rights, state
+from . import access, brain, queue, rights, state
 from .host import Job, handler
 
 POOL_SIZE = 60
@@ -52,8 +53,14 @@ def gpu_failed(exc: transcribe.GpuTranscriptionFailed, what: str) -> queue.Wait:
 
 
 def project_options(settings: dict) -> dict:
-    return {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
+    opts = {"clip_count": int(settings.get("autopilot_clips_per_source") or 5), "deep_analysis": True,
             "pool_size": POOL_SIZE, "min_quality": float(settings.get("autopilot_min_quality") or 0)}
+    learned = brain.clip_length(settings)  # the Brain's clip length, when your selected viewers' results changed it
+    if learned:
+        opts["target_duration"] = learned["target_duration"]
+        opts["strategy"] = {brain.STRATEGY: {"id": learned["id"], "used": learned["used"],
+                                             "target_duration": learned["target_duration"]}}
+    return opts
 
 
 # ------------------------------------------------------------------ media
@@ -73,6 +80,18 @@ def max_source_bytes(settings: dict) -> int:
     return int(float(settings.get("autopilot_max_source_gb") or 8) * 1e9)
 
 
+def require_disk_space(path: Path, expected_bytes: int = 0) -> None:
+    """Leave room for SQLite, saved checkpoints and the OS without deleting any owner media."""
+    need = max(0, expected_bytes) + MIN_FREE_DISK
+    free = shutil.disk_usage(path).free
+    if free < need:
+        state.action("disk:space", "disk", "Autopilot is waiting for free disk space",
+                     f"{free / 1e9:.1f} GB free; this operation needs {need / 1e9:.1f} GB including a reserve.",
+                     "Free up space on the drive of the data folder (Settings → System). Saved recordings "
+                     "and clips are kept; work continues when there is space.", level="warning")
+        raise queue.Wait("disk", 1800, "Waiting for free disk space; saved work is kept")
+
+
 def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: dict) -> None:
     """A direct media link, checked against private/local addresses on every redirect and bounded in size."""
     def accept(r) -> None:
@@ -85,13 +104,8 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
         if not kind.startswith(("video/", "application/octet-stream", "binary/", "application/ogg")):
             raise queue.Fail(f"The URL is not a video file ({kind or 'unknown type'})",
                              "Use a direct link to the video file, or add the file itself.")
-        need = int(r.headers.get("content-length") or 0) + MIN_FREE_DISK
-        free = shutil.disk_usage(dst.parent).free
-        if free < need:
-            state.action("disk:space", "disk", "Not enough free disk space for Autopilot downloads",
-                         f"{free / 1e9:.1f} GB free; this source needs {need / 1e9:.1f} GB including a reserve.",
-                         "Free up space on the drive of the data folder (Settings → System).", level="warning")
-            raise queue.Wait("disk", 1800, "Waiting for free disk space")
+        declared = int(r.headers.get("content-length") or 0)
+        require_disk_space(dst.parent, declared or max_source_bytes(settings))
 
     def progress(done: int, total: int) -> None:
         if total:
@@ -101,7 +115,8 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
         with client(120) as c:
             netguard.download(c, url, dst, allow_private=rights.url_typed_by_user(src),
                               max_bytes=max_source_bytes(settings), accept=accept, progress=progress,
-                              cancelled=ctx.cancelled)
+                              cancelled=ctx.cancelled,
+                              before_write=lambda size: require_disk_space(dst.parent, size))
     except netguard.UnsafeUrl as exc:
         raise queue.Fail(f"Not downloaded: {exc}", "Use a direct link to a video on the internet, or add the file "
                                                    "itself.") from exc
@@ -159,9 +174,25 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
             try:  # the existing importer (no logins, cookies or DRM), with Autopilot's size and length limits
                 download_url(project["id"], found["url"], ctx, max_bytes=max_source_bytes(settings),
                              max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
-            except (DownloadRefused, MediaUnavailable) as exc:
+            except DownloadRefused as exc:
+                db.update("sources", src["id"], access=access.unavailable(src, found, exc))
+                if getattr(exc, "code", "") == "disk_space":  # this PC's disk, not the video: wait for space
+                    state.action("disk:space", "disk", "Not enough free disk space for Autopilot downloads", str(exc),
+                                 "Free up space on the drive of the data folder (Settings → System).",
+                                 level="warning")
+                    raise queue.Wait("disk", 1800, "Waiting for free disk space") from exc
                 raise queue.Fail(str(exc), "Raise the limits in Settings → Autopilot, or add a shorter source.") \
                     from exc
+            except MediaUnavailable as exc:  # a login, a download restriction or a protected player: never bypassed
+                # the source keeps what discovery found; its access record says why (MEDIA_ACCESS_UNAVAILABLE)
+                db.update("sources", src["id"], access=access.unavailable(src, found, exc))
+                if getattr(exc, "retry_after", None) is not None:  # the website named its wait: not sooner
+                    raise queue.Wait("server", exc.retry_after, f"{exc} Trying again in "
+                                                                f"{wait_text(exc.retry_after)}.") from exc
+                if getattr(exc, "temporary", False):  # a busy website or a network problem: the usual retries
+                    raise queue.Retry(str(exc), exc.fix) from exc
+                raise queue.Fail(str(exc), "Autopilot goes on with other videos. If you have a copy of this video, "
+                                           "add the file in Clips → Add video.") from exc
             write_provenance(pdir, src, found, settings)
             return db.get_project(project["id"]) or project
         write_provenance(pdir, src, found, settings)
@@ -179,12 +210,20 @@ def check_length(project: dict, settings: dict) -> None:
     """Autopilot processes sources up to the configured length (transcribing and analyzing costs grow with it)."""
     limit = 60.0 * float(settings.get("autopilot_max_source_minutes") or 240)
     try:
-        duration = float(probe(project["source_path"])["duration"] or 0)
+        meta = probe(project["source_path"])
+        duration = float(meta["duration"] or 0)
     except FFmpegError as exc:
         raise queue.Fail(f"The source video cannot be read: {exc}", "Add another copy of the file.") from exc
     if duration > limit:
         raise queue.Fail(f"The source is {duration / 60:.0f} min long; Autopilot processes sources up to "
                          f"{limit / 60:.0f} min", "Raise the limit in Settings → Autopilot, or clip it by hand.")
+    if project.get("id"):
+        db.update_project(project["id"], info={**(project.get("info") or {}), **meta})
+    imported = (project.get("options") or {}).get("transcript_file")
+    if not meta.get("has_audio") and not (imported and Path(imported).is_file()):
+        raise queue.Fail("This source has video but no audio track; speech transcription and spoken-clip "
+                         "selection cannot run.", "Add a recording with sound, or use manual clipping with an "
+                         "imported transcript. The video stays on this PC.")
 
 
 # ------------------------------------------------------------------ Clip Hunter
@@ -241,7 +280,15 @@ def hunt_source(job: Job) -> dict:
         return {"skipped": True, "message": "Canceled by you"}
     r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
     if not rights.local_allowed(src, r, settings):
+        feed.decide("source", "rejected", ("source", src["id"]), f"Not processed: {r['label']} ({r['basis']})",
+                    job_id=job.id, reported_by="gavel", once=True, rights=r["label"])
         return _not_used(src, r)
+    # source checkpoint: the cheap evidence available now authorizes bounded processing (clips are judged later)
+    score = src.get("source_score")
+    feed.decide("source", "approved", ("source", src["id"]), "Use this video: " + r["label"] + (
+        f"; source score {round(float(score))} (an estimate)" if score is not None else ""), job_id=job.id,
+        reported_by="vector", once=True, rights=r["label"], source_score=score, platform=src.get("platform"),
+        title=(src.get("title") or "")[:120])
     db.update("sources", src["id"], status="ingesting", status_note="Getting the video")
     ctx = job.pipeline_ctx(0.0, 1.0)
     try:
@@ -262,13 +309,25 @@ def hunt_source(job: Job) -> dict:
     state.resolve("gpu:strict")
     if p is None:
         raise queue.Fail("The project could not be prepared")
+    from .scout import transcript_reason
+
+    unsuitable = transcript_reason(src, p.info.get("language") or "", settings)
+    if unsuitable:
+        db.update("sources", src["id"], status="weak", error="", status_note=unsuitable)
+        db.update_project(p.id, status="ready", message=unsuitable)
+        from . import scout
+
+        scout.refill(src)
+        return {"project_id": p.id, "candidates": 0, "skipped": True, "message": unsuitable}
+    job.progress(0.5, "Finding complete moments", stage="candidates")
     cands = process.candidate_pool(p, ctx)
     p.save_info()
     db.execute("DELETE FROM clip_candidates WHERE project_id = ?", (p.id,))
     for c in cands:
         db.insert("clip_candidates", {"project_id": p.id, "source_id": src["id"], "start": c["start"],
                                       "end": c["end"], "s0": c.get("s0", -1), "s1": c.get("s1", -1), "stage": "pool",
-                                      "stage1": round(float(c.get("stage1", 0)), 4), "text": (c.get("text") or "")[:500],
+                                      "stage1": round(float(c.get("stage1", 0)), 4),
+                                      "text": (c.get("text") or "")[:500],
                                       "id": f"{p.id}-{c['cid']}"})
     db.update("sources", src["id"], status="analyzing", candidates_found=len(cands), duration=p.meta.get("duration"),
               status_note=f"{len(cands)} candidate moments found; waiting for the analyzer")
@@ -324,6 +383,24 @@ def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source
     return ok
 
 
+def screen_stories(p: process.Prepared, chosen: list[dict], settings: dict) -> list[dict]:
+    """Reuse the transcript analysis already paid for; save why incomplete stories were declined."""
+    from .scout import clip_reason
+
+    kept, declined = [], []
+    for candidate in chosen:
+        reason = clip_reason(candidate, settings)
+        if reason:
+            declined.append({"cid": candidate.get("cid"), "start": candidate.get("start"),
+                             "end": candidate.get("end"), "reason": reason})
+        else:
+            kept.append(candidate)
+    if declined:
+        p.info["story_screen"] = {"kept": len(kept), "declined": declined, "method": "transcript heuristic"}
+        p.save_info()
+    return kept
+
+
 def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict) -> None:
     """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
     The durable selection and stable clip IDs let this handler resume only the remaining renders."""
@@ -340,7 +417,17 @@ def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobC
         lo, hi = 0.6 + 0.35 * index / total, 0.6 + 0.35 * (index + 1) / total
         step = f"Making clip {index + 1} of {len(planned)}"
         job.progress(lo, step, stage="render")
-        sub = JobContext(lambda fraction, message, step=step: ctx.progress(fraction, step), ctx.cancelled)
+
+        current_stage = ["render"]
+
+        def report(fraction: float, message: str, step: str = step) -> None:
+            stage = "captions" if message == render.CAPTIONS_STEP else "render" if message == render.FRAMES_STEP \
+                else current_stage[0]
+            if stage != current_stage[0]:  # the Caption Agent's part of the render, then back to the frames
+                current_stage[0] = stage
+                job.progress(None, step, stage=stage)
+            ctx.progress(fraction, step)
+        sub = JobContext(report, ctx.cancelled)
         process.render_clips(p, [current], sub, lo=lo, hi_total=hi)
 
 
@@ -367,12 +454,24 @@ def analyze_source(job: Job) -> dict:
     chosen = read_json(selection_path, None)
     if chosen is None:
         chosen = process.evaluate_select(p, cands, ctx, trend_keywords=trend_kw, prior=prior_fingerprints(p.id))
+        chosen = screen_stories(p, chosen, settings)
         write_json(selection_path, chosen)  # resume this exact selection after an interrupted render
     for c in p.info.get("candidates", []):
         db.update("clip_candidates", f"{p.id}-{c['cid']}", stage=c["stage"], score=c["score"], rejected=c["reasons"])
-    job.progress(0.6, f"Rendering {len(chosen)} clip(s)", stage="render")
+    job.progress(0.55, f"Checking the story of {len(chosen)} moment(s)", stage="plan")
     rows = process.create_clips(p, chosen, ctx, durable=True)
     planned = plan_clips(p, rows, chosen, src["id"])
+    kept = {c["id"] for c in planned}
+    for row, r in zip(rows, chosen):  # clip checkpoint: after transcription and moment finding, never before
+        if row["id"] in kept:
+            feed.decide("clip", "approved", ("clip", row["id"]), f"Keep this moment (score {round(r['score'])}, "
+                        "an estimate)", job_id=job.id, reported_by="frame", once=True, source_id=src["id"],
+                        start=row.get("start"), end=row.get("end"), estimate=r.get("score"))
+        else:
+            current = db.get_clip(row["id"]) or row
+            feed.decide("clip", "rejected", ("clip", row["id"]), (current.get("error") or "Plan rejected")[:300],
+                        job_id=job.id, reported_by="story", once=True, source_id=src["id"])
+    job.progress(0.6, f"Rendering {len(planned)} clip(s)", stage="render")
     for row, r in zip(rows, chosen):
         d = r.get("deep") or {}
         db.update("clip_candidates", f"{p.id}-{r['cid']}", clip_id=row["id"])

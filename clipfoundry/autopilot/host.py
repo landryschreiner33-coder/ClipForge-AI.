@@ -6,6 +6,7 @@ SQLite queue, so the app, the host and a restarted host always agree on what is 
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import subprocess
@@ -13,6 +14,8 @@ import sys
 import threading
 import time
 import traceback
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Callable
 
 from .. import awake, config, db, locks
@@ -24,6 +27,9 @@ MANUAL_PRIORITY = 100          # jobs started by a user action run even while Au
 POLL_SECONDS = 2.0
 HEARTBEAT_SECONDS = 15.0
 APP_HEARTBEAT_STALE = 60.0     # a managed worker process exits when the app stops beating for this long
+LOG_MAX_BYTES = 5 * 1024 * 1024  # data/logs/workers.log: 5 MB, then it moves to workers.log.1 (and .2, .3)
+LOG_BACKUPS = 3
+LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"  # the console format of setup_logging() in __main__.py
 
 Handler = Callable[["Job"], "dict | None"]
 HANDLERS: dict[str, Handler] = {}
@@ -65,8 +71,8 @@ class Job:
         now = time.monotonic()
         if force or stage is not None or now - self._last_progress >= 0.5 or (fraction or 0) >= 1.0:
             self._last_progress = now
-            queue.progress(self.id, fraction, message, stage)
-            if self.host and (message or stage):
+            accepted = queue.progress(self.id, fraction, message, stage, owner=self.owner)
+            if accepted and self.host and (message or stage):
                 self.host.set_state(self.worker, "working", self, stage=stage, message=message)
 
     def log(self, event: str, message: str = "", level: str = "info", **data: object) -> None:
@@ -145,22 +151,42 @@ class WorkerHost:
         if not self.host_lock.acquire(timeout=wait_for_lock):
             log.info("Another ClipFoundry worker host is running; not starting a second one")
             return False
+        self._stop.clear()
+        self._threads = []
         self.started = True
-        db.init()
-        queue.recover()
-        from . import gate
+        try:
+            db.init()
+            queue.recover()
+            from . import gate
 
-        gate.recover_regenerations()
-        for name in self.names:
-            self.set_state(name, "idle", message="Ready")
-            t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
-            t.start()
+            gate.recover_regenerations()
+            for name in self.names:
+                self.set_state(name, "idle", message="Ready")
+                t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
+                self._threads.append(t)
+                t.start()
+            t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
             self._threads.append(t)
-        t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
-        t.start()
-        self._threads.append(t)
-        state.event("host_started", f"Workers started ({'separate process' if self.managed else 'in the app'})",
-                    pid=os.getpid())
+            t.start()
+            state.event("host_started", f"Workers started ({'separate process' if self.managed else 'in the app'})",
+                        pid=os.getpid())
+        except BaseException:
+            # Initialization can fail after some workers began acting. Permit a retry, but keep the lock until
+            # those workers finish so a temporary database/thread-start failure cannot cause duplicate work.
+            self._stop.set()
+            for ev in self._wake.values():
+                ev.set()
+            with self._lock:
+                for job in self._running.values():
+                    job.cancel_event.set()
+            try:
+                from . import live
+
+                live.stop_captures(self)
+            except Exception:  # noqa: BLE001 - preserve the initialization error and still release safely
+                log.exception("could not stop captures after worker initialization failed")
+            self._release_when_stopped()
+            raise
         return True
 
     def stop(self, timeout: float = 10.0) -> None:
@@ -176,10 +202,17 @@ class WorkerHost:
             for job in self._running.values():
                 job.cancel_event.set()
         deadline = time.monotonic() + timeout
-        for t in self._threads:
-            t.join(timeout=max(0.1, deadline - time.monotonic()))
-        for name in self.names:
-            self.set_state(name, "idle", message="Stopped")
+        try:
+            for t in self._threads:
+                if t.ident is not None:
+                    t.join(timeout=max(0.1, deadline - time.monotonic()))
+            for name in self.names:
+                self.set_state(name, "idle", message="Stopped")
+        finally:
+            self._release_when_stopped()
+
+    def _release_when_stopped(self) -> None:
+        self.started = False
         alive = [t for t in self._threads if t.is_alive()]
         if alive:
             # A job that has not reached its next safe point may still act (an upload, a render): no other host
@@ -192,10 +225,13 @@ class WorkerHost:
                     t.join()
                 self.host_lock.release()
 
-            threading.Thread(target=release_when_done, daemon=True, name="cf-worker-release").start()
+            try:
+                threading.Thread(target=release_when_done, daemon=True, name="cf-worker-release").start()
+            except RuntimeError:  # exhausted thread resources can also be the original startup failure
+                log.warning("Cannot start the lock-release thread; waiting for workers on the stopping thread")
+                release_when_done()
         else:
             self.host_lock.release()
-        self.started = False
 
     def wake(self, worker: str | None = None) -> None:
         for name, ev in self._wake.items():
@@ -265,7 +301,8 @@ class WorkerHost:
 
     def _claim(self, name: str, min_priority: int) -> dict | None:
         # Autopilot off: min_priority limits the claim to jobs a user started by hand, inside the claim itself
-        return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None)
+        return queue.claim(name, self._token(name), min_priority=min_priority if min_priority > 0 else None,
+                           manual_priority=MANUAL_PRIORITY)
 
     def _idle(self, name: str, message: str) -> None:
         row = db.fetch("worker_state", name, "name") or {}
@@ -281,11 +318,11 @@ class WorkerHost:
     def _run(self, name: str, row: dict) -> None:
         token = row["lease_owner"]
         job = Job(row, token, self)
-        with self._lock:
-            self._running[job.id] = job
-        self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
-        fn = HANDLERS.get(row["kind"])
         try:
+            with self._lock:
+                self._running[job.id] = job
+            self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
+            fn = HANDLERS.get(row["kind"])
             if fn is None:
                 raise queue.Fail(f"No handler for job kind {row['kind']}")
             result = fn(job) or {}
@@ -437,8 +474,12 @@ class Supervisor:
     def _spawn(self) -> bool:
         log_dir = config.data_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        # The worker writes its log itself (workers.log, size-bounded). Its raw output (a crash before logging
+        # starts, messages of native libraries) goes to a second file, cut back here at every start.
+        console = log_dir / "workers-console.log"
+        _cut_back(console)
         try:
-            out = open(log_dir / "workers.log", "ab")  # noqa: SIM115 - handed to the child process
+            out = open(console, "ab")  # noqa: SIM115 - handed to the child process
             flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             self.proc = subprocess.Popen([sys.executable, "-m", "clipfoundry", "workers", "--managed"],
                                          stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -511,8 +552,50 @@ class Supervisor:
 supervisor = Supervisor()
 
 
+# ------------------------------------------------------------------ the worker log file
+class _WorkerLog(RotatingFileHandler):
+    """A size-bounded log file. When Windows refuses to rename it (another program holds it open), it keeps writing
+    and tries again with the next line, instead of losing every line to an error message."""
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except OSError:
+            if self.stream is None:
+                self.stream = self._open()
+
+
+def log_to_file(log_dir: Path) -> logging.Handler:
+    """The managed worker process logs to data/logs/workers.log, at most LOG_MAX_BYTES × (1 + LOG_BACKUPS) on disk.
+    It replaces the console handler only: levels stay as setup_logging() set them, so request addresses (which can
+    carry an API key) stay out of the file."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    fmt = next((h.formatter for h in root.handlers if h.formatter), None) or logging.Formatter(LOG_FORMAT)
+    handler = _WorkerLog(log_dir / "workers.log", maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8",
+                         delay=True)
+    handler.setFormatter(fmt)
+    for old in [h for h in root.handlers if isinstance(h, logging.StreamHandler)
+                and not isinstance(h, logging.FileHandler)]:
+        root.removeHandler(old)
+    root.addHandler(handler)
+    return handler
+
+
+def _cut_back(path: Path) -> None:
+    """Keep one older copy of a file the app hands to the worker process once it passes LOG_MAX_BYTES."""
+    try:
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            os.replace(path, path.with_name(path.name + ".1"))
+    except OSError:
+        pass  # still open elsewhere: it is cut back at the next start
+
+
 def run_worker_process(managed: bool = False) -> int:
-    """`python -m clipfoundry workers`: run the worker host until stopped."""
+    """`python -m clipfoundry workers`: run the worker host until stopped. Started by the app (managed), it writes
+    its log to data/logs/workers.log; started by hand, it logs to the terminal."""
+    if managed:
+        log_to_file(config.data_dir() / "logs")
     host = WorkerHost(managed=managed)
     if not host.start(wait_for_lock=30):
         print("Another ClipFoundry worker host is already running.")

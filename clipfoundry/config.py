@@ -23,7 +23,8 @@ CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
 SILENCE_MODES = ["off", "light", "aggressive"]
-AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic"]
+AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic", "nvidia"]
+NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
 
 
@@ -74,6 +75,20 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "openai_api_key": "",
     "anthropic_api_key": "",
     "anthropic_model": "claude-opus-5",
+    # Optional NVIDIA-hosted text AI (pipeline/nvidia.py): off by default, never required
+    "nvidia_enabled": False,
+    "nvidia_api_key": "",               # or the NVIDIA_API_KEY environment variable; sealed at rest
+    "nvidia_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia_mode": "development",       # development: catalog preview, only for work you start yourself
+    "nvidia_production_url": "",        # production: your own https endpoint whose terms allow it
+    "nvidia_opt_in_at": 0.0,            # when you agreed that approved excerpts leave this PC (0: not yet)
+    "nvidia_daily_requests": 50,
+    "nvidia_daily_tokens": 100000,
+    "nvidia_max_input_tokens": 6000,
+    "nvidia_max_output_tokens": 800,
+    "nvidia_timeout_s": 60.0,
+    "nvidia_price_per_mtok_usd": -1.0,  # -1: unknown (never shown as $0); production needs a real price
+    "nvidia_daily_spend_cap_usd": 0.0,  # 0: no paid spending allowed
     # Rendering defaults (per-clip overrides live in the clip's edit params)
     "caption_style": "bold",
     "caption_position": "bottom",      # bottom | middle | top
@@ -95,13 +110,23 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Publishing (official APIs, your own developer apps; OAuth tokens are stored separately)
     "youtube_client_id": "",
     "youtube_client_secret": "",
-    "youtube_project_verified": False,  # True once Google's YouTube API audit lifted the private-only restriction
+    "youtube_project_verified": False,  # Owner-reported API audit status; informational, not a Public upload gate
     "youtube_category_id": "22",        # People & Blogs
     "tiktok_client_key": "",
     "tiktok_client_secret": "",
     "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
     "tiktok_direct_post": True,         # request video.publish (Direct Post) when connecting
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
+    # Who may watch uploads (publish/audience.py): selected (your test viewers), owner_only (staging that only you
+    # see) or local_only (never uploaded). Nothing uploads until you confirm the destination once per platform.
+    "autopilot_publishing_paused": False,   # Pause publishing: clips are still made, nothing new is uploaded
+    "audience_youtube": "selected",
+    "audience_tiktok": "selected",
+    "audience_tiktok_group": "followers",   # followers, or friends (a narrower group, only if you choose it)
+    "audience_youtube_confirmed_at": 0.0,   # when you said how the audience works on YouTube (0 = not yet)
+    "audience_tiktok_confirmed_at": 0.0,
+    "audience_youtube_group_version": 1,    # raised when you say the people in the test group changed
+    "audience_tiktok_group_version": 1,
     # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
     "autopilot_enabled": False,
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
@@ -121,6 +146,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_replacement_cooldown_hours": 24.0,
     "autopilot_live_monitoring": True,  # authorized live sources only (the rights gate applies as always)
     "autopilot_learning": True,
+    # Brain (autopilot/brain.py): the guards on audience-driven strategy changes (section 14 of the build brief)
+    "brain_paused": False,              # keep collecting results, change no strategy
+    "brain_min_clips": 30,              # distinct mature clips in one comparable audience before any change
+    "brain_max_step": 0.10,             # largest relative change of a strategy value per accepted update
+    "brain_min_views": 10,              # a platform reading counts once a clip has this many views
+    "brain_min_testers": 3,             # ...or this many different testers rated it
     "autopilot_keep_awake": True,       # Windows: keep the PC from sleeping while Autopilot is on (screen may sleep)
     "autopilot_timezone": "America/Chicago",
     "autopilot_active_start": 9,        # local hour, inclusive
@@ -128,8 +159,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_min_gap_minutes": 45,
     "autopilot_youtube_daily_limit": 15,
     "autopilot_tiktok_daily_limit": 15,
-    "autopilot_youtube_privacy": "public",  # suggested visibility; you confirm it when approving
-    "autopilot_upload_lead_minutes": 30,    # YouTube: upload this early and let YouTube publish at the planned time
+    "autopilot_youtube_privacy": "private",  # the only YouTube visibility allowed (publish/audience.py)
+    "autopilot_upload_lead_minutes": 30,    # YouTube: upload this early (as Private: YouTube never makes it public)
     "autopilot_allow_republish": False,
     # Discovery (Trend Scout / Source Scout)
     "trend_region": "US",
@@ -138,6 +169,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                      "commentary, news, live stream, science, business, education"),
     "trend_poll_minutes": 180,          # every few hours, within the providers' quotas and your cost limit
     "trend_max_age_hours": 72,
+    "discovery_require_topic_match": True,  # broad searches need evidence in the video, not just the search query
+    "discovery_excluded_topics": "",         # comma-separated words or phrases the owner does not want
+    "discovery_audience_terms": "United States, USA, American, NBA, NFL",  # context clues, never audience demographics
+    "discovery_min_source_score": 50.0,      # never lower this estimate floor just to fill today's target
+    "discovery_require_complete_clips": True,  # transcript must contain hook, context and payoff before auto-render
     "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
     "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
     "tavily_api_key": "",               # optional web search (tavily.com): public TikTok links and originals of clips
@@ -152,7 +188,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                                             # licenses are never used automatically
     "rights_auto_public_domain": True,      # public domain or CC0, as reported by the library
     "rights_ask_per_video": False,          # off: videos nothing covers are skipped (activity log), never asked about
-    "autopilot_commercial_use": True,       # your posts count as commercial (monetized, sponsored, promoting a business)
+    "autopilot_commercial_use": True,       # your posts count as commercial (monetized, sponsored, promoting business)
     "rights_allow_remote_download": False,  # download platform-hosted sources with the URL importer
     # YouTube Data API quota of your Google Cloud project (per day, resets at midnight Pacific Time)
     "youtube_quota_default": 10000,     # units for everything except uploads and searches
@@ -169,10 +205,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key", "tavily_api_key"}
+               "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
+ACTION_ONLY_KEYS = {"nvidia_opt_in_at"}  # set only by their own button (an explicit agreement), never a settings save
 AUTOPILOT_PROCESS = ["separate", "in_app"]
-YOUTUBE_PRIVACY = ["public", "unlisted", "private"]
+YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
+AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
 
 
 def coerce_setting(key: str, value: Any) -> Any:
@@ -221,15 +259,33 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
+        elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:
+            continue
+        elif key == "audience_tiktok_group" and v not in ("followers", "friends"):
+            continue
         elif key == "autopilot_timezone" and not valid_timezone(v):
             continue
+        elif key == "nvidia_mode" and v not in NVIDIA_MODES:
+            continue
+        elif key == "nvidia_production_url" and v and not v.lower().startswith("https://"):
+            continue  # the key is only ever sent over https
         elif key == "trend_region":
             v = v.upper()[:2]
+        elif key == "trend_language":
+            v = v.strip().lower()[:20]
+        elif key in ("discovery_excluded_topics", "discovery_audience_terms"):
+            v = v[:2000]
         out[key] = v
     return out
 
 
 _RANGES: dict[str, tuple[float, float]] = {
+    "discovery_min_source_score": (0.0, 100.0),
+    "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
+    "brain_min_testers": (2, 100), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
+    "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
+    "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),
+    "nvidia_daily_spend_cap_usd": (0.0, 1000.0),
     "autopilot_daily_target": (1, 100), "autopilot_sources_per_day": (1, 30), "autopilot_clips_per_source": (1, 10),
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
     "autopilot_replacement_cooldown_hours": (0.0, 168.0),
@@ -241,6 +297,8 @@ _RANGES: dict[str, tuple[float, float]] = {
     "youtube_quota_search": (0, 100_000), "youtube_discovery_share": (0, 90),
     "youtube_search_discovery_share": (0, 100), "gpu_min_free_vram_mb": (0, 48_000), "gpu_wait_minutes": (1, 720),
     "tavily_free_credits": (0, 1_000_000), "discovery_monthly_budget_usd": (0.0, 1000.0),
+    "audience_youtube_group_version": (1, 1_000_000), "audience_tiktok_group_version": (1, 1_000_000),
+    "audience_youtube_confirmed_at": (0.0, 1e11), "audience_tiktok_confirmed_at": (0.0, 1e11),
 }
 
 

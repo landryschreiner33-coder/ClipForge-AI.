@@ -1,0 +1,364 @@
+/* Office-only shell: restrained studio surfaces keep the pixel scene in focus. */
+.office-page.office-studio {
+  --canvas: #0f1727;
+  --surface: #172134;
+  --raised: #202d43;
+  --hover: #283751;
+  --border: #344157;
+  --control-border: #8c9bb3;
+  --text: #f3f0e9;
+  --text-2: #c7cddb;
+  --text-3: #a9b5c8;
+  --primary: #e8c588;
+  --primary-hover: #f3d9ac;
+  --on-primary: #172134;
+  --primary-tint: #3c352a;
+  --focus: #7de3d2;
+  --r-panel: 14px;
+  --r-control: 7px;
+  --r-pill: 6px;
+  gap: 18px;
+  height: auto;
+  min-height: calc(100dvh - 98px);
+  padding-bottom: 8px;
+}
+
+.office-studio .studio-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  padding: 3px 2px 0;
+}
+
+.office-studio .studio-eyebrow {
+  margin: 0;
+  color: #d9ba83;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.office-studio .studio-title {
+  margin: 5px 0 4px;
+  color: var(--text);
+  font-family: var(--font-pixel);
+  font-size: clamp(23px, 2.4vw, 30px);
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: -.025em;
+}
+
+.office-studio .studio-description {
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.office-studio .studio-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.office-studio .studio-connection,
+.office-studio .studio-roster-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.office-studio .studio-connection.connected {
+  color: #96dbc8;
+  background: #182f35;
+  border-color: #335451;
+}
+
+.office-studio .studio-connection.connected .icon { color: #7de3c7; }
+.office-studio .studio-roster-count .icon { color: #d9ba83; }
+
+.office-studio .office-body {
+  flex: 1 0 auto;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  height: clamp(580px, calc(100dvh - 300px), 800px);
+}
+
+.office-studio .office-stage { gap: 12px; }
+.office-studio .office-tools { gap: 8px 10px; min-width: 0; }
+.office-studio .office-tools .spacer { min-width: 0; }
+.office-studio .office-tools .seg {
+  overflow: hidden;
+  border-color: #65748e;
+  border-radius: 8px;
+  background: #172134;
+}
+.office-studio .office-tools .seg button { min-height: 38px; font-size: 12px; padding: 0 12px; }
+.office-studio .office-tools .seg button.on {
+  color: #f1d8ab;
+  background: #323444;
+  box-shadow: inset 0 -2px 0 #d9ba83;
+}
+.office-studio .office-tools .btn { min-height: 38px; font-size: 12px; gap: 6px; }
+.office-studio .office-motion { gap: 7px; font-size: 12px; }
+.office-studio .office-motion select {
+  min-height: 38px;
+  max-width: 150px;
+  padding: 4px 25px 4px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.office-studio .office-map-frame {
+  position: relative;
+  gap: 0;
+  overflow: hidden;
+  background: #101a2b;
+  border: 1px solid #3a455c;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .16);
+}
+.office-studio .office-map {
+  background: radial-gradient(ellipse at 50% 45%, #26354a, #162236 65%, #111b2c);
+  border: 0;
+  border-radius: 0;
+}
+.office-studio .office-map-legend {
+  gap: 8px 13px;
+  padding: 12px 16px;
+  background: #182234;
+  border-top: 1px solid #344157;
+  color: #bcc6d7;
+  font-size: 10px;
+}
+.office-studio .office-map-legend > span:first-child { font-size: 11px; }
+.office-studio .robot-tag { border-radius: 3px; background: #101a2beb; }
+.office-studio .robot-hit[data-room="lounge"][data-label-row="lower"] .robot-tag {
+  margin-top: max(11px, calc(var(--s) * 13px));
+}
+.office-studio .office-map[data-camera="lounge"] .robot-tag {
+  font-size: max(9px, calc(var(--s) * 8px));
+}
+.office-studio .office-map[data-camera="lounge"] .robot-hit[data-label-row="lower"] .robot-tag {
+  margin-top: 0;
+}
+.office-studio .lounge-life-caption {
+  position: absolute;
+  right: 12px;
+  bottom: 54px;
+  z-index: 4;
+  max-width: calc(100% - 24px);
+  padding: 3px 7px;
+  border: 1px solid #6b63565c;
+  border-radius: 4px;
+  background: #142032df;
+  color: #d7c5a9;
+  font-size: 9px;
+  pointer-events: none;
+}
+.office-studio .robot-hit[data-offering="true"] .robot-tag { transform: translate(-50%, 100%); }
+.office-studio .robot-hit:focus-visible { outline-color: #7de3d2; }
+.office-studio .robot-hit[data-posture="rest"] .robot-state {
+  left: 100%;
+  top: calc(var(--s) * 7px);
+  transform: translateX(-25%);
+}
+.office-studio .brain-core-hit {
+  position: absolute;
+  z-index: 3;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #b9d9e4;
+}
+.office-studio .brain-core-hit:hover { background: rgba(125, 227, 210, .05); }
+.office-studio .brain-core-hit:focus-visible { outline: 2px solid #7de3d2; outline-offset: 2px; }
+.office-studio .brain-core-hit > span {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #132034ec;
+  font-size: max(9px, calc(var(--s) * 11px));
+  font-weight: 650;
+  white-space: nowrap;
+}
+.office-studio .brain-core-hit[data-mode="active"] > span { color: #a7f3dd; }
+.office-studio .handoff-note {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: calc(100% - 24px);
+  padding: 5px 10px;
+  color: #ead4a9;
+  background: #152338ed;
+  border: 1px solid #665b49;
+  border-radius: 6px;
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.office-studio .handoff-note[data-phase="idle"] { display: none; }
+.office-studio .office-camera { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; }
+.office-studio .office-camera select {
+  min-height: 22px;
+  height: 22px;
+  max-width: 132px;
+  padding: 1px 20px 1px 5px;
+  font-size: 10px;
+}
+.office-studio .room-sign { border-radius: 4px; background: #132034eb; }
+
+.office-studio .office-panel {
+  border: 1px solid #344157;
+  border-top: 2px solid var(--accent, #d9ba83);
+  background: linear-gradient(180deg, #1b263a, #172134 110px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .1);
+}
+.office-studio .op-head { min-height: 72px; padding: 15px 18px; gap: 8px; }
+.office-studio .studio-panel-title { display: grid; gap: 5px; min-width: 0; }
+.office-studio .studio-panel-title .studio-eyebrow { font-size: 9px; color: var(--text-3); letter-spacing: .1em; }
+.office-studio .op-head h2 { font-size: 20px; line-height: 1.15; }
+.office-studio .op-head > .pill { font-size: 10px; padding: 3px 6px; }
+.office-studio .op-head > .btn-icon { min-width: 32px; min-height: 32px; padding: 4px; }
+.office-studio .op-body {
+  gap: 22px;
+  padding: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  scrollbar-width: thin;
+  scrollbar-color: #59647c transparent;
+}
+.office-studio .op-body .small { font-size: 12px; }
+.office-studio .op-body .tiny { font-size: 11px; }
+.office-studio .op-section { gap: 9px; }
+.office-studio .op-section h3 { color: #bac4d5; font-size: 10px; letter-spacing: .09em; }
+.office-studio .op-facts { gap: 8px; padding: 12px 10px; background: #212d42; border: 1px solid #344157; border-radius: 10px; }
+.office-studio .op-facts dt { font-size: 10px; }
+.office-studio .op-facts dd { margin-top: 5px; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.office-studio .op-list li,
+.office-studio .op-activity li { font-size: 12px; padding: 9px 0; border-color: #344157; }
+.office-studio .op-chip { min-height: 36px; border-color: #44516b; font-size: 11px; background: #222e43; }
+.office-studio .op-mission { padding: 10px; background: #222e43; border-color: #43506a; border-radius: 9px; }
+.office-studio .op-callout { padding: 12px; background: #222e43; border-radius: 8px; }
+.office-studio .op-needs { padding: 12px; border-radius: 9px; }
+.office-studio .op-main { min-height: 40px; font-size: 12px; }
+.office-studio .op-portrait { padding: 8px; border-radius: 10px; }
+.office-studio .op-pair { gap: 14px; }
+.office-studio .op-pair dt { font-size: 11px; }
+.office-studio .op-progress { border-radius: 4px; }
+.office-studio .op-progress span { border-radius: 3px; }
+
+.office-studio .control-bar {
+  gap: 12px 20px;
+  padding: 14px 16px;
+  background: #172134;
+  border-color: #344157;
+  border-radius: 12px;
+}
+.office-studio .cb-title { font-size: 16px; color: #eed5aa; }
+.office-studio .control-bar .btn { min-height: 36px; font-size: 12px; }
+.office-studio .control-bar .pill { font-size: 11px; }
+.office-studio .cb-mission { flex-basis: 180px; }
+.office-studio .cb-mission .small { font-size: 12px; }
+.office-studio .cb-mission .tiny { font-size: 10px; letter-spacing: .02em; }
+.office-studio .cb-audience { flex-basis: 100%; border-top: 1px solid #344157; padding-top: 10px; }
+.office-studio .cb-audience .small { font-size: 11px; }
+.office-studio .cb-audience .icon { width: 13px; height: 13px; }
+
+.office-studio .dept-cards { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); padding-right: 2px; }
+.office-studio .dept-card { padding: 16px; border-radius: 12px; background: #192438; }
+.office-studio .dept-card h3 { margin-bottom: 14px; font-size: 16px; }
+.office-studio .dept-robot { padding: 6px; font-size: 12px; }
+
+/* Laptop height keeps the full office, details and controls together without shrinking the art. */
+@media (min-width: 1101px) and (min-height: 601px) and (max-height: 800px) {
+  .office-page.office-studio {
+    height: calc(100dvh - 80px);
+    min-height: 0;
+    gap: 6px;
+    padding-bottom: 0;
+  }
+  .office-studio .studio-heading { min-height: 32px; padding: 0 2px; gap: 8px; }
+  .office-studio .studio-heading .studio-eyebrow,
+  .office-studio .studio-description { display: none; }
+  .office-studio .studio-title { margin: 0; font-size: 23px; line-height: 1.3; }
+  .office-studio .studio-connection,
+  .office-studio .studio-roster-count { min-height: 28px; padding: 4px 9px; font-size: 11px; }
+  .office-studio .office-body {
+    flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 12px;
+    height: auto;
+    min-height: 528px;
+  }
+  .office-studio .office-stage { gap: 6px; }
+  .office-studio .office-tools { gap: 6px 8px; flex-wrap: nowrap; }
+  .office-studio .office-tools .seg button,
+  .office-studio .office-tools .btn,
+  .office-studio .office-motion select { min-height: 32px; }
+  .office-studio .office-tools .seg button { padding: 0 10px; }
+  .office-studio .office-map { min-height: 464px; }
+  .office-studio .office-map-legend { min-height: 24px; padding: 3px 12px; gap: 6px 12px; }
+  .office-studio .office-map-legend > span:first-child { font-size: 10px; }
+  .office-studio .handoff-note { bottom: 30px; }
+  .office-studio .lounge-life-caption { bottom: 30px; font-size: 8px; }
+  .office-studio .office-panel .op-head { min-height: 59px; padding: 10px 16px; }
+  .office-studio .office-panel .op-body { padding: 14px 16px; gap: 18px; }
+  .office-studio .control-bar { gap: 5px 16px; padding: 6px 12px; }
+  .office-studio .control-bar .btn { min-height: 32px; }
+  .office-studio .control-bar .pill { min-height: 24px; }
+  .office-studio .cb-title { font-size: 15px; }
+  .office-studio .cb-mission .tiny { line-height: 1.2; }
+  .office-studio .cb-mission .small {
+    display: block;
+    overflow: hidden;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .office-studio .cb-audience { padding-top: 0; border-top: 0; }
+  .office-studio .cb-audience .small { font-size: 10px; line-height: 1.3; }
+}
+
+@media (max-width: 1100px), (max-height: 600px) {
+  .office-studio .office-body { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .office-studio .office-map { aspect-ratio: 960 / 640; }
+  .office-studio .office-panel { max-height: none; }
+}
+
+@media (max-width: 760px) {
+  .office-page.office-studio { gap: 14px; min-height: 0; }
+  .office-studio .studio-heading { gap: 12px; }
+  .office-studio .studio-title { font-size: 23px; }
+  .office-studio .studio-status { gap: 7px; }
+  .office-studio .studio-connection,
+  .office-studio .studio-roster-count { font-size: 11px; }
+  .office-studio .office-tools { gap: 8px; }
+  .office-studio .office-tools .spacer { display: none; }
+  .office-studio .office-tools .seg { margin-right: auto; }
+  .office-studio .office-motion { flex-wrap: wrap; }
+  .office-studio .office-motion select { max-width: 135px; }
+  .office-studio .office-panel .op-body { padding: 16px; }
+  .office-studio .control-bar { order: 0; padding: 14px; }
+  .office-studio .cb-group { max-width: 100%; }
+  .office-studio .cb-mission { flex-basis: 100%; }
+  .office-studio .cb-group .link-btn { font-size: 12px; }
+  .office-studio .dept-cards { grid-template-columns: minmax(0, 1fr); }
+}

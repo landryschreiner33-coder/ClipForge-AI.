@@ -1,8 +1,8 @@
 # ClipFoundry browser tests (Playwright)
 
 End-to-end tests that open ClipFoundry in a real Chromium on **your own PC** and check that every page
-works: Home, Autopilot, the Library (Add video, the source video page and the clip editor), Posts and
-Settings. They also check that Autopilot and publishing refuse requests that do not come from the app itself.
+works: the Office and Team, Missions (Autopilot), Clips (Add video, the source video page, the clip editor and Test
+feedback), the Queue and Settings. They also check that Autopilot and publishing refuse requests that do not come from the app itself.
 
 They test the ClipFoundry that is **already running** on your computer, with your real data. That is why
 they are **read-only**:
@@ -58,18 +58,18 @@ computer ClipFoundry runs on, so those tests would fail.
 
 | File | Checks |
 | --- | --- |
-| `tests/app-shell.spec.ts` | Health API, the built UI is served, the sidebar reaches Home, Autopilot, Library, Posts and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/projects`, `#/publish-center/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
-| `tests/home.spec.ts` | The next step comes from the real state (Needs you, welcome, current work), the Autopilot status line, Recent videos and clips and Coming up match the API, no stats or system details, Add video |
+| `tests/app-shell.spec.ts` | Health API, the built UI is served, the top bar reaches Office, Missions, Clips, Queue and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/home`, `#/projects`, `#/library`, `#/posts/...`, `#/publish-center/...`, `#/autopilot/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
+| `tests/office.spec.ts` | The bottom bar shows the real state and only the controls that fit it (none pressed), rooms and robot states match the office API, on-duty robots stand at their stations, a robot's card and a room's details, Activity newest first, the overview's health headline, Team (25 robots and CORE), the developer gallery |
 | `tests/autopilot.spec.ts` | The overview shows the real state and Stop all jobs asks first (the test cancels), Now, Progress, Next, Posts and This PC match the API, link intake and Needs you; Activity; Permissions & sources and its add dialogs (opened and canceled); System, Jobs and Learning under Advanced; section addresses |
 | `tests/create.spec.ts` | Make clips only enabled with a video or an http(s) link, non-video files refused, a chosen video can be swapped, options start from your saved defaults and changing them does not save anything |
 | `tests/library.spec.ts` | The Library matches the API, the name filter and chips, Delete and Make clips again ask first (the test cancels), a video and a clip open, leaving the editor with an unsaved change asks first, an unknown video or clip shows a message |
 | `tests/posts.spec.ts` | Each tab lists the posts it should, tab counts, the time zone stated once, old Publish Center addresses, a post's row and page show the same status, Publish now only on an approved post, Cancel this post asks first (the test keeps the post), Results show real numbers or a dash with the reason, an unknown post |
-| `tests/settings.spec.ts` | Accounts first, Defaults and Advanced sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
+| `tests/settings.spec.ts` | Accounts first, Defaults, Integrations (who watches, each connection's capabilities, NVIDIA AI) and Advanced (incl. the Brain and the Dev Log) sections, every setting has a place, data folder, Save only after a change (kept across the tabs) and leaving asks first, a field error blocks saving, secrets masked |
 | `tests/api-guards.spec.ts` | Autopilot and publishing refuse state changes without the app's header, and requests addressed to another host name |
 
 ## Beginner flow and complete Autopilot loop (sandbox)
 
-One more test goes through what a new user does: open ClipFoundry, press Get started on Home, choose
+One more test goes through what a new user does: open ClipFoundry, press Set up ClipFoundry on the Office, choose
 Autopilot and keep the suggested topics, connect YouTube and TikTok, press Start Autopilot, and watch Autopilot find
 trending videos, create sources by itself and skip the ones nothing covers (listed in Activity, never asked about). The test then records
 one agreement with a creator, naming the folder where they share their raw files, and Autopilot takes that
@@ -86,9 +86,109 @@ also pastes a link through the page, pastes its alternate address to check dupli
 completed clip when publishing permission is unknown. An upcoming stream waits across another restart before real
 segmented capture and post-live clipping finish it. It never approves an individual post or retries a failed job.
 
+`sandbox/robot-office.spec.ts` checks how the Office draws real state, with controlled answers from the office API
+in the browser only: all 25 identities remain visible at their own desks or lounge seats, a report is carried to the
+manager, a decision gets COMMAND's reaction, old events move nobody, paused and lost-connection states, and the layout at
+1366×768, 1280×720 and narrow widths. `sandbox/motion.spec.ts` checks saved Follow system / Full / Reduced,
+including Full overriding system reduced motion. `sandbox/brain-workspace.spec.ts` checks actual document upload,
+approval, reload, lookup preview, disable/delete/export and responsive layout. The sandbox tests write the
+screenshots in `design/robot-office/screenshots`.
+
+`sandbox/pixel-office.spec.ts` targets the refined **PixiJS 8.22.0** office in the isolated sandbox. It checks that
+the production scene paints actual pixels, all 25 selectable roles remain present, repeated Map/List changes and
+Team navigation restore the map, and robot selection opens the details panel without uncaught page errors. A second
+case aborts the scene bundle to verify the original Canvas fallback, all 25 robot buttons, details and the controls.
+A third checks the refined Team/gallery portraits and an actual rendered COMMAND approval cue in Reduced mode.
+It does not start work or connect accounts. These cases describe coverage; their results belong in the validation
+log after they are run.
+
+`sandbox/living-office.spec.ts` adds seven controlled visual checks: 25 distinct lounge places and room-camera
+selection; immediate seated work in the robot's own office and returning to the lounge; a fresh same-job stage
+handoff with sender
+and receiver approach/pass/receipt; rejecting queued, unrelated and old handoffs and canceling one on Pause; and
+Brain standby/processing animation with paused and Reduced freezes. Two recovery regressions verify the current
+sender after hidden/paused stages, and a feed reset that neither animates recent-looking history nor moves the
+current owner backward. The Brain check verifies its close camera, workspace link, frozen transient-cue expiry
+and genuine work completion in Reduced.
+
+`sandbox/lounge-life.spec.ts` adds six controlled checks for recreational games, food, drinks and reading while all
+25 backend badges retain their actual paused state in a stopped office; visible Full gestures and Reduced/Pause
+freezes; hidden/disconnected freezes; actual work preempting recreation and returning afterward; and rotating
+activities with exclusive reservations. The sixth holds the optional skyline request open, verifies that Pixi paints
+the office within six seconds, then aborts it. It aborts the production scene chunk after a fresh reload to check
+Canvas recreation and its Reduced freeze. Each case
+checks that recreation sends no API writes. The rotation test advances real animation frames through Playwright's
+clock.
+
+`sandbox/department-office.spec.ts` adds six controlled read-only checks: all eight complete departments attend;
+managers supervise and support peers retain honest idle badges; new workers immediately appear at their own desks;
+teams remain until their last job finishes; substantive backlog/error attention gathers quiet peers without timer
+or paused-task false attendance; a real handoff returns to a still-busy sender department; Canvas supervision
+animates and freezes in Reduced; and a new own job preempts an outgoing old document. These six plus lounge six,
+living seven, motion three, pixel three and robot-office four form a 29-case focused visual suite. This describes
+coverage; final run results are recorded in the implementation log.
+
+`sandbox/manual-publish.spec.ts` uses controlled responses for an uncertain fake YouTube upload. It verifies the
+visible outcome hold, absence of another Publish confirmation/request, and Refresh status finding the existing
+upload. Its one POST refresh is fulfilled inside the browser; no write, upload or account request reaches the app
+or a platform. Ordinary status reads use the disposable sandbox. This supplements the department graphics suite;
+it does not change the read-only `e2e/tests` suite that runs against an owner's data.
+
+The refined robots are authored in `StudioArt.ts`; the map uses `StudioScene.ts`, and Team/detail/gallery portraits
+reuse one shared offscreen renderer with a bounded frame cache in `StudioPortraits.ts`. The original artwork stays
+available if the graphics context or module cannot initialize. Existing backend snapshots and events govern poses,
+work cues and document handoffs. `OfficeMotion.ts` sends off-duty roles to reserved lounge places, and
+working/reviewing roles immediately to seated desks. `DepartmentDuty.ts` gathers the whole assigned department;
+managers watch from safe floor anchors unless handling their own job or report. Idle support peers do not type or
+change their status. `LoungeLife.ts` supplies explicitly decorative off-duty activities with
+29 places, 25 stable homes, phased 15–28-second routines and at most two recreational walkers. Stopped-office
+recreation preserves paused badges; individually paused roles while Running and unavailable roles stay quiet.
+Work and real handoffs take precedence. Global Pause, Reduced, hidden and stale views freeze leisure motion.
+Only fresh same-job stages, the three allowed cross-job reference transitions and reports create document passes;
+both robots return to the latest actual destination afterward. After hidden, paused or disconnected stages, a fresh
+snapshot restores the current sender; reset/backlog history never replays handoffs or rolls ownership backward.
+CORE's slow standby orbit is decorative; its Processing label and brighter cues require actual Brain state or fresh
+Brain events. Follow system honors OS reduced
+motion, Full overrides it explicitly, and Reduced freezes motion while the state labels keep updating. No account
+or plugin hookup is required for these graphics. New visual evidence is documented separately in
+[`design/robot-office/retro/README.md`](../design/robot-office/retro/README.md).
+
+`LoungeDecor.ts` furnishes the arcade, café, board-game and sofa zones. Pixi blur light pools and static scenery are
+cached once; robot outlines remain pixel art. The original generated skyline is bundled locally, and missing
+optional window art keeps procedural glass. A scene/module failure instead selects the Canvas compatibility map,
+which uses the same activity phases for simpler game, eating, drinking and reading gestures.
+
+The new [living-office evidence directory](../design/robot-office/living/) keeps actual isolated app screenshots
+separate from controlled visual transitions. The current seated-work image uses controlled browser feed state.
+The later [recreational lounge evidence](../design/robot-office/lounge/) and
+[department evidence](../design/robot-office/departments/) use the same provenance distinction.
+Any recording of these transitions documents the renderer's choreography; it does not establish real backend
+video-processing times, GPU performance or connected-account behavior.
+
+Run the graphics checks alone, using sandbox data:
+
+```bat
+cd e2e
+npm run test:sandbox -- --project=chromium ^
+  sandbox/department-office.spec.ts sandbox/lounge-life.spec.ts sandbox/living-office.spec.ts ^
+  sandbox/motion.spec.ts sandbox/pixel-office.spec.ts sandbox/robot-office.spec.ts
+```
+
+PixiJS 8.22.0 and GSAP 3.15.0 are frontend npm dependencies. GSAP supplies pure gesture-easing functions driven by
+the office clock; no independent animation timeline controls job state. Its standard no-charge license notice is
+bundled in [third-party-graphics.txt](../frontend/public/third-party-graphics.txt). This graphics change does not change
+`e2e/tests`, pin Playwright, or alter GPU dependencies. The tests above use the existing sandbox configuration;
+Windows display scaling, real GPU rendering and real connected accounts remain separate checks.
+
+The current beginner flow passes with public video discovery on. Uncovered videos can be clipped locally, but
+cannot be automatically posted. The complete loop explicitly confirms Public YouTube setup and project audit,
+gives channel-bound standing consent, and checks Public fake-account uploads without `publishAt`. Its sandbox-only
+controls advance approved Public due times and result age; production Public uploads start locally at their due
+time. [Current validation and remaining PC checks](../docs/IMPLEMENTATION_STATUS.md).
+
 The full sandbox replaces external account APIs, fixture DNS, original-file access and Whisper. Rendering, quality
 checks, approvals, queue dispatch, uploads and learning use the application itself. Small generated originals stand
-in for the longer episodes described by the fake catalog. Simulated result age avoids waiting a day; metrics still
+in for the longer episodes described by the fake catalog. Simulated result age avoids waiting 48 hours; metrics still
 come from the fake platform, and two posts correctly leave learning below its ten-post threshold. Fixture controls
 under `/sandbox/` exist only in the sandbox executable. They are absent from the ordinary app.
 
@@ -105,7 +205,8 @@ npm run test:sandbox
 `CLIPFOUNDRY_PYTHON` picks another Python (default `..\.venv\Scripts\python.exe`), and
 `CLIPFOUNDRY_SANDBOX_PORT` another port; its successor is used by the complete-loop sandbox.
 Screenshots of actual working, waiting, restart and paused states are saved under
-`design/retro-studio/screenshots/`, separately from Playwright's temporary test results.
+`design/robot-office/screenshots/`, separately from Playwright's temporary test results. Its README labels actual
+jobs, saved blueprint influence, lookup previews and controlled motion evidence separately.
 
 The corresponding Python integration checks include an upcoming stream waiting across a worker restart, followed
 by real segmented capture and post-live clipping when the fake platform reports it live:

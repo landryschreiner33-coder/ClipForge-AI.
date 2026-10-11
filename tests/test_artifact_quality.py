@@ -337,7 +337,7 @@ def test_the_gate_decides_what_is_scheduled_and_uploaded(data, tmp_path):
     assert planned() == set()
     assert any(e["kind"] == "quality_failed" for e in state.events(ref_type="clip", ref_id=clip["id"]))
     item = db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "title": "t",
-                                                "description": "d", "privacy": "public", "planned_at": 1e10,
+                                                "description": "d", "privacy": "private", "planned_at": 1e10,
                                                 "options": {"made_for_kids": False}, "status": "awaiting_approval"})
     with pytest.raises(ValueError, match="did not pass the final quality check"):
         scheduler.approve(item["id"], {})  # approving a file that failed the gate is refused up front

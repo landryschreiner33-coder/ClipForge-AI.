@@ -1,25 +1,34 @@
 import { useEffect, useState } from "react";
 
 /**
- * Addresses (design/ui-redesign/ROUTE_MAP.md). Old addresses keep working: they are replaced in place
+ * Addresses (design/ui-redesign/ROUTE_MAP.md, renamed for the robot office: docs/OFFICE.md). Old addresses keep working: they are replaced in place
  * (history.replaceState), so they open the new page and Back never bounces on them.
  */
+const POSTS = "(review|scheduled|published|history|problems|results)";
+const MISSIONS = "(activity|sources|system|jobs|learning)";
 const ALIASES: [RegExp, string][] = [
-  [/^projects$/, "library"],
-  [/^publish-center$/, "posts/review"],
-  [/^publish-center\/upcoming$/, "posts/review"],
-  [/^publish-center\/problems$/, "posts/problems"],
-  [/^publish-center\/published$/, "posts/published"],
-  [/^publish-center\/history$/, "posts/history"],
-  [/^publish-center\/.*$/, "posts/review"],
-  [/^posts$/, "posts/review"],
-  [/^posts\/(?!(review|scheduled|published|history|problems|results)$).*$/, "posts/review"],
-  [/^autopilot\/overview$/, "autopilot/system"],
-  [/^autopilot\/(?!(activity|sources|system|jobs|learning)$).*$/, "autopilot"],
-  [/^settings\/(?!(defaults|advanced)$).*$/, "settings"],
+  // the five places since the robot office: Office, Missions, Clips, Queue, Settings
+  [/^(home|office)$/, ""],
+  [/^office\/(?!team$).*$/, ""],
+  [/^(projects|library)(\/.*)?$/, "clips"],
+  [/^clips\/(?!feedback$).*$/, "clips"],
+  [/^publish-center\/problems$/, "queue/problems"],
+  [/^publish-center\/published$/, "queue/published"],
+  [/^publish-center\/history$/, "queue/history"],
+  [/^publish-center(\/.*)?$/, "queue/review"],
+  [new RegExp(`^posts/${POSTS}$`), "queue/$1"],
+  [/^posts(\/.*)?$/, "queue/review"],
+  [new RegExp(`^queue(?!/${POSTS}$).*$`), "queue/review"],
+  [/^autopilot\/overview$/, "missions/system"],
+  [new RegExp(`^autopilot/${MISSIONS}$`), "missions/$1"],
+  [/^autopilot(\/.*)?$/, "missions"],
+  [new RegExp(`^missions/(?!${MISSIONS}$).*$`), "missions"],
+  [/^settings\/(?!(defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
+  [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];
-const PAGES = ["", "create", "library", "project", "clip", "publish", "autopilot", "posts", "post", "setup", "settings"];
+const PAGES = ["", "office", "missions", "clips", "queue", "create", "project", "clip", "publish", "post", "setup",
+  "settings", "brain", "dev"];
 const NEEDS_ID = ["project", "clip", "publish", "post"];
 
 export type Route = {
@@ -34,8 +43,10 @@ function read(): Route {
   let path = decodeURIComponent(window.location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
   for (const [re, to] of ALIASES) {
     if (re.test(path)) {
-      history.replaceState(history.state, "", `#/${to}`);
-      path = to;
+      const next = path.replace(re, to);
+      if (next === path) break;  // already the current address (queue/review matches its own alias)
+      history.replaceState(history.state, "", `#/${next}`);
+      path = next;
       break;
     }
   }

@@ -5,13 +5,14 @@ import {
 } from "../api";
 import { useLeaveGuard } from "../router";
 import { useStatus } from "../status";
+import { audienceApi, AudienceDestination, AudienceView } from "../office/api";
 import { AccountBadge, ConnectButton } from "../components/accounts";
 import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
-  ScoreBadge, Segmented, Tone, toast, usePoll,
+  ScoreBadge, Tone, toast, usePoll,
 } from "../components/ui";
 
 const ACTIVE = ["queued", "uploading", "processing"];
@@ -38,6 +39,7 @@ export default function PublishPage({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [loadError, setLoadError] = useState("");
   const [accounts, setAccounts] = useState<Accounts | null>(null);
+  const [audience, setAudience] = useState<AudienceView | null>(null);
   const [pubs, setPubs] = useState<Publication[]>([]);
   const [version, setVersion] = useState<ClipVersion | undefined>();
   const [saved, setSaved] = useState<Meta>({ title: "", caption: "", hashtags: "" });
@@ -60,6 +62,7 @@ export default function PublishPage({ id }: { id: string }) {
       }
     })();
     api.accounts().then(setAccounts).catch((e) => toast(errorText(e), true));
+    audienceApi.view().then(setAudience).catch((e) => toast(errorText(e), true));
   }, [id]);
 
   const loadPubs = useCallback(() => api.publications(id).then(setPubs).catch(() => undefined), [id]);
@@ -117,9 +120,9 @@ export default function PublishPage({ id }: { id: string }) {
   if (loadError) {
     return (
       <div className="page">
-        <PageHead title="Prepare post" crumbs={[{ label: "Library", href: "#/library" }, { label: "Prepare post" }]} />
+        <PageHead title="Prepare post" crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Prepare post" }]} />
         <EmptyState icon="alert" title="This clip could not be opened"
-          actions={<a className="btn" href="#/library">Open Library</a>}>{loadError}</EmptyState>
+          actions={<a className="btn" href="#/clips">Open Library</a>}>{loadError}</EmptyState>
       </div>
     );
   }
@@ -132,20 +135,21 @@ export default function PublishPage({ id }: { id: string }) {
   const thumbUrl = version ? versionThumbUrl(clip, version) : clipThumbUrl(clip);
   const downloadUrl = versionDownloadUrl(clip, version);
   const acc = (p: "youtube" | "tiktok") => accounts?.[p];
-  const busy = (p: string) => pubs.some((x) => x.platform === p && ACTIVE.includes(x.status));
+  const busy = (p: string) => pubs.some((x) => x.platform === p && (ACTIVE.includes(x.status)
+    || x.info?.outcome_unknown || x.info?.code === "outcome_unknown"));
   const setM = (patch: Partial<Meta>) => setMeta((m) => ({ ...m, ...patch }));
 
   return (
     <div className="page">
       <PageHead title="Prepare post"
         crumbs={[
-          { label: "Library", href: "#/library" },
+          { label: "Clips", href: "#/clips" },
           { label: <span className="clamp-1 crumb-title">{project.name}</span>, href: `#/project/${project.id}` },
           { label: <span className="clamp-1 crumb-title">{clip.title}</span>, href: `#/clip/${clip.id}` },
           { label: "Prepare post" },
         ]}
         sub={<>Post this clip yourself, now. Nothing goes out until you press a platform's button and confirm. Posts
-          Autopilot planned are in <a className="textlink" href="#/posts/review">Posts</a>.</>}
+          Autopilot planned are in <a className="textlink" href="#/queue/review">Posts</a>.</>}
         actions={<>
           <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>
@@ -227,10 +231,13 @@ export default function PublishPage({ id }: { id: string }) {
             </p>
           </section>
 
-          <YouTubePanel account={acc("youtube")} setAccounts={setAccounts} meta={meta} duration={duration} ready={ready}
-            busy={busy("youtube")} onPublish={publish} />
-          <TikTokPanel account={acc("tiktok")} setAccounts={setAccounts} meta={meta} duration={duration} ready={ready}
-            busy={busy("tiktok")} onPublish={publish} onExport={exportClip} downloadUrl={downloadUrl} />
+          <YouTubePanel audience={audience?.youtube} account={acc("youtube")} setAccounts={setAccounts}
+            meta={meta} duration={duration} ready={ready} busy={busy("youtube")} onPublish={publish}
+            outcomeUnknown={pubs.some(p => p.platform === "youtube" && (p.info?.outcome_unknown
+              || p.info?.code === "outcome_unknown"))} />
+          <TikTokPanel audience={audience?.tiktok} account={acc("tiktok")} setAccounts={setAccounts}
+            meta={meta} duration={duration} ready={ready} busy={busy("tiktok")} onPublish={publish}
+            onExport={exportClip} downloadUrl={downloadUrl} />
 
           <section className="panel tight" aria-labelledby="pp-status">
             <h2 id="pp-status" style={{ fontSize: "var(--fs-h3)" }}>Uploads you started here</h2>
@@ -289,8 +296,10 @@ function PlannedPosts({ posts, tz }: { posts: Post[]; tz?: string }) {
 
 // ------------------------------------------------------------------ one panel per platform
 type PanelProps = {
-  account?: PlatformAccount; setAccounts: (a: Accounts) => void; meta: Meta; duration: number; ready: boolean;
-  busy: boolean; onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
+  audience?: AudienceDestination; account?: PlatformAccount; setAccounts: (a: Accounts) => void;
+  outcomeUnknown?: boolean;
+  meta: Meta; duration: number; ready: boolean; busy: boolean;
+  onPublish: (platform: "youtube" | "tiktok", body: Record<string, unknown>) => Promise<void>;
 };
 
 function PlatformPanel({ id, name, account, platform, setAccounts, children }: {
@@ -322,8 +331,9 @@ function Note({ children }: { children: ReactNode }) {
   return <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {children}</p>;
 }
 
-function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPublish }: PanelProps) {
-  const [privacy, setPrivacy] = useState<"public" | "unlisted" | "private">("private");
+function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, busy, onPublish,
+  outcomeUnknown }: PanelProps) {
+  const privacy = audience?.intent === "PUBLIC" ? "public" : "private";
   const [kids, setKids] = useState<"" | "no" | "yes">("");
   const [shortsTag, setShortsTag] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -336,22 +346,29 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
   const missing = [
     !ready && "render the clip first",
     !connected && "connect YouTube",
+    (!audience?.confirmed || audience.intent === "LOCAL_ONLY") && "confirm who watches in Settings → Integrations",
+    !!audience?.halted && "resolve the audience warning in Settings → Integrations",
     !meta.title.trim() && "enter a title",
     meta.title.length > 100 && "shorten the title to 100 characters",
     new TextEncoder().encode(description).length > 5000 && "shorten the description",
     !kids && "answer “made for kids”",
   ].filter(Boolean) as string[];
-  const privacyWord = { public: "Public", unlisted: "Unlisted", private: "Private" }[privacy];
+  const privacyWord = privacy === "public" ? "Public" : "Private";
 
   return (
     <PlatformPanel id="pp-youtube" name="YouTube Shorts" platform="youtube" account={account} setAccounts={setAccounts}>
       <div className="field">
-        <span className="label" id="pp-yt-priv">Who can see it</span>
-        <Segmented labelledBy="pp-yt-priv" value={privacy} onChange={setPrivacy}
-          options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
-            { value: "private", label: "Private" }]} />
+        <span className="label">Who can see it</span>
+        <span>{privacy === "public" ? "Public: anyone can watch" : audience?.label || "Private"}</span>
+        <span className="hint">
+          {privacy === "public" ? "Your confirmed audience is Public. The upload record shows the visibility "
+            + "YouTube actually returned; it reports a restriction if Public is not confirmed."
+            : audience?.intent === "OWNER_ONLY" ? "Private staging: nobody else can watch."
+              : "Private: share it with invited viewers in YouTube Studio → Content → this video → Visibility "
+                + "→ Private → Share privately."}
+          {" "}<a className="textlink" href="#/settings/integrations">Change the audience for new posts</a>
+        </span>
       </div>
-      {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
       <fieldset>
         <legend className="label">Made for kids <span className="hint">(YouTube requires an answer)</span></legend>
         <label className="choice">
@@ -381,8 +398,9 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
         <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy || undefined}
           onClick={() => (missing.length ? toast(`To publish: ${missing.join(", ")}.`, true)
             : !busy && setConfirming(true))}>
-          {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="upload" />}
-          {busy ? "Uploading…" : "Publish to YouTube now…"}
+          {busy && !outcomeUnknown ? <span className="inline-spinner" aria-hidden="true" />
+            : <Icon name={outcomeUnknown ? "question" : "upload"} />}
+          {outcomeUnknown ? "Check upload outcome below" : busy ? "Uploading…" : "Publish to YouTube now…"}
         </button>
       </div>
       {confirming && (
@@ -390,6 +408,7 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
           onClose={() => setConfirming(false)}
           onConfirm={() => onPublish("youtube", {
             title: meta.title.trim(), description, tags, privacy, made_for_kids: kids === "yes",
+            expected_account_id: account?.account_id,
           })}>
           <dl className="kv">
             <dt>Channel</dt><dd>{account?.name}</dd>
@@ -399,11 +418,13 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
             <dt>Tags</dt><dd>{tags.join(" ") || "None"}</dd>
             <dt>When</dt><dd>Right away</dd>
           </dl>
-          {privacy !== "private" && account?.restriction && <Note>{account.restriction}</Note>}
           <div className="consequence">
             <span>
-              This uploads the video to YouTube now. ClipFoundry can't take an upload back; you would delete it in
-              YouTube Studio. It uses part of your project's daily YouTube upload allowance.
+              {privacy === "public" ? "This requests a Public upload now: anyone may watch or share it if YouTube "
+                + "allows public API uploads for your project." : "This uploads it as Private; you choose any viewers "
+                  + "in YouTube Studio yourself."}
+              {" "}ClipFoundry cannot take an upload back; you would delete it in YouTube Studio.
+              It uses part of your project's daily YouTube upload allowance.
             </span>
           </div>
         </ConfirmDialog>
@@ -413,7 +434,7 @@ function YouTubePanel({ account, setAccounts, meta, duration, ready, busy, onPub
 }
 
 function TikTokPanel({
-  account, setAccounts, meta, duration, ready, busy, onPublish, onExport, downloadUrl,
+  audience, account, setAccounts, meta, duration, ready, busy, onPublish, onExport, downloadUrl,
 }: PanelProps & { onExport: () => void; downloadUrl: string }) {
   const connected = !!account?.connected && !account.needs_reconnect;
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
@@ -428,6 +449,9 @@ function TikTokPanel({
 
   // TikTok's sharing guidelines: read the creator's options fresh before posting.
   useEffect(() => {
+    setPrivacy("");
+    setCreator(null);
+    setCreatorError("");
     if (!connected) return;
     if (!account?.can_direct_post) {
       setMode("inbox");
@@ -440,6 +464,11 @@ function TikTokPanel({
 
   const caption = [meta.caption.trim(), tagList(meta.hashtags).join(" ")].filter(Boolean).join(" ");
   const audited = !!account?.audited;
+  const publicPosts = audience?.intent === "PUBLIC";
+  const who = publicPosts ? "Everyone (Public)" : audience?.intent === "OWNER_ONLY" ? "Only me"
+    : audience?.group === "friends" ? "Friends" : "Followers";
+  const expected = publicPosts ? "PUBLIC_TO_EVERYONE" : audience?.intent === "OWNER_ONLY" ? "SELF_ONLY"
+    : audience?.group === "friends" ? "MUTUAL_FOLLOW_FRIENDS" : "FOLLOWER_OF_CREATOR";
   const direct = mode === "direct";
   const branded = direct && disclose && brandContent;
   const label = disclose ? (brandContent ? "Paid partnership" : brandOrganic ? "Promotional content" : "") : "";
@@ -447,10 +476,15 @@ function TikTokPanel({
   const missing = [
     !ready && "render the clip first",
     !connected && "connect TikTok",
+    (!audience?.confirmed || audience.intent === "LOCAL_ONLY") && "confirm who watches in Settings → Integrations",
+    !!audience?.halted && "resolve the audience warning in Settings → Integrations",
+    !direct && !account?.can_inbox && "get TikTok approval for inbox uploads, or download and post it yourself",
+    direct && !creator && "read TikTok’s current posting options",
     caption.length > 2200 && "shorten the caption to 2,200 characters",
     direct && !privacy && "choose who can see it",
     direct && disclose && !brandOrganic && !brandContent && "choose what the commercial content is",
-    branded && privacy === "SELF_ONLY" && "branded content can't be “Only me”",
+    branded && privacy && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(privacy)
+      && "branded content needs Friends or Everyone",
     direct && !audited && privacy && privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
     direct && creator && creator.max_duration > 0 && duration > creator.max_duration
       && `trim the clip to ${creator.max_duration} seconds`,
@@ -491,10 +525,11 @@ function TikTokPanel({
           </span>
         </label>
         <label className="choice">
-          <input type="radio" name="pp-tt-mode" checked={!direct} onChange={() => setMode("inbox")} />
+          <input type="radio" name="pp-tt-mode" checked={!direct} disabled={connected && !account?.can_inbox}
+            onChange={() => setMode("inbox")} />
           <span>
-            <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app. Works without TikTok's app
-            audit.
+            <b>Send to TikTok inbox</b> as a draft: finish and post it in the TikTok app for {who}. TikTok must
+            approve your app for inbox uploads; at most 5 drafts can wait at a time. This is a manual posting step.
           </span>
         </label>
       </fieldset>
@@ -504,20 +539,23 @@ function TikTokPanel({
             <label htmlFor="pp-tt-priv">Who can see it</label>
             <select id="pp-tt-priv" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
               <option value="" disabled>Choose…</option>
-              {(creator?.privacy_options || []).map((o) => (
-                <option key={o} value={o} disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
+              {(creator?.privacy_options || []).filter((o) => o === expected).map((o) => (
+                <option key={o} value={o}
+                  disabled={(!audited && o !== "SELF_ONLY")
+                    || (branded && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(o))}>
                   {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
-                  {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
+                  {branded && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(o)
+                    ? " (branded content: Friends or Everyone)" : ""}
                 </option>
               ))}
             </select>
           </div>
-          {!audited && (
-            <Note>
-              {account?.restriction
-                || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}
-            </Note>
-          )}
+          <Note>
+            Choose {who} explicitly; TikTok offers no preset privacy choice. {!audited ? "Public or selected-viewer "
+              + "Direct Post needs TikTok’s audit; an unaudited app can only stage “Only me”. " : ""}
+            TikTok requires consent to each post, so unattended TikTok publishing is unavailable.
+            {" "}<a className="textlink" href="#/settings/integrations">Change new-post audience</a>.
+          </Note>
           <fieldset>
             <legend className="label">Allow viewers to</legend>
             <div className="row wrap" style={{ gap: 16 }}>
@@ -577,7 +615,17 @@ function TikTokPanel({
           {busy ? "Uploading…" : direct ? "Post to TikTok now…" : "Send to TikTok inbox…"}
         </button>
       </div>
-      <Disclosure plain summary="Can't post through the API? Upload it yourself">
+      {(!connected || !audited || !account?.can_direct_post) && (
+        <Banner tone="warn"
+          title={publicPosts ? "TikTok public posting needs a manual step" : "TikTok posting needs setup"}>
+          {publicPosts ? "Public Direct Post needs an audited app and Everyone among your account’s current options. "
+            : "Direct Post for viewers needs an audited app. "}
+          TikTok’s guidelines exclude personal upload utilities and reposting from other platforms; approval may be
+          unavailable. Download this clip and post it yourself, or finish an approved inbox draft in TikTok.
+          Neither route is automatic public publishing.
+        </Banner>
+      )}
+      <Disclosure plain summary="Download and post it yourself">
         <ol className="steps-list">
           <li>
             <button type="button" className="btn btn-small" onClick={onExport}><Icon name="download" />Export</button>
@@ -591,7 +639,8 @@ function TikTokPanel({
           </li>
           <li>
             Open <a className="textlink" href={STUDIO_UPLOAD} target="_blank" rel="noreferrer">TikTok Studio,
-            Upload</a> (official), choose the MP4, paste the caption, choose who can see it and post.
+            Upload</a> (official), choose the MP4, paste the caption, choose <b>{who}</b> and post.
+            {publicPosts ? " Your TikTok account must permit public posts." : ""}
           </li>
         </ol>
       </Disclosure>
@@ -601,7 +650,7 @@ function TikTokPanel({
           onConfirm={() => onPublish("tiktok", {
             description: caption, mode, privacy: direct ? privacy : "", allow_comment: allow.comment,
             allow_duet: allow.duet, allow_stitch: allow.stitch, disclose, brand_organic: brandOrganic,
-            brand_content: brandContent,
+            brand_content: brandContent, expected_account_id: account?.account_id,
           })}>
           <dl className="kv">
             <dt>Account</dt><dd>{creator?.nickname || account?.name}</dd>
@@ -615,8 +664,8 @@ function TikTokPanel({
             <span>
               {direct ? "This posts the video on your TikTok profile now. ClipFoundry can't take it back; you would "
                 + "delete it in the TikTok app. It may take a few minutes to appear."
-                : "This sends the video to your TikTok inbox as a draft now. Nothing is public until you finish and "
-                  + "post it in the TikTok app."}
+                : "This sends the video to your TikTok inbox as a draft now. Nobody else can see it until you post "
+                  + `it in the TikTok app for ${who}. This is a manual step, not automatic publishing.`}
             </span>
             <span>
               By posting, you agree to TikTok's {branded ? "Branded Content Policy and " : ""}Music Usage Confirmation.
@@ -637,7 +686,21 @@ const STATUS: Record<Publication["status"], [string, Tone, IconName]> = {
 };
 
 function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) => void }) {
-  const [word, tone, icon] = STATUS[p.status];
+  const [baseWord, baseTone, baseIcon] = STATUS[p.status];
+  const setup = p.delivery?.audience_setup || "";
+  const delivery: Record<string, [string, Tone, IconName]> = {
+    public_api_verified: ["Public (platform confirmed)", "good", "check"],
+    public_requested: ["Posted; Public requested", "warn", "question"],
+    public_restricted: ["Uploaded; Public not confirmed", "warn", "alert"],
+    awaiting_invitations: ["Uploaded; share privately in YouTube Studio", "warn", "user"],
+    owner_only: ["Uploaded for you only", "info", "shield"],
+  };
+  const retryAt = Number(p.info?.retry_at || 0);
+  const outcomeUnknown = !!p.info?.outcome_unknown || p.info?.code === "outcome_unknown";
+  const [word, tone, icon] = outcomeUnknown ? ["Upload outcome unknown", "warn" as Tone, "question" as IconName]
+    : p.status === "done" && delivery[setup] ? delivery[setup]
+    : p.status === "queued" && retryAt > Date.now() / 1000
+      ? ["Waiting for platform retry time", "warn" as Tone, "clock" as IconName] : [baseWord, baseTone, baseIcon];
   const [canceling, setCanceling] = useState(false);
   const privacy = p.privacy || p.requested_privacy;
   const act = async (fn: () => Promise<Publication>) => {
@@ -659,6 +722,14 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
       {(p.status === "uploading" || p.status === "queued") && (
         <ProgressBar value={p.progress} label={`${name} upload`} />
       )}
+      {p.status === "queued" && retryAt > Date.now() / 1000 && (
+        <span className="small muted">The platform asked to wait until {timeLabel(retryAt)}.
+          The same upload resumes then; it is not uploaded twice.</span>
+      )}
+      {setup === "public_restricted" && <span className="small">YouTube has not confirmed Public.
+        Check the video’s visibility and any restrictions in YouTube Studio.</span>}
+      {setup === "public_requested" && <span className="small muted">TikTok did not report the post’s actual
+        visibility; Everyone was requested.</span>}
       {p.message && <span className="small">{p.message}</span>}
       {p.error && <span className="small bad-text">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</span>}
       <span className="tiny faint">“{p.title || p.description.slice(0, 80)}”</span>
@@ -673,7 +744,8 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
             YouTube Studio
           </a>
         )}
-        {(p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id && (
+        {((p.status === "done" || p.status === "processing" || p.status === "action_needed") && p.remote_id
+          || outcomeUnknown) && (
           <button type="button" className="btn btn-small btn-quiet"
             onClick={() => act(() => api.refreshPublication(p.id))}>
             <Icon name="refresh" />Refresh status

@@ -5,7 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 // temporary data folder, test connections to local stand-ins for Google and TikTok, and its own port.
 const port = Number(process.env.CLIPFOUNDRY_SANDBOX_PORT || 8799);
 const loopPort = port + 1;
-const python = process.env.CLIPFOUNDRY_PYTHON || (process.platform === "win32" ? "..\\.venv\\Scripts\\python.exe" : "../.venv/bin/python");
+const python = process.env.CLIPFOUNDRY_PYTHON
+  || (process.platform === "win32" ? "..\\.venv\\Scripts\\python.exe" : "../.venv/bin/python");
 const executablePath = process.env.CLIPFOUNDRY_E2E_CHROMIUM || undefined;
 
 export default defineConfig({
@@ -19,6 +20,7 @@ export default defineConfig({
   outputDir: "test-results-sandbox",
   use: {
     baseURL: `http://127.0.0.1:${port}`,
+    actionTimeout: 30_000,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -41,7 +43,9 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts"],
+      testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts", "brain-workspace.spec.ts",
+        "pixel-office.spec.ts", "living-office.spec.ts", "lounge-life.spec.ts", "department-office.spec.ts",
+        "manual-publish.spec.ts", "public-consent.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

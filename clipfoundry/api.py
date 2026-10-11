@@ -24,7 +24,10 @@ from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
+from .autopilot import brain_routes, knowledge_routes
 from .autopilot import routes as autopilot_routes
+from .office import integrations as integration_routes
+from .office import routes as office_routes
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -53,6 +56,10 @@ def _youtube_retention() -> None:
 app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(autopilot_routes.router)
+app.include_router(office_routes.router)
+app.include_router(brain_routes.router)
+app.include_router(knowledge_routes.router)
+app.include_router(integration_routes.router)
 
 
 # ------------------------------------------------------------------ helpers
@@ -130,7 +137,8 @@ def get_settings() -> dict:
 
 @app.put("/api/settings")
 def put_settings(patch: dict[str, Any]) -> dict:
-    patch = {k: v for k, v in patch.items() if not (k in config.SECRET_KEYS and v == "********")}
+    patch = {k: v for k, v in patch.items() if not (k in config.SECRET_KEYS and v == "********")
+             and k not in config.ACTION_ONLY_KEYS}
     db.save_settings(patch)
     return get_settings()
 

@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .. import db
 from ..pipeline import artifact, fingerprint
+from ..publish import audience
 from . import autopublish, gate, learner, queue, rights, state
 from .host import Job, handler
 from .scout import local_day, tz
@@ -90,7 +91,7 @@ def _label(ts: float, settings: dict) -> str:
 def grid(settings: dict, day: dt.date, per_day: int) -> list[float]:
     """Evenly spaced candidate times over the active hours of a local day (never closer than the minimum gap)."""
     zone = tz(settings)
-    start_h = int(settings.get("autopilot_active_start") or 9)
+    start_h = int(settings.get("autopilot_active_start", 9))
     end_h = int(settings.get("autopilot_active_end") or 23)
     if end_h <= start_h:
         end_h = start_h + 1
@@ -119,7 +120,7 @@ class Timing:
         self.hour: dict[int, float] = {}
         self.weekday: dict[int, float] = {}
         self.samples = 0
-        if settings.get("autopilot_learning", True):
+        if settings.get("autopilot_learning", True) and learner.context_matches(settings):
             for r in db.select("learning_metrics", "platform = ? AND dimension IN ('hour', 'weekday') AND "
                                                    "metric = 'performance'", (platform,)):
                 if not (r.get("data") or {}).get("reliable"):
@@ -192,12 +193,34 @@ def _repeat_of_published(clip: dict) -> str:
     return ""
 
 
+def uploadable_platforms(settings: dict) -> list[str]:
+    """Platforms Autopilot plans posts for: turned on, and with a confirmed audience (publish/audience.py). Without
+    one, clips stay ready on this PC and the overview says why."""
+    return [p for p in PLATFORMS if settings.get(f"autopilot_{p}") and audience.destination(p, settings)["confirmed"]]
+
+
+def audience_reminders(settings: dict) -> None:
+    """One Needs you item per connected platform whose audience is not chosen yet (nothing uploads there until)."""
+    for p in PLATFORMS:
+        dest = audience.destination(p, settings)
+        connected = bool((db.get_account(p) or {}).get("has_tokens"))
+        if settings.get(f"autopilot_{p}") and connected and not dest["confirmed"] and dest["intent"] != \
+                audience.LOCAL_ONLY:
+            name = "YouTube" if p == "youtube" else "TikTok"
+            state.action(f"audience_setup:{p}", "audience", f"Choose who watches your {name} clips",
+                         f"Clips stay ready on this PC until you say who may watch them on {name}. ClipFoundry posts "
+                         "only to viewers you pick, never publicly.",
+                         f"Settings → Integrations → {name} → Who watches.")
+        else:
+            state.resolve(f"audience_setup:{p}")
+
+
 def candidates(settings: dict, now: float) -> list[dict]:
     """(clip, platform) pairs ready to be scheduled, with their scores."""
     out = []
     rows = db.select("clips", "status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
                               "('autopilot', 'live'))", (), "created_at")
-    platforms = [p for p in PLATFORMS if settings.get(f"autopilot_{p}")]
+    platforms = uploadable_platforms(settings)
     for clip in rows:
         project = db.get_project(clip["project_id"]) or {}
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
@@ -299,13 +322,21 @@ def _opportunity(slot: dict, urgency: float, planned_at: float, now: float) -> f
 
 
 def _meta_fields(c: dict, settings: dict) -> dict:
+    """The post's text and the audience explicitly chosen for new posts. TikTok: no
+    preset privacy (the owner picks it per post, among the audience's allowed options) and the route TikTok allows
+    this app: Direct Post, an inbox draft, or a package the owner posts by hand."""
     meta, platform = c["meta"], c["platform"]
+    want = audience.intent(platform, settings)
+    dest = audience.destination(platform, settings)
+    stamp = {"intent": want, "platform": platform, "policy_version": audience.POLICY_VERSION, "group": dest["group"],
+             "group_version": dest["group_version"], "visibility": audience.visibility(platform, want, settings)}
     if platform == "youtube":
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
-                "privacy": settings.get("autopilot_youtube_privacy") or "public", "options": {"made_for_kids": None}}
+                "privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp}
+    route = audience.tiktok_route(settings, db.get_account("tiktok"))
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
-            "options": {"mode": "direct", "allow_comment": False, "allow_duet": False, "allow_stitch": False,
-                        "disclose": False}}
+            "options": {"mode": route, "allow_comment": False, "allow_duet": False, "allow_stitch": False,
+                        "disclose": False}, "audience": stamp}
 
 
 def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: float, replaces: str = "",
@@ -436,7 +467,7 @@ def plan_new(settings: dict, now: float) -> dict:
 # the render version. Scheme 1 (older versions) used the file's size and modification time, which a re-render or
 # an edit in place can keep; such approvals are never trusted, the post is approved again (YouTube automatically
 # only under a permission still in force and a final check of these exact bytes; TikTok by you).
-APPROVAL_SCHEME = 2
+APPROVAL_SCHEME = 3  # 3: also bound to the audience (intent, policy and group versions; publish/audience.py)
 _sha_memo: dict[str, tuple[tuple, str]] = {}  # path -> (stat key, SHA-256): only for the quick display check
 
 
@@ -469,6 +500,8 @@ def approval_basis(item: dict, quick: bool = False) -> dict | None:
     if not sha:
         return None
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
+    stamp = item.get("audience") or {}
+    data["audience"] = {k: stamp.get(k) for k in ("intent", "policy_version", "group", "group_version")}
     return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME}
 
 
@@ -483,7 +516,7 @@ def approval_record(item: dict, **fields: object) -> dict | None:
     if not basis:
         return None
     return {**fields, "hash": artifact.sha256_json(basis), "scheme": APPROVAL_SCHEME,
-            "video_sha256": basis["video_sha256"]}
+            "video_sha256": basis["video_sha256"], "account": autopublish.account_id(item["platform"])}
 
 
 def approval_problem(item: dict, quick: bool = False) -> str:
@@ -492,7 +525,18 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     if not appr.get("hash"):
         return "not approved"
     if appr.get("scheme") != APPROVAL_SCHEME:
-        return "approved before ClipFoundry checked the exact video file"
+        return ("approved before ClipFoundry checked who may watch it" if appr.get("scheme") == 2 else
+                "approved before ClipFoundry checked the exact video file")
+    now_account = autopublish.account_id(item["platform"])
+    if appr.get("account") and now_account and appr["account"] != now_account:
+        return "another account is connected now than the one it was approved for"
+    stamp = item.get("audience") or {}
+    if stamp.get("group_version"):
+        dest = audience.destination(item["platform"], db.get_settings())
+        kept_private = dest["intent"] == audience.PUBLIC and stamp.get("intent") in (audience.SELECTED,
+                                                                                   audience.OWNER_ONLY)
+        if int(stamp["group_version"]) != dest["group_version"] and not kept_private:
+            return "who watches changed after approval"
     current = approval_hash(item, quick)
     if not current:
         return "the video file is missing or cannot be read"
@@ -503,8 +547,9 @@ def approval_valid(item: dict, quick: bool = False) -> bool:
     return item["status"] in ("approved", "publishing") and not approval_problem(item, quick)
 
 
-def check_platform(item: dict, creator: dict | None = None) -> None:
-    """What the platform would refuse, checked before the approval is accepted (raises PublishError)."""
+def check_platform(item: dict, creator: dict | None = None) -> dict:
+    """What the platform or the audience policy would refuse, checked before the approval is accepted (raises
+    PublishError). Returns the audience stamp the post is approved for."""
     from ..publish import tiktok, youtube
     from ..publish.common import PublishError
 
@@ -513,13 +558,17 @@ def check_platform(item: dict, creator: dict | None = None) -> None:
     if item["platform"] == "youtube":
         if opts.get("made_for_kids") is None:
             raise PublishError("Say whether this video is made for kids.", "YouTube requires this answer (COPPA).")
+        stamp = audience.check("youtube", item["privacy"], settings, stamp=item.get("audience") or None)
         youtube.video_body(item["title"], item["description"], item.get("tags") or [], item["privacy"],
-                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22")
-    else:
-        clip = db.get_clip(item["clip_id"]) or {}
-        mode = opts.get("mode") or "direct"
-        tiktok.validate(item["description"], item.get("privacy") or "", opts, mode, settings, creator,
-                        float(clip.get("duration") or 0))
+                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22",
+                           audience_intent=stamp["intent"])
+        return stamp
+    clip = db.get_clip(item["clip_id"]) or {}
+    mode = opts.get("mode") or "direct"
+    tiktok.validate(item["description"], item.get("privacy") or "", opts, mode if mode != "manual" else "inbox",
+                    settings, creator, float(clip.get("duration") or 0))
+    return audience.check("tiktok", item.get("privacy") or "", settings, mode=mode, creator=creator,
+                          stamp=item.get("audience") or None)
 
 
 def _note(item: dict, note: str) -> None:
@@ -538,6 +587,17 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if any(a.get("event") == "edited" for a in item.get("audit") or []):
         return False  # you changed this post yourself: you decide when it is ready
     cfg = consent.get("settings") or {}
+    visibility = autopublish.consent_visibility(consent)
+    if not visibility or visibility != item.get("privacy"):
+        return False
+    # A new public permission authorizes only posts already planned explicitly for that audience. It must never
+    # widen older Private uploads, or silently reactivate held posts from before the audience policy.
+    if visibility == "public" and (item.get("audience") or {}).get("intent") != audience.PUBLIC:
+        return False
+    if not autopublish.same_account(consent):
+        _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "
+                    "connected now")
+        return False
     clip = db.get_clip(item["clip_id"]) or {}
     report = gate.report_for(clip) if clip else None
     sha = video_sha256(active_version_path(clip)[0]) if clip else ""
@@ -566,20 +626,21 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
                     "is reached")
         return False
-    updated = {**item, "privacy": cfg.get("visibility") or item.get("privacy"),
+    updated = {**item,
                "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
     try:
-        check_platform(updated)
+        stamp = check_platform(updated)
     except PublishError as exc:
         _note(item, f"Held for your review: {exc}")
         return False
+    updated["audience"] = {**(item.get("audience") or {}), **stamp}
     when = autopublish.since(consent, settings)
     approval = approval_record(updated, at=now, by="automatic", consent_id=consent["id"])
     if not approval or approval["video_sha256"] != sha:  # the file changed while this was being decided
         _note(item, "Held for your review, not published automatically: the video file changed; it is checked again")
         return False
     db.update("scheduled_publications", item["id"], privacy=updated["privacy"], options=updated["options"],
-              status="approved", approval=approval, last_error="", fix="",
+              audience=updated["audience"], status="approved", approval=approval, last_error="", fix="",
               status_note=f"Approved automatically (automatic publishing, on since {when}). You can cancel it until it "
                           "goes out.",
               audit=_audit(item, "auto_approved", f"Approved automatically under the automatic-publishing permission "
@@ -617,7 +678,14 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
         raise ValueError(f"This post is {item['status'].replace('_', ' ')}; it cannot be approved now")
     updated = {**item, **{k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy",
                                                                      "options")}}
-    check_platform(updated, creator)
+    # approving is for the audience as it is now: the post keeps what it was meant for (only you, held as public),
+    # and takes the current test group
+    kept = (item.get("audience") or {}).get("intent")
+    dest = audience.destination(item["platform"], db.get_settings())
+    preserve = dest["intent"] == audience.PUBLIC and kept in (audience.SELECTED, audience.OWNER_ONLY)
+    updated["audience"] = dict(item.get("audience") or {}) if preserve else {"intent": kept} if kept else {}
+    stamp = check_platform(updated, creator)
+    updated["audience"] = {**(item.get("audience") or {}), **stamp}
     rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
     if rep and rep["status"] != "passed":  # not checked yet is fine: the publisher waits for the check
         raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
@@ -628,7 +696,7 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
         raise ValueError("The clip's video file is missing or cannot be read. Render the clip again before approving "
                          "it.")
     db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
-                                                                             "options")},
+                                                                             "options", "audience")},
               status="approved", approval=approval, last_error="", fix="",
               status_note="Approved: it will be published at its time" if item["planned_at"] > now else
               "Approved: publishing now",
@@ -698,8 +766,8 @@ def _awaiting_by_platform() -> dict[str, int]:
 
 # ------------------------------------------------------------------ the tick
 def lead_seconds(item: dict, settings: dict) -> float:
-    """YouTube posts are uploaded early and published by YouTube at the planned time (publishAt)."""
-    if item["platform"] == "youtube":
+    """Only Private YouTube uploads may start early. Public uploads wait until the local planned time."""
+    if item["platform"] == "youtube" and item.get("privacy") == "private":
         return 60.0 * float(settings.get("autopilot_upload_lead_minutes") or 30)
     return 0.0
 
@@ -770,6 +838,9 @@ def process_due(settings: dict, now: float) -> dict:
                           audit=_audit(item, "approval_invalidated", "The automatic-publishing permission that "
                                                                      "approved it is no longer in force"))
                 continue
+            if settings.get("autopilot_publishing_paused"):  # clips are still made; uploads wait for Resume
+                _note(item, "Publishing is paused: it goes out after you resume publishing")
+                continue
             if not settings.get("autopilot_auto_publish"):
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
@@ -833,6 +904,7 @@ def remind_approvals() -> int:
 def schedule_tick(job: Job) -> dict:
     settings = db.get_settings()
     now = _now()
+    audience_reminders(settings)
     due = process_due(settings, now)
     planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
     if planned.get("created"):

@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 from .. import db
+from ..office import feed
 from ..pipeline.common import Cancelled, log
 
 ACTIVE = ("queued", "running", "waiting", "retrying")
@@ -160,18 +161,29 @@ def enqueue(kind: str, payload: dict | None = None, *, priority: int = 0, idem_k
 
 # ------------------------------------------------------------------ claim / lease
 def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | None = None,
-          min_priority: int | None = None) -> dict | None:
+          min_priority: int | None = None, *, manual_priority: int | None = None) -> dict | None:
     """Atomically take the next due job for `worker` (highest priority, then oldest). `min_priority` (e.g. only
     jobs a user started while Autopilot is off) is part of the same transaction, so no other claim can slip in
     between the check and the take. `owner` becomes the job's lease token: only it can renew or finish the job."""
     now = now or _now()
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        floor = -(2 ** 62) if min_priority is None else min_priority
+        if manual_priority is not None:
+            # A Pause/Stop may have committed after the host's preliminary gate read. Re-read controls inside
+            # the claim transaction so newly queued work cannot slip through that stale observation.
+            stopped = conn.execute("SELECT value FROM autopilot_state WHERE key = 'emergency_stop'").fetchone()
+            if stopped and json.loads(stopped["value"]):
+                conn.execute("COMMIT")
+                return None
+            enabled = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_enabled'").fetchone()
+            if not enabled or not json.loads(enabled["value"]):
+                floor = max(floor, manual_priority)
         row = conn.execute(
             "SELECT id, status FROM worker_jobs WHERE worker = ? AND status IN ('queued', 'retrying', 'waiting') "
             "AND run_after <= ? AND cancel_requested = 0 AND priority >= ? "
             "ORDER BY priority DESC, run_after ASC, created_at ASC LIMIT 1",
-            (worker, now, -(2 ** 62) if min_priority is None else min_priority)).fetchone()
+            (worker, now, floor)).fetchone()
         if not row:
             conn.execute("COMMIT")
             return None
@@ -186,6 +198,7 @@ def claim(worker: str, owner: str, lease_s: float = LEASE_SECONDS, now: float | 
     if job:
         log_line(job["id"], worker, "info", "started", f"attempt {job['attempts']} of {job['max_attempts']}",
                  owner=owner)
+        feed.job_event(job, "job_started", job.get("message") or "", attempt=job["attempts"])
     return job
 
 
@@ -221,6 +234,9 @@ def complete(job: dict, owner: str, result: dict | None = None, message: str = "
                  fix="", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "info", "completed", message)
+        latest = db.fetch("worker_jobs", job["id"]) or job
+        feed.job_event(latest, "job_done", message)
+        feed.report(latest, "done", result or {})
     return ok
 
 
@@ -237,6 +253,7 @@ def retry_or_fail(job: dict, owner: str, error: str, fix: str = "", delay: float
     if _finish(job, owner, status="retrying", error=error[:2000], fix=fix, run_after=_now() + wait_s,
                message=f"Retrying in {int(wait_s // 60)} min {int(wait_s % 60)} s"):
         log_line(job["id"], job["worker"], "warning", "retry", error, fix=fix, delay=round(wait_s, 1))
+        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_retry", error[:300], delay=round(wait_s, 1))
     return "retrying"
 
 
@@ -244,6 +261,9 @@ def fail(job: dict, owner: str, error: str, fix: str = "") -> bool:
     ok = _finish(job, owner, status="failed", error=error[:2000], fix=fix, message="Failed", finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "error", "failed", error, fix=fix)
+        latest = db.fetch("worker_jobs", job["id"]) or job
+        feed.job_event(latest, "job_failed", error[:300], fix=fix[:300])
+        feed.report(latest, "failed", {}, error=error, fix=fix)
     return ok
 
 
@@ -253,6 +273,8 @@ def wait(job: dict, owner: str, reason: str, seconds: float, message: str = "") 
     if ok:
         log_line(job["id"], job["worker"], "info", "waiting", message or reason, reason=reason,
                  seconds=round(seconds, 1))
+        feed.job_event(db.fetch("worker_jobs", job["id"]) or job, "job_waiting", (message or reason)[:300],
+                       reason=reason, seconds=round(seconds, 1))
     return ok
 
 
@@ -260,10 +282,14 @@ def mark_canceled(job: dict, owner: str, message: str = "Canceled") -> bool:
     ok = _finish(job, owner, status="canceled", message=message, finished_at=_now())
     if ok:
         log_line(job["id"], job["worker"], "info", "canceled", message)
+        feed.job_event(job, "job_canceled", message)
     return ok
 
 
-def progress(job_id: str, fraction: float | None = None, message: str | None = None, stage: str | None = None) -> None:
+def progress(job_id: str, fraction: float | None = None, message: str | None = None, stage: str | None = None,
+             *, owner: str | None = None) -> bool:
+    """Update running work; a handler must supply its lease token so recovered threads cannot report new stages.
+    Unowned callers retain the direct progress helper, but cannot change pending or finished work."""
     fields: dict[str, Any] = {}
     if fraction is not None:
         fields["progress"] = round(max(0.0, min(1.0, fraction)), 4)
@@ -271,8 +297,26 @@ def progress(job_id: str, fraction: float | None = None, message: str | None = N
         fields["message"] = message[:500]
     if stage is not None:
         fields["stage"] = stage
-    if fields:
-        db.update("worker_jobs", job_id, **fields)
+    if not fields:
+        return False
+    fields["updated_at"] = _now()
+    cols = ", ".join(f"{key} = ?" for key in fields)
+    guard = "id = ? AND status = 'running'"
+    args: list[Any] = [job_id]
+    if owner is not None:
+        guard += " AND lease_owner = ?"
+        args.append(owner)
+    with db.connect() as conn:
+        # Keep the previous stage and the ownership check in the same write transaction.
+        conn.execute("BEGIN IMMEDIATE")
+        before = db._decode("worker_jobs", conn.execute(f"SELECT * FROM worker_jobs WHERE {guard}", args).fetchone())
+        if before is None:
+            return False
+        updated = conn.execute(f"UPDATE worker_jobs SET {cols} WHERE {guard}",
+                               [*fields.values(), *args]).rowcount
+    if updated and stage is not None and before["stage"] != stage:
+        feed.job_event({**before, **fields}, "job_stage", message or "", stage=stage)
+    return bool(updated)
 
 
 # ------------------------------------------------------------------ control
@@ -316,7 +360,11 @@ def recover(now: float | None = None) -> dict:
     """Jobs whose worker vanished (crash, restart, hang past the lease): retry them, or fail after max attempts."""
     now = now or _now()
     counts = {"retrying": 0, "failed": 0, "canceled": 0}
+    recovered = []
     with db.connect() as conn:
+        # Maintenance and the supervisor can recover at the same time as a heartbeat or cancellation.
+        # Decide the outcome under the write lock so none can change the selected lease underneath us.
+        conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute("SELECT id, worker, attempts, max_attempts, cancel_requested FROM worker_jobs "
                             "WHERE status = 'running' AND lease_until < ?", (now,)).fetchall()
         for r in rows:
@@ -326,13 +374,16 @@ def recover(now: float | None = None) -> dict:
                 status, msg = "retrying", "Interrupted (the app or worker stopped); resuming"
             else:
                 status, msg = "failed", f"Interrupted {r['attempts']} times; not retrying"
-            conn.execute("UPDATE worker_jobs SET status = ?, lease_owner = '', lease_until = 0, run_after = ?, "
-                         "message = ?, error = CASE WHEN ? = 'failed' THEN ? ELSE error END, updated_at = ?, "
-                         "finished_at = CASE WHEN ? IN ('failed', 'canceled') THEN ? ELSE finished_at END "
-                         "WHERE id = ? AND status = 'running'",
-                         (status, now, msg, status, msg, now, status, now, r["id"]))
-            counts[status] += 1
-    for r in rows:
+            changed = conn.execute(
+                "UPDATE worker_jobs SET status = ?, lease_owner = '', lease_until = 0, run_after = ?, "
+                "message = ?, error = CASE WHEN ? = 'failed' THEN ? ELSE error END, updated_at = ?, "
+                "finished_at = CASE WHEN ? IN ('failed', 'canceled') THEN ? ELSE finished_at END "
+                "WHERE id = ? AND status = 'running' AND lease_until < ?",
+                (status, now, msg, status, msg, now, status, now, r["id"], now)).rowcount
+            if changed:
+                counts[status] += 1
+                recovered.append(r)
+    for r in recovered:
         log_line(r["id"], r["worker"], "warning", "recovered", "lease expired; job recovered")
     return counts
 

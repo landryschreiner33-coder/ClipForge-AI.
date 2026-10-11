@@ -218,7 +218,7 @@ def test_ended_stream_drains_old_csv_and_posts_once_with_parent_priority(data, m
     sess.listfile.write_text("r001_00000.mkv,0,60\nr001_00001.mkv,60,120\n")
     db.update("sources", src["id"], live_status="ended")
     monkeypatch.setattr(live, "process_segment", record_segment)
-    monkeypatch.setattr(live, "finalize", lambda s: s.pdir / "source.mkv")
+    monkeypatch.setattr(live, "finalize", lambda s, **kwargs: s.pdir / "source.mkv")
     job = context(src, priority=90)
     assert live.live_capture(job)["minutes"] == 2
     assert live.live_capture(job)["minutes"] == 2
@@ -264,7 +264,7 @@ def test_closing_or_pausing_during_a_turn_keeps_the_broadcast_open(data, monkeyp
     monkeypatch.setattr(live, "process_segment", segment_then_stop)
     monkeypatch.setattr(live, "detect", lambda sess, job: None)
     monkeypatch.setattr(live, "input_args", lambda src, settings, **kw: [])
-    monkeypatch.setattr(live, "finalize", lambda s: s.pdir / "source.mkv")
+    monkeypatch.setattr(live, "finalize", lambda s, **kwargs: s.pdir / "source.mkv")
     host = SimpleNamespace(_stop=threading.Event(), set_state=lambda *a, **kw: None)
     src = source(data)
     job = context(src, host)
@@ -338,7 +338,9 @@ def test_post_live_retry_keeps_selection_and_completed_output(data, monkeypatch,
     pdir = data / "prepared"
     pdir.mkdir()
     prepared = SimpleNamespace(id=project["id"], pdir=pdir)
-    chosen = [{"start": 20, "end": 40, "score": 75}, {"start": 50, "end": 70, "score": 80}]
+    story = {"structure": {"hook": True, "context": True, "payoff": True}}
+    chosen = [{"start": 20, "end": 40, "score": 75, "analysis": story},
+              {"start": 50, "end": 70, "score": 80, "analysis": story}]
     selections = []
     rendered = []
     competing_jobs = []

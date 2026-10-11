@@ -52,9 +52,11 @@ def clip(app_client, tmp_path):
     return c, video.read_bytes()
 
 
-def _connect(client, tt, audited: bool = False) -> None:
+def _connect(client, tt, audited: bool = False, audience: str = "owner_only") -> None:
+    """Connect TikTok. Most tests here are about the upload itself, so they stage "Only me" posts (the owner-only
+    audience); the selected-audience tests ask for "selected" (approved followers)."""
     client.put("/api/settings", json={"tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
-                                      "tiktok_app_audited": audited})
+                                      "tiktok_app_audited": audited, "audience_tiktok": audience})
     acc = client.get("/api/publish/accounts").json()["tiktok"]
     assert acc["redirect_uri"] == "http://127.0.0.1:8765/api/oauth/tiktok/callback"  # what to register at TikTok
     auth_url = client.post("/api/publish/tiktok/connect", headers=H).json()["auth_url"]
@@ -137,19 +139,27 @@ def test_a_rate_limited_chunk_waits_as_long_as_tiktok_asks(app_client, tt, clip)
     assert pub["status"] == "done" and bytes(tt.uploads[pub["remote_id"]]["data"]) == data
 
 
-def test_public_post_after_audit_links_to_the_video(app_client, tt, clip):
+def test_audited_app_posts_for_approved_followers_never_everyone(app_client, tt, clip):
     c, _ = clip
-    _connect(app_client, tt, audited=True)
-    pub = _wait(app_client, _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE", allow_comment=True).json()["id"])
-    assert pub["status"] == "done" and pub["url"] == "https://www.tiktok.com/@testcreator/video/7300000000000000001"
-    assert tt.inits[-1]["post_info"]["disable_comment"] is False
-
-
-def test_unaudited_app_is_limited_to_only_me(app_client, tt, clip):
-    c, _ = clip
-    _connect(app_client, tt, audited=False)
+    _connect(app_client, tt, audited=True, audience="selected")
     r = _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE")
-    assert r.status_code == 400 and "Only me" in r.json()["detail"] and "inbox" in r.json()["fix"]
+    assert r.status_code == 400 and "turned off" in r.json()["detail"]
+    pub = _wait(app_client, _post(app_client, c["id"], privacy="FOLLOWER_OF_CREATOR", allow_comment=True).json()["id"])
+    assert pub["status"] == "done" and "Followers" in pub["message"]
+    assert tt.inits[-1]["post_info"]["privacy_level"] == "FOLLOWER_OF_CREATOR"
+    assert tt.inits[-1]["post_info"]["disable_comment"] is False
+    assert pub["delivery"]["audience_setup"] == "account_group"  # requested; TikTok's answer does not report it back
+
+
+def test_unaudited_app_cannot_post_for_followers(app_client, tt, clip):
+    c, _ = clip
+    _connect(app_client, tt, audited=False, audience="selected")
+    r = _post(app_client, c["id"], privacy="PUBLIC_TO_EVERYONE")
+    assert r.status_code == 400 and "turned off" in r.json()["detail"]
+    r = _post(app_client, c["id"], privacy="FOLLOWER_OF_CREATOR")
+    assert r.status_code == 400 and "audited" in r.json()["detail"] and "inbox" in r.json()["fix"]
+    r = _post(app_client, c["id"], privacy="SELF_ONLY")  # "Only me" is not the selected audience
+    assert r.status_code == 400
     assert not tt.inits
 
 
@@ -164,18 +174,23 @@ def test_unaudited_app_is_limited_to_only_me(app_client, tt, clip):
 def test_guideline_checks_before_upload(app_client, tt, clip, kw, text):
     c, _ = clip
     _connect(app_client, tt, audited=True)
+    tt.privacy_options = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]  # a public account
     r = _post(app_client, c["id"], **kw)
     assert r.status_code == 400 and text in r.json()["detail"] + r.json()["fix"], r.json()
     assert not tt.inits
 
 
-def test_branded_content_cannot_be_only_me(app_client, tt, clip):
+def test_branded_content_is_only_for_friends(app_client, tt, clip):
+    """TikTok's guidelines allow branded content only for Everyone or Friends; Everyone is never used here."""
     c, _ = clip
-    _connect(app_client, tt, audited=True)
-    r = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="SELF_ONLY")
-    assert r.status_code == 400 and "Branded content" in r.json()["detail"]
-    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="PUBLIC_TO_EVERYONE")
-    assert ok.status_code == 200
+    _connect(app_client, tt, audited=True, audience="selected")
+    for privacy in ("SELF_ONLY", "FOLLOWER_OF_CREATOR"):
+        r = _post(app_client, c["id"], disclose=True, brand_content=True, privacy=privacy)
+        assert r.status_code == 400 and "branded content" in r.json()["detail"], r.json()
+    assert not tt.inits
+    app_client.put("/api/settings", json={"audience_tiktok_group": "friends"})  # the narrower group, chosen by you
+    ok = _post(app_client, c["id"], disclose=True, brand_content=True, privacy="MUTUAL_FOLLOW_FRIENDS")
+    assert ok.status_code == 200, ok.json()
     _wait(app_client, ok.json()["id"])
     assert tt.inits[-1]["post_info"]["brand_content_toggle"] is True
 

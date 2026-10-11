@@ -119,7 +119,8 @@ export function YouTubeSetupSteps({ testingNote }: { testingNote?: string }) {
         <li>In <b>APIs &amp; Services, Library</b>, enable <b>YouTube Data API v3</b>. Optional: also enable <b>YouTube
           Analytics API</b> so ClipFoundry can read the watch time and retention of your videos.</li>
         <li>On the <b>OAuth consent screen</b>, choose <i>External</i>, fill in the app name and your e-mail, and add
-          your Google account under <i>Test users</i>.</li>
+          your Google account under <i>Test users</i> for initial testing. For continuous posting, change the
+          publishing status to <b>Production</b> before connecting again; Testing sign-ins expire after seven days.</li>
         <li>In <b>Credentials, Create credentials, OAuth client ID</b>, choose the application type <b>Desktop app</b>.
           Copy the client ID and client secret into the fields here and save.</li>
         <li>Press <b>Connect YouTube</b>, sign in with Google and allow access. Google may say “Google hasn't verified
@@ -127,8 +128,8 @@ export function YouTubeSetupSteps({ testingNote }: { testingNote?: string }) {
       </ol>
       {testingNote && <p className="small muted">{testingNote}</p>}
       <p className="small muted">
-        Until Google audits your project, YouTube keeps every upload from it Private. Private uploads are fine for
-        testing. Uploads count against your project's daily YouTube allowance.
+        Public uploads do not require YouTube's API audit under its current documentation. The app checks the
+        returned visibility. An API audit is needed to request more quota; uploads use your project's daily allowance.
       </p>
     </div>
   );
@@ -146,15 +147,17 @@ export function TikTokSetupSteps() {
           Post) and <code>video.list</code> (statistics).</li>
         <li>In Login Kit, register the redirect address shown here. If you start ClipFoundry on another port, register
           that port too.</li>
-        <li>While the app is not reviewed, add your TikTok account as a <b>target user</b> (sandbox). Paste the client
-          key and secret here and save.</li>
+        <li>While the app is not reviewed, create a <b>Sandbox</b> in it and add your TikTok account as a target user
+          (there Direct Post can only post “Only me”). Paste the client key and secret here and save.</li>
         <li>Press <b>Connect TikTok</b>, sign in on TikTok's page and allow access.</li>
       </ol>
       <p className="small muted">
         Until TikTok audits your app, Direct Post only works when your TikTok account is private, every post is
-        “Only me”, and at most 5 users can post a day. <b>Send to TikTok inbox</b> works without the audit: the video
-        arrives as a draft in the TikTok app and you post it from there. You can also export the clip and upload it in
-        TikTok Studio.
+        “Only me”, and at most 5 users can post a day. <b>Send to TikTok inbox</b> needs no audit, but TikTok must
+        have approved your app for it; the video arrives as a draft and you choose the confirmed audience in TikTok.
+        Public posts need Everyone and an account that allows it. TikTok's rules
+        turn down apps for personal use, so expect to post clips yourself: ClipFoundry prepares each one (video,
+        caption, who to post it for) in the Queue.
       </p>
     </div>
   );

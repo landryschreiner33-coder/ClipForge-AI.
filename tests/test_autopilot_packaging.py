@@ -83,7 +83,7 @@ def test_ai_suggestions_are_regenerated_until_grounded(monkeypatch):
     answers = [{"suggestions": [{"style": "curiosity", "text": "Why 97% of founders fail in 2 years"}]},
                {"suggestions": [{"style": "curiosity", "text": "They spent a whole year building what nobody asked for"}]}]
 
-    def fake(settings, prompt):
+    def fake(settings, prompt, **kw):
         prompts.append(prompt)
         return json.dumps(answers[min(len(prompts) - 1, len(answers) - 1)])
 

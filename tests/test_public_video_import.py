@@ -229,3 +229,34 @@ def test_recorded_hls_webpage_imports_real_media_through_guard(public_site):
     assert 1.9 <= probe(output)["duration"] <= 2.2
     assert any(r.url.path.endswith(".ts") for r in calls)
     assert all(r.url.host == "8.8.8.8" for r in calls)
+
+
+def test_a_rule_recorded_after_clipping_reaches_the_clipped_video(public_site):
+    """A public video clipped before anything covered it keeps its clips. A license recorded later makes it eligible
+    for scheduling and its stored rights say so; a block recorded later takes that back. Its processing status
+    never changes, and nothing but the rule decides whether it may be posted."""
+    from clipfoundry import db
+    from clipfoundry.autopilot import host, queue, rights
+
+    settings = db.get_settings()
+    source = db.insert("sources", {"platform": "url", "external_id": "clipped", "signal_id": "search",
+                                   "url": "https://public.example/watch", "title": "Interview podcast",
+                                   "status": "analyzed", "rights_status": rights.MANUAL, "clips_selected": 2})
+    with pytest.raises(rights.RightsBlocked):
+        rights.gate(source, "schedule", settings)
+    host.WorkerHost(periodic=False)
+
+    def rights_check():
+        job = queue.enqueue("rights_check", {"n": len(queue.jobs())})
+        host.HANDLERS["rights_check"](host.Job(job, "test"))
+        return db.fetch("sources", source["id"])
+
+    rights.add_rule("source", source["id"], rights.LICENSED, "Written license from the creator")
+    row = rights_check()
+    assert (row["status"], row["rights_status"]) == ("analyzed", rights.LICENSED)
+    assert rights.gate(row, "schedule", settings)["auto_allowed"]
+    rights.add_rule("source", source["id"], rights.BLOCKED, "Do not use")
+    row = rights_check()
+    assert (row["status"], row["rights_status"]) == ("analyzed", rights.BLOCKED)
+    with pytest.raises(rights.RightsBlocked):
+        rights.gate(row, "publish", settings)

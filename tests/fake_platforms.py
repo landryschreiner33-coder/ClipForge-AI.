@@ -80,6 +80,7 @@ class FakeGoogle(_Server):
         self.expire_sessions = False             # ...and forget the upload session right away
         self.hide_uploads = False                # new uploads do not show in the channel's uploads list yet
         self.lock_private = False                # behave like an unaudited API project
+        self.force_privacy = ""                  # report every new upload with this visibility (an audience incident)
         self.quota_exceeded = False
         self.chunk_delay = 0.0
         self.analytics: dict | None = None      # a YouTube Analytics row for every video, or None = no data yet
@@ -148,7 +149,8 @@ class FakeGoogle(_Server):
                                      "refresh_token": self.refresh_token, "scope": self.scope})
             if form["grant_type"] == "refresh_token":
                 if self.revoked or form.get("refresh_token") != self.refresh_token:
-                    return h._send(400, {"error": "invalid_grant", "error_description": "Token has been expired or revoked."})
+                    return h._send(400, {"error": "invalid_grant",
+                                         "error_description": "Token has been expired or revoked."})
                 self.access = "access-" + secrets.token_hex(4)
                 return h._send(200, {"access_token": self.access, "expires_in": 3599, "scope": self.scope})
         if u.path == "/revoke":
@@ -179,7 +181,8 @@ class FakeGoogle(_Server):
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             if self.search_quota_exceeded:
-                return h._send(403, {"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}})
+                return h._send(403, {"error": {"code": 403, "message": "quota",
+                                             "errors": [{"reason": "quotaExceeded"}]}})
             words = q.get("q", [""])[0].lower().split()
             live = q.get("eventType") == ["live"]
             hits = [it for it in self.catalog.values()
@@ -197,7 +200,8 @@ class FakeGoogle(_Server):
             if len(ids) > 1 or ids[0] in self.catalog:
                 return h._send(200, {"items": [self.catalog[v] for v in ids if v in self.catalog]})
             v = self.videos.get(ids[0])
-            items = [{"id": v["id"], "status": v["status"], "processingDetails": {"processingStatus": "succeeded"},
+            items = [{"id": v["id"], "snippet": v["snippet"], "status": v["status"],
+                      "processingDetails": {"processingStatus": "succeeded"},
                       "statistics": v.get("statistics", {})}] if v else []
             return h._send(200, {"items": items})
         if u.path == "/v2/reports":
@@ -215,7 +219,8 @@ class FakeGoogle(_Server):
             if not self._authorized(h):
                 return h._send(401, {"error": {"code": 401, "message": "Invalid Credentials"}})
             if self.quota_exceeded:
-                return h._send(403, {"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}})
+                return h._send(403, {"error": {"code": 403, "message": "quota",
+                                             "errors": [{"reason": "quotaExceeded"}]}})
             assert q["uploadType"] == ["resumable"]
             sid = secrets.token_hex(6)
             self.sessions[sid] = {"meta": json.loads(body), "size": int(h.headers["X-Upload-Content-Length"]),
@@ -259,7 +264,8 @@ class FakeGoogle(_Server):
             return h._send(308, None, headers)
         vid = "vid" + secrets.token_hex(4)
         wanted = s["meta"]["status"]["privacyStatus"]
-        status = {"uploadStatus": "uploaded", "privacyStatus": "private" if self.lock_private else wanted,
+        status = {"uploadStatus": "uploaded",
+                  "privacyStatus": self.force_privacy or ("private" if self.lock_private else wanted),
                   "selfDeclaredMadeForKids": s["meta"]["status"]["selfDeclaredMadeForKids"]}
         if s["meta"]["status"].get("publishAt"):
             assert wanted == "private"  # YouTube only accepts publishAt on private videos
@@ -284,6 +290,8 @@ class FakeTikTok(_Server):
         self.access = ""
         self.refresh_token = "rft-" + secrets.token_hex(4)
         self.scope = "user.info.basic,video.upload,video.publish,video.list"
+        # what TikTok offers a private account (an unaudited app may still only use SELF_ONLY)
+        self.privacy_options = ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]
         self.grants: list[str] = []
         self.revoked = False
         self.inits: list[dict] = []
@@ -359,11 +367,12 @@ class FakeTikTok(_Server):
             return self._ok(h, {"user": {"open_id": "open-1", "display_name": "Test Creator",
                                          "avatar_url": "https://p16.example/avatar.jpg"}})
         if u.path == "/v2/post/publish/creator_info/query/":
-            return self._ok(h, {"creator_avatar_url": "https://p16.example/avatar.jpg", "creator_username": "testcreator",
+            return self._ok(h, {"creator_avatar_url": "https://p16.example/avatar.jpg",
+                                "creator_username": "testcreator",
                                 "creator_nickname": "Test Creator", "comment_disabled": False,
                                 "duet_disabled": self.duet_disabled, "stitch_disabled": False,
                                 "max_video_post_duration_sec": 600,
-                                "privacy_level_options": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]})
+                                "privacy_level_options": list(self.privacy_options)})
         if u.path in ("/v2/post/publish/video/init/", "/v2/post/publish/inbox/video/init/"):
             req = json.loads(body)
             self.inits.append({"path": u.path, **req})

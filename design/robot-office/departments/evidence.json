@@ -1,0 +1,2636 @@
+{
+  "baseURL": "http://127.0.0.1:8844",
+  "capturedAt": "2026-10-09T14:19:13.572Z",
+  "browser": "Linux Chromium",
+  "fixture": {
+    "banner": "ANIMATION PREVIEW · CONTROLLED TEST STATES",
+    "run": "running",
+    "brain": "evaluating",
+    "initialRoles": [
+      {
+        "id": "command",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "tracker",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "vector",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "frame",
+        "state": "working",
+        "task": null
+      },
+      {
+        "id": "script",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "clock",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "harbor",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "switch",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "curator",
+        "state": "working",
+        "task": null
+      },
+      {
+        "id": "radar",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "archive",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "pulse",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "gavel",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "boost",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "spark",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "story",
+        "state": "working",
+        "task": {
+          "job_id": "preview-story",
+          "kind": "analyze_source",
+          "stage": "moments",
+          "status": "running",
+          "message": "Controlled STORY analysis remains active",
+          "progress": null,
+          "ref_type": "source",
+          "ref_id": "preview-story-source",
+          "updated_at": 1791555595.607
+        }
+      },
+      {
+        "id": "splice",
+        "state": "working",
+        "task": {
+          "job_id": "preview-render",
+          "kind": "analyze_source",
+          "stage": "render",
+          "status": "running",
+          "message": "Controlled render-to-caption transition",
+          "progress": null,
+          "ref_type": "source",
+          "ref_id": "preview-source",
+          "updated_at": 1791555595.607
+        }
+      },
+      {
+        "id": "glyph",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "quill",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "check",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "lock",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "dock",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "metric",
+        "state": "idle",
+        "task": null
+      },
+      {
+        "id": "synapse",
+        "state": "working",
+        "task": {
+          "job_id": "preview-learning",
+          "kind": "learn_tick",
+          "stage": "evaluate",
+          "status": "running",
+          "message": "Controlled Brain animation preview",
+          "progress": null,
+          "ref_type": "",
+          "ref_id": "",
+          "updated_at": 1791555595.607
+        }
+      },
+      {
+        "id": "patch",
+        "state": "idle",
+        "task": null
+      }
+    ],
+    "afterRoles": [
+      {
+        "id": "story",
+        "state": "working",
+        "task": {
+          "job_id": "preview-story",
+          "kind": "analyze_source",
+          "stage": "moments",
+          "status": "running",
+          "message": "Controlled STORY analysis remains active",
+          "progress": null,
+          "ref_type": "source",
+          "ref_id": "preview-story-source",
+          "updated_at": 1791555595.607
+        },
+        "tasks": 0,
+        "queued": 0,
+        "error": "",
+        "last": null
+      },
+      {
+        "id": "splice",
+        "state": "idle",
+        "task": null,
+        "tasks": 0,
+        "queued": 0,
+        "error": "",
+        "last": null
+      },
+      {
+        "id": "glyph",
+        "state": "working",
+        "task": {
+          "job_id": "preview-render",
+          "kind": "analyze_source",
+          "stage": "captions",
+          "status": "running",
+          "message": "Controlled render-to-caption transition",
+          "progress": null,
+          "ref_type": "source",
+          "ref_id": "preview-source",
+          "updated_at": 1791555595.607
+        },
+        "tasks": 0,
+        "queued": 0,
+        "error": "",
+        "last": null
+      }
+    ],
+    "health": "Unmodified disposable sandbox health",
+    "mutatingRequests": "Blocked before reaching app"
+  },
+  "captures": [
+    {
+      "file": "studio-department-controlled.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "studio",
+      "world": {
+        "x": -1212.95556640625,
+        "y": -317.01751708984375,
+        "width": 2095.796875,
+        "height": 1397.1875,
+        "bottom": 1080.1699829101562,
+        "right": 882.84130859375
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        }
+      ]
+    },
+    {
+      "file": "office-desktop-controlled.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "office",
+      "world": {
+        "x": 176.75,
+        "y": 232.5,
+        "width": 748.5,
+        "height": 499,
+        "bottom": 731.5,
+        "right": 925.25
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        }
+      ]
+    },
+    {
+      "file": "handoff-controlled.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "caption",
+      "world": {
+        "x": -327.2337646484375,
+        "y": -885.2506103515625,
+        "width": 2395.1875,
+        "height": 1596.796875,
+        "bottom": 711.5462646484375,
+        "right": 2067.9537353515625
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "received",
+        "from": "splice",
+        "to": "glyph"
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "caption",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "rest"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "splice",
+          "state": "idle",
+          "room": "caption",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "working",
+          "room": "caption",
+          "posture": "stand",
+          "pose": "carry",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "corridor",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        }
+      ]
+    },
+    {
+      "file": "studio-return-controlled.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "studio",
+      "world": {
+        "x": -1212.95556640625,
+        "y": -317.01751708984375,
+        "width": 2095.796875,
+        "height": 1397.1875,
+        "bottom": 1080.1699829101562,
+        "right": 882.84130859375
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "caption",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "rest"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "splice",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "working",
+          "room": "caption",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "caption",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        }
+      ]
+    },
+    {
+      "file": "brain-department-controlled.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "brain",
+      "world": {
+        "x": -744.5701293945312,
+        "y": 259.7284240722656,
+        "width": 1524.203125,
+        "height": 1016.140625,
+        "bottom": 1275.8690490722656,
+        "right": 779.6329956054688
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "caption",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "rest"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "working",
+          "room": "caption",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "caption",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "walk",
+          "duty": "break",
+          "activity": ""
+        }
+      ]
+    },
+    {
+      "file": "office-laptop-controlled.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "office",
+      "world": {
+        "x": 136,
+        "y": 156,
+        "width": 696,
+        "height": 464,
+        "bottom": 620,
+        "right": 832
+      },
+      "controls": {
+        "x": 16,
+        "y": 653,
+        "width": 1248,
+        "height": 64,
+        "bottom": 717,
+        "right": 1264
+      },
+      "details": {
+        "x": 964,
+        "y": 115,
+        "width": 300,
+        "height": 532,
+        "bottom": 647,
+        "right": 1264
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        }
+      ]
+    },
+    {
+      "file": "office-mobile-list-controlled.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fitsWidth": true,
+      "world": null,
+      "controls": {
+        "x": 16,
+        "y": 3129.484375,
+        "width": 358,
+        "height": 265,
+        "bottom": 3394.484375,
+        "right": 374
+      },
+      "details": {
+        "x": 16,
+        "y": 2449.890625,
+        "width": 358,
+        "height": 665.59375,
+        "bottom": 3115.484375,
+        "right": 374
+      },
+      "handoff": {},
+      "listRobots": [
+        "COMMAND",
+        "TRACKER",
+        "RADAR",
+        "ARCHIVE",
+        "VECTOR",
+        "PULSE",
+        "GAVEL",
+        "BOOST",
+        "FRAME",
+        "SPARK",
+        "STORY",
+        "SPLICE",
+        "SCRIPT",
+        "GLYPH",
+        "QUILL",
+        "CLOCK",
+        "HARBOR",
+        "LOCK",
+        "DOCK",
+        "SWITCH",
+        "CHECK",
+        "PATCH",
+        "CURATOR",
+        "METRIC",
+        "SYNAPSE"
+      ],
+      "robots": []
+    },
+    {
+      "file": "office-mobile-studio-controlled.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "studio",
+      "world": {
+        "x": -642.782470703125,
+        "y": 89.56936645507812,
+        "width": 995.390625,
+        "height": 663.59375,
+        "bottom": 753.1631164550781,
+        "right": 352.608154296875
+      },
+      "controls": {
+        "x": 16,
+        "y": 1354.3125,
+        "width": 358,
+        "height": 265,
+        "bottom": 1619.3125,
+        "right": 374
+      },
+      "details": {
+        "x": 16,
+        "y": 674.71875,
+        "width": 358,
+        "height": 665.59375,
+        "bottom": 1340.3125,
+        "right": 374
+      },
+      "brainMode": "active",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "tracker",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "vector",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "working",
+          "room": "studio",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "script",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "clock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "harbor",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "switch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "curator",
+          "state": "working",
+          "room": "brain",
+          "posture": "stand",
+          "pose": "idle",
+          "duty": "supervising",
+          "activity": ""
+        },
+        {
+          "id": "radar",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "archive",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "pulse",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "gavel",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "spark",
+          "state": "idle",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "story",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "boost",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "working",
+          "room": "studio",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "glyph",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "quill",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "check",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "lock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "dock",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "metric",
+          "state": "idle",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "idle",
+          "duty": "support",
+          "activity": ""
+        },
+        {
+          "id": "synapse",
+          "state": "working",
+          "room": "brain",
+          "posture": "desk",
+          "pose": "work",
+          "duty": "work",
+          "activity": ""
+        },
+        {
+          "id": "patch",
+          "state": "idle",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "idle",
+          "duty": "break",
+          "activity": "snack"
+        }
+      ]
+    },
+    {
+      "file": "lounge-idle-actual.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fitsWidth": true,
+      "renderer": "pixi",
+      "camera": "lounge",
+      "world": {
+        "x": 224.53933715820312,
+        "y": 270.41033935546875,
+        "width": 1450.9375,
+        "height": 967.2813110351562,
+        "bottom": 1237.691650390625,
+        "right": 1675.4768371582031
+      },
+      "controls": {
+        "x": 16,
+        "y": 797.5,
+        "width": 1408,
+        "height": 108.5,
+        "bottom": 906,
+        "right": 1424
+      },
+      "details": {
+        "x": 1104,
+        "y": 179.5,
+        "width": 320,
+        "height": 600,
+        "bottom": 779.5,
+        "right": 1424
+      },
+      "brainMode": "standby",
+      "handoff": {
+        "phase": "idle",
+        "from": "",
+        "to": ""
+      },
+      "listRobots": [],
+      "robots": [
+        {
+          "id": "command",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "tracker",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "vector",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "frame",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "script",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "arcade"
+        },
+        {
+          "id": "clock",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "harbor",
+          "state": "unavailable",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "unavailable",
+          "duty": "quiet",
+          "activity": ""
+        },
+        {
+          "id": "switch",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "drink"
+        },
+        {
+          "id": "curator",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "stand",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "snack"
+        },
+        {
+          "id": "radar",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "archive",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "pulse",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "gavel",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "spark",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "story",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "boost",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "splice",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "boardgame"
+        },
+        {
+          "id": "glyph",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "quill",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "check",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "lock",
+          "state": "unavailable",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "unavailable",
+          "duty": "quiet",
+          "activity": ""
+        },
+        {
+          "id": "dock",
+          "state": "unavailable",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "unavailable",
+          "duty": "quiet",
+          "activity": ""
+        },
+        {
+          "id": "metric",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "read"
+        },
+        {
+          "id": "synapse",
+          "state": "paused",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "paused",
+          "duty": "break",
+          "activity": "rest"
+        },
+        {
+          "id": "patch",
+          "state": "waiting",
+          "room": "lounge",
+          "posture": "rest",
+          "pose": "wait",
+          "duty": "break",
+          "activity": "snack"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "phase": "approach",
+      "seconds": 9.155,
+      "from": "splice",
+      "to": "glyph"
+    },
+    {
+      "phase": "pass",
+      "seconds": 17.844,
+      "from": "splice",
+      "to": "glyph"
+    },
+    {
+      "phase": "received",
+      "seconds": 19.052,
+      "from": "splice",
+      "to": "glyph"
+    },
+    {
+      "phase": "splice-returned-studio",
+      "seconds": 27.939
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "blockedWrites": [],
+  "sourceBase": "e896632ac69813a48ad85d67b1132a75a11cf303",
+  "productionFiles": [
+    {
+      "file": "assets/StudioArt-BvZreFS6.js",
+      "sha256": "2d68ab37decb7e6d846b6db9f151f61719f5e8a623c315c9c7c3a8ce0fb6750a"
+    },
+    {
+      "file": "assets/StudioPortraits-B-ZLbcPH.js",
+      "sha256": "a7762e78cc94123222f183fc11aacd4a3fbcc9007198e4f17deaba5fe453483b"
+    },
+    {
+      "file": "assets/StudioScene-CmXxQRfw.js",
+      "sha256": "252c160997ece4d7d75064cd66033798d221dbfc455f4b79940a34c7022e5ca0"
+    },
+    {
+      "file": "assets/browserAll-BjNWhFtw.js",
+      "sha256": "b40455bdf6ce282ba3841a8d08f0477e2437951af59f5c534a941b18e8ab6b6d"
+    },
+    {
+      "file": "assets/foundry-pixel-B4sVaom2.ttf",
+      "sha256": "1a6a2fedced299d7fd687734ede74b27c53249827ca021d327d76ad58aec59c4"
+    },
+    {
+      "file": "assets/index-BcI4F67a.js",
+      "sha256": "c8532f55e05b0bde77d380e148be760313e5ce3b97dbfb3191319f0e51739af3"
+    },
+    {
+      "file": "assets/index-CA6Atzuf.css",
+      "sha256": "1f3b682a1b7171f88b3fa301bf43cebf1d6d3ee10926ad00919d2458a394bdd1"
+    },
+    {
+      "file": "assets/index-mwEuuRUl.js",
+      "sha256": "0e7b8cb1d068606fc6f9aa066e57e906c4aa95fae9ab72942484a5d2308010a2"
+    },
+    {
+      "file": "assets/webworkerAll-BziFdyBy.js",
+      "sha256": "068a98a1cba83c9590a193a0eea97c05f3990f4b5f38c4c64996f2381dc39483"
+    },
+    {
+      "file": "favicon.svg",
+      "sha256": "a8610063d9e58d667881bfcff4209cf18583ee30fac017c334a0fe9b1b3bd58f"
+    },
+    {
+      "file": "index.html",
+      "sha256": "4aa5d7622691129f979398a069441b35286a6713ac55a06587723b7ef75b1ada"
+    },
+    {
+      "file": "office-art/README.txt",
+      "sha256": "76086ff8ec76d1babd644f5492f78b19b439165da77664c324fee25275715a8d"
+    },
+    {
+      "file": "office-art/skyline.png",
+      "sha256": "f4e1a6c898ea18630a778bec418f915bcf21cd25a058f7908242d6c03e16e207"
+    },
+    {
+      "file": "third-party-graphics.txt",
+      "sha256": "5ef82922dbd407603f7f2d4e66386b7ddced733c5b77924f6f9512c964851fa5"
+    }
+  ],
+  "actualSandbox": {
+    "run": "stopped",
+    "brain": "cold_start",
+    "health": "error",
+    "roles": [
+      {
+        "id": "command",
+        "state": "paused"
+      },
+      {
+        "id": "tracker",
+        "state": "paused"
+      },
+      {
+        "id": "vector",
+        "state": "paused"
+      },
+      {
+        "id": "frame",
+        "state": "paused"
+      },
+      {
+        "id": "script",
+        "state": "paused"
+      },
+      {
+        "id": "clock",
+        "state": "paused"
+      },
+      {
+        "id": "harbor",
+        "state": "unavailable"
+      },
+      {
+        "id": "switch",
+        "state": "paused"
+      },
+      {
+        "id": "curator",
+        "state": "paused"
+      },
+      {
+        "id": "radar",
+        "state": "paused"
+      },
+      {
+        "id": "archive",
+        "state": "paused"
+      },
+      {
+        "id": "pulse",
+        "state": "paused"
+      },
+      {
+        "id": "gavel",
+        "state": "paused"
+      },
+      {
+        "id": "boost",
+        "state": "paused"
+      },
+      {
+        "id": "spark",
+        "state": "paused"
+      },
+      {
+        "id": "story",
+        "state": "paused"
+      },
+      {
+        "id": "splice",
+        "state": "paused"
+      },
+      {
+        "id": "glyph",
+        "state": "paused"
+      },
+      {
+        "id": "quill",
+        "state": "paused"
+      },
+      {
+        "id": "check",
+        "state": "paused"
+      },
+      {
+        "id": "lock",
+        "state": "unavailable"
+      },
+      {
+        "id": "dock",
+        "state": "unavailable"
+      },
+      {
+        "id": "metric",
+        "state": "paused"
+      },
+      {
+        "id": "synapse",
+        "state": "paused"
+      },
+      {
+        "id": "patch",
+        "state": "waiting"
+      }
+    ]
+  },
+  "video": {
+    "seconds": 37.43,
+    "trimStart": 3.687,
+    "size": {
+      "width": 1440,
+      "height": 900
+    },
+    "output": "department-work-controlled.mp4",
+    "media": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 900,
+          "r_frame_rate": "25/1"
+        }
+      ],
+      "format": {
+        "duration": "37.400000",
+        "size": "2801560"
+      }
+    }
+  }
+}

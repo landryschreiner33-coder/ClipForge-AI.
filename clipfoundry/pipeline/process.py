@@ -34,6 +34,7 @@ def load_words(project: dict) -> list[dict]:
 def _options(project: dict, settings: dict) -> dict:
     opts = dict(settings)
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
+    opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
     opts["min_duration"] = float(opts.get("min_duration", 20))
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))
@@ -271,7 +272,7 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
         p.stage("render", a, msg)
         db.update_clip(clip["id"], status="rendering", progress=0)
         sub = JobContext(lambda f, m, a=a, b=b, cid=clip["id"], msg=msg: (
-            ctx_report(a + (b - a) * f, msg), db.update_clip(cid, progress=round(f, 3))),
+            ctx_report(a + (b - a) * f, m), db.update_clip(cid, progress=round(f, 3))),
             ctx.cancelled)
         try:
             plan = blueprint.for_render(clip, _duration(project), p.words)  # None for manual clips
@@ -308,7 +309,7 @@ def render_single(clip_id: str, ctx: JobContext) -> None:
     project["dir"] = str(project_dir(project))
     settings = db.get_settings()
     db.update_clip(clip_id, status="rendering", progress=0, error="")
-    sub = JobContext(lambda f, m: db.update_clip(clip_id, progress=round(f, 3)), ctx.cancelled)
+    sub = JobContext(lambda f, m: (db.update_clip(clip_id, progress=round(f, 3)), ctx.progress(f, m)), ctx.cancelled)
     try:
         words = load_words(project)
         plan = blueprint.for_render(clip, _duration(project), words)  # None for manual clips

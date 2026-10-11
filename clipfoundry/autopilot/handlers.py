@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 
 from .. import db
+from ..office import feed
 from . import queue, state
 from .host import MAINTENANCE_STEPS, Job, handler
 
@@ -23,7 +24,7 @@ def maintenance(job: Job) -> dict:
     db.execute("DELETE FROM autopilot_events WHERE at < ?", (now - KEEP_EVENT_DAYS * 86400,))
     db.execute("DELETE FROM action_items WHERE resolved_at IS NOT NULL AND resolved_at < ?", (cutoff,))
     db.execute("DELETE FROM api_cache WHERE expires_at < ?", (now,))
-    result = {"recovered": recovered, "removed_jobs": removed_jobs}
+    result = {"recovered": recovered, "removed_jobs": removed_jobs, "office_events_removed": feed.prune(now)}
     for step in MAINTENANCE_STEPS:
         job.check()
         result.update(step(job) or {})

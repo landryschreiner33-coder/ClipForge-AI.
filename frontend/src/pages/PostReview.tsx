@@ -11,13 +11,13 @@ import {
 import { PublicationStats } from "../components/stats";
 import "./posts.css";
 import {
-  Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, Segmented, toast,
+  Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, toast,
   usePoll,
 } from "../components/ui";
 
 type Kids = "" | "no" | "yes";
 type Form = {
-  title: string; text: string; tags: string; privacy: string; kids: Kids; mode: "direct" | "inbox";
+  title: string; text: string; tags: string; privacy: string; kids: Kids; mode: "direct" | "inbox" | "manual";
   comment: boolean; duet: boolean; stitch: boolean; disclose: boolean; brandOrganic: boolean; brandContent: boolean;
 };
 const LABELS: Record<keyof Form, string> = {
@@ -39,9 +39,10 @@ function formOf(p: Post): Form {
   const yt = p.platform === "youtube";
   return {
     title: p.title || "", text: p.description || "", tags: (p.tags || []).join(" "),
-    privacy: yt ? p.privacy || "private" : p.privacy || "",
+    // TikTok requires the owner’s own choice for each new post; its intent stamp is not a privacy selection.
+    privacy: yt ? p.privacy || p.audience?.visibility || "private" : p.privacy || "",
     kids: o.made_for_kids === false ? "no" : o.made_for_kids === true ? "yes" : "",
-    mode: o.mode === "inbox" ? "inbox" : "direct",
+    mode: o.mode === "inbox" || o.mode === "manual" ? o.mode : "direct",
     comment: !!o.allow_comment, duet: !!o.allow_duet, stitch: !!o.allow_stitch,
     disclose: !!o.disclose, brandOrganic: !!o.brand_organic, brandContent: !!o.brand_content,
   };
@@ -66,7 +67,7 @@ export default function PostReview({ id }: { id: string }) {
     if (error) {
       return (
         <div className="page">
-          <PageHead title="Post" crumbs={[{ label: "Posts", href: "#/posts/review" }, { label: "Post" }]} />
+          <PageHead title="Post" crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post" }]} />
           <EmptyState icon="alert" title="This post could not be loaded"
             actions={<button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>}>
             {error}
@@ -80,9 +81,9 @@ export default function PostReview({ id }: { id: string }) {
     return (
       <div className="page">
         <PageHead title="Post not found"
-          crumbs={[{ label: "Posts", href: "#/posts/review" }, { label: "Post not found" }]} />
+          crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post not found" }]} />
         <EmptyState icon="posts" title="There is no post at this address"
-          actions={<a className="btn" href="#/posts/review">Open Posts</a>}>
+          actions={<a className="btn" href="#/queue/review">Open the Queue</a>}>
           It may have been removed with its clip.
         </EmptyState>
       </div>
@@ -102,7 +103,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const s = postStatus(p);
   const needsOk = p.status === "awaiting_approval" || okOutdated(p);
   const editable = ["awaiting_approval", "approved", "failed"].includes(p.status);
-  const accountOk = !account || (account.connected && !account.needs_reconnect);
+  const accountOk = !!account?.connected && !account.needs_reconnect;
+  const who = p.audience?.intent === "PUBLIC" ? "Everyone (Public)"
+    : p.audience?.intent === "OWNER_ONLY" ? "Only me"
+      : p.audience?.visibility === "MUTUAL_FOLLOW_FRIENDS" ? "Friends" : "Followers";
 
   // The form starts from the post and follows it while you have not changed anything.
   const [base, setBase] = useState<Form>(() => formOf(p));
@@ -119,19 +123,22 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     setBase(next);
     if (!dirty) setF(next);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const set = (patch: Partial<Form>) => setF((x) => ({ ...x, ...patch }));
+  const set = (patch: Partial<Form>) => { setF((x) => ({ ...x, ...patch })); setAgree(false); };
 
   const [dialog, setDialog] = useState<PostAction | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [busy, setBusy] = useState(false);
+  useEffect(() => { setAgree(false); }, [key, account?.account_id]);
 
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
   const [creatorError, setCreatorError] = useState("");
   useEffect(() => {
     if (yt || !editable || !account?.connected) return;
+    setCreator(null);
+    setCreatorError("");
     api.tiktokCreator().then(setCreator).catch((e) => setCreatorError(errorText(e)));
-  }, [yt, editable, account?.connected]);
+  }, [yt, editable, account?.connected, account?.connected_at]);
 
   // The file that would be posted: the clip's posting version (its label and a cache key for this render).
   const [version, setVersion] = useState<ClipVersion | null>(null);
@@ -172,7 +179,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const audited = yt || !!account?.audited;
   const tooLong = direct && creator && creator.max_duration > 0 && p.clip.duration > creator.max_duration;
   const missing = [
-    !accountOk && `connect ${name} again`,
+    !accountOk && (yt || f.mode !== "manual") && `connect ${name} again`,
+    direct && !account?.can_direct_post && "use a supported inbox draft or post the package yourself",
+    !yt && f.mode === "inbox" && !account?.can_inbox && "get TikTok approval for inbox uploads or post it yourself",
+    direct && !creator && "read TikTok’s current posting options",
     yt && !f.title.trim() && "enter a title",
     yt && f.title.length > 100 && "shorten the title to 100 characters",
     yt && !f.kids && "answer “made for kids”",
@@ -180,7 +190,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     direct && !f.privacy && "choose who can see it",
     direct && !audited && f.privacy && f.privacy !== "SELF_ONLY" && "choose “Only me” (your TikTok app is not audited)",
     direct && f.disclose && !f.brandOrganic && !f.brandContent && "choose what the commercial content is",
-    branded && f.privacy === "SELF_ONLY" && "branded content can't be “Only me”",
+    branded && f.privacy && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(f.privacy)
+      && "branded content needs Friends or Everyone",
     tooLong && `trim the clip to ${creator!.max_duration} seconds`,
     p.quality?.status === "failed" && "fix what the final check found",
     !agree && "tick that you watched the video and read its text",
@@ -193,7 +204,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     }
     setBusy(true);
     try {
-      const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim() };
+      const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
+        expected_account_id: account?.account_id };
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
       else Object.assign(body, {
         mode: f.mode, privacy: direct ? f.privacy : "", allow_comment: f.comment, allow_duet: f.duet,
@@ -219,7 +231,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     <div className="page">
       <PageHead kind={`${name} post`} title={needsOk ? `Review for ${name}` : title}
         crumbs={[
-          { label: `Posts: ${VIEW_NAME[view]}`, href: `#/posts/${view}` },
+          { label: `Queue: ${VIEW_NAME[view]}`, href: `#/queue/${view}` },
           { label: <span className="clamp-1 crumb-title">{title}</span> },
         ]}
         sub={<span className="row wrap" style={{ gap: 8 }}><Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
@@ -250,7 +262,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
         </div>
 
         <div className="stack-4">
-          <StatusBlock p={p} tz={tz} autoPublish={autoPublish} accountOk={accountOk} onAction={setDialog} />
+          <StatusBlock p={p} tz={tz} autoPublish={autoPublish} accountOk={accountOk} onAction={setDialog}
+            onChanged={onChanged} videoUrl={videoUrl} />
           {p.replaces && p.status === "awaiting_approval" && (
             <p className="small">
               <Icon name="refresh" className="sm" /> If you approve it, it takes the time of a weaker{" "}
@@ -259,7 +272,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
           )}
           <Checks p={p} account={account} />
           {editable ? (
-            <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} tz={tz} />
+            <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} />
           ) : (
             <section className="panel" aria-labelledby="posted-h">
               <h2 id="posted-h" style={{ fontSize: "var(--fs-h3)" }}>Text and visibility</h2>
@@ -270,6 +283,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
                 {yt && !!p.tags?.length && <><dt>Tags</dt><dd>{p.tags.join(", ")}</dd></>}
                 <dt>Who can see it</dt>
                 <dd>{privacyLabel(p.platform, p.publication?.privacy || p.privacy)}</dd>
+                {p.audience_label && <><dt>Who it is for</dt><dd>{p.audience_label}</dd></>}
+                {p.delivery_label && <><dt>Delivery</dt><dd>{p.delivery_label}</dd></>}
+                {p.analytics_label && p.status === "published" && <><dt>Results</dt><dd>{p.analytics_label}</dd></>}
               </dl>
             </section>
           )}
@@ -296,9 +312,20 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             <span className="small muted">
               {!yt && f.mode === "inbox"
                 ? `Approving sends this exact video with this text to your TikTok inbox ${atLabel(p.planned_at, tz)}, `
-                  + "without asking again. You finish and post it in the TikTok app. Nothing is sent now."
-                : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
-                  + `${account?.name || name}, without asking again. Nothing is posted now.`}
+                  + `without asking again. You finish it in the TikTok app for ${who}. Nothing is sent now.`
+                : !yt && f.mode === "manual"
+                  ? `Approving makes this exact video and caption ready for you to post ${atLabel(p.planned_at, tz)}. `
+                    + `Nothing is sent to TikTok: you post it in the TikTok app for ${who} and paste the link.`
+                  : yt
+                    ? `Approving uploads this exact video as ${privacyLabel(p.platform, f.privacy)} `
+                      + `${atLabel(p.planned_at, tz)} to ${account?.name || name}, without asking again. `
+                      + (f.privacy === "public" ? "Anyone can watch if YouTube confirms public visibility. "
+                        : p.audience?.intent === "OWNER_ONLY" ? "It stays private for you. "
+                          : "Then you share it with invited viewers in YouTube Studio yourself. ")
+                      + "Nothing is uploaded now."
+                    : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
+                      + `${account?.name || name} for the audience you chose, without asking again. Nothing is `
+                      + "posted now."}
               {" "}If the video or the text changes, it needs your OK again, and you can cancel it until it goes out.
               {!autoPublish
                 ? " Posting at the planned time is turned off, so at its time it waits for you to press Publish now."
@@ -306,7 +333,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             </span>
             <label className="choice">
               <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-              <span className="small">I watched this video and read its text.</span>
+              <span className="small">I watched this video, read its text and authorize this audience
+                {f.privacy === "public" || p.audience?.intent === "PUBLIC" ? ": Public (anyone can watch)." : "."}</span>
             </label>
           </div>
           <div className="stack approve-side">
@@ -359,8 +387,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 }
 
 // ------------------------------------------------------------------ the status, with the fix for a problem
-function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
+function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, videoUrl }: {
   p: Post; tz?: string; autoPublish: boolean; accountOk: boolean; onAction: (a: PostAction) => void;
+  onChanged: (p: Post) => void; videoUrl?: string;
 }) {
   const name = PLATFORM_LABEL[p.platform] || p.platform;
   const fix = (text?: string) => (text ? <span><b>What to do:</b> {text}</span> : null);
@@ -376,6 +405,22 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
     return (
       <Banner tone="warn" icon="alert" title={again.word}>
         <span>{again.detail}</span> <span>Watch the video, check its text, then approve it again below.</span>
+      </Banner>
+    );
+  }
+  const job = p.publishing_job;
+  if (["approved", "publishing"].includes(p.status) && job
+    && ["retrying", "waiting"].includes(job.status)) {
+    return (
+      <Banner tone="warn" icon={job.status === "retrying" ? "refresh" : "clock"} title={postStatus(p).word}>
+        <span className="stack" style={{ gap: 4 }}>
+          <span>{job.message || job.error || job.wait_reason}</span>
+          {job.run_after && job.run_after > Date.now() / 1000
+            ? <span>Next check: {timeLabel(job.run_after, tz)}.</span> : null}
+          {job.status === "retrying" && <span>Attempt {job.attempts} of {job.max_attempts}.
+            The same upload resumes to avoid posting twice.</span>}
+          {fix(job.fix)}
+        </span>
       </Banner>
     );
   }
@@ -428,12 +473,13 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
     case "published":
       if (onPlatform(p)) {
         return (
-          <Banner tone="info" icon="clock" title="Uploaded and waiting for its time">
-            {name} publishes it {atLabel(p.planned_at, tz)} by itself, even if this PC is off then. {p.status_note}
+          <Banner tone="info" icon="clock" title={postStatus(p).word}>
+            It was accepted ahead of its planned time ({atLabel(p.planned_at, tz)}). Its recorded visibility is
+            {" "}{privacyLabel(p.platform, p.publication?.privacy || p.privacy)}. {p.delivery_label} {p.status_note}
           </Banner>
         );
       }
-      return <PublishedBlock p={p} />;
+      return <PublishedBlock p={p} onChanged={onChanged} />;
     case "reconciling":
       return (
         <Banner tone="warn" icon="question" title="Upload not confirmed"
@@ -463,6 +509,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
         </Banner>
       );
     case "blocked":
+      if (p.audience?.intent === "LEGACY_PUBLIC") return <HeldPublic p={p} onChanged={onChanged} />;
       return (
         <Banner tone="bad" icon="shield"
           title={blockedByCheck(p) ? "Blocked: this file did not pass the final check" : "Blocked"}
@@ -497,6 +544,9 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
           </Banner>
         );
       }
+      if (p.delivery_state === "manual_handoff") {
+        return <PostItYourself p={p} videoUrl={videoUrl} onAction={onAction} onChanged={onChanged} />;
+      }
       return (
         <Banner tone="bad" icon="alert" title="Action needed" actions={<>{reconnect}{retry()}</>}>
           <span className="stack" style={{ gap: 4 }}>
@@ -530,8 +580,114 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction }: {
   }
 }
 
-/** A live post: links to it, and its real numbers (read from the platform, never estimated). */
-function PublishedBlock({ p }: { p: Post }) {
+/** TikTok has no route for your followers from this app (only audited apps may post for them), so the clip is a
+ * ready-to-post package: the video, its caption and who to post it for. You post it in the TikTok app, then paste
+ * its link (or say you posted it). Nothing is uploaded by ClipFoundry. */
+function PostItYourself({ p, videoUrl, onAction, onChanged }: {
+  p: Post; videoUrl?: string; onAction: (a: PostAction) => void; onChanged: (p: Post) => void;
+}) {
+  const visibility = p.audience?.visibility || p.privacy;
+  const who = p.audience?.intent === "PUBLIC" || visibility === "PUBLIC_TO_EVERYONE" ? "Everyone (Public)"
+    : visibility === "SELF_ONLY" ? "Only me"
+      : visibility === "MUTUAL_FOLLOW_FRIENDS" ? "Friends" : "Followers";
+  const publicPost = who === "Everyone (Public)";
+  const [busy, setBusy] = useState(false);
+  const caption = p.description || p.title;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(caption);
+      toast("Caption copied");
+    } catch {
+      toast("Copying is blocked here: select the caption and copy it yourself", true);
+    }
+  };
+  const posted = async () => {
+    setBusy(true);
+    try {
+      onChanged(await ap.postedByYou(p.id) as Post);
+      toast("Noted: you posted it in the TikTok app");
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const file = `${(p.title || "clip").replace(/[^\w -]+/g, "").trim().slice(0, 60) || "clip"}.mp4`;
+  return (
+    <section className="panel stack-4 post-yourself" aria-labelledby="py-h">
+      <h2 id="py-h" style={{ fontSize: "var(--fs-h3)" }}>Ready for you to post on TikTok</h2>
+      <p className="small">
+        This is a manual posting package; ClipFoundry has not uploaded it. Direct Post for viewers needs TikTok’s
+        app approval and your consent to each post. Download it, post it in TikTok yourself and record the result here.
+      </p>
+      <ol className="small stack" style={{ gap: 6, paddingLeft: 20 }}>
+        <li>
+          Save the video:{" "}
+          {videoUrl
+            ? <a className="btn btn-small" href={videoUrl} download={file}><Icon name="download" />Download video</a>
+            : <span className="muted">the video file is not ready</span>}
+          {" "}Then put it on your phone (a cable or your cloud drive), or upload it at tiktok.com on this PC.
+        </li>
+        <li>
+          Copy the caption:{" "}
+          <button type="button" className="btn btn-small" onClick={copy}><Icon name="copy" />Copy caption</button>
+          <textarea className="input" readOnly rows={3} value={caption} aria-label="Caption"
+            onFocus={(e) => e.currentTarget.select()} style={{ marginTop: 6, width: "100%" }} />
+        </li>
+        <li>
+          In TikTok: {publicPost ? "use an account that permits public posts" : "keep the chosen account audience"},
+          tap <b>+</b> → <b>Upload</b>, pick the video and paste the caption.
+        </li>
+        <li>
+          Under <b>Who can watch this video</b> choose <b>{who}</b>.
+          {publicPost ? " Anyone may watch, share or find this post." : " Keep this post’s planned audience."} Then post.
+        </li>
+        <li>Back here, paste the post's link (Share → Copy link) so ClipFoundry can read its numbers.</li>
+      </ol>
+      <div className="row wrap">
+        <button type="button" className="btn btn-primary btn-small" onClick={() => onAction("link")}>
+          <Icon name="link" />Link the post…
+        </button>
+        <button type="button" className="btn btn-small btn-quiet" disabled={busy} onClick={posted}>
+          I posted it, no link
+        </button>
+      </div>
+      <p className="tiny muted">
+        Without a link ClipFoundry cannot read its numbers: add what your viewers said in Clips → Test feedback.
+        Only post clips you may reuse.
+      </p>
+    </section>
+  );
+}
+
+/** A legacy public post stays held until the owner explicitly plans it again for the confirmed current audience. */
+function HeldPublic({ p, onChanged }: { p: Post; onChanged: (p: Post) => void }) {
+  const [busy, setBusy] = useState(false);
+  const plan = async () => {
+    setBusy(true);
+    try {
+      await ap.retarget([p.id]);
+      onChanged((await loadPost(p.id)).items[0] || p);
+      toast("Planned for your confirmed audience. Review the audience and give your OK before it goes out.");
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Banner tone="warn" icon="shield" title="Held: it was planned as public"
+      actions={<button type="button" className="btn btn-small" disabled={busy} onClick={plan}>
+        <Icon name="user" />Plan for my confirmed audience</button>}>
+      This legacy post has no current audience authorization. Planning it again uses the audience you confirmed
+      in Settings → Integrations and waits for your review. Check that audience before approving, or cancel it.
+    </Banner>
+  );
+}
+
+/** An uploaded post: links to it, the step only you can do (sharing a private video), and its real numbers (read
+ * from the platform, never estimated). */
+function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => void }) {
   const name = PLATFORM_LABEL[p.platform] || p.platform;
   const [pub, setPub] = useState<Publication | null>(null);
   useEffect(() => {
@@ -541,10 +697,32 @@ function PublishedBlock({ p }: { p: Post }) {
       .catch(() => undefined);
   }, [p.clip_id, p.publication?.id]);
   const studio = p.publication?.info?.studio_url as string | undefined;
+  const [sharing, setSharing] = useState(false);
+  const shared = async () => {
+    setSharing(true);
+    try {  // recorded on the post itself, which the Queue and the Brain read (your word, not checked by YouTube)
+      onChanged(await ap.audienceConfirmed(p.id) as Post);
+      toast("Noted: you shared it with your invited viewers");
+    } catch (e) {
+      toast(errorText(e), true);
+    } finally {
+      setSharing(false);
+    }
+  };
   return (
     <section className="panel" aria-labelledby="st-h">
-      <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>Published</h2>
+      <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{postStatus(p).word}</h2>
       {p.status_note && <p className="small muted">{p.status_note}</p>}
+      {p.delivery_state === "awaiting_invitations" && (
+        <Banner tone="warn" icon="user" title="Share it with your invited viewers"
+          actions={<button type="button" className="btn btn-small" disabled={sharing} onClick={shared}>
+            <Icon name="check" />I shared it</button>}>
+          It is Private on YouTube, so nobody but you can watch it yet. In YouTube Studio choose Visibility → Private
+          → Share privately, add your viewers' email addresses and save. ClipFoundry cannot check this; your word is
+          recorded as yours.
+        </Banner>
+      )}
+      {p.analytics_label && <p className="small"><b>Results:</b> {p.analytics_label}</p>}
       <div className="row wrap">
         {p.publication?.url && (
           <a className="btn btn-small" href={p.publication.url} target="_blank" rel="noreferrer">
@@ -634,15 +812,17 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
 }
 
 // ------------------------------------------------------------------ text and visibility
-function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
+function TextPanel({ p, f, set, creator, creatorError, account }: {
   p: Post; f: Form; set: (x: Partial<Form>) => void; creator: TikTokCreator | null; creatorError: string;
-  account?: PlatformAccount; tz?: string;
+  account?: PlatformAccount;
 }) {
   const yt = p.platform === "youtube";
   const direct = !yt && f.mode === "direct";
   const branded = direct && f.disclose && f.brandContent;
   const audited = !!account?.audited;
-  const restriction = account?.restriction || "";
+  const who = p.audience?.intent === "PUBLIC" ? "Everyone (Public)" : p.audience?.intent === "OWNER_ONLY"
+    ? "Only me" : p.audience?.visibility === "MUTUAL_FOLLOW_FRIENDS" ? "Friends" : "Followers";
+  const expected = p.audience?.visibility || p.privacy;
   const options = (p.metadata_options || []).filter((o) => !o.problems.length).slice(0, 6);
   const pick = (o: ScheduledItem["metadata_options"][number]) =>
     set({ title: o.title, text: yt ? o.description : o.caption, tags: (yt ? o.tags : o.hashtags).join(" ") });
@@ -683,18 +863,14 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
             <input id="rv-tags" type="text" value={f.tags} onChange={(e) => set({ tags: e.target.value })} />
           </Field>
           <div className="field">
-            <span className="label" id="rv-priv-l">Who can see it</span>
-            <Segmented labelledBy="rv-priv-l" value={f.privacy} onChange={(v) => set({ privacy: v })}
-              options={[{ value: "public", label: "Public" }, { value: "unlisted", label: "Unlisted" },
-                { value: "private", label: "Private" }]} />
-            {f.privacy === "public" && (
-              <span className="hint">
-                It is uploaded early as Private with a publish time; YouTube itself makes it public{" "}
-                {atLabel(p.planned_at, tz)}.
-              </span>
-            )}
+            <span className="label">Who can see it</span>
+            <span>{privacyLabel(p.platform, f.privacy)} · {p.audience_label || "this post’s planned audience"}</span>
+            <span className="hint">
+              {f.privacy === "public" ? "Anyone can watch if YouTube confirms public visibility. "
+                : "This post keeps its Private visibility. Share invited-viewer posts in YouTube Studio yourself. "}
+              Changing the audience for new posts does not make this post public.
+            </span>
           </div>
-          {restriction && f.privacy !== "private" && <Note>{restriction}</Note>}
           <fieldset>
             <legend className="label">Made for kids <span className="hint">(YouTube requires an answer)</span></legend>
             {([["no", "No, it's not made for kids"], ["yes", "Yes, it's made for kids"]] as const).map(([v, l]) => (
@@ -729,9 +905,18 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
               </span>
             </label>
             <label className="choice">
-              <input type="radio" name="rv-mode" checked={!direct} onChange={() => set({ mode: "inbox" })} />
+              <input type="radio" name="rv-mode" checked={f.mode === "inbox"} onChange={() => set({ mode: "inbox" })}
+                disabled={!account?.connected || !account.can_inbox} />
               <span>
-                Send to your TikTok inbox as a draft (you finish it in the TikTok app; works without TikTok's app audit)
+                Send to your TikTok inbox as a draft (you finish it in TikTok for {who}; TikTok must approve
+                inbox uploads, and at most 5 drafts can wait at a time)
+              </span>
+            </label>
+            <label className="choice">
+              <input type="radio" name="rv-mode" checked={f.mode === "manual"} onChange={() => set({ mode: "manual" })} />
+              <span>
+                Ready to post yourself (download the video and caption, post it in TikTok for {who}, then paste
+                the link; this is a manual posting step)
               </span>
             </label>
           </fieldset>
@@ -740,21 +925,23 @@ function TextPanel({ p, f, set, creator, creatorError, account, tz }: {
               <Field id="rv-tpriv" label="Who can see it">
                 <select id="rv-tpriv" value={f.privacy} onChange={(e) => set({ privacy: e.target.value })}>
                   <option value="" disabled>Choose…</option>
-                  {(creator?.privacy_options || []).map((o) => (
+                  {(creator?.privacy_options || []).filter((o) => !expected || o === expected).map((o) => (
                     <option key={o} value={o}
-                      disabled={(!audited && o !== "SELF_ONLY") || (branded && o === "SELF_ONLY")}>
+                      disabled={(!audited && o !== "SELF_ONLY")
+                        || (branded && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(o))}>
                       {TIKTOK_PRIVACY[o] || o}{!audited && o !== "SELF_ONLY" ? " (needs TikTok's app audit)" : ""}
-                      {branded && o === "SELF_ONLY" ? " (not for branded content)" : ""}
+                      {branded && !["MUTUAL_FOLLOW_FRIENDS", "PUBLIC_TO_EVERYONE"].includes(o)
+                        ? " (branded content: Friends or Everyone)" : ""}
                     </option>
                   ))}
                 </select>
               </Field>
-              {!audited && (
-                <Note>
-                  {restriction
-                    || "Until TikTok audits your app, Direct Post only works for private accounts and “Only me”."}
-                </Note>
-              )}
+              <Note>
+                This post keeps its planned audience: {who}. {!audited ? "Direct Post for viewers needs TikTok’s "
+                  + "app audit; an unaudited app can only stage “Only me”. Use an approved inbox draft or download "
+                  + "and post the package yourself. " : ""}
+                TikTok requires consent on each post; neither a package nor an inbox draft is automatic public posting.
+              </Note>
               <fieldset>
                 <legend className="label">Allow viewers to</legend>
                 <div className="row wrap" style={{ gap: 16 }}>

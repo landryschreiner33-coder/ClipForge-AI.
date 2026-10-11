@@ -21,13 +21,16 @@ from ..config import OUTPUT_H, OUTPUT_W
 from . import artifact, captions, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
-from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, filter_path, thumbnail, video_encoder_args
+from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
+                           video_encoder_args)
 from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
 SPEED_RANGE = (0.8, 1.25)
 PLAN_VERSION = 2  # bump when the framing analysis changes, so cached plans are recomputed
+CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
+FRAMES_STEP = "Rendering"
 
 
 # ------------------------------------------------------------ timeline
@@ -119,7 +122,8 @@ def emphasis_words(words_out: list[dict], keywords: set[str] | None = None, min_
         tok = re.sub(r"[^\w']", "", w["w"].lower())
         if len(tok) < 3 and not tok.isdigit():
             continue
-        score = (3 if tok in keywords else 0) + (3 if any(c.isdigit() for c in tok) else 0)             + (2 if tok in EMOTION_WORDS else 0) + (1 if tok in HOOK_WORDS or tok in EMPHASIS_EXTRA else 0)
+        score = ((3 if tok in keywords else 0) + (3 if any(c.isdigit() for c in tok) else 0)
+                 + (2 if tok in EMOTION_WORDS else 0) + (1 if tok in HOOK_WORDS or tok in EMPHASIS_EXTRA else 0))
         if score:
             scored.append((score, i))
     picked: list[int] = []
@@ -308,6 +312,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         write_json(plan_path, {"key": plan_key, "plan": plan.to_json()})
 
     # ---- captions (emphasis: numbers, strong words and the clip's own keywords, at most one every 2.5 s)
+    ctx.progress(0.03, CAPTIONS_STEP)
     keywords = {t.lstrip("#").lower() for t in ((clip.get("post") or {}).get("hashtags") or clip.get("hashtags") or [])}
     emphasis = blueprint_mod.emphasis_indices(blueprint, words) if blueprint is not None else \
         emphasis_words(words_out, keywords)
@@ -360,16 +365,18 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     hold_gpu = gpu.manager.heavy("video encode", project.get("name") or f"clip {clip['id']}",
                                  cancelled=ctx.cancelled, on_wait=lambda m: ctx.progress(0.03, m)) \
         if encoder == "h264_nvenc" else nullcontext()
-    with hold_gpu, open(log_path, "wb") as logf:
-        dec = subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
-                               bufsize=frame_bytes)
-        enc = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
-                               cwd=str(out_dir), creationflags=NO_WINDOW)
+    with hold_gpu, open(log_path, "wb") as logf, MediaWatchdog(ctx.cancelled, max(1800.0, tl.duration * 60)) as watch:
+        dec = watch.add(subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=logf, creationflags=NO_WINDOW,
+                                         bufsize=frame_bytes))
+        enc = watch.add(subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=logf,
+                                         cwd=str(out_dir), creationflags=NO_WINDOW))
         written = 0
         last = None
         try:
             for k in range(n_src_frames):
+                watch.check()
                 buf = dec.stdout.read(frame_bytes)  # type: ignore[union-attr]
+                watch.check()
                 if len(buf) == frame_bytes:
                     last = np.frombuffer(buf, np.uint8).reshape(dh, dw, 3)
                 elif last is None:
@@ -388,9 +395,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
                     if written % 15 == 0:
                         if ctx.cancelled():
                             raise Cancelled()
-                        ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), "Rendering")
+                        ctx.progress(0.05 + 0.9 * written / max(1, n_out_frames), FRAMES_STEP)
             # pad if decoding ended early
             while written < n_out_frames and last is not None:
+                watch.check()
                 frame = _compose(last, plan.cx[-1], plan.cy[-1], float(zc[-1]), dw, dh, base_w, base_h, layout,
                                  fit_scale)
                 enc.stdin.write(frame.data)  # type: ignore[union-attr]
@@ -416,7 +424,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     os.replace(tmp_out, out_path)
     thumb = out_dir / f"thumb-{stamp}.jpg"
     try:
-        thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360)
+        thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360, cancel=ctx.cancelled)
     except FFmpegError as exc:
         log.warning("thumbnail failed: %s", exc)
     for old in list(out_dir.glob("clip*.mp4")) + list(out_dir.glob("thumb*.jpg")):

@@ -135,7 +135,8 @@ def get_text(client: httpx.Client, url: str, *, allow_private: bool = False, max
 def download(client: httpx.Client, url: str, dst: Path, *, allow_private: bool = False, max_bytes: int,
              accept: Callable[[httpx.Response], None] | None = None,
              progress: Callable[[int, int], None] | None = None,
-             cancelled: Callable[[], bool] | None = None) -> int:
+             cancelled: Callable[[], bool] | None = None,
+             before_write: Callable[[int], None] | None = None) -> int:
     """Download `url` to `dst` (via a .part file, replaced atomically). `accept` may reject the response by raising.
     Returns the number of bytes written; raises UnsafeUrl for a refused address, redirect or size."""
     tmp = dst.with_suffix(dst.suffix + ".part")
@@ -156,6 +157,8 @@ def download(client: httpx.Client, url: str, dst: Path, *, allow_private: bool =
                 done += len(chunk)
                 if done > max_bytes:
                     raise UnsafeUrl(f"The download passed the {max_bytes / 1e9:.1f} GB limit; stopped")
+                if before_write:
+                    before_write(len(chunk))
                 fh.write(chunk)
                 if progress:
                     progress(done, declared)
