@@ -7,6 +7,23 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-11 · Final merge review and stable log-rotation check
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, PR #14. **Base:** `51984a3`.
+  **Result:** the commit containing this entry. The owner authorized merge after the final review; the actual
+  merge outcome is recorded on GitHub.
+* **What changed:** the live log-rotation test now takes the standard logging handler lock while enumerating
+  and measuring backup files. This prevents the test from inspecting an intermediate rename. The real child
+  still writes enough output to rotate logs, stays running during the check, and is stopped afterward.
+  Production code and the browser-tested frontend are unchanged.
+* **Validation:** independent production review found no material blockers. The initial targeted run passed
+  105 checks and failed this one snapshot race in 77.43 s; all 16 corrected launcher checks passed in 0.72 s.
+  The fresh full fast suite passed **757 checks**, with **8 slow cases deselected**, in **301.90 s**.
+  The worktree diff is clean and all 14 browser-tested build hashes match. GitHub reported no workflow runs,
+  commit statuses, review submissions or review threads for the reviewed head; the PR had no conflicts.
+* **Not verified:** Windows, RTX 3050, real platform accounts and an actual 24-hour soak remain owner checks.
+  The preceding media/browser/crash-recovery evidence remains applicable. No real upload or deployment occurred.
+
 ## 2026-10-11 · Unattended Public operation and current YouTube policy
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `61f6042`.

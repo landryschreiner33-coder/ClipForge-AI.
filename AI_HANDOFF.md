@@ -6,7 +6,17 @@ Fetch before trusting branch state.
 
 ## Current scope and branch
 
-Latest unattended-Public checkpoint starts at `61f6042` on the same draft/unmerged PR #14. Work ran October 10–11.
+The owner authorized merging PR #14 after one final pass on October 11. This pre-merge checkpoint follows
+`51984a3`; check GitHub for the actual merge state. Independent review found no material blocker, and the
+14 browser-tested frontend files still match their recorded hashes. The fresh targeted run passed 105 checks
+and exposed one test-only race: inspecting log backups during an active rename. The test now takes the logging
+handler's lock for its file snapshot; production code is unchanged. All 16 launcher checks passed in 0.72 s.
+The fresh full fast suite passed **757 checks**, with **8 slow cases deselected**, in **301.90 s**.
+The earlier real-media, browser, build and actual-app restart evidence remains applicable. Windows, real accounts
+and an actual 24-hour soak remain unverified; merge authorization does not change those limits.
+
+The preceding unattended-Public checkpoint started at `61f6042` on the then-draft/unmerged PR #14.
+Work ran October 10–11.
 The owner requested autonomous all-day Public publishing from a personal setup. Designed unattended YouTube operation
 keeps explicit Public setup, account/visibility-bound standing permission, reuse eligibility, exact-file checks and
 honest readback. Existing Private schedules stay Private; Public results need no Studio invitations. Midnight **0** now

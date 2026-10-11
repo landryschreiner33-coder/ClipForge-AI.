@@ -252,9 +252,14 @@ def test_real_child_output_rotates_during_a_long_run(monkeypatch, tmp_path):
     try:
         _wait_for(lambda: (tmp_path / "unattended.log.2").exists())
         assert child.poll() is None
-        files = list(tmp_path.glob("unattended.log*"))
-        assert len(files) == 3
-        assert all(path.stat().st_size <= 4096 for path in files)
+        # A live writer renames backups during rollover; inspect only a completed rotation under its lock.
+        handler.acquire()
+        try:
+            files = list(tmp_path.glob("unattended.log*"))
+            assert len(files) == 3
+            assert all(path.stat().st_size <= 4096 for path in files)
+        finally:
+            handler.release()
     finally:
         child.stop()
         handler.close()
