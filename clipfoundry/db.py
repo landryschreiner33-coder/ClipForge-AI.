@@ -1251,8 +1251,9 @@ def interrupted_work() -> dict[str, list]:
 
     Manual projects, renders and versions are resumed by the app's render worker (jobs.py). Autopilot projects are
     resumed by their own durable job (autopilot/queue.py). A manual upload is not restarted without the user: it
-    is marked as interrupted and can be checked and published again. An upload that was waiting for the time a
-    platform asked for (`info.retry_at`) keeps waiting (publish/jobs.py starts it at that time).
+    is marked as interrupted and can be checked and published again. A YouTube upload whose final bytes may have
+    been sent is held until its outcome is read; an interruption cannot authorize a duplicate. An upload waiting
+    for the time a platform asked for (`info.retry_at`) keeps waiting (publish/jobs.py starts it at that time).
     """
     with connect() as conn:
         projects = [dict(r) for r in conn.execute(
@@ -1268,6 +1269,22 @@ def interrupted_work() -> dict[str, list]:
                 clips.append(row["id"])
         versions = [r["id"] for r in conn.execute(
             "SELECT id FROM clip_versions WHERE status IN ('queued', 'rendering')")]
+        for row in conn.execute("SELECT * FROM publications WHERE platform = 'youtube' AND status IN "
+                                "('queued', 'uploading') AND COALESCE(scheduled_id, '') = ''").fetchall():
+            pub = _decode("publications", row) or {}
+            info = pub.get("info") or {}
+            if not info.get("final_chunk_at"):
+                continue
+            # This durable marker is written before the last request. Even a lost/crashed reply may have posted it.
+            info.update(outcome_unknown=True, code="outcome_unknown", studio_url="https://studio.youtube.com/")
+            delivery = {**(pub.get("delivery") or {}), "transfer": "outcome_unknown"}
+            conn.execute("UPDATE publications SET status = 'processing', info = ?, delivery = ?, error = ?, "
+                         "message = ?, fix = ?, updated_at = ? WHERE id = ?",
+                         (json.dumps(info), json.dumps(delivery), "Interrupted before YouTube confirmed the outcome.",
+                          "Upload outcome unknown: YouTube may already have the video. Another upload is held to "
+                          "avoid a duplicate.",
+                          "Open YouTube Studio → Content and use Refresh status to find the existing upload.",
+                          time.time(), pub["id"]))
         waiting = [r["id"] for r in conn.execute(
             "SELECT id, info FROM publications WHERE status = 'queued' AND COALESCE(scheduled_id, '') = ''")
             if ((_decode("publications", r) or {}).get("info") or {}).get("retry_at")]

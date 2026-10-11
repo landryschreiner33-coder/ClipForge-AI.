@@ -8,9 +8,9 @@ YouTube Shorts and Reels.
 VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS → EXPORT
 ```
 
-* Runs entirely on your computer: no ClipFoundry accounts, no cloud rendering, no subscription. Runtime cost is about
-  **$0**. The only network use is optional: publishing and reading your own videos' statistics through the official
-  YouTube and TikTok APIs.
+* Media processing stays on your computer: no ClipFoundry accounts, no cloud rendering, no subscription. Runtime cost
+  is about **$0**. Online discovery and media access, publishing/statistics, model downloads and AI services you
+  explicitly enable use the network.
 * Paid AI APIs are optional and off by default. Local mode needs no API key.
 * Personal tool, not a SaaS. Single user, local SQLite database, local files.
 
@@ -27,6 +27,7 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
 [Processing measurements and server advice](docs/PERFORMANCE.md).
 [Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).
+[Optional unattended launcher and Windows startup](docs/UNATTENDED.md).
 
 ## Getting started (beginner steps)
 
@@ -38,14 +39,16 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
    choose *Let Autopilot do it*, connect YouTube (and TikTok if you like), then press **Start Autopilot**.
 4. **Say who watches.** Open **Settings → Integrations → Who watches**. Choose **Public audience** for new public uploads, tick the confirmation and press **Confirm who watches**.
    Existing posts and scheduled Private uploads keep their visibility. Selected viewers and local-only remain available:
-   * **YouTube:** connect your channel, confirm that your API project has passed Google’s audit, and enable
-     automatic publishing with its new Public permission, daily limit and posting window. New eligible clips
+   * **YouTube:** connect your channel and enable automatic publishing with its new Public permission, daily limit
+     and posting window. New eligible clips
      upload at their planned time. The app reads back actual visibility; a restricted Private result is a blocker.
      For selected viewers, uploads stay Private and you share them in YouTube Studio.
+     The current API permits Public uploads from unverified projects; an API audit is for quota increases.
    * **TikTok:** Public Direct Post needs an eligible, approved app and your explicit choices and consent on each
      post. A personal tool may be refused. Expect to use the supported manual package:
      ClipFoundry prepares each one in **Queue → Problems → Ready for you to post on TikTok** (download the video, copy
-     the caption, choose **Everyone** in the TikTok app for a Public post, then paste its link).
+     the caption, choose a privacy option TikTok offers, then paste its link). A private TikTok profile cannot offer
+     **Everyone**; this app does not change your profile's privacy.
 5. **Watch the office.** All 25 robots keep their names and real state icons. Working robots sit at their desks;
    off-duty robots play arcade and board games, drink coffee, eat snacks and read in the lounge. They change
    activities without sharing a spot, and real work takes priority. Confirmed transitions can pass a document
@@ -63,6 +66,22 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
 Closing the `start.bat` window stops ClipFoundry and its background work; it continues where it was at the next
 start. While Autopilot is on, ClipFoundry asks Windows not to sleep. If the PC sleeps or is shut down anyway, nothing
 runs meanwhile; at the next start interrupted steps run again and missed posts get a new time.
+
+For an unattended YouTube setup, choose **Public audience**, connect the intended channel and confirm its standing
+Public publishing permission. Set the posting window to **0–24** for all-day scheduling; keep a deliberate daily
+limit. Public posts need no YouTube Studio invitations. Existing Private posts keep their original audience.
+If your Google OAuth app is External and in **Testing**, YouTube authorization can expire after seven days:
+set its publishing status to **Production**, then reconnect for a fresh grant. Personal use can be exempt from
+OAuth verification; Production is separate from a YouTube API quota audit and does not prevent revocation.
+
+After setup, close the normal console and run **`run-unattended.bat`** to restart the app after an unexpected process
+exit. Run only one ClipFoundry app per data profile, including across different ports. The watchdog detects process
+exit; it does not detect a still-running, hung main app. It preserves your data profile, saved Pause state and
+permissions; Ctrl+C stops it. Closing the browser is safe, but the PC still needs power, network, GPU access and disk
+space. Unknown upload outcomes, missing rights,
+quota and expired authorization can still need attention. Low disk space pauses Autopilot downloads and live capture,
+retaining saved files. See [the unattended guide](docs/UNATTENDED.md) for same-user Windows login startup and logs.
+Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain checks on your PC.
 
 **Back up and export.** To back up, close ClipFoundry and copy the `data` folder. To keep a clip outside the app, use
 **Export** on the clip, or **Download all (ZIP)** on the video's page in Clips.
@@ -84,7 +103,7 @@ runs meanwhile; at the next start interrupted steps run again and missed posts g
 | Versions | In the clip editor (**Versions**, under the timeline), **Create versions…** renders **Faster pacing** (tighter pauses, no fillers, 8% faster), **Alternative hook** (another hook line from the clip, and a stronger first line when the clip has one) and **Alternative caption style** (contrasting style with key words emphasized) next to the **Original**. **Compare** them side by side (played together, sound from the one you pick) or one after another, then choose which one is published and exported (*Used for export and posts*). |
 | Editor | Simple manual controls in the groups **Trim** (click transcript words), **Captions** (with the hook), **Layout** (framing), **Audio** and **Post text**, then **Save and render**. Deliberately not a Premiere clone. |
 | Export | 1080×1920 MP4, H.264 + AAC. Download clips individually or as a ZIP of 3/5/10 clips, with SRT captions, a text sheet per clip, and `metadata.json` / `metadata.csv` (title, hook, alternatives, caption text, hashtags, source timestamp, score, category). |
-| YouTube Shorts | **Connect YouTube** with OAuth (your own Google Cloud "Desktop app" client, PKCE, loopback redirect). The connected channel's name is shown. Resumable uploads through the official YouTube Data API v3 with title, description, tags and the made-for-kids answer, **Public** only after an explicit Public choice, or **Private** for selected viewers/staging. Public automation requires channel-bound standing permission and an audited API project; uploads start at the local scheduled time without `publishAt`. Existing Private schedules remain Private. Selected-viewer sharing stays in YouTube Studio. Passwords are never stored; tokens are encrypted with Windows DPAPI. |
+| YouTube Shorts | Official resumable Public/Private uploads with account-bound permission; see setup above. |
 | TikTok | **Connect TikTok** with TikTok's official Login Kit (desktop OAuth with PKCE). Posts through the official Content Posting API: **Direct Post** with caption and hashtags to **Everyone**, **followers**, **friends** or **Only me**, according to your confirmed audience and options returned by TikTok (never pre-selected), comment/duet/stitch permissions and the commercial content disclosure, following TikTok's sharing guidelines; chunked upload with progress and status polling. Without TikTok's audit, Direct Post is limited to private accounts and "Only me"; the fallbacks are the official **Send to TikTok inbox** draft flow (if TikTok approved your app for it) and the ready-to-post package you post yourself (the usual case for a personal tool). No scraping, no unofficial automation. |
 | Prepare post | One page per clip (**Prepare post**): video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube made-for-kids and confirmed audience, TikTok’s offered privacy choices, interactions and disclosure, and explicit **Publish to YouTube now…**, **Post to TikTok now…** (or **Send to TikTok inbox…**) and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there (*Uploads you started here*). |
 | Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Queue → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Queue → Results) or JSON as the basis for tuning the ranking later. |
@@ -95,6 +114,11 @@ runs meanwhile; at the next start interrupted steps run again and missed posts g
 | Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
 | Brain | A visible workspace for searchable documents, instructions, skill guides, good/bad example clips, approved typed preferences, clip decision influence and performance history. Uploads do not fine-tune a model or execute code. Public and selected-viewer results stay in separate cohorts; bounded learning uses mature evidence and rollback. |
+
+YouTube uses your own Google Cloud Desktop-app OAuth client with PKCE and a loopback redirect. The connected
+channel name is shown; uploads include title, description, tags and the made-for-kids answer. Tokens use Windows
+DPAPI, and passwords are not stored. New Public uploads start locally when due, without `publishAt`; existing
+Private schedules stay Private, and selected-viewer sharing remains in YouTube Studio.
 
 ## How clip discovery works
 

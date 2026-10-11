@@ -38,11 +38,10 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const visibility = publicPosts ? "public" : "private";
   const audienceReady = !!audience?.youtube.confirmed && audience.youtube.intent !== "LOCAL_ONLY";
   const blocker = view?.youtube.blocker || (!audienceReady ? "confirm who watches in Settings → Integrations"
-    : publicPosts && !view?.verified_project ? "record YouTube approval for public API uploads in Settings → Accounts"
-      : "");
+    : "");
   const missing = [
     (!view || !audience || loadError) && "wait for the current account and audience to load",
-    (view?.youtube.can_enable === false || !audienceReady || publicPosts && !view?.verified_project) && blocker,
+    (view?.youtube.can_enable === false || !audienceReady) && blocker,
     kids === null && "answer “made for kids”",
     !(limit >= 1) && "allow at least 1 a day",
     !(start < end) && "make the start hour earlier than the end hour",

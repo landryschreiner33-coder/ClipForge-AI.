@@ -38,15 +38,16 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "media": (IMPLEMENTED, "A pasted link or a found video is downloaded only where access is allowed; your "
                                "connection to YouTube does not grant downloads."),
         "upload": (IMPLEMENTED, "Resumable upload through the YouTube Data API."),
-        "visibility": (IMPLEMENTED, "Public for an explicitly chosen public audience (YouTube may lock an "
-                                   "unaudited project to Private); Private for invited viewers or only you."),
+        "visibility": (IMPLEMENTED, "Public for an explicitly chosen public audience; Private for invited viewers "
+                                   "or only you. The returned visibility is checked after upload."),
         "consent": (IMPLEMENTED, "Your OK on each post, or permission for one channel and visibility. Existing "
                                 "Private posts never become Public when you enable public publishing."),
         "status": (IMPLEMENTED, "Upload processing and the returned privacy are read back after each upload."),
         "analytics": (APPROVAL, "Views, likes and comments are shown; using them for learning needs Google's "
                                 "derived-metrics approval. Average percentage viewed needs the Analytics scope "
                                 "and may be empty for a small private group."),
-        "limits": (IMPLEMENTED, "Daily API quota units (an upload costs about 1,600), counted on this PC."),
+        "limits": (IMPLEMENTED, "Separate daily upload, search and other API allowances, counted on this PC; "
+                               "Google Cloud shows the project's actual quota."),
     },
     "tiktok": {
         "discovery": (IMPLEMENTED, "Links to public TikTok videos found by web search (needs a Tavily key); TikTok "
@@ -280,9 +281,6 @@ def cards(settings: dict | None = None) -> list[dict]:
             "Confirm the audience"
     else:
         st, detail, action = "connected", f"New uploads request {dest['label'].lower()}.", ""
-        if dest["intent"] == audience.PUBLIC and not settings.get("youtube_project_verified"):
-            st, detail, action = "permission_required", "YouTube restricts unaudited API projects to Private. " \
-                "Automatic public publishing needs Google's audit.", "Check YouTube project audit"
     wait = _platform_wait("youtube", settings) if yt["connected"] else None
     if st == "connected" and wait:
         st, detail = "rate_limited", wait["detail"]
@@ -294,7 +292,8 @@ def cards(settings: dict | None = None) -> list[dict]:
                      ["YouTube Analytics (average percentage viewed)"],
                      checked_at=chk.get("last_ok_at"), last_check=chk or None, can_test=bool(yt["connected"]),
                      connected_at=yt.get("connected_at"), limit=wait, audience=dest,
-                     steps="Complete Google's API project audit for public uploads." if dest["intent"] ==
+                     steps="For continuous posting, set your Google OAuth app to Production; Testing sign-ins "
+                     "expire after seven days. Public visibility is checked after upload." if dest["intent"] ==
                      audience.PUBLIC else audience.YOUTUBE_SHARE_STEPS))
     # TikTok
     dest = audience.destination("tiktok", settings)
@@ -311,8 +310,8 @@ def cards(settings: dict | None = None) -> list[dict]:
         st, detail, action = "not_connected", "Clips can still be posted by you from a ready-to-post package.", \
             "Connect TikTok"
     elif not tt["audited"]:
-        st, detail, action = "permission_required", ("Unaudited apps cannot post to Everyone or followers; each clip is "
-                                                     "prepared for you to post in the TikTok app."), ""
+        st, detail, action = "permission_required", ("Unaudited apps cannot post to Everyone or followers; each "
+                                                     "clip is prepared for you to post in the TikTok app."), ""
     elif not dest["confirmed"]:
         st, detail, action = "requires_user_action", "Confirm who watches your new posts.", \
             "Confirm the audience"

@@ -73,7 +73,7 @@ def destination(platform: str, settings: dict) -> dict:
                   "Posted as “Only me”.") + " Nobody else can watch; this is not a test with viewers."
     elif want == PUBLIC:
         group, label = "public", "Public audience"
-        detail = ("Uploaded as Public. YouTube may restrict uploads from an unaudited project to Private."
+        detail = ("Requests Public visibility. The upload record shows who YouTube actually allows to watch."
                   if platform == "youtube" else
                   "Everyone, when TikTok offers it to your audited app. Each post still needs your OK; otherwise "
                   "you finish it in TikTok or post the package yourself.")
@@ -187,18 +187,23 @@ def check(platform: str, privacy: str, settings: dict, *, mode: str = "direct", 
                                   "Choose that option, or change Who watches in Settings → Integrations → TikTok.")
         if creator is not None and privacy not in (creator.get("privacy_options") or []):
             raise AudienceBlocked("TikTok does not offer that audience for this account right now.",
+                                  "Everyone requires a public TikTok account. Review its current privacy options, "
+                                  "or post it yourself from the ready-to-post package." if want == PUBLIC else
                                   "Make sure your TikTok account is private, or post it yourself from the "
                                   "ready-to-post package.")
         if want in (SELECTED, PUBLIC) and not settings.get("tiktok_app_audited"):
-            raise AudienceBlocked("TikTok only lets audited apps post for followers; this app can post “Only me”.",
+            label = "Everyone" if want == PUBLIC else \
+                "Friends" if tiktok_group(settings) == "friends" else "Followers"
+            raise AudienceBlocked("TikTok only lets audited apps post for viewers; this app can post “Only me”.",
                                   "Use the ready-to-post package (or a draft in your TikTok inbox) and choose "
-                                  f"{'Friends' if tiktok_group(settings) == 'friends' else 'Followers'} in the app.")
+                                  f"{label} in the app.")
     else:
         route = "manual"  # inbox draft or package: the owner picks the audience in the TikTok app
     return {"intent": want, "platform": platform,
             "policy_version": int((stamp or {}).get("policy_version") or POLICY_VERSION),
             "group": stamp.get("group", dest["group"]) if kept_private else dest["group"],
-            "group_version": stamp.get("group_version", dest["group_version"]) if kept_private else dest["group_version"],
+            "group_version": (stamp.get("group_version", dest["group_version"]) if kept_private else
+                              dest["group_version"]),
             "visibility": privacy or visibility(platform, want, settings),
             "route": route, "at": (stamp or {}).get("at") or time.time()}
 

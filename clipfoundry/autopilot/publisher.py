@@ -74,7 +74,7 @@ def already_published(item: dict) -> str:
 
 # ------------------------------------------------------------------ recovering an interrupted upload
 def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) -> dict | None:
-    """Look among recent channel uploads after an expired session; manual recovery also verifies metadata."""
+    """Look among recent channel uploads after an expired session; recovery verifies submitted metadata."""
     token = youtube.Token(db.get_settings())
     acc = db.get_account("youtube") or {}
     youtube._quota("channels.list", "publish")  # noqa: SLF001
@@ -121,17 +121,36 @@ def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) ->
     return None
 
 
+def _record_found_youtube(pub: dict, found: dict, message: str) -> bool:
+    status = youtube.video_status(youtube.Token(db.get_settings()), found["id"])
+    if not status.get("exists"):
+        return False
+    privacy = status.get("privacy") or ""
+    if pub.get("requested_privacy") == "private" and privacy and privacy != "private":
+        audience.incident("youtube", f"YouTube reports video {found['id']} as {privacy}, not Private.", found["id"])
+    db.update_publication(pub["id"], status="done", remote_id=found["id"], url=youtube.video_url(found["id"]),
+                          privacy=privacy, message=message, error="", fix="",
+                          info={**(pub.get("info") or {}), "outcome_unknown": False, "code": "",
+                                "locked_private": pub.get("requested_privacy") == "public" and privacy == "private"},
+                          delivery=audience.delivery_after_upload("youtube", pub.get("audience") or {}, privacy,
+                                                                  "api"))
+    return True
+
+
 def outcome_unknown(item: dict, pub: dict, exc: PublishError) -> dict:
     """The upload may have created the video but the platform cannot say. Look for it among the channel's newest
     uploads; if it is not there, the post waits for you ("reconciling") instead of risking a duplicate upload."""
+    cause = (pub.get("info") or {}).get("outcome_error") or {}
+    if cause.get("detail") and cause["detail"] not in str(exc):
+        exc = PublishError(f"{cause['detail']} {exc}", f"{cause.get('fix') or ''} {exc.fix}".strip(),
+                           youtube.OUTCOME_UNKNOWN)
     try:
-        found = _youtube_upload_by_title(pub)
+        found = _youtube_upload_by_title(pub, require_exact_metadata=True)
+        if found and found.get("id") and _record_found_youtube(
+                pub, found, "The upload had finished; only YouTube's answer was lost."):
+            return finish(item, db.get_publication(pub["id"]) or pub)
     except (PublishError, httpx.HTTPError, ValueError):
-        found = None
-    if found and found.get("id"):
-        db.update_publication(pub["id"], status="done", remote_id=found["id"], url=youtube.video_url(found["id"]),
-                              message="The upload had finished; only YouTube's answer was lost.")
-        return finish(item, db.get_publication(pub["id"]) or pub)
+        pass
     db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix,
                           info={**(pub.get("info") or {}), "outcome_unknown": True})
     _set(item, "reconciling", f"{exc} {exc.fix}", "outcome_unknown", last_error=str(exc), fix=exc.fix)
@@ -148,13 +167,13 @@ def recover(pub: dict) -> str:
         if (pub.get("info") or {}).get("upload_session"):
             return "resume"  # youtube.upload continues the stored session, or learns it already finished
         try:
-            found = _youtube_upload_by_title(pub) if pub.get("status") == "uploading" else None
+            found = _youtube_upload_by_title(pub, require_exact_metadata=True) if pub.get("status") == "uploading" \
+                else None
+            if found and found.get("id") and _record_found_youtube(
+                    pub, found, "The upload had finished before the interruption."):
+                return "done"
         except (PublishError, httpx.HTTPError, ValueError):
-            found = None
-        if found and found.get("id"):
-            db.update_publication(pub["id"], status="done", remote_id=found["id"], url=youtube.video_url(found["id"]),
-                                  message="The upload had finished before the interruption.")
-            return "done"
+            pass
         return "resume"
     if pub.get("remote_id"):
         outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(tiktok.Token(db.get_settings()),  # noqa: SLF001
@@ -253,7 +272,9 @@ def publish(job: Job) -> dict:
         raise queue.Fail("The scheduled post was deleted")
     if item["status"] in ("published", "canceled", "replaced"):
         return {"message": f"Nothing to do: the post is {item['status']}"}
-    if settings.get("autopilot_publishing_paused") and not item.get("publication_id"):  # an upload under way finishes
+    existing = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
+    started = publish_jobs.transfer_started(existing)
+    if settings.get("autopilot_publishing_paused") and not started:  # an upload under way finishes
         db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
         raise queue.Wait("publishing_paused", 300, "Publishing is paused")
     clip = db.get_clip(item["clip_id"])
@@ -277,14 +298,21 @@ def publish(job: Job) -> dict:
         raise queue.Fail(why, "The agreement for this video does not cover this platform.")
     problem = approval_problem({**item, "status": "approved"})
     if problem:
+        if existing and not started:
+            db.update_publication(existing["id"], status="cancelled", message="Approval changed before upload started")
+            db.update("scheduled_publications", item["id"], publication_id="")
         _set(item, "awaiting_approval", f"Needs a new approval: {problem}.", "approval_invalidated", approval={})
         raise queue.Fail(f"The approval no longer matches the content: {problem}")
-    if not item.get("publication_id") and not autopublish.still_covers(item):
+    if not started and not autopublish.still_covers(item):
+        if existing:
+            db.update_publication(existing["id"], status="cancelled",
+                                  message="Permission revoked before upload started")
+            db.update("scheduled_publications", item["id"], publication_id="")
         _set(item, "awaiting_approval", "Automatic publishing was turned off or changed: approve it yourself.",
              "approval_invalidated", approval={})
         raise queue.Fail("The automatic-publishing permission that approved this post is no longer in force")
     mode = (item.get("options") or {}).get("mode") or "direct"
-    if not item.get("publication_id"):  # who may watch, checked again right before a new upload starts
+    if not started:  # who may watch, checked again right before a new upload starts
         stop = audience.halted(item["platform"])
         if stop:  # an audience incident on this platform: the post keeps its approval and waits until you checked it
             note = f"Waiting: uploads are stopped until you check a video. {stop.get('detail', '')}".strip()
@@ -331,7 +359,7 @@ def publish(job: Job) -> dict:
         raise queue.Wait("not_connected", RECONNECT_WAIT, f"{item['platform'].title()} is not connected")
     state.resolve(f"connect:{item['platform']}")
     video, version = active_version_path(clip)
-    if not item.get("publication_id"):  # an upload already under way is resumed, never re-judged halfway
+    if not started:  # an upload already under way is resumed, never re-judged halfway
         try:
             gate.verify_file(clip, video)  # the exact bytes that would be uploaded passed the final quality gate
         except queue.Wait as w:
@@ -343,6 +371,8 @@ def publish(job: Job) -> dict:
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:
+        if pub["platform"] == "youtube" and publish_jobs.unknown_outcome(pub):
+            return outcome_unknown(item, pub, youtube._outcome_unknown())
         if pub["status"] not in ("queued",):
             what = recover(pub)
             if what == "wait":
@@ -352,6 +382,10 @@ def publish(job: Job) -> dict:
             runner = publish_jobs.RUNNERS[item["platform"]]
             runner(pub, job.cancelled)
     except (queue.Canceled, UploadCancelled):
+        current = db.get_publication(pub["id"]) or pub
+        if current["platform"] == "youtube" and (current.get("info") or {}).get("final_chunk_at"):
+            outcome_unknown(item, current, youtube._outcome_unknown())
+            raise queue.Canceled()
         if job.host and job.host._stop.is_set() and not state.paused() \
                 and not (queue.get(job.id) or {}).get("cancel_requested"):
             # Closing the app preserves this exact upload record and its session/final-byte marker. A restart
@@ -364,13 +398,29 @@ def publish(job: Job) -> dict:
              planned_at=None, publication_id="")
         raise queue.Canceled()
     except PublishError as exc:
+        current = db.get_publication(pub["id"]) or pub
+        if (current.get("info") or {}).get("final_chunk_at") and current["platform"] == "youtube" \
+                and exc.code != youtube.OUTCOME_UNKNOWN and asked_to_wait(exc) is None:
+            # A later authorization/quota failure cannot establish that an earlier final PUT was rejected.
+            # Keep its session and identity held, even after reconnecting, until read-back proves the outcome.
+            current = {**current, "info": {**(current.get("info") or {}),
+                                          "outcome_error": {"code": exc.code, "detail": str(exc), "fix": exc.fix}}}
+            if exc.code in ("reconnect", "not_connected", "setup", "scope", "insufficientPermissions"):
+                state.action("connect:youtube", "publish", "Reconnect YouTube to check this upload", str(exc),
+                             exc.fix, ref_type="scheduled", ref_id=item["id"])
+            unknown = youtube._outcome_unknown()
+            held = PublishError(f"{exc} {unknown}", f"{exc.fix} {unknown.fix}".strip(), youtube.OUTCOME_UNKNOWN)
+            return outcome_unknown(_item(item["id"]) or item, current, held)
         if exc.code == youtube.OUTCOME_UNKNOWN:
-            return outcome_unknown(_item(item["id"]) or item, db.get_publication(pub["id"]) or pub, exc)
+            return outcome_unknown(_item(item["id"]) or item, current, exc)
         asked = asked_to_wait(exc)
         if asked is not None:
             _platform_wait(_item(item["id"]) or item, pub, exc, asked, settings)
-        db.update_publication(pub["id"], status="failed", error=str(exc), fix=exc.fix)
-        db.update("scheduled_publications", item["id"], publication_id="")
+        keep_session = current["platform"] == "youtube" and publish_jobs.transfer_started(current) and \
+            exc.code in ("", "network", "internal")
+        db.update_publication(pub["id"], status="uploading" if keep_session else "failed", error=str(exc), fix=exc.fix)
+        if not keep_session:
+            db.update("scheduled_publications", item["id"], publication_id="")
         _handle_error(job, _item(item["id"]) or item, exc, settings)
     pub = db.get_publication(pub["id"]) or pub
     return finish(item, pub)

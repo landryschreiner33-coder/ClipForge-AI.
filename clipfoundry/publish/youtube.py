@@ -6,9 +6,9 @@ own Google Cloud project's "Desktop app" client. ClipFoundry receives tokens, ne
 Uploads use the resumable upload protocol (videos.insert, uploadType=resumable) in 8 MiB chunks, resuming after
 network errors. YouTube classifies vertical videos of up to three minutes as Shorts automatically.
 
-Google restricts API projects that have not passed YouTube's API compliance audit: every video they upload is locked
-to private viewing, whatever privacy was requested. ClipFoundry says so before and after the upload, and private
-uploads work for testing in the meantime.
+YouTube's current videos.insert documentation allows uploads from unverified projects without a Private-only
+restriction. ClipFoundry still requires explicit audience and publishing permission, and reports the visibility
+YouTube actually returns. Compliance audits are relevant to quota extensions, not a Public-upload switch.
 """
 from __future__ import annotations
 
@@ -41,10 +41,9 @@ SHORTS_MAX_SECONDS = 180
 AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
 
 UNVERIFIED_NOTE = (
-    "YouTube locks every video uploaded through an API project that has not passed its API compliance audit to "
-    "Private, even when you choose Public or Unlisted. Private uploads work for testing. To publish publicly, get "
-    f"your Google Cloud project audited ({AUDIT_URL}) and then tick 'My project passed the audit' in Settings, or "
-    "upload the exported MP4 in YouTube Studio yourself."
+    "An unverified YouTube API project can request Public uploads under YouTube's current API documentation. "
+    "Confirm Public audience and automatic publishing separately; ClipFoundry reports the visibility YouTube "
+    "actually returns. A compliance audit may be needed to request additional quota."
 )
 SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
              "the OAuth consent screen, create an OAuth client of type 'Desktop app' and paste its client ID and "
@@ -287,6 +286,8 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
     session that may already be complete (`may_be_complete`, or the last bytes were sent in this call) has expired,
     the outcome cannot be known: PublishError with code OUTCOME_UNKNOWN, never a second upload."""
     size = os.path.getsize(path)
+    if may_be_complete and not resume_session:
+        raise _outcome_unknown()
     report = progress or (lambda f: None)
     with client(120) as c:
         offset, failures = 0, 0
@@ -331,12 +332,16 @@ def upload(path: str, body: dict, token: Token, progress: Callable[[float], None
                 if r is not None and r.status_code == 401:
                     token.get(force=True)
                 elif r is not None and r.status_code not in (408, 429, 500, 502, 503, 504):
+                    if r.status_code in (404, 410) and (final_sent or may_be_complete):
+                        raise _outcome_unknown()
                     raise api_error(r, "videos.insert")
                 failures += 1
                 asked = retry_after(r)
                 if asked is not None and asked > SHORT_WAIT:
                     raise _wait_error(r)  # the attempt ends; the stored session continues after the wait
                 if failures > 6:
+                    if final_sent or may_be_complete:
+                        raise _outcome_unknown()
                     raise PublishError("The upload to YouTube kept getting interrupted.",
                                        "Check your internet connection and publish again.")
                 _pause(asked, min(60.0, 2.0 ** failures), sleep, cancelled)

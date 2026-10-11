@@ -19,7 +19,7 @@ const add = (tab: SettingsTab, entries: Record<string, string>) => {
 };
 add("accounts", {
   youtube_client_id: "YouTube client ID", youtube_client_secret: "YouTube client secret",
-  youtube_project_verified: "YouTube audit", tiktok_client_key: "TikTok client key",
+  youtube_project_verified: "YouTube audit (optional quota information)", tiktok_client_key: "TikTok client key",
   tiktok_client_secret: "TikTok client secret", tiktok_direct_post: "TikTok Direct Post permission",
   tiktok_read_stats: "TikTok statistics permission", tiktok_app_audited: "TikTok audit",
 });

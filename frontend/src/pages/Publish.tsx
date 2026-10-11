@@ -361,8 +361,8 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
         <span className="label">Who can see it</span>
         <span>{privacy === "public" ? "Public: anyone can watch" : audience?.label || "Private"}</span>
         <span className="hint">
-          {privacy === "public" ? "Your confirmed audience is Public. YouTube may keep API uploads Private until "
-            + "Google approves your project; the upload record shows what YouTube actually returned."
+          {privacy === "public" ? "Your confirmed audience is Public. The upload record shows the visibility "
+            + "YouTube actually returned; it reports a restriction if Public is not confirmed."
             : audience?.intent === "OWNER_ONLY" ? "Private staging: nobody else can watch."
               : "Private: share it with invited viewers in YouTube Studio → Content → this video → Visibility "
                 + "→ Private → Share privately."}
@@ -727,7 +727,7 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
           The same upload resumes then; it is not uploaded twice.</span>
       )}
       {setup === "public_restricted" && <span className="small">YouTube has not confirmed Public.
-        Check the video’s visibility in YouTube Studio and your project’s API audit status.</span>}
+        Check the video’s visibility and any restrictions in YouTube Studio.</span>}
       {setup === "public_requested" && <span className="small muted">TikTok did not report the post’s actual
         visibility; Everyone was requested.</span>}
       {p.message && <span className="small">{p.message}</span>}

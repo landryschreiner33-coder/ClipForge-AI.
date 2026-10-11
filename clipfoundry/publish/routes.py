@@ -27,7 +27,8 @@ def _youtube_state(settings: dict) -> dict:
         "scopes": acc.get("scopes") or [], "connected_at": acc.get("connected_at"),
         "analytics": youtube.SCOPES[2] in (acc.get("scopes") or []),
         "verified": bool(settings.get("youtube_project_verified")),
-        "restriction": "" if settings.get("youtube_project_verified") else youtube.UNVERIFIED_NOTE,
+        # Kept as owner-reported audit information; current YouTube docs allow Public without an API audit.
+        "restriction": "",
         "setup": youtube.SETUP_FIX, "testing_note": youtube.TESTING_NOTE,
     }
 

@@ -28,7 +28,8 @@ def until(fixture: CompleteLoopFixture, condition, timeout: float = 240.0):
 
 
 @pytest.mark.slow
-def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, tmp_path):
+@pytest.mark.parametrize("visibility", ["private", "public"])
+def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, tmp_path, visibility):
     """One bad original does not block real render/check/publish/observe work, including the next discovery.
 
     The host dispatches every handler itself. The test supplies only fake platform inputs, a transcript in place
@@ -58,17 +59,34 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
     code = google.approve(youtube.auth_url(db.get_settings(), callback, "state", challenge_s256(verifier)))
     youtube.exchange_code(db.get_settings(), code, verifier, callback)
     fixture = CompleteLoopFixture(tmp_path / "data", google, monkeypatch.setattr)
+    if visibility == "public":
+        # Exercise the real periodic dispatcher with short fixture clock slots, including restart/idempotency.
+        # Public uploads still require real approval and the due-time check; no early-upload lead is substituted.
+        monkeypatch.setattr(host, "PERIODIC", [(kind, (lambda _settings: 5.0) if kind == "schedule_tick" else period,
+                                               active) for kind, period, active in host.PERIODIC])
     worker = None
     try:
         with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+            if visibility == "public":
+                chosen = client.post("/api/audience/youtube", headers=H,
+                                     json={"intent": "public", "confirm": True})
+                assert chosen.status_code == 200, chosen.text
+                assert chosen.json()["youtube"]["confirmed"] is True
             assert client.post("/api/autopilot/auto-publish", headers=H, json={"platform": "youtube",
-                               "visibility": "private", "made_for_kids": False, "daily_limit": 4,
+                               "visibility": visibility, "made_for_kids": False, "daily_limit": 4,
                                "start_hour": 0, "end_hour": 24, "agreed": True}).status_code == 200
             assert client.post("/api/autopilot/start", headers=H).status_code == 200
             worker = host.WorkerHost(poll=0.05)
             assert worker.start()
+
+            def uploaded(count):
+                if visibility == "public":
+                    # Advance only the fixture's future deadlines; real approvals, uploads and visibility remain.
+                    fixture.due_public_posts()
+                return len([p for p in db.list_publications() if p["status"] == "done"]) == count
+
             until(fixture, lambda: db.select("sources", "external_id = ? AND status = 'failed'", (BROKEN,)))
-            until(fixture, lambda: len([p for p in db.list_publications() if p["status"] == "done"]) == 1)
+            until(fixture, lambda: uploaded(1))
             # The upload marks its publication done before the handler returns; the job completes a moment later
             until(fixture, lambda: db.select("worker_jobs", "kind = 'publish' AND status = 'completed'"))
             assert len(google.videos) == 1
@@ -85,7 +103,10 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
                 upload = next(u for u in initial["uploads"] if u["id"] == pub["remote_id"])
                 assert upload["sha256"] == report["artifact_sha256"]
                 assert Path(clip["output_path"]).stat().st_size == upload["bytes"]
-                assert upload["status"]["privacyStatus"] == "private" and "publishAt" not in upload["status"]
+                assert upload["status"]["privacyStatus"] == visibility and "publishAt" not in upload["status"]
+                assert pub["privacy"] == visibility
+                if visibility == "public":
+                    assert pub["delivery"]["audience_setup"] == "public_api_verified"
             done = {j["kind"] for j in initial["jobs"] if j["status"] == "completed"}
             assert {"trend_scan", "source_scout", "hunt_source", "analyze_source", "package_clip", "quality_check",
                     "schedule_tick", "publish"} <= done
@@ -96,17 +117,22 @@ def test_worker_host_runs_complete_loop_and_repeats_after_restart(monkeypatch, t
             assert worker.start(wait_for_lock=10)
             assert state.enabled(db.get_settings())
             fixture.repeat()
-            until(fixture, lambda: len([p for p in db.list_publications() if p["status"] == "done"]) == 2)
+            until(fixture, lambda: uploaded(2))
             assert len(google.videos) == 2
             assert db.select("sources", "external_id = ?", (SECOND,))[0]["clips_selected"] >= 1
             assert len(google.sessions) == len(google.videos) == 2
             # The publication becomes done before the publisher finishes copying its result to the schedule.
             # Wait for both finalized posts before simulating the owner's invitations and 48-hour result age.
             until(fixture, lambda: len(db.select("scheduled_publications", "status = 'published'")) == 2)
-            # the owner shares the Private videos in YouTube Studio and says so: only then are they viewers' evidence
-            for item in db.select("scheduled_publications", "status = 'published'"):
-                shared = client.post(f"/api/autopilot/scheduled/{item['id']}/audience-confirmed", headers=H)
-                assert shared.status_code == 200
+            # Private results need the owner's sharing confirmation; Public results need no invitation step.
+            if visibility == "private":
+                for item in db.select("scheduled_publications", "status = 'published'"):
+                    shared = client.post(f"/api/autopilot/scheduled/{item['id']}/audience-confirmed", headers=H)
+                    assert shared.status_code == 200
+            for pub in db.list_publications():
+                if pub["status"] == "done":
+                    assert pub["privacy"] == visibility
+                    assert google.videos[pub["remote_id"]]["status"]["privacyStatus"] == visibility
             fixture.age_results()
             until(fixture, lambda: (state.get("learning:status") or {}).get("samples") == 2, timeout=60)
             readings = db.select("performance")
@@ -152,7 +178,8 @@ def test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_liv
                       "autopilot_youtube": False, "autopilot_tiktok": False,
                       "encoder": "x264", "x264_preset": "ultrafast", "layout": "fit",
                       "whisper_device": "cpu", "min_duration": 12.0, "max_duration": 45.0,
-                      "target_duration": 25.0})
+                      "target_duration": 25.0,
+                      "autopilot_max_source_gb": 0.5})  # A finite fixture needs no 8 GB remote-capture reservation.
     item = google.add_video(STREAM, "A live conversation about diets", "UCother00000001", duration="PT1M")
     item["snippet"]["liveBroadcastContent"] = "upcoming"
     item["liveStreamingDetails"] = {"scheduledStartTime": (dt.datetime.now(dt.timezone.utc) +
@@ -218,7 +245,8 @@ def test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_liv
             item["snippet"]["liveBroadcastContent"] = "live"
             item["liveStreamingDetails"]["actualStartTime"] = dt.datetime.now(dt.timezone.utc).isoformat()
             wait(lambda: db.fetch("sources", source_id)["live_status"] == "ended", timeout=120)
-            wait(lambda: any(j["kind"] == "post_live" and j["status"] == "completed" for j in queue.jobs()), timeout=180)
+            wait(lambda: any(j["kind"] == "post_live" and j["status"] == "completed" for j in queue.jobs()),
+                 timeout=180)
             source = db.fetch("sources", source_id)
             project = db.get_project(source["project_id"])
             assert project["origin"] == "live" and Path(project["source_path"]).exists()

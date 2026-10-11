@@ -32,13 +32,13 @@ from ..pipeline import candidates as cand_mod
 from ..pipeline import blueprint, deep, hooks, postpack, process, render, scoring, transcribe, virality
 from ..pipeline.audio import Loudness, loudness_envelope
 from ..pipeline.common import JobContext, log, read_json, write_json
-from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe
+from ..pipeline.ffmpeg_utils import NO_WINDOW, extract_audio, ffmpeg_bin, probe, run_process
 from ..pipeline.text_utils import build_sentences
 from . import queue, rights, state
 from .host import Job, handler
 from .stream_access import StreamRefused
 from .hunter import (gpu_failed, gpu_policy, max_source_bytes, plan_clips, prior_fingerprints, project_options,
-                     render_in_priority_order, screen_stories, store_fingerprint)
+                     render_in_priority_order, require_disk_space, screen_stories, store_fingerprint)
 
 SEGMENT_SECONDS = 60
 WINDOW_SECONDS = 900          # the rolling window searched for live clips
@@ -284,6 +284,14 @@ class Capture:
                 if _recorded_bytes(self.sess) >= max_source_bytes(settings):
                     self.stop("limit")
                     return
+                try:
+                    require_disk_space(self.sess.segdir)
+                except queue.Wait:
+                    self.stop("disk")
+                    if src:
+                        db.update("sources", src["id"], status="ingesting",
+                                  status_note="Recording paused for disk space; saved minutes are kept")
+                    return
             except Exception:  # a database read failure must never leave an unattended recorder running
                 log.exception("could not check live recording permission")
                 self.stop("Recording stopped because its permission could not be checked")
@@ -373,7 +381,7 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     job.check()
     _check_local_permission(sess)
     path = sess.segdir / name
-    meta = probe(path)  # audio may disappear or return between live segments
+    meta = probe(path, cancel=job.cancelled)  # audio may disappear or return between live segments
     if not sess.meta or meta.get("has_audio"):
         sess.meta = meta
     duration = duration or float(meta.get("duration") or 0)
@@ -418,8 +426,9 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
     sess.words = transcribe.flatten_words(sess.transcript)
     wav.unlink(missing_ok=True)
     sess.save()
-    db.update_project(sess.project["id"], duration=sess.offset, message=f"Live: {sess.offset / 60:.0f} min recorded, "
-                      f"{len(sess.clips)} clip(s)" + ("; this minute has no audio" if not meta.get("has_audio") else ""),
+    message = (f"Live: {sess.offset / 60:.0f} min recorded, {len(sess.clips)} clip(s)"
+               + ("; this minute has no audio" if not meta.get("has_audio") else ""))
+    db.update_project(sess.project["id"], duration=sess.offset, message=message,
                       info={**(db.get_project(sess.project["id"]) or {}).get("info", {}), **sess.meta,
                             "missing_audio": sess.missing_audio})
 
@@ -457,15 +466,16 @@ def detect(sess: Session, job: Job) -> dict | None:
     return {"r": best[0], "sents": best[1], "loud": best[2]} if best else None
 
 
-def _window_file(sess: Session, start: float, end: float) -> tuple[Path, float]:
+def _window_file(sess: Session, start: float, end: float, *, cancel=None) -> tuple[Path, float]:
     """The segments around [start, end] joined into one file (stream copy) and the time where it starts."""
     segs = [s for s in sess.segments if s["end"] > start - 3 and s["start"] < end + 3]
+    require_disk_space(sess.segdir, sum((sess.segdir / s["name"]).stat().st_size for s in segs))
     listing = sess.segdir / "window.txt"
     listing.write_text("".join(f"file '{(sess.segdir / s['name']).as_posix()}'\n" for s in segs), encoding="utf-8")
     out = sess.segdir / "window.mkv"
-    subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
-                    "0", "-i", str(listing), "-c", "copy", str(out)], check=True, capture_output=True,
-                   creationflags=NO_WINDOW)
+    run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
+                 "0", "-i", str(listing), "-c", "copy", str(out)], check=True, cancel=cancel,
+                timeout=max(600.0, end - start))
     return out, segs[0]["start"]
 
 
@@ -491,8 +501,8 @@ def make_live_clip(sess: Session, found: dict, job: Job) -> dict:
                           scores=virality.summary(r)["factors"], score_source="Live analysis",
                           reason=scoring.reason_text(r), analysis=virality.summary(r), post=post, edit={},
                           status="rendering", duration=round(end - start, 2))
-    window, shift = _window_file(sess, start, end)
-    meta = probe(window)
+    window, shift = _window_file(sess, start, end, cancel=job.cancelled)
+    meta = probe(window, cancel=job.cancelled)
     proj = {**sess.project, "source_path": str(window), "dir": str(sess.pdir), "width": meta["width"],
             "height": meta["height"], "fps": meta["fps"], "duration": meta["duration"], "info": meta, "options": {}}
     shifted = [{**w, "start": w["start"] - shift, "end": w["end"] - shift} for w in sess.words
@@ -536,7 +546,8 @@ def _store_live_clip(sess: Session, clip: dict, r: dict, job: Job) -> dict:
     if not any(c["id"] == clip["id"] for c in sess.clips):
         sess.clips.append({"id": clip["id"], "start": start, "end": end, "score": r["viral_potential"]})
     sess.save()
-    queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": sess.src["id"]}, idem_key=f"package:{clip['id']}",
+    queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": sess.src["id"]},
+                  idem_key=f"package:{clip['id']}",
                   ref=("clip", clip["id"]), priority=queue.source_priority(sess.src, job.row.get("priority") or 0))
     state.event("live_clip", f"Live clip from “{sess.src.get('title', '')[:60]}” at {start / 60:.1f} min "
                              f"(Viral Potential {r['viral_potential']:.0f})", ref_type="clip", ref_id=clip["id"])
@@ -555,7 +566,7 @@ def _resume_live_outputs(sess: Session, job: Job) -> None:
                           priority=queue.source_priority(sess.src, job.row.get("priority") or 0))
 
 
-def finalize(sess: Session) -> Path | None:
+def finalize(sess: Session, *, cancel=None) -> Path | None:
     """Join the recording without dropping audio that returns after a video-only segment.
 
     Normal recordings keep stream copy. Mixed recordings copy video and normalize only their audio tracks,
@@ -566,6 +577,8 @@ def finalize(sess: Session) -> Path | None:
     temporary: list[Path] = []
     try:
         paths = [sess.segdir / s["name"] for s in sess.segments]
+        mixed_audio = bool(sess.missing_audio) and len(sess.missing_audio) < len(sess.segments)
+        require_disk_space(sess.segdir, sum(path.stat().st_size for path in paths) * (2 if mixed_audio else 1))
         if sess.missing_audio and len(sess.missing_audio) < len(sess.segments):
             paths = []
             for index, segment in enumerate(sess.segments):
@@ -580,15 +593,18 @@ def finalize(sess: Session) -> Path | None:
                          "-c:a", "aac", "-ac", "2", "-ar", "48000", "-af", "aresample=async=1:first_pts=0,apad",
                          "-t", f"{duration:.6f}", "-avoid_negative_ts", "make_zero", str(target)]
                 temporary.append(target)
-                subprocess.run(args, check=True, capture_output=True, creationflags=NO_WINDOW)
+                run_process(args, check=True, cancel=cancel, timeout=max(600.0, duration * 20))
                 paths.append(target)
         listing = sess.segdir / "all.txt"
         listing.write_text("".join(f"file '{path.as_posix()}'\n" for path in paths),
                            encoding="utf-8")
         out = sess.pdir / "source.mkv"
-        subprocess.run([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
-                        "0", "-i", str(listing), "-c", "copy", str(out)], check=True, capture_output=True,
-                       creationflags=NO_WINDOW)
+        assembled = sess.pdir / "assembly.tmp.mkv"
+        temporary.append(assembled)
+        run_process([ffmpeg_bin(), "-y", "-hide_banner", "-nostdin", "-loglevel", "error", "-f", "concat", "-safe",
+                     "0", "-i", str(listing), "-c", "copy", str(assembled)], check=True, cancel=cancel,
+                    timeout=max(600.0, min(7200.0, sess.offset * 2)))
+        os.replace(assembled, out)
         db.update_project(sess.project["id"], source_path=str(out), source_filename=out.name, duration=sess.offset)
         return out
     finally:
@@ -661,7 +677,7 @@ def live_capture(job: Job) -> dict:
     key = _capture_key(src["id"])
     with _capture_lock:
         capture = _captures.get(key)
-        if capture and (capture.job_id != job.id or capture.stopped_reason in ("restart", "paused")):
+        if capture and (capture.job_id != job.id or capture.stopped_reason in ("restart", "paused", "disk")):
             _captures.pop(key, None)
             old, capture = capture, None
         else:
@@ -694,6 +710,12 @@ def live_capture(job: Job) -> dict:
             sess.capture_complete = True
             sess.save()
         if not sess.capture_complete:
+            # A local growing recording has an observable current size; remote streams need their remaining
+            # configured budget reserved because neither their length nor their bitrate is trustworthy.
+            expected = (min(byte_budget, Path(src["local_path"]).stat().st_size)
+                        if src.get("local_path") else byte_budget)
+            require_disk_space(sess.segdir, max(1, expected))
+            state.resolve("disk:space")
             relays = []
             try:
                 args = input_args(src, settings, public_relays=relays, byte_budget=max(1, byte_budget),
@@ -722,6 +744,10 @@ def live_capture(job: Job) -> dict:
     try:
         while True:
             job.check()
+            if capture.stopped_reason == "disk":
+                with _capture_lock:
+                    _captures.pop(key, None)
+                raise queue.Wait("disk", 1800, "Recording paused for disk space; saved minutes are kept")
             if capture.stopped_reason == "canceled":
                 raise queue.Canceled()
             if capture.stopped_reason and capture.stopped_reason not in ("restart", "paused", "limit"):
@@ -754,6 +780,8 @@ def live_capture(job: Job) -> dict:
     capture.stop()
     with _capture_lock:
         _captures.pop(key, None)
+    if capture.stopped_reason == "disk":
+        raise queue.Wait("disk", 1800, "Recording paused for disk space; saved minutes are kept")
     if capture.stopped_reason in ("restart", "paused"):
         # The app closed or Autopilot was paused during this turn: the broadcast did not end. The next turn starts
         # a new recorder after the saved minutes, without using an attempt or finishing the recording here.
@@ -789,10 +817,10 @@ def live_capture(job: Job) -> dict:
 
 def _finish_capture(sess: Session, job: Job) -> dict:
     src = sess.src
-    output = finalize(sess)
+    output = finalize(sess, cancel=job.cancelled)
     no_audio = bool(sess.missing_audio) and all([s["start"], s["end"]] in sess.missing_audio for s in sess.segments)
     if output and Path(output).is_file():
-        final_meta = probe(output)
+        final_meta = probe(output, cancel=job.cancelled)
         db.update_project(sess.project["id"], info={**(db.get_project(sess.project["id"]) or {}).get("info", {}),
                                                   **final_meta, "missing_audio": sess.missing_audio})
         no_audio = not final_meta.get("has_audio")

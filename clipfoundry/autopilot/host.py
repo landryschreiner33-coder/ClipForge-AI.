@@ -151,22 +151,42 @@ class WorkerHost:
         if not self.host_lock.acquire(timeout=wait_for_lock):
             log.info("Another ClipFoundry worker host is running; not starting a second one")
             return False
+        self._stop.clear()
+        self._threads = []
         self.started = True
-        db.init()
-        queue.recover()
-        from . import gate
+        try:
+            db.init()
+            queue.recover()
+            from . import gate
 
-        gate.recover_regenerations()
-        for name in self.names:
-            self.set_state(name, "idle", message="Ready")
-            t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
-            t.start()
+            gate.recover_regenerations()
+            for name in self.names:
+                self.set_state(name, "idle", message="Ready")
+                t = threading.Thread(target=self._loop, args=(name,), daemon=True, name=f"cf-worker-{name}")
+                self._threads.append(t)
+                t.start()
+            t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
             self._threads.append(t)
-        t = threading.Thread(target=self._supervise, daemon=True, name="cf-worker-supervisor")
-        t.start()
-        self._threads.append(t)
-        state.event("host_started", f"Workers started ({'separate process' if self.managed else 'in the app'})",
-                    pid=os.getpid())
+            t.start()
+            state.event("host_started", f"Workers started ({'separate process' if self.managed else 'in the app'})",
+                        pid=os.getpid())
+        except BaseException:
+            # Initialization can fail after some workers began acting. Permit a retry, but keep the lock until
+            # those workers finish so a temporary database/thread-start failure cannot cause duplicate work.
+            self._stop.set()
+            for ev in self._wake.values():
+                ev.set()
+            with self._lock:
+                for job in self._running.values():
+                    job.cancel_event.set()
+            try:
+                from . import live
+
+                live.stop_captures(self)
+            except Exception:  # noqa: BLE001 - preserve the initialization error and still release safely
+                log.exception("could not stop captures after worker initialization failed")
+            self._release_when_stopped()
+            raise
         return True
 
     def stop(self, timeout: float = 10.0) -> None:
@@ -182,10 +202,17 @@ class WorkerHost:
             for job in self._running.values():
                 job.cancel_event.set()
         deadline = time.monotonic() + timeout
-        for t in self._threads:
-            t.join(timeout=max(0.1, deadline - time.monotonic()))
-        for name in self.names:
-            self.set_state(name, "idle", message="Stopped")
+        try:
+            for t in self._threads:
+                if t.ident is not None:
+                    t.join(timeout=max(0.1, deadline - time.monotonic()))
+            for name in self.names:
+                self.set_state(name, "idle", message="Stopped")
+        finally:
+            self._release_when_stopped()
+
+    def _release_when_stopped(self) -> None:
+        self.started = False
         alive = [t for t in self._threads if t.is_alive()]
         if alive:
             # A job that has not reached its next safe point may still act (an upload, a render): no other host
@@ -198,10 +225,13 @@ class WorkerHost:
                     t.join()
                 self.host_lock.release()
 
-            threading.Thread(target=release_when_done, daemon=True, name="cf-worker-release").start()
+            try:
+                threading.Thread(target=release_when_done, daemon=True, name="cf-worker-release").start()
+            except RuntimeError:  # exhausted thread resources can also be the original startup failure
+                log.warning("Cannot start the lock-release thread; waiting for workers on the stopping thread")
+                release_when_done()
         else:
             self.host_lock.release()
-        self.started = False
 
     def wake(self, worker: str | None = None) -> None:
         for name, ev in self._wake.items():
@@ -288,11 +318,11 @@ class WorkerHost:
     def _run(self, name: str, row: dict) -> None:
         token = row["lease_owner"]
         job = Job(row, token, self)
-        with self._lock:
-            self._running[job.id] = job
-        self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
-        fn = HANDLERS.get(row["kind"])
         try:
+            with self._lock:
+                self._running[job.id] = job
+            self.set_state(name, "working", job, stage=row["kind"], message=row.get("message") or "Working")
+            fn = HANDLERS.get(row["kind"])
             if fn is None:
                 raise queue.Fail(f"No handler for job kind {row['kind']}")
             result = fn(job) or {}

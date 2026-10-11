@@ -184,16 +184,18 @@ encrypted with Windows DPAPI (only your Windows account on this PC can read them
 Things Google enforces, which ClipFoundry explains on screen:
 
 * **Public is an explicit choice for new uploads.** Settings → Integrations → Who watches → Public audience,
-  then confirm. Public automation also needs Google’s API-project audit and a new channel/visibility-bound
-  automatic-publishing permission. The audit checkbox records your confirmation; it does not verify Google’s
-  approval. Actual returned visibility is checked after uploading. Public posts upload at the local scheduled
+  then confirm. Public automation needs a new channel/visibility-bound automatic-publishing permission.
+  YouTube's current API documentation allows Public uploads without an API-project audit. The optional audit
+  checkbox records owner-reported quota information; it does not verify Google’s approval or gate Public posting.
+  Actual returned visibility is checked after uploading. Public posts upload at the local scheduled
   time, with no `publishAt`. Existing Private schedules stay Private.
 * **Selected-viewer uploads stay Private.** Share them in YouTube Studio and mark them shared in Queue; the API
   cannot send invitations. Unlisted is unsupported.
 
-* **Testing-mode connections expire after 7 days.** While the consent screen is in *Testing*, connect again weekly
-  (**Reconnect YouTube** in Settings → Accounts once the sign-in has expired), or set it to *In production* (for your
-  own use you can continue past the "unverified app" screen).
+* **Testing-mode connections expire after 7 days.** For continuous posting, set your Google OAuth app's publishing
+  status to **Production**, then reconnect in Settings → Accounts to obtain a new grant. Personal use may qualify
+  for Google's OAuth verification exception; that is separate from a YouTube API audit. Revoked or invalid account
+  access can still require reconnection. Testing remains suitable for development, with weekly reconnection.
 * **Quota.** Uploads count against your project's daily YouTube API quota. If it runs out, ClipFoundry says so; try
   again the next day (quotas reset at midnight Pacific Time).
 * Vertical videos of up to 3 minutes are classified as Shorts by YouTube automatically.

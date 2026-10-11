@@ -29,11 +29,32 @@ This branch is a review build. PR #14 remains unmerged. Use the exact-commit ZIP
    `start.bat` resumes that copy. Do not point the old build at a database opened by the new build.
 
 For later account testing, first review [PLATFORM_CAPABILITIES.md](PLATFORM_CAPABILITIES.md). Connecting an account
-alone does not authorize automation. New Public YouTube uploads need Public audience confirmation, an audited
-project and fresh channel-bound automatic-publishing permission. Review limits and the posting window before
-turning it on. Existing Private schedules stay Private. TikTok still requires per-post choices and consent; if its
-app approval is unavailable, use the manual package or an approved inbox draft. No real videos were posted during
-development.
+alone does not authorize automation. New Public YouTube uploads need Public audience confirmation and fresh
+channel-bound automatic-publishing permission. Current YouTube API rules permit Public uploads from unverified
+projects; an API audit concerns quota increases. Review limits and the posting window before turning it on.
+Use **0–24** for all-day scheduling. Existing Private schedules stay Private; Public posts need no Studio invitations.
+For External Google OAuth apps in Testing, the YouTube refresh grant can expire after seven days: switch OAuth
+publishing status to Production, then reconnect. This is separate from API audit/verification; revoked access still
+needs reconnection. TikTok still requires per-post choices and consent; a private TikTok profile cannot post to
+Everyone. If its app approval is unavailable, use the manual package or an approved inbox draft. No real videos were
+posted during development.
+
+To try the optional watchdog in this isolated profile, finish the local checks, stop `test-isolated.bat`, then open
+a Command Prompt in `C:\CF14` and run:
+
+```bat
+set "CLIPFOUNDRY_DATA=C:\CF14\data\pr14-test"
+set "CLIPFOUNDRY_VIDEOS=C:\CF14\data\pr14-test\videos"
+set "CLIPFOUNDRY_PORT=8899"
+call run-unattended.bat
+```
+
+Keep the accounts disconnected until you choose to test a real upload. Ctrl+C stops the watchdog and its app;
+it preserves intentional Pause/Stop and does not retry an ambiguous upload. Do not run the normal and unattended
+launchers together on this profile. [UNATTENDED.md](UNATTENDED.md) explains logs and optional same-user login startup.
+The watchdog detects process exit; it does not detect a still-running, hung main app.
+The automated tests use fake accounts and synthetic media; Windows Task Scheduler, RTX 3050 operation, real account
+behavior and an actual 24-hour run were not verified in the Linux environment.
 
 If setup already failed with `No such file or directory` for a long `anthropic\types\beta\...` filename and a
 Windows long-path hint, close that failed console and repeat step 2 with **fresh ZIP contents** in `C:\CF14`.

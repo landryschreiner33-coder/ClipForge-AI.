@@ -1,12 +1,49 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-10 (UTC).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-11 (UTC).
 Fetch before trusting branch state.
 
 ## Current scope and branch
 
-Latest department-office and reliability checkpoint starts at `e896632`, requested October 9 and completed
+Latest unattended-Public checkpoint starts at `61f6042` on the same draft/unmerged PR #14. Work ran October 10–11.
+The owner requested autonomous all-day Public publishing from a personal setup. Designed unattended YouTube operation
+keeps explicit Public setup, account/visibility-bound standing permission, reuse eligibility, exact-file checks and
+honest readback. Existing Private schedules stay Private; Public results need no Studio invitations. Midnight **0** now
+survives scheduling/consent reads, so **0–24** covers the full day without changing daily limits.
+
+Official YouTube `videos.insert`/`videos` documentation updated October 8 and freshly checked October 10 permits
+Public uploads from unverified projects. The obsolete project-audit Public gate is removed; API audit concerns
+quota increases. OAuth publishing status is separate: External Testing YouTube refresh grants expire after seven
+days; choose Production, then reconnect. Personal use may be exempt from OAuth verification, but authorization can
+still be revoked. TikTok retains eligible-app/per-post consent limits; a private TikTok profile cannot offer Everyone.
+See [current platform evidence](docs/PLATFORM_CAPABILITIES.md) and [unattended setup](docs/UNATTENDED.md).
+
+The optional `run-unattended.bat` / `python -m clipfoundry --unattended` watches app process exit and restarts with
+bounded backoff. It preserves the selected data profile and saved Pause/permissions, owns its app/worker/media tree,
+uses profile/port locks and stops without restarting on explicit Ctrl+C. Local app/watchdog diagnostics rotate at
+5 MiB plus two older copies. Same-user Windows login startup is documented, never installed automatically.
+Run only one app per data profile, including across different ports. This watchdog detects process exit; it does
+not detect a still-running, hung main app.
+Worker startup cleanup retains its lock until partial workers finish; setup failures do not keep phantom leases.
+Bounded cancellable media pipe/process I/O and 2 GB disk-reserve checks keep low-space failures from blocking a
+worker forever. Low-disk live capture waits without declaring EOF or deleting saved segments; final assemblies
+replace complete recordings only after success.
+
+Scheduled pre-session work rechecks Pause, current consent/account/audience and final quality even after a local
+publication row exists. Existing sessions retain their confirmed bytes. Strict original-account, unique recent
+submitted-metadata recovery reads actual visibility before reporting success. Final-chunk crash/cancellation or
+ambiguous outcomes keep duplicate holds; manual startup recovery shows an unknown outcome with read-only Refresh.
+Once final-byte evidence is saved, later reconnect, setup, scope or quota errors preserve that same hold and
+publication identity rather than permitting another upload.
+The real-media full-loop fixture now covers Public and Private independently, including repeat/restart/exact-byte
+checks. This remains synthetic/fake-account verification, not real account or 24-hour operation proof.
+
+Privacy documents local unattended diagnostic retention. No new dependency, real posting, account change, purchase
+or deployment occurred. Windows/RTX 3050/accounts and an actual 24-hour soak remain owner checks. Deliberate rights,
+quota, authorization, disk and unknown-outcome holds can still need attention; restarting does not bypass them.
+
+The preceding department-office and reliability checkpoint starts at `e896632`, requested October 9 and completed
 October 10 on the same draft/unmerged PR #14. Real working/reviewing jobs or substantive assigned backlog gather
 the whole department into its own room. Actual workers appear immediately at their own desks; idle teammates sit
 ready without typing, progress or invented jobs. Managers oversee from safe floor positions with clipboard checks
@@ -115,9 +152,9 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
   silent live segments are retained/skipped and later audio resumes; mixed final recordings retain returning
   sound with silent timeline gaps, temporary assembly files are removed, and all-video-only sources fail clearly once.
 * New Public YouTube uploads and standing automation use explicit audience confirmation, connected-channel and
-  visibility-bound permission, audit confirmation, limits and exact-byte checks. Public lead is zero, so local
+  visibility-bound permission, limits and exact-byte checks. Public lead is zero, so local
   uploads start at due time without `publishAt`. Existing Private schedules remain Private. Actual returned
-  restrictions are reported. Clearing audit confirmation blocks new automatic Public approvals/uploads.
+  restrictions are reported. API-project audit status is informational; it no longer gates Public uploads.
   TikTok Everyone remains eligible-app + creator-options + per-post consent; inbox
   drafts/manual packages are honest fallbacks. No standing TikTok automatic consent.
 * Learning separates confirmed-public and selected-viewer cohorts; unconfirmed/requested visibility does not drive
@@ -132,7 +169,16 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
 
 ## Validation
 
-Latest department/reliability validation is recorded at the top of
+Latest unattended-Public validation is recorded at the top of
+[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). Full fast Python passed 757 tests, eight slow deselected,
+in 390.67 s. All eight slow cases passed across the full run (six passed, two fixture setup failures, 786.85 s) and
+the corrected Public (58.73 s) and upcoming-live (49.02 s) reruns. Production code stayed unchanged for those
+corrections.
+All 32 isolated browser cases passed together in 8.1 min. TypeScript/Vite build passed in 4.37 s; all 14 tested file
+hashes match. Final fast verification includes the recovery, media, launcher, policy and unknown-outcome regressions.
+The actual-app POSIX exit/restart/stop smoke passed in 11.98 s; Windows behavior remains unverified.
+
+At the preceding department/reliability checkpoint:
 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). Full fast Python passed 685 tests, seven slow deselected,
 in 347.07 s. All seven slow media cases passed together in 676.84 s, with 685 fast cases deselected. All 31 isolated
 browser checks passed together in 7.8 min. Final TypeScript/Vite build passed in 5.96 s with the existing 904 KB
@@ -191,14 +237,15 @@ actual isolated app/jobs, synthetic transcripts, saved blueprint decisions, look
 
 ## External limits and remaining owner checks
 
-Official developer hosts returned proxy **403** in this continuation. Current YouTube/TikTok requirements could not
-be freshly re-read. Google’s official GitHub discovery schema was reachable and confirms `publishAt` requires
-Private; this is an API field check, not current policy approval. Earlier policy readings are labeled historical in
-PLATFORM_CAPABILITIES. The audit settings record the owner’s confirmation, not programmatic proof of app approval.
+Earlier October 8 developer-host requests returned proxy **403**; those verification limits remain historical.
+October 10 official documentation was reachable and freshly checked: YouTube's October 8 update permits Public
+from unverified projects, API audits cover quota increases, and External Testing grants have a seven-day lifetime
+for YouTube scopes. Current sources and remaining TikTok restrictions are recorded in PLATFORM_CAPABILITIES.
 
-Not verified here: RTX 3050 CUDA transcription / NVENC rendering; real accounts, scopes, Google project audit and
+Not verified here: RTX 3050 CUDA transcription / NVENC rendering; real accounts, scopes, quota grants and
 returned Public visibility; TikTok app eligibility and approval, real Direct Post/inbox; Windows setup, fonts,
-scaling; live network access on the owner’s PC; real NVIDIA services. Run the
+scaling; Windows Task Scheduler/process-tree cleanup; a real 24-hour unattended soak; live network access on the
+owner’s PC; real NVIDIA services. Run the
 [Windows test guide](docs/WINDOWS_PR14_TEST.md) in a separate copy first. No real posts, purchase or deployment occurred.
 
 [Server recommendation](docs/PERFORMANCE.md): keep the PC until its real timing/GPU report supports a comparison;

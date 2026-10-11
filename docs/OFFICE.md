@@ -212,15 +212,16 @@ Public requires explicit confirmation; old selected/owner-only stamps and schedu
 Legacy public plans held by the prior migration are not silently revived.
 
 * YouTube: Public uploads require an explicit Public audience. Standing automation is bound to the connected
-  channel, visibility and audience revision; public automation additionally requires the owner’s recorded audit
-  confirmation. Eligible exact files upload at their due time, without `publishAt`. Returned Private restrictions
+  channel, visibility and audience revision. The optional API-audit record is quota information, not a Public gate.
+  Continuous operation requires an OAuth Production grant; Testing grants expire after seven days.
+  Eligible exact files upload at their due time, without `publishAt`. Returned Private restrictions
   are reported as restricted, never public delivery. Private selected-viewer sharing remains a Studio step.
 * TikTok: Everyone requires an eligible audited app, fresh creator options and per-post consent. No privacy is
   preselected. Inbox drafts and ready-to-post packages remain honest handoffs until the owner finishes posting.
 * Results distinguish requested visibility, the API’s answer and the owner’s confirmation. Public and selected
   cohorts cannot reuse each other’s strategies or timing data. Unsupported/unconfirmed results do not drive learning.
 
-[Platform requirements and the blocked official-documentation recheck](PLATFORM_CAPABILITIES.md).
+[Platform requirements and the October 10 official-documentation review](PLATFORM_CAPABILITIES.md).
 
 ## What each integration can do
 

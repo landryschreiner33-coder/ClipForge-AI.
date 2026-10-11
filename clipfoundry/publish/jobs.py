@@ -18,6 +18,12 @@ from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_ex
 ACTIVE = ("queued", "uploading", "processing")
 
 
+def transfer_started(pub: dict | None) -> bool:
+    """A local publication row alone does not establish that the platform accepted an upload session."""
+    info = (pub or {}).get("info") or {}
+    return bool(info.get("upload_session") or info.get("final_chunk_at") or (pub or {}).get("remote_id"))
+
+
 def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict) -> None:
     """Manual Publish keeps the existing source terms and checks the selected Autopilot artifact, too."""
     from ..autopilot import gate, queue as work_queue, rights, verify
@@ -153,8 +159,8 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
         message = f"YouTube reports this video as {privacy.capitalize()}, not Private. Check it in YouTube Studio."
     elif locked_private:
         message = ("Uploaded to YouTube, but YouTube reports Private instead of the requested Public visibility. "
-                   "Unaudited API projects are restricted to Private; complete Google's audit and check the video "
-                   "in Studio. ClipFoundry has not made it public.")
+                   "Check this video's visibility and your channel's restrictions in YouTube Studio. "
+                   "ClipFoundry has not made it public.")
     elif stamp.get("intent") == audience.PUBLIC:
         message = "Uploaded to YouTube as Public (YouTube confirmed)." if privacy == "public" else \
             "Uploaded to YouTube; Public was requested, but YouTube did not report visibility. Check it in Studio."
@@ -256,15 +262,29 @@ def unknown_outcome(pub: dict) -> bool:
 
 
 def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
-    db.update_publication(pub["id"], status="processing", progress=1.0, error=str(exc),
+    info = dict(pub.get("info") or {})
+    if exc.code != youtube.OUTCOME_UNKNOWN:
+        info["outcome_error"] = {"code": exc.code, "detail": str(exc), "fix": exc.fix}
+    cause = info.get("outcome_error") or {}
+    fix = f"{cause['fix']} " if cause.get("fix") else ""
+    detail = f"{cause['detail']} {exc}" if cause.get("detail") and cause["detail"] not in str(exc) else str(exc)
+    db.update_publication(pub["id"], status="processing", error=detail,
                           message="Upload outcome unknown: YouTube may already have the video. Another upload "
                                   "is held to avoid a duplicate.",
-                          fix="Open YouTube Studio → Content and use Refresh status to find the existing upload. "
+                          fix=fix + "Open YouTube Studio → Content and use Refresh status to find the existing upload. "
                               "ClipFoundry will not upload this clip again while the outcome is unknown.",
-                          info={**(pub.get("info") or {}), "outcome_unknown": True,
+                          info={**info, "outcome_unknown": True,
                                 "code": youtube.OUTCOME_UNKNOWN, "studio_url": "https://studio.youtube.com/"},
                           delivery={**(pub.get("delivery") or {}), "transfer": "outcome_unknown"})
     return db.get_publication(pub["id"]) or pub
+
+
+def _cancel_publication(pub_id: str, message: str) -> None:
+    pub = db.get_publication(pub_id)
+    if pub and pub["platform"] == "youtube" and (pub.get("info") or {}).get("final_chunk_at"):
+        _hold_manual_unknown(pub, youtube._outcome_unknown())
+    elif pub:
+        db.update_publication(pub_id, status="cancelled", message=message)
 
 
 def _refresh_manual_unknown(pub: dict) -> dict:
@@ -374,7 +394,7 @@ class PublishWorker:
         if timer:  # waiting for the platform's time: nothing is running, so it is canceled right away
             timer.cancel()
             self.cancelled.discard(pub_id)
-            db.update_publication(pub_id, status="cancelled", message="Cancelled while waiting. Nothing was published.")
+            _cancel_publication(pub_id, "Cancelled while waiting. Nothing was published.")
 
     def later(self, pub_id: str, at: float) -> None:
         """Start this upload again at `at` (the time the platform asked for), not before."""
@@ -412,7 +432,7 @@ class PublishWorker:
             except queue.Empty:
                 break
             self.cancelled.add(pub_id)
-            db.update_publication(pub_id, status="cancelled", message="Stopped with Stop all jobs")
+            _cancel_publication(pub_id, "Stopped with Stop all jobs")
             self.q.task_done()
             n += 1
         if self.current:
@@ -451,11 +471,11 @@ class PublishWorker:
                                       fix=exc.fix)
             return
         if pub_id in self.cancelled:
-            db.update_publication(pub_id, status="cancelled", message="Cancelled before the upload started.")
+            _cancel_publication(pub_id, "Cancelled before the upload started.")
             return
         info = pub.get("info") or {}
         if not pub.get("scheduled_id") and db.get_settings().get("autopilot_publishing_paused") \
-                and not info.get("upload_session") and not pub.get("remote_id"):
+                and not transfer_started(pub):
             # Submission and upload can be separated by a queue or a platform wait. Recheck the pause at start;
             # transfers already under way keep their existing session and may finish, as scheduled uploads do.
             at = time.time() + 30.0
@@ -470,11 +490,13 @@ class PublishWorker:
         try:
             runner(pub, lambda: pub_id in self.cancelled)
         except Cancelled:
-            db.update_publication(pub_id, status="cancelled", message="Upload cancelled. Nothing was published.")
+            _cancel_publication(pub_id, "Upload cancelled. Nothing was published.")
         except PublishError as exc:
             current = db.get_publication(pub_id) or pub
             name = "YouTube" if pub["platform"] == "youtube" else "TikTok"
-            if pub["platform"] == "youtube" and not pub.get("scheduled_id") and exc.code == youtube.OUTCOME_UNKNOWN:
+            if pub["platform"] == "youtube" and not pub.get("scheduled_id") and (
+                    exc.code == youtube.OUTCOME_UNKNOWN or
+                    (current.get("info") or {}).get("final_chunk_at") and asked_to_wait(exc) is None):
                 held = _hold_manual_unknown(current, exc)
                 try:
                     refresh(held)
@@ -500,7 +522,11 @@ class PublishWorker:
                                   info={**(current.get("info") or {}), "code": exc.code})
         except Exception as exc:  # noqa: BLE001
             log.exception("%s publish failed", pub["platform"])
-            db.update_publication(pub_id, status="failed", error=f"{type(exc).__name__}: {exc}"[:500])
+            current = db.get_publication(pub_id) or pub
+            if pub["platform"] == "youtube" and (current.get("info") or {}).get("final_chunk_at"):
+                _hold_manual_unknown(current, youtube._outcome_unknown())
+            else:
+                db.update_publication(pub_id, status="failed", error=f"{type(exc).__name__}: {exc}"[:500])
 
 
 worker = PublishWorker()

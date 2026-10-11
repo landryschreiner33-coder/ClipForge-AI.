@@ -110,7 +110,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Publishing (official APIs, your own developer apps; OAuth tokens are stored separately)
     "youtube_client_id": "",
     "youtube_client_secret": "",
-    "youtube_project_verified": False,  # True once Google's YouTube API audit lifted the private-only restriction
+    "youtube_project_verified": False,  # Owner-reported API audit status; informational, not a Public upload gate
     "youtube_category_id": "22",        # People & Blogs
     "tiktok_client_key": "",
     "tiktok_client_secret": "",
@@ -188,7 +188,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                                             # licenses are never used automatically
     "rights_auto_public_domain": True,      # public domain or CC0, as reported by the library
     "rights_ask_per_video": False,          # off: videos nothing covers are skipped (activity log), never asked about
-    "autopilot_commercial_use": True,       # your posts count as commercial (monetized, sponsored, promoting a business)
+    "autopilot_commercial_use": True,       # your posts count as commercial (monetized, sponsored, promoting business)
     "rights_allow_remote_download": False,  # download platform-hosted sources with the URL importer
     # YouTube Data API quota of your Google Cloud project (per day, resets at midnight Pacific Time)
     "youtube_quota_default": 10000,     # units for everything except uploads and searches

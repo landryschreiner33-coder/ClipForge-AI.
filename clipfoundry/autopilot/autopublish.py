@@ -1,7 +1,7 @@
 """Standing YouTube permission for one channel and visibility, recorded with its exact wording.
 
-Public automation needs explicit Public audience setup, a connected channel and the owner's API-project audit
-confirmation. Existing v2 Private permission stays Private. A new public permission never changes existing posts
+Public automation needs explicit Public audience setup and a connected channel. Existing v2 Private permission
+stays Private. A new public permission never changes existing posts
 or previously scheduled Private uploads. TikTok requires express consent on each post with preview, an unpreset
 privacy choice and Music Usage Confirmation, so TikTok automation cannot substitute a standing permission.
 
@@ -20,7 +20,7 @@ from . import state
 TEXT_VERSION = 3  # 3: explicit audience, visibility and connected-account permission
 SUPPORTED = {
     "youtube": "YouTube uploads can run automatically under your permission for one channel and visibility. "
-               "Public uploads need an audited API project; Private videos stay Private until you share them.",
+               "The upload result confirms who can watch; Private videos stay Private until you share them.",
 }
 NOT_SUPPORTED = {
     "tiktok": "TikTok's rules for apps require your OK on each post (with a preview and your own privacy choice), so "
@@ -79,9 +79,6 @@ def view(settings: dict) -> dict:
                 blocker = "Connect your YouTube channel first."
             elif not dest["confirmed"]:
                 blocker = "Confirm who watches in Settings → Integrations first."
-            elif visibility == "public" and not settings.get("youtube_project_verified"):
-                blocker = "YouTube restricts uploads from unaudited API projects to Private. Complete Google's " \
-                    "audit, then mark the project as verified in Settings."
         can_enable = platform in SUPPORTED and not blocker
         enabled = bool(c) and same_account(c) and consent_visibility(c) == visibility and not blocker
         if visibility == "public" and c:
@@ -127,9 +124,6 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         if dest["intent"] != audience.PUBLIC or not dest["confirmed"]:
             raise ValueError("Automatic uploads are Private only until you explicitly confirm Public audience "
                              "in Settings → Integrations")
-        if not settings.get("youtube_project_verified"):
-            raise ValueError("YouTube restricts unaudited API projects to Private. Complete Google's audit and "
-                             "mark the project as verified before enabling automatic public publishing")
     elif dest["intent"] == audience.PUBLIC:
         raise ValueError("The permission's visibility must match Who watches. Choose Public, or confirm a Private "
                          "audience in Settings → Integrations")
@@ -143,7 +137,8 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     now = time.time()
     for old in db.select("publish_consents", "platform = ? AND revoked_at IS NULL", (platform,)):
         db.update("publish_consents", old["id"], revoked_at=now)
-    row = db.insert("publish_consents", {"platform": platform, "settings": cfg, "text": text_for(platform, cfg, channel)})
+    row = db.insert("publish_consents", {"platform": platform, "settings": cfg,
+                                        "text": text_for(platform, cfg, channel)})
     state.resolve(f"consent_renew:{platform}")
     db.save_settings({"autopilot_auto_publish": True, f"autopilot_{platform}_daily_limit": int(daily_limit),
                       f"autopilot_{platform}_privacy": visibility, "autopilot_active_start": int(start_hour),
@@ -191,8 +186,6 @@ def still_covers(item: dict) -> bool:
         from ..publish import audience
 
         settings = db.get_settings()
-        if not settings.get("youtube_project_verified"):
-            return False
         dest = audience.destination(item["platform"], settings)
         cfg = c.get("settings") or {}
         return ((item.get("audience") or {}).get("intent") == audience.PUBLIC and dest["intent"] == audience.PUBLIC

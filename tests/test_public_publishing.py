@@ -77,23 +77,27 @@ def test_youtube_private_restriction_never_claims_public_delivery(env, api):
     pub = db.get_publication(after["publication_id"])
     assert pub["requested_privacy"] == "public" and pub["privacy"] == "private"
     assert pub["info"]["locked_private"]
-    assert "Unaudited" in pub["message"] and "has not made it public" in pub["message"]
+    assert "reports Private" in pub["message"] and "has not made it public" in pub["message"]
     assert after["delivery"]["audience_setup"] == "public_restricted"
     assert not audience.halted("youtube")  # narrower visibility is a blocker, not a wider-audience incident
 
 
-def test_public_automation_requires_audit_and_connected_channel_specific_consent(env, api):
+def test_public_automation_requires_confirmed_audience_and_channel_specific_consent_not_an_audit(env, api):
     from clipfoundry import db
     from clipfoundry.autopilot import autopublish, scheduler
     from clipfoundry.publish import audience
 
     google, tiktok, tmp = env
     connect(google, tiktok)
-    public_setup(api)
-    with pytest.raises(ValueError, match="unaudited"):
+    with pytest.raises(ValueError, match="explicitly confirm"):
         autopublish.enable("youtube", "public", False, 3, 0, 24, True)
-    assert not autopublish.view(db.get_settings())["youtube"]["can_enable"]
-    db.save_settings({"youtube_project_verified": True})
+    public_setup(api)
+    assert not db.get_settings()["youtube_project_verified"]
+    assert api.get("/api/publish/accounts").json()["youtube"]["restriction"] == ""
+    cards = api.get("/api/integrations").json()["cards"]
+    card = next(c for c in cards if c["id"] == "youtube")
+    assert card["status"] == "connected" and "Production" in card["steps"]
+    assert autopublish.view(db.get_settings())["youtube"]["can_enable"]
     consent = autopublish.enable("youtube", "public", False, 3, 0, 24, True)
     assert consent["settings"]["account_id"] and consent["settings"]["audience_intent"] == audience.PUBLIC
     assert "Public videos" in consent["text"] and "Existing posts" in consent["text"]
@@ -111,9 +115,9 @@ def test_public_automation_requires_audit_and_connected_channel_specific_consent
 
 
 @pytest.mark.parametrize("visibility", ["public", "private"])
-def test_clearing_project_audit_blocks_new_public_automation_but_preserves_private(env, api, visibility):
+def test_legacy_project_audit_flag_does_not_change_public_or_private_permission(env, api, visibility):
     from clipfoundry import db
-    from clipfoundry.autopilot import autopublish, queue, scheduler
+    from clipfoundry.autopilot import autopublish, scheduler
     from clipfoundry.publish import audience
 
     google, tiktok, tmp = env
@@ -130,21 +134,12 @@ def test_clearing_project_audit_blocks_new_public_automation_but_preserves_priva
     assert scheduler.auto_approve(approved, db.get_settings(), time.time())
     approved = db.fetch("scheduled_publications", approved["id"])
     db.save_settings({"youtube_project_verified": False})
-    if visibility == "public":
-        assert not autopublish.view(db.get_settings())["youtube"]["enabled"]
-        assert not scheduler.auto_approve(pending, db.get_settings(), time.time())
-        assert "audit" in db.fetch("scheduled_publications", pending["id"])["status_note"]
-        assert not autopublish.still_covers(approved)
-        with pytest.raises(queue.Fail, match="permission"):
-            run_publish(approved["id"])
-        assert db.fetch("scheduled_publications", approved["id"])["status"] == "awaiting_approval"
-        assert not google.videos  # queued automatic work cannot create a real upload session
-    else:
-        assert autopublish.still_covers(approved)
-        assert scheduler.auto_approve(pending, db.get_settings(), time.time())
-        run_publish(approved["id"])
-        assert len(google.videos) == 1
-        assert next(iter(google.videos.values()))["status"]["privacyStatus"] == "private"
+    assert autopublish.view(db.get_settings())["youtube"]["enabled"]
+    assert autopublish.still_covers(approved)
+    assert scheduler.auto_approve(pending, db.get_settings(), time.time())
+    run_publish(approved["id"])
+    assert len(google.videos) == 1
+    assert next(iter(google.videos.values()))["status"]["privacyStatus"] == visibility
 
 
 def test_existing_private_posts_keep_visibility_stamp_and_approval_after_public_default(env, api):

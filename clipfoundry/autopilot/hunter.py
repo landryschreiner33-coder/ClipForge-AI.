@@ -80,6 +80,18 @@ def max_source_bytes(settings: dict) -> int:
     return int(float(settings.get("autopilot_max_source_gb") or 8) * 1e9)
 
 
+def require_disk_space(path: Path, expected_bytes: int = 0) -> None:
+    """Leave room for SQLite, saved checkpoints and the OS without deleting any owner media."""
+    need = max(0, expected_bytes) + MIN_FREE_DISK
+    free = shutil.disk_usage(path).free
+    if free < need:
+        state.action("disk:space", "disk", "Autopilot is waiting for free disk space",
+                     f"{free / 1e9:.1f} GB free; this operation needs {need / 1e9:.1f} GB including a reserve.",
+                     "Free up space on the drive of the data folder (Settings → System). Saved recordings "
+                     "and clips are kept; work continues when there is space.", level="warning")
+        raise queue.Wait("disk", 1800, "Waiting for free disk space; saved work is kept")
+
+
 def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: dict) -> None:
     """A direct media link, checked against private/local addresses on every redirect and bounded in size."""
     def accept(r) -> None:
@@ -92,13 +104,8 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
         if not kind.startswith(("video/", "application/octet-stream", "binary/", "application/ogg")):
             raise queue.Fail(f"The URL is not a video file ({kind or 'unknown type'})",
                              "Use a direct link to the video file, or add the file itself.")
-        need = int(r.headers.get("content-length") or 0) + MIN_FREE_DISK
-        free = shutil.disk_usage(dst.parent).free
-        if free < need:
-            state.action("disk:space", "disk", "Not enough free disk space for Autopilot downloads",
-                         f"{free / 1e9:.1f} GB free; this source needs {need / 1e9:.1f} GB including a reserve.",
-                         "Free up space on the drive of the data folder (Settings → System).", level="warning")
-            raise queue.Wait("disk", 1800, "Waiting for free disk space")
+        declared = int(r.headers.get("content-length") or 0)
+        require_disk_space(dst.parent, declared or max_source_bytes(settings))
 
     def progress(done: int, total: int) -> None:
         if total:
@@ -108,7 +115,8 @@ def _http_download(url: str, dst: Path, ctx: JobContext, src: dict, settings: di
         with client(120) as c:
             netguard.download(c, url, dst, allow_private=rights.url_typed_by_user(src),
                               max_bytes=max_source_bytes(settings), accept=accept, progress=progress,
-                              cancelled=ctx.cancelled)
+                              cancelled=ctx.cancelled,
+                              before_write=lambda size: require_disk_space(dst.parent, size))
     except netguard.UnsafeUrl as exc:
         raise queue.Fail(f"Not downloaded: {exc}", "Use a direct link to a video on the internet, or add the file "
                                                    "itself.") from exc
@@ -318,7 +326,8 @@ def hunt_source(job: Job) -> dict:
     for c in cands:
         db.insert("clip_candidates", {"project_id": p.id, "source_id": src["id"], "start": c["start"],
                                       "end": c["end"], "s0": c.get("s0", -1), "s1": c.get("s1", -1), "stage": "pool",
-                                      "stage1": round(float(c.get("stage1", 0)), 4), "text": (c.get("text") or "")[:500],
+                                      "stage1": round(float(c.get("stage1", 0)), 4),
+                                      "text": (c.get("text") or "")[:500],
                                       "id": f"{p.id}-{c['cid']}"})
     db.update("sources", src["id"], status="analyzing", candidates_found=len(cands), duration=p.meta.get("duration"),
               status_note=f"{len(cands)} candidate moments found; waiting for the analyzer")

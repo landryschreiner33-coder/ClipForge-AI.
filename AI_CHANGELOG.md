@@ -7,6 +7,48 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-11 · Unattended Public operation and current YouTube policy
+
+* **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `61f6042`.
+  **Result:** the commit containing this entry. PR stays draft/unmerged.
+  Started October 10; final validation October 11.
+* **What changed:** removed the obsolete API-project audit requirement for Public uploads, following official
+  YouTube `videos.insert`/`videos` documentation updated October 8 and checked October 10. Explicit Public audience,
+  account-bound approval/standing permission, rights, exact-file checks and actual visibility remain; old Private
+  schedules are preserved. Midnight zero is retained so 0–24 scheduling works. OAuth Production/reconnect guidance
+  distinguishes Testing's seven-day YouTube grants from API quota audits; private TikTok profiles cannot offer Everyone.
+  Optional `run-unattended.bat` / `--unattended` restarts an unexpectedly exited app with bounded backoff, selected
+  profile/port locks, owned descendant cleanup and explicit-stop handling. It preserves intentional Pause and
+  permissions. Its local diagnostic log rotates at 5 MiB plus two backups; optional same-user login startup is
+  documented.
+  Only one app may use a data profile. The watchdog detects process exit, not a still-running hung main app.
+* **Recovery fixes:** failed host initialization cleans up partial workers before releasing its lock; job setup
+  errors clear phantom running/heartbeat entries. Bounded cancellable media reads/writes/waits kill/reap children;
+  HTTP/live capacity checks retain a 2 GB reserve. Low disk yields Needs you and a durable wait, preserving saved
+  segments and never implying stream EOF. Final assembly replaces a complete recording only after success.
+  Scheduled pre-session waits recheck Pause/current permission/account/audience/final quality. Strict unknown-upload
+  recovery requires an original-account, unique recent match with submitted metadata and reads actual visibility.
+  Final-chunk crashes/cancellation/ambiguous errors hold another upload; manual restart recovery offers read-only
+  Refresh status. Later reconnect, setup, scope or quota errors preserve the final-byte hold and publication
+  identity. Existing valid sessions keep their exact confirmed bytes.
+* **Why:** the owner requested all-day autonomous Public publishing from a personal setup and a final reliability
+  review. This supports unattended YouTube operation after setup while preserving deliberate exception holds.
+* **Validation:** full fast Python: 757 passed, eight slow deselected, in 390.67 s. All eight slow cases passed across
+  the full run (six passed, two fixture setup failures, 786.85 s) and corrected Public (58.73 s) and upcoming-live
+  (49.02 s) reruns. Public setup now uses `confirm=True` and asserts the confirmed response; its controlled scheduler
+  cadence is five seconds. The live fixture uses a valid 0.5 GB capture cap on the small cloud temp disk; production's
+  default 8 GB cap and 2 GB reserve remain. Production code did not change for these fixture corrections.
+  All 32 isolated browser cases passed together in 8.1 min. TypeScript/Vite build passed in 4.37 s; all 14 tested
+  file hashes match. Final fast verification includes recovery, media, launcher, policy and unknown-outcome
+  regressions. Actual-app POSIX exit/restart/stop smoke passed in 11.98 s; Windows remains unverified.
+  The real-media loop now tests Public and Private separately through repeat/restart,
+  exact checked/uploaded bytes, mature fake results and actual live/post-live handlers. Public needs no invitation
+  fixture. Earlier department/office test counts and animation evidence below remain historical.
+* **Not verified:** actual 24-hour soak, Windows launcher/Task Scheduler/Job Objects, RTX 3050 CUDA/NVENC and real
+  account scopes/quota/visibility/revocation. No real post, account change, purchase or deployment occurred. No new
+  dependency; `.mcp.json`, GPU versions, Playwright versions and read-only `e2e/tests` are unchanged. The watchdog
+  cannot make a powered-off PC work or bypass unknown outcomes, missing rights, expired access or resource holds.
+
 ## 2026-10-10 · Department attendance, manager supervision and reliability review
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, existing draft PR #14. **Base:** `e896632`.

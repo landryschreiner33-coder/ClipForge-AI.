@@ -1,5 +1,109 @@
 # Implementation status
 
+## PR #14 unattended Public operation — 2026-10-11
+
+Starts at `61f6042` on `claude/project-thread-vw1n9y`; started October 10, final validation October 11.
+PR #14 stays draft/unmerged. The owner requested autonomous
+all-day Public publishing from a personal setup. Explicit Public setup, channel/visibility-bound standing permission,
+reuse eligibility, exact-file checks and actual readback remain. Existing Private schedules stay Private; actual
+Public posts need no invitations. Midnight zero is retained throughout consent/scheduling, so 0–24 covers all day.
+
+Official YouTube `videos.insert`/`videos` documentation updated October 8 and freshly checked October 10 permits
+Public uploads from unverified projects; the obsolete project-audit gate is removed. API audits concern quota
+increases. External Google OAuth Testing grants for YouTube expire after seven days; Production then a fresh
+connection is the long-running setup, separate from API audit/verification. Authorization remains revocable.
+TikTok still requires eligible-app approval and per-post consent; a private profile cannot offer Everyone.
+[Current official sources](PLATFORM_CAPABILITIES.md).
+
+The optional `run-unattended.bat` / `--unattended` watches process exit, restarts with bounded backoff, preserves
+the selected profile and saved Pause/permissions, guards duplicate unattended instances per profile/port and owns
+its app/worker/media tree. Explicit stop does not respawn. Local diagnostics rotate at 5 MiB plus two backups.
+Same-user Windows login startup is documented, never installed automatically. [Setup and limits](UNATTENDED.md).
+Run only one app per data profile, including across different ports. The watchdog detects process exit and does
+not detect a still-running, hung main app.
+
+Failed worker startup cleans partial workers before releasing its host lock; setup errors clear phantom leases.
+Bounded cancellable media pipe/process I/O kills/reaps children. HTTP/live capacity checks retain a 2 GB reserve;
+low disk waits, keeps saved segments and never declares EOF. Final assemblies replace complete sources only after
+success. Scheduled pre-session retries recheck Pause/current permission/account/audience/final quality. Strict
+original-account, unique recent submitted-metadata readback checks actual visibility; final-chunk crashes,
+cancellation and ambiguous outcomes retain duplicate holds. Manual restart recovery offers read-only Refresh.
+After saved final-byte evidence, reconnect, setup, scope and quota errors preserve that hold and publication
+identity rather than permitting another upload.
+No existing saved media is automatically deleted to make room.
+
+| Check | Result and scope |
+| --- | --- |
+| Full fast Python suite | **757 passed**, eight slow deselected, in **390.67 s**. |
+| Eight real-media cases, including repeated Public/Private loops | **All 8 passed across runs**; provenance below. |
+| Isolated Chromium checks and controlled Public-consent coverage | **32 passed together in 8.1 min**. |
+| TypeScript/Vite production build | **Passed in 4.37 s**; all 14 tested file hashes match. |
+| Recovery, media, launcher and policy regressions | Covered by the final fast suite; POSIX smoke **11.98 s**. |
+
+The Python commands run from the repository root. The isolated tools directory supplies FFmpeg and the installed
+espeak-ng wrapper:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m 'not slow' -q --durations=12
+PATH=/workspace/work/clipfoundry/tools:$PATH .venv/bin/python -m pytest -m slow -q --durations=12
+```
+
+The full slow batch had **6 passed, 2 failed, 757 deselected in 786.85 s**. The new Public fixture sent
+`confirmed=True` instead of the API's `confirm=True`; the app correctly left audience confirmation unset and refused
+automatic publishing before creating sources, jobs or consent. The corrected test asserts its confirmed response
+and passed in **58.73 s**. Its five-second periodic scheduler and approved-slot due-time acceleration are fixture
+timing only: real due checks, approval, handlers, restart/idempotency and exact checked/uploaded bytes remain.
+The upcoming-live fixture used a small local transport for a logically remote source while keeping the default
+8 GB capture cap. The real disk guard correctly waited: a 2 GB reserve plus that cap exceeds the cloud temp disk's
+4.9 GB free. With a valid test-only **0.5 GB** capture cap, the corrected case passed in **49.02 s**. Production's
+8 GB default, 2 GB reserve and code remained unchanged. All eight slow cases passed across these runs; they did
+not pass together in the initial batch. The corrected reruns used:
+
+```bash
+PATH=/workspace/work/clipfoundry/tools:$PATH \
+  .venv/bin/python -m pytest -q --durations=12 \
+  'tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[public]'
+PATH=/workspace/work/clipfoundry/tools:$PATH \
+  .venv/bin/python -m pytest -q --durations=12 \
+  tests/test_zero_touch_loop.py::test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live
+```
+
+The production build uses `npm run build` in `frontend/`. The browser command runs from `e2e/` against a disposable
+app on port 8844:
+
+```bash
+./node_modules/.bin/playwright test --config=/workspace/work/clipfoundry/unattended-final.config.cjs
+```
+
+That scratch configuration selects nine repository specs: `brain-workspace`, `department-office`, `living-office`,
+`lounge-life`, `manual-publish`, `motion`, `pixel-office`, `public-consent` and `robot-office` (each `.spec.ts`).
+It uses one worker, no retries, a 180-second test timeout, 15-second action/assertion timeouts, a 1440×900 viewport and
+installed `/usr/bin/chromium`. The new consent case is also selected by the repository sandbox configuration for
+`npm run test:sandbox`. Its account/audience responses are visibly controlled, all mutations are intercepted, and
+no publishing permission or post is saved. It checks that an optional API-audit flag cannot block Public setup,
+while the connected-channel, made-for-kids answer and explicit standing consent still apply.
+
+An actual-app POSIX smoke test passed in **11.98 s** on port 8955 with a fresh, disconnected profile. Health and
+12 worker registrations appeared in **3.41 s**. Killing the owned app with SIGKILL produced a new app/worker in
+**5.36 s**, on the same profile, after the old worker stopped. SIGINT then stopped the watchdog with exit code zero;
+it did not respawn over three seconds, all five tracked owned PIDs were reaped and the port became free. Accounts,
+publications and projects remained zero. This tests actual process death/recovery, not an alive hung app, a media
+workload, Windows Job Objects or a 24-hour soak. Early scratch-helper process/heartbeat checks were corrected;
+production code did not change for this smoke test.
+
+Two partial Python suite runs were deliberately stopped for the final-byte error-path fix; their output is not a
+final pass. An earlier focused publishing run had one stale assertion expecting Private restriction for an
+unverified API project; that obsolete-policy expectation was corrected before the passing rerun. Final-byte
+unknown outcomes preserve measured progress rather than claiming all bytes were observed sent.
+Tests use disposable data, fake platforms and real FFmpeg/synthetic speech; real owner uploads are not exercised.
+Earlier 685/7/31 department results and visual captures below are separate historical checkpoints. No new dependency,
+real post, account change, purchase or deployment occurred. `.mcp.json`, GPU versions, Playwright versions and
+read-only `e2e/tests` remain unchanged.
+
+Designed unattended operation still requires a powered-on PC, network, functioning GPU and disk space. Rights,
+quota, expired/revoked authorization and uncertain outcomes can intentionally require action. Windows startup and
+process-tree behavior, RTX 3050 CUDA/NVENC, real account visibility and an actual 24-hour soak remain unverified here.
+
 ## PR #14 department office and reliability review — 2026-10-10
 
 Starts at `e896632` on `claude/project-thread-vw1n9y`; requested October 9, resumed/completed October 10.

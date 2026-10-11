@@ -114,7 +114,7 @@ def test_oauth_connect_shows_channel_and_never_stores_plain_tokens(app_client, g
     _connect(app_client, google)
     yt = app_client.get("/api/publish/accounts").json()["youtube"]
     assert yt["connected"] and yt["name"] == "Test Channel" and yt["analytics"]
-    assert "Private" in yt["restriction"]  # unverified API project: explained before any upload
+    assert yt["restriction"] == ""  # Current API policy allows unverified projects to request Public.
     assert google.grants == ["authorization_code"]
     raw = (config.db_path()).read_bytes() + b"".join(p.read_bytes() for p in config.data_dir().glob("*.db-wal"))
     assert google.access.encode() not in raw and google.refresh_token.encode() not in raw  # tokens are sealed

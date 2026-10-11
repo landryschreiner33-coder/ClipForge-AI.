@@ -2,6 +2,7 @@
 
     python -m clipfoundry                 # start the app (http://127.0.0.1:8765)
     python -m clipfoundry --open          # ...and open the browser
+    python -m clipfoundry --unattended    # supervise the app and restart after an unexpected exit
     python -m clipfoundry process video.mp4 --count 5   # headless run, no UI
     python -m clipfoundry gpu-check [video.mp4]         # verify that transcription runs on the NVIDIA GPU
     python -m clipfoundry workers                       # autopilot workers (the app starts them by itself)
@@ -90,7 +91,8 @@ def _process(args: argparse.Namespace) -> int:
           f" ({quality.get('evaluated', 0)} candidates evaluated; scores are estimates, not guarantees):")
     for c in clips:
         sub = (c.get("analysis") or {}).get("subscores") or {}
-        print(f"  #{c['rank'] + 1}  Viral Potential {c['score']:5.1f}  {c['duration']:5.1f}s  [{c['category']}] {c['title']}")
+        print(f"  #{c['rank'] + 1}  Viral Potential {c['score']:5.1f}  {c['duration']:5.1f}s  "
+              f"[{c['category']}] {c['title']}")
         if sub:
             print(f"       hook {sub['hook']} / retention {sub['retention']} / context {sub['context']} / "
                   f"engagement {sub['engagement']}  ({(c['analysis'].get('structure') or {}).get('label', '')})")
@@ -112,6 +114,8 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_PORT", 8765)))
     parser.add_argument("--open", action="store_true", help="open the browser")
+    parser.add_argument("--unattended", action="store_true", help="restart the app after an unexpected exit")
+    parser.add_argument("--unattended-child", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="cmd")
     p = sub.add_parser("process", help="process a video without the UI")
     p.add_argument("video")
@@ -130,6 +134,17 @@ def main() -> int:
     perf = sub.add_parser("performance", help="report measured active stage times from recent jobs")
     perf.add_argument("--days", type=int, default=7, help="history window, 1-14 days")
     args = parser.parse_args()
+    if (args.unattended or args.unattended_child) and args.cmd:
+        parser.error("unattended mode starts the app; it cannot be combined with a command")
+    if args.unattended:
+        from .unattended import run
+
+        return run(args.host, args.port, args.open)
+    if args.unattended_child:
+        from .unattended import child_gate
+
+        if not child_gate():
+            return 2
     if args.cmd == "performance":
         import json
         from . import db

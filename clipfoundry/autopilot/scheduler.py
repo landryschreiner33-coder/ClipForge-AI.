@@ -91,7 +91,7 @@ def _label(ts: float, settings: dict) -> str:
 def grid(settings: dict, day: dt.date, per_day: int) -> list[float]:
     """Evenly spaced candidate times over the active hours of a local day (never closer than the minimum gap)."""
     zone = tz(settings)
-    start_h = int(settings.get("autopilot_active_start") or 9)
+    start_h = int(settings.get("autopilot_active_start", 9))
     end_h = int(settings.get("autopilot_active_end") or 23)
     if end_h <= start_h:
         end_h = start_h + 1
@@ -593,9 +593,6 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     # A new public permission authorizes only posts already planned explicitly for that audience. It must never
     # widen older Private uploads, or silently reactivate held posts from before the audience policy.
     if visibility == "public" and (item.get("audience") or {}).get("intent") != audience.PUBLIC:
-        return False
-    if visibility == "public" and not settings.get("youtube_project_verified"):
-        _note(item, "Held: confirm the YouTube API project's audit in Settings before automatic Public uploads")
         return False
     if not autopublish.same_account(consent):
         _note(item, "Held for your review: automatic publishing was turned on for another channel than the one "

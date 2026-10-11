@@ -263,7 +263,8 @@ function AppearancePanel() {
   return (
     <SettingsPanel id="appearance" title="Appearance" intro="Visual preferences apply immediately in this browser.">
       <SettingRow k="reduce_motion" label="Animations"
-        hint="Follow your system, allow full animation, or keep decorative movement still. Video previews play normally.">
+        hint={"Follow your system, allow full animation, or keep decorative movement still. "
+          + "Video previews play normally."}>
         <select id={fieldId("reduce_motion")} aria-label="Animations" value={animationMode}
           onChange={(e) => setAnimationMode(e.target.value as AnimationMode)}>
           <option value="system">Follow system</option>
@@ -345,6 +346,8 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
       {account?.restriction && account.configured && (
         <p className="small break"><Pill tone="warn" icon="alert">Note</Pill> {account.restriction}</p>
       )}
+      {yt && account?.configured && <p className="small muted">For continuous posting, set your Google OAuth app
+        to <b>Production</b>. Testing sign-ins expire after seven days and then need you to reconnect.</p>}
       {yt ? (
         <div className="stack">
           <span className="small strong">How posts get approved</span>
@@ -394,7 +397,7 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
             </>
           )}
           <Check k={yt ? "youtube_project_verified" : "tiktok_app_audited"} c={c}>
-            {yt ? "My Google Cloud project passed YouTube's API audit (tick only after Google approved it)"
+            {yt ? "My project passed YouTube's API audit (optional quota information; not required for Public uploads)"
               : "My TikTok app passed TikTok's Content Posting audit (tick only after TikTok approved it)"}
           </Check>
           {changed.length > 0 && (

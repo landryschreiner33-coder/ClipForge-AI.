@@ -119,7 +119,8 @@ export function YouTubeSetupSteps({ testingNote }: { testingNote?: string }) {
         <li>In <b>APIs &amp; Services, Library</b>, enable <b>YouTube Data API v3</b>. Optional: also enable <b>YouTube
           Analytics API</b> so ClipFoundry can read the watch time and retention of your videos.</li>
         <li>On the <b>OAuth consent screen</b>, choose <i>External</i>, fill in the app name and your e-mail, and add
-          your Google account under <i>Test users</i>.</li>
+          your Google account under <i>Test users</i> for initial testing. For continuous posting, change the
+          publishing status to <b>Production</b> before connecting again; Testing sign-ins expire after seven days.</li>
         <li>In <b>Credentials, Create credentials, OAuth client ID</b>, choose the application type <b>Desktop app</b>.
           Copy the client ID and client secret into the fields here and save.</li>
         <li>Press <b>Connect YouTube</b>, sign in with Google and allow access. Google may say “Google hasn't verified
@@ -127,8 +128,8 @@ export function YouTubeSetupSteps({ testingNote }: { testingNote?: string }) {
       </ol>
       {testingNote && <p className="small muted">{testingNote}</p>}
       <p className="small muted">
-        Until Google audits your project, YouTube keeps every upload from it Private. Private uploads are fine for
-        testing. Uploads count against your project's daily YouTube allowance.
+        Public uploads do not require YouTube's API audit under its current documentation. The app checks the
+        returned visibility. An API audit is needed to request more quota; uploads use your project's daily allowance.
       </p>
     </div>
   );

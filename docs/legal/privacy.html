@@ -131,7 +131,10 @@
       event history: 90 days. Needs you items: 30 days after they are resolved or dismissed. The background log file
       (<code>data\logs\workers.log</code>): at most 5 MB, plus its 3 older copies; the oldest is overwritten. Its
       start-up output (<code>workers-console.log</code>): once it passes 5 MB, the next start of the app makes it the
-      one older copy, replacing the previous one</td></tr>
+      one older copy, replacing the previous one. If you use the optional unattended launcher,
+      <code>data\logs\unattended.log</code> also records app output and watchdog starts, exits and restart waits;
+      it rotates at about 5 MiB and keeps two older copies (about 15 MiB total), replacing the oldest.
+      These diagnostic files stay on this computer until rotation replaces them or you delete them</td></tr>
     <tr><td>Speech-recognition model</td><td>Downloaded for transcription</td><td>Until you delete it</td></tr>
   </tbody>
 </table></div>
