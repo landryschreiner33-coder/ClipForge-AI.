@@ -57,7 +57,7 @@ function Find-Install([string[]]$Roots, [string]$Owner) {
 
 function Expand-CheckedArchive([string]$Zip, [string]$App) {
     if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $ArchiveHash) {
-        throw 'The download did not match the verified build. Reopen this launcher to retry.'
+        throw 'The app archive did not match the verified build. Download a fresh installer and retry.'
     }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [void][IO.Directory]::CreateDirectory($App)
@@ -96,6 +96,33 @@ function Expand-CheckedArchive([string]$Zip, [string]$App) {
     if ((Get-FileHash -LiteralPath (Join-Path $App 'start.bat') -Algorithm SHA256).Hash -ne $StartHash -or
         -not (Test-Path -LiteralPath (Join-Path $App 'frontend/dist/index.html') -PathType Leaf)) {
         throw 'The installation is incomplete. Reopen this launcher to retry.'
+    }
+}
+
+function Get-AppArchive([string]$Stage) {
+    if ($env:CF_OPEN_ARCHIVE) {
+        if (-not (Test-Path -LiteralPath $env:CF_OPEN_ARCHIVE -PathType Leaf)) {
+            throw 'The included app archive is missing. Download a fresh installer and retry.'
+        }
+        Write-Host 'Using the app files included in this installer...'
+        return $env:CF_OPEN_ARCHIVE
+    }
+    # Only the optional BAT launcher needs to fetch app files; the EXE always supplies its checked payload.
+    Write-Host 'Downloading the verified ClipFoundry build...'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor
+        [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'
+    $zip = Join-Path $Stage 'clipfoundry.zip'
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $zip -TimeoutSec 120
+            return $zip
+        } catch {
+            $reason = $_.Exception.GetBaseException().Message
+            if ($attempt -eq 3) { throw ('App archive download failed after 3 attempts: ' + $reason) }
+            Write-Host ('Archive download attempt ' + $attempt + ' failed: ' + $reason + ' Retrying...')
+            Start-Sleep -Seconds 2
+        }
     }
 }
 
@@ -141,21 +168,7 @@ function Start-OneClick {
         }
         $install = Find-Install @(Get-InstallRoots) $owner
         if ($install.Stage) {
-            Write-Host 'Downloading the verified ClipFoundry build...'
-            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor
-                [Net.SecurityProtocolType]::Tls12
-            $ProgressPreference = 'SilentlyContinue'
-            $zip = Join-Path $install.Stage 'clipfoundry.zip'
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-                try {
-                    Invoke-WebRequest -UseBasicParsing -Uri $ArchiveUrl -OutFile $zip -TimeoutSec 120
-                    break
-                } catch {
-                    if ($attempt -eq 3) { throw 'Download failed. Check your connection and reopen this launcher.' }
-                    Write-Host 'Download interrupted; retrying...'
-                    Start-Sleep -Seconds 2
-                }
-            }
+            $zip = Get-AppArchive $install.Stage
             Write-Host 'Preparing a fresh copy in a short folder...'
             $app = Join-Path $install.Stage 'app'
             Expand-CheckedArchive $zip $app
