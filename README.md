@@ -1,7 +1,8 @@
 # ClipFoundry: automatic Windows setup
 
-Open the downloaded ZIP and double-click **Open-ClipFoundry.bat**. Keep its window
-open while first-time setup finishes. The app then opens in your browser.
+Download **Open-ClipFoundry.exe** and double-click it. Keep its window open while
+first-time setup finishes. The app then opens in your browser. A self-contained
+Open-ClipFoundry.bat is also provided as an alternative.
 Use the same launcher again for later sessions.
 
 It downloads the verified merged app into a fresh short folder automatically,
@@ -37,3 +38,10 @@ All 416 extracted app file hashes match. The embedded PowerShell parser and an
 independent CMD/PowerShell 5 compatibility review passed. Native Windows execution
 was not available for verification. Default-branch app code and GPU pins are
 unchanged by this standalone launcher delivery.
+
+The Windows x64 executable is a small Go bootstrap containing the same checked
+PowerShell setup script. Its complete source is in launcher/. It uses only the Go
+standard library, runs without elevation and does not change execution-policy
+settings. It is unsigned. Native Windows execution remains unverified here.
+
+Executable SHA-256: 7995f1d97ce548ea9a3fe565f8112277f19c29b101432acc6d3900c598af5e69.
