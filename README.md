@@ -15,7 +15,7 @@ example lengths gently blend with the original target, once; raw uploaded appear
 shows recognized choices and unsaved changes, with no separate Brain approval. Seven inactive integration
 placeholder cards are removed. Real TikTok app/scope/per-post requirements and YouTube publishing consent remain.
 Existing rendered clips and scheduled posts are preserved. The update retains prior managed 28aee85/7201047
-profiles plus the last 4838aa8 managed revision and their original data folders; ordinary ZIP copies are not adopted.
+profiles plus the 4838aa8 and 987ebb2 managed revisions and their original data folders; ordinary ZIP copies are not adopted.
 
 The update also adds **Settings → Integrations → Check from your phone**. It starts an optional read-only
 status dashboard on the PC's private address, separate from desktop/account/publishing controls. Tailscale on
@@ -23,6 +23,13 @@ both devices allows encrypted private access at home or away; trusted home Wi-Fi
 address on the phone and enter the PC's single-use pairing code. Codes expire after five minutes; hashed device
 grants last up to 90 days and can be revoked from the PC. Keep the PC awake and ClipFoundry open. No Tailscale
 installation, firewall/router change or publishing permission is made by this installer.
+
+This revision fixes finished clips being left without post preparation after an interrupted render batch,
+recovers eligible older handoffs, prioritizes accessible reusable sources, and stops parked permission/file waits
+from blocking usable candidates. Stale YouTube consent cannot hide approval reminders. Setup includes explicit
+audience and separate YouTube permission; Missions explains actual finished-clip stages and remaining holds.
+No TikTok connection is required for YouTube. Existing audience choices, Private plans, canceled work, manual
+edits, exact-file checks and owner data remain protected.
 
 Python dependencies, GPU libraries and later speech-model downloads still need
 internet access. This is not a complete offline distribution of those dependencies.
@@ -51,24 +58,26 @@ setup. The same-user mutex covers setup and the running app.
 
 ## Integrity and verification
 
-App revision: 987ebb288ae9097bedbd80d0adee2b3c05c4271f.
+App revision: 718358f30110ab871e21059177f83ccd9ea3d3a9.
 Included archive SHA-256:
-7fdeeab4b1c3d7a62e7513df81e9d919bbcf96b9ff2d251b3afa2e88fe4def48.
+2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc.
 The hash is checked before extracting any app files.
 
 56 portable PowerShell checks passed, including zero archive-download requests
 for good, missing and corrupt bundled inputs, owner-data preservation, occupied
-ports, traversal refusal and proper error messages for network fallback. All 456
+ports, traversal refusal and proper error messages for network fallback. All 462
 extracted app files match their archive hashes. Three Go tests verify preparing the
 actual embedded payload/script, the pinned revision/start file, and preserving
 existing files when preparation fails. Upgrade checks use synthetic Brain, token
 and media files, two successive revisions and a real child process holding the
 profile byte lock. Three Python build-helper checks cover retained old release
 pins, matching BAT/script bytes and refusal of wrong revisions or traversal.
-Core validation: 869 final fast tests, 55 focused phone checks, ten final controlled mobile browser checks,
-two final desktop setup/race checks, and a production build passed. All 17 tested frontend-file hashes match
-this archive. Phone browser tests use controlled responses; backend tests use temporary data and real loopback
-listeners. Actual phone/Tailscale connectivity, Windows firewall behavior and native Windows remain unverified.
+Core validation: 958 final fast tests, eight real-media/restart tests, seven final controlled browser checks,
+and a production build passed. All 17 browser-tested frontend hashes match this archive. New focused cases cover
+interrupted and old handoffs, cancellation, starvation, explicit YouTube-only setup, stale permission and read-only
+posting-stage diagnostics. Actual FFmpeg/synthetic-speech loops verify Public/Private fake uploads, restart and live
+recovery. No actual owner profile, Windows/RTX3050, real account upload or 24-hour soak was tested.
+Native installer execution and actual phone/Tailscale connectivity remain unverified here.
 
 The complete ZIP and bootstrap script were found byte-for-byte inside the built
 Windows x64 console executable. The optional BAT script matches the embedded
@@ -107,7 +116,7 @@ Run the preparation checks with:
     go test launcher/main.go launcher/main_test.go
 
 Executable SHA-256:
-03eb7d2e4466902fb7fee43e3b7daedd35e99f4d2c4f732be3bc532d87a175ed.
+3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26.
 
 ## Checking the owner's running PC
 

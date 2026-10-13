@@ -1,8 +1,8 @@
 {
-  "source_commit": "987ebb288ae9097bedbd80d0adee2b3c05c4271f",
-  "archive_sha256": "7fdeeab4b1c3d7a62e7513df81e9d919bbcf96b9ff2d251b3afa2e88fe4def48",
-  "exe_bytes": 40636928,
-  "exe_sha256": "03eb7d2e4466902fb7fee43e3b7daedd35e99f4d2c4f732be3bc532d87a175ed",
+  "source_commit": "718358f30110ab871e21059177f83ccd9ea3d3a9",
+  "archive_sha256": "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc",
+  "exe_bytes": 40667136,
+  "exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26",
   "complete_script_embedded": true,
   "complete_archive_embedded": true,
   "pe_machine": "x64",
@@ -12,9 +12,9 @@
   "go_tests": 3,
   "python_pin_tests": 3,
   "native_windows_verified": false,
-  "archive_files": 456,
+  "archive_files": 462,
   "local_check_sha256": "5cfeebb8d0459f83befa879f56dec9327f6c386da0daa2eace74d65c7167f414",
-  "archive_bytes": 37782329,
+  "archive_bytes": 37812155,
   "bat_crlf_exports": [
     "e2e/run-beginner-test.bat",
     "e2e/run-tests.bat",
@@ -24,9 +24,14 @@
     "test-isolated.bat"
   ],
   "known_4838_profile_retained": true,
-  "final_core_fast_tests": 869,
-  "final_phone_browser_tests": 10,
-  "final_phone_desktop_browser_tests": 2,
+  "final_core_fast_tests": 958,
   "tested_dist_files": 17,
-  "actual_phone_tailscale_verified": false
+  "actual_phone_tailscale_verified": false,
+  "known_987_profile_retained": true,
+  "final_core_slow_tests": 8,
+  "final_browser_tests": 7,
+  "owner_runtime_verified": false,
+  "real_platform_upload_verified": false,
+  "previous_phone_browser_tests_unchanged_assets": 10,
+  "previous_phone_desktop_browser_tests": 2
 }
