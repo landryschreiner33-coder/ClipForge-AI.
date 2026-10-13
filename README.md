@@ -9,10 +9,13 @@ request during installation. The previous Open-ClipFoundry.exe stopped after
 three archive-download failures and hid their actual cause; this revision removes
 that download step. The network-only BAT alternative now reports the real error.
 
-The included app adds TikTok developer-form preparation, a simpler teachable Brain
-with an interactive knowledge graph, and discovery that selects fewer stronger
-videos. TikTok permissions and approval are still controlled by TikTok; the
-installer does not connect an account or grant publishing consent.
+The included app uses enabled saved Brain guidance automatically for new clips, with Settings filling every
+unspecified choice. A bounded local interpreter recognizes caption/pacing goals and ranking priorities. Good
+example lengths gently blend with the original target, once; raw uploaded appearance is not learned. The Brain
+shows recognized choices and unsaved changes, with no separate Brain approval. Seven inactive integration
+placeholder cards are removed. Real TikTok app/scope/per-post requirements and YouTube publishing consent remain.
+Existing rendered clips and scheduled posts are preserved. The update retains prior managed 28aee85/7201047
+profiles and their original data folders; ordinary ZIP copies are not adopted.
 
 Python dependencies, GPU libraries and later speech-model downloads still need
 internet access. This is not a complete offline distribution of those dependencies.
@@ -41,14 +44,14 @@ setup. The same-user mutex covers setup and the running app.
 
 ## Integrity and verification
 
-App revision: 28aee85b4ef239584da296cec900bc3d8dde4399.
+App revision: 4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c.
 Included archive SHA-256:
-7341bd5f506d79f608c31317dc631f540e117dff55a92e7ceb456c3e5d1de338.
+0c2f149f74d05a8d1c9e66118e4a8928ff92d2772561d62d39a2095f6a87e8b5.
 The hash is checked before extracting any app files.
 
 56 portable PowerShell checks passed, including zero archive-download requests
 for good, missing and corrupt bundled inputs, owner-data preservation, occupied
-ports, traversal refusal and proper error messages for network fallback. All 438
+ports, traversal refusal and proper error messages for network fallback. All 440
 extracted app files match their archive hashes. Three Go tests verify preparing the
 actual embedded payload/script, the pinned revision/start file, and preserving
 existing files when preparation fails. Upgrade checks use synthetic Brain, token
@@ -92,4 +95,20 @@ Run the preparation checks with:
     go test launcher/main.go launcher/main_test.go
 
 Executable SHA-256:
-628f4ae43d72ece92cc42545c97d1712564cf1efdaf6f7a16f3f0c858a2457c0.
+f1b880d2c10121c81a6af57e1cabc68b5476f1611761ae9395ef9e3809c14bd0.
+
+## Checking the owner's running PC
+
+Download `ClipFoundry-Local-Check.zip`, extract it, keep ClipFoundry open, and double-click
+`Check-ClipFoundry.cmd`. Press Enter for port 8765 or enter the browser's current app port. Send the resulting
+JSON report in chat. It reads only the loopback app using bounded GET requests; it never tests a real platform,
+posts, changes Settings or installs dependencies. A strict whitelist excludes note text, media, account names,
+paths, tokens, job payloads and raw errors. Connected flags reflect saved app state, not a live account test.
+
+Portable PowerShell syntax and synthetic tests verify the custom-port snapshot, GET-only requests, privacy
+whitelist, missing-app and invalid-port handling. Native Windows execution remains unverified.
+
+The source app's final full fast suite passed 814 checks (349.16 s); final focused regressions passed 96
+(43.45 s). Eight synthetic media/restart cases passed (710.71 s) before the final duration/provenance review fixes,
+which the final 814/96 checks cover. Eight final browser checks passed (45.5 s); production build passed (6.44 s).
+No owner-PC/GPU, real account/model quality or actual 24-hour soak is claimed.

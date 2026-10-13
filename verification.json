@@ -1,0 +1,17 @@
+{
+  "source_commit": "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c",
+  "archive_sha256": "0c2f149f74d05a8d1c9e66118e4a8928ff92d2772561d62d39a2095f6a87e8b5",
+  "exe_bytes": 40156160,
+  "exe_sha256": "f1b880d2c10121c81a6af57e1cabc68b5476f1611761ae9395ef9e3809c14bd0",
+  "complete_script_embedded": true,
+  "complete_archive_embedded": true,
+  "pe_machine": "x64",
+  "pe_subsystem": "console",
+  "known_28_profile_retained": true,
+  "portable_powershell_checks": 56,
+  "go_tests": 3,
+  "python_pin_tests": 3,
+  "native_windows_verified": false,
+  "archive_files": 440,
+  "local_check_sha256": "5cfeebb8d0459f83befa879f56dec9327f6c386da0daa2eace74d65c7167f414"
+}
