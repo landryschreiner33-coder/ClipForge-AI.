@@ -18,8 +18,8 @@ exit /b 1
 # CF_POWERSHELL_BEGIN
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$Commit = '4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c'
-$ArchiveHash = '0c2f149f74d05a8d1c9e66118e4a8928ff92d2772561d62d39a2095f6a87e8b5'
+$Commit = '987ebb288ae9097bedbd80d0adee2b3c05c4271f'
+$ArchiveHash = '7fdeeab4b1c3d7a62e7513df81e9d919bbcf96b9ff2d251b3afa2e88fe4def48'
 $StartHash = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
 $ArchiveUrl = "https://github.com/landryschreiner33-coder/ClipForge-AI./archive/$Commit.zip"
 $ArchivePrefix = "ClipForge-AI.-$Commit/"
@@ -28,6 +28,7 @@ $ArchivePrefix = "ClipForge-AI.-$Commit/"
 # Each installer adds its exact commit/start hash here; ordinary ZIP copies remain separate.
 $KnownReleases = @{
     '28aee85b4ef239584da296cec900bc3d8dde4399' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
+    '4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
     '7201047b795085f0cb608ea643efadf90074290c' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
 }
 $KnownReleases[$Commit] = $StartHash

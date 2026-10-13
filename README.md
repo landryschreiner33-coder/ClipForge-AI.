@@ -15,7 +15,14 @@ example lengths gently blend with the original target, once; raw uploaded appear
 shows recognized choices and unsaved changes, with no separate Brain approval. Seven inactive integration
 placeholder cards are removed. Real TikTok app/scope/per-post requirements and YouTube publishing consent remain.
 Existing rendered clips and scheduled posts are preserved. The update retains prior managed 28aee85/7201047
-profiles and their original data folders; ordinary ZIP copies are not adopted.
+profiles plus the last 4838aa8 managed revision and their original data folders; ordinary ZIP copies are not adopted.
+
+The update also adds **Settings → Integrations → Check from your phone**. It starts an optional read-only
+status dashboard on the PC's private address, separate from desktop/account/publishing controls. Tailscale on
+both devices allows encrypted private access at home or away; trusted home Wi-Fi is optional. Open the shown
+address on the phone and enter the PC's single-use pairing code. Codes expire after five minutes; hashed device
+grants last up to 90 days and can be revoked from the PC. Keep the PC awake and ClipFoundry open. No Tailscale
+installation, firewall/router change or publishing permission is made by this installer.
 
 Python dependencies, GPU libraries and later speech-model downloads still need
 internet access. This is not a complete offline distribution of those dependencies.
@@ -44,20 +51,25 @@ setup. The same-user mutex covers setup and the running app.
 
 ## Integrity and verification
 
-App revision: 4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c.
+App revision: 987ebb288ae9097bedbd80d0adee2b3c05c4271f.
 Included archive SHA-256:
-0c2f149f74d05a8d1c9e66118e4a8928ff92d2772561d62d39a2095f6a87e8b5.
+7fdeeab4b1c3d7a62e7513df81e9d919bbcf96b9ff2d251b3afa2e88fe4def48.
 The hash is checked before extracting any app files.
 
 56 portable PowerShell checks passed, including zero archive-download requests
 for good, missing and corrupt bundled inputs, owner-data preservation, occupied
-ports, traversal refusal and proper error messages for network fallback. All 440
+ports, traversal refusal and proper error messages for network fallback. All 456
 extracted app files match their archive hashes. Three Go tests verify preparing the
 actual embedded payload/script, the pinned revision/start file, and preserving
 existing files when preparation fails. Upgrade checks use synthetic Brain, token
 and media files, two successive revisions and a real child process holding the
 profile byte lock. Three Python build-helper checks cover retained old release
 pins, matching BAT/script bytes and refusal of wrong revisions or traversal.
+Core validation: 869 final fast tests, 55 focused phone checks, ten final controlled mobile browser checks,
+two final desktop setup/race checks, and a production build passed. All 17 tested frontend-file hashes match
+this archive. Phone browser tests use controlled responses; backend tests use temporary data and real loopback
+listeners. Actual phone/Tailscale connectivity, Windows firewall behavior and native Windows remain unverified.
+
 The complete ZIP and bootstrap script were found byte-for-byte inside the built
 Windows x64 console executable. The optional BAT script matches the embedded
 bootstrap. Native Windows process discovery remains unverified; independent
@@ -95,7 +107,7 @@ Run the preparation checks with:
     go test launcher/main.go launcher/main_test.go
 
 Executable SHA-256:
-f1b880d2c10121c81a6af57e1cabc68b5476f1611761ae9395ef9e3809c14bd0.
+03eb7d2e4466902fb7fee43e3b7daedd35e99f4d2c4f732be3bc532d87a175ed.
 
 ## Checking the owner's running PC
 

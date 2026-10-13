@@ -1,8 +1,8 @@
 {
-  "source_commit": "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c",
-  "archive_sha256": "0c2f149f74d05a8d1c9e66118e4a8928ff92d2772561d62d39a2095f6a87e8b5",
-  "exe_bytes": 40156160,
-  "exe_sha256": "f1b880d2c10121c81a6af57e1cabc68b5476f1611761ae9395ef9e3809c14bd0",
+  "source_commit": "987ebb288ae9097bedbd80d0adee2b3c05c4271f",
+  "archive_sha256": "7fdeeab4b1c3d7a62e7513df81e9d919bbcf96b9ff2d251b3afa2e88fe4def48",
+  "exe_bytes": 40636928,
+  "exe_sha256": "03eb7d2e4466902fb7fee43e3b7daedd35e99f4d2c4f732be3bc532d87a175ed",
   "complete_script_embedded": true,
   "complete_archive_embedded": true,
   "pe_machine": "x64",
@@ -12,6 +12,21 @@
   "go_tests": 3,
   "python_pin_tests": 3,
   "native_windows_verified": false,
-  "archive_files": 440,
-  "local_check_sha256": "5cfeebb8d0459f83befa879f56dec9327f6c386da0daa2eace74d65c7167f414"
+  "archive_files": 456,
+  "local_check_sha256": "5cfeebb8d0459f83befa879f56dec9327f6c386da0daa2eace74d65c7167f414",
+  "archive_bytes": 37782329,
+  "bat_crlf_exports": [
+    "e2e/run-beginner-test.bat",
+    "e2e/run-tests.bat",
+    "gpu-check.bat",
+    "run-unattended.bat",
+    "start.bat",
+    "test-isolated.bat"
+  ],
+  "known_4838_profile_retained": true,
+  "final_core_fast_tests": 869,
+  "final_phone_browser_tests": 10,
+  "final_phone_desktop_browser_tests": 2,
+  "tested_dist_files": 17,
+  "actual_phone_tailscale_verified": false
 }
