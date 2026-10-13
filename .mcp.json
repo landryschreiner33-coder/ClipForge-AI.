@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "node",
-      "args": ["e2e/playwright-mcp.mjs"]
-    }
-  }
-}

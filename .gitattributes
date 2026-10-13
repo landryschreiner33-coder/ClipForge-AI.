@@ -1,7 +1,0 @@
-*.bat text eol=crlf
-*.sh text eol=lf
-*.ttf binary
-*.onnx binary
-*.jpg binary
-# Generated graphics bundles contain verbatim library shader strings.
-frontend/dist/assets/*.js -whitespace linguist-generated=true
