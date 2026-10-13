@@ -234,8 +234,15 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "detail": f"{name} is not connected, so {planned} planned post{'s' if planned != 1 else ''} "
                                     f"cannot go out."})
     accounts = {i["platform"] for i in items if i["type"] == "account"}
+    from . import readiness
+
+    setup = readiness.setup_needs(settings, platforms)
+    items.extend(setup)
+    setup_keys = {i['key'] for i in setup}
     for a in state.open_actions():
         kind, key = a["kind"], a["key"]
+        if key in setup_keys:
+            continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
         if kind == "workers" and workers_alive:
@@ -564,11 +571,14 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     found = opportunities()
     discover = can_discover(settings, platforms)
     discovery = discovery_status()
+    from . import readiness
+
+    posting = readiness.view(settings, platforms, workers_alive)
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
             "currently": currently(settings, workers_alive, discovery), "next_look": next_look(settings),
             "next": next_step(settings),
-            "discovery": discovery, "working": working(settings),
+            "discovery": discovery, "working": working(settings), "posting": posting,
             "needs_you": needs_you(settings, platforms, workers_alive),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),

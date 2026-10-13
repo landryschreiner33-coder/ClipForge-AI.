@@ -303,14 +303,17 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     home = st["home"]
     assert set(home) == {"setup", "currently", "next_look", "discovery", "working", "needs_you", "opportunities",
                          "upcoming", "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos",
-                         "posts", "next"}
+                         "posts", "next", "posting"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
     assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
     run("trend_scan")
     run("source_scout")
     home = client.get("/api/autopilot/status").json()["home"]
-    text = words(home)
+    # Stage codes are machine-readable; the interface renders their title/detail, not those internal enum names.
+    visible = {**home, "posting": [{"title": p["title"], "detail": p["detail"]}
+                                  for p in home["posting"]["platforms"]]}
+    text = words(visible)
     assert text and not [w for w in JARGON if w.lower() in text.lower()], text
     assert home["currently"] in ("Looking for opportunities", "Starting", "Finding trending videos",
                                  "Choosing the best videos", "Planning posting times", "Checking your folders",

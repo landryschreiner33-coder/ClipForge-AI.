@@ -1,10 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { ap } from "../autopilot";
 import { ConnectAction, connectedOk, OpenVideosFolder, PLATFORMS } from "../components/apShared";
+import { AutoPublishLine } from "../components/autoPublish";
+import { AudiencePanel } from "../components/integrations";
 import { DEFAULT_TOPICS, splitTopics, TopicChoice } from "../components/topics";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, PlatformName, Pill, toast } from "../components/ui";
 import { plural } from "../format";
+import { audienceApi, AudienceView } from "../office/api";
 import { navigate } from "../router";
 import { useStatus } from "../status";
 
@@ -25,6 +28,39 @@ const draft: { how: How; topics: string | null } = { how: "", topics: null };
 
 /** Kept with the settings, so Home knows you chose to make clips yourself (and skips its welcome). */
 const remember = (how: How) => api.saveSettings({ setup_mode: how === "manual" ? "manual" : "" });
+
+/** Choosing an audience and granting automatic posting remain separate, explicit actions in the same step. */
+function PostingOptions({ platforms, refresh }: { platforms: ("youtube" | "tiktok")[]; refresh: () => void }) {
+  const [view, setView] = useState<AudienceView | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let current = true;
+    audienceApi.view().then((v) => {
+      if (current) { setView(v); setError(""); }
+    }).catch((e) => { if (current) setError(errorText(e)); });
+    return () => { current = false; };
+  }, [retry]);
+  const changed = (v: AudienceView) => { setView(v); refresh(); };
+  return <div className="stack-4">
+    {error && <Banner tone="bad" title="Publishing setup could not be read"
+      actions={<button type="button" className="btn btn-small" onClick={() => setRetry((x) => x + 1)}>
+        Try again
+      </button>}>{error}</Banner>}
+    {!view && !error && <p className="small muted" aria-busy="true">Reading who may watch your posts…</p>}
+    {view && <>
+      <AudiencePanel view={view} onSaved={changed} platforms={platforms} />
+      {platforms.includes("youtube") && <section aria-label="Automatic YouTube publishing" className="stack-3">
+        <h3>Let YouTube clips go out by themselves</h3>
+        <p className="small muted">After confirming who watches, turn this on to approve eligible YouTube clips
+          automatically. The permission names your channel, audience, daily limit and posting hours. TikTok is
+          optional and never needed for YouTube posts.</p>
+        <AutoPublishLine platform="youtube" onChange={refresh}
+          key={`${view.youtube.intent}:${view.youtube.confirmed_at}:${view.youtube.group_version}`} />
+      </section>}
+    </>}
+  </div>;
+}
 
 export default function Setup({ step }: { step?: string }) {
   const { st, setData, refresh } = useStatus();
@@ -176,10 +212,11 @@ export default function Setup({ step }: { step?: string }) {
         </div>
         <p className="small muted">The first time, each platform asks for the two codes of your own free developer app
           (about 10 minutes, steps included).</p>
-        {how === "autopilot" && (
-          <p className="small muted">Autopilot uses the accounts you connected. To let YouTube posts go out without
-            your review, turn on automatic publishing later on the Autopilot page: it asks exactly what you allow.</p>
-        )}
+        {how === "autopilot" && PLATFORMS.some((p) => connectedOk(st.platforms[p])) &&
+          <PostingOptions platforms={PLATFORMS.filter((p) => connectedOk(st.platforms[p]))} refresh={refresh} />}
+        {how === "autopilot" && <p className="small muted">You can start before finishing publishing setup.
+          Unconfirmed destinations keep clips on this PC; without automatic YouTube permission, planned posts wait
+          for your review in Queue.</p>}
         {!how && (
           <Banner tone="info" title="You haven't chosen how to work yet"
             actions={<a className="btn btn-small" href="#/setup/mode">Choose how to work</a>} />

@@ -93,7 +93,7 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
           <label><span>Unfinished finds before waiting</span><input type="number" min={1} max={100} step={1}
             value={choice.discovery_queue_limit} disabled={!saved || busy}
             onChange={e => setChoice({ ...choice, discovery_queue_limit: Number(e.target.value) })} />
-            <small>1–100; 6 keeps the backlog small</small></label>
+            <small>1–100; waiting for permission or files does not block usable videos.</small></label>
           <label><span>New finds from one creator</span><input type="number" min={1} max={30} step={1}
             value={choice.discovery_creator_limit} disabled={!saved || busy}
             onChange={e => setChoice({ ...choice, discovery_creator_limit: Number(e.target.value) })} />

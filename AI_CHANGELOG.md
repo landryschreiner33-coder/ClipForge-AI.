@@ -7,6 +7,30 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-13 · Finished clips reach YouTube scheduling
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `987ebb2`.
+* **What changed:** reusable accessible discovery candidates take priority; parked permission/file waits cannot
+  monopolize the bounded workable queue or displace them. Finished recorded clips get immediate durable handoff
+  before batch yielding. Bounded reconciliation recovers proven old handoffs while preserving canceled work,
+  manual edits, live decisions and existing packaging states. Parent cancellation/Pause is rechecked after
+  fingerprinting. Stale consent no longer hides pending approval reminders; Private permission requires a
+  confirmed upload destination too. Setup embeds audience and separate YouTube permission controls for connected
+  accounts. Read-only readiness/derived warnings explain finished-clip holds without depending on a working
+  scheduler; unavailable times are not called scheduled, and newer preparation overrides historical failures.
+* **Why:** the owner had finished clips after an all-day YouTube-only run, with no posts or Needs you explanation.
+  The exact owner-PC hold remains unknown; code failures were reproduced on disposable data and corrected.
+* **Validation:** Final full fast suite: 958 passed, eight slow deselected, in 489.73 s. Final real-FFmpeg/synthetic-speech
+media and restart suite: eight passed, 958 deselected, in 695.71 s, including Public/Private and live recovery
+loops. Final production build passed in 3.98 s; seven built-interface browser checks passed in 43.6 s. All 17
+tested built-file hashes match. Final focused handoff/readiness/simple-page checks: 88 passed in 24.79 s.
+Discovery focused checks: 99 passed in 19.36 s; four new behavior regressions fail on the original source.
+Scheduler/consent checks: 73 passed, one slow deselected, in 78.53 s. Independent review found the late-
+cancellation race; its three corrected regressions passed and no material findings remain. No real owner data,
+Windows/RTX3050, platform upload or 24-hour soak was tested.
+* **Not verified:** owner Windows data/runtime, RTX3050, real platform accounts or a 24-hour unattended soak.
+  No real publishing, consent/account change, spending, firewall/router change or deployment occurred.
+
 ## 2026-10-13 · Private phone status companion
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `4838aa8`.

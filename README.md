@@ -34,6 +34,12 @@ dashboard. Use Tailscale on the PC and phone for private access at home or away,
 Open the displayed address and enter the PC's single-use pairing code. The dashboard shows actual work,
 posting counts, upcoming posts and system checks; settings and publishing controls stay on the PC.
 Keep ClipFoundry open and the PC awake. [Connection and pairing guide](docs/PHONE_DASHBOARD.md).
+
+**Finished clips but no uploads:** Missions now shows **Why clips are waiting to post**, with post-text,
+final-check, local-use and scheduling counts for each connected platform. YouTube-only setup includes both
+**Who watches** and the separate automatic-publishing permission. Interrupted batches hand off each finished
+clip immediately; eligible older unfinished handoffs recover automatically. Connecting YouTube alone does not
+authorize uploads or grant reuse permission. [Unattended setup and troubleshooting](docs/UNATTENDED.md).
 [TikTok developer form and connection guide](docs/TIKTOK_APP_SETUP.md).
 
 ## Getting started (beginner steps)

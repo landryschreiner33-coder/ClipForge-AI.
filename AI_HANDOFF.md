@@ -4,6 +4,43 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-13 (UTC).
 Fetch before trusting branch state.
 
+## Latest continuation: finished clips reach YouTube scheduling
+
+Base: `987ebb288ae9097bedbd80d0adee2b3c05c4271f`, on `codex/brain-graph-quality-discovery`.
+The owner reported an all-day YouTube-only run with finished clips, no schedules/uploads and no Needs you.
+The owner's actual Windows database was not accessed. Isolated reproductions identified and fixed these paths:
+
+* Parked reuse-permission/file waits filled the six-find backlog forever; high-estimate local-only finds could
+  take every daily attempt before reusable media. Bounded workable/parking lanes retain saved history and daily
+  budgets while giving accessible, covered candidates priority. Explicit input and quality floors stay intact.
+* Analysis waited for every render before fingerprint/package handoff. Each completed recorded output now hands
+  off before any priority yield. Scheduler/maintenance recover bounded older proven outputs exactly once, using
+  saved validated plans, selection evidence and existing files. Failed/canceled packaging and manual edits remain
+  untouched. Live replacements finish their decisions first. Cancellation/Pause are rechecked after fingerprinting.
+* A stored consent for a different channel/audience could suppress approval reminders even when unusable.
+  Availability now controls reminders; existing Private plans retain valid original permission. Private automatic
+  consent also requires a confirmed, non-local destination. Setup exposes audience confirmation and separate
+  automatic YouTube permission together, filtered to connected platforms, with no automatic grant or audience change.
+* Read-only posting readiness and derived setup warnings show post text, final checks, local-only rights and
+  scheduling/permission holds even if the scheduler never wrote an action item. Recent stage counts sample at most
+  200 finished automatic clips; the total counts all. An approved item without a posting time is a wait, not a schedule.
+  Latest preparation state wins over older failures. Phone attention retains its fixed-description whitelist.
+
+**Validation:** Final full fast suite: 958 passed, eight slow deselected, in 489.73 s. Final real-FFmpeg/synthetic-speech
+media and restart suite: eight passed, 958 deselected, in 695.71 s, including Public/Private and live recovery
+loops. Final production build passed in 3.98 s; seven built-interface browser checks passed in 43.6 s. All 17
+tested built-file hashes match. Final focused handoff/readiness/simple-page checks: 88 passed in 24.79 s.
+Discovery focused checks: 99 passed in 19.36 s; four new behavior regressions fail on the original source.
+Scheduler/consent checks: 73 passed, one slow deselected, in 78.53 s. Independent review found the late-
+cancellation race; its three corrected regressions passed and no material findings remain. No real owner data,
+Windows/RTX3050, platform upload or 24-hour soak was tested.
+An independent review's late-parent-cancellation finding was fixed and its three regressions pass. Earlier test
+runs were stopped before that correction and are not final suite evidence. One UI test had an in-flight mocked
+response disposed at teardown; seeding its status fixture before browser polling resolved it. The old plain-text
+test now projects the visible posting title/detail rather than treating a machine stage enum as user text.
+No real upload, account-permission change, Windows/RTX3050 execution, owner-data inspection or 24-hour soak is
+claimed. The installer retains verified prior managed profiles; ordinary unknown ZIP profiles are not adopted.
+
 ## Latest continuation: private phone status dashboard
 
 Base: `4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c`, on `codex/brain-graph-quality-discovery`.

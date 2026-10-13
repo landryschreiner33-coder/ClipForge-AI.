@@ -46,7 +46,7 @@ export default defineConfig({
       testMatch: ["beginner-flow.spec.ts", "motion.spec.ts", "robot-office.spec.ts", "brain-workspace.spec.ts",
         "pixel-office.spec.ts", "living-office.spec.ts", "lounge-life.spec.ts", "department-office.spec.ts",
         "manual-publish.spec.ts", "public-consent.spec.ts", "brain-graph.spec.ts", "tiktok-setup.spec.ts",
-        "discovery-quality.spec.ts", "phone-settings.spec.ts"],
+        "discovery-quality.spec.ts", "phone-settings.spec.ts", "posting-readiness.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

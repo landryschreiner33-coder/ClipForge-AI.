@@ -77,6 +77,8 @@ def view(settings: dict) -> dict:
         if platform == "youtube":
             if not account_id(platform) or not (db.get_account(platform) or {}).get("has_tokens"):
                 blocker = "Connect your YouTube channel first."
+            elif dest["intent"] == audience.LOCAL_ONLY:
+                blocker = "YouTube clips are kept on this PC. Choose who watches in Settings → Integrations first."
             elif not dest["confirmed"]:
                 blocker = "Confirm who watches in Settings → Integrations first."
         can_enable = platform in SUPPORTED and not blocker
@@ -120,6 +122,10 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError("Another YouTube channel is connected now. Review the channel and permission again")
     if expected_audience_version is not None and expected_audience_version != dest["group_version"]:
         raise ValueError("Who watches changed while this permission was open. Review it again")
+    if dest["intent"] == audience.LOCAL_ONLY:
+        raise ValueError("YouTube clips are kept on this PC. Choose who watches in Settings → Integrations first")
+    if not dest["confirmed"]:
+        raise ValueError("Confirm who watches in Settings → Integrations first")
     if visibility == "public":
         if dest["intent"] != audience.PUBLIC or not dest["confirmed"]:
             raise ValueError("Automatic uploads are Private only until you explicitly confirm Public audience "

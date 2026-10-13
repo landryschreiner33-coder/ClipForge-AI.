@@ -209,7 +209,7 @@ def audience_reminders(settings: dict) -> None:
             name = "YouTube" if p == "youtube" else "TikTok"
             state.action(f"audience_setup:{p}", "audience", f"Choose who watches your {name} clips",
                          f"Clips stay ready on this PC until you say who may watch them on {name}. ClipFoundry posts "
-                         "only to viewers you pick, never publicly.",
+                         "only to the audience you confirm. Public posting needs an explicit Public choice.",
                          f"Settings → Integrations → {name} → Who watches.")
         else:
             state.resolve(f"audience_setup:{p}")
@@ -886,7 +886,10 @@ def remind_approvals() -> int:
     """The one "waiting for your OK" item on the Autopilot page, kept in step with the posts that wait for you."""
     by_platform = _awaiting_by_platform()
     # posts held back under automatic publishing are there for you to look at, not a problem that needs you
-    need = {p: n for p, n in by_platform.items() if not autopublish.active(p)}
+    # A stored permission can belong to a previous channel or audience. Its mere existence must never hide
+    # posts whose automatic approval is unavailable now.
+    permission = autopublish.view(db.get_settings())
+    need = {p: n for p, n in by_platform.items() if not (permission.get(p) or {}).get("enabled")}
     if need:
         n = sum(need.values())
         only_tiktok = set(need) == {"tiktok"}
@@ -906,8 +909,21 @@ def schedule_tick(job: Job) -> dict:
     now = _now()
     audience_reminders(settings)
     due = process_due(settings, now)
+    # A previous analysis can finish its files before it reaches the packaging handoff. Recover those exact
+    # ready outputs without letting a damaged old record stop already-approved posts from going out.
+    from . import hunter
+
+    try:
+        recovered = hunter.recover_ready_clips(limit=24, cancelled=job.cancelled)
+    except queue.Canceled:
+        raise
+    except Exception:
+        recovered = 0
+        state.event("clip_handoff_recovery", "Finished clips could not be handed on this time; the next posting "
+                    "check tries again. Existing scheduled posts continue normally.", "warning")
     planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
     if planned.get("created"):
         due["awaiting_approval"] = remind_approvals()  # new posts that need your OK are listed right away
-    return {**due, **planned, "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
+    return {**due, **planned, "recovered_ready_clips": recovered,
+            "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
                                          f"replaced, {due['publishing']} publishing"}

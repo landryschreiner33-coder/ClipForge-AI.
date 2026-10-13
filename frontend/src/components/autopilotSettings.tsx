@@ -127,10 +127,11 @@ export function AutopilotSettings({ s, set, errors, saved }: {
         intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
           + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
         <SettingRow k="discovery_quality_first" label="Quality before quantity"
-          hint="Keep a small shortlist, wait for unfinished finds and stop adding picks once the daily budget is used"
+          hint="Prefer usable videos, keep the work queue small and stop adding picks when the daily budget is used"
           {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
         <SettingRow label="Focused search limits" group
-          hint="Applies to broad automatic searches; your chosen folders, channels and submitted links remain available"
+          hint={"Waiting for permission or files does not block usable videos. "
+            + "Your chosen folders, channels and links remain available."}
           >
           <div className="inline-fields small">
             <span>New finds per pass</span><NumInput k="discovery_candidates_per_scan" c={c} width={90} />

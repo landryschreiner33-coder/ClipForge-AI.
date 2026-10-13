@@ -181,6 +181,31 @@ function Overview({ st, lost, since, refresh, setData }: {
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
       </div>
 
+      {h.posting && h.posting.platforms.length > 0 && (
+        <section className="panel" aria-labelledby="ap-posting-path">
+          <div className="panel-head"><h2 id="ap-posting-path">Why clips are waiting to post</h2>
+            <span className="small muted">{lost ? "Unknown" : `${h.posting.finished} finished automatic clips`}</span>
+          </div>
+          {lost ? <p className="muted">Posting status is unknown until ClipFoundry answers again.</p>
+            : <div className="stack-4">{h.posting.platforms.map((p) => (
+              <div key={p.platform} className="stack">
+                <div className="row wrap"><PlatformName platform={p.platform} />
+                  <Pill tone={p.code === "scheduled" ? "good" : "warn"}>{p.title}</Pill></div>
+                <p className="small muted">{p.detail}</p>
+                <div className="row wrap small muted" aria-label={`${PLATFORM_NAME[p.platform]} posting stages`}>
+                  <span>{p.counts.preparing} need post text</span><span>· {p.counts.checking} await checks</span>
+                  <span>· {p.counts.failed_check} failed checks</span><span>· {p.counts.local_only} local only</span>
+                  <span>· {p.counts.preparation_stopped ?? 0} preparation stopped</span>
+                  <span>· {p.counts.ready} ready to plan</span><span>· {p.counts.scheduled} scheduled</span>
+                </div>
+                <a className="textlink small" href={p.link}>See the next step<Icon name="chev" className="sm" /></a>
+              </div>
+            ))}</div>}
+          {h.posting.sampled && <p className="small muted">Stages show the {h.posting.checked} newest finished clips;
+            the finished total includes all automatic clips.</p>}
+        </section>
+      )}
+
       <section className="panel ap-facts-panel" aria-label="Autopilot progress">
         <div className="facts ap-summary">
           <Fact label="Now" tone="neutral" icon="film" value={line} />

@@ -12,6 +12,13 @@ platform-post counts, next planned post, attention items and health readings. It
 controls, account connections, owner media or Brain notes. The desktop listener remains on localhost by default.
 [Pairing, phone access and troubleshooting](PHONE_DASHBOARD.md).
 
+Missions also shows **Why clips are waiting to post**: real finished automatic clips, post-text/check stages and
+scheduled counts for connected destinations. Audience/permission setup warnings are derived on reads, so a stalled
+scheduler cannot leave them invisible. Setup includes explicit audience confirmation and separate YouTube
+automatic permission in the posting step; disconnected TikTok does not block YouTube. Interrupted recorded
+batches hand off each finished output before yielding, and bounded reconciliation resumes proven old handoffs.
+Canceled work, manual edits, post-live replacement decisions and exact-file/rights/consent guards remain intact.
+
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
 not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
 games, food, drinks and reading are decorative. Nothing in the office drawing starts, approves or finishes work.

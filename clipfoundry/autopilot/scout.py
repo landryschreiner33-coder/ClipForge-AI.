@@ -686,6 +686,35 @@ def discovery_attempts_remaining(settings: dict, now: float | None = None,
                _automatic_today(settings, now or time.time(), rights.rules() if all_rules is None else all_rules))
 
 
+def _publishing_targets(settings: dict) -> set[str]:
+    """Prefer coverage for connected, enabled destinations, without claiming account/consent readiness.
+
+    Before any account is connected, reusable candidates still take precedence for the enabled destinations.
+    """
+    platforms = ("youtube", "tiktok")
+    connected = {platform for platform in platforms if (db.get_account(platform) or {}).get("has_tokens")}
+    return {platform for platform in (connected or set(platforms)) if settings.get(f"autopilot_{platform}")}
+
+
+def _discovery_path(src: dict, settings: dict, all_rules: list[dict], targets: set[str]) -> tuple[bool, bool]:
+    """A cheap local media/coverage estimate, never a scheduling grant or a remote download.
+
+    Saved rights/file holds remain visible, but do not permanently occupy the slots needed by reusable videos.
+    Access resolution checks existing policy and local paths; final processing/publishing rechecks remain binding.
+    """
+    evaluation = rights.evaluate(src, settings, all_rules)
+    allowed = set((evaluation.get("conditions") or {}).get("platforms") or [])
+    reusable = bool(evaluation["auto_allowed"] and targets and (not allowed or targets & allowed))
+    try:
+        accessible = bool(access.resolve(src, settings)["ok"])
+    except queue.Canceled:
+        raise
+    except Exception:  # noqa: BLE001 - a malformed/missing original is scoped to its source
+        accessible = False
+    workable = bool(accessible and rights.local_allowed(src, evaluation, settings))
+    return reusable and accessible, workable
+
+
 def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[dict]) -> tuple[list[dict], dict]:
     """Admit a few strong estimates before populating Sources. Held signals can compete on a later pass.
 
@@ -701,9 +730,16 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
                   if src["status"] in ("discovered", "eligible", "needs_rights", "needs_file", *ACTIVE_SOURCE)
                   and automatic_discovery(src, settings=settings, all_rules=all_rules)]
     summary["backlog"] = len(unfinished)
+    targets = _publishing_targets(settings)
+    workable = sum(src["status"] in ACTIVE_SOURCE or _discovery_path(src, settings, all_rules, targets)[1]
+                   for src in unfinished)
+    summary["workable_backlog"] = workable
+    summary["parked_backlog"] = len(unfinished) - workable
     remaining = discovery_attempts_remaining(settings, now, all_rules)
-    capacity = min(int(settings.get("discovery_candidates_per_scan") or 3), remaining,
-                   max(0, int(settings.get("discovery_queue_limit") or 6) - len(unfinished)))
+    per_pass = min(int(settings.get("discovery_candidates_per_scan") or 3), remaining)
+    queue_limit = int(settings.get("discovery_queue_limit") or 6)
+    capacity = min(per_pass, max(0, queue_limit - len(unfinished)))
+    reusable_capacity = min(per_pass, max(0, queue_limit - workable))
     kept, candidates = [], []
 
     def reason(note: str, filtered: bool = False) -> None:
@@ -733,15 +769,17 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
         if estimate["expected"] < 1:
             reason("Unlikely to contain a strong clip", True)
             continue
-        candidates.append((sig, src, estimate))
-    candidates.sort(key=lambda item: (-item[2]["score"], -item[2]["coverage"]))
+        reusable, _workable = _discovery_path(src, settings, all_rules, targets)
+        candidates.append((sig, src, estimate, reusable))
+    candidates.sort(key=lambda item: (not item[3], -item[2]["score"], -item[2]["coverage"]))
     chosen: list[dict] = []
     creators: dict[str, int] = {}
     topic_counts: dict[str, int] = {}
-    for sig, src, _estimate in candidates:
-        if len(chosen) >= capacity:
+    for sig, src, _estimate, reusable in candidates:
+        allowed_capacity = reusable_capacity if reusable else capacity
+        if len(chosen) >= allowed_capacity:
             reason("Daily search budget reached; quality mode does not fill the clip target with extra videos"
-                   if remaining <= 0 else "Waiting for unfinished search picks" if capacity <= 0 else
+                   if remaining <= 0 else "Waiting for unfinished search picks" if allowed_capacity <= 0 else
                    "Outside this pass's strongest shortlist")
             continue
         if any(_same_video(src, other) for other in chosen):
@@ -870,6 +908,16 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     all_rules = rights.rules()
     automatic_picks = 0
     quality_mode = bool(settings.get("discovery_quality_first", True))
+    broad_sources: dict[str, bool] = {}
+    if quality_mode:
+        targets = _publishing_targets(settings)
+        order: dict[str, tuple[int, int]] = {}
+        for index, src in enumerate(rows):
+            broad_sources[src["id"]] = automatic_discovery(src, settings=settings, all_rules=all_rules)
+            reusable = broad_sources[src["id"]] and _discovery_path(src, settings, all_rules, targets)[0]
+            group = 0 if src.get("user_added") else 1 if not broad_sources[src["id"]] else 2 if reusable else 3
+            order[src["id"]] = (group, index)
+        rows.sort(key=lambda src: order[src["id"]])
     broad_limit = min(int(settings.get("discovery_candidates_per_scan") or 3),
                       discovery_attempts_remaining(settings, now, all_rules)) if quality_mode else needed
     broad_picks = 0
@@ -882,7 +930,7 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
         signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
-        broad = automatic_discovery(src, signal, settings, all_rules)
+        broad = broad_sources[src["id"]] if quality_mode else automatic_discovery(src, signal, settings, all_rules)
         creator = f"{src['platform']}:{src['channel_id']}" if src.get("channel_id") else ""
         topic = str(src.get("topic") or "").strip().casefold()
         if quality_mode and broad:

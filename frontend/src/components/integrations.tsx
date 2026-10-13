@@ -66,15 +66,16 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
 }
 
 // ------------------------------------------------------------------ who watches
-function AudiencePanel({ view, onSaved }: { view: AudienceView; onSaved: (v: AudienceView) => void }) {
+export function AudiencePanel({ view, onSaved, platforms = ["youtube", "tiktok"] }: {
+  view: AudienceView; onSaved: (v: AudienceView) => void; platforms?: ("youtube" | "tiktok")[];
+}) {
   return (
     <SettingsPanel id="int-audience" title="Who watches"
       intro={<>Choose the audience for new posts, then set up automatic YouTube publishing in Accounts. Public posts
         may be watched by anyone. Existing posts and previously planned private uploads keep their audience.
         Accessible videos still need reuse permission and a passing final check before posting. {view.limits}</>}>
       <div className="stack-4">
-        <AudienceRow p="youtube" d={view.youtube} steps={view.youtube_steps} onSaved={onSaved} />
-        <AudienceRow p="tiktok" d={view.tiktok} steps={view.tiktok_steps} onSaved={onSaved} />
+        {platforms.map((p) => <AudienceRow key={p} p={p} d={view[p]} steps={view[`${p}_steps`]} onSaved={onSaved} />)}
       </div>
     </SettingsPanel>
   );

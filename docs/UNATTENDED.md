@@ -64,6 +64,19 @@ restarts or network failures. A locked screen is different from logging out.
 
 ## What still needs attention
 
+If finished clips exist but nothing is scheduled, open **Missions → Why clips are waiting to post**. This panel
+reports post-text preparation, final checks, local-only coverage and actual scheduled counts for connected
+platforms. It explains unconfirmed audiences, disabled scheduling/publishing, missing or outdated YouTube
+permission, zero limits and approved posts without a confirmed new time. Routine retries do not require an
+approval; failed/canceled post preparation remains visible in Jobs. Interrupted eligible finished outputs resume
+their post preparation automatically, without re-rendering the whole batch or reviving canceled work.
+
+With only YouTube connected, TikTok is optional. In Setup or **Settings → Integrations → Who watches**, choose
+and confirm the intended YouTube audience. Then use **Missions → How posts go out → Turn on automatic publishing**
+to give separate channel/audience-bound permission, including the made-for-kids choice, daily limit and hours.
+Existing Private posts keep their original visibility and applicable permission. A new Public choice does not
+turn those older posts public. Clips without current reuse coverage remain local, even if their render is finished.
+
 Public posting requires an explicit supported audience choice, the correct connected account, reuse permission,
 passing final-file checks and the appropriate approval or standing YouTube permission. Previous private schedules
 stay private. The app reports actual returned visibility and restrictions. An External Google OAuth app left in

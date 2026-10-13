@@ -283,6 +283,13 @@ export interface WorkingOn {
 }
 
 export interface HomeView {
+  posting?: {
+    finished: number; checked: number; sampled: boolean;
+    platforms: {
+      platform: "youtube" | "tiktok"; code: string; title: string; detail: string; link: string;
+      counts: Record<string, number>; automatic: boolean;
+    }[];
+  };
   setup: {
     started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string;
     /** The choice made in first-time setup ("manual": you make clips yourself). */

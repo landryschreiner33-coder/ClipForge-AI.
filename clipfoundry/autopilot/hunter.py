@@ -21,12 +21,12 @@ from .. import config, db, gpu, netguard
 from ..jobs import DownloadRefused, download_url
 from ..media_import import MediaUnavailable
 from ..office import feed
-from ..pipeline import blueprint, cuda, fingerprint, process, render, transcribe
+from ..pipeline import artifact, blueprint, cuda, fingerprint, process, render, transcribe
 from ..pipeline.common import JobContext, read_json, write_json
 from ..pipeline.ffmpeg_utils import FFmpegError, probe
 from ..publish.common import client, retry_after, wait_text
 from . import access, brain, queue, rights, state
-from .host import Job, handler
+from .host import MAINTENANCE_STEPS, Job, handler
 
 POOL_SIZE = 60
 DIRECT_MEDIA = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ogv")
@@ -359,6 +359,124 @@ def store_fingerprint(clip: dict, src: dict) -> None:
               key="clip_id", replace=True)
 
 
+def _handoff_canceled(source_id: str) -> bool:
+    stages = db.select("worker_jobs", "kind IN ('hunt_source', 'analyze_source', 'post_live') AND "
+                       "((ref_type = 'source' AND ref_id = ?) OR json_extract(payload, '$.source_id') = ?)",
+                       (source_id, source_id), "created_at DESC", 1)
+    return bool(stages and stages[0].get("wait_reason") != queue.STOP_ALL and
+                (stages[0]["status"] == "canceled" or stages[0].get("cancel_requested") == 1))
+
+
+def ready_clip_handoff(clip: dict, source: dict, priority: int = 0, *, cancelled=None) -> dict | None:
+    """Send a finished automatic file onward without waiting for the rest of its source's renders.
+
+    The original durable packaging key preserves pending work and explicit cancellation. A failure already
+    handled by Packaging is not revived on every maintenance pass; its existing retry/rework policy owns it.
+    """
+    if cancelled and cancelled():
+        raise queue.Canceled()
+    clip = db.get_clip(clip["id"]) or {}
+    source = db.fetch("sources", source["id"]) or {}
+    if not clip or not source or clip.get("status") != "ready" or clip.get("edit") or clip.get("active_version") \
+            or (clip.get("render_info") or {}).get("manual_render_pending") \
+            or source.get("status") in ("canceled", "removed") \
+            or any((source.get("intake") or {}).get(k) for k in ("canceled", "removed")) \
+            or not Path(clip.get("output_path") or "").is_file():
+        return None
+    if _handoff_canceled(source["id"]):
+        return None
+    key = f"package:{clip['id']}"
+    existing = db.fetch("worker_jobs", key, "idem_key")
+    if existing:
+        return existing
+    if db.scalar("SELECT COUNT(*) FROM worker_jobs WHERE kind = 'package_clip' AND "
+                 "((ref_type = 'clip' AND ref_id = ?) OR json_extract(payload, '$.clip_id') = ?)",
+                 (clip["id"], clip["id"])):
+        return None  # an existing text repair or explicit packaging decision owns this output
+    if not rights.local_allowed(source, settings=db.get_settings()):
+        return None
+    if not db.fetch("clip_fingerprints", clip["id"], "clip_id"):
+        store_fingerprint(clip, source)
+    if cancelled and cancelled():
+        raise queue.Canceled()
+    # Fingerprinting may take time. A newer edit or cancellation must retain ownership of the clip.
+    fresh = db.get_clip(clip["id"]) or {}
+    src = db.fetch("sources", source["id"]) or {}
+    if any(fresh.get(k) != clip.get(k) for k in ("status", "edit", "active_version", "output_path", "render_info")) \
+            or src.get("status") in ("canceled", "removed") \
+            or any((src.get("intake") or {}).get(k) for k in ("canceled", "removed")) \
+            or _handoff_canceled(source["id"]):
+        return None
+    return queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": source["id"]}, idem_key=key,
+                         ref=("clip", clip["id"]), priority=queue.source_priority(source, priority), revive=False)
+
+
+def recover_ready_clips(limit: int = 24, cancelled=None) -> int:
+    """Resume old interrupted handoffs, keeping manual changes and completed/rejected packaging untouched.
+
+    A saved valid plan and selection readings identify recorded automatic outputs. Live replacement decisions
+    precede packaging, so live recovery requires its already-saved fingerprint and no unfinished post-live job.
+    Final-file quality, reuse coverage, current audience/consent and duplicate checks still run downstream.
+    """
+    if not state.enabled():
+        return 0
+    cursor = str(state.get("clip_handoff:cursor", "") or "")
+    rows = db.select("clips", "id > ? AND status = 'ready' AND project_id IN (SELECT id FROM projects WHERE origin IN "
+                     "('autopilot', 'live')) AND NOT EXISTS (SELECT 1 FROM worker_jobs j WHERE "
+                     "j.kind = 'package_clip' AND ((j.ref_type = 'clip' AND j.ref_id = clips.id) OR "
+                     "json_extract(j.payload, '$.clip_id') = clips.id)) AND NOT EXISTS "
+                     "(SELECT 1 FROM metadata_candidates m WHERE m.clip_id = clips.id AND m.selected = 1)",
+                     (cursor,), "id", max(1, min(100, limit)))
+    if not rows:
+        if cursor:
+            state.delete("clip_handoff:cursor")
+        return 0
+    recovered = 0
+    for clip in rows:
+        if cancelled and cancelled():
+            raise queue.Canceled()
+        try:
+            project = db.get_project(clip["project_id"]) or {}
+            source = db.fetch("sources", project.get("source_id") or "") or {}
+            if not source:
+                continue
+            art = artifact.of(clip.get("render_info")) or {}
+            sha = (art.get("blueprint") or {}).get("sha256") or ""
+            if not sha or not db.scalar("SELECT COUNT(*) FROM clip_blueprints WHERE clip_id = ? AND sha256 = ? "
+                                       "AND origin = 'strategist' AND status = 'valid' AND version_id = ''",
+                                       (clip["id"], sha)):
+                continue
+            if not db.fetch("clip_scores", clip["id"], "clip_id"):
+                continue
+            if project.get("origin") == "autopilot":
+                if not db.fetch("clip_analysis", clip["id"], "clip_id"):
+                    continue
+            elif not db.fetch("clip_fingerprints", clip["id"], "clip_id") or db.scalar(
+                    "SELECT COUNT(*) FROM worker_jobs WHERE kind = 'post_live' AND "
+                    "json_extract(payload, '$.project_id') = ? AND status IN ('queued', 'running', 'waiting', "
+                    "'retrying')", (project["id"],)):
+                continue
+            if ready_clip_handoff(clip, source, cancelled=lambda: not state.enabled() or
+                                  bool(cancelled and cancelled())):
+                recovered += 1
+                state.event("clip_handoff_recovered", "Resumed a finished clip's post preparation",
+                            ref_type="clip", ref_id=clip["id"])
+        except queue.Canceled:
+            raise
+        except Exception as exc:  # one unreadable saved output must not hold every other finished clip
+            state.event("clip_handoff_waiting", f"Could not resume this finished clip yet: {exc}", "warning",
+                        ref_type="clip", ref_id=clip["id"])
+    state.put("clip_handoff:cursor", rows[-1]["id"])
+    return recovered
+
+
+def _recover_handoffs(job: Job) -> dict:
+    return {"clip_handoffs_recovered": recover_ready_clips(cancelled=job.cancelled)}
+
+
+MAINTENANCE_STEPS.append(_recover_handoffs)
+
+
 def plan_clips(p: process.Prepared, rows: list[dict], chosen: list[dict], source_id: str) -> list[dict]:
     """Engagement Strategist: a validated blueprint for every chosen clip, stored before anything is rendered.
     A clip whose plan is rejected is not rendered; the reasons are kept on the clip."""
@@ -401,7 +519,8 @@ def screen_stories(p: process.Prepared, chosen: list[dict], settings: dict) -> l
     return kept
 
 
-def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict) -> None:
+def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobContext, job: Job, src: dict,
+                             *, handoff: bool = False) -> None:
     """Finish one safe render at a time, preserving completed files before giving higher-priority work its turn.
     The durable selection and stable clip IDs let this handler resume only the remaining renders."""
     total = max(1, len(planned))
@@ -409,6 +528,8 @@ def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobC
         job.check()
         current = db.get_clip(row["id"]) or row
         if current["status"] == "ready" and Path(current.get("output_path") or "").is_file():
+            if handoff:
+                ready_clip_handoff(current, src, job.row["priority"], cancelled=job.cancelled)
             continue
         priority = queue.source_priority(src, job.row.get("priority") or 0)
         if queue.has_higher_priority_work(job.row, priority):
@@ -429,6 +550,9 @@ def render_in_priority_order(p: process.Prepared, planned: list[dict], ctx: JobC
             ctx.progress(fraction, step)
         sub = JobContext(report, ctx.cancelled)
         process.render_clips(p, [current], sub, lo=lo, hi_total=hi)
+        if handoff:
+            job.check()
+            ready_clip_handoff(current, src, job.row["priority"], cancelled=job.cancelled)
 
 
 @handler("analyze_source")
@@ -489,11 +613,11 @@ def analyze_source(job: Job) -> dict:
                                   "components": {"viral_potential": r["score"], "subscores": sub,
                                                  "diversity": r.get("diversity") or {}},
                                   "explanation": r.get("explanation") or []}, key="clip_id", replace=True)
-    render_in_priority_order(p, planned, ctx, job, src)
+    render_in_priority_order(p, planned, ctx, job, src, handoff=True)
     ready = [c for c in db.list_clips(p.id) if c["status"] == "ready"]
     for clip in ready:
         job.check()
-        store_fingerprint(clip, src)
+        ready_clip_handoff(clip, src, job.row["priority"])
     p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
     db.update_project(p.id, status="ready", progress=1.0, stage="done", info=p.info,
                       message=f"{len(ready)} clip{'s' if len(ready) != 1 else ''} ready" if ready else
@@ -507,8 +631,5 @@ def analyze_source(job: Job) -> dict:
               status_note=note, error="")
     state.event("source_analyzed", f"“{src['title'][:80]}”: {note}", "warning" if weak else "info",
                 ref_type="source", ref_id=src["id"], clips=len(ready))
-    for clip in ready:
-        queue.enqueue("package_clip", {"clip_id": clip["id"], "source_id": src["id"]}, idem_key=f"package:{clip['id']}",
-                      ref=("clip", clip["id"]), priority=queue.source_priority(src, job.row["priority"]))
     queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}")
     return {"clips": len(ready), "weak": weak, "message": note}

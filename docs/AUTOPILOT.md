@@ -185,9 +185,13 @@ permission, or you're not sure (then it isn't used until you decide).
 **Discovery** runs every 3 hours by itself, within the providers' quotas and your cost limit:
 
 **Quality first** is enabled by default. Missions → Permissions & sources → **Quality before quantity** controls
-the small broad-search shortlist: **3 new strong candidates per pass**, at most **6 unfinished broad-search picks**
-(including waits for permission or a file), and at most **1 per
-known creator per pass**. The shortlist also spreads topics and filters probable duplicate uploads. The configured
+the small broad-search shortlist: **3 new strong candidates per pass**, at most **6 workable unfinished picks**,
+and at most **1 per known creator per pass**. Videos waiting for permission or a file stay saved and do not block
+accessible videos covered for a connected, enabled publishing destination. New local-only or waiting finds still
+use the combined backlog limit, keeping new parked finds bounded; saved parked records plus workable picks may
+exceed six. Existing work and history are retained. Within the quality floor, available reuse-covered videos take
+precedence over local-only finds, including candidates saved by an earlier search. Explicitly chosen input keeps
+its priority. The shortlist also spreads topics and filters probable duplicate uploads. The configured
 daily source limit bounds broad processing attempts (**3 per day by default**): a weak or failed attempt still
 uses that budget, so replacing weak finds cannot create an endless stream of new work. It resets on the next
 local day, without changing a saved source limit. Held candidates can compete in later passes; low-scoring finds

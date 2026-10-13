@@ -1,5 +1,36 @@
 # Implementation status
 
+## Finished clips reach YouTube scheduling — 2026-10-13
+
+Base: `987ebb288ae9097bedbd80d0adee2b3c05c4271f`, on `codex/brain-graph-quality-discovery`.
+The owner reported finished clips, an all-day YouTube-only run and no schedules/uploads or Needs you.
+Their running Windows profile was not accessed. Four original-code discovery regressions demonstrate starvation
+by parked permission/file waits and higher-estimate local-only candidates. Bounded lanes and accessible coverage
+priority repair those paths without changing attempts, quality floors, user priority or reuse policy.
+
+Recorded renders now hand off fingerprints/packaging per completed clip before priority yielding. Bounded
+reconciliation repairs proven old handoffs, preserving manual/canceled work, existing packaging decisions and
+post-live replacement ordering. Parent cancellation and saved Pause are rechecked after fingerprinting.
+Stale channel/audience consent no longer suppresses reminders; confirmed non-local destinations are required for
+Private automatic permission too. Setup provides explicit audience and separate YouTube permission inline,
+only for connected platforms. Existing Private plans/permissions and all exact-file/upload guards persist.
+
+Missions derives setup warnings and displays read-only posting stages/holds even when a scheduler did not write
+an action. Counts distinguish missing post text, pending/failed checks, local-use coverage, actual schedules and
+approved posts waiting for a time. The latest packaging state overrides historical failure; recent stages are
+bounded to 200 records and labelled when sampled. Phone attention remains narrowly mapped to fixed descriptions.
+
+**Validation:** Final full fast suite: 958 passed, eight slow deselected, in 489.73 s. Final real-FFmpeg/synthetic-speech
+media and restart suite: eight passed, 958 deselected, in 695.71 s, including Public/Private and live recovery
+loops. Final production build passed in 3.98 s; seven built-interface browser checks passed in 43.6 s. All 17
+tested built-file hashes match. Final focused handoff/readiness/simple-page checks: 88 passed in 24.79 s.
+Discovery focused checks: 99 passed in 19.36 s; four new behavior regressions fail on the original source.
+Scheduler/consent checks: 73 passed, one slow deselected, in 78.53 s. Independent review found the late-
+cancellation race; its three corrected regressions passed and no material findings remain. No real owner data,
+Windows/RTX3050, platform upload or 24-hour soak was tested.
+No actual Windows/RTX3050, owner-data inspection, real-account upload or 24-hour soak is claimed.
+Installer integrity and retained managed-profile support are recorded separately on the delivery branch.
+
 ## Private phone status companion — 2026-10-13
 
 Base: `4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c`, on `codex/brain-graph-quality-discovery`.
