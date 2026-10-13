@@ -22,6 +22,9 @@ from pathlib import Path
 
 def _serve(host: str, port: int, open_browser: bool) -> None:
     import uvicorn
+    from .phone import manager as phone_manager
+
+    phone_manager.desktop_port = port
 
     url = f"http://{'127.0.0.1' if host in {'0.0.0.0', '::'} else host}:{port}"
     if open_browser:

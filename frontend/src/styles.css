@@ -1011,6 +1011,14 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .audience-row legend { margin-bottom: 4px; }
 .devlog { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
 .devlog li { padding: var(--s2) 0; border-bottom: 1px solid var(--border); }
+.phone-pair-code {
+  margin: var(--s3) 0;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  font-variant-numeric: tabular-nums;
+}
 
 @media (max-width: 1100px), (max-height: 600px) {
   .office-page { height: auto; min-height: 0; }

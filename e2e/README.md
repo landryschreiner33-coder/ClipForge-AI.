@@ -204,6 +204,20 @@ bundled in [third-party-graphics.txt](../frontend/public/third-party-graphics.tx
 `e2e/tests`, pin Playwright, or alter GPU dependencies. The tests above use the existing sandbox configuration;
 Windows display scaling, real GPU rendering and real connected accounts remain separate checks.
 
+The separate phone dashboard has a controlled browser suite:
+
+```bash
+cd e2e
+npx playwright test --config=playwright.phone.config.ts
+```
+
+Build `frontend` first. This serves only `frontend/dist/phone` on loopback port 8813 and intercepts every API
+request; it never connects to the owner's app, saved data, accounts or Tailscale. It checks pairing, authorization
+headers, opt-in persistent storage, expiring/revoked access, measured/unknown progress, mobile overflow,
+escaping, lost connections, background suspension and reconnection. `sandbox/phone-settings.spec.ts` checks
+desktop setup controls in the disposable sandbox with mocked phone responses. Backend integration tests in
+`tests/test_phone_monitor.py` exercise real isolated loopback listeners and disposable SQLite profiles.
+
 The current beginner flow passes with public video discovery on. Uncovered videos can be clipped locally, but
 cannot be automatically posted. The complete loop explicitly confirms Public YouTube setup and project audit,
 gives channel-bound standing consent, and checks Public fake-account uploads without `publishAt`. Its sandbox-only

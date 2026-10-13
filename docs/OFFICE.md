@@ -6,6 +6,12 @@ really do, how the scores are made, and the Brain's guards. Written for the vers
 `codex/brain-graph-quality-discovery` (October 13, 2026); the code is the source of truth where they differ.
 PR #14's robot-office work is merged. Its earlier draft/unmerged notes describe historical checkpoints.
 
+Settings → Integrations → **Check from your phone** starts an optional, separately authenticated status dashboard
+on this PC's private Tailscale or home-network address. It reports the real work/progress, unique clip counts,
+platform-post counts, next planned post, attention items and health readings. It never exposes the desktop
+controls, account connections, owner media or Brain notes. The desktop listener remains on localhost by default.
+[Pairing, phone access and troubleshooting](PHONE_DASHBOARD.md).
+
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
 not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
 games, food, drinks and reading are decorative. Nothing in the office drawing starts, approves or finishes work.

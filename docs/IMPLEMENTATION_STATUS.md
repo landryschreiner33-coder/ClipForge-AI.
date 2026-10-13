@@ -1,5 +1,30 @@
 # Implementation status
 
+## Private phone status companion — 2026-10-13
+
+Base: `4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c`, on `codex/brain-graph-quality-discovery`.
+Settings → Integrations → **Check from your phone** adds optional Tailscale or trusted home-network viewing.
+The separate listener is default-off, binds a literal private IPv4 interface and cannot serve desktop controls
+or owner media. Owner-only setup, five-minute single-use pairing, rate limits and up to eight hashed 90-day
+viewing grants protect the status snapshot. The main desktop listener and account/publishing guards are intact.
+
+The mobile page shows actual work/progress, local-day unique clip counts separately from platform posts, the next
+planned post, queue counts, health and the desktop's attention policy through fixed descriptions. Ordinary
+retries stay quiet; account/worker/sleep holds appear. Raw diagnostics, Brain notes, credentials and account
+identities stay off the phone. Browser storage is session-only unless Remember this phone is selected; revoked
+access clears the key and status. Hidden pages suspend polling; offline readings are labelled stale and reconnect
+uses bounded backoff. Owner setup ignores older status polls after newer actions. [Guide](PHONE_DASHBOARD.md).
+
+**Validation:** Final full fast suite: 869 passed, eight slow deselected, in 386.91 s. Final focused phone tests: 55 passed in 9.03
+s; 75 existing local-guard/office/Autopilot regressions passed in 30.43 s before the final attention refinement.
+Final built phone browser suite: ten passed in 12.6 s. Final built desktop setup/race checks: two passed in 27.6 s.
+Production build passed in 3.85 s; all 17 built-file hashes were recorded. No actual phone, Windows/Tailscale
+connection or real account was tested.
+An earlier complete fast run passed 865 before the final attention-policy refinement. Focused checks use disposable
+SQLite profiles and real loopback listeners; browser checks use controlled API responses and a disposable desktop
+sandbox. They do not establish actual Windows, phone-browser, Tailscale/firewall or real-account behavior.
+Media/Autopilot handlers remain unchanged; slow media was not repeated. Installer integrity is tracked separately.
+
 ## Automatic Brain guidance and supported integrations — 2026-10-13
 
 Base: `28aee85b4ef239584da296cec900bc3d8dde4399`, on `codex/brain-graph-quality-discovery`.

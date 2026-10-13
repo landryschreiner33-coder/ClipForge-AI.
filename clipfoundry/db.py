@@ -71,6 +71,12 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS phone_devices (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS accounts (
     platform TEXT PRIMARY KEY,
     account_id TEXT DEFAULT '',
@@ -680,6 +686,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
 """
 
 JSON_FIELDS = {
+    "phone_devices": set(),
     "projects": {"options", "info"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},

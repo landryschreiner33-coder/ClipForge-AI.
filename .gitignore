@@ -21,3 +21,4 @@ Thumbs.db
 .idea/
 frontend/*.tsbuildinfo
 .playwright-mcp/
+e2e/test-results-phone/

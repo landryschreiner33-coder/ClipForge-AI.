@@ -35,6 +35,9 @@
       or TikTok, Autopilot's searches for videos, downloading the speech-recognition model, or an optional AI service
       you turn on. It goes straight from your computer to that service.</li>
     <li>You sign in on Google's and TikTok's own pages. ClipFoundry never sees or stores your passwords.</li>
+    <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
+      directly from your PC. It includes video titles, work progress, posting counts and system-check status.
+      Account credentials, media, transcripts and Brain notes are excluded. We receive none of it.</li>
     <li>Deleting a video in ClipFoundry removes ClipFoundry's copy of it, its clips and its transcript from your
       computer. Some records stay, such as your post history (section 7). Deleting does not remove a video you already
       posted on YouTube or TikTok. You do that on the platform.</li>
@@ -63,6 +66,12 @@
   local storage on this computer and is not sent to a platform. Clearing browser storage removes it; your operating
   system's motion preference still applies when Follow system is selected. This preference does not change video
   files or processing settings.
+  The optional phone dashboard stores its access key in the phone browser's session storage by default; choosing
+  Remember this phone stores it in local storage until you disconnect, clear browser storage or it expires.
+  Access lasts up to 90 days. The PC stores only a SHA-256 hash of each device key, with creation and expiry times;
+  expired records are removed during the next successful pairing. Unpair all phones deletes those records immediately.
+  Pairing codes are single-use, expire after five minutes and are kept only in memory. Keys and codes are never
+  placed in the dashboard address or sent to a publishing platform.
   When a screen shows your YouTube or TikTok profile
   picture, your browser loads that picture from Google's or TikTok's servers, which can see your computer's IP
   address.
@@ -329,6 +338,12 @@
     service receives your transcripts), edit clip text, or turn Autopilot on. If automatic publishing for YouTube is
     on, Autopilot can then post to YouTube by itself.</li>
   <li>Signing in uses the platforms' official sign-in pages, so your passwords never pass through ClipFoundry.</li>
+  <li>The phone dashboard is off by default and uses a separate private-network listener with device-key
+    authorization. Only the desktop can enable it, generate pairing codes or unpair phones. The phone can read
+    status but cannot change settings, connect accounts, approve posts, start jobs or access media. Tailscale
+    encrypts the network connection; optional home Wi-Fi mode uses unencrypted HTTP, so use it only on a trusted
+    network. Tailscale is a separate service you install and sign into yourself, under its own privacy policy.
+    ClipFoundry does not install it, change a firewall or expose the main desktop listener for this feature.</li>
 </ul>
 <p>
   No software or computer is perfectly secure. Anyone who can use your Windows account can open ClipFoundry and see
@@ -337,6 +352,10 @@
 
 <h2>7. Your choices</h2>
 <ul>
+  <li><b>Remove phone access:</b> Settings → Integrations → Check from your phone → Unpair all phones deletes all
+    paired-device grants. Turn off phone access stops the listener; grants remain until revoked or expired.
+    Disconnect this phone clears that browser's key and displayed status. It does not revoke a copied key;
+    unpair from the PC to revoke access. Clearing phone browser storage also removes its saved key.</li>
   <li><b>Disconnect an account:</b> Settings → Accounts → Disconnect. ClipFoundry tries to cancel its access on the
     platform, then deletes the sign-in tokens and the account's ID, name and picture link on your computer. If you turned on
     automatic publishing, your channel's name stays in that permission's saved wording. It deletes

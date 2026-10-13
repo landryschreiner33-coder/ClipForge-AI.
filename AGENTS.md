@@ -50,6 +50,7 @@ There are two ways to use it:
 clipfoundry/
   __main__.py      CLI: app, `process <video>`, `gpu-check`, `workers`
   api.py           REST API + serves frontend/dist
+  phone.py         optional private-network read-only status companion; separate listener, pairing and hashed grants
   config.py        settings, defaults and ranges (DEFAULT_SETTINGS, validate_settings)
   db.py            SQLite schema (SCHEMA, JSON_FIELDS, ADDED_COLUMNS for migrations, CLIP_CHILDREN)
   jobs.py          manual-mode background job runner

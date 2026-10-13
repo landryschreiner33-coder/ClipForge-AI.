@@ -7,6 +7,27 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-13 · Private phone status companion
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `4838aa8`.
+* **What changed:** default-off Tailscale/home-Wi-Fi listener serves a mobile read-only dashboard, separate from
+  desktop APIs and media. Guarded owner controls issue single-use expiring pairing codes, enable/disable access
+  and revoke up to eight hashed 90-day device grants. Keys use authorization headers and opt-in browser storage;
+  codes and keys never enter URLs/logs. Listener failures leave the desktop functional; custom desktop ports,
+  restart and shutdown cleanup are covered. Counts, progress, status and attention policy follow actual app
+  state. Mobile polling handles background/offline/reconnect/expiry, clears unauthorized data and escapes text.
+  Desktop setup prevents old polls from overwriting newer actions. Setup/privacy/architecture docs are updated.
+* **Why:** the owner wants to see how ClipFoundry is doing from a phone, including away from home.
+* **Validation:** Final full fast suite: 869 passed, eight slow deselected, in 386.91 s. Final focused phone tests: 55 passed in 9.03
+s; 75 existing local-guard/office/Autopilot regressions passed in 30.43 s before the final attention refinement.
+Final built phone browser suite: ten passed in 12.6 s. Final built desktop setup/race checks: two passed in 27.6 s.
+Production build passed in 3.85 s; all 17 built-file hashes were recorded. No actual phone, Windows/Tailscale
+connection or real account was tested.
+  Initial full fast suite: 865 passed before the final attention-policy refinement. No processing/publishing
+  handler changed, so no new slow media run. Installer tests and exact bundle integrity are recorded separately.
+* **Not verified:** native Windows/RTX3050, actual phone browsers, real Tailscale account connectivity/firewall
+  behavior or platform accounts. No real upload, account change, router/firewall configuration or cloud hosting.
+
 ## 2026-10-13 · Automatic Brain guidance and supported integration cards
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `28aee85`.

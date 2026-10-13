@@ -1,0 +1,1 @@
+import{extensions as i,AccessibilitySystem as t,Container as e,accessibilityTarget as n,DOMPipe as a,EventSystem as d,FederatedContainer as m}from"./index--mOPT-VR.js";import"./webworkerAll-DeL11IZb.js";import"./index-k8HdJFw5.js";i.add(t);i.mixin(e,n);i.add(a);i.add(d);i.mixin(e,m);

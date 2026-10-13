@@ -28,6 +28,12 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
 [Processing measurements and server advice](docs/PERFORMANCE.md).
 [Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).
 [Optional unattended launcher and Windows startup](docs/UNATTENDED.md).
+
+**Check from your phone:** Settings → Integrations → Check from your phone starts an optional read-only
+dashboard. Use Tailscale on the PC and phone for private access at home or away, or choose trusted home Wi-Fi.
+Open the displayed address and enter the PC's single-use pairing code. The dashboard shows actual work,
+posting counts, upcoming posts and system checks; settings and publishing controls stay on the PC.
+Keep ClipFoundry open and the PC awake. [Connection and pairing guide](docs/PHONE_DASHBOARD.md).
 [TikTok developer form and connection guide](docs/TIKTOK_APP_SETUP.md).
 
 ## Getting started (beginner steps)

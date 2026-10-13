@@ -295,6 +295,12 @@ Pages (see [docs/AUTOPILOT.md](docs/AUTOPILOT.md#legal-pages-terms-of-service-an
 
 ## Where things are stored
 
+To check the app from your phone, open **Settings → Integrations → Check from your phone**. Install Tailscale
+on the PC and phone, sign into the same account, then turn on the phone dashboard. Open its displayed address
+in your phone browser and enter the single-use code from **Get pairing code**. The PC and ClipFoundry must stay
+on. A trusted home Wi-Fi mode is available; it uses unencrypted HTTP. See [the phone guide](docs/PHONE_DASHBOARD.md)
+for pairing, Windows private-network permission and removing access. No router port forwarding is needed.
+
 Everything lives in the `data` folder next to the app (override it with the `CLIPFOUNDRY_DATA` environment variable):
 
 ```

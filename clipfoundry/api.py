@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, config, db
+from . import __version__, config, db, phone
 from .jobs import worker
 from .pipeline import cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
@@ -38,8 +38,12 @@ async def lifespan(_: FastAPI):
     publish_jobs.worker.start()
     publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
     autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
-    yield
-    autopilot_host.supervisor.stop()
+    phone.manager.restore()
+    try:
+        yield
+    finally:
+        phone.manager.stop()
+        autopilot_host.supervisor.stop()
 
 
 def _youtube_retention() -> None:
@@ -60,6 +64,7 @@ app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(integration_routes.router)
+app.include_router(phone.router)
 
 
 # ------------------------------------------------------------------ helpers

@@ -4,6 +4,41 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-13 (UTC).
 Fetch before trusting branch state.
 
+## Latest continuation: private phone status dashboard
+
+Base: `4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c`, on `codex/brain-graph-quality-discovery`.
+The owner asked to check ClipFoundry's progress from a phone. Settings → Integrations → **Check from your phone**
+now controls an optional, default-off companion listener. Tailscale is the recommended private connection;
+trusted home Wi-Fi is also supported, with an explicit unencrypted-HTTP explanation. The app never installs
+Tailscale, signs into it, changes a firewall/router or rebinds the desktop listener. Literal private IPv4
+binding and actual CLI desktop-port tracking preserve listener isolation, including restart/custom-port cases.
+
+The separate FastAPI app serves only three phone assets, single-use pairing and an authenticated status snapshot.
+Owner-only localhost controls enable/disable, issue a five-minute eight-digit code and revoke all grants.
+Pairing attempts are rate limited globally and per peer. At most eight random device keys last 90 days;
+SQLite stores only their SHA-256 hashes. Codes/keys never enter URLs or logs. Normal restarts retain grants;
+disabling stops access, revoking removes grants. The phone uses session storage by default, opt-in local storage
+for Remember this phone, and clears its displayed status/key after revocation/expiry. Disconnect clears that
+browser only; the PC's Unpair all phones revokes copied keys too.
+
+The mobile dashboard reports actual current work, measured/unknown progress, local-day unique clip counts,
+separate platform-post counts, next planned post, posting queue and health statuses. It uses the desktop attention
+policy, suppresses routine retry alerts and maps only fixed descriptions for derived account/worker/sleep holds.
+No media, raw diagnostics, credentials, account identities, Brain text or desktop controls are exposed.
+Polling pauses in the background, shows stale/offline readings plainly, backs off and resumes on reconnection.
+Desktop setup ignores old polls after newer actions. [Setup and architecture](docs/PHONE_DASHBOARD.md).
+
+**Validation:** Final full fast suite: 869 passed, eight slow deselected, in 386.91 s. Final focused phone tests: 55 passed in 9.03
+s; 75 existing local-guard/office/Autopilot regressions passed in 30.43 s before the final attention refinement.
+Final built phone browser suite: ten passed in 12.6 s. Final built desktop setup/race checks: two passed in 27.6 s.
+Production build passed in 3.85 s; all 17 built-file hashes were recorded. No actual phone, Windows/Tailscale
+connection or real account was tested.
+The initial complete suite passed 865 checks before the attention-policy refinement. Independent review found
+and prompted fixes for that refinement and an older-poll/new-action race. Media/Autopilot handlers are unchanged;
+the slow media suite was not repeated for this feature. Native Windows, actual phone browsers, Tailscale account
+connectivity, Windows firewall behavior, RTX3050 and real platform accounts remain device checks.
+The bundled installer is pinned and integrity-checked separately on `codex/clipfoundry-one-click`.
+
 ## Latest continuation: automatic Brain guidance and useful integrations
 
 Base: `28aee85b4ef239584da296cec900bc3d8dde4399`, on `codex/brain-graph-quality-discovery`.

@@ -7,6 +7,7 @@ import {
 } from "../office/api";
 import { FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput } from "./settingsFields";
 import { Banner, ConfirmDialog, Disclosure, Icon, Pill, toast, Tone } from "./ui";
+import { PhoneMonitorPanel } from "./PhoneMonitor";
 
 /**
  * Settings → Integrations: who watches (the explicit audience choice an upload needs), one card per connection
@@ -47,6 +48,7 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
         is needed. Platform posting permissions still apply. Nothing here posts a video.
       </p>
       {error && <Banner tone="bad" icon="alert" title="Integrations could not be loaded">{error}</Banner>}
+      <PhoneMonitorPanel />
       {aud && <AudiencePanel view={aud} onSaved={(v) => { setAud(v); load(); }} />}
       <SettingsPanel id="int-cards" title="Connections"
         intro="Each card says what is connected, what is missing, and what each part can do in this version.">

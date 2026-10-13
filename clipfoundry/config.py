@@ -53,6 +53,11 @@ def db_path() -> Path:
 # Every persisted setting must have a default here; the type of the default is
 # used to coerce incoming values from the UI.
 DEFAULT_SETTINGS: dict[str, Any] = {
+    # Optional, separately authenticated phone status listener. Only its local setup controls may change these.
+    "phone_enabled": False,
+    "phone_mode": "tailscale",
+    "phone_address": "",
+    "phone_port": 8766,
     # Transcription (faster-whisper)
     "whisper_model": "auto",          # auto | tiny | base | small | medium | large-v3 | large-v3-turbo ...
     "whisper_device": "auto",         # auto | cuda | cpu
@@ -212,7 +217,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
                "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
-ACTION_ONLY_KEYS = {"nvidia_opt_in_at"}  # set only by their own button (an explicit agreement), never a settings save
+ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
@@ -271,6 +276,10 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "autopilot_timezone" and not valid_timezone(v):
             continue
         elif key == "nvidia_mode" and v not in NVIDIA_MODES:
+            continue
+        elif key == "phone_mode" and v not in {"tailscale", "wifi"}:
+            continue
+        elif key == "phone_port" and not 1024 <= v <= 65535:
             continue
         elif key == "nvidia_production_url" and v and not v.lower().startswith("https://"):
             continue  # the key is only ever sent over https
