@@ -607,6 +607,7 @@ def status() -> dict:
         "actions": state.open_actions(), "events": state.events(25),
         "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
         "providers": state.get("providers", {}) or {}, "web_search": providers.web_usage(settings),
+        "discovery_shortlist": state.get("discovery:shortlist") or None,
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
         "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }

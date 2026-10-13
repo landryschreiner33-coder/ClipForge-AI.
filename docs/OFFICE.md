@@ -1,9 +1,10 @@
 # The robot office
 
-How ClipFoundry's robot office works: the five places of the app, the cast and what each robot stands for, the event
+How ClipFoundry's robot office works: the main places of the app, the cast and what each robot stands for, the event
 feed that moves them, the controls, health, who may watch an upload on YouTube and TikTok, what each integration can
 really do, how the scores are made, and the Brain's guards. Written for the version on branch
-`claude/project-thread-vw1n9y` (October 2026); the code is the source of truth where they differ.
+`codex/brain-graph-quality-discovery` (October 13, 2026); the code is the source of truth where they differ.
+PR #14's robot-office work is merged. Its earlier draft/unmerged notes describe historical checkpoints.
 
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
 not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
@@ -18,7 +19,7 @@ games, food, drinks and reading are decorative. Nothing in the office drawing st
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
 | Queue | `#/queue/review` (+ `/scheduled`, `/published`, `/history`, `/problems`, `/results`) | The former Posts page: every planned and uploaded post, who it is for and what really happened. |
-| Brain | `#/brain` | Searchable saved knowledge and good/bad examples, approved preferences, clip influence, decisions and performance history. |
+| Brain | `#/brain` | Saved knowledge graph, notes/examples, approved preferences, decisions and performance history. |
 | Settings | `#/settings`, `/defaults`, `/integrations`, `/advanced` | Integrations holds who watches your uploads, each connection's real capabilities and NVIDIA AI. Advanced holds the Brain's limits and the Dev Log. |
 | Robot gallery | `#/dev/robots` | Developer page: every robot in four directions and every pose. Not in the menu; it shows no real activity. |
 
@@ -245,7 +246,7 @@ platform's wait (*Rate limited until*) read from where the code records it:
 | YouTube | Your OK | Implemented | Your OK on each post, or the account/visibility-bound automatic-upload permission. |
 | YouTube | Checks the result | Implemented | Upload processing and the returned privacy are read back after each upload. |
 | YouTube | Results | Needs platform approval | Views, likes and comments are shown; using them for learning needs Google's derived-metrics approval. Average percentage viewed needs the Analytics scope and may be empty for a small private group. |
-| YouTube | Limits | Implemented | Daily API quota units (an upload costs about 1,600), counted on this PC. |
+| YouTube | Limits | Implemented | Separate upload/search allowances and other API units, counted on this PC. |
 | TikTok | Finds videos | Implemented | Links to public TikTok videos found by web search (needs a Tavily key); TikTok has no open discovery API for this. |
 | TikTok | Reads titles and numbers | Implemented | Creator and title from TikTok's public embed endpoint; no view counts. |
 | TikTok | Transcript | On this PC | Made on this PC with Whisper. |
@@ -275,7 +276,40 @@ platform's wait (*Rate limited until*) read from where the code records it:
 | Podcasts | Finds videos | Not in this version | No podcast connector in this version. A public podcast link you paste can still be imported where the link importer supports it. |
 | Google Trends | Finds videos | Unsupported by the platform | Google Trends has no supported public API; ClipFoundry does not scrape it. Trend signals come from the platforms' own numbers. |
 
+### TikTok form helper
+
+Open **Settings → Accounts → TikTok → Help me fill out the TikTok app form**. The same helper appears during
+first-time account setup. It prepares the name/description, current-port Desktop callback, dark/light 1024×1024
+PNG icons and copyable products/scopes. **Download TikTok form pack** exports that draft plus local website/legal
+drafts, without credentials, tokens, account identity or owner media. URL checks validate format without fetching
+the pages. Draft preparation starts when you open the helper. Checklist ticks record your report in this tab,
+not TikTok's approval.
+
+Choose **Send to my TikTok inbox** for `user.info.basic,video.upload`; **Direct Post only** uses
+`user.info.basic,video.publish`. Statistics adds `video.list` and Display API. Use both posting scopes only when
+using both features. **Use these permissions in ClipFoundry**, save Settings, then reconnect for the chosen scopes;
+editing a form draft does not change existing grants or profile privacy. TikTok still requires a real developed
+public website, working visible legal links, verified URL ownership and an actual target-user integration demo.
+Its personal-tool eligibility, Sandbox/Public limits and per-post consent remain. Follow
+[TIKTOK_APP_SETUP.md](TIKTOK_APP_SETUP.md) for the complete form, Desktop redirect and demonstration steps.
+
 ## Scores
+
+### Focused discovery and free search setup
+
+**Missions → Permissions & sources → Quality before quantity** keeps broad search focused by default. Each pass
+admits up to three promising candidates, with at most six unfinished automatic picks, including rights holds.
+One known creator and two per topic can enter a pass. The existing daily attempt budget is three by default;
+failed or weak videos do not make it expand to fill the clip target. The panel shows recorded admitted/held/filtered
+counts and reasons. Source quality and expected clips remain estimates until transcript analysis and final checks.
+Your chosen folders/channels, pasted links and manual work keep their existing workflow.
+
+**Find better links with a free search key** explains Tavily's optional free account: 1,000 credits per month,
+without a card. Copy the key from its dashboard. Keeping the free option checked explicitly saves a 1,000-credit
+app allowance and $0 monthly app spending limit alongside the new key; unrelated settings stay unchanged. The
+panel shows app-observed usage and links to current plan details. Your own folders/free-license library need no key.
+
+### How scores are made
 
 All scores are 0-100 ranking estimates made by ClipFoundry, not platform numbers and not probabilities of going
 viral. Each one stores its parts with their weights, the parts that had no data with the reason, its coverage and its
@@ -340,17 +374,33 @@ transcript after it).
 ## The Brain
 
 `#/brain`, `autopilot/knowledge.py`, `/api/brain/knowledge`, plus performance in `autopilot/brain.py`.
+The default **Graph view** offers an Obsidian-style map of your saved knowledge. Notes/documents, examples and
+supported preferences connect to their collections and actual shared topic tags. Recorded clip decisions link to
+the preference revision used; recorded results show their platform/cohort/source and measured or missing values.
+Selecting a note or evidence opens its stored record and provenance in the side panel. Collection/tag connections
+organize saved data; the glowing positions are decorative rather than hidden AI thoughts.
+
+Use **Add note** to write a simple idea; its title can be derived from the text. **Teach preference** lets you choose
+supported caption/pacing options. Save, review the exact choices/revision and press **Approve preferences** before
+new Autopilot clips use them. Documents, tags and decorative connections alone do not change clip behavior.
+**List & editor** retains file uploads and detailed controls. The graph shows at most 160 saved items, 32 topics and
+48 recent evidence records, with omitted counts; list/history/search and full knowledge export provide the other views.
+[Desktop, mobile and empty-state previews](../design/brain-workspace/README.md) use labeled controlled test data.
+
 Documents (TXT/MD/CSV/JSON/DOCX), instructions and skill guides stay searchable on this PC. Good/bad example
 clips (MP4/MOV/WebM) can carry hook, pacing, captions and storytelling labels. Original files are bounded and
 never executed. Saved typed preferences require explicit revision approval before later Autopilot blueprints use
-them; editing invalidates approval. Topic tags scope the lookup. Text alone does not fine-tune a model or create
-arbitrary behavior. Approved controls cover caption style/position/emphasis and safe cuts versus continuous pacing.
+them; editing teaching content or preferences invalidates approval. Topic tags scope the lookup. Text does not
+fine-tune a model or create arbitrary behavior. Approved controls cover captions and safe cuts versus continuous pacing.
 
 Knowledge can be edited, disabled, deleted or exported; original assets have separate downloads. Each later clip
 keeps the approved revision, feature labels, settings changed and before/after values in its influence record.
 Deleting a reference stops future use while retaining that clip’s explanation. The UI’s Try a decision is explicitly
 only a lookup preview. The upload tests also build and persist a later real blueprint to prove actual influence.
 Teaching examples never enter posting-performance tables.
+The editor submits its displayed revision. If another tab changed it, the server returns 409 and keeps the unsaved
+draft visible. **Reload saved note (discard edits)** is an explicit choice; it does not silently overwrite the newer
+saved revision or your draft.
 
 The performance evidence remains available through Clips → Test feedback and the Brain’s Performance tab.
 

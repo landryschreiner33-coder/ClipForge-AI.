@@ -1,5 +1,86 @@
 # Implementation status
 
+## TikTok setup, Brain graph and focused discovery — 2026-10-13
+
+Current branch: `codex/brain-graph-quality-discovery`, base
+`8999e5fb29a0e1455d8fccff4037d6f089f9091b` from the default branch. PR #14 is merged; its checkpoint statuses and
+results below are historical. This core checkpoint is verified below. The Windows installer is packaged separately
+on `codex/clipfoundry-one-click` with its own integrity record; native Windows execution remains unverified.
+
+**TikTok setup:** a helper in Settings and first-time account setup prepares copyable form details, the actual
+current-port Desktop callback, dark/light 1024×1024 PNG icons, product/scope explanations, review/demo steps and a
+downloadable form pack. Inbox chooses `user.info.basic,video.upload`; Direct Post chooses
+`user.info.basic,video.publish`; optional statistics adds `video.list`/Display API. Existing permission choices
+remain until the owner applies a choice, saves Settings and reconnects. The ZIP includes local draft website/legal
+pages but no app credentials, tokens, account identities or owner media. URL format is checked without fetching.
+Drafts prepare only when the owner opens the helper. Completeness does not establish TikTok eligibility, a
+published/verified website, granted scopes or approval.
+[Owner setup and current limits](TIKTOK_APP_SETUP.md).
+
+**Brain:** the graph maps saved notes/documents, examples, supported preferences, actual topic tags and recorded
+influence/result readings. Selection opens the stored record and its provenance. Collection/tag edges are
+organizational; applied-revision edges are recorded evidence. Glow and positions are decorative. Graph limits are
+explicit: 160 saved items, 32 topics and 48 recent evidence records; the other views and full knowledge export keep
+access to the remaining data. Add note derives an optional title; Teach preference still requires explicit review
+and approval before new clips use supported choices. Saved content is not executable or model fine-tuning. Editor
+revision checks return 409 for stale edits, preserving the draft until the owner explicitly reloads.
+
+**Discovery:** quality-first broad search is on by default, admitting at most three new candidates per pass while
+limiting unfinished picks to six, including needs-rights holds. One known creator and two per topic can enter each
+shortlist. The existing source-attempt daily budget stays three by default; unfinished picks wait and weak results
+do not justify exceeding it to fill a clip target. Explicit links, selected channels/folders and manual inputs
+retain their workflow. Source score and clip potential remain estimates until transcript analysis/final quality.
+Tavily is optional: its free plan offers 1,000 monthly credits without a card. The free-key save explicitly chooses
+that allowance and a $0 app spending limit, preserving unrelated settings; no live Tavily grant is verified here.
+
+| Check | Current result |
+| --- | --- |
+| Full fast Python suite | **804 passed**, eight slow deselected, in **429.01 s**; Python source unchanged. |
+| All real-media cases | **All 8 passed across runs**; seven initial passes plus unchanged live rerun. |
+| Browser and strict read-only Settings | **52 unique checks covered across runs**; breakdown below. |
+| TypeScript/Vite build and tested asset identity | **Passed in 4.06 s**; all 14 tested/captured hashes match. |
+| Windows installer | Separate artifact bundle/integrity record; native Windows execution unverified. |
+
+The earlier interrupted logs are not final complete-suite evidence. Final outcomes and fixture provenance are
+recorded below. Tests use disposable data, fake platforms and synthetic
+speech/real FFmpeg; controlled UI fixtures do not demonstrate a real TikTok integration. Windows execution,
+RTX 3050 CUDA/NVENC, actual grants/visibility and a 24-hour soak remain unverified. No real upload, account-permission
+change, app registration/review or website deployment is claimed.
+
+The owner-data Integrations assertion previously described the superseded selected-only workflow. It now checks
+the existing Public option, corresponding radio count and absence of Unlisted. Test interactions, request blockers
+and read-only policy remain unchanged; it never selects Public or grants permission. The displayed Public choice
+was already implemented in the merged baseline, not added by this assertion correction.
+
+The full media run had **7 passed, 1 failed, 804 deselected in 965.89 s**. The disk guard correctly held the live
+case when the small `/tmp` volume had about 2 GB free. Rerunning that unchanged case with workspace `TMPDIR` and
+`--basetemp=/workspace/work/clipfoundry/live-recheck-temp` passed in **48.81 s**. No source, fixture or capture-cap
+change was needed; all eight cases passed across these runs, not together in the initial batch.
+
+The initial full browser batch had **42 passed, 2 failed in 12.7 min**. A closed TikTok helper's read-only form
+preview was classified as a write by the consent test; the app now prepares drafts only when opened. The other
+case could not create its page because Playwright's recorder was missing. An intermediate consent recheck passed
+against the earlier build but is not proof of the final lazy helper. The first final UI/read-only batch had
+**18 passed, 1 stale assertion failure in 51.3 s**. Updating only the old selected-only Integrations expectation
+preserved all read-only test flows and the write blocker.
+
+The final batch passed **all 19 in 1.1 min**: 11 changed UI cases plus eight strict read-only Settings cases, including
+no closed-helper background POST. With the tested local recorder and workspace temporary storage, the complete
+loop passed **one case in 7.0 min** (6.5 min call). It exercised actual fake-account OAuth, broken-source recovery,
+two exact-checked-file Public uploads across a worker restart, manual-link local-only clipping, mature fake-platform
+readings, upcoming/live recording restart/end/post-live/final quality and a saved Pause. The initial 42 and final
+19 overlap in ten cases; with this loop, **52 unique browser cases are covered across runs**, not one batch.
+
+The final five Brain graph checks also produced the current
+[desktop, mobile and empty-state previews](../design/brain-workspace/README.md). These use controlled records,
+not owner data. [The manifest](../design/brain-workspace/build-sha256.json) records production and screenshot hashes.
+Historical office captures retain their original provenance; no new office animation measurement is claimed.
+
+## Historical PR #14 checkpoints
+
+The sections below retain the original status and evidence of their checkpoints. PR #14 is now merged; the old
+draft/unmerged instructions and older default-head hashes are superseded by the current branch above.
+
 ## PR #14 final merge review — 2026-10-11
 
 The owner authorized merge after one final pass. This checkpoint follows `51984a3`; GitHub records the actual

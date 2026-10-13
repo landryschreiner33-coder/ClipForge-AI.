@@ -627,23 +627,34 @@ def capture_allowed(src: dict, settings: dict) -> tuple[bool, str]:
 
 @handler("live_watch")
 def live_watch(job: Job) -> dict:
+    from . import scout
+
     settings = db.get_settings()
     if not settings.get("autopilot_live_monitoring"):
         return {"message": "Live monitoring is off"}
     started = []
-    for src in db.select("sources", "kind = 'live' AND status IN ('eligible', 'needs_file')"):
+    for src in db.select("sources", "kind = 'live' AND status IN ('eligible', 'needs_file')", (),
+                         "user_added DESC, source_score DESC"):
         if src.get("live_status") == "ended" or (src.get("intake") or {}).get("canceled"):
             continue
+        broad = bool(settings.get("discovery_quality_first", True) and
+                     scout.automatic_discovery(src, settings=settings))
+        if broad and scout.discovery_attempts_remaining(settings) <= 0:
+            continue  # selected streams and explicit links keep their intent; do not restart held recordings
         ok, why = capture_allowed(src, settings)
         if not ok:
             db.update("sources", src["id"], status_note=why)
             continue
-        row = queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}",
-                      ref=("source", src["id"]), timeout_s=24 * 3600, max_attempts=5,
-                      priority=queue.source_priority(src), revive=False)
-        if row["status"] not in queue.ACTIVE:
-            continue
-        db.update("sources", src["id"], status="ingesting", status_note="Live: capturing")
+        with locks.named("discovery-selection"):
+            if broad and scout.discovery_attempts_remaining(settings) <= 0:
+                continue
+            row = queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}",
+                          ref=("source", src["id"]), timeout_s=24 * 3600, max_attempts=5,
+                          priority=queue.source_priority(src), revive=False)
+            if row["status"] not in queue.ACTIVE:
+                continue
+            fields = {"selected_day": scout.local_day(settings)} if broad else {}
+            db.update("sources", src["id"], status="ingesting", status_note="Live: capturing", **fields)
         started.append(src["id"])
     return {"started": started, "message": f"{len(started)} live source(s) started"}
 

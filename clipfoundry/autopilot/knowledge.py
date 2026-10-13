@@ -108,9 +108,15 @@ def create(data: dict, **asset: object) -> dict:
 
 def edit(knowledge_id: str, data: dict) -> dict:
     row = get(knowledge_id)
+    if "expected_revision" in data:
+        expected = data["expected_revision"]
+        if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+            raise Invalid("Expected revision must be a positive whole number")
+        if expected != row["revision"]:
+            raise Conflict("This knowledge changed. Reload and review the current revision before saving your changes")
     combined = {k: row[k] for k in ("kind", "title", "content", "tags", "features", "preferences", "example_label")}
     combined["enabled"] = bool(row["enabled"])
-    combined.update(data)
+    combined.update({key: value for key, value in data.items() if key != "expected_revision"})
     new = clean(combined)
     if all(new[k] == row[k] for k in new):
         return view(get(knowledge_id))

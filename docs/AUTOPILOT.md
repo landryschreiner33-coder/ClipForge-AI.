@@ -117,6 +117,25 @@ Both platforms only let apps like ClipFoundry post through *your own* free devel
 YouTube** or **Connect TikTok** on a computer asks for that app's two codes once (the steps are under *How to get
 these codes*; see also [INSTALL.md](../INSTALL.md)). After that, **Connect** is just the platform's own sign-in page.
 
+**TikTok form help.** In Settings → Accounts → TikTok, open **Help me fill out the TikTok app form**. It provides
+copyable app details, 1024 × 1024 PNG icons, the current-port Login Kit Desktop callback, scope explanations and a
+demo checklist. Choose **inbox**, **Direct Post only** or both; posted-video statistics are optional. Apply the
+permission choices, save Settings and reconnect. Previously granted permissions remain until you reconnect.
+Existing installations keep their earlier posting choices until you change them.
+
+The helper's website fields and checklist stay in memory in this app tab until reload or close, and survive saving
+Settings. **Download TikTok form pack** explicitly exports those fields with app details, icons and draft static
+website/legal pages. Invalid entered website addresses block the download; correct them or leave them blank for
+an incomplete draft. App codes, tokens, account identities and media are excluded. It does not submit a form,
+publish pages or verify a domain. Review the draft pages before publishing; TikTok requires a real developed
+public website with visible active policy links and URL ownership verification. The Desktop loopback redirect is
+a separate local HTTP address. See [TIKTOK_APP_SETUP.md](TIKTOK_APP_SETUP.md).
+
+Completing the form does not make a personal utility eligible for TikTok production review or lift an audit
+restriction. Sandbox is for target-user testing and cannot post Public videos. Unaudited Direct Post requires a
+private TikTok account and Only me. A private profile cannot offer Everyone; each upload still needs your consent.
+If TikTok does not approve the app or grant a posting scope, use the ready-to-post package and post it yourself.
+
 You do not add sources, feeds, folders, rules or workers. Behind the scenes Autopilot uses whatever is available (the
 connected YouTube account for discovery; your videos folder; other watch folders and feeds only if you added some;
 Google Trends and TikTok trends are not available to apps and are skipped without bothering you) and these defaults:
@@ -165,13 +184,33 @@ permission, or you're not sure (then it isn't used until you decide).
 
 **Discovery** runs every 3 hours by itself, within the providers' quotas and your cost limit:
 
+**Quality first** is enabled by default. Missions → Permissions & sources → **Quality before quantity** controls
+the small broad-search shortlist: **3 new strong candidates per pass**, at most **6 unfinished broad-search picks**
+(including waits for permission or a file), and at most **1 per
+known creator per pass**. The shortlist also spreads topics and filters probable duplicate uploads. The configured
+daily source limit bounds broad processing attempts (**3 per day by default**): a weak or failed attempt still
+uses that budget, so replacing weak finds cannot create an endless stream of new work. It resets on the next
+local day, without changing a saved source limit. Held candidates can compete in later passes; low-scoring finds
+do not lower the quality floor just to fill the clip target.
+
+Manual links/videos, owned folders, recorded creator agreements and channels or feeds the owner chose retain
+their existing intake path. They bypass the broad-search admission and attempt limits; rights, media access and
+final quality checks still apply. Quality mode does not delete saved sources or cancel work already underway.
+Missions → Activity shows admitted, held and filtered counts with reasons. Source scores estimate promise from
+available signals; only transcript analysis and the final-file gate can establish usable clip quality.
+
 * **YouTube** (Data API search and video details, the connected account or an API key): recent popular videos for
   your topics, and the **original long video behind a popular short clip** when the clip links to it or its channel
   has it.
-* **Web search** (optional, [Tavily](https://tavily.com), your own API key under Settings → Advanced → Discovery and
+* **Web search** (optional, [Tavily](https://tavily.com), your own API key under Missions → Permissions & sources →
+  Quality before quantity → *Find better links with a free search key*, or Advanced → Settings → Discovery and
   rights → *Web search (Tavily) key*): public TikTok links for your topics and originals behind clips. Web search
   gives titles and links, never TikTok statistics: those stay *unknown*. It uses the credits your plan includes (the
-  free plan: 1,000 a month) and spends money only up to the monthly cost limit you set (0 by default: never).
+  [free plan](https://docs.tavily.com/documentation/api-credits): 1,000 a month without a credit card) and spends
+  money only up to the monthly cost limit you set
+  (0 by default: never). Keep the budget at $0 to stop at the configured included allowance. The optional key can
+  improve search coverage; it does not guarantee stronger clips or supply reuse permission. YouTube discovery can
+  use a connected account or your own free YouTube Data API key. Local files need neither search key.
 * **A free-license library** (Wikimedia Commons, on by default): videos whose authors released them for reuse.
 
 Duplicates and re-uploads of videos already processed are dropped. Every number keeps where it came from and when it
@@ -273,6 +312,18 @@ counts and a structured log (`job_logs`). Claims are atomic (`BEGIN IMMEDIATE`).
 leases expire and work can resume/retry after restart, using its idempotency key and saved state to avoid duplicating
 completed work. Saved upload sessions and uncertain-outcome holds prevent blind repeat uploads.
 Jobs you start by hand (for example *Clip now*) run even while Autopilot is off.
+
+**Teaching the Brain.** Open Brain for the Obsidian-inspired graph built from saved notes, examples, topics,
+approved clip preferences and recorded results/influence. Search or click a node to inspect what it actually
+contains; graph links represent saved relationships and evidence, with coverage limits shown. Pan, zoom, fit and
+motion controls make it inspectable without changing work.
+
+**Add note** saves a local reference. **Teach preference** saves a draft of supported clip choices; use
+**Review & approve** and confirm the displayed choices before new Autopilot clips use them. **Add example** stores
+a good or bad example with its explanation, and supported preferences still need their own approval. More options
+keeps file imports, detailed fields and advanced controls accessible. Saving, importing or visualizing references
+does not fine-tune a model or execute uploaded code. Decisions shows recorded influence; Performance retains real
+results and their provenance. Existing rendered clips keep their previous plans.
 
 **Recovery and resource limits.** Failed worker initialization stops partially started workers before releasing its
 host lock. Job setup failures clear their running/heartbeat entry instead of retaining a phantom lease. Media

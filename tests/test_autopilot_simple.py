@@ -145,11 +145,12 @@ def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
     assert out["signals"] >= 3
     run("source_scout")
     sources = db.select("sources")
-    assert {s["external_id"] for s in sources} >= set(ids) and all(s["signal_id"] for s in sources)
+    assert 0 < len(sources) <= db.get_settings()["discovery_candidates_per_scan"]
+    assert {s["external_id"] for s in sources} <= set(ids) and all(s["signal_id"] for s in sources)
     home = client.get("/api/autopilot/status").json()["home"]
     # Other creators' videos without an agreement or license are skipped, not asked about: no questions, and the
     # activity log says why. Lack of a usable find is normal discovery work, never a Needs you interruption.
-    assert home["opportunities"] == [] and home["skipped_today"] >= 3
+    assert home["opportunities"] == [] and home["skipped_today"] == len(sources)
     assert home["needs_you"] == []
     assert "not covered by an agreement or license" in home["empty"]
     log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
@@ -270,15 +271,17 @@ def test_you_are_asked_only_about_strong_videos_and_only_when_needed(client, fak
     run("source_scout")
     asked = [i for i in client.get("/api/autopilot/status").json()["home"]["needs_you"] if i["type"] == "rights"]
     unconfirmed = db.select("sources", "status = 'needs_rights'")
-    assert len(unconfirmed) >= 12 and len(asked) == scout.RIGHTS_QUESTIONS  # not a dozen questions
+    assert 0 < len(unconfirmed) <= db.get_settings()["discovery_candidates_per_scan"]
+    assert len(asked) <= scout.RIGHTS_QUESTIONS  # only the shortlist is worth asking about
     strongest = sorted((s for s in unconfirmed if s["kind"] != "live"), key=lambda s: -s["source_score"])
     strongest = strongest[:scout.RIGHTS_QUESTIONS]
     assert {i["source"]["id"] for i in asked} == {s["id"] for s in strongest}
     assert all(s["source_score"] >= scout.RIGHTS_MIN_SCORE for s in strongest)
-    tiny = next(s for s in db.select("sources") if s["external_id"] == "tiny")
-    live = next(s for s in db.select("sources") if s["external_id"] == "live1")
-    assert live["status"] == "needs_rights" and live["kind"] == "live"
-    assert not {tiny["id"], live["id"]} & {i["source"]["id"] for i in asked}
+    # Weak/old and unsuitable live searches need no source row or question. Their metadata remains inspectable.
+    assert not {"tiny", "live1"} & {s["external_id"] for s in db.select("sources")}
+    from clipfoundry.autopilot import state
+
+    assert state.get("discovery:shortlist")["held"] > 0
 
     # Once today's plan is covered by videos you may use, the open questions go away (nothing to decide today).
     for k in range(3):

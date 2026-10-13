@@ -58,6 +58,7 @@ def run(kind: str, payload: dict | None = None) -> dict:
 # ------------------------------------------------------------------ discovery
 def test_the_original_behind_a_popular_short_is_found(env):
     from clipfoundry import db
+    from clipfoundry.autopilot import state
 
     g = env["g"]
     g.add_video("short01aaaa", "Best podcast moment #shorts", "UCclips0000000001", views=2_000_000, duration="PT45S",
@@ -75,7 +76,8 @@ def test_the_original_behind_a_popular_short_is_found(env):
     assert views["value"] == 300_000 and views["source"] == "YouTube Data API" and views["at"]  # provenance kept
     run("source_scout")
     src = {s["external_id"]: s for s in db.select("sources")}
-    assert src["short01aaaa"]["status"] == "skipped" and "short" in src["short01aaaa"]["status_note"]
+    assert "short01aaaa" not in src
+    assert any("Too short" in reason for reason in state.get("discovery:shortlist")["reasons"])
     assert src["longvid0001"]["status"] in ("needs_rights", "needs_file", "eligible")  # a real candidate
 
 
@@ -144,7 +146,7 @@ def test_a_failing_provider_does_not_stop_discovery(env):
 
 def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     from clipfoundry import db
-    from clipfoundry.autopilot import access, rights, state
+    from clipfoundry.autopilot import access, rights, scout, state
 
     lib = env["lib"]
     monkeypatch.setattr(access, "LIBRARY_HOSTS", {"commons": ("127.0.0.1",)})  # the stand-in serves the files
@@ -165,9 +167,15 @@ def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     assert cc["rights_status"] == rights.CC and cc["status"] in ("eligible", "queued")
     assert pd["rights_status"] == rights.PD and pd["status"] in ("eligible", "queued")
     for t in ("Space lecture share alike", "Space interview non commercial", "Space parade with people"):
-        assert src[t]["rights_status"] == rights.MANUAL and src[t]["status"] == "needs_rights", t
-    assert "share-alike" in src["Space lecture share alike"]["rights_basis"]
-    assert src["Space short clip"]["status"] == "skipped"
+        signal = db.select("trend_signals", "title = ?", (t,))[0]
+        evaluation = rights.evaluate(scout.source_from_signal(signal))
+        assert evaluation["status"] == rights.MANUAL and not evaluation["auto_allowed"], t
+        if t in src:
+            assert src[t]["rights_status"] == rights.MANUAL and src[t]["status"] == "needs_rights", t
+    share_alike = db.select("trend_signals", "title = 'Space lecture share alike'")[0]
+    assert "share-alike" in rights.evaluate(scout.source_from_signal(share_alike))["basis"]
+    assert "Space short clip" not in src
+    assert any("Too short" in reason for reason in state.get("discovery:shortlist")["reasons"])
     credit = rights.attribution(cc)
     assert "Ada Lovelace" in credit and "CC BY 4.0" in credit and "Wikimedia Commons" in credit
     assert rights.attribution(pd) == ""  # public domain without a required credit

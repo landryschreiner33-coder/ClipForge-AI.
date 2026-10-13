@@ -5,11 +5,11 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 from .. import config, db, learning, secure
-from . import audience, jobs, stats, tiktok, youtube
+from . import audience, jobs, stats, tiktok, tiktok_setup, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
 
@@ -91,6 +91,39 @@ def youtube_disconnect(request: Request) -> dict:
 
 
 # ------------------------------------------------------------------ TikTok sign-in
+@router.get("/api/publish/tiktok/setup", dependencies=[Depends(local_only)])
+def tiktok_setup_get(request: Request) -> dict:
+    return tiktok_setup.form_packet(db.get_settings(), redirect_uri(request, "tiktok"))
+
+
+@router.post("/api/publish/tiktok/setup", dependencies=[Depends(app_request)])
+def tiktok_setup_draft(request: Request, body: tiktok_setup.SetupDraft) -> dict:
+    """Build a form preview; no settings, account state or developer-portal data are changed."""
+    try:
+        return tiktok_setup.form_packet(db.get_settings(), redirect_uri(request, "tiktok"), body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/publish/tiktok/setup/export", dependencies=[Depends(app_request)])
+def tiktok_setup_export(request: Request, body: tiktok_setup.SetupDraft) -> Response:
+    packet = tiktok_setup_draft(request, body)
+    try:
+        data = tiktok_setup.export_packet(packet)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="ClipFoundry-TikTok-form.zip"'})
+
+
+@router.get("/api/publish/tiktok/setup/icon/{theme}", dependencies=[Depends(local_only)])
+def tiktok_setup_icon(theme: str) -> FileResponse:
+    if theme not in ("dark", "light"):
+        raise HTTPException(404, "Unknown icon")
+    return FileResponse(config.ROOT_DIR / "design" / "tiktok" / f"app-icon-{theme}.png",
+                        media_type="image/png", filename=f"ClipFoundry-icon-{theme}.png")
+
+
 @router.post("/api/publish/tiktok/connect", dependencies=[Depends(app_request)])
 def tiktok_connect(request: Request) -> dict:
     settings = db.get_settings()

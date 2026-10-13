@@ -288,7 +288,8 @@ def test_inaccessible_candidate_keeps_discovery_info_and_autopilot_picks_another
 
     routes, _, _ = public_site
     routes["/locked"] = (401, {"Content-Type": "text/html"}, b"<html>sign in</html>")
-    db.save_settings({"autopilot_sources_per_day": 1})
+    # The unlimited replacement behavior remains available by opting out of quality-first's attempt budget.
+    db.save_settings({"autopilot_sources_per_day": 1, "discovery_quality_first": False})
     settings = db.get_settings()
     locked = rights.apply(_candidate("locked", 90), settings)
     other = rights.apply(_candidate("other", 60), settings)

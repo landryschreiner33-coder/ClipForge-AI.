@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Accounts, api, errorText, Platform, PlatformAccount } from "../api";
 import { ConfirmDialog, Disclosure, Icon, Pill, toast } from "./ui";
+import { TikTokSetup } from "./TikTokSetup";
 
 export const PLATFORM_NAME: Record<Platform, string> = { youtube: "YouTube", tiktok: "TikTok" };
 
@@ -140,11 +141,13 @@ export function TikTokSetupSteps() {
   return (
     <div className="setup">
       <ol>
-        <li>Sign in at <b>developers.tiktok.com</b> and create an app (any name, category “Video”).</li>
+        <li>Sign in at <b>developers.tiktok.com</b> and create <b>ClipFoundry</b>, category Video or the closest
+          video-editing option. Select the platform <b>Desktop</b>.</li>
         <li>Add the products <b>Login Kit</b> (platform <i>Desktop</i>) and <b>Content Posting API</b>. In Content
           Posting API, turn on <b>Direct Post</b> if you want to post directly.</li>
-        <li>Add the scopes <code>user.info.basic</code>, <code>video.upload</code>, <code>video.publish</code> (Direct
-          Post) and <code>video.list</code> (statistics).</li>
+        <li>Use the form helper to select the smallest permissions for your chosen posting option. Inbox needs
+          <code> user.info.basic</code> and <code>video.upload</code>; Direct Post needs <code>video.publish</code>.
+          Add Display API and <code>video.list</code> only if you want your posted-video statistics.</li>
         <li>In Login Kit, register the redirect address shown here. If you start ClipFoundry on another port, register
           that port too.</li>
         <li>While the app is not reviewed, create a <b>Sandbox</b> in it and add your TikTok account as a target user
@@ -210,7 +213,8 @@ export function SetupAndConnect({ platform, account, onChange }: {
       <div className="row wrap">
         <ConnectButton platform={platform} account={account} onChange={onChange} beforeConnect={save} big />
       </div>
-      <Disclosure plain summary="How to get these codes (free, about 10 minutes)">
+      {!yt && <TikTokSetup account={account} />}
+      <Disclosure plain summary={yt ? "How to get these codes (free, about 10 minutes)" : "TikTok connection steps"}>
         {yt ? <YouTubeSetupSteps testingNote={account?.testing_note} /> : <TikTokSetupSteps />}
       </Disclosure>
     </div>

@@ -393,6 +393,9 @@ export interface AutopilotStatus {
   trends: TrendSignal[];
   providers: Record<string, ProviderStatus>;
   web_search: { used: number; free: number; allowed: number; budget_usd: number; cost_usd: number; month: string };
+  discovery_shortlist?: { enabled: boolean; checked: number; admitted: number; held: number; filtered: number;
+    backlog: number; daily_attempts_remaining: number; message: string;
+    reasons: Record<string, number> | { reason: string; count: number }[] } | null;
   settings: Record<string, any>;
   home: HomeView;
 }

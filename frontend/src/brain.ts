@@ -23,7 +23,9 @@ export const knowledgeApi = {
   list: (q = "", kind = "") => req<Knowledge[]>("GET", `${base}?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}`),
   workspace: () => req<Workspace>("GET", `${base}/workspace`),
   create: (body: KnowledgeInput) => req<Knowledge>("POST", base, body),
-  edit: (id: string, body: Partial<KnowledgeInput>) => req<Knowledge>("PATCH", `${base}/${id}`, body),
+  edit: (id: string, body: Partial<KnowledgeInput>, expectedRevision?: number) =>
+    req<Knowledge>("PATCH", `${base}/${id}`, { ...body,
+      ...(expectedRevision === undefined ? {} : { expected_revision: expectedRevision }) }),
   approve: (item: Knowledge) => req<Knowledge>("POST", `${base}/${item.id}/approve`, { revision: item.revision }),
   delete: (id: string) => req<{ deleted: boolean }>("DELETE", `${base}/${id}`),
   preview: (text: string) => req<DecisionPreview>("POST", `${base}/preview`, { text }),

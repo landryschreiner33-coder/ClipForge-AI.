@@ -1,10 +1,60 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-11 (UTC).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-13 (UTC).
 Fetch before trusting branch state.
 
 ## Current scope and branch
+
+Current work is on `codex/brain-graph-quality-discovery`, starting at
+`8999e5fb29a0e1455d8fccff4037d6f089f9091b` from the default branch. PR #14 is merged. Its draft/unmerged notes and
+test counts below describe historical checkpoints and are superseded by this branch's status.
+
+The owner requested a finished app and Windows installer, simpler TikTok app setup, a visible Brain graph and
+quality before quantity in discovery. Settings now includes **Help me fill out the TikTok app form**: copyable
+details, the actual Desktop callback for the current local port, two 1024×1024 PNG icons, scope explanations and
+a form-pack ZIP with local draft website/legal pages. Inbox uses `user.info.basic,video.upload`; Direct Post uses
+`user.info.basic,video.publish`; optional statistics adds `video.list` and Display API. Applying choices, saving
+Settings and reconnecting are separate steps. Existing permission choices are preserved until explicitly changed.
+The helper prepares a draft only when opened. It checks URL format locally, does not submit a review or deploy pages,
+and excludes app credentials,
+tokens, account identities and owner media from the export. TikTok's personal-tool eligibility, Sandbox limits,
+per-post consent and private-profile restriction still apply. See [the setup guide](docs/TIKTOK_APP_SETUP.md).
+
+Brain now opens an interactive graph with saved notes, approved preferences, examples, shared topic tags,
+recorded clip influence and result readings. Selecting a note or evidence opens its stored record and provenance.
+Category/tag edges organize knowledge; influence edges identify the applied revision. Positions and glow are decorative,
+not hidden AI thoughts. The graph is bounded to 160 saved items, 32 topics and 48 recent evidence records; list,
+editor, history and full knowledge export retain access to the other saved data. **Add note** starts a simple note,
+with an optional title derived from its text. **Teach preference** presents supported choices that still require
+explicit review/approval before new Autopilot clips use them. Documents and examples do not fine-tune a model.
+The editor sends its displayed revision; stale edits return HTTP 409 and preserve the draft until explicit reload.
+
+**Missions → Permissions & sources → Quality before quantity** enables focused broad-search discovery by default:
+three new candidates per pass, six unfinished automatic search picks including `needs_rights`, one known creator
+per pass and two per topic. The existing daily attempt budget remains three by default; weak outcomes do not
+justify more attempts to fill the clip target. Explicit links, chosen folders/channels and manual work retain
+their existing behavior. Scores and expected clips remain estimates until full analysis and final-file checks.
+Optional Tavily setup explains its free 1,000-credit monthly plan without a card; saving a new key with the free
+option explicitly sets the app allowance to 1,000 and its monthly spending limit to $0. Other settings are retained.
+
+**Current validation:** the final full fast suite passed **804 checks**, with **8 slow cases deselected**, in
+**429.01 s**; Python source is unchanged. All eight media cases are covered by seven initial passes (965.89 s,
+one environment disk-capacity failure) and the unchanged live case passing in 48.81 s on workspace temp storage.
+Final browser coverage is **52 unique checks across runs**: the initial 44-case batch had 42 passes/two failures
+in 12.7 min; the final 11 changed-UI plus eight strict read-only Settings cases all passed in 1.1 min; the complete
+loop passed in 7.0 min. Ten cases overlap between the initial/final batches. Lazy helper preparation fixes the
+background preview request; one stale Public-visibility assertion was maintained without changing read-only
+flows. Recorder/temp-storage environment fixes preserved the full loop. The latest build passed in **4.06 s**;
+all 14 tested/captured file hashes match. Current graph previews came from the final run. Earlier interrupted
+outputs are not final passes. Installer integrity is tracked separately on `codex/clipfoundry-one-click`.
+Final results are recorded at the top of
+[IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). See the
+[desktop/mobile/empty graph previews](design/brain-workspace/README.md) for controlled-data provenance.
+Windows execution, RTX 3050 CUDA/NVENC, real platform accounts/grants/visibility and an actual 24-hour soak remain
+unverified. No real upload, account-permission change or website deployment is claimed by this checkpoint.
+
+## Historical PR #14 scope and branch
 
 The owner authorized merging PR #14 after one final pass on October 11. This pre-merge checkpoint follows
 `51984a3`; check GitHub for the actual merge state. Independent review found no material blocker, and the
@@ -138,7 +188,7 @@ The owner explicitly superseded selected-only new uploads and hiding idle robots
 explicit setup/consent and eligible platform capability. Existing posts and scheduled Private uploads retain their
 visibility. Never send test videos to owner accounts, buy hosting, deploy, or change account permissions.
 
-## Implemented in this continuation
+## Historical PR #14 implementation
 
 * All 25 robot identities remain individually visible at desks or reserved lounge places, with named labels and
   overhead state icons. Task selection includes shared references, dependencies, blocked reason and next robot.
@@ -177,7 +227,7 @@ visibility. Never send test videos to owner accounts, buy hosting, deploy, or ch
   another initializer reads the schema; old-project preservation and concurrent startup regressions pass.
   Separate Windows launcher `test-isolated.bat`: own `data\pr14-test`, videos, `.venv` and port 8899.
 
-## Validation
+## Historical PR #14 validation
 
 Latest unattended-Public validation is recorded at the top of
 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md). Full fast Python passed 757 tests, eight slow deselected,
@@ -265,8 +315,10 @@ screen was added. Knowledge controls are intentionally typed; arbitrary prose do
 
 ## Do not break
 
-Keep `.mcp.json`, GPU dependencies and `e2e/tests` unchanged; no Playwright pins. Commit built `frontend/dist`.
+Keep `.mcp.json` and GPU dependencies unchanged; no Playwright pins. Preserve the owner-data browser tests'
+read-only workflows and request blocker. One stale Integrations assertion now matches the already implemented
+Public choice; it does not select an audience, grant permission or issue a write. Commit built `frontend/dist`.
 Preserve exact-file quality/approval hashes, reuse eligibility, access guards, account-bound consent, limits,
 duplicate prevention/recovery and emergency stop. No silent CPU fallback in Autopilot. Never fabricate processing
 progress, metrics or visibility; keep decorative recreation visibly separate from actual job activity.
-PR #14 stays draft/unmerged until the owner decides otherwise.
+PR #14 is merged; follow the current scope and branch recorded above.

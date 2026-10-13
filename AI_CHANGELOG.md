@@ -7,6 +7,49 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-13 · TikTok setup, visible Brain graph and focused discovery
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `8999e5f` from the default branch;
+  PR #14 is already merged. **Result:** the commit containing this entry.
+* **What changed:** TikTok form helper supplies copyable app details, current-port Desktop callback, two 1024×1024
+  PNG icons, products/scopes and a form-pack export with local draft website/legal pages. Inbox, Direct Post and
+  optional statistics request only their chosen permissions after applying, saving and reconnecting. Exports
+  exclude credentials, tokens, account identity and owner media; URL checks are syntactic, with no network fetch.
+  The helper prepares drafts only when opened and does not claim registration, review approval, hosting or an
+  actual integration demo.
+  Brain's interactive graph shows actual saved notes/examples/preferences, shared tags and recorded readings and
+  clip influence; notes/evidence open their stored records/provenance. Decorative glow and positions are not model
+  thoughts.
+  Add note is simpler; Teach preference retains explicit revision review/approval. Stale edits return 409 and keep
+  unsaved text until explicit reload. Uploaded material does not fine-tune a model.
+  Quality-first broad discovery defaults to three picks per pass, six unfinished picks including needs-rights,
+  one known creator and two per topic. The existing default three-attempt daily budget remains; explicit inputs
+  keep their behavior and weak estimates do not trigger unlimited attempts to fill the clip target.
+  Tavily's optional free-key setup explains 1,000 monthly credits/no card and explicitly selects a $0 app spending
+  limit when chosen, preserving other settings. No new graphics or browser dependency was added.
+  One read-only Integrations assertion now expects the already implemented explicit Public audience choice,
+  while Unlisted remains absent. Owner-data test flows and the HTTP write blocker are unchanged; no permission
+  is selected or saved by that test.
+* **Why:** the owner requested a finished app and Windows installer, clearer TikTok setup, an Obsidian-style view
+  of saved Brain data and stronger discovery choices instead of chasing more clips.
+* **Validation:** final full fast Python: **804 passed**, eight slow deselected, in **429.01 s**; Python is unchanged.
+  All eight media cases passed across the initial run (seven passed, one environment disk-capacity failure,
+  965.89 s) and unchanged live rerun (48.81 s) using workspace temp storage.
+  **52 unique browser checks** are covered across runs: initial 42 passed/two failed in 12.7 min; final 19 passed
+  in 1.1 min (11 changed UI, eight strict read-only Settings; ten overlap the initial batch); complete loop one
+  passed in 7.0 min. The final lazy helper fixes background preparation; the old Public assertion was updated
+  with read-only policy intact. Recorder/temp-storage prerequisites were fixed for the actual complete loop.
+  Final build passed in **4.06 s**; all 14 tested/captured hashes match.
+  [Desktop/mobile/empty previews](design/brain-workspace/README.md) use controlled records from the final run.
+  Earlier interrupted outputs and historical checkpoint counts are separate evidence. The Windows installer
+  has a separate bundle/integrity record on `codex/clipfoundry-one-click`; native Windows remains unverified.
+* **Not verified:** Windows installation/execution, RTX 3050 CUDA/NVENC, real platform grants/visibility and an
+  actual 24-hour soak. TikTok personal-tool eligibility, Sandbox/public limits and per-post consent remain external
+  constraints. No real upload, app registration/review, account-permission change or website deployment occurred.
+
+The PR #14 entries below retain their original branch status and evidence. PR #14 is now merged; earlier
+draft/unmerged instructions are historical and do not govern this new checkpoint.
+
 ## 2026-10-11 · Final merge review and stable log-rotation check
 
 * **Tool:** Codex. **Branch:** `claude/project-thread-vw1n9y`, PR #14. **Base:** `51984a3`.

@@ -62,7 +62,9 @@ def configured(settings: dict) -> bool:
 
 
 def scopes(settings: dict) -> list[str]:
-    s = ["user.info.basic", "video.upload"]
+    s = ["user.info.basic"]
+    if settings.get("tiktok_inbox_upload", True):
+        s.append("video.upload")
     if settings.get("tiktok_direct_post", True):
         s.append("video.publish")
     if settings.get("tiktok_read_stats", True):

@@ -56,6 +56,10 @@ computer ClipFoundry runs on, so those tests would fail.
 
 ## What is covered
 
+The Integrations assertion now includes the explicit Public audience choice already implemented in ClipFoundry,
+with Unlisted still absent. Earlier selected-only expectations are superseded. This changes only the expected
+display/radio count: the test never selects Public, grants a publishing permission or sends a write.
+
 | File | Checks |
 | --- | --- |
 | `tests/app-shell.spec.ts` | Health API, the built UI is served, the top bar reaches Office, Missions, Clips, Queue and Settings (marked, focus on the title, tab title), Autopilot's state word, old addresses (`#/home`, `#/projects`, `#/library`, `#/posts/...`, `#/publish-center/...`, `#/autopilot/...`) open the new pages without trapping Back, unknown addresses, the skip link, the Menu on a narrow window, no sideways scrolling at phone size, Terms and Privacy |
@@ -93,6 +97,26 @@ manager, a decision gets COMMAND's reaction, old events move nobody, paused and 
 including Full overriding system reduced motion. `sandbox/brain-workspace.spec.ts` checks actual document upload,
 approval, reload, lookup preview, disable/delete/export and responsive layout. The sandbox tests write the
 screenshots in `design/robot-office/screenshots`.
+
+`sandbox/brain-graph.spec.ts` adds five controlled knowledge-graph checks: stored notes/tags and recorded influence
+and result provenance; a stale revision returning 409 while preserving the draft until explicit reload; a simple
+note with a derived title and separate exact-revision approval of supported preferences; mobile layout and
+Reduced/hidden motion freeze; and disclosed graph caps with saved items beyond the cap still opening in the editor.
+Every mutation is intercepted. [Desktop, mobile and empty-state previews](../design/brain-workspace/README.md) are
+captured from the production build with clearly described controlled test data. These five focused graph checks
+passed in their capture run; the fresh complete-suite outcome is recorded separately in the implementation log.
+
+`sandbox/discovery-quality.spec.ts` adds four controlled settings checks: focused defaults and recorded reasons,
+saving only the changed choice; a new free key explicitly choosing 1,000 credits and a $0 app spending limit;
+out-of-range/fractional shortlist counts producing no save request; and an existing fractional score floor staying
+valid when another choice changes. Only mocked settings responses change; owner data and external services do not.
+`sandbox/tiktok-setup.spec.ts` checks the controlled form helper, selected least permissions, Desktop callback,
+optional statistics, invalid website blocking, truthful eligibility text and no preparation before opening it.
+Form draft/account/settings
+requests are intercepted; this does not constitute a real TikTok integration demo or platform approval.
+All three new files are selected by `playwright.sandbox.config.ts`. Final coverage is 52 unique browser checks
+across the initial batch, final 19 changed-UI/read-only cases and complete-loop rerun; it was not one 52-case batch.
+[IMPLEMENTATION_STATUS.md](../docs/IMPLEMENTATION_STATUS.md) records exact results, overlap and corrections.
 
 `sandbox/pixel-office.spec.ts` targets the refined **PixiJS 8.22.0** office in the isolated sandbox. It checks that
 the production scene paints actual pixels, all 25 selectable roles remain present, repeated Map/List changes and

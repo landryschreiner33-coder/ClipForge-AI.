@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .. import awake, db
-from . import autopublish, myvideos, queue, rights, state
+from . import autopublish, myvideos, queue, rights, state, trends
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -322,6 +322,7 @@ def needs_videos(settings: dict) -> dict | None:
 
 def opportunities(limit: int = 5) -> list[dict]:
     """The strongest things discovery found, with where each one stands."""
+    quality_mode = bool(db.get_settings().get("discovery_quality_first", True))
     sigs = db.select("trend_signals", "status = 'active'", (), "score DESC, last_checked DESC", 60)
     by_signal: dict[str, dict] = {}
     if sigs:
@@ -331,6 +332,8 @@ def opportunities(limit: int = 5) -> list[dict]:
     out = []
     for s in sigs:
         src = by_signal.get(s["id"])
+        if quality_mode and not src and trends.broad_discovery(s):
+            continue  # rejected/held search evidence is not an opportunity already admitted for clipping
         if src and src["status"] in NOT_OPPORTUNITIES:
             continue
         made = int((src or {}).get("clips_selected") or 0)
@@ -421,6 +424,12 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return (f"Nothing it may use yet: the {skipped} video{'s' if skipped != 1 else ''} it found belong to other "
                 "people (not covered by an agreement or license) or cannot be downloaded. Put your own videos in your "
                 "videos folder. Activity shows why each was skipped.")
+    short = state.get("discovery:shortlist") or {}
+    if settings.get("discovery_quality_first", True) and short.get("enabled") and \
+            (short.get("filtered") or short.get("held")):
+        return (f"No stronger videos added this time. {int(short.get('filtered') or 0)} weaker or unsuitable finds "
+                f"were ignored; {int(short.get('held') or 0)} are waiting for a later search. "
+                "Your videos and links are still checked normally.")
     return "No strong opportunities yet. ClipFoundry is still looking."
 
 

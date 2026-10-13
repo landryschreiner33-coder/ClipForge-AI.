@@ -153,9 +153,10 @@ test("Integrations says who watches and what each connection can do", async ({ p
     const d = aud[p];
     await expect(row).toContainText(d.confirmed ? `${d.label} · confirmed` : d.intent === "LOCAL_ONLY"
       ? "Kept on this PC" : "Not confirmed");
-    // never public, unlisted or "Everyone": those are not offered
-    await expect(row.getByRole("radio")).toHaveCount(p === "tiktok" && d.intent === "SELECTED_AUDIENCE" ? 5 : 3);
-    await expect(row.getByText(/public|unlisted|everyone/i)).toHaveCount(0);
+    // Public is an explicit setup choice; granting automatic publishing remains a separate action.
+    await expect(row.getByRole("radio")).toHaveCount(p === "tiktok" && d.intent === "SELECTED_AUDIENCE" ? 6 : 4);
+    await expect(row.getByRole("radio", { name: /^Public audience/ })).toHaveCount(1);
+    await expect(row.getByText(/unlisted/i)).toHaveCount(0);
   }
   const cards = page.locator(".integration");
   await expect(cards).toHaveCount(int.cards.filter((c: any) => c.id !== "nvidia").length);

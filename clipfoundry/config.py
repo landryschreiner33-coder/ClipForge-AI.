@@ -116,6 +116,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_client_secret": "",
     "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
     "tiktok_direct_post": True,         # request video.publish (Direct Post) when connecting
+    "tiktok_inbox_upload": True,        # request video.upload (inbox draft) when connecting
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
     # Who may watch uploads (publish/audience.py): selected (your test viewers), owner_only (staging that only you
     # see) or local_only (never uploaded). Nothing uploads until you confirm the destination once per platform.
@@ -173,6 +174,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "discovery_excluded_topics": "",         # comma-separated words or phrases the owner does not want
     "discovery_audience_terms": "United States, USA, American, NBA, NFL",  # context clues, never audience demographics
     "discovery_min_source_score": 50.0,      # never lower this estimate floor just to fill today's target
+    "discovery_quality_first": True,        # shortlist strong estimates; do not chase the clip target with more tries
+    "discovery_candidates_per_scan": 3,     # new broad-search candidates, not manually supplied/selected sources
+    "discovery_queue_limit": 6,             # unfinished automatic search picks before admitting more
+    "discovery_creator_limit": 1,           # one creator cannot occupy a whole discovery shortlist
     "discovery_require_complete_clips": True,  # transcript must contain hook, context and payoff before auto-render
     "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
     "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
@@ -281,6 +286,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
 
 _RANGES: dict[str, tuple[float, float]] = {
     "discovery_min_source_score": (0.0, 100.0),
+    "discovery_candidates_per_scan": (1, 30), "discovery_queue_limit": (1, 100),
+    "discovery_creator_limit": (1, 30),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
     "brain_min_testers": (2, 100), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),

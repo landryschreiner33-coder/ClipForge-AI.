@@ -231,7 +231,8 @@ def test_trend_and_source_scout(google, data, tmp_path, monkeypatch):
     usage = quota.usage()
     assert usage["search"]["by_purpose"]["discovery"] >= 3 and usage["default"]["units"] >= 2
 
-    db.save_settings({"autopilot_sources_per_day": 2})
+    # This legacy coverage inspects every rejected row. Quality-first's bounded admission has its own suite.
+    db.save_settings({"autopilot_sources_per_day": 2, "discovery_quality_first": False})
     run("source_scout")
     src = {s["external_id"]: s for s in db.select("sources")}
     assert "short1" in src and src["short1"]["status"] == "skipped" and "short" in src["short1"]["status_note"]

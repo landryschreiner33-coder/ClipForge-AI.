@@ -22,6 +22,7 @@ add("accounts", {
   youtube_project_verified: "YouTube audit (optional quota information)", tiktok_client_key: "TikTok client key",
   tiktok_client_secret: "TikTok client secret", tiktok_direct_post: "TikTok Direct Post permission",
   tiktok_read_stats: "TikTok statistics permission", tiktok_app_audited: "TikTok audit",
+  tiktok_inbox_upload: "TikTok inbox permission",
 });
 add("defaults", {
   clip_count: "Clips per video", min_duration: "Shortest clip", max_duration: "Longest clip",
@@ -53,6 +54,8 @@ add("advanced", {
   discovery_require_topic_match: "Require a topic match", discovery_excluded_topics: "Topics to skip",
   discovery_audience_terms: "Audience context clues", discovery_min_source_score: "Minimum discovery estimate",
   discovery_require_complete_clips: "Require a complete story",
+  discovery_quality_first: "Quality before quantity", discovery_candidates_per_scan: "New finds per search",
+  discovery_queue_limit: "Unfinished search limit", discovery_creator_limit: "Finds from one creator",
   youtube_derived_metrics_approved: "Derived metrics approval", tavily_api_key: "Web search key",
   tavily_free_credits: "Web search credits", discovery_monthly_budget_usd: "Monthly cost limit",
   library_discovery: "Free-license library", rights_auto_licensed: "Licensed sources",
@@ -90,6 +93,7 @@ const RANGES: Record<string, [number, number]> = {
   autopilot_upload_lead_minutes: [5, 720], autopilot_max_source_gb: [0.5, 200], autopilot_max_source_minutes: [5, 1440],
   trend_poll_minutes: [15, 1440], trend_max_age_hours: [6, 720], youtube_quota_default: [0, 10_000_000],
   discovery_min_source_score: [0, 100],
+  discovery_candidates_per_scan: [1, 30], discovery_queue_limit: [1, 100], discovery_creator_limit: [1, 30],
   youtube_quota_uploads: [0, 100_000], youtube_quota_search: [0, 100_000], youtube_discovery_share: [0, 90],
   youtube_search_discovery_share: [0, 100], gpu_min_free_vram_mb: [0, 48_000], gpu_wait_minutes: [1, 720],
   tavily_free_credits: [0, 1_000_000], discovery_monthly_budget_usd: [0, 1000],
@@ -107,6 +111,7 @@ const INTEGER = new Set([
   "youtube_search_discovery_share", "gpu_min_free_vram_mb", "gpu_wait_minutes", "tavily_free_credits",
   "nvidia_daily_requests", "nvidia_daily_tokens", "nvidia_max_input_tokens", "nvidia_max_output_tokens",
   "brain_min_clips", "brain_min_views", "brain_min_testers",
+  "discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit",
 ]);
 
 export function validTimeZone(tz: string): boolean {

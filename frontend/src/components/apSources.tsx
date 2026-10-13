@@ -6,6 +6,7 @@ import {
 import { plural } from "../format";
 import { navigate } from "../router";
 import { PLATFORM_NAME } from "./accounts";
+import DiscoveryControls from "./discoveryControls";
 import {
   ConfirmDialog, Icon, MenuItem, MoreMenu, Pill, Segmented, TextPromptDialog, toast, Toggle, Tone, usePoll,
 } from "./ui";
@@ -95,6 +96,7 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
 
   return (
     <>
+      <DiscoveryControls st={st} refresh={refreshStatus} />
       <section className="panel agreements" aria-labelledby="agr">
         <div className="panel-head">
           <h2 id="agr">Creator agreements</h2>

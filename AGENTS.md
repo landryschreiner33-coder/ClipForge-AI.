@@ -109,10 +109,10 @@ cd e2e && npm run test:sandbox                    # beginner, motion, robot and 
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Current continuation (2026-10-08)
+## Historical continuation (2026-10-08)
 
-See [AI_HANDOFF.md](AI_HANDOFF.md) for the new Public/Brain/discovery/reliability scope and current verification.
-The historical status below predates that continuation; its selected-only and hidden-idle descriptions are superseded.
+PR #14 is merged. See [AI_HANDOFF.md](AI_HANDOFF.md) for the current October 13 Brain/discovery/TikTok checkpoint
+and verification. The status below describes earlier work; its old branch-state instructions are historical.
 
 ## Earlier status (2026-10-08)
 
@@ -327,7 +327,10 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
 
-## Current continuation scope (2026-10-08)
+## Historical continuation scope (2026-10-08)
+
+This scope describes the then-unmerged PR #14. That PR is now merged; the current October 13 scope and branch
+are recorded in [AI_HANDOFF.md](AI_HANDOFF.md). The standing owner instructions below remain in force.
 
 Finish PR #14 on `claude/project-thread-vw1n9y`, unmerged. Improve all 25 visible robots with truthful state icons
 and Follow system / Full / Reduced animation settings; a durable, editable Brain reference workspace with recorded

@@ -22,7 +22,7 @@
 </header>
 <main class="wrap doc">
 <h1>Privacy Policy</h1>
-<p class="meta">ClipFoundry · Effective October 7, 2026</p>
+<p class="meta">ClipFoundry · Effective October 13, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -59,9 +59,10 @@
   (<code>Videos\ClipFoundry</code>) for videos you want it to use.
 </p>
 <p>
-  ClipFoundry doesn't use cookies. The Reduce motion preference stays in your browser's local storage on this
-  computer and is not sent to a platform. Clearing browser storage removes it; your operating system's motion
-  preference still applies. This preference does not change video files or processing settings.
+  ClipFoundry doesn't use cookies. The Follow system, Full or Reduced animation preference stays in your browser's
+  local storage on this computer and is not sent to a platform. Clearing browser storage removes it; your operating
+  system's motion preference still applies when Follow system is selected. This preference does not change video
+  files or processing settings.
   When a screen shows your YouTube or TikTok profile
   picture, your browser loads that picture from Google's or TikTok's servers, which can see your computer's IP
   address.
@@ -105,6 +106,18 @@
       made. Uploaded code is not executed; uploading does not fine-tune a model. These files stay on this PC</td>
       <td>References and originals: until you delete the item or data folder. Influence snapshots: until the clip
       or data folder is deleted. Export includes reference metadata/text and snapshots; originals download separately</td></tr>
+    <tr><td>Brain memory graph</td><td>A view of saved notes, example metadata, topics, approved preferences and
+      recorded influence and results. The graph is derived from these existing local records; saving a note does
+      not train a model, and supported preferences need a separate review and approval before use on new clips</td>
+      <td>The underlying records have the retention periods above. View mode and the selected knowledge item's ID
+      stay in this tab's browser session storage until the tab closes or you clear it; no note text is stored there.
+      Graph viewport stays in memory in the open page. These view choices are not sent to a platform</td></tr>
+    <tr><td>TikTok form draft</td><td>Public website, Terms and Privacy addresses you enter, posting-permission
+      choices and a checklist of steps you say you completed. The optional form ZIP includes those draft fields,
+      app descriptions, icons and copies of the draft static website/legal pages. It excludes app codes, sign-in
+      tokens, connected-account details and owner media</td><td>Draft fields and checklist: memory in this app tab
+      until reload or close, not browser storage or the app database. An exported ZIP stays where you download it
+      until you delete it. Applying and saving permission choices stores those connection settings separately</td></tr>
     <tr><td>Who watches your uploads</td><td>For each platform, the audience you chose (Public, your invited viewers, your
       approved followers or friends, only you, or nothing uploaded), when you confirmed it and when you said the
       group changed, and for each upload the audience it was approved for, the account it was approved for, and
@@ -114,8 +127,9 @@
       watch; video and stream links you paste, their queue order, progress, cancellation and retry records;
       the names and locations of video files it found in your folders; the public titles, links, channel names
       and statistics of videos it found online; which ones it used or skipped and why; permissions and creator
-      agreements you recorded; the automatic-publishing permission you gave, with its wording; and what it learned
-      from your results</td><td>YouTube videos it found but did not use: deleted after 30 days. Videos it used: their
+      agreements you recorded; shortlist admission and hold/filter reasons; the automatic-publishing permission
+      you gave, with its wording; and what it learned from your results</td><td>YouTube videos it found but did not
+      use: deleted after 30 days. Videos it used: their
       YouTube statistics are deleted after 30 days, while their title, channel and link stay. Folders, channels, live
       streams and lists it watches: until you remove them. Your topics: until you change them. Everything else,
       including videos it found elsewhere: until you delete the data folder. When you remove a permission or an
@@ -181,8 +195,8 @@
       one</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
       also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and your TikTok
-      app's client key and secret; the videos you approve with their caption and settings (never visible to
-      everyone: only your followers or friends, or only you); requests for your posting
+      app's client key and secret; the videos you approve with their caption and settings, using only a privacy
+      choice supported by TikTok and explicitly approved by you; requests for your posting
       options, your posts' status and results; public TikTok links, to check which account posted them</td></tr>
     <tr><td>Wikimedia Commons</td><td>Autopilot searches the free-license video library (on unless you turn it
       off)</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
@@ -268,10 +282,27 @@
 <p>When you connect TikTok, ClipFoundry asks TikTok for these permissions:</p>
 <ul>
   <li><code>user.info.basic</code>, for your display name and profile picture.</li>
-  <li><code>video.upload</code>, to send a video to your TikTok inbox as a draft that you finish in the TikTok app.</li>
+  <li><code>video.upload</code>, to send a video to your TikTok inbox as a draft that you finish in the TikTok app
+    (unless you turn this off).</li>
   <li><code>video.publish</code>, to post a video you approved straight to your profile (unless you turn this off).</li>
   <li><code>video.list</code>, for the statistics of your own videos (unless you turn this off).</li>
 </ul>
+<p>
+  The form helper lets you choose inbox, Direct Post only, or both, and optionally read your posted-video statistics.
+  Apply the choices, save Settings and reconnect to request those permissions. Your existing connection keeps its
+  previously granted scopes until reconnecting. A self-reported setup checklist cannot mark the app approved or
+  audited. The helper checks public URL format without fetching the pages and cannot verify ownership, review or
+  audit status. Downloading its draft form pack does not contact TikTok, submit a form or publish a website.
+  Entered invalid public addresses, including credential-bearing or query-bearing links, block export; blank fields
+  are allowed in an incomplete draft.
+</p>
+<p>
+  TikTok decides app eligibility and approvals. Its production guidelines reject personal/private utility tools,
+  which can prevent this app from receiving posting access. Sandbox cannot post Public videos; unaudited Direct
+  Post requires a private account and Only me. A private TikTok profile cannot offer Everyone. Every upload still
+  needs your preview, supported privacy choice and per-post consent. If API access is unavailable, you can export
+  the video and caption and post them yourself in TikTok.
+</p>
 <p>
   ClipFoundry stores your sign-in tokens, your TikTok account ID, your display name, a link to your profile picture
   and the permissions you granted. For each post it stores the caption, the choices you made, the post's ID and status,

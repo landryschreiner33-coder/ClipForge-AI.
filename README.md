@@ -28,6 +28,7 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
 [Processing measurements and server advice](docs/PERFORMANCE.md).
 [Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).
 [Optional unattended launcher and Windows startup](docs/UNATTENDED.md).
+[TikTok developer form and connection guide](docs/TIKTOK_APP_SETUP.md).
 
 ## Getting started (beginner steps)
 
@@ -49,6 +50,10 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
      ClipFoundry prepares each one in **Queue → Problems → Ready for you to post on TikTok** (download the video, copy
      the caption, choose a privacy option TikTok offers, then paste its link). A private TikTok profile cannot offer
      **Everyone**; this app does not change your profile's privacy.
+   In **Settings → Accounts → TikTok**, open **Help me fill out the TikTok app form** for copyable app details,
+   icons, your actual local callback address and a form pack. Choose inbox, Direct Post or both; statistics are
+   optional. **Use these permissions in ClipFoundry**, save Settings and reconnect to request the chosen scopes.
+   The helper prepares a truthful personal-app draft; TikTok decides eligibility, app review and audit approval.
 5. **Watch the office.** All 25 robots keep their names and real state icons. Working robots sit at their desks;
    off-duty robots play arcade and board games, drink coffee, eat snacks and read in the lounge. They change
    activities without sharing a spot, and real work takes priority. Confirmed transitions can pass a document
@@ -86,6 +91,45 @@ Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain chec
 **Back up and export.** To back up, close ClipFoundry and copy the `data` folder. To keep a clip outside the app, use
 **Export** on the clip, or **Download all (ZIP)** on the video's page in Clips.
 
+## Teach the Brain
+
+Open **Brain** for an Obsidian-inspired memory graph of your saved notes, examples, topics, approved preferences
+and recorded evidence. Search or select a node to inspect its actual content and connections. Pan, zoom and fit the
+graph; motion controls pause decorative animation. The graph uses real saved data and shows its coverage limits.
+
+* **Add note** saves an idea or reference on this computer. It does not change clip plans.
+* **Teach preference** lets you choose supported clip preferences and save a draft. Press **Review & approve**,
+  check the choices and confirm before new Autopilot clips use them. Approval is separate from saving.
+* **Add example** stores a good or bad clip with your explanation. Its supported preferences also require approval.
+  Open **More options** for the detailed fields, file import and existing advanced controls.
+
+Uploaded documents and written instructions remain references; adding data does not fine-tune a model or execute
+uploaded code. **Decisions** shows recorded influence on clips, and **Performance** keeps real results and their
+sources. Existing rendered clips are not changed when you approve a new preference.
+
+## Find fewer, stronger videos
+
+**Quality first** is on by default. Open **Missions → Permissions & sources → Quality before quantity** to adjust it.
+Broad online searches admit up to **3 strong candidates per pass**, keep at most **6 unfinished broad-search picks**
+(including those waiting for permission or a file), and select at most
+**1 candidate per known creator per pass**. The existing daily source limit also bounds broad processing attempts:
+**3 per day by default**, including weak or failed attempts. The app stops admitting more broad-search work after
+that budget instead of filling the clip target with more weak videos; it resets in your chosen time zone.
+Your saved limits remain in place. Manually added videos, your own folders and channels or feeds you chose keep
+their existing intake path and are not reduced by the broad-search shortlist caps.
+
+Picks still need a useful source estimate, topic relevance and diversity; transcript and final-file checks decide
+whether any usable clip exists. Held and filtered candidates have reasons in Missions → Activity. Scores are
+estimates, and a pass may produce fewer clips or none.
+
+YouTube search can use a connected account or your own free Data API key. Optional **Tavily** web search adds
+public links and context: its [free plan](https://docs.tavily.com/documentation/api-credits) includes
+**1,000 credits/month without a credit card**. Paste your own key
+under **Find better links with a free search key** and keep the paid monthly budget at **$0** to stop at the included
+allowance. A search
+key improves access to search results, not reuse rights or guaranteed clip quality. No API key is needed for local
+files; see [the discovery guide](docs/AUTOPILOT.md#hands-off-discovery-eligibility-and-files).
+
 ## Features
 
 | Area | What you get |
@@ -113,7 +157,7 @@ Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain chec
 | Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts), **Brain** (knowledge, examples and decisions) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 | Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
-| Brain | A visible workspace for searchable documents, instructions, skill guides, good/bad example clips, approved typed preferences, clip decision influence and performance history. Uploads do not fine-tune a model or execute code. Public and selected-viewer results stay in separate cohorts; bounded learning uses mature evidence and rollback. |
+| Brain | Memory graph, notes and approved clip preferences. See [Teach the Brain](#teach-the-brain). |
 
 YouTube uses your own Google Cloud Desktop-app OAuth client with PKCE and a loopback redirect. The connected
 channel name is shown; uploads include title, description, tags and the made-for-kids answer. Tokens use Windows
@@ -284,8 +328,9 @@ for exercising the whole pipeline.
 ## Responsible use
 
 Only process videos you own or have permission to use. Finding a video (trending, public or downloadable) does not
-make it reusable. Automatically discovered sources need reuse rights before clipping. Links you paste into
-Autopilot may be clipped locally when the file can be obtained through supported access; this supplies no reuse or
+make it reusable. Broad discoveries follow your local-processing choice; publishing always needs reuse coverage.
+Links you paste into Autopilot may be clipped locally when the file can be obtained through supported access;
+this supplies no reuse or
 publishing permission. Explicitly blocked videos are never processed. The optional URL import uses yt-dlp for
 publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never
 passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you

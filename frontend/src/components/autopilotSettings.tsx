@@ -126,6 +126,21 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       <SettingsPanel id="adv-disc" title="Discovery and rights"
         intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
           + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
+        <SettingRow k="discovery_quality_first" label="Quality before quantity"
+          hint="Keep a small shortlist, wait for unfinished finds and stop adding picks once the daily budget is used"
+          {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
+        <SettingRow label="Focused search limits" group
+          hint="Applies to broad automatic searches; your chosen folders, channels and submitted links remain available"
+          >
+          <div className="inline-fields small">
+            <span>New finds per pass</span><NumInput k="discovery_candidates_per_scan" c={c} width={90} />
+            <span>Unfinished finds</span><NumInput k="discovery_queue_limit" c={c} width={90} />
+            <span>Per creator</span><NumInput k="discovery_creator_limit" c={c} width={90} />
+          </div>
+          <Errors keys={["discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit"]}
+            errors={errors} />
+          <a className="textlink small" href="#/missions/sources">Simple discovery controls and free search setup</a>
+        </SettingRow>
         <SettingRow label="Region and language" hint="Two-letter country and language codes (US and en by default)"
           group>
           <div className="inline-fields small">
@@ -194,6 +209,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           hint={"Optional: finds public TikTok links for your topics and the long YouTube videos behind popular "
             + "clips. It gives titles and links, not TikTok statistics"}>
           <SecretField k="tavily_api_key" c={c} removable placeholder="tvly-…" />
+          <span className="small muted">Optional free plan: 1,000 basic search credits each month, no credit card.
+            {" "}<a className="textlink" href="https://app.tavily.com" target="_blank" rel="noreferrer">
+              Get a free Tavily key</a>. Leave the monthly paid-search limit at $0 for free-only app usage.</span>
         </SettingRow>
         <SettingRow k="tavily_free_credits" label="Web search credits included"
           hint="Per month in your Tavily plan (the free plan: 1,000; one search = 1 credit)" {...row}>

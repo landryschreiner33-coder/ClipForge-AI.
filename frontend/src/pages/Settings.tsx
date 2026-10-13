@@ -8,6 +8,7 @@ import {
 } from "../components/accounts";
 import { AutopilotSettings, Errors } from "../components/autopilotSettings";
 import { AutoPublishLine } from "../components/autoPublish";
+import { TikTokSetup } from "../components/TikTokSetup";
 import { DevLogPanel, IntegrationsTab } from "../components/integrations";
 import {
   Check, FieldCtx, fieldId, FIELDS, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, SettingsTab, Switch,
@@ -27,7 +28,8 @@ const TAB_HREF: Record<SettingsTab, string> = {
 };
 const ACCOUNT_KEYS: Record<Platform, string[]> = {
   youtube: ["youtube_client_id", "youtube_client_secret", "youtube_project_verified"],
-  tiktok: ["tiktok_client_key", "tiktok_client_secret", "tiktok_direct_post", "tiktok_read_stats",
+  tiktok: ["tiktok_client_key", "tiktok_client_secret", "tiktok_direct_post", "tiktok_inbox_upload",
+    "tiktok_read_stats",
     "tiktok_app_audited"],
 };
 const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
@@ -362,6 +364,7 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
             {account.can_read_stats ? "video statistics" : "no video statistics"}.</>}
         </p>
       )}
+      {!yt && <TikTokSetup account={account} preferences={s} onPreferences={c.set} />}
       <Disclosure plain open={!!account && !account.configured}
         summary={`Your ${name} app codes${account?.configured ? "" : " (needed once)"}`}>
         <div className="stack-3">
@@ -392,6 +395,7 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
                   Permissions to ask TikTok for <span className="hint">(used the next time you connect)</span>
                 </legend>
                 <Check k="tiktok_direct_post" c={c}>Direct Post (video.publish)</Check>
+                <Check k="tiktok_inbox_upload" c={c}>Send to TikTok inbox (video.upload)</Check>
                 <Check k="tiktok_read_stats" c={c}>Video statistics (video.list)</Check>
               </fieldset>
             </>
@@ -403,7 +407,8 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
           {changed.length > 0 && (
             <p className="tiny muted">Not saved yet. Save with the bar below, or press Connect: it saves them first.</p>
           )}
-          <Disclosure plain summary="How to get these codes (free, about 10 minutes)">
+          <Disclosure plain
+            summary={yt ? "How to get these codes (free, about 10 minutes)" : "TikTok connection steps"}>
             {yt ? <YouTubeSetupSteps testingNote={account?.testing_note} /> : <TikTokSetupSteps />}
           </Disclosure>
         </div>

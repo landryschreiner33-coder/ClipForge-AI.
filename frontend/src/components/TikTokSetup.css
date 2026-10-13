@@ -1,0 +1,40 @@
+.tk-setup { padding: 12px 0 4px; }
+.tk-setup h3 { margin: 8px 0; font-size: 19px; }
+.tk-setup h4 { margin: 6px 0 0; font-size: 14px; }
+.tk-setup-intro { padding: 20px; background: linear-gradient(130deg, #17303b, #171c2c); border-radius: 12px; }
+.tk-setup-intro p { max-width: 62ch; margin: 8px 0 16px; }
+.tk-eligibility { display: flex; gap: 12px; padding: 14px; border: 1px solid #715232; border-radius: 10px; }
+.tk-eligibility > .icon { flex-shrink: 0; color: #edbc7b; }
+.tk-eligibility p { margin: 5px 0 0; font-size: 13px; color: var(--text-dim, #abb9c7); line-height: 1.6; }
+.tk-mode-picker { display: grid; gap: 8px; padding: 0; margin: 0; border: 0; }
+.tk-mode-picker legend { font-weight: 600; margin-bottom: 12px; }
+.tk-mode-picker > label { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid #334150;
+  border-radius: 9px; cursor: pointer; }
+.tk-mode-picker > label.selected { border-color: #52b6b5; background: #182c32; }
+.tk-mode-picker input { flex-shrink: 0; margin: 4px 0 0; }
+.tk-mode-picker small { display: block; margin-top: 4px; color: var(--text-dim, #abb9c7); }
+.tk-mode-picker > .tk-stats-choice { border: 0; padding: 8px 0; flex-wrap: wrap; }
+.tk-scope-card { display: grid; gap: 12px; padding: 16px; border-radius: 10px; background: #18222d; }
+.tk-scope-card .btn { justify-self: start; }
+.tk-scope-card p { margin: 0; }
+.tk-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.tk-field-head { justify-content: space-between; margin-bottom: 6px; }
+.tk-copy-field input, .tk-copy-field textarea { width: 100%; }
+.tk-copy-field textarea { resize: vertical; min-height: 120px; font-size: 13px; line-height: 1.6; }
+.tk-icons { display: flex; align-items: center; gap: 18px; padding: 16px; background: #151f2a; border-radius: 10px; }
+.tk-icons img { width: 72px; height: 72px; border-radius: 10px; }
+.tk-icons .row { margin-top: 10px; }
+.tk-icons p { margin: 8px 0 0; }
+.tk-check-row { display: flex; align-items: start; gap: 10px; font-size: 13px; cursor: pointer; }
+.tk-check-row input { flex-shrink: 0; margin-top: 4px; }
+.tk-check-row span { line-height: 1.6; }
+.tk-demo-list, .tk-limit-list { padding-left: 22px; line-height: 1.65; }
+.tk-demo-list li, .tk-limit-list li { margin-bottom: 10px; }
+.tk-export-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 8px; }
+.tk-export-row > span { max-width: 37ch; }
+@media (max-width: 600px) {
+  .tk-form-grid { grid-template-columns: 1fr; }
+  .tk-icons { align-items: start; gap: 12px; }
+  .tk-icons img { width: 56px; height: 56px; }
+  .tk-setup-intro { padding: 16px; }
+}
