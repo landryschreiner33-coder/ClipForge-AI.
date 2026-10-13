@@ -17,7 +17,7 @@ function note(id: string, title: string, kind: Knowledge["kind"] = "reference", 
     revision: 1,
     approved: false,
     approved_at: null,
-    state: kind === "reference" ? "reference" : "needs_approval",
+    state: kind === "example" ? "saved_example" : "reference",
     filename: "",
     has_asset: false,
     asset_sha256: "",
@@ -92,6 +92,8 @@ async function memory(page: Page, initial: Knowledge[] = []) {
     if (path === "/api/brain/knowledge" && request.method() === "POST") {
       const input = body as unknown as KnowledgeInput;
       const row = { ...note(`created-${rows.length + 1}`, input.title, input.kind, input.tags), ...input };
+      if (Object.keys(row.preferences).length) row.state = "active";
+      row.effective_preferences = row.preferences;
       rows = [...rows, row];
       return route.fulfill({ json: row });
     }
@@ -114,7 +116,8 @@ async function memory(page: Page, initial: Knowledge[] = []) {
         revision: item.revision + 1,
         approved: false,
         approved_at: null,
-        state: body.enabled === false ? "disabled" : item.kind === "reference" ? "reference" : "needs_approval",
+        state: body.enabled === false ? "disabled" : Object.keys(item.preferences).length ? "active" : "reference",
+        effective_preferences: item.preferences,
       });
       return route.fulfill({ json: item });
     }
@@ -197,10 +200,10 @@ test("a stale edit stays visible until the owner explicitly reloads the saved re
   expect(saved.content).toBe("The current saved revision from another tab.");
   await page.getByRole("button", { name: "Reload saved note (discard edits)", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Notes / instructions", exact: true })).toHaveValue(saved.content);
-  await expect(page.getByText("Approved revision 2.", { exact: false })).toBeVisible();
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(saved.title);
 });
 
-test("simple notes derive a title; supported preferences still need the exact revision approval", async ({
+test("simple notes derive a title; saved preferences activate without a separate approval", async ({
   page,
 }, info) => {
   const fixture = await memory(page);
@@ -223,21 +226,18 @@ test("simple notes derive a title; supported preferences still need the exact re
   await page.getByRole("button", { name: "Save knowledge", exact: true }).click();
   const item = fixture.rows().find((row) => row.title === "Calm captions")!;
   expect(item.approved).toBe(false);
-  await page.getByRole("button", { name: "Review & approve", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Approve these clip preferences?", exact: true });
-  await expect(dialog).toContainText("caption style: minimal");
-  await dialog.getByRole("button", { name: "Approve preferences", exact: true }).click();
-  await expect(page.getByText("Approved revision 1.", { exact: false })).toBeVisible();
-  expect(fixture.writes.at(-1)?.body).toEqual({ revision: 1 });
+  await expect(page.locator(".brain-editor .brain-pill")).toHaveText("Used automatically");
+  await expect(page.getByRole("button", { name: "Review & approve", exact: true })).toHaveCount(0);
+  expect(fixture.writes.some((write) => write.path.endsWith("/approve"))).toBe(false);
   await page.getByRole("textbox", { name: "Notes / instructions", exact: true }).fill("My updated preference notes.");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review & approve", exact: true })).toBeVisible();
+  await expect(page.locator(".brain-editor .brain-pill")).toHaveText("Used automatically");
   expect(item.revision).toBe(2);
   expect(item.approved).toBe(false);
   await page.getByRole("button", { name: "Graph view", exact: true }).click();
   await expect(page.getByRole("group", { name: "Interactive Brain graph", exact: true })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Selected connection", exact: true })).toContainText(
-    "Needs approval",
+    "Used automatically",
   );
 });
 

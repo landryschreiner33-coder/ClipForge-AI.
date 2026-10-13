@@ -246,7 +246,7 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
 
     result = {"s0": s0, "s1": s1, "start": start, "end": end, "dur": dur, "factors": factors,
-              "structure": structure, "flags": flags,
+              "structure": structure, "flags": flags, "brain_priorities": list(opts.get("brain_priorities") or []),
               "signals": {"wps": round(wps, 2), "dead_air": round(dead_air, 3), "to_content_s": round(to_content, 2),
                           "repetition": round(rep, 3), "mean_confidence": round(sum(probs) / len(probs), 3)
                           if probs else None, "internal_uniqueness": round(internal_unique, 3)},
@@ -272,8 +272,13 @@ def finalize(r: dict) -> dict:
     but dull clip therefore stays average instead of scoring high on tidiness alone.
     """
     f = r["factors"]
-    appeal = sum(APPEAL[k] * f[k] for k in APPEAL)
-    quality = sum(QUALITY[k] * f[k] for k in QUALITY)
+    priorities = set(r.get("brain_priorities") or [])
+
+    def weighted(weights: dict) -> float:
+        adjusted = {key: value * (1.25 if key in priorities else 1.0) for key, value in weights.items()}
+        return sum(adjusted[key] * f[key] for key in adjusted) / sum(adjusted.values())
+
+    appeal, quality = weighted(APPEAL), weighted(QUALITY)
     raw = appeal * (0.5 + 0.5 * quality)
     st = r.get("structure") or {}
     raw += 0.06 if st.get("complete") else 0.02 if sum(bool(st.get(k)) for k in ("hook", "context", "payoff")) == 2 \

@@ -106,7 +106,7 @@ export function buildBrainGraph(rows: Knowledge[], workspace: Workspace | null):
         category,
         color: colors[category],
         ...radial(category, index, items.length),
-        radius: item.approved && item.enabled ? 6 : 4.5,
+        radius: item.state === "active" ? 6 : 4.5,
         knowledge: item,
         searchable: searchable([item.title, item.content, ...item.tags, ...Object.values(item.features)]),
       });

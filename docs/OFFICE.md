@@ -19,7 +19,7 @@ games, food, drinks and reading are decorative. Nothing in the office drawing st
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
 | Queue | `#/queue/review` (+ `/scheduled`, `/published`, `/history`, `/problems`, `/results`) | The former Posts page: every planned and uploaded post, who it is for and what really happened. |
-| Brain | `#/brain` | Saved knowledge graph, notes/examples, approved preferences, decisions and performance history. |
+| Brain | `#/brain` | Saved knowledge graph, notes/examples, active guidance, decisions and performance history. |
 | Settings | `#/settings`, `/defaults`, `/integrations`, `/advanced` | Integrations holds who watches your uploads, each connection's real capabilities and NVIDIA AI. Advanced holds the Brain's limits and the Dev Log. |
 | Robot gallery | `#/dev/robots` | Developer page: every robot in four directions and every pose. Not in the menu; it shows no real activity. |
 
@@ -380,24 +380,29 @@ the preference revision used; recorded results show their platform/cohort/source
 Selecting a note or evidence opens its stored record and provenance in the side panel. Collection/tag connections
 organize saved data; the glowing positions are decorative rather than hidden AI thoughts.
 
-Use **Add note** to write a simple idea; its title can be derived from the text. **Teach preference** lets you choose
-supported caption/pacing options. Save, review the exact choices/revision and press **Approve preferences** before
-new Autopilot clips use them. Documents, tags and decorative connections alone do not change clip behavior.
-**List & editor** retains file uploads and detailed controls. The graph shows at most 160 saved items, 32 topics and
-48 recent evidence records, with omitted counts; list/history/search and full knowledge export provide the other views.
-[Desktop, mobile and empty-state previews](../design/brain-workspace/README.md) use labeled controlled test data.
+Use **Add note** for a simple idea or document, or **Teach preference** for explicit caption/pacing choices.
+Saving an enabled lesson activates recognized guidance automatically for new clips. Settings remain the fallback
+for every unspecified choice; there is no separate Brain review/approval step. The editor displays recognized
+choices, ranking priorities and whether the lesson can affect future clips. Topic tags narrow applicability.
 
-Documents (TXT/MD/CSV/JSON/DOCX), instructions and skill guides stay searchable on this PC. Good/bad example
-clips (MP4/MOV/WebM) can carry hook, pacing, captions and storytelling labels. Original files are bounded and
-never executed. Saved typed preferences require explicit revision approval before later Autopilot blueprints use
-them; editing teaching content or preferences invalidates approval. Topic tags scope the lookup. Text does not
-fine-tune a model or create arbitrary behavior. Approved controls cover captions and safe cuts versus continuous pacing.
+The local compiler reads supported editing language from notes, document text and example feature descriptions.
+Explicit typed choices win over prose; instructions take priority over examples, then reference notes, with the
+newest saved item winning within each kind. Recognized hook, payoff, context and related priorities adjust local
+ranking weights modestly without removing quality blocks or reducing the owner's score threshold. The selected
+text AI receives fixed recognized factor names, never raw saved notes or example files. These words are editing
+preferences and cannot supply source facts, publishing permissions, arbitrary code or fake posting results.
 
-Knowledge can be edited, disabled, deleted or exported; original assets have separate downloads. Each later clip
-keeps the approved revision, feature labels, settings changed and before/after values in its influence record.
-Deleting a reference stops future use while retaining that clip’s explanation. The UI’s Try a decision is explicitly
-only a lookup preview. The upload tests also build and persist a later real blueprint to prove actual influence.
-Teaching examples never enter posting-performance tables.
+Good video examples contribute measured container duration, blended with Settings by n/(n+3), capped at 60%.
+The target is always constrained by the configured minimum and maximum. Bad examples do not supply a desired
+length; their corrective typed preferences or recognized descriptions still apply. Uploaded appearance is not
+inferred, and documents/videos do not fine-tune a model. Notes with no recognized guidance remain searchable and
+show how to add an actionable preference instead of an impossible approval demand.
+
+Knowledge can be edited, disabled, deleted or exported. Original assets download separately. A clip retains the
+saved revision and before/after values used in selection or its Autopilot blueprint. Deleting or editing a lesson
+cannot rewrite an existing explanation. Manual renders apply recognized caption choices while explicit per-clip
+edits remain the owner's final choice. The graph remains a bounded view of real saved records and evidence.
+Teaching examples never enter posting-performance tables. Publishing consent remains separate from Brain use.
 The editor submits its displayed revision. If another tab changed it, the server returns 409 and keeps the unsaved
 draft visible. **Reload saved note (discard edits)** is an explicit choice; it does not silently overwrite the newer
 saved revision or your draft.

@@ -16,7 +16,9 @@ import { BrainNode, buildBrainGraph, filterBrainGraph, GraphCategory } from "./b
 import "./Brain.css";
 
 const stateLabel = {
+  active: "Used automatically",
   reference: "Searchable reference",
+  saved_example: "Saved example",
   approved: "Approved for new clips",
   needs_approval: "Needs approval",
   disabled: "Disabled",
@@ -34,6 +36,22 @@ const empty = (kind: KnowledgeKind): KnowledgeInput => ({
   preferences: {},
   example_label: kind === "example" ? "good" : "",
   enabled: true,
+});
+const inputOf = (item: Knowledge): KnowledgeInput => ({
+  kind: item.kind,
+  title: item.title,
+  content: item.content,
+  tags: item.tags,
+  features: item.features,
+  preferences: item.preferences,
+  example_label: item.example_label,
+  enabled: item.enabled,
+});
+const parsedTags = (tags: string) => tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+const draftKey = (data: KnowledgeInput) => JSON.stringify({
+  ...data,
+  features: Object.entries(data.features).sort(),
+  preferences: Object.entries(data.preferences).sort(),
 });
 const savedView = (tab: string) => {
   try {
@@ -58,7 +76,6 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
   const [detailed, setDetailed] = useState(false);
   const [adding, setAdding] = useState(false);
   const [problem, setProblem] = useState("");
-  const [approval, setApproval] = useState<Knowledge | null>(null);
   const [removing, setRemoving] = useState<Knowledge | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -162,9 +179,9 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
     setNodeId(`knowledge:${saved.id}`);
     remember("editor", saved.id);
     await refresh();
-    toast(
-      saved.kind === "reference" ? "Reference saved" : "Saved. Review and approve its clip preferences to use them.",
-    );
+    toast(saved.enabled ? "Saved. Brain uses recognized guidance automatically for new clips." :
+      "Saved. This lesson is disabled for future clips.");
+    return saved;
   };
   const action = async (run: () => Promise<unknown>, message: string) => {
     setBusy(true);
@@ -217,8 +234,8 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
             <span>saved references & examples</span>
           </div>
           <div>
-            <strong>{workspace.counts.approved}</strong>
-            <span>approved clip preferences</span>
+            <strong>{workspace.counts.active ?? workspace.counts.approved}</strong>
+            <span>active lessons</span>
           </div>
           <div>
             <strong>{Object.values(workspace.brain.observations).reduce((a, b) => a + b, 0)}</strong>
@@ -323,7 +340,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
                       >
                         <i className={`brain-note-dot dot-${item.kind}`} />
                         <span>{item.title}</span>
-                        {item.approved && item.enabled && <Icon name="check" />}
+                        {item.state === "active" && <Icon name="check" />}
                       </button>
                     ))}
                   {!rows.length && <p>Your notes will live here.</p>}
@@ -356,10 +373,10 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
                   <b>1</b> Save a note or preference
                 </span>
                 <span>
-                  <b>2</b> Review & approve preferences
+                  <b>2</b> Brain combines it with Settings
                 </span>
                 <span>
-                  <b>3</b> Use on new clips
+                  <b>3</b> Use automatically on new clips
                 </span>
               </div>
               <div className="brain-grid">
@@ -419,8 +436,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
                   onGraph={showGraph}
                   onReload={refresh}
                   onSave={save}
-                  onApprove={setApproval}
-                  onDelete={setRemoving}
+                                    onDelete={setRemoving}
                   onToggle={(item) =>
                     void action(
                       () => knowledgeApi.edit(item.id, { enabled: !item.enabled }, item.revision),
@@ -433,7 +449,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
           )}
           <div className="brain-bottom-note">
             <p>
-              Notes stay on this computer. Only approved clip preferences change new Autopilot plans. Saving a note does
+              Notes stay on this computer. Only active lessons change new Autopilot plans. Saving a note does
               not train a model.
             </p>
             {mode === "editor" && (
@@ -455,50 +471,6 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
       )}
       {active === "results" && workspace && <PerformanceHistory workspace={workspace} />}
       {!workspace && !problem && <p className="muted">Loading local memory…</p>}
-      {approval && (
-        <Dialog
-          title="Approve these clip preferences?"
-          onClose={() => setApproval(null)}
-          actions={
-            <>
-              <button className="btn" disabled={busy} onClick={() => setApproval(null)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    await knowledgeApi.approve(approval);
-                    setApproval(null);
-                  }, "Preferences approved for new clips")
-                }
-              >
-                <Icon name="check" />
-                Approve preferences
-              </button>
-            </>
-          }
-        >
-          <p>
-            <b>{approval.title}</b> · revision {approval.revision}
-          </p>
-          <ul className="op-list">
-            {Object.entries(approval.preferences).map(([key, value]) => (
-              <li key={key}>
-                {pretty(key)}: <b>{valueLabel(value)}</b>
-              </li>
-            ))}
-          </ul>
-          <p className="brain-note">
-            {approval.tags.length
-              ? `Applies when a clip contains a topic tag: ${approval.tags.join(", ")}.`
-              : "Applies to all new Autopilot clips."}{" "}
-            Instructions take priority over examples; the newest approval wins within each kind. Uploaded prose remains
-            a reference.
-          </p>
-        </Dialog>
-      )}
       {removing && (
         <Dialog
           title="Delete saved knowledge?"
@@ -577,10 +549,10 @@ function GraphInspector({
               </button>
             ))}
           </div>
-          {Object.keys(item.preferences).length > 0 && (
+          {Object.keys(item.effective_preferences || item.preferences).length > 0 && (
             <div className="brain-inspector-preferences">
               <h3>Clip preferences</h3>
-              {Object.entries(item.preferences).map(([key, value]) => (
+              {Object.entries(item.effective_preferences || item.preferences).map(([key, value]) => (
                 <p key={key}>
                   <span>{pretty(key)}</span>
                   <b>{valueLabel(value)}</b>
@@ -642,10 +614,10 @@ function GraphInspector({
               <b>01</b> Save your idea or style preference.
             </p>
             <p>
-              <b>02</b> Review the supported choices and approve.
+              <b>02</b> Brain combines recognized guidance with Settings.
             </p>
             <p>
-              <b>03</b> New clips use approved preferences.
+              <b>03</b> New clips use saved, enabled lessons automatically.
             </p>
           </div>
           <button className="btn btn-small btn-primary" onClick={onAdd}>
@@ -701,40 +673,26 @@ function KnowledgeEditor({
   onGraph,
   onReload,
   onSave,
-  onApprove,
   onToggle,
   onDelete,
 }: {
   item: Knowledge | null;
   kind: KnowledgeKind;
-  onSave: (data: KnowledgeInput, file: File | null) => Promise<void>;
+  onSave: (data: KnowledgeInput, file: File | null) => Promise<Knowledge>;
   detailed: boolean;
   onGraph: () => void;
   onReload: () => Promise<void>;
-  onApprove: (item: Knowledge) => void;
   onToggle: (item: Knowledge) => void;
   onDelete: (item: Knowledge) => void;
 }) {
-  const [data, setData] = useState<KnowledgeInput>(
-    item
-      ? {
-          kind: item.kind,
-          title: item.title,
-          content: item.content,
-          tags: item.tags,
-          features: item.features,
-          preferences: item.preferences,
-          example_label: item.example_label,
-          enabled: item.enabled,
-        }
-      : empty(kind),
-  );
+  const [data, setData] = useState<KnowledgeInput>(() => item ? inputOf(item) : empty(kind));
   const [tags, setTags] = useState(data.tags.join(", "));
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [advanced, setAdvanced] = useState(detailed || Boolean(item?.filename));
   const isExample = data.kind === "example";
+  const dirty = Boolean(item && draftKey({ ...data, tags: parsedTags(tags) }) !== draftKey(inputOf(item)));
   const preference = (key: keyof Preferences, value: string) => {
     const next = { ...data.preferences };
     if (!value) delete next[key];
@@ -757,17 +715,18 @@ function KnowledgeEditor({
       return;
     }
     try {
-      await onSave(
+      const saved = await onSave(
         {
           ...data,
           title,
-          tags: tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
+          tags: parsedTags(tags),
         },
         file,
       );
+      // A no-op save can retain its revision; still adopt the server's normalized saved values explicitly.
+      setData(inputOf(saved));
+      setTags(saved.tags.join(", "));
+      setFile(null);
     } catch (error) {
       setProblem(errorText(error));
     } finally {
@@ -786,7 +745,11 @@ function KnowledgeEditor({
                 ? "Teach a clip preference"
                 : "New note"}
         </h2>
-        {item && <span className={`brain-pill ${item.state}`}>{stateLabel[item.state]}</span>}
+        {item && (
+          <span className={`brain-pill ${dirty ? "unsaved" : item.state}`}>
+            {dirty ? "Unsaved changes" : stateLabel[item.state]}
+          </span>
+        )}
       </div>
       {item?.has_asset && isExample && (
         <video controls preload="metadata" src={knowledgeApi.asset(item.id)} aria-label={item.title} />
@@ -798,12 +761,21 @@ function KnowledgeEditor({
         </p>
       )}
       <p className="brain-note">
-        {data.kind === "reference"
-          ? "Write an idea or add a document. Notes are searchable reference material; " +
-            "they do not change clip behavior on their own."
-          : "Choose the supported clip preferences below. " +
-            "Save first, then review and approve before new clips use them."}
+        Save an enabled lesson and Brain reads it automatically for new clips. Supported editing guidance and
+        ranking priorities are interpreted locally; your Settings fill in anything it does not specify. Good
+        video examples contribute a measured length preference, while their visual appearance is not copied.
+
       </p>
+      {item?.use_note && (
+        <div className="brain-note brain-use-note" aria-label="How Brain uses this lesson">
+          <p>{dirty ? "Unsaved edits have not changed how this lesson is used." : item.use_note}</p>
+          {!!item.priorities?.length && <p>Ranking priorities: {item.priorities.map(pretty).join(", ")}.</p>}
+          {!!Object.keys(item.effective_preferences || {}).length && (
+            <p>Recognized choices: {Object.entries(item.effective_preferences || {}).map(([key, value]) =>
+              `${pretty(key)}: ${valueLabel(value)}`).join(" · ")}.</p>
+          )}
+        </div>
+      )}
       <label>
         <span>Title</span>
         <input
@@ -837,11 +809,11 @@ function KnowledgeEditor({
                 setData({
                   ...data,
                   kind: e.target.value as KnowledgeKind,
-                  preferences: e.target.value === "reference" ? {} : data.preferences,
+                  preferences: data.preferences,
                 })
               }
             >
-              <option value="reference">Searchable reference</option>
+              <option value="reference">Note / document</option>
               <option value="instruction">Instruction / skill guide</option>
             </select>
           </label>
@@ -908,17 +880,18 @@ function KnowledgeEditor({
           />
           <small className="brain-note">
             With tags, preferences apply only when the clip's text or category contains one. Without tags, they apply to
-            every new Autopilot clip.
+            every new clip.
           </small>
         </label>
       </details>
-      {data.kind !== "reference" && (
+      {(
         <fieldset>
           <legend>
             {data.example_label === "bad" ? "Corrective preferences for future clips" : "Preferences for future clips"}
           </legend>
           <p className="brain-note">
-            Only these supported choices affect clip plans. Save, then review and approve them separately.
+            These explicit choices override interpretations of your note. Save to use them automatically.
+            Keep the app default to use recognized note guidance and your Settings.
           </p>
           <div className="brain-field-grid">
             <label>
@@ -989,15 +962,7 @@ function KnowledgeEditor({
         </button>
         {item && (
           <>
-            {item.kind !== "reference" &&
-              !item.approved &&
-              item.enabled &&
-              Object.keys(item.preferences).length > 0 && (
-                <button type="button" className="btn" onClick={() => onApprove(item)}>
-                  Review & approve
-                </button>
-              )}
-            <button type="button" className="btn btn-quiet" onClick={() => onToggle(item)}>
+            <button type="button" className="btn btn-quiet" disabled={busy || dirty} onClick={() => onToggle(item)}>
               {item.enabled ? "Disable" : "Enable"}
             </button>
             {item.has_asset && (
@@ -1017,11 +982,12 @@ function KnowledgeEditor({
           </>
         )}
       </div>
-      {item?.approved && (
-        <p className="brain-note">
-          Approved revision {item.revision}. Editing the lesson or preferences requires a new approval.
+      {dirty && (
+        <p className="brain-note" role="status">
+          Your edits are not saved. Save changes before new clips use them.
         </p>
       )}
+
     </form>
   );
 }
@@ -1043,7 +1009,7 @@ function DecisionHistory({ rows, onTry }: { rows: Influence[]; onTry: () => void
             </button>
           }
         >
-          Approve an instruction or example, then let Autopilot make a new clip. A preview can show which preferences
+          Save an enabled lesson, then let Autopilot make a new clip. A preview can show which preferences
           would apply.
         </EmptyState>
       ) : (
@@ -1167,15 +1133,14 @@ function DecisionTry({ onClose }: { onClose: () => void }) {
           </button>
           <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={() => void run()}>
             <Icon name="spark" />
-            {busy ? "Checking…" : "Apply approved preferences"}
+            {busy ? "Checking…" : "Check Brain guidance"}
           </button>
         </>
       }
     >
       <div className="brain-preview">
         <p className="brain-note">
-          Paste a clip topic or sample transcript. This uses the same approved-preference lookup as a new Autopilot
-          plan.
+          Paste a clip topic or sample transcript. This uses the same saved-guidance lookup as a new clip plan.
         </p>
         <label className="field">
           <span>Clip context</span>
@@ -1209,9 +1174,14 @@ function DecisionTry({ onClose }: { onClose: () => void }) {
                 </div>
               ))
             ) : (
-              <p>No approved lesson changes these defaults. Check its approval, topic tags, and preferences.</p>
+              <p>
+                Your Settings already match, or this topic has no recognized Brain preference.
+                Check the lesson, its tags and enabled state.
+              </p>
             )}
-            <p className="brain-note">{result.note}</p>
+            <p className="brain-note">
+              {result.consulted != null && `${result.consulted} matching enabled lessons consulted. `}{result.note}
+            </p>
           </div>
         )}
       </div>

@@ -39,6 +39,11 @@ def _options(project: dict, settings: dict) -> dict:
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))
     opts["clip_count"] = int(opts.get("clip_count", 5))
+    from ..autopilot import knowledge
+
+    opts["brain_base_target_duration"] = opts["target_duration"]
+    opts, used = knowledge.selection_options({"title": project.get("name") or ""}, opts, settings)
+    opts["brain_duration_knowledge"] = [item for item in used if "target_duration" in item["decisions"]]
     return opts
 
 

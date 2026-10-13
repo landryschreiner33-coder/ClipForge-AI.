@@ -37,7 +37,8 @@ def workspace() -> dict:
     observations = brain.observations(limit=80)
     for row in observations:
         row["clip_title"] = (db.get_clip(row["clip_id"]) or {}).get("title") or "Deleted clip"
-    return {"counts": {"total": len(rows), "approved": sum(r["state"] == "approved" for r in rows),
+    return {"counts": {"total": len(rows), "approved": sum(r["state"] == "active" for r in rows),
+                        "active": sum(r["state"] == "active" for r in rows),
                         "examples": sum(r["kind"] == "example" for r in rows)},
             "brain": brain.summary(), "history": brain.history(30), "observations": observations,
             "influences": knowledge.influences(), "formats": {"documents": knowledge.DOCUMENTS,
@@ -122,10 +123,22 @@ def preview(body: Preview) -> dict:
     settings = db.get_settings()
     before = {"caption_style": settings["caption_style"], "caption_position": settings["caption_position"],
               "caption_emphasis": settings["caption_emphasis"], "pacing": "safe_cuts"}
-    after, used = knowledge.choose({"caption_text": body.text}, before, settings)
-    return {"before": before, "after": after, "influences": used,
-            "note": "This previews the same deterministic preference lookup used for new Autopilot blueprints. "
-                    "No clip or performance result is created."}
+    before.update(target_duration=settings["target_duration"], brain_priorities=[])
+    clip = {"caption_text": body.text}
+    after, rendered = knowledge.choose(clip, before, settings)
+    after, selected = knowledge.selection_options(clip, {**settings, **after}, settings)
+    used = {}
+    for item in selected + rendered:
+        key = (item["knowledge_id"], item["revision"])
+        if key not in used:
+            used[key] = {**item, "decisions": dict(item["decisions"])}
+        else:
+            used[key]["decisions"].update(item["decisions"])
+    return {"before": before, "after": {key: after[key] for key in before}, "influences": list(used.values()),
+            "consulted": after["brain_consulted"],
+            "note": "This previews saved Brain guidance for new clips, with Settings filling missing choices. "
+                    "No clip, upload or performance result is created."}
+
 
 
 @router.patch("/{knowledge_id}", dependencies=WRITE)

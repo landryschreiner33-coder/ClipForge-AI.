@@ -43,8 +43,8 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
   return (
     <>
       <p className="small muted">
-        What each connection can do on this PC. A connected account does not unlock everything: some parts need the
-        platform's own approval, and some are not offered at all. Nothing here posts anything.
+        Set up the connections supported by this app. Each card shows its current setup and the next step, if one
+        is needed. Platform posting permissions still apply. Nothing here posts a video.
       </p>
       {error && <Banner tone="bad" icon="alert" title="Integrations could not be loaded">{error}</Banner>}
       {aud && <AudiencePanel view={aud} onSaved={(v) => { setAud(v); load(); }} />}
@@ -52,7 +52,8 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
         intro="Each card says what is connected, what is missing, and what each part can do in this version.">
         {cards ? (
           <div className="integration-cards">
-            {cards.filter((x) => x.id !== "nvidia").map((x) => <ConnectionCard key={x.id} card={x} onChange={load} />)}
+            {cards.filter((x) => x.id !== "nvidia" && !["not_implemented", "unsupported"].includes(x.status))
+              .map((x) => <ConnectionCard key={x.id} card={x} onChange={load} />)}
           </div>
         ) : !error && <p className="small muted">Reading the connections…</p>}
       </SettingsPanel>

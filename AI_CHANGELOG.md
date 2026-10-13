@@ -7,6 +7,30 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-13 · Automatic Brain guidance and supported integration cards
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `28aee85`.
+* **What changed:** enabled saved Brain material participates automatically in new clip selection/rendering,
+  with Settings fallback. Local recognition covers supported caption/pacing controls and ranking priorities;
+  explicit choices override prose. Good examples contribute measured duration hints blended once with the
+  original target. Disabled/paused material remains inactive. Revision-specific selection/render decisions merge
+  without mutating shared snapshots. Manual editor overrides retain precedence; existing clips/posts persist.
+  Brain shows recognized choices, automatic activation and unsaved drafts, with no separate approval action.
+  Integrations removes seven inactive connector placeholders while retaining real platform permission/limit
+  messages. Raw Brain material is never executed or sent to an AI; only fixed priority names accompany its
+  existing transcript payload. Privacy/product documentation describes the changed behavior.
+* **Why:** the owner reported stored Brain material was not being used and requested automatic use even with
+  sparse knowledge, combined with Settings, plus removal or repair of unsupported integration entries.
+* **Validation:** Final full fast suite: 814 passed, eight slow deselected, in 349.16 s. Final focused Brain/provider/blueprint/artifact regressions: 96 passed in 43.45 s. Actual-FFmpeg/synthetic-speech media/restart suite: eight passed, 811 deselected, in 710.71 s before the final example-blending/provenance review fixes; those final fixes are covered by the final 814/96 runs. Final controlled browser batch: eight passed in 45.5 s against the final built interface. Build passed in 6.44 s. No real uploads, accounts, Windows/RTX3050 execution or 24-hour soak were tested.
+  Final fast/focused coverage includes the last example-blending and shared-provenance fixes. Media ran before
+  those last fixes; all eight passed using existing portable speech tools and adequate workspace temp storage.
+  Eight final browser checks cover activation, real lookup, unsaved drafts, stale-revision recovery, graph
+  accessibility/mobile/motion/bounds and removal of placeholders. The local report collector separately passes
+  synthetic privacy/GET-only/custom-port/offline/invalid-port checks. Packaging integrity is recorded separately.
+* **Not verified:** native Windows installation/runtime, RTX 3050 CUDA/NVENC, actual account grants/visibility,
+  model quality with owner clips, visual learning from examples, or an actual 24-hour soak. No real posts,
+  account-permission changes, dependency upgrades, purchases or deployment.
+
 ## 2026-10-13 · TikTok setup, visible Brain graph and focused discovery
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `8999e5f` from the default branch;

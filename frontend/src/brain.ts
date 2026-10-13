@@ -5,19 +5,24 @@ export type Preferences = Partial<{ caption_style: string; caption_position: str
 export type KnowledgeInput = { kind: KnowledgeKind; title: string; content: string; tags: string[];
   features: Record<string, string>; preferences: Preferences; example_label: string; enabled: boolean };
 export type Knowledge = KnowledgeInput & { id: string; revision: number; approved: boolean; approved_at: number | null;
-  state: "disabled" | "reference" | "approved" | "needs_approval"; filename: string; has_asset: boolean;
+  effective_preferences?: Preferences; priorities?: string[]; use_note?: string;
+  state: "active" | "disabled" | "reference" | "saved_example" | "approved" | "needs_approval";
+  filename: string; has_asset: boolean;
   asset_sha256: string; media: { duration_s?: number; width?: number; height?: number; has_audio?: boolean; provenance?: string };
   created_at: number; updated_at: number };
 export type Influence = { id: string; clip_id: string; clip_title: string; knowledge_id: string; revision: number;
   snapshot: { title: string; kind: KnowledgeKind; example_label: string; features: Record<string, string> };
   decisions: Record<string, { before: unknown; after: unknown }>; knowledge_exists: boolean; created_at: number };
-export type Workspace = { counts: { total: number; approved: number; examples: number };
+export type Workspace = { counts: { total: number; active?: number; approved: number; examples: number };
   brain: { label: string; message: string; min_clips: number; max_step: number; observations: Record<string, number> };
   observations: { id: string; clip_id: string; clip_title: string; platform: string; cohort: string; provenance: string;
     observed_at: number; metrics: Record<string, number | null>; note: string }[];
   history: { id: string; platform: string; cohort: string; version: number; status: string; reason: string; created_at: number }[];
   influences: Influence[] };
-export type DecisionPreview = { before: Preferences; after: Preferences; influences: Pick<Influence, "knowledge_id" | "revision" | "snapshot" | "decisions">[]; note: string };
+export type DecisionPreview = {
+  before: Record<string, unknown>; after: Record<string, unknown>; consulted?: number;
+  influences: Pick<Influence, "knowledge_id" | "revision" | "snapshot" | "decisions">[]; note: string;
+};
 const base = "/api/brain/knowledge";
 export const knowledgeApi = {
   list: (q = "", kind = "") => req<Knowledge[]>("GET", `${base}?q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}`),

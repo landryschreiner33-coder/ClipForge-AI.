@@ -419,10 +419,19 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
 
     opts = render.effective_options(settings, project.get("options") or {}, {})
     opts, influences = knowledge.choose(clip, opts, settings)
+    # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
+    selected = (selection or {}).get("brain_knowledge") or []
+    combined = {}
+    for item in selected + influences:
+        if (item["knowledge_id"], item["revision"]) in combined:
+            combined[(item["knowledge_id"], item["revision"])]["decisions"].update(item["decisions"])
+        else:
+            combined[(item["knowledge_id"], item["revision"])] = {**item, "decisions": dict(item["decisions"])}
+    influences = list(combined.values())
     start, end = float(clip["start"]), float(clip["end"])
     reasons = [r for r in [clip.get("reason") or ""] if r] + [str(x) for x in ((selection or {}).get("explanation")
                                                                                 or [])[:4]]
-    reasons += [f"Approved {i['snapshot']['kind']} '{i['snapshot']['title']}' (revision {i['revision']}): "
+    reasons += [f"Saved {i['snapshot']['kind']} '{i['snapshot']['title']}' (revision {i['revision']}): "
                 + ", ".join(f"{k.replace('_', ' ')} = {d['after']}" for k, d in i["decisions"].items())
                 for i in influences]
     if video_path:

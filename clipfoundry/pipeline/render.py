@@ -266,8 +266,19 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     max_fps = float(settings.get("max_fps", 30))
     fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
     opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
+    brain_used = []
     if blueprint is not None:
         opts.update(blueprint_mod.render_options(blueprint))
+    else:
+        from ..autopilot import knowledge
+
+        opts, brain_used = knowledge.choose(clip, opts, settings)
+        # An explicit edit in the clip/version editor remains the owner's final choice for this render.
+        overrides = {key: value for key, value in (clip.get("edit") or {}).items() if value is not None}
+        opts.update(overrides)
+        brain_used = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
+                                            if key not in overrides}} for item in brain_used]
+        brain_used = [item for item in brain_used if item["decisions"]]
 
     duration_src = float(project.get("duration") or 0)
     if blueprint is not None:
@@ -442,7 +453,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         "output_path": str(out_path),
         "thumb_path": str(thumb) if thumb.exists() else "",
         "duration": round(tl.duration, 2),
-        "render_info": {"mode": plan.mode, "faces": plan.faces_found, "cuts": len(plan.cuts), "encoder": encoder,
+        "render_info": {"brain_knowledge": brain_used, "mode": plan.mode, "faces": plan.faces_found,
+                        "cuts": len(plan.cuts), "encoder": encoder,
                         "crop_w": round(cw_frac, 3), "layout": layout,
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),

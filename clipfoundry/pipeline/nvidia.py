@@ -89,7 +89,8 @@ def view(settings: dict) -> dict:
                 "nvidia_daily_requests", "nvidia_daily_tokens", "nvidia_max_output_tokens",
                 "nvidia_max_input_tokens", "nvidia_price_per_mtok_usd", "nvidia_daily_spend_cap_usd")},
             "data_note": ("When on, the sentences of the strongest clip candidates (links and email addresses "
-                          "removed) and the video's name are sent to NVIDIA. Video, audio, account tokens and "
+                          "removed), the video's name and fixed recognized editing-priority labels are sent to "
+                          "NVIDIA. Raw Brain notes, example files, video, audio, account tokens and "
                           "viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
                           "this PC. Check NVIDIA's current terms for retention and training before you turn it on."),
             "development_note": ("Development mode uses NVIDIA's hosted catalog, which NVIDIA describes as "

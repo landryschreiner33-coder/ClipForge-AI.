@@ -66,6 +66,8 @@ def _dedupe(items: list[str], limit: int) -> list[str]:
 def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobContext, video_name: str,
              lo: float, hi: float, words: list[dict] | None = None, loud: Loudness | None = None
              ) -> tuple[list[dict], dict]:
+    from ..autopilot import knowledge
+
     provider = settings.get("ai_provider", "heuristic")
     use_ai = provider in llm.PROVIDERS
     max_ai = int(settings.get("ai_max_candidates", 12))
@@ -83,13 +85,21 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
         ctx.check()
         ctx.progress(lo + (hi - lo) * n / max(1, len(cands)),
                      f"Evaluating candidate {n + 1}/{len(cands)}" + (f" with {notes['provider']}" if use_ai else ""))
+        candidate_text = " ".join(s["text"] for s in sentences[cand["s0"]:cand["s1"] + 1]) \
+            if cand["s0"] >= 0 else ""
+        local, used = knowledge.selection_options({"title": video_name, "caption_text": candidate_text},
+                                                 settings, settings)
+        # The source-length choice was already made before candidate generation; preserve its measured provenance.
+        if not any("target_duration" in item["decisions"] for item in used):
+            used += settings.get("brain_duration_knowledge") or []
+        notes["brain_consulted"] = max(notes.get("brain_consulted", 0), local["brain_consulted"])
         if cand["s0"] < 0:  # no speech: loudness-only candidate
             r = virality.no_speech(cand)
         else:
             # Compare nearby ranges (weak opening trimmed, talk after the payoff trimmed, answer included).
             orig = (cand["s0"], cand["s1"])
-            r = max((virality.analyze(a, b, sentences, feats, words, loud, settings)
-                     for a, b in virality.variants(*orig, sentences, settings, feats)),
+            r = max((virality.analyze(a, b, sentences, feats, words, loud, local)
+                     for a, b in virality.variants(*orig, sentences, local, feats)),
                     key=lambda x: x["raw"] - (0.01 if (x["s0"], x["s1"]) != orig else 0.0))
         s0, s1 = r["s0"], r["s1"]
         has_text = s0 >= 0
@@ -99,7 +109,7 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
         if use_ai and has_text and n < max_ai and failures < 2:
             before = sentences[s0 - 1]["text"] if s0 > 0 else ""
             try:
-                ai = llm.evaluate(settings, video_name, sent_texts, before, r["dur"])
+                ai = llm.evaluate(local, video_name, sent_texts, before, r["dur"])
                 ai_ok += 1
             except llm.ProviderError as exc:
                 failures += 1
@@ -110,7 +120,7 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
             ns0, ns1 = s0 + a, s0 + b
             new_dur = sentences[ns1]["end"] - sentences[ns0]["start"]
             if (ns0, ns1) != (s0, s1) and new_dur >= max(8.0, 0.6 * settings["min_duration"]):
-                r = virality.analyze(ns0, ns1, sentences, feats, words, loud, settings)
+                r = virality.analyze(ns0, ns1, sentences, feats, words, loud, local)
                 s0, s1 = ns0, ns1
                 sent_texts = [sentences[k]["text"] for k in range(s0, s1 + 1)]
         if ai:
@@ -147,6 +157,7 @@ def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobC
             "hashtags": tags,
             "ai_reason": (ai or {}).get("reason") or "",
             "caption_text": clip_text,
+            "brain_knowledge": used,
         })
     virality.set_uniqueness([res["analysis"] for res in results if res["s0"] >= 0])
     for res in results:

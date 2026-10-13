@@ -101,14 +101,16 @@
       20,000 steps, at most 14 days. Reports: 90 days. Decisions and strategy history: until you delete the data
       folder</td></tr>
     <tr><td>Brain teaching references</td><td>Original documents and example clips you upload, extracted text,
-      titles, notes, topic and feature labels, good/bad labels, typed preferences and approval revisions.
+      titles, notes, topic and feature labels, good/bad labels, typed preferences, recognized editing guidance and saved revisions.
       Each influenced clip keeps a snapshot of the reference’s title, labels and preferences and the changes it
-      made. Uploaded code is not executed; uploading does not fine-tune a model. These files stay on this PC</td>
+      made. Uploaded code is not executed; uploading does not fine-tune a model. These files stay on this PC. A local interpreter recognizes supported
+      caption/pacing choices and ranking priorities; good example duration is blended with your settings.
+      The selected text AI may receive fixed recognized priority names, never raw Brain text or example files</td>
       <td>References and originals: until you delete the item or data folder. Influence snapshots: until the clip
       or data folder is deleted. Export includes reference metadata/text and snapshots; originals download separately</td></tr>
-    <tr><td>Brain memory graph</td><td>A view of saved notes, example metadata, topics, approved preferences and
+    <tr><td>Brain memory graph</td><td>A view of saved notes, example metadata, topics, active guidance and
       recorded influence and results. The graph is derived from these existing local records; saving a note does
-      not train a model, and supported preferences need a separate review and approval before use on new clips</td>
+      not train a model. Saved enabled guidance is used automatically for matching new clips; Settings supply missing choices</td>
       <td>The underlying records have the retention periods above. View mode and the selected knowledge item's ID
       stay in this tab's browser session storage until the tab closes or you clear it; no note text is stored there.
       Graph viewport stays in memory in the open page. These view choices are not sent to a platform</td></tr>
@@ -214,7 +216,8 @@
       as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
       only for work you start yourself, never for Autopilot's unattended work</td><td>The words said in a video's
       strongest moments (links and email addresses removed, cut to your size limit) and the video's name, so they
-      can be scored and titled; and your NVIDIA API key. Never video, audio, account tokens or lists of viewers.
+      can be scored and titled; fixed recognized editing-priority names; and your NVIDIA API key. Never raw Brain
+      notes, example files, video, audio, account tokens or lists of viewers.
       Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
       under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are

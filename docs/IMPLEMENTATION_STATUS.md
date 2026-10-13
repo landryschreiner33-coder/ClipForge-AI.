@@ -1,5 +1,40 @@
 # Implementation status
 
+## Automatic Brain guidance and supported integrations — 2026-10-13
+
+Base: `28aee85b4ef239584da296cec900bc3d8dde4399`, on `codex/brain-graph-quality-discovery`.
+The owner requested all saved Brain material to participate automatically, combined with Settings, and inactive
+integration placeholders removed. This supersedes the older separate Brain-approval workflow below; publishing
+consent and platform restrictions are unchanged.
+
+Enabled saved notes, document text, explicit preferences and described examples are consulted for new clip
+selection and rendering. A bounded local interpreter recognizes caption choices, continuous/safe-cut pacing and
+known hook/payoff/context/ranking priorities. Explicit controls win over prose; instructions precede examples,
+then references, newest saved item first. Settings supply missing choices. Good example durations blend with the
+owner's original target by n/(n+3), capped at 60% and constrained by configured length limits. The original target
+is retained between source/candidate stages so the hint cannot be counted twice. Selection provenance is copied
+and merged by knowledge ID/revision, without mutating another clip's saved decision. Existing clips/posts remain
+intact. Manual per-clip overrides win over Brain caption choices. Disabled/paused guidance stays inactive.
+
+Brain shows recognized choices, ranking priorities, automatic activation and unsaved-draft status; it has no
+separate approval button. Unrecognized material remains searchable, with actionable help. Raw notes/examples
+stay local, no prose executes, and videos do not teach visual appearance or fine-tune a model. Only fixed known
+priority labels accompany the existing excerpt sent to an already selected/authorized text AI. The NVIDIA
+sending explanation and Privacy page describe this.
+
+Integrations now lists YouTube, TikTok, Tavily, Wikimedia Commons and NVIDIA. Twitch, Kick, Reddit, X, Instagram,
+podcasts and Google Trends placeholder cards are removed. Real connection, scope, audit, consent and quota holds
+remain visible; no account permission or posting behavior was changed.
+
+**Validation:** Final full fast suite: 814 passed, eight slow deselected, in 349.16 s. Final focused Brain/provider/blueprint/artifact regressions: 96 passed in 43.45 s. Actual-FFmpeg/synthetic-speech media/restart suite: eight passed, 811 deselected, in 710.71 s before the final example-blending/provenance review fixes; those final fixes are covered by the final 814/96 runs. Final controlled browser batch: eight passed in 45.5 s against the final built interface. Build passed in 6.44 s. No real uploads, accounts, Windows/RTX3050 execution or 24-hour soak were tested.
+Early runs exposed old approval/placeholder assertions and a malformed new sentence fixture; these were
+corrected without weakening write/local-only/platform guards. The first media run lacked the existing portable
+speech fixture tool (three failures, four skips); the corrected environment produced all eight passes above.
+The earlier 811-check run preceded three additional regression cases; it is not the final complete count.
+The standalone local diagnostic collector is separately verified with portable PowerShell: GET-only/custom-port
+snapshot, strict privacy whitelist, missing-app and invalid-port behavior. Native Windows remains unverified.
+The installer carries this exact source snapshot and has a separate integrity record.
+
 ## TikTok setup, Brain graph and focused discovery — 2026-10-13
 
 Current branch: `codex/brain-graph-quality-discovery`, base

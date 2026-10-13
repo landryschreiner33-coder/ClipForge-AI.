@@ -348,11 +348,6 @@ def cards(settings: dict | None = None) -> list[dict]:
     else:
         st, detail = "connected", f"{v['model']} ({v['mode']})"
     out.append(_card("nvidia", "NVIDIA AI (optional)", st, detail, caps="nvidia", nvidia=v))
-    for cid, name in (("twitch", "Twitch"), ("kick", "Kick"), ("reddit", "Reddit"), ("x", "X"),
-                      ("instagram", "Instagram"), ("podcasts", "Podcasts"), ("google_trends", "Google Trends")):
-        state_ = REGISTRY[cid]["discovery"][0]
-        out.append(_card(cid, name, "unsupported" if state_ == UNSUPPORTED else "not_implemented",
-                         REGISTRY[cid]["discovery"][1]))
     return out
 
 

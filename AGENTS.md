@@ -340,6 +340,14 @@ settings, GPU dependencies and user data. Use isolated development data and fake
 Measure bottlenecks before server advice; do not purchase or deploy. Delivery includes visual/animation evidence,
 test results, exact-commit ZIP download and simple isolated Windows testing steps.
 
+## Brain activation continuation (2026-10-13)
+
+The owner explicitly requested saved Brain material to be used automatically, supplemented by Settings, and
+unavailable integration cards removed. Enabled supported guidance now applies on save without separate Brain
+approval; historical approval-only teaching instructions are superseded. Posting consent and exact-file/platform
+checks remain unchanged. Prose is interpreted only into a bounded local editing vocabulary, never executed or
+sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
+
 ## Standing instructions from the owner
 
 * Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):

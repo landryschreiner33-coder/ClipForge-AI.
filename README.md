@@ -93,19 +93,20 @@ Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain chec
 
 ## Teach the Brain
 
-Open **Brain** for an Obsidian-inspired memory graph of your saved notes, examples, topics, approved preferences
-and recorded evidence. Search or select a node to inspect its actual content and connections. Pan, zoom and fit the
-graph; motion controls pause decorative animation. The graph uses real saved data and shows its coverage limits.
+Open **Brain** for a graph of your saved notes, examples, topics and recorded clip decisions. **Add note** saves
+an idea or document; **Teach preference** gives explicit caption and pacing choices. Saved, enabled lessons are
+consulted automatically for new clips, with no separate Brain approval. Your Settings fill every missing choice.
 
-* **Add note** saves an idea or reference on this computer. It does not change clip plans.
-* **Teach preference** lets you choose supported clip preferences and save a draft. Press **Review & approve**,
-  check the choices and confirm before new Autopilot clips use them. Approval is separate from saving.
-* **Add example** stores a good or bad clip with your explanation. Its supported preferences also require approval.
-  Open **More options** for the detailed fields, file import and existing advanced controls.
+The local interpreter recognizes caption style/position/emphasis, continuous pacing or safe middle-sentence cuts,
+and priorities such as hooks, complete stories, standalone context and clear speech. Explicit dropdown choices
+win over interpretations of prose. The editor shows what it recognized. Good video examples contribute their
+measured duration as a gentle hint: one example supplies 25% of the target and Settings supply 75%, with your
+minimum/maximum length always respected. Appearance is not inferred from uploaded video pixels.
 
-Uploaded documents and written instructions remain references; adding data does not fine-tune a model or execute
-uploaded code. **Decisions** shows recorded influence on clips, and **Performance** keeps real results and their
-sources. Existing rendered clips are not changed when you approve a new preference.
+Topic tags narrow which clips use a lesson; leave them blank for general guidance. Disabled lessons and Pause
+Brain stop new use. Saved revisions and actual decision changes remain inspectable; existing rendered clips and
+posting results are preserved. Raw notes and examples stay on this PC, and uploads do not fine-tune a model.
+The selected text AI receives only fixed recognized priority names alongside the existing transcript excerpt.
 
 ## Find fewer, stronger videos
 
@@ -157,7 +158,7 @@ files; see [the discovery guide](docs/AUTOPILOT.md#hands-off-discovery-eligibili
 | Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts), **Brain** (knowledge, examples and decisions) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 | Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
-| Brain | Memory graph, notes and approved clip preferences. See [Teach the Brain](#teach-the-brain). |
+| Brain | Memory graph and automatically used saved guidance. See [Teach the Brain](#teach-the-brain). |
 
 YouTube uses your own Google Cloud Desktop-app OAuth client with PKCE and a loopback redirect. The connected
 channel name is shown; uploads include title, description, tags and the made-for-kids answer. Tokens use Windows

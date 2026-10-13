@@ -85,11 +85,13 @@
   font-size: 11px;
   color: #b9c9d9;
 }
-.brain-pill.approved {
+.brain-pill.approved,
+.brain-pill.active {
   color: #a3e5bd;
   border-color: #407859;
 }
-.brain-pill.needs_approval {
+.brain-pill.needs_approval,
+.brain-pill.unsaved {
   color: #ffd593;
   border-color: #735938;
 }
