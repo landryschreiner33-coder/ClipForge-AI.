@@ -1,0 +1,43 @@
+{
+  "checkpoint_date": "2026-10-13",
+  "checkpoint_timezone": "America/Chicago",
+  "artifact_base": "1f7db27c73ca54228b88f332091014024e38e69b",
+  "source_commit": "718358f30110ab871e21059177f83ccd9ea3d3a9",
+  "app_archive_bytes": 37812155,
+  "app_archive_sha256": "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc",
+  "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+  "zip_bytes": 37740282,
+  "zip_sha256": "d0ebd2fa3251fcde05daf28737f416729e384e725ac150aa9a65496ebfc3b21d",
+  "members_sha256": {
+    "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
+    "setup.py": "146e0fbe176129241a88eaf70bf88d03c33762d3b7efdd62fc381ed537ae5215",
+    "app.zip": "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc",
+    "README.txt": "e0335317f305c29e5c7a07f41c2d14c45eac89951f9739c09a3dc0e6bb5130e7"
+  },
+  "current_delivery_tests": {
+    "plain_setup": {"passed": 48, "seconds": 0.892},
+    "build_plain_zip": {"passed": 12, "seconds": 0.010}
+  },
+  "payload_verification": {
+    "zip_entries": 507,
+    "source_files": 462,
+    "exact_git_match_with_declared_bat_crlf": true,
+    "tested_frontend_files": 17,
+    "tested_frontend_exact_match": true,
+    "missing_or_extra_files": 0,
+    "exe_or_dll_files": 0,
+    "runtime_or_credential_paths": 0
+  },
+  "prior_unchanged_app_tests": {"fast": 958, "real_media_and_restart": 8, "controlled_browser": 7},
+  "no_custom_exe": true,
+  "no_powershell_loader": true,
+  "no_app_archive_download": true,
+  "no_security_settings_change": true,
+  "defender_acceptance_verified": false,
+  "native_windows_verified": false,
+  "owner_profile_accessed": false,
+  "real_upload_performed": false,
+  "24_hour_soak_verified": false,
+  "blocked_exe_detection_name": null,
+  "blocked_exe_false_positive_established": false
+}
