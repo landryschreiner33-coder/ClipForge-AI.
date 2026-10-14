@@ -8,7 +8,8 @@ ClipFoundry source setup
 
 This package includes the exact verified app archive, a readable Python setup.py and a plain CMD launcher.
 It uses your installed Python. It includes no custom EXE launcher or PowerShell loader and does not change
-antivirus settings, execution policy, Windows trust/certificates, the firewall or publishing permission.
+antivirus settings, execution policy, Windows trust/certificates or the firewall, and grants no missing posting
+permission. The app's requested one-time volume amendment is described below.
 Python packages/GPU libraries and the later speech-model download may still need internet access.
 Python 3.11/3.12 and FFmpeg are recommended, as for normal ClipFoundry setup.
 
@@ -23,11 +24,16 @@ Their data is left in place. No old files or virtual environments are copied ove
 An active app/profile lock, multiple original profiles or unverifiable same-user managed revision stops setup.
 Missing/malformed JSON markers are treated as unknown installations and left untouched.
 
-Application revision: 718358f30110ab871e21059177f83ccd9ea3d3a9
-Included app.zip SHA-256: 2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc
+Application revision: d0b7102e8273cee068531da554c8d83f3fa43f8f
+Included app.zip SHA-256: 32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202
 Setup verifies that hash and its known start.bat hash before installing or launching new app files.
 The Python setup source is included for inspection. The archive is also inspectable with normal ZIP tools.
 
 This app includes the finished-clip/YouTube scheduling repairs, automatic Brain guidance and phone dashboard.
 In Missions, Why clips are waiting to post explains any remaining input, quality or YouTube permission hold.
-Existing audience and automatic-publishing choices are preserved. No real upload is performed by setup.
+App daily source/clip/platform caps now default to 0 (unlimited), with any-hour earliest eligible posting.
+First startup records a one-time volume/hours update to earlier limits and existing YouTube permission.
+Its channel/audience/kids answer and old post times/visibility stay intact; missing permission is never granted.
+Future owner caps persist. Your own or validly licensed/creator-permitted videos are still required for uploads.
+The app resumes eligible uploads when Autopilot and your existing permission are enabled.
+Brain guidance consultations and ordered manager/boss handoffs show actual work; quiet rooms explain their waits.

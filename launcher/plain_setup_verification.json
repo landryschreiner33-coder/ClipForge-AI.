@@ -1,26 +1,55 @@
 {
-  "checkpoint_date": "2026-10-13",
-  "checkpoint_timezone": "America/Chicago",
-  "artifact_base": "1f7db27c73ca54228b88f332091014024e38e69b",
-  "source_commit": "718358f30110ab871e21059177f83ccd9ea3d3a9",
-  "app_archive_bytes": 37812155,
-  "app_archive_sha256": "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc",
-  "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
-  "zip_bytes": 37740282,
-  "zip_sha256": "d0ebd2fa3251fcde05daf28737f416729e384e725ac150aa9a65496ebfc3b21d",
+  "source_commit": "d0b7102e8273cee068531da554c8d83f3fa43f8f",
+  "app_archive_sha256": "32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202",
+  "zip_bytes": 41728594,
+  "zip_sha256": "ac3a11c159d389d44b11466e66efbd540cd67d64b749e4ff7ac9e86362783aba",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "146e0fbe176129241a88eaf70bf88d03c33762d3b7efdd62fc381ed537ae5215",
-    "app.zip": "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc",
-    "README.txt": "e0335317f305c29e5c7a07f41c2d14c45eac89951f9739c09a3dc0e6bb5130e7"
+    "setup.py": "0e2e01fcb9b8874551a4b046c54894dbea3cc3c56e128ec88b5bd1d27aa878c9",
+    "app.zip": "32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202",
+    "README.txt": "6e3b655118bb09de63563c224c7a1751ef29e1fde8d775f7b0712491f269bbd5"
+  },
+  "app_files": 472,
+  "no_custom_exe": true,
+  "defender_acceptance_verified": false,
+  "native_windows_verified": false,
+  "artifact_base": "876d1426a240864dc5730db487e69306dd402ff0",
+  "app_archive_bytes": 41784343,
+  "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+  "app_tests": {
+    "fast": {
+      "passed": 1047,
+      "seconds": 556.14
+    },
+    "real_media_and_restart": {
+      "passed": 8,
+      "seconds": 836.38
+    },
+    "final_built_browser": {
+      "passed": 11,
+      "seconds": 94.42
+    },
+    "build_seconds": 6.16,
+    "focused_reuse_publishing": 93,
+    "public_manual_publishing": 34
   },
   "current_delivery_tests": {
-    "plain_setup": {"passed": 48, "seconds": 0.892},
-    "build_plain_zip": {"passed": 12, "seconds": 0.010}
+    "plain_setup": {
+      "passed": 48,
+      "seconds": 1.47
+    },
+    "pin_bundle": {
+      "passed": 13,
+      "seconds": 0.334
+    },
+    "build_plain_zip": {
+      "passed": 12,
+      "seconds": 0.012
+    },
+    "exact_git_export": 10
   },
   "payload_verification": {
-    "zip_entries": 507,
-    "source_files": 462,
+    "source_files": 472,
     "exact_git_match_with_declared_bat_crlf": true,
     "tested_frontend_files": 17,
     "tested_frontend_exact_match": true,
@@ -28,16 +57,13 @@
     "exe_or_dll_files": 0,
     "runtime_or_credential_paths": 0
   },
-  "prior_unchanged_app_tests": {"fast": 958, "real_media_and_restart": 8, "controlled_browser": 7},
-  "no_custom_exe": true,
   "no_powershell_loader": true,
   "no_app_archive_download": true,
   "no_security_settings_change": true,
-  "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "volume_amendment": "Requested one-time app volume/hours amendment; no missing grant or audience change",
   "owner_profile_accessed": false,
   "real_upload_performed": false,
-  "24_hour_soak_verified": false,
+  "soak_24_hours_verified": false,
   "blocked_exe_detection_name": null,
   "blocked_exe_false_positive_established": false
 }

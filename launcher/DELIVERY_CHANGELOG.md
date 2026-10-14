@@ -1,5 +1,33 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Continuous eligible uploading and actual office activity
+
+App revision: d0b7102e8273cee068531da554c8d83f3fa43f8f. Artifact base: 876d142.
+Includes the earlier app changes plus unlimited app daily source/clip/platform defaults, all-day earliest
+eligible slots, recorded one-time volume-only migration, verified uploadable source discovery and concrete
+local-only guidance. Actual saved-guidance consultations and responsible manager/boss handoffs are visible.
+Current terms and actual post credit are checked, with safe review and identity-preserving unstarted recovery.
+Historical posts/Private visibility, missing consent, active/uncertain transfers, quality and platform/API/cost
+limits remain protected. The app resumes eligible work when its saved Autopilot/permission are enabled.
+
+Final app validation: 1,047 fast checks (556.14 s), eight real-media/restart checks (836.38 s), 11 final built
+browser checks (94.42 s), production build (6.16 s), 93 focused reuse/publishing and 34 public/manual checks.
+Controlled Brain screenshot and manager/boss GIF are included under design/robot-office/continuous.
+
+Exact Git export verified all 472 committed app files, six intentional BAT CRLF transforms and 17 final tested
+frontend hashes, with no local data/credentials/venv/PE additions. Pin helper now safely synchronizes readable
+Python and historical PS/BAT source and retains every exact old managed release hash, including 718358f.
+48 installer, 13 pin-helper and 12 package-builder checks passed; 10 disposable-Git export checks passed too.
+Native Windows, Defender acceptance, actual owner profile/GPU/account uploads and 24-hour soak remain unverified.
+The historical unsigned EXE is unchanged and still not recommended; no security settings were modified.
+
+App archive: 41,784,343 bytes, SHA-256
+32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202.
+Source setup ZIP: 41,728,594 bytes, SHA-256
+ac3a11c159d389d44b11466e66efbd540cd67d64b749e4ff7ac9e86362783aba.
+
+## Earlier first readable-source delivery
+
 2026-10-13 (America/Chicago). Artifact branch: codex/clipfoundry-one-click. Base: 1f7db27.
 Application payload stays at 718358f30110ab871e21059177f83ccd9ea3d3a9.
 

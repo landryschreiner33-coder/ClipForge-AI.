@@ -20,18 +20,17 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 
-COMMIT = "718358f30110ab871e21059177f83ccd9ea3d3a9"
-ARCHIVE_HASH = "2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc"
+COMMIT = "d0b7102e8273cee068531da554c8d83f3fa43f8f"
+ARCHIVE_HASH = "32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202"
 START_HASH = "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c"
 ARCHIVE_PREFIX = "ClipForge-AI.-" + COMMIT + "/"
 KNOWN_RELEASES = {
-    revision: START_HASH for revision in (
-        "28aee85b4ef239584da296cec900bc3d8dde4399",
-        "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c",
-        "7201047b795085f0cb608ea643efadf90074290c",
-        "987ebb288ae9097bedbd80d0adee2b3c05c4271f",
-        COMMIT,
-    )
+    "28aee85b4ef239584da296cec900bc3d8dde4399": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "718358f30110ab871e21059177f83ccd9ea3d3a9": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "7201047b795085f0cb608ea643efadf90074290c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "987ebb288ae9097bedbd80d0adee2b3c05c4271f": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "d0b7102e8273cee068531da554c8d83f3fa43f8f": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
 }
 MARKER = ".clipfoundry-oneclick.json"
 RUNNING_ERROR = "ClipFoundry is still running. Close its app/setup windows, then reopen this installer."

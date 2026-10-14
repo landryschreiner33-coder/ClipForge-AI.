@@ -91,9 +91,10 @@ class PlainSetupTests(unittest.TestCase):
             self.assertEqual(actual, expected)
         self.assertEqual(setup.file_hash(self.archive_path), setup.ARCHIVE_HASH)
         self.assertEqual(hashlib.sha256(self.start).hexdigest(), setup.START_HASH)
-        self.assertEqual(len(setup.KNOWN_RELEASES), 5)
-        for revision in setup.KNOWN_RELEASES:
-            self.assertIn(revision, body)
+        table = re.search(r"(?ms)^\$KnownReleases = @\{\n(.*?)^\}\n", body).group(1)
+        expected_history = dict(re.findall(r"'([0-9a-f]{40})'\s*=\s*'([0-9a-f]{64})'", table))
+        expected_history[setup.COMMIT] = setup.START_HASH
+        self.assertEqual(setup.KNOWN_RELEASES, expected_history)
 
     def test_checked_archive_extracts_every_exact_file_without_profile(self):
         app = self.root / "app"

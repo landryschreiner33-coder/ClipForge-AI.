@@ -33,29 +33,42 @@ Installation roots are at most 100 characters, normally under C:\CF14, with a wr
 folder as fallback. Occupied unknown destinations are skipped. Owned staging, checked archive paths and an
 exclusive directory move prevent merging into an existing root. Setup runs before selecting a free loopback
 port. The original data directory remains the CLIPFOUNDRY_DATA location. No execution-policy, antivirus,
-certificate trust, firewall/router, Windows scheduled task or publishing permission is changed.
+certificate trust, firewall/router or Windows scheduled task is changed. No missing account/audience permission
+is created; the app's requested one-time volume amendment is described below.
 
 ## Included application
 
-The app is the unchanged, previously tested revision **718358f30110ab871e21059177f83ccd9ea3d3a9**. Its archive
-SHA-256 is **2975806f4366bf2eba491b93e0634cf4f88083ce327657cf5ffc84456ac2d0cc**. Setup verifies the archive and
+The app is the tested revision **d0b7102e8273cee068531da554c8d83f3fa43f8f**. Its archive
+SHA-256 is **32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202**. Setup verifies the archive and
 known start.bat hash before installing new code. Existing managed identity checks verify the marker and start
 file, rather than claiming a full checksum of every file already present on the PC.
 
 This build includes immediate finished-clip handoffs, bounded recovery of older eligible outputs, accessible
 reusable discovery priority, YouTube-only audience/automatic-permission controls and **Missions → Why clips are
 waiting to post**. Historical Private plans, manual edits, canceled work, exact-file checks and posting consent
-remain protected. No TikTok connection is required for YouTube, and setup does not perform a real upload.
+remain protected. No TikTok connection is required for YouTube. Setup prepares and starts the app; the app
+resumes approved eligible uploads when its saved Autopilot and publishing permission are on.
+
+This update removes the app's daily source/clip/platform caps (0 means unlimited), chooses the earliest eligible
+posting time at any hour and defaults broad discovery to verified uploadable sources. Existing local-only clips
+still need valid reuse permission. A one-time recorded volume/hours amendment updates old limits and existing
+YouTube permission while retaining its channel, audience and made-for-kids choice; missing permission is never
+created. Future owner caps persist. Old posts and Private plans keep their audiences and times.
+The app resumes eligible uploads when Autopilot and the existing permission are enabled.
+
+Real Brain guidance consultations and ordered worker/manager/boss handoffs now appear in the office. Quiet rooms
+explain their actual waits. Current reuse/required-credit checks also bind to actual post text, with safe editable
+review and recovery of provably unstarted uploads. Started/uncertain sessions retain their original identity.
 
 Enabled saved Brain guidance applies automatically to new clips, with Settings filling unspecified choices.
 The optional **Settings → Integrations → Check from your phone** dashboard remains read-only and separate from
 desktop/account/publishing controls. Setup does not install Tailscale or connect a phone automatically.
 
-The app's final verification was 958 fast checks, eight actual-FFmpeg/synthetic-speech media/restart checks,
-seven controlled browser checks and a production build. All 462 archived source files match the exact Git
+The app's final verification was 1,047 fast checks, eight actual-FFmpeg/synthetic-speech media/restart checks,
+11 final built browser checks and a production build. All 472 archived source files match the exact Git
 revision, apart from six intentional BAT CRLF exports; all 17 browser-tested frontend file hashes match.
 No owner Windows data, RTX3050 execution, actual account upload, real phone/Tailscale connection or 24-hour
-unattended soak is claimed. The app source and dependency pins are unchanged by this delivery update.
+unattended soak is claimed. GPU and other app dependency pins are unchanged.
 
 ## Rebuilding and verification
 
@@ -70,9 +83,9 @@ Run these commands from this artifact branch:
     python launcher/build_plain_zip_test.py
     python launcher/build_plain_zip.py
 
-For a future app revision, first independently verify and pin its archive using launcher/pin_bundle.py, then
-update the readable installer's exact pins and retained release table and review them. The source builder refuses
-out-of-sync launchers; pinning the historical PowerShell wrapper alone does not update the Python installer.
+For a future app revision, independently verify and pin its archive using launcher/pin_bundle.py, which updates
+the readable Python and historical PS/BAT source together and retains exact prior release hashes. Review the
+updated pins and run all three Python suites; the source builder refuses out-of-sync launchers.
 The older Go/PowerShell launcher sources remain available for history and inspection, not recommended delivery.
 
 Current delivery evidence and limits are recorded in launcher/DELIVERY_CHANGELOG.md and
