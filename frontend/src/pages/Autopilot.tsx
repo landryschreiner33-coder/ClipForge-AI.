@@ -32,8 +32,10 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Missions" sub="Finds videos you may use, makes clips, checks them and plans posts. Nothing is
-        posted without your OK, or the permission you gave for YouTube." />
+      <PageHead title="Missions" sub={st.settings.autopilot_review_before_publish !== false
+        ? "Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post."
+        : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
+          + "or the permission you gave for YouTube."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/missions", label: "Overview" },
@@ -114,8 +116,11 @@ function Overview({ st, lost, since, refresh, setData }: {
       <>
         <section className="panel" aria-labelledby="ap-off">
           <h2 id="ap-off">Autopilot is not set up</h2>
-          <p className="muted">Autopilot finds videos it may use and makes local clips from links you add. It keeps
-            looking and working by itself. Posting needs your OK or the permission you give for YouTube.</p>
+          <p className="muted">{st.settings.autopilot_review_before_publish !== false
+            ? "Autopilot finds accessible videos, makes clips and plans posts for your review. It keeps working "
+              + "by itself; nothing uploads until you check reuse and approve each post in Queue."
+            : "Autopilot finds videos it may use and makes local clips from links you add. It keeps looking and "
+              + "working by itself. Posting needs your OK or the permission you give for YouTube."}</p>
           <div className="row wrap">
             <a className="btn btn-primary" href="#/setup/mode">Set up Autopilot</a>
             <a className="btn" href="#/create">Make clips yourself instead</a>
@@ -196,7 +201,9 @@ function Overview({ st, lost, since, refresh, setData }: {
                   <span>{p.counts.preparing} need post text</span><span>· {p.counts.checking} await checks</span>
                   <span>· {p.counts.failed_check} failed checks</span><span>· {p.counts.local_only} local only</span>
                   <span>· {p.counts.preparation_stopped ?? 0} preparation stopped</span>
-                  <span>· {p.counts.ready} ready to plan</span><span>· {p.counts.scheduled} scheduled</span>
+                  <span>· {p.counts.ready} ready to plan</span>
+                  <span>· {p.counts.planned_for_review ?? 0} planned for review</span>
+                  <span>· {p.counts.scheduled} approved & scheduled</span>
                 </div>
                 <a className="textlink small" href={p.link}>See the next step<Icon name="chev" className="sm" /></a>
               </div>
@@ -285,8 +292,8 @@ function Overview({ st, lost, since, refresh, setData }: {
           <h3>How posts go out</h3>
           <AutoPublishLine onChange={refresh} />
           <Accounts st={st} refresh={refresh} />
-          <p className="tiny faint">Connecting an account never lets ClipFoundry post by itself. Automatic publishing is
-            a separate permission that you turn on here, for YouTube only.</p>
+          <p className="tiny faint">Connecting an account does not approve posts. Review each prepared clip in Queue,
+            check that you can reuse it, then approve its exact video, text and audience.</p>
         </section>
       </div>
 

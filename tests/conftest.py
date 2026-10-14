@@ -35,3 +35,17 @@ def _audience_confirmed(monkeypatch):
 
     monkeypatch.setitem(config.DEFAULT_SETTINGS, "audience_youtube_confirmed_at", 1.0)
     monkeypatch.setitem(config.DEFAULT_SETTINGS, "audience_tiktok_confirmed_at", 1.0)
+
+
+@pytest.fixture(autouse=True)
+def _legacy_automatic_publishing_contract(monkeypatch, request):
+    """Existing suites exercise the explicitly enabled automatic-publishing contract.
+
+    New ``test_review_*`` suites keep the production default so they verify local planning and owner review.
+    Existing byte, reuse, approval, audience, recovery and platform-wait assertions remain in force.
+    """
+    if request.module.__name__.split(".")[-1].startswith("test_review_"):
+        return
+    from clipfoundry import config
+
+    monkeypatch.setitem(config.DEFAULT_SETTINGS, "autopilot_review_before_publish", False)

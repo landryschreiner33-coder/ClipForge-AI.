@@ -14,8 +14,8 @@ import "./posts.css";
 const VIEWS = ["review", "scheduled", "published", "history", "problems", "results"];
 
 const INTRO: Record<string, string> = {
-  review: "Nothing is posted until it's approved. TikTok needs your OK on every post; YouTube does too unless you " +
-    "turned on automatic publishing.",
+  review: "Planning a time does not upload a clip. Check that you can reuse it, watch the video, read its text and "
+    + "approve its audience before publishing.",
   published: "Each post shows its planned audience and what the platform confirmed. An upload or your own "
     + "confirmation does not prove public visibility or that anyone watched it.",
   history: "Published, canceled and replaced posts.",
@@ -24,7 +24,7 @@ const INTRO: Record<string, string> = {
 };
 const EMPTY: Record<string, [string, string]> = {
   review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
-  scheduled: ["Nothing is scheduled", "Approved posts wait here for their time."],
+  scheduled: ["Nothing is scheduled", "Prepared posts appear here with a planned time, including drafts awaiting review."],
   published: ["Nothing uploaded yet", "Posts appear here after uploading or after you record a manual post."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
@@ -122,9 +122,9 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction
 }) {
   const history = view === "history";
   const intro = view === "scheduled"
-    ? autoPublish ? "Approved posts go out at their time by themselves. You can still change or cancel them until then."
-      : "Approved posts wait for you at their time: posting at the planned time is turned off (Settings, Advanced), " +
-        "so each one needs Publish now."
+    ? "Drafts marked “Needs your review” have a planned time but cannot upload. " + (autoPublish
+      ? "After you approve a post, it goes out at its time. You can change or cancel it until then."
+      : "After you approve, it waits for Publish now: posting at the planned time is turned off in Settings, Advanced.")
     : INTRO[view];
   const [emptyTitle, emptyText] = EMPTY[view];
   const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} onAction={onAction} />;
@@ -269,6 +269,7 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
         {(p.status === "awaiting_approval" || p.status === "approved") && (
           <span className="tiny faint">
             Permission to use: {p.source?.rights_label || p.source?.rights_status || "unknown"}
+            {p.reuse_review?.confirmed ? " · Reuse confirmed by you for this post" : ""}
             {" "}· Final check: {checkSummary(p)}
           </span>
         )}

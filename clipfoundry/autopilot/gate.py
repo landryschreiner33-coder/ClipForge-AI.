@@ -33,6 +33,10 @@ class CreditRequired(queue.Fail):
     """The owner must review and approve post text containing the source's current required credit."""
 
 
+class ReuseReviewRequired(queue.Fail):
+    """Local quality passed, but this exact post still needs the owner's reuse review."""
+
+
 # Rebuild damaged output/captions or conservatively repair word boundaries. Source sound, reuse terms and creative
 # judgments require their responsible stage's review, so the same impossible operation is never blindly retried.
 REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "streams", "duration", "audio_stream", "av_timing",
@@ -94,7 +98,8 @@ def rights_context(clip: dict, settings: dict | None = None) -> str:
     source = _source(clip)
     evaluation = rights.evaluate(source, settings) if source else None
     return artifact.sha256_json({"source": (source or {}).get("id") or "", "evaluation": evaluation,
-                                 "attribution": rights.current_attribution(source, settings)})
+                                 "attribution": rights.current_attribution(source, settings),
+                                 "review_before_publish": rights.review_before_publish(settings)})
 
 
 def context_valid(report: dict, clip: dict, settings: dict | None = None) -> bool:
@@ -140,14 +145,15 @@ def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
 MUSIC_SHARE = 0.35  # of the clip: loud sound without speech (music, or a lot of laughter and applause)
 
 
-def sound_rights_check(clip: dict) -> dict | None:
+def sound_rights_check(clip: dict, settings: dict | None = None) -> dict | None:
     """Coverage that does not include other people's material (an agreement with a creator, a CC or public domain
     license) must not carry someone else's music. Speech-to-text finds no words in music, so a clip with long loud
     stretches without words is rejected. A heuristic: it cannot hear background music under speech."""
     src = _source(clip)
     if not src:
         return None
-    r = rights.evaluate(src)
+    settings = settings if settings is not None else db.get_settings()
+    r = rights.evaluate(src, settings)
     if r["status"] not in (rights.LICENSED, rights.ALLOWLISTED, rights.CC, rights.PD) or \
             (r.get("conditions") or {}).get("third_party"):
         return None
@@ -158,9 +164,11 @@ def sound_rights_check(clip: dict) -> dict | None:
     dur = max(1.0, float(clip.get("end") or 0) - float(clip.get("start") or 0))
     share = float(audio.get("reaction_seconds") or 0) / dur
     if share >= MUSIC_SHARE:
-        return quality.check(name, label, quality.HEURISTIC, quality.FAIL,
+        return quality.check(name, label, quality.HEURISTIC,
+                             quality.WARN if rights.review_before_publish(settings) else quality.FAIL,
                              f"{share:.0%} of the clip is loud sound without speech (possibly music). The coverage "
-                             f"({r['label']}) includes only the creator's own material.")
+                             f"({r['label']}) includes only the creator's own material. Review the sound before "
+                             "confirming reuse for this post.", owner_confirmation_required=True)
     return quality.check(name, label, quality.HEURISTIC, quality.PASS,
                          f"Mostly speech ({share:.0%} loud sound without speech; background music under speech cannot "
                          "be ruled out).")
@@ -181,13 +189,23 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
         media["passed"] = existing["status"] == "passed"
     else:
         media = quality.evaluate(path, render_info, clip, _has_audio(clip), cancelled)
-    sound = sound_rights_check(clip)  # rights can change, so this is judged again every time
-    checks = [c for c in media["checks"] if c["name"] != "sound_rights"] + ([sound] if sound else [])
+    sound = sound_rights_check(clip, settings)  # rights can change, so this is judged again every time
+    source = _source(clip)
+    evaluation = rights.evaluate(source, settings) if source else None
+    missing_reuse = bool(evaluation and not evaluation["auto_allowed"])
+    reuse_warning = (quality.check("reuse_review", "Reuse permission needs review", quality.HEURISTIC, quality.WARN,
+                                  evaluation["basis"] + ". A local schedule does not authorize uploading.")
+                     if missing_reuse and rights.review_before_publish(settings) else None)
+    checks = [c for c in media["checks"] if c["name"] not in ("sound_rights", "reuse_review")] + \
+        ([sound] if sound else []) + ([reuse_warning] if reuse_warning else [])
     media = {**media, "checks": checks,
              "blockers": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.FAIL],
              "warnings": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.WARN]}
     media["passed"] = not media["blockers"]
-    media["coverage"] = {**(media.get("coverage") or {}), "rights_context": rights_context(clip, settings)}
+    sound_review = bool(sound and (sound.get("values") or {}).get("owner_confirmation_required"))
+    media["coverage"] = {**(media.get("coverage") or {}), "rights_context": rights_context(clip, settings),
+                         "needs_reuse_review": missing_reuse or sound_review,
+                         "reuse_status": (evaluation or {}).get("status") or rights.OWNED}
     metadata = check_metadata(clip, media["artifact_sha256"], settings)
     fields = {"clip_id": clip["id"], "version_id": version, "gate_version": quality.GATE_VERSION,
               "status": "passed" if media["passed"] else "failed", "metadata": metadata,
@@ -577,6 +595,14 @@ def verify_file(clip: dict, path: str, publication: dict | None = None) -> dict:
     if rows[0]["status"] != "passed":
         raise queue.Fail("The file did not pass the final quality check: " + "; ".join(rows[0]["blockers"][:2]),
                          "Fix the clip in the editor and render it again.")
+    if publication is not None:
+        allowed, why = rights.publication_allowed(_source(clip), publication.get("platform") or "",
+                                                  publication=publication)
+        sound = sound_rights_check(clip)
+        sound_review = bool(sound and (sound.get("values") or {}).get("owner_confirmation_required"))
+        if not allowed or (sound_review and rights.confirmation_problem(publication, sha=sha)):
+            raise ReuseReviewRequired(why or "Review the music or other material inside this exact clip",
+                                      "Review reuse in Queue, record your permission basis and approve this post.")
     return rows[0]
 
 

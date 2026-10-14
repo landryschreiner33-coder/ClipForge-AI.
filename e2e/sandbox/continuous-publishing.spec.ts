@@ -14,6 +14,7 @@ async ({ page }) => {
       return route.fulfill({ status: 409, json: { detail: "Controlled preview; nothing saved." } });
     }
     if (path === "/api/autopilot/auto-publish") return route.fulfill({ json: {
+      review_before_publish: false,
       youtube: { supported: true, enabled: false, can_enable: true, blocker: "", visibility: "public",
         account_id: youtube.account_id, consent: null },
       tiktok: { supported: false, enabled: false, consent: null, note: "Your OK is required on each post." },

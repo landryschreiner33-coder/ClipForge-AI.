@@ -348,7 +348,8 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["working"] is None and home["posts"] == {"review": 0, "fix": 0, "ready": 0, "scheduled": 0}
+    assert home["working"] is None and home["posts"] == {
+        "review": 0, "planned_for_review": 0, "fix": 0, "ready": 0, "scheduled": 0}
 
     project = db.create_project("Morning show episode 12")
     src = db.insert("sources", {"id": db.new_id(), "platform": "local", "external_id": "ep12", "title": "Morning show",
@@ -369,7 +370,7 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube", "status": "approved",
                                          "approval": {"hash": "old", "scheme": 1}})
     assert client.get("/api/autopilot/status").json()["home"]["posts"] == {
-        "review": 3, "fix": 4, "ready": 0, "scheduled": 0}
+        "review": 3, "planned_for_review": 0, "fix": 4, "ready": 0, "scheduled": 0}
 
     client.post("/api/autopilot/stop-all", headers=H)  # stopped: nothing is being worked on
     assert client.get("/api/autopilot/status").json()["home"]["working"] is None

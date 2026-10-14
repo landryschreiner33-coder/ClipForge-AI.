@@ -12,9 +12,18 @@ TikTok, schedules them, publishes the posts you approved through the official AP
 
 Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your
 own results. There is no app daily source or upload cap by default: **0 means unlimited**. Eligible clips can be
-planned at any hour while quality, reuse permission, availability and platform limits still apply. Automatic
-broad searches now look for videos covered for a connected upload destination; public availability alone is not
-permission. Explicit links may still be clipped locally. Five best clips per source remains a quality-oriented
+planned at any hour while quality, availability and platform limits still apply. **Prepare & schedule for review**
+is now the default: broad searches may prepare accessible videos even when reuse permission is unrecorded.
+Every new post waits in Queue for your review; a posting time is a plan, not an upload approval. Check the preview,
+text, audience and reuse permission. If existing records do not cover the post, confirm that you checked your
+permission and enter its basis, then approve. This records your statement for that exact clip, account, destination,
+audience, file and post text; it does not mark the original as owned or licensed. Approved posts upload at their
+planned time (or promptly if that time has passed), subject to the usual checks and platform waits.
+Existing standing YouTube permission cannot approve posts while review mode is on. Old automatic approvals for
+uploads that have not started return to review; active or uncertain transfers retain their original session.
+Already published videos and saved media are preserved. Explicit blocks and canceled sources still prevent use.
+Public availability alone is not permission. If you explicitly turn review mode off, automatic approval again
+requires the separate account-bound YouTube permission and recorded reuse coverage. Five best clips per source remains a quality-oriented
 default, not a daily total.
 
 Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-autopilot) ·

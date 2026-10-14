@@ -707,7 +707,9 @@ def _discovery_path(src: dict, settings: dict, all_rules: list[dict], targets: s
     """
     evaluation = rights.evaluate(src, settings, all_rules)
     allowed = set((evaluation.get("conditions") or {}).get("platforms") or [])
-    reusable = bool(evaluation["auto_allowed"] and targets and (not allowed or targets & allowed))
+    reusable = bool(targets and (evaluation["status"] != rights.BLOCKED
+                    if settings.get("autopilot_review_before_publish", True) else
+                    evaluation["auto_allowed"] and (not allowed or targets & allowed)))
     try:
         accessible = bool(access.resolve(src, settings)["ok"])
     except queue.Canceled:
@@ -734,7 +736,7 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
                   and automatic_discovery(src, settings=settings, all_rules=all_rules)]
     summary["backlog"] = len(unfinished)
     targets = _publishing_targets(settings)
-    path_index = 0 if settings.get("autopilot_discovery_uploadable_only", True) else 1
+    path_index = 0 if providers.reusable_discovery_only(settings) else 1
     workable = sum(src["status"] in ACTIVE_SOURCE or _discovery_path(src, settings, all_rules, targets)[path_index]
                    for src in unfinished)
     summary["workable_backlog"] = workable
@@ -768,7 +770,7 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
         if rights.evaluate(src, settings, all_rules)["status"] == rights.BLOCKED:
             reason("Blocked by your saved permissions", True)
             continue
-        if settings.get("autopilot_discovery_uploadable_only", True) and \
+        if providers.reusable_discovery_only(settings) and \
                 not rights.discovery_publishable(src, settings, all_rules, targets):
             reason("No recorded reuse permission for your upload destinations", True)
             continue
@@ -951,7 +953,7 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             continue
         signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
         broad = broad_sources[src["id"]] if quality_mode else automatic_discovery(src, signal, settings, all_rules)
-        if broad and settings.get("autopilot_discovery_uploadable_only", True) and \
+        if broad and providers.reusable_discovery_only(settings) and \
                 not rights.discovery_publishable(src, settings, all_rules):
             _skip_discovery(src, "Local use only: no recorded reuse permission for your upload destinations")
             continue  # preserve history/media and reconsider after permission or preferences change

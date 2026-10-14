@@ -1,6 +1,9 @@
 # Running ClipFoundry unattended
 
-ClipFoundry can keep processing eligible videos and publish eligible YouTube clips automatically after setup.
+ClipFoundry can keep preparing quality-checked clips and local posting plans unattended. Review before publishing
+is now the default: missing recorded reuse permission does not prevent a local review plan, but every new post
+waits for your approval. Approved posts can upload at their planned time. Fully automatic YouTube approval remains
+an optional separate mode requiring current recorded coverage and channel/audience-bound publishing permission.
 This is a local PC app: the PC must remain powered on, connected to the internet and able to use its GPU and disk.
 It cannot promise uninterrupted operation, make a sleeping/offline PC run, or override platform/account restrictions.
 
@@ -66,16 +69,21 @@ restarts or network failures. A locked screen is different from logging out.
 
 If finished clips exist but nothing is scheduled, open **Missions → Why clips are waiting to post**. This panel
 reports post-text preparation, final checks, local-only coverage and actual scheduled counts for connected
-platforms. It explains unconfirmed audiences, disabled scheduling/publishing, missing or outdated YouTube
+platforms. It explains unconfirmed audiences, disabled scheduling/publishing, pending owner review, and, when
+review mode is explicitly off, missing or outdated YouTube
 permission, zero limits and approved posts without a confirmed new time. Routine retries do not require an
 approval; failed/canceled post preparation remains visible in Jobs. Interrupted eligible finished outputs resume
 their post preparation automatically, without re-rendering the whole batch or reviving canceled work.
 
 With only YouTube connected, TikTok is optional. In Setup or **Settings → Integrations → Who watches**, choose
-and confirm the intended YouTube audience. Then use **Missions → How posts go out → Turn on automatic publishing**
-to give separate channel/audience-bound permission, including the made-for-kids choice, daily limit and hours.
+and confirm the intended YouTube audience. Leave **Prepare & schedule for review** on, then open **Queue → Needs
+review** to inspect each exact clip and confirm any unrecorded reuse permission with its basis before approval.
+YouTube also needs the post's made-for-kids answer. The approved post uploads at its time; approving a past-due
+post allows prompt publishing. If you deliberately turn review mode off, **Missions → How posts go out → Turn on
+automatic publishing** provides the separate channel/audience-bound permission for covered clips.
 Existing Private posts keep their original visibility and applicable permission. A new Public choice does not
-turn those older posts public. Clips without current reuse coverage remain local, even if their render is finished.
+turn those older posts public. Uncovered clips remain local review drafts until you record a valid individual
+reuse confirmation and approve their exact post. A draft's posting time grants no upload permission.
 
 Public posting requires an explicit supported audience choice, the correct connected account, reuse permission,
 passing final-file checks and the appropriate approval or standing YouTube permission. Previous private schedules

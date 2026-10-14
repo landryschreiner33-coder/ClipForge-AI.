@@ -286,7 +286,7 @@ export interface HomeView {
   posting?: {
     finished: number; checked: number; sampled: boolean;
     source_guidance?: {
-      uploadable_only: boolean; title: string; detail: string;
+      uploadable_only: boolean; review_before_publish?: boolean; title: string; detail: string;
       options: { title: string; detail: string; link: string }[];
     };
     platforms: {
@@ -369,6 +369,8 @@ export interface AgreementIn {
 }
 
 export interface AutoPublishView {
+  /** When enabled, every prepared post waits for the owner's review. */
+  review_before_publish?: boolean;
   youtube: { supported: boolean; note: string; enabled: boolean; can_enable?: boolean; blocker?: string;
     visibility?: string; account_id?: string; consent: { id: string; settings: AutoPublishState["settings"];
       text: string; created_at: number } | null };
@@ -487,6 +489,7 @@ export interface ScheduledItem extends ScheduledItemRow {
   approval_valid: boolean;
   clip: { id: string; title: string; duration: number; score: number; category: string; status: string; has_thumbnail: boolean; video_url: string; thumbnail_url: string; caption_text: string };
   source: { id?: string; title: string; url?: string; platform?: string; channel?: string; rights_status: string; rights_label: string };
+  reuse_review?: { required: boolean; confirmed: boolean; basis: string; explanation: string; status: string };
   trend: { topic: string; score: number; mode: string } | null;
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];

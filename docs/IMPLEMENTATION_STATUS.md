@@ -1,5 +1,24 @@
 # Implementation status
 
+## Local schedules and individual reuse review — 2026-10-14
+
+Base: `d0b7102e8273cee068531da554c8d83f3fa43f8f`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Default to preparing and scheduling for review, without a recorded reuse prerequisite for local plans;
+  preserve truthful rights status, explicit blocks, quality-first bounded work and file-access policy.
+- [x] Suspend standing automatic approval, retain review drafts and show their proposed times separately from
+  approved uploads. Return old provably unstarted automatic work to review atomically without changing its payload.
+- [x] Record individual owner reuse confirmation and basis bound to exact post/source/current terms/credit,
+  account, platform, audience, file/version, text and options. Editing requires fresh review; known credit remains.
+- [x] Keep real upload checks and manually approved dispatch, including exact hash/quality, account/audience,
+  kids/platform choices, duplicate protection and Retry-After. Preserve active/uncertain sessions and read back
+  unknown outcomes before changing local policy. Prevent assertion borrowing through manual Publish.
+- [x] Verify review/retry/restart boundaries and the built review interface using isolated fake platforms/media.
+
+**Validation:** Final full fast suite: 1,112 passed, nine slow deselected, in 529.54 s. Final real-FFmpeg/synthetic-speech media and restart suite: nine passed, 1,112 deselected, in 879.93 s, including the new review/owner-confirmation/exact-byte upload/restart loop. Final production build passed in 8.79 s; 12 built browser checks passed in 40.23 s, with all 17 frontend file hashes unchanged. Focused checks: 95 publishing/reuse checks; 64 scheduler/public/manual checks; final 46 review/current-terms checks; 107 legacy recovery checks; and eight final independent audit/fixture checks. The initial full fast attempt found an older fixture approving an unverified channel claim; its corrected exact-video verification retains all connection, quota, hash, explicit-block and no-upload assertions. Earlier full attempts were stopped before final corrections and are not final suite evidence.
+No real owner profile, Windows/RTX3050, platform upload or 24-hour soak was tested. The readable source ZIP must be
+pinned to the tested app commit and built frontend manifest before delivery; retain verified managed user data.
+
 ## Continuous eligible uploads and real Brain/manager activity — 2026-10-13
 
 Base: `718358f30110ab871e21059177f83ccd9ea3d3a9`, on `codex/brain-graph-quality-discovery`.

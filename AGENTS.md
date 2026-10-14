@@ -42,6 +42,12 @@ restarts. Current reuse terms and credit must cover the actual approved upload p
 silently rewrite owner text or an active/uncertain upload. Real saved-guidance consultations and recorded manager/
 boss paths appear in the office without invented work, approval or model training. See the latest handoff.
 
+**Latest review continuation:** the owner now wants local schedules followed by individual reuse review and
+manual approval. `autopilot_review_before_publish` defaults on; missing recorded coverage can reach the review
+queue without becoming an upload grant. Existing standing permission cannot approve new work in this mode.
+Uncovered posts need an exact-post owner reuse statement and basis before approval. The continuation under
+Standing instructions below supersedes the older coverage-before-scheduling requirement.
+
 ## Stack
 
 | Part | Details |
@@ -360,6 +366,17 @@ checks remain unchanged. Prose is interpreted only into a bounded local editing 
 sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
 
 ## Standing instructions from the owner
+
+**Review-before-publishing continuation (2026-10-14):** The latest owner request supersedes automatic publishing
+as the default and the requirement for recorded reuse coverage before *scheduling*. `autopilot_review_before_publish`
+defaults on. Discovery and local plans may include accessible, unblocked sources with unrecorded reuse terms;
+rights status must stay truthful. Every new post waits for manual approval. An uncovered post additionally needs
+an owner reuse statement and basis bound to its exact source, file/version, account, platform, audience, text and
+options. This records an assertion, not verified ownership/license or permission for other posts. Current credit,
+physical-media quality, grounded text, platform choices, account approval, cancellation, idempotency and waits
+remain binding. Old automatic approvals for provably unstarted transfers return to review with draft identity,
+text, privacy and time preserved. Started/uncertain sessions must remain intact. If review mode is deliberately
+disabled, the earlier separate standing YouTube permission and recorded reuse requirements apply again.
 
 * Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):
   `.mcp.json` starts the Playwright MCP server through `e2e/playwright-mcp.mjs`, which uses the cloud's

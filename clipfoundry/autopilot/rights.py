@@ -1,20 +1,21 @@
 """Rights and content safety gate. Discovery is not authorization.
 
-Every source gets exactly one rights status. Discovery stays broad (any trending topic, creator or stream), but a
-source is only scheduled or published automatically when its status passes the policy in Settings:
+Every source gets exactly one rights status. Review mode may discover, clip and schedule accessible videos locally
+without recorded reuse coverage. Uploading requires current recorded coverage or an exact per-post owner assertion:
 
 * OWNED                          your own content (your connected YouTube channel, folders you marked as yours)
 * LICENSED                       you have a license (you record the basis, e.g. the agreement)
 * CREATIVE_COMMONS               the platform or library reports CC BY (the credit line is added)
 * PUBLIC_DOMAIN                  the library reports public domain or CC0
 * ALLOWLISTED                    the creator allows it (an agreement you recorded, or a clipping program you joined)
-* MANUAL_CONFIRMATION_REQUIRED   nothing covers it ("Not covered"): skipped, never used automatically
+* MANUAL_CONFIRMATION_REQUIRED   nothing covers it ("Not covered"): needs owner review before uploading
 * BLOCKED                        never used
 
 Being public, trending or downloadable says nothing about whether a video may be reused, so the default for anything
-unknown is MANUAL_CONFIRMATION_REQUIRED. Public discovery may select it for local clipping when
-autopilot_public_videos is on; it never supplies a scheduling or publishing grant. With that mode off, unknown
-discovered videos are skipped (questions remain optional). Explicit blocks always prevent local processing.
+unknown is MANUAL_CONFIRMATION_REQUIRED. Review mode and explicit public-local discovery may select it for local
+clipping; neither supplies a publishing grant. With review mode off, automatic scheduling requires recorded reuse
+coverage. Explicit blocks always prevent local processing. Owner assertions are stored separately and never
+fabricate an ownership or license status for the source.
 
 A channel named by a feed or list is only a claim. Channel rules (agreements, allowlisted creators) and ownership by
 your connected channel apply only when the platform itself confirmed that this exact video, and the link to it,
@@ -53,8 +54,8 @@ EXPLAIN = {
         "added to the description.",
     PD: "Public domain (or CC0), as the library reports it.",
     ALLOWLISTED: "The creator allows reuse (an agreement you recorded, or a clipping program you joined).",
-    MANUAL: "Nothing shows that you may reuse this content, so Autopilot skips it. Record an agreement with the "
-            "creator to use their videos.",
+    MANUAL: "No recorded reuse coverage. Review the source and confirm your basis before publishing, or record "
+            "an agreement with the creator.",
     BLOCKED: "Blocked: never clipped or published.",
 }
 SCOPES = ("source", "channel", "folder", "url_prefix")
@@ -75,10 +76,22 @@ def auto_allowed(status: str, settings: dict) -> bool:
             PD: bool(settings.get("rights_auto_public_domain", True))}.get(status, False)
 
 
+def review_before_publish(settings: dict | None = None) -> bool:
+    """Review mode prepares local posts; it never grants permission to upload them."""
+    settings = settings if settings is not None else db.get_settings()
+    return bool(settings.get("autopilot_review_before_publish", True))
+
+
+def _stopped(source: dict | None) -> bool:
+    intake = (source or {}).get("intake") or {}
+    return bool((source or {}).get("status") in ("canceled", "removed") or
+                intake.get("canceled") or intake.get("removed"))
+
+
 def local_allowed(source: dict, evaluation: dict | None = None, settings: dict | None = None) -> bool:
     """A submitted video or an enabled public discovery pick may be clipped without a publishing grant.
 
-    This never changes its reuse status: scheduling and publishing still require auto_allowed.
+    This never changes its reuse status. Review-mode scheduling is local; publishing needs a separate grant.
     Explicit blocks remain binding, and access.resolve separately decides whether media can be obtained.
     """
     intake = source.get("intake") or {}
@@ -86,7 +99,8 @@ def local_allowed(source: dict, evaluation: dict | None = None, settings: dict |
         return False
     settings = settings if settings is not None else db.get_settings()
     r = evaluation if evaluation is not None else evaluate(source, settings)
-    public_pick = bool(settings.get("autopilot_public_videos") and source.get("signal_id") and
+    public_pick = bool((settings.get("autopilot_public_videos") or review_before_publish(settings)) and
+                       source.get("signal_id") and
                        not source.get("local_path") and
                        str(source.get("url") or "").startswith(("http://", "https://")))
     return bool(r["auto_allowed"] or ((source.get("user_added") or public_pick) and r["status"] != BLOCKED))
@@ -94,19 +108,21 @@ def local_allowed(source: dict, evaluation: dict | None = None, settings: dict |
 
 def discovery_publishable(source: dict, settings: dict, all_rules: list[dict] | None = None,
                           platforms: set[str] | None = None) -> bool:
-    """Require recorded reuse coverage before spending automatic search work on an upload candidate.
+    """Admit review candidates, or require recorded coverage when automatic publishing is selected.
 
     This is a local admission check, not a publishing grant: file access, final checks, connected-account
     readiness and posting consent are checked separately. Explicit local imports keep their existing behavior.
     """
+    if _stopped(source):
+        return False
     evaluation = evaluate(source, settings, all_rules)
-    if not evaluation["auto_allowed"]:
+    if evaluation["status"] == BLOCKED or (not evaluation["auto_allowed"] and not review_before_publish(settings)):
         return False
     if platforms is None:
         connected = {p for p in ("youtube", "tiktok") if (db.get_account(p) or {}).get("has_tokens")}
         platforms = {p for p in (connected or {"youtube", "tiktok"}) if settings.get(f"autopilot_{p}")}
     allowed = set((evaluation.get("conditions") or {}).get("platforms") or [])
-    return bool(platforms and (not allowed or platforms & allowed))
+    return bool(platforms and (review_before_publish(settings) or not allowed or platforms & allowed))
 
 
 # What a title says about material that is not the creator's own (music, broadcasts, films). A heuristic: it can
@@ -334,8 +350,11 @@ def request_confirmation(source: dict) -> None:
                  level="action", ref_type="source", ref_id=source["id"], snooze_s=ASK_AGAIN_AFTER)
 
 
-def platform_allowed(source: dict | None, platform: str, settings: dict | None = None) -> tuple[bool, str]:
+def platform_allowed(source: dict | None, platform: str, settings: dict | None = None, *,
+                     stage: str = "publish") -> tuple[bool, str]:
     """Does the coverage allow posting on this platform? (an agreement may be limited to some platforms)"""
+    if stage == "schedule":
+        return scheduling_allowed(source, platform, settings)
     if source is None:
         return True, ""
     r = evaluate(source, settings)
@@ -343,6 +362,18 @@ def platform_allowed(source: dict | None, platform: str, settings: dict | None =
     if allowed and platform not in allowed:
         return False, f"{r['basis']}: allowed only on {', '.join(a.title() for a in allowed)}"
     return True, ""
+
+
+def scheduling_allowed(source: dict | None, platform: str, settings: dict | None = None) -> tuple[bool, str]:
+    """Uncovered sources can enter local review without becoming owned, licensed or approved to upload."""
+    settings = settings if settings is not None else db.get_settings()
+    try:
+        gate(source, "schedule", settings)
+    except RightsBlocked as exc:
+        return False, str(exc)
+    if review_before_publish(settings):
+        return True, ""
+    return platform_allowed(source, platform, settings)
 
 
 # ------------------------------------------------------------------ creator agreements
@@ -427,9 +458,149 @@ def gate(source: dict | None, stage: str, settings: dict | None = None) -> dict:
         raise RightsBlocked("Canceled by you: no further automatic posts will be made from this video.", BLOCKED)
     settings = settings if settings is not None else db.get_settings()
     r = evaluate(source, settings)
-    if not r["auto_allowed"]:
+    if not r["auto_allowed"] and not (stage == "schedule" and review_before_publish(settings) and
+                                      r["status"] != BLOCKED):
         raise RightsBlocked(f"{r['label']}: not used automatically at the {stage} stage. {r['explain']}", r["status"])
     return r
+
+
+def _post_source(item: dict) -> tuple[dict, dict | None]:
+    clip = db.get_clip(item.get("clip_id") or "") or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source_id = project.get("source_id") or item.get("source_id") or ""
+    source = db.fetch("sources", source_id) if source_id else None
+    if source_id and not source:
+        raise ValueError("This clip's source record is missing")
+    return clip, source
+
+
+def _confirmation_record(item: dict) -> dict:
+    record = item.get("reuse_confirmation") or (item.get("options") or {}).get("reuse_confirmation") or {}
+    return record if isinstance(record, dict) else {}
+
+
+def _confirmation_binding(item: dict, settings: dict, sha: str | None = None) -> dict:
+    """The same canonical payload in a local schedule and its eventual upload snapshot."""
+    from ..pipeline import artifact
+
+    clip, source = _post_source(item)
+    if not clip:
+        raise ValueError("The clip is missing")
+    path, version, _ = artifact.active(clip)
+    if clip.get("active_version") and version != clip["active_version"]:
+        raise ValueError("The selected clip version is missing or not rendered")
+    if not path:
+        raise ValueError("The rendered clip file is missing")
+    if sha is None:
+        sha = artifact.sha256_file(path)
+    if not sha:
+        raise ValueError("The rendered clip file cannot be read")
+    options = {k: v for k, v in (item.get("options") or {}).items() if k not in
+               ("approved_account", "approved_video_sha256", "reuse_confirmation", "duration")}
+    options["mode"] = options.get("mode") or item.get("mode") or "direct"
+    audience_stamp = item.get("audience") or {}
+    payload = {"title": item.get("title") or "", "description": item.get("description") or "",
+               "tags": item.get("tags") or [], "privacy": item.get("privacy") or item.get("requested_privacy") or "",
+               "options": options, "audience": {k: audience_stamp.get(k) for k in
+                                                ("intent", "policy_version", "group", "group_version")}}
+    evaluation = evaluate(source, settings) if source else None
+    identity = {k: (source or {}).get(k) for k in
+                ("id", "platform", "url", "local_path", "channel_id", "external_id", "video_id")}
+    return {"scheduled_id": item.get("scheduled_id") or item.get("id") or "",
+            "source_id": (source or {}).get("id") or "", "source_identity": artifact.sha256_json(identity),
+            "clip_id": clip["id"], "project_id": clip["project_id"], "platform": item.get("platform") or "",
+            "account_id": (db.get_account(item.get("platform") or "") or {}).get("account_id") or "",
+            "version_id": version, "video_sha256": sha, "payload_sha256": artifact.sha256_json(payload),
+            "terms_sha256": artifact.sha256_json({"evaluation": evaluation,
+                                                   "attribution": current_attribution(source, settings)})}
+
+
+def make_reuse_confirmation(item: dict, basis: str, settings: dict | None = None) -> dict:
+    """Record the owner's per-post assertion separately from any verified source ownership or license."""
+    settings = settings if settings is not None else db.get_settings()
+    basis = str(basis).strip()
+    if not basis or len(basis) > 4000:
+        raise ValueError("Explain your reuse permission for this post (up to 4,000 characters)")
+    _clip, source = _post_source(item)
+    if _stopped(source) or (source and evaluate(source, settings)["status"] == BLOCKED):
+        raise ValueError("This source is blocked or canceled; it cannot be approved for publication")
+    return {"policy_version": 1, "owner_confirmed": True, "basis": basis, "confirmed_at": time.time(),
+            "binding": _confirmation_binding(item, settings)}
+
+
+def confirmation_problem(item: dict, settings: dict | None = None, sha: str | None = None) -> str:
+    """An assertion is usable only for these exact current bytes, source, account, text and destination."""
+    settings = settings if settings is not None else db.get_settings()
+    record = _confirmation_record(item)
+    if record.get("policy_version") != 1 or record.get("owner_confirmed") is not True or not str(
+            record.get("basis") or "").strip():
+        return "Review the source and confirm your reuse permission for this post"
+    try:
+        clip, source = _post_source(item)
+        if not clip or _stopped(source) or (source and evaluate(source, settings)["status"] == BLOCKED):
+            return "The source is missing, blocked or canceled"
+        binding = _confirmation_binding(item, settings, sha)
+    except (OSError, ValueError):
+        return "The source or rendered clip file is missing or cannot be read"
+    if record.get("binding") != binding:
+        return "The source, reuse terms, account, video or post changed after your reuse review"
+    return ""
+
+
+def publication_allowed(source: dict | None, platform: str, settings: dict | None = None,
+                        publication: dict | None = None) -> tuple[bool, str]:
+    """Local review admission is never a grant: uploads need current coverage or an exact owner assertion."""
+    settings = settings if settings is not None else db.get_settings()
+    if publication is not None:
+        if publication.get("platform") != platform:
+            return False, "The post's platform does not match this publication request"
+        try:
+            _clip, source = _post_source(publication)
+        except ValueError as exc:
+            return False, str(exc)
+    if source and source.get("id"):
+        source = db.fetch("sources", source["id"]) or source
+    if _stopped(source) or (source and evaluate(source, settings)["status"] == BLOCKED):
+        return False, "This source is blocked or canceled; no further publication is allowed"
+    try:
+        gate(source, "publish", settings)
+        allowed, why = platform_allowed(source, platform, settings)
+        if allowed:
+            return True, ""
+    except RightsBlocked as exc:
+        why = str(exc)
+    if publication is not None and _confirmation_record(publication):
+        problem = confirmation_problem(publication, settings)
+        if not problem:
+            return True, ""
+        return False, problem
+    return False, why
+
+
+def review_info(item: dict, settings: dict | None = None) -> dict:
+    """Show recorded coverage and an owner assertion as distinct evidence, including source-sound uncertainty."""
+    settings = settings if settings is not None else db.get_settings()
+    try:
+        clip, source = _post_source(item)
+    except ValueError as exc:
+        return {"required": True, "confirmed": False, "basis": "", "explanation": str(exc), "status": MANUAL}
+    evaluation = evaluate(source, settings) if source else {"status": OWNED, "auto_allowed": True,
+                                                           "basis": "Manual project"}
+    allowed, why = publication_allowed(source, item.get("platform") or "", settings)
+    sound_review = False
+    if clip:
+        from . import gate as final_gate
+
+        sound = final_gate.sound_rights_check(clip, settings)
+        sound_review = bool(sound and (sound.get("values") or {}).get("owner_confirmation_required"))
+    required = not allowed or sound_review
+    record = _confirmation_record(item)
+    confirmed = bool(record and not confirmation_problem(item, settings))
+    explanation = ("Your reuse confirmation covers this exact post; it does not mark the source as owned or licensed."
+                   if confirmed else ("Review any music or other material inside this clip before confirming reuse."
+                                      if sound_review else why or evaluation.get("basis") or "Recorded reuse coverage"))
+    return {"required": required, "confirmed": confirmed, "basis": str(record.get("basis") or ""),
+            "explanation": explanation, "status": evaluation["status"]}
 
 
 # ------------------------------------------------------------------ acquisition policy (see access.py)
@@ -482,4 +653,8 @@ def current_attribution(source: dict | None, settings: dict | None = None) -> st
     if not source:
         return ""
     evaluation = evaluate(source, settings)
+    # An owner assertion supplies a separate posting basis; it never silently waives an existing credit term.
+    recorded_credit = str((evaluation.get("conditions") or {}).get("attribution") or "").strip()
+    if recorded_credit:
+        return recorded_credit
     return attribution({**source, "rights_status": evaluation["status"], "rights_rule_id": evaluation["rule_id"]})

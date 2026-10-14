@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -665,6 +665,7 @@ def _public_item(item: dict, settings: dict) -> dict:
     if publishing_job and publishing_job["status"] == "retrying":
         delivery_state = "retrying"
     return {**item, "local_time": _local_time(item.get("planned_at"), settings),
+            "reuse_review": rights.review_info(item, settings),
             "publishing_job": ({k: publishing_job.get(k) for k in
                                 ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
                                  "wait_reason")} if publishing_job else None),
@@ -681,7 +682,11 @@ def _public_item(item: dict, settings: dict) -> dict:
                         "platform": source.get("platform"), "channel": source.get("channel_title"),
                         "rights_status": source.get("rights_status"),
                         "rights_label": rights.LABELS.get(source.get("rights_status") or "", "")} if source else
-                       {"title": project.get("name"), "rights_status": "OWNED", "rights_label": "Manual project"}),
+                       {"title": project.get("name"),
+                        "rights_status": rights.MANUAL if (item.get("source_id") or project.get("source_id")) else
+                                         rights.OWNED,
+                        "rights_label": "Source record missing" if (item.get("source_id") or
+                                                                     project.get("source_id")) else "Manual project"}),
             "trend": ({"topic": signal.get("topic"), "score": signal.get("score"), "mode": signal.get("score_mode")}
                       if signal else None),
             "clip_scores": db.fetch("clip_scores", item["clip_id"], "clip_id"),
@@ -722,6 +727,7 @@ def scheduled_list(view: str = "upcoming", limit: int = 200) -> dict:
     items = [_public_item(i, settings) for i in db.select("scheduled_publications", where, (), order, min(500, limit))]
     return {"items": items, "view": view, "timezone": settings.get("autopilot_timezone"),
             "auto_publish": bool(settings.get("autopilot_auto_publish")),
+            "review_before_publish": bool(settings.get("autopilot_review_before_publish", True)),
             "counts": {r["status"]: r["n"] for r in _count("scheduled_publications", "status")}}
 
 
@@ -737,7 +743,8 @@ def scheduled_item(item_id: str) -> dict:
     """One post, as the list shows it (the post page: also an old post beyond the newest the lists return)."""
     settings = db.get_settings()
     return {"item": _public_item(_item_or_404(item_id), settings), "timezone": settings.get("autopilot_timezone"),
-            "auto_publish": bool(settings.get("autopilot_auto_publish"))}
+            "auto_publish": bool(settings.get("autopilot_auto_publish")),
+            "review_before_publish": bool(settings.get("autopilot_review_before_publish", True))}
 
 
 class ApproveBody(BaseModel):
@@ -754,6 +761,8 @@ class ApproveBody(BaseModel):
     brand_organic: bool = False
     brand_content: bool = False
     confirm: bool = False
+    reuse_confirmed: bool = False
+    reuse_basis: str = Field(default="", max_length=4000)
     expected_account_id: str = ""
 
 
@@ -792,7 +801,8 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
         creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
     try:
-        out = scheduler.approve(item_id, fields, creator)
+        out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
+                                reuse_basis=body.reuse_basis)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])
@@ -868,7 +878,8 @@ def retry_item(item_id: str) -> dict:
     item = _item_or_404(item_id)
     if item["status"] not in ("failed", "blocked", "action_needed", "canceled"):
         raise HTTPException(409, "Only failed, blocked or canceled posts can be retried")
-    valid = approval_valid({**item, "status": "approved"})
+    valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
+        rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
     db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
               planned_at=None, last_error="", fix="", publication_id="",
               status_note="Retrying: a new time will be chosen" if valid else "Approve it again to publish it",
@@ -1043,7 +1054,8 @@ def resolve_uncertain(item_id: str, body: ResolveBody) -> dict:
                   status_note="Published (confirmed by you)",
                   audit=_audit(item, "resolved", "You confirmed the upload is live", url=body.url.strip()))
     else:
-        valid = approval_valid({**item, "status": "approved"})
+        valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
+            rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
         db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
                   planned_at=None, publication_id="", last_error="", fix="",
                   status_note="Not on the platform: it will be uploaded again at a new time" if valid else

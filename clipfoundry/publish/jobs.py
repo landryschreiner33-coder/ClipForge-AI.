@@ -38,13 +38,10 @@ def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, se
                            "rights")
     if source and verify.ensure([source], settings):
         source = db.fetch("sources", source["id"]) or source
-    try:
-        rights.gate(source, "publish", settings)
-    except rights.RightsBlocked as exc:
-        raise PublishError(str(exc), "Review the source's reuse terms in Autopilot → Sources.", "rights") from exc
-    allowed, why = rights.platform_allowed(source, platform, settings)
+    allowed, why = rights.publication_allowed(source, platform, settings, publication=publication)
     if not allowed:
-        raise PublishError(why, "The agreement for this video does not cover this platform.", "rights")
+        raise PublishError(why, "Review reuse in Queue and approve the exact post, or record its source permission.",
+                           "rights")
     current_path, current_version, _ = artifact.active(clip)
     if current_version != version_id or not current_path or Path(current_path).resolve() != Path(path).resolve():
         raise PublishError("The selected video version changed after confirmation.",

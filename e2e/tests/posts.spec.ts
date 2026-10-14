@@ -24,7 +24,8 @@ const onPlatform = (p: Item) => p.status === "published" && !!p.planned_at && p.
 const outdated = (p: Item) => p.status === "approved" && !p.approval_valid;
 const VIEW: Record<string, (p: Item) => boolean> = {
   review: (p) => p.status === "awaiting_approval" || outdated(p),
-  scheduled: (p) => (p.status === "approved" && !outdated(p)) || p.status === "publishing" || onPlatform(p),
+  scheduled: (p) => (p.status === "awaiting_approval" && !!p.planned_at)
+    || (p.status === "approved" && !outdated(p)) || p.status === "publishing" || onPlatform(p),
   published: (p) => p.status === "published" && !onPlatform(p),
   history: (p) => (p.status === "published" && !onPlatform(p)) || ["canceled", "replaced"].includes(p.status),
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
@@ -98,10 +99,11 @@ test("each post's row and page show the same status, and Publish now only on an 
     const valid = p.status === "approved" && p.approval_valid;
     await expect(page.getByRole("button", { name: "Publish now…" })).toHaveCount(valid ? 1 : 0);
     const needsOk = p.status === "awaiting_approval" || outdated(p);
-    await expect(page.getByRole("button", { name: /^Approve for / })).toHaveCount(needsOk ? 1 : 0);
+    await expect(page.getByRole("button", { name: /^Approve (for |& schedule upload$)/ })).toHaveCount(needsOk ? 1 : 0);
     if (needsOk) {
       // The OK is its own step: the checkbox starts unticked and the bar says what's missing.
-      await expect(page.getByLabel("I watched this video and read its text.")).not.toBeChecked();
+      await expect(page.getByRole("checkbox", { name: /^I watched this video, read its text and authorize/ }))
+        .not.toBeChecked();
       await expect(page.locator("#ok-why")).toContainText("To approve:");
     }
     if (p.status === "reconciling") {

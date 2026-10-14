@@ -41,6 +41,7 @@ add("advanced", {
   autopilot_min_quality: "Minimum clip quality", autopilot_youtube: "Post to YouTube",
   autopilot_tiktok: "Post to TikTok",
   autopilot_auto_schedule: "Automatic scheduling", autopilot_dynamic_replacement: "Replace weaker planned posts",
+  autopilot_review_before_publish: "Prepare & schedule for review",
   autopilot_replacement_threshold: "Replacement margin", autopilot_replacement_cooldown_hours: "Replacement cooldown",
   autopilot_live_monitoring: "Live monitoring", autopilot_learning: "Learning", autopilot_process: "Worker process",
   autopilot_max_source_gb: "Largest source (GB)", autopilot_max_source_minutes: "Largest source (minutes)",

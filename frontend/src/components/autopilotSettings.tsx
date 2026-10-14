@@ -17,8 +17,16 @@ export function AutopilotSettings({ s, set, errors, saved }: {
   return (
     <>
       <SettingsPanel id="adv-ap" title="Autopilot details"
-        intro={<>A post goes out only when it is approved: by you in Posts or, for YouTube, by the automatic-publishing
-          permission on Settings, Accounts. <b>TikTok always needs your OK on each post.</b></>}>
+        intro={<>Autopilot prepares clips and plans their times. In review mode, every post waits for you to check
+          reuse, the video, its text and audience in Queue. <b>Planning a time never uploads it.</b></>}>
+        <SettingRow k="autopilot_review_before_publish" label="Prepare & schedule for review"
+          hint={"On: prepare accessible videos even when recorded reuse permission is missing. Every post waits "
+            + "for your review and approval; standing automatic-publishing permission is suspended."} {...row}>
+          <Switch k="autopilot_review_before_publish" c={c} />
+          <a className="textlink small" href="#/queue/review">Review prepared posts</a>
+          <span className="tiny muted">Turning this off lets eligible YouTube posts use an existing
+            automatic-publishing permission again. Clips without recorded coverage still need your review.</span>
+        </SettingRow>
         <SettingRow k="autopilot_timezone" label="Time zone" hint="Posting hours and planned times use this zone"
           {...row}>
           <TextInput k="autopilot_timezone" c={c} width={280} placeholder="America/Chicago" />
@@ -111,7 +119,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           <NumInput k="autopilot_upload_lead_minutes" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_auto_publish" label="Publish approved posts at their time" {...row}
-          hint="Off: approved posts wait at their time until you press Publish now in Posts">
+          hint="Only after your approval. Off: approved posts wait until you press Publish now in Queue">
           <Switch k="autopilot_auto_publish" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_allow_republish" label="Allow republishing"
@@ -125,8 +133,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       </SettingsPanel>
 
       <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
-          + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
+        intro={"Discovery uses your interests and available evidence. Review mode can prepare accessible videos "
+          + "without a recorded agreement. You check reuse before approving each post. Blocked videos are skipped."}>
         <SettingRow k="discovery_quality_first" label="Quality before quantity"
           hint="Prefer strong usable videos and keep the unfinished work queue small, even with no daily cap"
           {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
@@ -232,9 +240,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           {...row}>
           <Switch k="library_discovery" c={c} />
         </SettingRow>
-        <SettingRow label="Use automatically" group
-          hint={"Which kinds of permission let Autopilot clip and post without asking. Record agreements with "
-            + "creators in Autopilot, Sources"}>
+        <SettingRow label="Recorded reuse coverage" group
+          hint={"Which recorded permissions are accepted. Review mode still waits for your approval on every post. "
+            + "Record creator agreements under Missions, Permissions & sources"}>
           <div className="stack" style={{ gap: 0 }}>
             <Check k="rights_auto_licensed" c={c}>Licensed sources</Check>
             <Check k="rights_auto_allowlisted" c={c}>

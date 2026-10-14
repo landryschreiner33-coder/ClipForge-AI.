@@ -40,6 +40,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const blocker = view?.youtube.blocker || (!audienceReady ? "confirm who watches in Settings → Integrations"
     : "");
   const missing = [
+    view?.review_before_publish !== false && "turn off review mode in Settings, Advanced first",
     (!view || !audience || loadError) && "wait for the current account and audience to load",
     (view?.youtube.can_enable === false || !audienceReady) && blocker,
     kids === null && "answer “made for kids”",
@@ -171,6 +172,19 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
   if (!view) return <span className="small muted" aria-busy="true">Loading…</span>;
   const yt = view.youtube;
   const cfg = yt.consent?.settings || ({} as Record<string, any>);
+  if (view.review_before_publish !== false) {
+    return (
+      <div className="autopub-line">
+        <div className="row wrap">
+          <Pill tone="info" icon="check">Prepare & schedule for review</Pill>
+          <a className="textlink small" href="#/queue/review">Review prepared posts</a>
+        </div>
+        <p className="small muted">Autopilot plans posts without uploading them. Check reuse, the video, its text
+          and audience, then approve each post. Approved posts can upload at their planned time.</p>
+        <a className="textlink tiny" href="#/settings/advanced">Change review mode in Advanced settings</a>
+      </div>
+    );
+  }
   return (
     <div className="autopub-line">
       {platform !== "tiktok" && (

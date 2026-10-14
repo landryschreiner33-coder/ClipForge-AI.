@@ -20,6 +20,7 @@ survives restarts.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import time
 from pathlib import Path
@@ -238,8 +239,8 @@ def candidates(settings: dict, now: float) -> list[dict]:
         for platform in platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
-            if not rights.platform_allowed(source, platform, settings)[0]:
-                continue  # e.g. an agreement that covers TikTok only
+            if not rights.scheduling_allowed(source, platform, settings)[0]:
+                continue  # review drafts may lack reuse coverage; explicit blocks still win
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
             if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
@@ -389,7 +390,8 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
         "metadata_id": c["meta"]["id"], **_meta_fields(c, settings), "planned_at": planned_at,
         "timezone": settings.get("autopilot_timezone") or "America/Chicago", "slot": slot, "final_score": final,
         "scores": {**scores, "explanation": why}, "status": "awaiting_approval", "replaces": replaces,
-        "status_note": "Waiting for your approval",
+        "status_note": "Scheduled locally: review reuse permission and approve before publishing" if
+                       rights.review_before_publish(settings) else "Waiting for your approval",
         "audit": audit or [{"at": now, "event": "scheduled", "detail": f"Planned for {_label(planned_at, settings)} "
                                                                         f"({slot['note']}); Final Opportunity Score "
                                                                         f"{final:.0f}"}]})
@@ -542,6 +544,8 @@ def approval_basis(item: dict, quick: bool = False) -> dict | None:
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
     stamp = item.get("audience") or {}
     data["audience"] = {k: stamp.get(k) for k in ("intent", "policy_version", "group", "group_version")}
+    if item.get("reuse_confirmation"):
+        data["reuse_confirmation"] = item["reuse_confirmation"]
     return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME}
 
 
@@ -559,11 +563,80 @@ def approval_record(item: dict, **fields: object) -> dict | None:
             "video_sha256": basis["video_sha256"], "account": autopublish.account_id(item["platform"])}
 
 
+def publication_unstarted(item: dict) -> bool:
+    """Whether a local draft can return to review without disturbing an upload already in progress.
+
+    Missing publication records and running workers are not evidence of an unstarted transfer. Preserve those
+    records for the publisher's own recovery checks, including sessions whose last platform reply was lost.
+    """
+    from ..publish import jobs as publish_jobs
+
+    if queue.jobs(("running",), worker="publisher", ref=("scheduled", item["id"]), limit=1):
+        return False
+    pub_id = item.get("publication_id") or ""
+    if not pub_id:
+        return True
+    pub = db.get_publication(pub_id)
+    if not pub or pub.get("status") in ("done", "processing", "action_needed"):
+        return False
+    return not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub)
+
+
+def hold_automatic_approvals(settings: dict) -> int:
+    """Review mode suspends old unstarted automatic approvals while keeping the exact local draft and identity."""
+    if not rights.review_before_publish(settings):
+        return 0
+    from ..publish import jobs as publish_jobs
+
+    held = 0
+    for item in db.select("scheduled_publications", "status IN ('approved', 'publishing', 'failed', 'action_needed')"):
+        if (item.get("approval") or {}).get("by") != "automatic":
+            continue
+        canceled = []
+        now = _now()
+        with db.connect() as conn:
+            # Claiming a publish job also writes SQLite. Hold its pending job and approval in one transaction
+            # so a worker cannot claim between the unstarted check and returning this draft to review.
+            conn.execute("BEGIN IMMEDIATE")
+            current = db._decode("scheduled_publications", conn.execute(
+                "SELECT * FROM scheduled_publications WHERE id = ?", (item["id"],)).fetchone())
+            if not current or current["status"] not in ("approved", "publishing", "failed", "action_needed") or (
+                current.get("approval") or {}).get("by") != "automatic":
+                continue
+            if conn.execute("SELECT 1 FROM worker_jobs WHERE worker = 'publisher' AND ref_type = 'scheduled' "
+                            "AND ref_id = ? AND status = 'running' LIMIT 1", (item["id"],)).fetchone():
+                continue
+            if current.get("publication_id"):
+                pub = db._decode("publications", conn.execute("SELECT * FROM publications WHERE id = ?",
+                                 (current["publication_id"],)).fetchone())
+                if not pub or pub["status"] in ("done", "processing", "action_needed") or \
+                        publish_jobs.transfer_started(pub) or publish_jobs.unknown_outcome(pub):
+                    continue
+            canceled = [row["id"] for row in conn.execute(
+                "SELECT id FROM worker_jobs WHERE worker = 'publisher' AND ref_type = 'scheduled' AND ref_id = ? "
+                "AND status IN ('queued', 'waiting', 'retrying')", (item["id"],)).fetchall()]
+            note = "Review before publishing: waiting for the owner's approval"
+            conn.execute("UPDATE worker_jobs SET status = 'canceled', message = ?, finished_at = ?, updated_at = ?, "
+                         "wait_reason = '' WHERE worker = 'publisher' AND ref_type = 'scheduled' AND ref_id = ? "
+                         "AND status IN ('queued', 'waiting', 'retrying')", (note, now, now, item["id"]))
+            audit = _audit(current, "review_required", "Review before publishing replaced automatic approval")
+            conn.execute("UPDATE scheduled_publications SET status = 'awaiting_approval', approval = '{}', "
+                         "status_note = ?, audit = ?, updated_at = ? WHERE id = ?",
+                         ("Scheduled locally: review reuse permission and approve before publishing",
+                          json.dumps(audit), now, item["id"]))
+        for job_id in canceled:
+            queue.log_line(job_id, "publisher", "info", "cancel_requested", note)
+        held += 1
+    return held
+
+
 def approval_problem(item: dict, quick: bool = False) -> str:
     """Why the stored approval does not cover what would be published now ("" when it does)."""
     appr = item.get("approval") or {}
     if not appr.get("hash"):
         return "not approved"
+    if appr.get("by") == "automatic" and rights.review_before_publish() and publication_unstarted(item):
+        return "review before publishing is on; approve this post yourself"
     if appr.get("scheme") != APPROVAL_SCHEME:
         return ("approved before ClipFoundry checked who may watch it" if appr.get("scheme") == 2 else
                 "approved before ClipFoundry checked the exact video file")
@@ -577,10 +650,14 @@ def approval_problem(item: dict, quick: bool = False) -> str:
                                                                                    audience.OWNER_ONLY)
         if int(stamp["group_version"]) != dest["group_version"] and not kept_private:
             return "who watches changed after approval"
-    current = approval_hash(item, quick)
-    if not current:
+    basis = approval_basis(item, quick)
+    if not basis:
         return "the video file is missing or cannot be read"
-    return "" if appr["hash"] == current else "the clip or its text changed after approval"
+    if appr["hash"] != artifact.sha256_json(basis):
+        return "the clip or its text changed after approval"
+    if item.get("reuse_confirmation") and publication_unstarted(item):
+        return rights.confirmation_problem(item, sha=basis["video_sha256"])
+    return ""
 
 
 def approval_valid(item: dict, quick: bool = False) -> bool:
@@ -621,6 +698,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     It is recorded as approved automatically (with the permission), never as approved by you."""
     from ..publish.common import PublishError
 
+    if rights.review_before_publish(settings):
+        return False
     consent = autopublish.active(item["platform"])
     if not consent or item["status"] != "awaiting_approval" or not item.get("planned_at"):
         return False
@@ -721,7 +800,8 @@ def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
                   status_note="The post it would have replaced already started; a new time will be chosen")
 
 
-def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
+def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_confirmed: bool = False,
+            reuse_basis: str = "") -> dict:
     """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
     item = db.fetch("scheduled_publications", item_id)
     if not item:
@@ -738,6 +818,26 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     updated["audience"] = dict(item.get("audience") or {}) if preserve else {"intent": kept} if kept else {}
     stamp = check_platform(updated, creator)
     updated["audience"] = {**(item.get("audience") or {}), **stamp}
+    settings = db.get_settings()
+    if reuse_confirmed:
+        updated["reuse_confirmation"] = rights.make_reuse_confirmation(updated, reuse_basis, settings)
+    clip = db.get_clip(item["clip_id"]) or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", project.get("source_id") or item.get("source_id") or "") if (
+        project.get("source_id") or item.get("source_id")) else None
+    allowed, why = rights.publication_allowed(source, item["platform"], settings, publication=updated)
+    if not allowed:
+        raise ValueError(why)
+    reuse_review = rights.review_info(updated, settings)
+    if reuse_review["required"] and not reuse_review["confirmed"]:
+        raise ValueError(reuse_review["explanation"])
+    from . import packaging
+
+    credit_problem = packaging.attribution_problem(updated, item["platform"],
+                                                   rights.current_attribution(source, settings))
+    if credit_problem:
+        raise ValueError("Add the source credit required by the recorded reuse terms to this post's description "
+                         "before approving it.")
     rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
     if rep and rep["status"] != "passed":  # not checked yet is fine: the publisher waits for the check
         raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
@@ -748,9 +848,10 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
         raise ValueError("The clip's video file is missing or cannot be read. Render the clip again before approving "
                          "it.")
     db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
-                                                                             "options", "audience")},
+                                                                             "options", "audience",
+                                                                             "reuse_confirmation")},
               status="approved", approval=approval, last_error="", fix="",
-              status_note="Approved: it will be published at its time" if item["planned_at"] > now else
+              status_note="Approved: it will be published at its time" if (item.get("planned_at") or 0) > now else
               "Approved: publishing now",
               audit=_audit(item, "approved", "Approved by you", privacy=updated["privacy"]))
     if item.get("replaces"):
@@ -766,7 +867,7 @@ def edit(item_id: str, fields: dict) -> dict:
     if not item or item["status"] in ("publishing", "reconciling", "published"):
         raise ValueError("This post can no longer be edited")
     clean = {k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy", "options")}
-    changes = {**clean}
+    changes = {**clean, "reuse_confirmation": {}}
     if item["status"] == "approved":
         changes.update(status="awaiting_approval", approval={}, status_note="Edited: approve it again")
     db.update("scheduled_publications", item_id, **changes, audit=_audit(item, "edited", "Edited by you",
@@ -864,6 +965,7 @@ def reconcile_orphans(now: float) -> int:
 def process_due(settings: dict, now: float) -> dict:
     started, moved, retired = 0, 0, 0
     waiting = 0
+    held_for_review = hold_automatic_approvals(settings)
     reconciled = reconcile_orphans(now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
@@ -919,7 +1021,7 @@ def process_due(settings: dict, now: float) -> dict:
             started += 1
         elif item["planned_at"] < now:
             waiting += 1
-            if now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
+            if not rights.review_before_publish(settings) and now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
                 db.update("scheduled_publications", item["id"], status="canceled",
                           status_note="Not approved within 48 hours of its slot",
                           audit=_audit(item, "expired", "Missed its slot waiting for approval"))
@@ -941,7 +1043,7 @@ def process_due(settings: dict, now: float) -> dict:
             plan.add({**item, "planned_at": slot[0], "replaces": ""})
     pending = remind_approvals()
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
-            "awaiting_approval": pending, "reconciled": reconciled}
+            "awaiting_approval": pending, "reconciled": reconciled, "returned_to_review": held_for_review}
 
 
 def remind_approvals() -> int:
@@ -950,16 +1052,20 @@ def remind_approvals() -> int:
     # posts held back under automatic publishing are there for you to look at, not a problem that needs you
     # A stored permission can belong to a previous channel or audience. Its mere existence must never hide
     # posts whose automatic approval is unavailable now.
-    permission = autopublish.view(db.get_settings())
+    settings = db.get_settings()
+    review = rights.review_before_publish(settings)
+    permission = autopublish.view(settings)
     need = {p: n for p, n in by_platform.items() if not (permission.get(p) or {}).get("enabled")}
     if need:
         n = sum(need.values())
         only_tiktok = set(need) == {"tiktok"}
         state.action("approvals", "approve", f"{n} {'TikTok ' if only_tiktok else ''}post{'s' if n != 1 else ''} "
                                              "waiting for your OK",
-                     ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
-                     ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "") +
-                     "Approved posts go out at their time automatically.", "Open Posts, review and approve.")
+                     ("These are local schedule drafts. Check each clip, confirm its reuse permission when "
+                      "needed, then approve it. " if review else
+                      ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
+                      ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "")) +
+                     "Approved posts go out at their time automatically.", "Open Queue, review and approve.")
     else:
         state.resolve("approvals")
     return sum(by_platform.values())

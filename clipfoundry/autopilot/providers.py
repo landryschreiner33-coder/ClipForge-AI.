@@ -59,6 +59,12 @@ SHORT_SECONDS = 180  # a video this short is a clip; the long video it links to 
 YOUTUBE_LINK = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^\s#\"'<>]*&)?v=|live/|shorts/|embed/)|youtu\.be/)([\w-]{11})")
 
 
+def reusable_discovery_only(settings: dict) -> bool:
+    """Review queues may include unknown reuse terms; automatic publishing discovery still requires coverage."""
+    return bool(settings.get("autopilot_discovery_uploadable_only", True)
+                and not settings.get("autopilot_review_before_publish", True))
+
+
 class Unavailable(Exception):
     def __init__(self, status: str, detail: str, fix: str = ""):
         super().__init__(detail)
@@ -216,7 +222,7 @@ class YouTubeDiscovery:
             for rank, vid in enumerate(ids or [], 1):
                 curated.add(vid)
                 ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
-        uploadable_only = bool(self.settings.get("autopilot_discovery_uploadable_only", True))
+        uploadable_only = reusable_discovery_only(self.settings)
         popular = [] if uploadable_only else attempt(self.most_popular, region)
         items: dict[str, dict] = {}
         for rank, item in enumerate(popular or [], 1):
@@ -426,7 +432,7 @@ class WebSearch:
     def discover(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
         """Public TikTok links for the topics, then the long YouTube videos behind the strongest of them. Stops
         quietly when the allowance runs out (what was found so far is kept)."""
-        if self.settings.get("autopilot_discovery_uploadable_only", True):
+        if reusable_discovery_only(self.settings):
             return self.discover_reusable(topics, youtube_, job)
         now = time.time()
         out: list[dict] = []

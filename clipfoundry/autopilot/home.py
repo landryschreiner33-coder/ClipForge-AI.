@@ -549,7 +549,9 @@ def post_counts() -> dict:
         rep = gate.report_for(clip)
         if rep and rep["status"] == "passed":
             ready += 1
-    return {"review": n(("awaiting_approval",)) + outdated,
+    planned_for_review = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE status = "
+                                      "'awaiting_approval' AND planned_at IS NOT NULL") or 0)
+    return {"review": n(("awaiting_approval",)) + outdated, "planned_for_review": planned_for_review,
             "fix": n(("reconciling", "action_needed", "failed", "blocked")), "ready": ready,
             "scheduled": n(("approved", "publishing")) - outdated}
 

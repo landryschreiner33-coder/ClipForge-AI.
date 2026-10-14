@@ -134,6 +134,9 @@ def main() -> None:
     if args.scenario == "zero-touch":
         from zero_touch_support import CompleteLoopFixture
 
+        # This isolated scenario exercises the owner's explicit legacy automation permission. The ordinary
+        # beginner sandbox keeps the production review-first default for new interface tests.
+        db.save_settings({"autopilot_review_before_publish": False})
         google.catalog.clear()
         scenario = CompleteLoopFixture(data, google, setattr)
 

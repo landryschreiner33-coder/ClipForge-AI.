@@ -298,7 +298,9 @@ function PlatformsPanel({ st }: { st: AutopilotStatus }) {
           );
         })}
       </div>
-      <p className="small muted">Every post needs your OK, or for YouTube the automatic-publishing permission.
+      <p className="small muted">{s.autopilot_review_before_publish !== false
+        ? "Review mode: every prepared post waits for you to check reuse and approve it in Queue."
+        : "Every post needs your OK, or for YouTube the automatic-publishing permission."}
         {s.autopilot_auto_publish ? " Approved posts are published at their time by themselves."
           : " Approved posts wait until you press Publish now."}</p>
     </section>

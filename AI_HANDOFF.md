@@ -1,8 +1,40 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-13 (UTC).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-14 (UTC).
 Fetch before trusting branch state.
+
+## Latest continuation: local schedules, owner reuse review and manual approval
+
+Base: `d0b7102e8273cee068531da554c8d83f3fa43f8f`, on `codex/brain-graph-quality-discovery`.
+The owner now wants preparation and scheduling followed by individual reuse review and approval.
+`autopilot_review_before_publish` defaults on for new and existing profiles that have no explicit choice.
+Accessible unblocked sources can enter the bounded quality-first queue without recorded reuse coverage;
+their rights status remains truthful. Exact-file and grounded-text checks still precede local posting plans.
+All new plans wait for owner approval. Standing YouTube permission is suspended in review mode. Future explicit
+mode choices persist; approved-post dispatch, source limits, audience choices and other saved settings stay intact.
+
+Queue shows proposed times with Needs review, separately from approved uploads. Review drafts do not expire after
+48 hours. Uncovered posts additionally require an owner reuse statement and basis, bound to the exact post/source,
+current terms and required credit, account, platform, audience, file/version, text and options. This assertion does
+not create source ownership/license or cover another post. Required credit cannot be waived. Changes invalidate
+the assertion and approval. Source-sound uncertainty is reviewable; physical-media failures still block use.
+After explicit approval the existing scheduled dispatcher or Publish now can upload, with original audience,
+made-for-kids/platform choices and exact-file, quality, duplicate and Retry-After checks.
+
+Old automatic approvals for provably unstarted transfers return to review atomically with their payload, time,
+privacy and publication identity preserved. A queued job cannot bypass the review guard. Retry and confirmed
+not-published recovery require new owner approval in review mode. Active or uncertain outcomes keep their original
+session; unknown outcomes use account-bound readback before local policy changes. Existing published videos and
+saved media remain intact. Separate manual Publish cannot borrow a scheduled post's assertion.
+
+If review mode is explicitly disabled, recorded coverage and separate standing YouTube permission again govern
+automatic approval. Tests for that historical contract explicitly select it; new `test_review_*` suites exercise
+the actual default. The inspectable Windows source setup remains the delivery route; preserve all verified prior
+managed profiles and do not recommend the blocked EXE or change antivirus settings.
+
+**Validation:** Final full fast suite: 1,112 passed, nine slow deselected, in 529.54 s. Final real-FFmpeg/synthetic-speech media and restart suite: nine passed, 1,112 deselected, in 879.93 s, including the new review/owner-confirmation/exact-byte upload/restart loop. Final production build passed in 8.79 s; 12 built browser checks passed in 40.23 s, with all 17 frontend file hashes unchanged. Focused checks: 95 publishing/reuse checks; 64 scheduler/public/manual checks; final 46 review/current-terms checks; 107 legacy recovery checks; and eight final independent audit/fixture checks. The initial full fast attempt found an older fixture approving an unverified channel claim; its corrected exact-video verification retains all connection, quota, hash, explicit-block and no-upload assertions. Earlier full attempts were stopped before final corrections and are not final suite evidence.
+No owner Windows profile, RTX3050, real social upload or 24-hour soak was accessed or verified.
 
 ## Latest continuation: continuous eligible uploads and real Brain/manager activity
 

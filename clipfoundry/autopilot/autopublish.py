@@ -74,6 +74,7 @@ def view(settings: dict) -> dict:
     from ..publish import audience
 
     out = {}
+    review = bool(settings.get("autopilot_review_before_publish", True))
     for platform in ("youtube", "tiktok"):
         c = active(platform)
         dest = audience.destination(platform, settings)
@@ -86,6 +87,8 @@ def view(settings: dict) -> dict:
                 blocker = "YouTube clips are kept on this PC. Choose who watches in Settings → Integrations first."
             elif not dest["confirmed"]:
                 blocker = "Confirm who watches in Settings → Integrations first."
+        if review:
+            blocker = "Review before publishing is on. Prepared posts wait for your approval in Queue."
         can_enable = platform in SUPPORTED and not blocker
         enabled = bool(c) and same_account(c) and consent_visibility(c) == visibility and not blocker
         if visibility == "public" and c:
@@ -98,6 +101,7 @@ def view(settings: dict) -> dict:
                          "blocker": blocker,
                          "account_id": account_id(platform), "audience_version": dest["group_version"],
                          "consent": ({k: c[k] for k in ("id", "settings", "text", "created_at")} if c else None)}
+    out["review_before_publish"] = review
     out["verified_project"] = bool(settings.get("youtube_project_verified"))
     return out
 
@@ -118,6 +122,9 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     if not 0 <= int(start_hour) < int(end_hour) <= 24:
         raise ValueError("The posting window must start before it ends")
     settings = db.get_settings()
+    if settings.get("autopilot_review_before_publish", True):
+        raise ValueError("Review before publishing is on. Approve prepared posts in Queue, or change that setting "
+                         "before granting automatic publishing permission.")
     from ..publish import audience
 
     dest = audience.destination(platform, settings)
@@ -161,7 +168,7 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
 
 def disable(platform: str) -> int:
     """Revoke the permission; posts it approved that have not started uploading wait for your approval again."""
-    from .scheduler import _audit
+    from .scheduler import _audit, publication_unstarted
 
     now = time.time()
     revoked = 0
@@ -170,7 +177,7 @@ def disable(platform: str) -> int:
         revoked += 1
     back = 0
     for item in db.select("scheduled_publications", "platform = ? AND status = 'approved'", (platform,)):
-        if (item.get("approval") or {}).get("by") != "automatic":
+        if (item.get("approval") or {}).get("by") != "automatic" or not publication_unstarted(item):
             continue
         db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
                   status_note="Automatic publishing was turned off: approve it yourself to publish it",
@@ -187,6 +194,8 @@ def still_covers(item: dict) -> bool:
     appr = item.get("approval") or {}
     if appr.get("by") != "automatic":
         return True
+    if db.get_settings().get("autopilot_review_before_publish", True):
+        return False
     c = active(item["platform"])
     if not c or c["id"] != appr.get("consent_id") or not same_account(c):
         return False

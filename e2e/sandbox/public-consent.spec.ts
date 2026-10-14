@@ -8,6 +8,7 @@ async ({ page }) => {
   const youtube = { configured: true, connected: true, needs_reconnect: false, name: "Controlled channel",
     account_id: "controlled-public-channel", verified: false, scopes: [], restriction: "" };
   const view = {
+    review_before_publish: false,
     youtube: { supported: true, enabled: false, can_enable: true, blocker: "", visibility: "public",
       account_id: youtube.account_id, consent: null, note: "The returned visibility is checked." },
     tiktok: { supported: false, enabled: false, consent: null, note: "Your OK is required on each post." },
@@ -72,6 +73,7 @@ async ({ page, request }) => {
   };
   let enabled = false;
   const permission = () => ({
+    review_before_publish: false,
     youtube: { supported: true, enabled, can_enable: audience.youtube.confirmed,
       blocker: audience.youtube.confirmed ? "" : "Confirm who watches in Settings → Integrations first.",
       visibility: audience.youtube.intent === "PUBLIC" ? "public" : "private", account_id: youtube.account_id,

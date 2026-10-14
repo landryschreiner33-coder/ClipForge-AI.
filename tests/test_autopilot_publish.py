@@ -294,7 +294,7 @@ def test_interrupted_upload_resumes_without_a_duplicate(env, monkeypatch):
 
 def test_gates_before_every_upload(env):
     from clipfoundry import db
-    from clipfoundry.autopilot import queue, rights, scheduler
+    from clipfoundry.autopilot import queue, rights, scheduler, verify
 
     g, t, tmp = env
     item = make_item(tmp, approve={"options": {"made_for_kids": False}})
@@ -311,8 +311,14 @@ def test_gates_before_every_upload(env):
     with pytest.raises(queue.Fail):
         run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "awaiting_approval"
-    src = db.insert("sources", {"platform": "youtube", "external_id": "s1", "title": "s", "channel_id": "UCz"})
-    rights.add_rule("channel", "UCz", rights.ALLOWLISTED, "program")
+    src = db.insert("sources", {"platform": "youtube", "external_id": "gatesvideo1", "title": "s",
+                                "channel_id": "UCgates0000000001",
+                                "url": "https://www.youtube.com/watch?v=gatesvideo1"})
+    verify.from_signal(src, {"provider": "youtube_search", "external_id": src["external_id"],
+                             "channel_id": src["channel_id"],
+                             "raw": {"reported_by": verify.YOUTUBE_DATA, "observed_at": time.time()}})
+    rights.add_rule("channel", src["channel_id"], rights.ALLOWLISTED, "program")
+    assert verify.confirmed(src) and rights.evaluate(src)["auto_allowed"]
     clip = db.get_clip(item["clip_id"])
     db.update_project(clip["project_id"], source_id=src["id"])
     scheduler.approve(item["id"], {})

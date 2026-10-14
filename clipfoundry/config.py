@@ -144,6 +144,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_youtube": True,
     "autopilot_tiktok": True,
     "autopilot_auto_schedule": True,
+    "autopilot_review_before_publish": True,  # prepare local drafts; only the owner's approval may upload them
     "autopilot_auto_publish": True,     # publish approved posts at their scheduled time without another click
     "autopilot_dynamic_replacement": True,
     "autopilot_replacement_threshold": 15.0,  # % better than the weakest future item before it is replaced

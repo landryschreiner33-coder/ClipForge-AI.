@@ -73,7 +73,11 @@ authorize uploads or grant reuse permission. [Unattended setup and troubleshooti
    Choose **Follow system**, **Full** or **Reduced** animations; Full overrides the system’s reduced-motion preference. Click a robot or a room for details. The bar at the bottom has **Start**, **Pause**, **Resume**,
    **Stop all** and **Pause publishing** (clips are still made and checked, nothing is uploaded).
 6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says
-   who it is for and what really happened.
+   who it is for and what really happened. **Prepare & schedule for review** is now the default: accessible clips
+   can get a proposed time even when reuse permission is unrecorded. Open the preview, check your permission,
+   record its basis if needed, and press **Approve & schedule upload**. Nothing new uploads before your approval;
+   an approved post goes out at its time, or promptly if that time has already passed. Existing automatic
+   YouTube permission is suspended while this review mode is on.
 7. **Tell it what your viewers thought.** **Clips → Test feedback**: enter what a tester said about a clip, or copy
    the numbers from YouTube Studio or TikTok. The Brain changes its clip length only after enough results (at least
    30 clips from 5 videos), by at most 10% at a time, and you can roll a change back (click the Brain Room on the

@@ -7,6 +7,23 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-14 · Prepare and schedule for individual reuse review
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `d0b7102`.
+* **What changed:** review before publishing defaults on. Bounded quality-first discovery and local posting plans
+  can include accessible unblocked sources with unrecorded reuse terms. Rights labels remain truthful, and new
+  posts wait for manual approval. Queue shows proposed times without calling them approved uploads; review drafts
+  do not expire. Uncovered posts need an individual owner reuse statement and basis bound to the exact source,
+  terms/credit, post, account, audience, platform, bytes/version, text and options. Known required credit and
+  physical-media checks remain binding. Old unstarted automatic approvals return to review atomically, retaining
+  time, text, privacy and publication identity. Queued work, retry and not-published recovery cannot restore an
+  automatic upload grant. Unknown outcomes retain their session and use account-bound readback. Separate manual
+  publishing cannot borrow an assertion. Explicitly disabling review restores the existing guarded automatic mode.
+* **Why:** the owner wants to inspect finished clips and confirm reuse before approving publication, rather than
+  have missing records prevent a review plan or let standing permission authorize new uploads.
+* **Validation:** Final full fast suite: 1,112 passed, nine slow deselected, in 529.54 s. Final real-FFmpeg/synthetic-speech media and restart suite: nine passed, 1,112 deselected, in 879.93 s, including the new review/owner-confirmation/exact-byte upload/restart loop. Final production build passed in 8.79 s; 12 built browser checks passed in 40.23 s, with all 17 frontend file hashes unchanged. Focused checks: 95 publishing/reuse checks; 64 scheduler/public/manual checks; final 46 review/current-terms checks; 107 legacy recovery checks; and eight final independent audit/fixture checks. The initial full fast attempt found an older fixture approving an unverified channel claim; its corrected exact-video verification retains all connection, quota, hash, explicit-block and no-upload assertions. Earlier full attempts were stopped before final corrections and are not final suite evidence.
+* **Not verified:** the owner's Windows profile, native Windows/GPU operation, real platform uploads or a 24-hour soak.
+
 ## 2026-10-13 · Continuous eligible uploading and Brain/manager handoffs
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `718358f`.

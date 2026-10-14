@@ -190,6 +190,8 @@ def recover(pub: dict) -> str:
 def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     pub = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
     opts = dict(item.get("options") or {})
+    if item.get("reuse_confirmation"):
+        opts["reuse_confirmation"] = item["reuse_confirmation"]
     if item["platform"] == "tiktok":
         opts["duration"] = float(clip.get("duration") or 0)
     from ..publish.jobs import feature_snapshot
@@ -282,6 +284,22 @@ def publish(job: Job) -> dict:
         return {"message": f"Nothing to do: the post is {item['status']}"}
     existing = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
     started = publish_jobs.transfer_started(existing)
+    uncertain = bool(existing and publish_jobs.unknown_outcome(existing))
+    if uncertain and item["platform"] == "youtube":
+        original_account = (item.get("approval") or {}).get("account") or (
+            existing.get("options") or {}).get("approved_account")
+        if original_account and original_account != autopublish.account_id("youtube"):
+            note = "Reconnect the original YouTube account to check the uncertain upload; no new upload is started."
+            _set(item, "reconciling", note, "outcome_account", last_error=note,
+                 fix="Reconnect the channel this post was approved for, then Refresh status.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, note)
+        # Unknown outcomes are read back before local policy/file changes can invalidate their identity.
+        return outcome_unknown(item, existing, youtube._outcome_unknown())
+    if rights.review_before_publish(settings) and (item.get("approval") or {}).get("by") == "automatic" and \
+            not started and not uncertain:
+        _set(item, "awaiting_approval", "Planned for your review: approve this post before it can upload.",
+             "review_required", approval={})
+        return {"message": "Waiting for your review and approval; nothing was uploaded"}
     if settings.get("autopilot_publishing_paused") and not started:  # an upload under way finishes
         db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
         raise queue.Wait("publishing_paused", 300, "Publishing is paused")
@@ -290,20 +308,21 @@ def publish(job: Job) -> dict:
         _set(item, "failed", "The clip is missing or not rendered.", "failed")
         raise queue.Fail("The clip is missing or not rendered")
     project = db.get_project(clip["project_id"]) or {}
-    source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+    source_id = project.get("source_id") or item.get("source_id") or ""
+    source = db.fetch("sources", source_id) if source_id else None
     if source and verify.ensure([source], settings):  # a channel never confirmed (work from before the check)
         source = db.fetch("sources", source["id"]) or source
-    try:
-        rights.gate(source, "publish", settings)
-    except rights.RightsBlocked as exc:
-        _set(item, "blocked", str(exc), "blocked")
-        feed.decide("upload", "rejected", ("scheduled", item["id"]), f"Not posted: {exc}", job_id=job.id,
+    allowed, why = rights.publication_allowed(source, item["platform"], settings, publication=item)
+    if not allowed and not started and not uncertain:
+        explicit_block = rights._stopped(source) or bool(source and rights.evaluate(source, settings)["status"] ==
+                                                        rights.BLOCKED)
+        strict_hold = not rights.review_before_publish(settings) and not rights._confirmation_record(item)
+        status = "blocked" if explicit_block or strict_hold else "awaiting_approval"
+        _set(item, status, why, "blocked" if explicit_block else "reuse_review", approval={})
+        feed.decide("upload", "rejected" if explicit_block else "held", ("scheduled", item["id"]),
+                    f"Not posted: {why}", job_id=job.id,
                     reported_by="gavel", once=True, platform=item["platform"])
-        raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
-    allowed, why = rights.platform_allowed(source, item["platform"], settings)
-    if not allowed:
-        _set(item, "blocked", why, "blocked")
-        raise queue.Fail(why, "The agreement for this video does not cover this platform.")
+        raise queue.Fail(why, "Review reuse in Queue and approve this exact post, or unblock its source if appropriate.")
     problem = approval_problem({**item, "status": "approved"})
     if problem:
         if existing and not started:
@@ -356,6 +375,9 @@ def publish(job: Job) -> dict:
         except gate.CreditRequired as exc:
             _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
             raise
+        except gate.ReuseReviewRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "reuse_review", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
@@ -378,6 +400,9 @@ def publish(job: Job) -> dict:
             raise
         except gate.CreditRequired as exc:
             _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
+        except gate.ReuseReviewRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "reuse_review", approval={}, last_error=str(exc), fix=exc.fix)
             raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)

@@ -16,9 +16,11 @@ export type Post = Omit<ScheduledItem, "approval" | "clip" | "publication"> & {
   publication: (NonNullable<ScheduledItem["publication"]> & { remote_id?: string }) | null;
 };
 type ListResponse = {
-  items: Post[]; view: string; timezone: string; auto_publish: boolean; counts: Record<string, number>;
+  items: Post[]; view: string; timezone: string; auto_publish: boolean; review_before_publish?: boolean;
+  counts: Record<string, number>;
 };
-export type PostList = { items: Post[]; timezone: string; autoPublish: boolean; capped: boolean };
+export type PostList = { items: Post[]; timezone: string; autoPublish: boolean; reviewBeforePublish: boolean;
+  capped: boolean };
 
 const LIMIT = 500;
 
@@ -33,19 +35,21 @@ export async function loadPosts(): Promise<PostList> {
   ]);
   const seen = new Set<string>();
   const items = [...active.items, ...done.items].filter((p) => !seen.has(p.id) && !!seen.add(p.id));
-  return { items, timezone: active.timezone, autoPublish: active.auto_publish, capped: done.items.length >= LIMIT };
+  return { items, timezone: active.timezone, autoPublish: active.auto_publish,
+    reviewBeforePublish: active.review_before_publish !== false, capped: done.items.length >= LIMIT };
 }
 
 /** One post (the post page), however old; the same shape as a list of one. A post that does not exist is a 404. */
 export async function loadPost(id: string): Promise<PostList> {
   try {
-    const r = await req<{ item: Post; timezone: string; auto_publish: boolean }>(
+    const r = await req<{ item: Post; timezone: string; auto_publish: boolean; review_before_publish?: boolean }>(
       "GET", `/api/autopilot/scheduled/${encodeURIComponent(id)}`);
-    return { items: [r.item], timezone: r.timezone, autoPublish: r.auto_publish, capped: false };
+    return { items: [r.item], timezone: r.timezone, autoPublish: r.auto_publish,
+      reviewBeforePublish: r.review_before_publish !== false, capped: false };
   } catch (e) {
     // A post that no longer exists (removed with its clip) gets its own page, not a loading error.
     if ((e as Error).message !== "Scheduled post not found") throw e;
-    return { items: [], timezone: "", autoPublish: false, capped: false };
+    return { items: [], timezone: "", autoPublish: false, reviewBeforePublish: true, capped: false };
   }
 }
 
@@ -64,7 +68,8 @@ export const okOutdated = (p: Post) => p.status === "approved" && !p.approval_va
 /** Which Posts tab a post belongs to. */
 export const VIEW_OF: Record<string, (p: Post) => boolean> = {
   review: (p) => p.status === "awaiting_approval" || okOutdated(p),
-  scheduled: (p) => (p.status === "approved" && !okOutdated(p)) || p.status === "publishing" || onPlatform(p),
+  scheduled: (p) => (p.status === "awaiting_approval" && !!p.planned_at)
+    || (p.status === "approved" && !okOutdated(p)) || p.status === "publishing" || onPlatform(p),
   published: (p) => p.status === "published" && !onPlatform(p),
   history: (p) => (p.status === "published" && !onPlatform(p)) || p.status === "canceled" || p.status === "replaced",
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
@@ -166,7 +171,7 @@ export function postStatus(p: Post): StatusWord {
   switch (p.status) {
     case "awaiting_approval":
       return again ? { tone: "warn", word: again.word, icon: "alert" }
-        : { tone: "warn", word: "Needs your OK", icon: "clock" };
+        : { tone: "warn", word: "Needs your review", icon: "clock" };
     case "approved":
       if (again) return { tone: "warn", word: again.word, icon: "alert" };
       return p.approval?.by === "automatic" ? { tone: "good", word: "Approved automatically", icon: "shield" }

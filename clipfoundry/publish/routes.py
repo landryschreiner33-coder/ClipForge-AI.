@@ -216,7 +216,6 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if settings.get("autopilot_publishing_paused"):
         raise PublishError("Publishing is paused, so nothing new is uploaded.",
                            "Resume publishing in the Office (bottom bar), then publish again.", "paused")
-    jobs.manual_eligibility(clip, platform, video_path, (version or {}).get("id", ""), settings)
     from ..pipeline import artifact
 
     options: dict = {"approved_account": current_account}
@@ -250,6 +249,12 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         info = tiktok.creator_info(tiktok.Token(settings)) if mode == "direct" else None
         tiktok.validate(body.description, body.privacy, options, mode, settings, info, options["duration"])
         stamp = audience.check("tiktok", body.privacy, settings, mode=mode, creator=info)
+    # Check required credit in the actual confirmed text, not the clip's selected generated metadata.
+    approved_payload = {"clip_id": clip_id, "platform": platform, "title": body.title.strip(),
+                        "description": body.description.strip(), "tags": body.tags,
+                        "requested_privacy": body.privacy, "options": options, "mode": mode, "audience": stamp}
+    jobs.manual_eligibility(clip, platform, video_path, (version or {}).get("id", ""), settings,
+                            publication=approved_payload)
     pub = db.create_publication(
         clip_id, platform, project_id=clip["project_id"], mode=mode, status="queued", message="Waiting to upload",
         title=body.title.strip(), description=body.description.strip(), tags=body.tags,

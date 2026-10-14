@@ -452,6 +452,7 @@ CREATE TABLE IF NOT EXISTS scheduled_publications (
     status TEXT NOT NULL DEFAULT 'awaiting_approval',
     status_note TEXT DEFAULT '',
     approval TEXT DEFAULT '{}',
+    reuse_confirmation TEXT DEFAULT '{}',
     publication_id TEXT DEFAULT '',
     attempts INTEGER DEFAULT 0,
     last_error TEXT DEFAULT '',
@@ -710,7 +711,8 @@ JSON_FIELDS = {
     "clip_scores": {"components", "explanation"},
     "clip_fingerprints": {"text_sig", "phash"},
     "metadata_candidates": {"tags", "hashtags", "components", "problems"},
-    "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "audit", "audience", "delivery"},
+    "scheduled_publications": {"tags", "options", "slot", "scores", "approval", "reuse_confirmation", "audit",
+                               "audience", "delivery"},
     "slot_replacements": set(),
     "platform_limits": set(),
     "learning_metrics": {"data"},
@@ -737,7 +739,8 @@ ADDED_COLUMNS = {
     # audience setup (invitations, followers, manual post) and results; never one overloaded "success"
     "publications": {"scheduled_id": "TEXT DEFAULT ''", "audience": "TEXT DEFAULT '{}'",
                      "delivery": "TEXT DEFAULT '{}'"},
-    "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'"},
+    "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'",
+                               "reuse_confirmation": "TEXT DEFAULT '{}'"},
     "action_items": {"dismissed_at": "REAL"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)

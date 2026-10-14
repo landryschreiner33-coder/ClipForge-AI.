@@ -48,7 +48,8 @@ function formOf(p: Post): Form {
   };
 }
 const serverKey = (p: Post) =>
-  JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || ""]);
+  JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || "",
+    p.reuse_review, p.source?.rights_status]);
 
 /**
  * One post, in full: the exact file that will be posted, its status (with the fix for a problem), what it needs
@@ -112,9 +113,14 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const [base, setBase] = useState<Form>(() => formOf(p));
   const [f, setF] = useState<Form>(base);
   const [agree, setAgree] = useState(false);
+  const [reuseConfirmed, setReuseConfirmed] = useState(false);
+  const [reuseBasis, setReuseBasis] = useState("");
   const key = serverKey(p);
   const dirtyKeys = (Object.keys(LABELS) as (keyof Form)[]).filter((k) => f[k] !== base[k]);
   const dirty = editable && dirtyKeys.length > 0;
+  const needsReuseCheck = p.reuse_review
+    ? p.reuse_review.required && (!p.reuse_review.confirmed || dirty)
+    : !CLEARED_RIGHTS.includes(p.source?.rights_status || "");
   const lastKey = useRef(key);
   useEffect(() => {
     if (lastKey.current === key) return;
@@ -123,12 +129,16 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     setBase(next);
     if (!dirty) setF(next);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const set = (patch: Partial<Form>) => { setF((x) => ({ ...x, ...patch })); setAgree(false); };
+  const set = (patch: Partial<Form>) => {
+    setF((x) => ({ ...x, ...patch })); setAgree(false); setReuseConfirmed(false);
+  };
 
   const [dialog, setDialog] = useState<PostAction | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setAgree(false); }, [key, account?.account_id]);
+  useEffect(() => {
+    setAgree(false); setReuseConfirmed(false); setReuseBasis("");
+  }, [key, account?.account_id, p.reuse_review?.confirmed, p.reuse_review?.status]);
 
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
@@ -165,12 +175,13 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     return out as Post;
   };
 
-  const guard = useMemo(() => (dirty ? {
-    what: dirtyKeys.map((k) => LABELS[k]).join(", "),
-    save: dirtyKeys.every((k) => SAVED_BY_EDIT.includes(k)) && p.status !== "approved"
+  const reuseDirty = needsOk && needsReuseCheck && (reuseConfirmed || !!reuseBasis.trim());
+  const guard = useMemo(() => (dirty || reuseDirty ? {
+    what: [...dirtyKeys.map((k) => LABELS[k]), ...(reuseDirty ? ["reuse review"] : [])].join(", "),
+    save: !reuseDirty && dirtyKeys.every((k) => SAVED_BY_EDIT.includes(k)) && p.status !== "approved"
       ? async () => { await saveText(); } : undefined,
-    discard: () => setF(base),
-  } : null), [dirty, dirtyKeys.join(), base, p.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    discard: () => { setF(base); setReuseConfirmed(false); setReuseBasis(""); },
+  } : null), [dirty, reuseDirty, dirtyKeys.join(), base, p.status]); // eslint-disable-line react-hooks/exhaustive-deps
   useLeaveGuard(guard);
 
   // What still stands between this post and your OK (the platform's rules and the final check).
@@ -194,6 +205,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
       && "branded content needs Friends or Everyone",
     tooLong && `trim the clip to ${creator!.max_duration} seconds`,
     p.quality?.status === "failed" && "fix what the final check found",
+    p.source?.rights_status === "BLOCKED" && "remove this blocked source from the plan",
+    needsReuseCheck && !reuseConfirmed && "confirm that you checked you can reuse this clip",
+    needsReuseCheck && !reuseBasis.trim() && "record why you can reuse this clip",
     !agree && "tick that you watched the video and read its text",
   ].filter(Boolean) as string[];
 
@@ -206,6 +220,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     try {
       const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
         expected_account_id: account?.account_id };
+      if (needsReuseCheck) Object.assign(body, { reuse_confirmed: reuseConfirmed, reuse_basis: reuseBasis.trim() });
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
       else Object.assign(body, {
         mode: f.mode, privacy: direct ? f.privacy : "", allow_comment: f.comment, allow_duet: f.duet,
@@ -215,7 +230,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
       setAgree(false);
       onChanged(out);
       toast(out.warnings?.length ? `Approved. Note: ${out.warnings[0]}`
-        : `Approved for ${name}. It goes out ${atLabel(out.planned_at, tz)}. Nothing was uploaded now.`);
+        : autoPublish ? `Approved for ${name}. ${out.planned_at && out.planned_at <= Date.now() / 1000
+          ? "Its planned time has arrived, so uploading can start on the next publishing check."
+          : `It can upload ${atLabel(out.planned_at, tz)}.`}`
+          : `Approved for ${name}. It waits for you to press Publish now.`);
     } catch (e) {
       toast(errorText(e), true);
     } finally {
@@ -225,6 +243,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 
   const view = viewOf(p);
   const title = p.title || p.clip.title || "Untitled post";
+  const approvalTiming = p.planned_at && p.planned_at <= Date.now() / 1000
+    ? "on the next publishing check after you approve (its planned time has arrived)" : atLabel(p.planned_at, tz);
   const clipLink = p.clip.id
     ? <a className="textlink" href={`#/clip/${p.clip.id}`}>{p.clip.title || "the clip"}</a> : null;
   return (
@@ -271,6 +291,25 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             </p>
           )}
           <Checks p={p} account={account} />
+          {needsOk && needsReuseCheck && (
+            <section className="panel stack-3" aria-labelledby="reuse-review-h">
+              <h2 id="reuse-review-h" style={{ fontSize: "var(--fs-h3)" }}>Check reuse before approving</h2>
+              <p className="small muted">There is no current reuse confirmation covering this post.
+                Your confirmation records your own review; it does not verify a license or change the source's
+                recorded permission.</p>
+              <label className="stack small" htmlFor="reuse-basis">
+                <span className="strong">Why I can reuse it</span>
+                <textarea id="reuse-basis" className="input" rows={3} maxLength={4000} value={reuseBasis}
+                  onChange={(e) => { setReuseBasis(e.target.value); setReuseConfirmed(false); }}
+                  placeholder="For example: I created the footage, or the creator agreed to this use; record the details." />
+              </label>
+              <label className="choice">
+                <input type="checkbox" checked={reuseConfirmed}
+                  onChange={(e) => setReuseConfirmed(e.target.checked)} />
+                <span className="small">I have checked that I can reuse this clip</span>
+              </label>
+            </section>
+          )}
           {editable ? (
             <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} />
           ) : (
@@ -310,20 +349,22 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
           <div className="grow">
             <h2 id="ok-h" className="small strong">Your OK for {name}</h2>
             <span className="small muted">
-              {!yt && f.mode === "inbox"
-                ? `Approving sends this exact video with this text to your TikTok inbox ${atLabel(p.planned_at, tz)}, `
+              {!autoPublish
+                ? "Approving records your OK for this exact video, its text and audience. Nothing uploads from this approval."
+                : !yt && f.mode === "inbox"
+                ? `Approving sends this exact video with this text to your TikTok inbox ${approvalTiming}, `
                   + `without asking again. You finish it in the TikTok app for ${who}. Nothing is sent now.`
                 : !yt && f.mode === "manual"
                   ? `Approving makes this exact video and caption ready for you to post ${atLabel(p.planned_at, tz)}. `
                     + `Nothing is sent to TikTok: you post it in the TikTok app for ${who} and paste the link.`
                   : yt
                     ? `Approving uploads this exact video as ${privacyLabel(p.platform, f.privacy)} `
-                      + `${atLabel(p.planned_at, tz)} to ${account?.name || name}, without asking again. `
+                      + `${approvalTiming} to ${account?.name || name}, without asking again. `
                       + (f.privacy === "public" ? "Anyone can watch if YouTube confirms public visibility. "
                         : p.audience?.intent === "OWNER_ONLY" ? "It stays private for you. "
                           : "Then you share it with invited viewers in YouTube Studio yourself. ")
                       + "Nothing is uploaded now."
-                    : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
+                    : `Approving posts this exact video with this text ${approvalTiming} to `
                       + `${account?.name || name} for the audience you chose, without asking again. Nothing is `
                       + "posted now."}
               {" "}If the video or the text changes, it needs your OK again, and you can cancel it until it goes out.
@@ -340,7 +381,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
           <div className="stack approve-side">
             <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy}
               aria-describedby="ok-why" onClick={() => !busy && approve()}>
-              {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="check" />}Approve for {name}
+              {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="check" />}
+              {autoPublish && (yt || f.mode !== "manual") ? "Approve & schedule upload" : `Approve for ${name}`}
             </button>
             <span className="tiny muted" id="ok-why">
               {missing.length ? `To approve: ${missing.join(", ")}.` : "Ready to approve."}
@@ -767,6 +809,12 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
           {p.source?.title && (
             <span className="small muted"> {p.source.title}{p.source.channel ? ` · ${p.source.channel}` : ""}</span>
           )}
+          {p.reuse_review?.explanation && <p className="small muted">{p.reuse_review.explanation}</p>}
+          {p.reuse_review?.confirmed && <div className="stack small" style={{ marginTop: 6 }}>
+            <b>Reuse confirmed by you for this exact post</b>
+            <span>{p.reuse_review.basis}</span>
+            <span className="tiny muted">Owner review; the app has not independently verified a license.</span>
+          </div>}
         </dd>
         <dt>Final check</dt>
         <dd>
