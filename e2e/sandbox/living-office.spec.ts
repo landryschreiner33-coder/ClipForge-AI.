@@ -69,7 +69,7 @@ test("a working robot appears at its own desk and returns to the lounge when fin
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "lounge");
 });
 
-test("an actual same-job stage event passes a document to the next robot before seated work resumes",
+test("an actual same-job stage event passes work through both managers before the next robot resumes",
 async ({ page, request }) => {
   const feed = await fixture(page, request);
   Object.assign(feed.role("splice"), { state: "working", task: task() });
@@ -81,10 +81,17 @@ async ({ page, request }) => {
   feed.emit("job_stage", "glyph", { data: { stage: "captions", routine: false } });
   const note = page.locator(".handoff-note");
   await expect(note).toHaveAttribute("data-from", "splice", { timeout: 8000 });
-  await expect(note).toHaveAttribute("data-to", "glyph");
+  await expect(note).toHaveAttribute("data-to", "frame");
   await expect(robot(page, "splice")).toHaveAttribute("data-carrying", "true");
   await expect(note).toHaveAttribute("data-phase", "pass", { timeout: 20_000 });
   await expect(note).toHaveAttribute("data-phase", "received", { timeout: 5000 });
+  await expect(robot(page, "frame")).toHaveAttribute("data-carrying", "true");
+  await expect(note).toHaveAttribute("data-from", "frame", { timeout: 8000 });
+  await expect(note).toHaveAttribute("data-to", "script");
+  await expect(note).toHaveAttribute("data-phase", "received", { timeout: 20_000 });
+  await expect(note).toHaveAttribute("data-from", "script", { timeout: 8000 });
+  await expect(note).toHaveAttribute("data-to", "glyph");
+  await expect(note).toHaveAttribute("data-phase", "received", { timeout: 8000 });
   await expect(robot(page, "glyph")).toHaveAttribute("data-carrying", "true");
   await expect(robot(page, "glyph")).toHaveAttribute("data-posture", "desk", { timeout: 8000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "lounge", { timeout: 20_000 });
@@ -137,7 +144,7 @@ test("hidden and paused stages recover the actual sender before the next fresh h
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.emit("job_stage", "splice");
   await expect(page.locator(".handoff-note")).toHaveAttribute("data-from", "glyph", { timeout: 8000 });
-  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "splice");
+  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "script");
   feed.snap.run.state = "paused";
   for (const row of feed.snap.roles) row.state = "paused";
   feed.emit("control", "command");
@@ -155,7 +162,7 @@ test("hidden and paused stages recover the actual sender before the next fresh h
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.emit("job_stage", "splice");
   await expect(page.locator(".handoff-note")).toHaveAttribute("data-from", "glyph", { timeout: 8000 });
-  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "splice");
+  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "script");
 });
 
 test("a feed reset uses the current worker without replaying its fresh-looking historical stages",
@@ -188,7 +195,7 @@ async ({ page, request }) => {
   Object.assign(feed.role("splice"), { state: "working", task: task() });
   feed.emit("job_stage", "splice");
   await expect(page.locator(".handoff-note")).toHaveAttribute("data-from", "glyph", { timeout: 8000 });
-  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "splice");
+  await expect(page.locator(".handoff-note")).toHaveAttribute("data-to", "script");
 });
 
 test("the Brain animates in standby and processing, freezes when paused or Reduced, and has a close camera",

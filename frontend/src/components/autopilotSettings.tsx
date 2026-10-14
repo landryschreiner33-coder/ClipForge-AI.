@@ -28,7 +28,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           <Switch k="autopilot_keep_awake" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_sources_per_day" label="Sources per day"
-          hint="How many videos Autopilot takes on each day" {...row}>
+          hint="0 means no daily cap; the unfinished work queue stays small" {...row}>
           <NumInput k="autopilot_sources_per_day" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_clips_per_source" label="Clips per source"
@@ -93,10 +93,11 @@ export function AutopilotSettings({ s, set, errors, saved }: {
 
       <SettingsPanel id="adv-posting" title="Autopilot posting">
         <SettingRow k="autopilot_min_gap_minutes" label="Minimum gap"
-          hint="Minutes between two posts on the same platform" {...row}>
+          hint="0 uploads eligible clips as they become ready; platform waits still apply" {...row}>
           <NumInput k="autopilot_min_gap_minutes" c={c} />
         </SettingRow>
-        <SettingRow label="Posts a day per platform" hint="Your limit; a lower limit reported by a platform wins" group>
+        <SettingRow label="Posts a day per platform"
+          hint="0 means no app daily cap; platform limits and API allowances still apply" group>
           <div className="inline-fields small">
             <span>YouTube</span>
             <NumInput k="autopilot_youtube_daily_limit" c={c} label="YouTube posts a day" width={100} />
@@ -127,7 +128,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
         intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
           + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
         <SettingRow k="discovery_quality_first" label="Quality before quantity"
-          hint="Prefer usable videos, keep the work queue small and stop adding picks when the daily budget is used"
+          hint="Prefer strong usable videos and keep the unfinished work queue small, even with no daily cap"
           {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
         <SettingRow label="Focused search limits" group
           hint={"Waiting for permission or files does not block usable videos. "

@@ -17,9 +17,9 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const [audience, setAudience] = useState<AudienceView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [kids, setKids] = useState<boolean | null>(null);
-  const [limit, setLimit] = useState(3);
-  const [start, setStart] = useState(9);
-  const [end, setEnd] = useState(21);
+  const [limit, setLimit] = useState(0);
+  const [start, setStart] = useState(0);
+  const [end, setEnd] = useState(24);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,7 +43,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
     (!view || !audience || loadError) && "wait for the current account and audience to load",
     (view?.youtube.can_enable === false || !audienceReady) && blocker,
     kids === null && "answer “made for kids”",
-    !(limit >= 1) && "allow at least 1 a day",
+    !(Number.isInteger(limit) && limit >= 0 && limit <= 100) && "choose 0 for no daily cap, or 1 to 100",
     !(start < end) && "make the start hour earlier than the end hour",
     !agreed && "tick that you understand",
   ].filter(Boolean) as string[];
@@ -119,12 +119,16 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           </div>
         </dd>
         <dt>How many</dt>
-        <dd className="inline-fields">At most {hour("Posts a day at most", limit, setLimit, 1, 15)} a day</dd>
+        <dd className="inline-fields">
+          {hour("Posts a day at most", limit, setLimit, 0, 100)}
+          <span className="small muted">{limit === 0 ? "No app daily cap" : `At most ${limit} a day`}. 0 means unlimited.</span>
+        </dd>
         <dt>When</dt>
         <dd className="inline-fields">
           Between {hour("From hour", start, setStart, 0, 23)} and {hour("To hour", end, setEnd, 1, 24)}
           <span className="tiny faint">
-            ({hourWord(start)} to {hourWord(end)}, {view?.timezone || "America/Chicago"}), spread over the day
+            ({start === 0 && end === 24 ? "Any hour" : `${hourWord(start)} to ${hourWord(end)}`},
+            {" "}{view?.timezone || "America/Chicago"})
           </span>
         </dd>
       </dl>
@@ -136,7 +140,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           onChange={(e) => setAgreed(e.target.checked)} />
         <span>
           I authorize ClipFoundry to upload eligible clips to {view?.channel || "this connected YouTube channel"}
-          {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} within these limits,
+          {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} with the choices above,
           without asking me each time. {publicPosts ? "Previously planned private uploads keep their audience. "
             : audience?.youtube.intent === "SELECTED_AUDIENCE" ? "I share private videos myself. " : ""}
           I can cancel upcoming uploads or pause publishing at any time.
@@ -179,8 +183,9 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
               </Pill>
               <span className="small muted">
                 {cfg.visibility ? `${String(cfg.visibility)[0].toUpperCase()}${String(cfg.visibility).slice(1)}` : ""},
-                {" "}up to{" "}
-                {cfg.daily_limit} a day, {hourWord(cfg.start_hour)} to {hourWord(cfg.end_hour)}
+                {" "}{cfg.daily_limit === 0 ? "no app daily cap" : `up to ${cfg.daily_limit} a day`},
+                {" "}{cfg.start_hour === 0 && cfg.end_hour === 24 ? "any hour"
+                  : `${hourWord(cfg.start_hour)} to ${hourWord(cfg.end_hour)}`}
               </span>
               {view.channel && <span className="small muted">· {view.channel}</span>}
               <button type="button" className="btn btn-small" onClick={() => setAsking(true)}>Turn off…</button>

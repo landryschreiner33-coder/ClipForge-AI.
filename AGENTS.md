@@ -28,9 +28,19 @@ There are two ways to use it:
 * **Manual:** drop in a video, get ranked clips, edit, export, or publish through the official APIs.
 * **Autopilot:** 12 background workers on a durable SQLite job queue. Every 3 hours they look for videos the user may
   use (own content, recorded creator agreements, CC BY, public domain), clip and package them, check the final file,
-  schedule posts (9:00-21:00 America/Chicago) and publish them: YouTube automatically once the user has given that
+  schedule eligible posts at any hour (America/Chicago) and publish them: YouTube automatically once the user
+  has given that
   permission, TikTok only after the user's OK on each post. Then they learn from the real results. Nothing asks the
   user about single videos: what is not covered is skipped and explained in the Activity log.
+
+**Current continuous-upload continuation:** app daily source/clip/platform caps default to 0 (unlimited), while
+quality floors, bounded queues, API/cost allowances and platform refusals remain active. Automatic broad discovery
+defaults to uploadable owned/agreed/verified-license sources; explicit public local imports still grant no reuse
+permission. The owner's volume request authorizes a one-time recorded amendment to old app limits and existing
+YouTube permission, preserving its channel/audience/kids choice and historical posts. Future explicit caps survive
+restarts. Current reuse terms and credit must cover the actual approved upload payload; changed terms cannot
+silently rewrite owner text or an active/uncertain upload. Real saved-guidance consultations and recorded manager/
+boss paths appear in the office without invented work, approval or model training. See the latest handoff.
 
 ## Stack
 

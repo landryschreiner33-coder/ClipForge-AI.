@@ -37,8 +37,8 @@ def run_state(settings: dict) -> dict:
 
 
 def _active_jobs() -> list[dict]:
-    return db.select("worker_jobs", "status IN ('running', 'waiting', 'retrying', 'queued')", (), "updated_at DESC",
-                     400)
+    return db.select("worker_jobs", "status IN ('running', 'waiting', 'retrying', 'queued')", (),
+                     "CASE WHEN status = 'running' THEN 0 ELSE 1 END, updated_at DESC", 400)
 
 
 def _recent_failures(now: float) -> dict[str, dict]:
@@ -123,7 +123,43 @@ def _quality_blocked(jobs: list[dict], now: float) -> dict | None:
     return None
 
 
-def role_states(settings: dict, now: float | None = None) -> list[dict]:
+def _consultation_task(activity: dict) -> dict:
+    """A measured knowledge consultation is real work, but it is not a made-up queue job or progress bar."""
+    return {"job_id": "", "kind": "brain_consultation", "stage": "knowledge", "status": "running",
+            "consultation_id": activity.get("consultation_id") or "",
+            "message": str(activity.get("message") or "Consulting saved Brain guidance")[:200], "progress": None,
+            "ref_type": activity.get("ref_type") or "", "ref_id": activity.get("ref_id") or "",
+            "updated_at": activity.get("at"), "blocked_reason": "", "next_role": "curator",
+            "dependencies": [], "shared": {}, "handoff": None}
+
+
+def _idle_reason(role: dict, state: str, task: dict | None, brain: dict) -> str:
+    if state in ("working", "reviewing"):
+        return ""
+    if state == "paused":
+        return "Autopilot is paused or stopped. Resume it to assign background work."
+    if task and task.get("blocked_reason"):
+        return task["blocked_reason"]
+    if state == "unavailable":
+        return "Publishing is unavailable. Check Settings → Integrations and Who watches."
+    if role["department"] == "brain":
+        if brain.get("state") == "paused":
+            return "Brain guidance and strategy changes are paused; result collection can still run."
+        return "Waiting for the next saved-guidance consultation or result collection. " + \
+            "Strategy changes need enough mature, comparable results."
+    return {
+        "boss": "Waiting for a department report or a source, clip, final-check or upload decision.",
+        "discover": "Waiting for the next discovery pass or a source to read.",
+        "analyze": "Waiting for sources or candidate moments to analyze.",
+        "studio": "Waiting for a transcript, an accepted clip plan or assigned repair work.",
+        "caption": "Waiting for clips that need captions or post text.",
+        "schedule": "Waiting for eligible clips or the next scheduled posting time.",
+        "dock": "Waiting for an eligible, approved post to reach its posting time.",
+        "system": "Waiting for a finished-file check or the next maintenance pass.",
+    }.get(role["department"], "No work is currently assigned.")
+
+
+def role_states(settings: dict, now: float | None = None, *, brain: dict | None = None) -> list[dict]:
     now = now or time.time()
     run = run_state(settings)
     jobs = _active_jobs()
@@ -134,6 +170,15 @@ def role_states(settings: dict, now: float | None = None) -> list[dict]:
     quality_blocked = _quality_blocked(jobs, now)
     reports = db.select("office_reports", "created_at > ?", (now - REACT_SECONDS,), "created_at DESC", 20)
     decisions = db.select("office_decisions", "created_at > ?", (now - REACT_SECONDS,), "created_at DESC", 5)
+    brain = _brain_summary(settings) if brain is None else brain
+    activity = brain.get("activity") or {}
+    consultation = (run["state"] == "running" and not settings.get("brain_paused")
+                    and activity.get("state") == "working" and activity.get("consultation_id")
+                    and now - 120 <= float(activity.get("at") or 0) <= now + 5)
+    brain_last = activity.get("last") or {}
+    brain_review = (run["state"] == "running" and not settings.get("brain_paused")
+                    and brain_last.get("state") == "done"
+                    and now - REACT_SECONDS <= float(brain_last.get("at") or 0) <= now + 5)
     from ..autopilot.scheduler import uploadable_platforms
 
     can_upload = bool(uploadable_platforms(settings))
@@ -158,26 +203,31 @@ def role_states(settings: dict, now: float | None = None) -> list[dict]:
             st, task = "waiting", _task(queued[0])
         elif r["id"] == "check" and quality_blocked:
             st, task = "error", quality_blocked
-        if r["rank"] == "manager":
+        if r["id"] == "synapse" and consultation and not running:
+            st, task = "working", _consultation_task(activity)
+        if r["rank"] == "manager" and st == "idle":
             if any(rep["manager"] == r["id"] for rep in reports):
                 st = "reviewing"
-            elif st == "idle" and dept_jobs:
-                st = "working"  # watching its department's running work
-        if r["id"] == "command":
-            if decisions:
+            elif r["id"] == "curator" and brain_review:
                 st = "reviewing"
-            elif st == "idle" and any(j["status"] == "running" for j in jobs):
+            elif dept_jobs or (r["id"] == "curator" and consultation):
+                st = "working"  # watching its department's running work
+        if r["id"] == "command" and st == "idle":
+            if decisions or reports or brain_review:
+                st = "reviewing"
+            elif any(j["status"] == "running" for j in jobs) or consultation:
                 st = "working"
         if r["id"] in ("dock", "lock", "harbor") and not can_upload and st == "idle":
             st = "unavailable"
         if run["state"] != "running" and st in ("idle", "working") and not running:
             st = "paused"
-        last = db.select("office_reports", "worker = ? OR manager = ?", (r["id"], r["id"]), "created_at DESC", 1)
+        last = (db.select("office_reports", "", (), "created_at DESC", 1) if r["id"] == "command" else
+                db.select("office_reports", "worker = ? OR manager = ?", (r["id"], r["id"]), "created_at DESC", 1))
         out.append({"id": r["id"], "state": st, "task": task, "tasks": len(mine), "queued": len(queued),
                     "error": ((task or {}).get("blocked_reason") or (failed or {}).get("error") or "")[:300]
                     if st == "error" else "",
                     "last": ({"summary": last[0]["summary"], "state": last[0]["state"], "at": last[0]["created_at"]}
-                             if last else None)})
+                             if last else None), "idle_reason": _idle_reason(r, st, task, brain)})
     return out
 
 
@@ -186,6 +236,7 @@ def snapshot() -> dict:
     settings = db.get_settings()
     cur = feed.cursor()  # taken first: an event written meanwhile is delivered again, never lost
     now = time.time()
+    brain = _brain_summary(settings)
     from ..autopilot.scheduler import uploadable_platforms
 
     nxt = db.select("scheduled_publications", "status IN ('approved', 'publishing') AND planned_at >= ?",
@@ -196,7 +247,7 @@ def snapshot() -> dict:
         for p, d in dests.items())
     return {
         "cursor": cur, "server_time": now, "run": run_state(settings),
-        "roles": role_states(settings, now),
+        "roles": role_states(settings, now, brain=brain),
         "reports": db.select("office_reports", "", (), "created_at DESC", 12),
         "decisions": db.select("office_decisions", "", (), "created_at DESC", 12),
         "health": health.check(settings),
@@ -207,7 +258,7 @@ def snapshot() -> dict:
         "today": _today(settings, now),
         "needs_you": [{k: a.get(k) for k in ("key", "kind", "level", "title", "detail", "fix")}
                       for a in ap_state.open_actions()[:5]],
-        "brain": _brain_summary(),
+        "brain": brain,
     }
 
 
@@ -223,11 +274,11 @@ def _today(settings: dict, now: float) -> dict:
     return {"clips": clips, "passed_check": ready, "uploads": uploads}
 
 
-def _brain_summary() -> dict:
+def _brain_summary(settings: dict | None = None) -> dict:
     try:
         from ..autopilot import brain
 
-        return brain.summary()
+        return brain.summary(settings)
     except ImportError:
         return {}
 
@@ -280,7 +331,7 @@ def room(room_id: str) -> dict:
         out["health"] = health.check(settings)
         out["devlog"] = devlog(20)
     elif room_id == "brain":
-        out["brain"] = _brain_summary()
+        out["brain"] = _brain_summary(settings)
     elif room_id in ("lounge", "workspace"):
         out["reports"] = db.select("office_reports", "", (), "created_at DESC", 10)
     return out

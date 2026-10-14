@@ -203,6 +203,14 @@ function Overview({ st, lost, since, refresh, setData }: {
             ))}</div>}
           {h.posting.sampled && <p className="small muted">Stages show the {h.posting.checked} newest finished clips;
             the finished total includes all automatic clips.</p>}
+          {!lost && h.posting.source_guidance && <div className="note stack">
+            <h3>{h.posting.source_guidance.title}</h3>
+            <p className="small muted">{h.posting.source_guidance.detail}</p>
+            {h.posting.source_guidance.options.map((option) => <div key={option.title} className="stack">
+              <a className="textlink small" href={option.link}>{option.title}<Icon name="chev" className="sm" /></a>
+              <p className="small muted">{option.detail}</p>
+            </div>)}
+          </div>}
         </section>
       )}
 

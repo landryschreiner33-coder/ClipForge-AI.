@@ -13,7 +13,8 @@ def data(monkeypatch, tmp_path):
 
     monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
     db.init()
-    db.save_settings({"trend_topics": "interview", "autopilot_sources_per_day": 30})
+    db.save_settings({"trend_topics": "interview", "autopilot_sources_per_day": 30,
+                      "autopilot_discovery_uploadable_only": False})  # this suite retains local-discovery opt-in
     host.WorkerHost(periodic=False)
     return tmp_path
 

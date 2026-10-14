@@ -19,6 +19,10 @@ automatic permission in the posting step; disconnected TikTok does not block You
 batches hand off each finished output before yielding, and bounded reconciliation resumes proven old handoffs.
 Canceled work, manual edits, post-live replacement decisions and exact-file/rights/consent guards remain intact.
 
+Continuous operation defaults to no app daily source/upload cap and an all-day posting window. Automatic broad
+discovery prioritizes owned or reuse-covered videos for the connected publishing destinations; completed local
+clips without permission remain local. Platform/API waits, quality checks and posting consent still apply.
+
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
 not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
 games, food, drinks and reading are decorative. Nothing in the office drawing starts, approves or finishes work.
@@ -137,6 +141,20 @@ Contract (`clipfoundry/office/feed.py`, `/api/office`, `frontend/src/office/useO
 * Kept: the newest 20,000 events, at most 14 days; reports 90 days; decisions until the data folder is deleted.
 
 ### Where a robot stands
+
+Actual saved-guidance consultations now have count-only start/end events for source selection, ranking, clip
+planning and rendering. Brain activity distinguishes a current consultation, a fresh completed consultation
+and results-based learning. Empty/disabled/paused work and GET previews do not create activity. Mature-results
+requirements remain unchanged; using saved notes does not mean fine-tuning a model. Quiet roles explain the
+work/results they are waiting for instead of appearing broken.
+
+Fresh backend events provide ordered handoff paths. Actual worker reports pass through their own manager to
+COMMAND. Recorded checkpoints reach the boss, and only real linked next stages or dispatched jobs transfer
+the document onward through the responsible manager to the assigned worker. The renderer serializes these
+legs, preserves job ownership and respects Pause, motion preferences, hidden/offline views and history guards.
+The animation never delays the durable job or creates a report/approval.
+
+[Current controlled screenshots and manager/boss animation](../design/robot-office/continuous/README.md).
 
 * All 25 robots have their own default lounge place and their own department desk. Real running/review work or a
   substantive assigned queued/retrying job gathers the entire department into its room. Actual working/reviewing

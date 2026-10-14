@@ -4,6 +4,58 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-13 (UTC).
 Fetch before trusting branch state.
 
+## Latest continuation: continuous eligible uploads and real Brain/manager activity
+
+Base: `718358f30110ab871e21059177f83ccd9ea3d3a9`, on `codex/brain-graph-quality-discovery`.
+The owner confirmed Missions reports missing reuse permission for the finished clips. That is a real posting
+hold. Automatic broad discovery now defaults to uploadable sources for a connected destination, with verified
+own/agreed channels before broad quota use, actual Creative Commons metadata checks and fixed source guidance.
+Explicit public local imports remain available. Inactive old local-only picks cannot starve eligible work;
+history and completed media remain saved. No permission is inferred from public availability or Brain prose.
+
+App source/day, unique-clip/day and platform daily caps default to zero (unlimited), with 0–24 posting hours and
+no forced gap. Work remains bounded per search and by active queue capacity, quality floors, API/cost allowances
+and platform responses. A one-time recorded volume amendment updates prior app limits and existing YouTube
+permission without changing its channel/audience/kids answer or creating a missing grant. Future explicit caps
+persist. Historical posts/times and Private visibility remain unchanged. Continuous planning picks the earliest
+eligible time; old past-due permission holds and lost replacement slots now recover. A reported platform zero
+holds even an already-approved post until capacity returns, without touching an existing upload session.
+
+Final checks bind to current reuse terms and required source credit. Stale terms, including a previously failed
+sound-rights check, request bounded fresh checks. Required credit is checked in the actual upload payload;
+missing credit returns an old post to editable review without replacing its text/privacy. Owner correction and
+approval can update a provably unstarted publication snapshot, retaining its ID; started or uncertain transfers
+keep their session/payload. TikTok mode and current features follow that unstarted approved snapshot too.
+Manual edits, canceled jobs, existing post approvals and protected uploads cannot be silently repackaged.
+
+Real saved-guidance use in selection, ranking, plans and renders records count-only consultation events.
+Preview/graph/status reads remain read-only; disabled/empty/paused/canceled work emits no fake activity.
+Brain consultation is distinct from mature-results learning, whose thresholds are unchanged. Fresh report and
+checkpoint paths now pass through the responsible manager and boss, with linked real next work dispatched
+through its manager. Explicit empty paths suppress inferred transfers. Newer held/rejected checkpoints cannot
+reuse older approvals. Managers' own work/errors and unrelated workers keep priority; quiet rooms say why idle.
+Pause, Reduced motion, hidden/offline/history guards and lounge recreation remain intact.
+
+**Validation:** Final fast suite: 1,047 passed, eight slow deselected, in 556.14 s. Final real-FFmpeg/synthetic-speech
+media/restart suite: eight passed, 1,047 deselected, in 836.38 s, including Public/Private fake uploads,
+restart and live recovery. Final production build passed in 6.16 s; 11 final built browser checks passed
+in 94.42 s, with all 17 frontend hashes unchanged. Earlier 12 choreography checks passed in 209.87 s;
+six department, three motion and six lounge checks also passed. Final focused reuse/publishing checks:
+93 passed in 90.79 s; public/manual publishing: 34 passed in 40.59 s. New reuse-context: 26 passed in
+9.36 s. Independent continuous checks: 12 passed in 9.28 s; broader review batches: 60 and 83 passed
+(one slow deselected), plus 17 packaging/artifact checks. Root phone checks: 56 passed in 9.06 s.
+The first complete fast run passed 1,037 and exposed ten old fixtures assuming optional charts,
+three-source plans or reports made before terms were attached; corrected cases retained all access,
+Retry-After, permission, byte/version and quality assertions. Earlier office locator/route fixtures
+were corrected to match actual consultation IDs, room-sign selection and manager paths. Controlled
+screenshots/GIF are in design/robot-office/continuous. No actual owner profile, Windows/GPU or real
+platform upload was tested.
+
+No actual owner profile, Windows/RTX3050, real social upload or 24-hour soak was accessed or verified. The new
+source ZIP must be pinned only after final tests/build and preserve verified earlier launcher-created profiles.
+Do not recommend the blocked EXE or change antivirus/security settings. App publishing consent and exact-file,
+reuse, quality, duplicate and Retry-After guards remain required.
+
 ## Latest continuation: finished clips reach YouTube scheduling
 
 Base: `987ebb288ae9097bedbd80d0adee2b3c05c4271f`, on `codex/brain-graph-quality-discovery`.

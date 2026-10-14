@@ -480,6 +480,15 @@ def test_snapshot_progress_is_measured_or_null(data, progress, expected):
     assert phone.status_snapshot()["working"]["progress"] == expected
 
 
+def test_snapshot_preserves_unlimited_and_explicit_daily_caps(data):
+    from clipfoundry import db, phone
+
+    db.save_settings({"autopilot_daily_target": 0})
+    assert phone.status_snapshot()["today"]["daily"] == 0
+    db.save_settings({"autopilot_daily_target": 7})
+    assert phone.status_snapshot()["today"]["daily"] == 7
+
+
 def test_snapshot_ignores_automatic_retry_actions_that_do_not_need_the_owner(data):
     from clipfoundry import db, phone
     from clipfoundry.autopilot import home, state

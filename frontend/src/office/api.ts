@@ -5,6 +5,8 @@ export type RoleState = "idle" | "working" | "waiting" | "retrying" | "error" | 
 
 export interface OfficeTask {
   job_id: string;
+  /** Consultations are real local work, separate from a durable queue job. */
+  consultation_id?: string;
   kind: string;
   stage: string;
   status: string;
@@ -29,6 +31,8 @@ export interface RoleRow {
   queued: number;
   error: string;
   last: { summary: string; state: string; at: number } | null;
+  /** Why an actual role has no assigned work; this does not turn an idle peer into a worker. */
+  idle_reason?: string;
 }
 
 export interface OfficeReport {
@@ -137,6 +141,13 @@ export interface BrainSummary {
   baseline_target: number;
   min_clips: number;
   max_step: number;
+  activity?: {
+    state: "working" | "idle"; role: string; message: string; at: number | null;
+    consultation_id: string; purpose: "selection" | "ranking" | "blueprint" | "render" | "";
+    consulted: number; applied: number; ref_type: string; ref_id: string;
+    last: { type?: string; at?: number; message?: string; consulted?: number; applied?: number;
+      purpose?: string; [key: string]: unknown } | null;
+  };
 }
 
 export interface RunState {

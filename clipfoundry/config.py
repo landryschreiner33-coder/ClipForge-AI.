@@ -137,8 +137,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_enabled": False,
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
-    "autopilot_daily_target": 15,       # a target, never a quota: quality, rights and platform limits come first
-    "autopilot_sources_per_day": 3,
+    "autopilot_daily_target": 0,        # 0: no app daily cap; quality, rights and platform allowances still apply
+    "autopilot_sources_per_day": 0,     # 0: continuously refill a bounded work queue with strong sources
     "autopilot_clips_per_source": 5,
     "autopilot_min_quality": 60.0,      # minimum Viral Potential for autopilot clips
     "autopilot_youtube": True,
@@ -160,11 +160,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "brain_min_testers": 3,             # ...or this many different testers rated it
     "autopilot_keep_awake": True,       # Windows: keep the PC from sleeping while Autopilot is on (screen may sleep)
     "autopilot_timezone": "America/Chicago",
-    "autopilot_active_start": 9,        # local hour, inclusive
-    "autopilot_active_end": 21,         # local hour, exclusive (posting window 9 a.m.-9 p.m.)
-    "autopilot_min_gap_minutes": 45,
-    "autopilot_youtube_daily_limit": 15,
-    "autopilot_tiktok_daily_limit": 15,
+    "autopilot_active_start": 0,        # local hour, inclusive
+    "autopilot_active_end": 24,         # local hour, exclusive; default: posting may run at any hour
+    "autopilot_min_gap_minutes": 0,     # optional owner spacing; 0: upload eligible clips as they become ready
+    "autopilot_youtube_daily_limit": 0, # 0: no app cap, never overrides platform/API restrictions
+    "autopilot_tiktok_daily_limit": 0,
+    "autopilot_discovery_uploadable_only": True,  # broad automatic searches need recorded reuse coverage
     "autopilot_youtube_privacy": "private",  # the only YouTube visibility allowed (publish/audience.py)
     "autopilot_upload_lead_minutes": 30,    # YouTube: upload this early (as Private: YouTube never makes it public)
     "autopilot_allow_republish": False,
@@ -302,7 +303,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),
     "nvidia_daily_spend_cap_usd": (0.0, 1000.0),
-    "autopilot_daily_target": (1, 100), "autopilot_sources_per_day": (1, 30), "autopilot_clips_per_source": (1, 10),
+    "autopilot_daily_target": (0, 100), "autopilot_sources_per_day": (0, 30), "autopilot_clips_per_source": (1, 10),
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
     "autopilot_replacement_cooldown_hours": (0.0, 168.0),
     "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),

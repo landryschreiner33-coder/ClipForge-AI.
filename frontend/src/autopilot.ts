@@ -285,6 +285,10 @@ export interface WorkingOn {
 export interface HomeView {
   posting?: {
     finished: number; checked: number; sampled: boolean;
+    source_guidance?: {
+      uploadable_only: boolean; title: string; detail: string;
+      options: { title: string; detail: string; link: string }[];
+    };
     platforms: {
       platform: "youtube" | "tiktok"; code: string; title: string; detail: string; link: string;
       counts: Record<string, number>; automatic: boolean;
@@ -401,7 +405,7 @@ export interface AutopilotStatus {
   providers: Record<string, ProviderStatus>;
   web_search: { used: number; free: number; allowed: number; budget_usd: number; cost_usd: number; month: string };
   discovery_shortlist?: { enabled: boolean; checked: number; admitted: number; held: number; filtered: number;
-    backlog: number; daily_attempts_remaining: number; message: string;
+    backlog: number; daily_attempts_remaining: number | null; message: string;
     reasons: Record<string, number> | { reason: string; count: number }[] } | null;
   settings: Record<string, any>;
   home: HomeView;

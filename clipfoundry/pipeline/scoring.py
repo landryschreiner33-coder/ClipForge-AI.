@@ -66,6 +66,18 @@ def _dedupe(items: list[str], limit: int) -> list[str]:
 def evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobContext, video_name: str,
              lo: float, hi: float, words: list[dict] | None = None, loud: Loudness | None = None
              ) -> tuple[list[dict], dict]:
+    from ..autopilot import brain
+
+    if not cands:
+        return _evaluate(cands, sentences, settings, ctx, video_name, lo, hi, words=words, loud=loud)
+    ctx.check()
+    with brain.consultation("ranking", settings):
+        return _evaluate(cands, sentences, settings, ctx, video_name, lo, hi, words=words, loud=loud)
+
+
+def _evaluate(cands: list[dict], sentences: list[dict], settings: dict, ctx: JobContext, video_name: str,
+              lo: float, hi: float, words: list[dict] | None = None, loud: Loudness | None = None
+              ) -> tuple[list[dict], dict]:
     from ..autopilot import knowledge
 
     provider = settings.get("ai_provider", "heuristic")

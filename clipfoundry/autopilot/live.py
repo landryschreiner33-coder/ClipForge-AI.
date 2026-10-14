@@ -637,16 +637,23 @@ def live_watch(job: Job) -> dict:
                          "user_added DESC, source_score DESC"):
         if src.get("live_status") == "ended" or (src.get("intake") or {}).get("canceled"):
             continue
-        broad = bool(settings.get("discovery_quality_first", True) and
-                     scout.automatic_discovery(src, settings=settings))
-        if broad and scout.discovery_attempts_remaining(settings) <= 0:
+        broad = scout.automatic_discovery(src, settings=settings)
+        remaining = scout.discovery_attempts_remaining(settings)
+        if broad and settings.get("autopilot_discovery_uploadable_only", True) and \
+                not rights.discovery_publishable(src, settings):
+            continue
+        if broad and settings.get("discovery_quality_first", True) and remaining is not None and remaining <= 0:
             continue  # selected streams and explicit links keep their intent; do not restart held recordings
         ok, why = capture_allowed(src, settings)
         if not ok:
             db.update("sources", src["id"], status_note=why)
             continue
         with locks.named("discovery-selection"):
-            if broad and scout.discovery_attempts_remaining(settings) <= 0:
+            remaining = scout.discovery_attempts_remaining(settings)
+            if broad and settings.get("discovery_quality_first", True) and remaining is not None and remaining <= 0:
+                continue
+            if not src.get("user_added") and int(settings.get("autopilot_sources_per_day") or 0) == 0 and \
+                    scout.still_needed(settings) <= 0:
                 continue
             row = queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}",
                           ref=("source", src["id"]), timeout_s=24 * 3600, max_attempts=5,

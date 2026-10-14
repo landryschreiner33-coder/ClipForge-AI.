@@ -53,7 +53,8 @@ function PostingOptions({ platforms, refresh }: { platforms: ("youtube" | "tikto
       {platforms.includes("youtube") && <section aria-label="Automatic YouTube publishing" className="stack-3">
         <h3>Let YouTube clips go out by themselves</h3>
         <p className="small muted">After confirming who watches, turn this on to approve eligible YouTube clips
-          automatically. The permission names your channel, audience, daily limit and posting hours. TikTok is
+          automatically. The permission names your channel, audience, daily cap (0 means unlimited) and posting hours.
+          TikTok is
           optional and never needed for YouTube posts.</p>
         <AutoPublishLine platform="youtube" onChange={refresh}
           key={`${view.youtube.intent}:${view.youtube.confirmed_at}:${view.youtube.group_version}`} />

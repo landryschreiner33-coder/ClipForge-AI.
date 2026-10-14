@@ -51,8 +51,7 @@ NOT_POSTED = ("Its clips stay on this PC and are never posted: nothing shows you
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
 PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
-           "{sleep} Posts go out between {start} and {end}. A YouTube post that is already uploaded still goes out if "
-           "the PC is off; TikTok posts need the PC on.")
+           "{sleep} Posts go out {hours}. Uploads need the PC running; videos already published remain on the platform.")
 SLEEP = {  # by the real state of the keep-awake request (awake.KeepAwake.status), never by the setting alone
     "on": "ClipFoundry is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
     "pending": "ClipFoundry is asking Windows to keep this PC from going to sleep.",
@@ -425,6 +424,10 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Autopilot is looking for opportunities."
     skipped = skipped_count()
     if skipped:
+        if settings.get("autopilot_discovery_uploadable_only", True):
+            return ("No strong videos with posting permission and usable originals yet. Automatic search checks your "
+                    "channel, recorded creator agreements and free-license media. Add your own recordings or a valid "
+                    "agreement under Permissions & sources; public videos without coverage stay local.")
         if settings.get("autopilot_public_videos"):
             return ("No accessible strong videos yet. ClipFoundry is still looking. "
                     "Activity shows why each video was skipped. You can also paste a public video link.")
@@ -456,8 +459,9 @@ def pc_note(settings: dict) -> str:
     if now == "off" and not settings.get("autopilot_keep_awake", True):
         now = "setting_off"
     start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
-    return PC_NOTE.format(sleep=SLEEP[now], start=hour(int(9 if start is None else start)),
-                          end=hour(int(21 if end is None else end)))
+    start, end = int(9 if start is None else start), int(21 if end is None else end)
+    hours = "at any hour" if (start, end) == (0, 24) else f"between {hour(start)} and {hour(end)}"
+    return PC_NOTE.format(sleep=SLEEP[now], hours=hours)
 
 
 def keep_awake(settings: dict) -> str:

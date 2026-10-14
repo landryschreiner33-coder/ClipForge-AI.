@@ -134,7 +134,7 @@ def status_snapshot() -> dict:
         "currently": home.currently(settings, bool(host["alive"])),
         "working": ({"title": _title(working.get("title")), "step": working.get("step"),
                      "progress": progress} if working else None),
-        "today": {"daily": int(settings.get("autopilot_daily_target") or 15), "processed": processed,
+        "today": {"daily": int(settings.get("autopilot_daily_target") or 0), "processed": processed,
                   **{k: counts[k] for k in ("published", "scheduled", "published_posts", "scheduled_posts")}},
         "posts": {k: int(posts[k]) for k in ("review", "fix", "ready", "scheduled")},
         "next_post": ({"platform": nxt[0]["platform"], "title": _title(nxt[0].get("title")),

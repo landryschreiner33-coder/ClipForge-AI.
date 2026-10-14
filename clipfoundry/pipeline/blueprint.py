@@ -413,12 +413,13 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     and sound, the words worth stressing, the hook and the payoff. `video_path` is the file to look for scene cuts
     in; `video_offset` is where it starts in source time (a live window file)."""
     from . import render
-    from ..autopilot import knowledge
+    from ..autopilot import brain, knowledge
     from .postpack import _payoff_sentence  # noqa: PLC2701 - the shared "which line delivers the point" rule
     from .text_utils import build_sentences
 
     opts = render.effective_options(settings, project.get("options") or {}, {})
-    opts, influences = knowledge.choose(clip, opts, settings)
+    with brain.consultation("blueprint", settings, ref=("clip", clip["id"])):
+        opts, influences = knowledge.choose(clip, opts, settings)
     # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
     selected = (selection or {}).get("brain_knowledge") or []
     combined = {}

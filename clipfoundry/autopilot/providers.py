@@ -148,9 +148,12 @@ class YouTubeDiscovery:
         return data.get("items") or []
 
     def search(self, q: str, region: str, language: str, published_after: float | None, event_type: str = "",
-               max_results: int = 25) -> list[str]:
+               max_results: int = 25, *, creative_commons: bool = False) -> list[str]:
         params = {"part": "snippet", "type": "video", "q": q, "regionCode": region, "relevanceLanguage": language,
                   "order": "viewCount", "maxResults": max_results}
+        if creative_commons:
+            # The actual videos.list license is still evaluated later; a search filter never grants reuse.
+            params["videoLicense"] = "creativeCommon"
         if event_type:
             params["eventType"] = event_type
         elif published_after:
@@ -205,7 +208,16 @@ class YouTubeDiscovery:
                 failed_calls.add(fn.__name__)
                 return None
 
-        popular = attempt(self.most_popular, region)
+        # A connected channel or recorded creator agreement is useful even when a broad search exhausts quota.
+        for ch in channels:
+            if job:
+                job.check()
+            ids = attempt(self.channel_uploads, ch["channel_id"])
+            for rank, vid in enumerate(ids or [], 1):
+                curated.add(vid)
+                ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
+        uploadable_only = bool(self.settings.get("autopilot_discovery_uploadable_only", True))
+        popular = [] if uploadable_only else attempt(self.most_popular, region)
         items: dict[str, dict] = {}
         for rank, item in enumerate(popular or [], 1):
             items[item["id"]] = item
@@ -213,21 +225,17 @@ class YouTubeDiscovery:
         for topic in topics:
             if job:
                 job.check()
-            ids = attempt(self.search, topic, region, lang, since)
+            ids = attempt(self.search, topic, region, lang, since, creative_commons=uploadable_only)
             if ids is None:
                 break  # the search bucket said no: no point trying the next topic
             for rank, vid in enumerate(ids, 1):
                 ranked.setdefault(vid, ("youtube_search", rank, len(ids), topic))
         if include_live and topics:
             # A generic "live" search brings ambient loops and waiting rooms rather than the owner's interests.
-            ids = attempt(self.search, topics[0], region, lang, None, event_type="live")
+            ids = attempt(self.search, topics[0], region, lang, None, event_type="live",
+                          creative_commons=uploadable_only)
             for rank, vid in enumerate(ids or [], 1):
                 ranked[vid] = ("youtube_live", rank, len(ids or []), topics[0])
-        for ch in channels:
-            ids = attempt(self.channel_uploads, ch["channel_id"])
-            for rank, vid in enumerate(ids or [], 1):
-                curated.add(vid)
-                ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
         missing = [v for v in ranked if v not in items]
         details = attempt(self.videos, missing) if missing else {}
         items.update(details or {})
@@ -418,6 +426,8 @@ class WebSearch:
     def discover(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
         """Public TikTok links for the topics, then the long YouTube videos behind the strongest of them. Stops
         quietly when the allowance runs out (what was found so far is kept)."""
+        if self.settings.get("autopilot_discovery_uploadable_only", True):
+            return self.discover_reusable(topics, youtube_, job)
         now = time.time()
         out: list[dict] = []
         tiktok: list[tuple[float, dict]] = []
@@ -470,6 +480,42 @@ class WebSearch:
                             out.append(signal_from_video(item, "youtube_original", rank, len(items),
                                                          f"original of TikTok clip “{sig['title'][:60]}”",
                                                          found_from=sig["url"]))
+        except Unavailable as exc:
+            if not out:
+                raise
+            self.stopped = str(exc)
+        return out
+
+    def discover_reusable(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
+        """Use web search to find originals, then verify their actual platform metadata before admission.
+
+        A page calling itself Creative Commons proves nothing. The official license/channel answer and the
+        existing rights gate decide whether each result is usable. Do not spend web credits on unverifiable pages.
+        """
+        if youtube_ is None:
+            self.stopped = "Reusable web search waits for YouTube metadata; your folders and free library still work."
+            return []
+        out: list[dict] = []
+        try:
+            for topic in topics[:WEB_TOPICS_PER_SCAN]:
+                if job:
+                    job.check()
+                found = self.search(f"{topic} Creative Commons interview podcast", ["youtube.com"], 5, "month")
+                ids = list(dict.fromkeys(v for row in found for v in linked_videos(str(row.get("url") or ""))))
+                try:
+                    items = youtube_.videos(ids[:5]) if ids else {}
+                except quota.QuotaDenied as exc:
+                    self.stopped = str(exc)
+                    break
+                except PublishError as exc:
+                    # Do not issue more requests after a platform wait/error. A later normal scan retries.
+                    self.stopped = str(exc)
+                    if exc.retry_after is not None:
+                        state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0),
+                                                         time.time() + float(exc.retry_after)))
+                    break
+                for rank, item in enumerate(items.values(), 1):
+                    out.append(signal_from_video(item, "youtube_web_reusable", rank, len(items), topic))
         except Unavailable as exc:
             if not out:
                 raise

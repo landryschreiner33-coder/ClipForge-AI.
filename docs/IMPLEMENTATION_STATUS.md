@@ -1,5 +1,35 @@
 # Implementation status
 
+## Continuous eligible uploads and real Brain/manager activity — 2026-10-13
+
+Base: `718358f30110ab871e21059177f83ccd9ea3d3a9`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Remove app daily volume defaults; 0 means unlimited, with continuous bounded source processing and all-day
+  earliest eligible posting. One-time recorded volume migration preserves identity/audience/private plans and
+  later owner caps; API/cost/quality/learned platform waits remain active.
+- [x] Default broad discovery to uploadable verified sources and provide concrete source guidance; local-only
+  history cannot starve eligible work. Explicit local imports and publishing eligibility remain separate.
+- [x] Recover old eligible approval/time holds; hold already-approved work after reported platform zero.
+- [x] Bind fresh checks and actual post credit to current reuse terms; keep manual/canceled/started/uncertain
+  work safe, and allow identity-preserving review/recovery of a provably unstarted upload.
+- [x] Display actual count-only Brain consultations and ordered responsible manager/boss handoffs, with current
+  checkpoint/ownership/idle explanations and all Pause/motion/history/offline guards.
+- [x] Complete final app verification; readable source ZIP is pinned separately after the app commit.
+
+**Validation:** Final fast suite: 1,047 passed, eight slow deselected, in 556.14 s. Final real-FFmpeg/synthetic-
+speech media/restart suite: eight passed, 1,047 deselected, in 836.38 s. Final production build passed in
+6.16 s; 11 final built browser checks passed in 94.42 s, with all 17 file hashes unchanged. Earlier 12
+choreography, six department, three motion and six lounge checks passed. Final reuse/publishing: 93 passed;
+public/manual publishing: 34 passed; new current-terms regressions: 26 passed; independent continuous:
+12 passed. Independent review also ran 60 and 83 checks (one slow deselected) and 17 packaging/artifact checks.
+Root phone checks: 56 passed. First full fast run exposed ten outdated fixtures for optional charts, finite
+plans and terms-bound reports; corrected cases retain their original access/wait/permission/bytes/version/
+quality assertions. Earlier office fixture IDs, route expectations and room-sign locator were corrected.
+
+The owner supplied the actual missing-reuse-permission explanation; their database/account was not accessed.
+No real platform upload, owner Windows/RTX3050 execution, native installer/Defender acceptance or 24-hour soak
+is claimed. No new dependency/GPU pins, automatic account grant or security setting change.
+
 ## Finished clips reach YouTube scheduling — 2026-10-13
 
 Base: `987ebb288ae9097bedbd80d0adee2b3c05c4271f`, on `codex/brain-graph-quality-discovery`.

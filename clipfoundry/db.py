@@ -598,6 +598,7 @@ CREATE TABLE IF NOT EXISTS office_decisions ( -- the Director's recorded decisio
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_office_decisions_subject ON office_decisions(subject_type, subject_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_office_decisions_job ON office_decisions(job_id, created_at);
 CREATE TABLE IF NOT EXISTS brain_observations ( -- results evidence with provenance (autopilot/brain.py)
     id TEXT PRIMARY KEY,
     clip_id TEXT DEFAULT '',
@@ -774,6 +775,67 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if isinstance(value, str) and value and not value.startswith((secure.DPAPI, secure.LOCAL)):
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
     _migrate_audience(conn)
+    _migrate_continuous_volume(conn)
+
+
+CONTINUOUS_VOLUME_MIGRATION = "continuous_volume_migrated_v1"
+
+
+def _migrate_continuous_volume(conn: sqlite3.Connection) -> None:
+    """Apply the owner's requested unlimited/24-hour volume update once, without granting any new audience.
+
+    Keep original consent identity/wording and append the volume amendment. Previously scheduled posts, account
+    permissions, platform waits, provider budgets and quality/reuse rules remain unchanged. Later owner limits
+    are explicit choices and survive restarts rather than being reset by this migration.
+    """
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (CONTINUOUS_VOLUME_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    changes = {"autopilot_daily_target": 0, "autopilot_sources_per_day": 0,
+               "autopilot_youtube_daily_limit": 0, "autopilot_tiktok_daily_limit": 0,
+               "autopilot_active_start": 0, "autopilot_active_end": 24, "autopilot_min_gap_minutes": 0}
+    previous = {}
+    for row in conn.execute("SELECT key, value FROM settings").fetchall():
+        if row["key"] not in changes:
+            continue
+        try:
+            previous[row["key"]] = json.loads(row["value"])
+        except (ValueError, TypeError):
+            previous[row["key"]] = None  # an unreadable old setting must not prevent the app from starting
+    amended = []
+    for row in conn.execute("SELECT id, platform, settings, text FROM publish_consents "
+                            "WHERE revoked_at IS NULL").fetchall():
+        if row["platform"] != "youtube":
+            continue  # TikTok has no standing automatic-publishing permission
+        try:
+            cfg = json.loads(row["settings"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        before = {key: cfg.get(key) for key in ("daily_limit", "start_hour", "end_hour")}
+        cfg.update(daily_limit=0, start_hour=0, end_hour=24,
+                   volume_amendment={"at": now, "version": 1, "previous": before,
+                                     "reason": "Owner requested uncapped continuous uploading"})
+        addendum = ("Volume update: eligible clips may upload without an app daily cap at any hour. This changes "
+                    "only volume and hours, under the existing channel, audience and made-for-kids permission. "
+                    "Previously planned posts keep their audience and time. Platform waits, API/cost allowances, "
+                    "reuse permission and final-file checks still apply; publishing can be paused or turned off.")
+        conn.execute("UPDATE publish_consents SET settings = ?, text = ?, updated_at = ? WHERE id = ?",
+                     (json.dumps(cfg), f"{row['text']}\n\n{addendum}", now, row["id"]))
+        amended.append(row["id"])
+    # A fresh database already has these defaults; don't populate unrelated settings until it has a profile.
+    if previous or amended:
+        for key, value in changes.items():
+            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, json.dumps(value)))
+        conn.execute("INSERT INTO autopilot_events (at, kind, level, message, ref_type, ref_id, data) VALUES "
+                     "(?, 'continuous_volume', 'info', ?, '', '', ?)",
+                     (now, "Continuous uploading enabled: no app daily cap; existing audiences and platform "
+                           "restrictions are preserved.", json.dumps({"version": 1, "consents_amended": len(amended)})))
+    conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (CONTINUOUS_VOLUME_MIGRATION,
+                  json.dumps({"at": now, "previous": previous, "consents_amended": amended}), now))
 
 
 AUDIENCE_MIGRATION = "audience_migrated_v1"

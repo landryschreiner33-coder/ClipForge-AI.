@@ -9,6 +9,33 @@ LIMIT = 200
 ACTIVE_POSTS = ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'action_needed')
 
 
+def source_guidance(settings: dict) -> dict:
+    """Fixed desktop guidance; no folder scan, remote request or automatic permission decision."""
+    uploadable_only = bool(settings.get('autopilot_discovery_uploadable_only', True))
+    return {'uploadable_only': uploadable_only,
+            'title': 'Automatic discovery looks for videos it can post' if uploadable_only else
+                     'Automatic discovery also makes local-only clips',
+            'detail': ('New broad-search picks need recorded reuse coverage for an enabled destination. '
+                       'Existing local-only clips stay on this PC until valid permission covers their originals.')
+                      if uploadable_only else
+                      ('Public finds can be clipped locally without permission to repost. '
+                       'Enable Only find videos I can post to focus automatic work on uploads.'),
+            'options': [
+                {'title': 'Use your own originals',
+                 'detail': 'Put videos you made or may reuse in Your videos folder. '
+                           'Your connected YouTube channel is also checked; downloading still needs allowed access.',
+                 'link': '#/missions/sources'},
+                {'title': 'Record an existing creator agreement',
+                 'detail': 'Add what the creator agreed to and the platforms it covers. '
+                           'Use their original files or a permitted download; a public link is not permission.',
+                 'link': '#/missions/sources'},
+                {'title': 'Search verified free-license media',
+                 'detail': 'Creative Commons YouTube searches and the free Wikimedia Commons library '
+                           'use reported licenses. Quality, original-file access and attribution checks still apply.',
+                 'link': '#/missions/sources'},
+            ]}
+
+
 def setup_needs(settings: dict, platforms: dict) -> list[dict]:
     """Derive setup holds during reads; a stalled scheduler cannot be the only writer of an audience warning."""
     if state.paused() or not settings.get('autopilot_enabled'):
@@ -52,7 +79,7 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
         if not account.get("connected"):
             continue  # A disconnected TikTok account cannot hold a YouTube-only setup.
         dest = audience.destination(platform, settings)
-        counts = {k: 0 for k in ('local_only', 'preparing', 'checking', 'failed_check', 'ready',
+        counts = {k: 0 for k in ('local_only', 'other_platform', 'preparing', 'checking', 'failed_check', 'ready',
                                'scheduled', 'review', 'problems', 'preparation_stopped', 'waiting_time')}
         marks = ','.join('?' * len(ACTIVE_POSTS))
         posts = db.select("scheduled_publications", f"platform = ? AND status IN ({marks})",
@@ -73,6 +100,8 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
             try:
                 rights.gate(source, 'schedule', settings)
                 allowed, _ = rights.platform_allowed(source, platform, settings)
+                if not allowed:
+                    counts['other_platform'] += 1
             except rights.RightsBlocked:
                 allowed = False
             if not allowed:
@@ -89,7 +118,8 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
                 continue
             report = gate.report_for(clip)
             checked_text = (report or {}).get('metadata', {}).get(platform) or {}
-            if not report or checked_text.get('metadata_id') != meta[0]['id']:
+            if not report or checked_text.get('metadata_id') != meta[0]['id'] or \
+                    not gate.context_valid(report, clip, settings):
                 counts['checking'] += 1
             elif report['status'] != 'passed' or checked_text.get('status') != 'passed':
                 counts['failed_check'] += 1
@@ -99,7 +129,8 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
                                                counts, total, workers_alive)
         out.append({'platform': platform, 'code': code, 'title': title, 'detail': detail, 'link': link,
                     'counts': counts, 'automatic': bool(permission[platform]['enabled'])})
-    return {'finished': total, 'checked': len(clips), 'sampled': total > LIMIT, 'platforms': out}
+    return {'finished': total, 'checked': len(clips), 'sampled': total > LIMIT, 'platforms': out,
+            'source_guidance': source_guidance(settings)}
 
 
 def _explanation(settings: dict, platform: str, name: str, account: dict, dest: dict, consent: dict,
@@ -152,15 +183,12 @@ def _explanation(settings: dict, platform: str, name: str, account: dict, dest: 
     if counts["scheduled"]:
         return ("scheduled", "Posts have a schedule",
                 "Queue shows their posting times and any upload holds.", "#/queue/scheduled")
-    if int(settings.get(f"autopilot_{platform}_daily_limit") or 0) <= 0:
-        return ("limit", f"{name} daily limit is zero",
-                "Set a positive daily posting limit in Settings → Advanced.", "#/settings/advanced")
     if settings.get("autopilot_active_start") == settings.get("autopilot_active_end"):
         return ("window", "Posting hours leave no time to upload",
                 "Choose a posting window in Settings → Defaults.", "#/settings/defaults")
     if counts["ready"]:
         return "planning", "Finished clips are waiting for a posting time", (
-            "The scheduler checks available posting hours, daily limits and platform waits. "
+            "The scheduler checks available posting hours, any chosen daily limit and platform waits. "
             "Check Activity if this persists."
         ), "#/missions/activity"
     if counts["preparing"]:
@@ -181,9 +209,15 @@ def _explanation(settings: dict, platform: str, name: str, account: dict, dest: 
             "Open their Final check details in Clips. Automatic repair runs only when it can safely fix the problem."
         ), "#/clips"
     if counts["local_only"]:
+        if counts.get("other_platform") == counts["local_only"]:
+            return "rights", f"Existing permission does not cover {name}", (
+                f"These originals are covered only for another destination. Record a valid agreement that covers {name} "
+                "or add your own originals. Changing upload limits does not change an agreement's terms."
+            ), "#/missions/sources"
         return "rights", "Finished clips are for local use", (
             f"These videos have no recorded reuse permission for {name}. Add your original videos or record a valid "
-            "creator agreement under Permissions & sources; being public does not grant permission."
+            "creator agreement under Permissions & sources; being public does not grant permission. "
+            "New automatic searches can focus on videos with verified reuse coverage."
         ), "#/missions/sources"
     if total:
         return ("waiting", "No new finished clip is ready to plan",

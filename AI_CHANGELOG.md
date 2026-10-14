@@ -7,6 +7,32 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-13 · Continuous eligible uploading and Brain/manager handoffs
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `718358f`.
+* **What changed:** app daily source/clip/platform caps default to 0 (unlimited), with all-day earliest-slot
+  posting. A recorded one-time volume amendment preserves existing account/audience/kids permission and old
+  posts, while future owner limits persist. Bounded search/queue/quality/API/cost/platform holds remain active.
+  Uploadable-only broad discovery prioritizes verified own/agreed/CC media and explains local-only clips;
+  legacy local-only finds cannot monopolize capacity. Past-due eligible approval holds and lost replacement
+  times recover; reported platform zero holds approved dispatch without disrupting an active transfer.
+  Current reuse/credit checks bind to both reports and actual upload text. Missing credit returns to editable
+  review; proven unstarted row synchronization retains upload identity, route and current feature evidence.
+  Private/canceled/manual/started/uncertain work remains protected. Count-only real Brain consultations now
+  appear separately from mature-result learning. Explicit fresh manager/boss handoffs respect newer checkpoint
+  outcomes, actual job ownership and Pause/Reduced/hidden/offline/history guards. Quiet rooms explain idle state.
+* **Why:** the owner reported missing-permission posting holds, requested no app daily cap and continuous work,
+  and found the office's Brain/handoffs misleading. No missing reuse or account permission was fabricated.
+* **Validation:** Final fast suite: 1,047 passed in 556.14 s; eight real-media/restart checks passed in 836.38 s.
+  Final production build passed in 6.16 s; 11 final built browser checks passed in 94.42 s, matching all 17 file
+  hashes. Earlier 12 choreography checks, six department, three motion and six lounge checks passed. Final
+  reuse/publishing: 93 passed; public/manual publishing: 34 passed. New current-terms regressions: 26 passed;
+  independent continuous: 12 passed. Root phone checks: 56 passed. Initial full fast run found ten stale fixtures;
+  updated local-discovery/finite-plan/current-report fixtures retain all permission/bytes/version/quality/wait
+  checks. No owner Windows/GPU, real platform upload or 24-hour soak was tested.
+* **Not verified:** real owner Windows data/runtime, RTX3050, actual account posting/visibility or a 24-hour soak.
+  No real publishing, account/privacy change, spending, media deletion, security exclusion or deployment occurred.
+
 ## 2026-10-13 · Finished clips reach YouTube scheduling
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `987ebb2`.

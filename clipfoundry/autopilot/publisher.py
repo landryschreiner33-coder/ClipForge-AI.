@@ -189,14 +189,22 @@ def recover(pub: dict) -> str:
 # ------------------------------------------------------------------ the job
 def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     pub = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
-    if pub:
-        return pub
     opts = dict(item.get("options") or {})
     if item["platform"] == "tiktok":
         opts["duration"] = float(clip.get("duration") or 0)
     from ..publish.jobs import feature_snapshot
 
     version_row = db.get_version(version) if version else None
+    if pub:
+        if not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub):
+            # A platform wait may leave a local row before any session or bytes exist. The owner can edit and
+            # approve its post during that wait; send that exact approved snapshot, retaining the upload identity.
+            db.update_publication(pub["id"], title=item["title"], description=item["description"],
+                                  tags=item.get("tags") or [], requested_privacy=item["privacy"], video_path=video,
+                                  version_id=version, options=opts, mode=opts.get("mode", "direct"),
+                                  features=feature_snapshot(clip, version_row), audience=item.get("audience") or {})
+            pub = db.get_publication(pub["id"]) or pub
+        return pub
     pub = db.create_publication(item["clip_id"], item["platform"], project_id=clip["project_id"],
                                 mode=opts.get("mode", "direct"), status="queued", message="Autopilot upload",
                                 title=item["title"], description=item["description"], tags=item.get("tags") or [],
@@ -344,7 +352,10 @@ def publish(job: Job) -> dict:
     if mode == "manual":  # nothing is uploaded: the owner posts the checked file in the TikTok app
         video, _version = active_version_path(clip)
         try:
-            gate.verify_file(clip, video)
+            gate.verify_file(clip, video, publication=item)
+        except gate.CreditRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
@@ -361,9 +372,12 @@ def publish(job: Job) -> dict:
     video, version = active_version_path(clip)
     if not started:  # an upload already under way is resumed, never re-judged halfway
         try:
-            gate.verify_file(clip, video)  # the exact bytes that would be uploaded passed the final quality gate
+            gate.verify_file(clip, video, publication=item)  # current bytes, reuse terms and actual post credit
         except queue.Wait as w:
             db.update("scheduled_publications", item["id"], status_note=w.message)
+            raise
+        except gate.CreditRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
             raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)

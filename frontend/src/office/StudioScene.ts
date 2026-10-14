@@ -330,7 +330,8 @@ export class StudioScene {
       highlight.alpha = still ? .5 : Math.min(.7, Math.max(0, (until - t) / 900));
     }
     const paused = ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused";
-    const actualBrainBusy = snap.brain?.state === "evaluating" || busy.has("brain");
+    const actualBrainBusy = snap.brain?.state === "evaluating" || snap.brain?.activity?.state === "working"
+      || busy.has("brain");
     if (paused || offline) this.brainBusy = false;
     else if (!still || this.lastActualBrainBusy === undefined || this.brainSuppressed) {
       this.brainBusy = coreBusy || actualBrainBusy;

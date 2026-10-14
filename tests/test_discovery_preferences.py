@@ -12,6 +12,7 @@ def data(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
+    db.save_settings({"autopilot_discovery_uploadable_only": False})  # exercise optional local discovery
     return tmp_path
 
 

@@ -38,7 +38,9 @@ def env(monkeypatch, tmp_path):
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
                       "autopilot_youtube": True, "autopilot_tiktok": False, "autopilot_min_gap_minutes": 60,
-                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3})
+                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3,
+                      "autopilot_active_start": 9,
+                      "autopilot_active_end": 21})  # explicitly exercise the owner's finite schedule
     yield {"g": g, "t": t, "tmp": tmp_path}
     g.stop()
     t.stop()

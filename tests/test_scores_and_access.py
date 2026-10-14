@@ -289,7 +289,8 @@ def test_inaccessible_candidate_keeps_discovery_info_and_autopilot_picks_another
     routes, _, _ = public_site
     routes["/locked"] = (401, {"Content-Type": "text/html"}, b"<html>sign in</html>")
     # The unlimited replacement behavior remains available by opting out of quality-first's attempt budget.
-    db.save_settings({"autopilot_sources_per_day": 1, "discovery_quality_first": False})
+    db.save_settings({"autopilot_sources_per_day": 1, "discovery_quality_first": False,
+                      "autopilot_discovery_uploadable_only": False})
     settings = db.get_settings()
     locked = rights.apply(_candidate("locked", 90), settings)
     other = rights.apply(_candidate("other", 60), settings)
@@ -322,6 +323,7 @@ def test_rate_limit_waits_exactly_as_asked_and_disk_space_waits_for_room(public_
     from clipfoundry.autopilot import queue, rights, scout, state
 
     routes, _, _ = public_site
+    db.save_settings({"autopilot_discovery_uploadable_only": False})  # access waits for optional local discovery
     routes["/slow"] = (429, {"Retry-After": "7200"}, b"")
     settings = db.get_settings()
     slow = rights.apply(_candidate("slow", 90), settings)

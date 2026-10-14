@@ -59,10 +59,13 @@ def repetition_problems(text: str) -> list[str]:
     return [f"repeats “{rep[0]}” {counts[rep[0]]} times"] if rep else []
 
 
-def validate(meta: dict, clip_text: str, prior_titles: list[str] | None = None, allowed_lines: list[str] | None = None
-             ) -> list[str]:
+def validate(meta: dict, clip_text: str, prior_titles: list[str] | None = None, allowed_lines: list[str] | None = None,
+             *, required_attribution: str = "", platform: str = "") -> list[str]:
     """Everything wrong with a title/caption/description/tags set for this transcript (empty = publishable)."""
     problems: list[str] = []
+    credit_problem = attribution_problem(meta, platform, required_attribution)
+    if credit_problem:
+        problems.append(credit_problem)
     template = {_norm(x) for x in [*postpack.CTAS.values(), postpack.CTA_DEFAULT, DEBATE_CTA, *(allowed_lines or [])]}
     for field in ("title", "caption", "description"):
         text = str(meta.get(field) or "")
@@ -84,6 +87,20 @@ def validate(meta: dict, clip_text: str, prior_titles: list[str] | None = None, 
             problems.append(f"title: nearly the same as an earlier title (“{prior[:60]}”)")
             break
     return list(dict.fromkeys(problems))
+
+
+def attribution_problem(meta: dict, platform: str, attribution: str) -> str:
+    """The credit required by actual recorded terms must be present in the field the platform receives."""
+    if not attribution:
+        return ""
+    field = "caption" if platform == "tiktok" and "caption" in meta else "description"
+    # Keep links and non-English creator names intact; token matching can mistake a changed URL for valid credit.
+    normalized = lambda text: [" ".join(line.split()).casefold() for line in text.splitlines() if line.strip()]
+    required = normalized(attribution)
+    lines = normalized(str(meta.get(field) or ""))
+    present = any(lines[index:index + len(required)] == required for index in range(len(lines)))
+    return "" if present else \
+        f"{field}: missing required source attribution"
 
 
 # ------------------------------------------------------------------ scoring
@@ -310,20 +327,20 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
     clip_kw = keywords(clip_text, top=6)
     hashtags = [t for t in (clip.get("hashtags") or (clip.get("post") or {}).get("hashtags") or [])
                 if not postpack.hashtag_problems(t, clip_text)] or postpack.hashtags_for(clip_text)
-    attribution = rights.attribution(source or {})
+    attribution = rights.current_attribution(source, settings)
     prior = prior_titles(clip["id"])
     cands = extracted_candidates(platform, sents, clip, attribution, clip_kw, hashtags)
     cands += ai_candidates(settings, platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior)
     db.execute("DELETE FROM metadata_candidates WHERE clip_id = ? AND platform = ?", (clip["id"], platform))
     scored = []
     for meta in cands:
-        problems = validate(meta, clip_text, prior, [attribution])
+        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform)
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, problems)
         scored.append((sc["score"], meta, sc, problems))
     passing = [x for x in scored if not x[3]]
     if not passing:
         meta = fallback(platform, sents, clip, attribution, clip_kw, hashtags, clip_text, prior)
-        problems = validate(meta, clip_text, prior, [attribution])
+        problems = validate(meta, clip_text, prior, [attribution], required_attribution=attribution, platform=platform)
         sc = score(meta, platform, clip_text, clip_kw, trend_kw, prior, [])
         scored.append((sc["score"], meta, {**sc, "note": "safe fallback"}, problems))
         best = scored[-1]

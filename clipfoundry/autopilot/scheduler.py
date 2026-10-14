@@ -55,13 +55,14 @@ def _audit(item: dict, event: str, detail: str, **data: object) -> list[dict]:
 
 
 # ------------------------------------------------------------------ limits
-def daily_limit(settings: dict, platform: str) -> int:
-    """Posts per day on a platform: your setting, lowered by any limit the platform itself reported."""
+def daily_limit(settings: dict, platform: str) -> int | None:
+    """Effective daily cap; None means uncapped by the app. A platform's reported zero still stops posting."""
     configured = int(settings.get(f"autopilot_{platform}_daily_limit") or 0)
     rows = db.select("platform_limits", "platform = ? AND key = 'daily_posts'", (platform,))
     if rows and rows[0]["value"] is not None:
-        return min(configured, int(rows[0]["value"]))
-    return configured
+        observed = max(0, int(rows[0]["value"]))
+        return min(configured, observed) if configured > 0 else observed
+    return configured if configured > 0 else None
 
 
 def blocked_until(platform: str, now: float | None = None) -> tuple[float, str]:
@@ -91,12 +92,12 @@ def _label(ts: float, settings: dict) -> str:
 def grid(settings: dict, day: dt.date, per_day: int) -> list[float]:
     """Evenly spaced candidate times over the active hours of a local day (never closer than the minimum gap)."""
     zone = tz(settings)
-    start_h = int(settings.get("autopilot_active_start", 9))
-    end_h = int(settings.get("autopilot_active_end") or 23)
+    start_h = int(settings.get("autopilot_active_start", 0))
+    end_h = int(settings.get("autopilot_active_end", 24))
     if end_h <= start_h:
         end_h = start_h + 1
     minutes = (end_h - start_h) * 60
-    gap = float(settings.get("autopilot_min_gap_minutes") or 45)
+    gap = float(settings.get("autopilot_min_gap_minutes", 0))
     step = max(gap, minutes / max(1, per_day), 15.0)
     base = dt.datetime.combine(day, dt.time(start_h, 0), zone)
     out, k = [], 0
@@ -263,7 +264,7 @@ class Plan:
         self.now = now
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
                                                          "'reconciling', 'published') AND planned_at IS NOT NULL")
-        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
+        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
         self.held = 0  # replacements held back by the cooldown
 
     def occupies(self, item: dict) -> bool:
@@ -285,19 +286,25 @@ class Plan:
     def free(self, platform: str, t: float, clip_id: str) -> bool:
         day = local_day(self.settings, t)
         count, clips = self._counts(platform, day)
-        if count >= daily_limit(self.settings, platform):
+        limit = daily_limit(self.settings, platform)
+        if limit is not None and count >= limit:
             return False
-        if clip_id not in clips and len(clips) >= int(self.settings.get("autopilot_daily_target") or 15):
+        target = int(self.settings.get("autopilot_daily_target") or 0)
+        if target > 0 and clip_id not in clips and len(clips) >= target:
             return False
         return all(abs(it["planned_at"] - t) >= self.gap for it in self.items if it["platform"] == platform
                    and self.occupies(it))
 
     def best_slot(self, platform: str, clip_id: str, urgency: float, timing: Timing) -> tuple[float, dict] | None:
+        if int(self.settings.get(f"autopilot_{platform}_daily_limit") or 0) == 0 and \
+                int(self.settings.get("autopilot_daily_target") or 0) == 0:
+            return self.continuous_slot(platform, clip_id, timing)
         start = self.now + 60.0 * (LOCK_MINUTES + 5)
         blocked, _ = blocked_until(platform, self.now)
         start = max(start, blocked)
-        per_day = max(1, min(daily_limit(self.settings, platform), int(self.settings.get("autopilot_daily_target")
-                                                                         or 15)))
+        caps = [cap for cap in (daily_limit(self.settings, platform),
+                                int(self.settings.get("autopilot_daily_target") or 0)) if cap is not None and cap > 0]
+        per_day = min(caps) if caps else 1
         best = None
         today = _local(self.now, self.settings).date()
         for d in range(HORIZON_DAYS + 1):
@@ -311,6 +318,39 @@ class Plan:
                     best = (value, t, {"quality": round(q, 3), "note": note,
                                        "local": _local(t, self.settings).isoformat(timespec="minutes")})
         return (best[1], best[2]) if best else None
+
+    def continuous_slot(self, platform: str, clip_id: str, timing: Timing) -> tuple[float, dict] | None:
+        """Earliest permitted slot, without an artificial review delay or a finite daily posting grid.
+
+        Existing posts keep their times; optional spacing, owner hours and reported platform limits still bind.
+        Computing gaps from occupied slots also avoids a fixed grid that silently imposes its own daily cap.
+        """
+        blocked, _ = blocked_until(platform, self.now)
+        start = max(self.now, blocked)
+        today = _local(start, self.settings).date()
+        start_h = int(self.settings.get("autopilot_active_start", 0))
+        end_h = int(self.settings.get("autopilot_active_end", 24))
+        if end_h <= start_h:
+            return None
+        occupied = sorted(it["planned_at"] for it in self.items
+                          if it["platform"] == platform and self.occupies(it))
+        for offset in range(HORIZON_DAYS + 1):
+            day = today + dt.timedelta(days=offset)
+            base = dt.datetime.combine(day, dt.time(start_h), tz(self.settings)).timestamp()
+            end_day = day + dt.timedelta(days=1) if end_h == 24 else day
+            end = dt.datetime.combine(end_day, dt.time(end_h % 24), tz(self.settings)).timestamp()
+            when = max(start, base)
+            if self.gap:
+                for taken in occupied:
+                    if abs(taken - when) < self.gap:
+                        when = taken + self.gap
+            if when >= end or not self.free(platform, when, clip_id):
+                continue
+            quality, history = timing.quality(_local(when, self.settings))
+            return when, {"quality": round(quality, 3), "note": "Continuous posting: earliest available time; "
+                          + (history if timing.samples else "no posting history yet"),
+                          "local": _local(when, self.settings).isoformat(timespec="minutes")}
+        return None
 
     def add(self, item: dict) -> None:
         self.items.append(item)
@@ -607,6 +647,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if report and report.get("artifact_sha256") != sha:  # same size and time, other bytes: check these ones
         gate.request(clip, sha=sha)
         report = None
+    if report and not gate.context_valid(report, clip, settings):
+        gate._request_terms_check(clip, priority=100)
+        _note(item, "Waiting for the final check of current reuse terms and source credit")
+        return False
     ok, why = autopublish.qualifies(report)
     if not ok:
         _note(item, f"Held for your review, not published automatically: {why}")
@@ -617,12 +661,19 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         rights.gate(source, "schedule", settings)
     except rights.RightsBlocked:
         return False
+    from . import packaging
+
+    credit_problem = packaging.attribution_problem(item, item["platform"], rights.current_attribution(source, settings))
+    if credit_problem:
+        _note(item, "Held for your review: add the required source credit to this post's text before approving it")
+        return False
     day = local_day(settings, item["planned_at"])
     mine = [r for r in db.select("scheduled_publications", "platform = ? AND status IN ('approved', 'publishing', "
                                                            "'reconciling', 'published') AND planned_at IS NOT NULL",
                                  (item["platform"],))
             if (r.get("approval") or {}).get("by") == "automatic" and local_day(settings, r["planned_at"]) == day]
-    if len(mine) >= int(cfg.get("daily_limit") or 0):
+    cap = int(cfg.get("daily_limit") or 0)
+    if cap > 0 and len(mine) >= cap:
         _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
                     "is reached")
         return False
@@ -656,7 +707,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
 def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
     """An approved replacement takes the slot of the weaker post it was proposed for (if that one has not started)."""
     weak = db.fetch("scheduled_publications", updated["replaces"])
-    if weak and weak["status"] in ("awaiting_approval", "approved") and weak["planned_at"] > now + 60 * LOCK_MINUTES:
+    if weak and weak["status"] in ("awaiting_approval", "approved") and weak.get("planned_at") is not None and \
+            weak["planned_at"] > now + 60 * LOCK_MINUTES:
         db.execute("UPDATE slot_replacements SET status = 'replaced', updated_at = ? WHERE replacement_id = ?",
                    (now, item_id))
         db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
@@ -727,7 +779,7 @@ def reschedule(item_id: str, planned_at: float) -> dict:
     if not item or item["status"] not in ("awaiting_approval", "approved", "failed"):
         raise ValueError("This post can no longer be moved")
     settings = db.get_settings()
-    gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
+    gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
     for other in db.select("scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', "
                                                      "'approved', 'publishing', 'reconciling', 'published')",
                            (item["platform"], item_id)):
@@ -815,8 +867,20 @@ def process_due(settings: dict, now: float) -> dict:
     reconciled = reconcile_orphans(now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
+        # Old volume holds and recovered slots may already be due. Checking only future times strands them when
+        # continuous mode chooses "now"; the same account/audience/file/rights/manual-edit checks still bind.
+        if item["status"] == "awaiting_approval" and auto_approve(item, settings, now):
+            item = db.fetch("scheduled_publications", item["id"]) or item
+            if item.get("planned_at") is None:
+                continue  # its replacement lost the slot; the ordinary rescheduling pass below chooses a new one
         if item["status"] == "approved":
             if item["planned_at"] - lead_seconds(item, settings) > now:
+                continue
+            if daily_limit(settings, item["platform"]) == 0:
+                # A reported zero can arrive after planning. Keep the approved snapshot/time while held;
+                # configured zero means uncapped, so only an actual platform allowance can reach this branch.
+                _note(item, f"{item['platform'].title()} reports no daily posting allowance. "
+                            "This approved post waits until the platform allowance is restored.")
                 continue
             if item["planned_at"] < now - 60 * OVERDUE_MINUTES:
                 # e.g. the computer was off at its time: find a new slot instead of posting several at once
@@ -853,8 +917,6 @@ def process_due(settings: dict, now: float) -> dict:
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1
-        elif item["planned_at"] > now and auto_approve(item, settings, now):
-            continue
         elif item["planned_at"] < now:
             waiting += 1
             if now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:

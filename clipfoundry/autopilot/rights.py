@@ -87,8 +87,26 @@ def local_allowed(source: dict, evaluation: dict | None = None, settings: dict |
     settings = settings if settings is not None else db.get_settings()
     r = evaluation if evaluation is not None else evaluate(source, settings)
     public_pick = bool(settings.get("autopilot_public_videos") and source.get("signal_id") and
-                       not source.get("local_path") and str(source.get("url") or "").startswith(("http://", "https://")))
+                       not source.get("local_path") and
+                       str(source.get("url") or "").startswith(("http://", "https://")))
     return bool(r["auto_allowed"] or ((source.get("user_added") or public_pick) and r["status"] != BLOCKED))
+
+
+def discovery_publishable(source: dict, settings: dict, all_rules: list[dict] | None = None,
+                          platforms: set[str] | None = None) -> bool:
+    """Require recorded reuse coverage before spending automatic search work on an upload candidate.
+
+    This is a local admission check, not a publishing grant: file access, final checks, connected-account
+    readiness and posting consent are checked separately. Explicit local imports keep their existing behavior.
+    """
+    evaluation = evaluate(source, settings, all_rules)
+    if not evaluation["auto_allowed"]:
+        return False
+    if platforms is None:
+        connected = {p for p in ("youtube", "tiktok") if (db.get_account(p) or {}).get("has_tokens")}
+        platforms = {p for p in (connected or {"youtube", "tiktok"}) if settings.get(f"autopilot_{p}")}
+    allowed = set((evaluation.get("conditions") or {}).get("platforms") or [])
+    return bool(platforms and (not allowed or platforms & allowed))
 
 
 # What a title says about material that is not the creator's own (music, broadcasts, films). A heuristic: it can
@@ -271,7 +289,8 @@ def apply(source: dict, settings: dict | None = None, all_rules: list[dict] | No
         fields["status"] = "blocked"
     elif local_allowed(source, r, settings) and status in ("discovered", "needs_rights", "blocked"):
         fields["status"] = "eligible"
-    elif not local_allowed(source, r, settings) and status in ("discovered", "eligible", "blocked", "needs_file", "queued"):
+    elif not local_allowed(source, r, settings) and status in ("discovered", "eligible", "blocked", "needs_file",
+                                                             "queued"):
         fields["status"] = "needs_rights"  # a video waiting for its file or its turn that is no longer covered
     if r["status"] != source.get("rights_status"):
         state.event("rights_status", f"{source.get('title', '')[:80]}: {r['label']} ({r['basis']})",
@@ -447,7 +466,8 @@ def attribution(source: dict) -> str:
     if info.get("provider") == "commons" and (status == CC or (status == PD and info.get("attribution_required"))):
         who = info.get("artist") or "its author"
         lic = f", {info['license_name']}" if info.get("license_name") and status == CC else ""
-        return f"Source: “{title}” by {who}{lic}, via Wikimedia Commons ({info.get('page_url') or source.get('url', '')})."
+        page = info.get("page_url") or source.get("url", "")
+        return f"Source: “{title}” by {who}{lic}, via Wikimedia Commons ({page})."
     if status == CC:
         who = source.get("channel_title") or "the original creator"
         return f"Source: “{title}” by {who} ({source.get('url', '')}), licensed under CC BY."
@@ -455,3 +475,11 @@ def attribution(source: dict) -> str:
         rule = db.fetch("source_rights", source["rights_rule_id"]) or {}
         return str((rule.get("conditions") or {}).get("attribution") or "")
     return ""
+
+
+def current_attribution(source: dict | None, settings: dict | None = None) -> str:
+    """Use current recorded terms even before a background rights refresh updates the source's cached label."""
+    if not source:
+        return ""
+    evaluation = evaluate(source, settings)
+    return attribution({**source, "rights_status": evaluation["status"], "rights_rule_id": evaluation["rule_id"]})

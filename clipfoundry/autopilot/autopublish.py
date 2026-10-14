@@ -58,11 +58,16 @@ def text_for(platform: str, cfg: dict, channel: str = "") -> str:
                "previously planned Private uploads keep their visibility. " if public else
                "Nobody else can watch them until I share them privately in YouTube Studio; ClipFoundry never makes "
                "them public or unlisted under this permission. ")
-    return (f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day to {where} as "
-            f"{who}, marked {kids}, between {cfg['start_hour']}:00 and {cfg['end_hour']}:00 "
+    amount = ("Upload eligible clips without an app daily cap" if int(cfg['daily_limit']) == 0 else
+              f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day")
+    window = ("at any hour" if (cfg['start_hour'], cfg['end_hour']) == (0, 24) else
+              f"between {cfg['start_hour']}:00 and {cfg['end_hour']}:00")
+    return (f"{amount} to {where} as "
+            f"{who}, marked {kids}, {window} "
             f"({cfg['timezone']}), without asking me about each one. {meaning}Only clips that passed "
             "every automatic check (file, sound, captions, framing, text), from videos I own or that an agreement or "
-            "license covers. I can cancel any upcoming upload, and turn this off at any time.")
+            "license covers. Platform waits and API allowances still apply. I can cancel any upcoming upload, "
+            "and turn this off at any time.")
 
 
 def view(settings: dict) -> dict:
@@ -108,8 +113,8 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError("Choose Public or Private for automatic YouTube uploads")
     if made_for_kids is None:
         raise ValueError("Say whether your videos are made for kids (YouTube requires this answer)")
-    if not 1 <= int(daily_limit) <= 15:
-        raise ValueError("The daily limit is 1 to 15 posts")
+    if not 0 <= int(daily_limit) <= 100:
+        raise ValueError("Use 0 for no app daily cap, or a daily limit from 1 to 100 posts")
     if not 0 <= int(start_hour) < int(end_hour) <= 24:
         raise ValueError("The posting window must start before it ends")
     settings = db.get_settings()

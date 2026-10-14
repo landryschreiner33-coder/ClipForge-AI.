@@ -51,6 +51,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const brainLink = useRef<HTMLAnchorElement>(null), transferNote = useRef<HTMLSpanElement>(null);
   const pulses = useRef(new Map<RoomId, number>()), core = useRef(0);
+  const coreConsulted = useRef<"consulting" | "consulted" | null>(null);
   const latest = useRef({ snap, selected, reduce, stale, pageHidden });
   latest.current = { snap, selected, reduce, stale, pageHidden };
   const cutoff = useRef(snap.cursor), suspendedSnapshot = useRef<Snapshot | null>(null);
@@ -81,6 +82,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     if (stale || pageHidden || paused) {
       suspendedSnapshot.current = snap;
       motion.clearTransfers();
+      core.current = 0; coreConsulted.current = null; pulses.current.clear();
       if (paused && !stale && !pageHidden) motion.reconcile(snap, true);
       return;
     }
@@ -89,7 +91,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       if (snap === suspendedSnapshot.current) return;
       motion.resync(snap); cutoff.current = snap.cursor; suspendedSnapshot.current = null;
     }
-    if (reduce || paused) motion.clearTransfers();
+    if (reduce || paused) { motion.clearTransfers(); core.current = 0; coreConsulted.current = null; }
     motion.reconcile(snap, reduce || paused);
   }, [snap, reduce, stale, pageHidden, motion]);
 
@@ -98,7 +100,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
     if (current.stale || current.pageHidden || suspendedSnapshot.current) return;
     const now = performance.now();
     const paused = ["paused", "pausing"].includes(current.snap.run.state);
-    if (!paused) motion.events(events, serverTime, now, current.reduce);
+    if (paused) return;
+    motion.events(events, serverTime, now, current.reduce);
     for (const event of events) {
       if (event.id <= cutoff.current || serverTime - event.at > LIVE_SECONDS || event.at > serverTime + 5) continue;
       if (event.type === "decision") {
@@ -110,7 +113,13 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       } else if (event.type === "strategy_rolled_back") {
         motion.react("curator", "rework", now);
       } else if (["brain_evaluated", "brain_evaluation", "brain_lookup"].includes(event.type)) {
+        coreConsulted.current = null;
         core.current = now + (event.type === "brain_lookup" ? 1800 : 3500);
+      } else if (["brain_consultation_started", "brain_consultation_done"].includes(event.type)) {
+        coreConsulted.current = event.type === "brain_consultation_started" ? "consulting" : "consulted";
+        if (!current.reduce) core.current = now + 3500;
+      } else if (event.type === "brain_consultation_failed") {
+        core.current = 0; coreConsulted.current = null;
       }
     }
   }), [subscribe, motion]);
@@ -132,7 +141,9 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       const painted = actors.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, pose: motion.pose(a),
         posture: motion.posture(a), duty: motion.duty(a), selected: state.selected === a.id,
         breakActivity: motion.breakActivity(a), breakPhase: motion.breakPhase(a) }));
-      const busy = core.current > now || state.snap.brain?.state === "evaluating"
+      const consulting = state.snap.brain?.activity?.state === "working";
+      const consulted = core.current > now && coreConsulted.current;
+      const busy = core.current > now || consulting || state.snap.brain?.state === "evaluating"
         || state.snap.roles.some(r => BY_ID[r.id]?.room === "brain" && r.state === "working");
       const passes = motion.passes(now);
       scene?.draw(state.snap, painted, now, still, pulses.current, busy, state.stale, passes);
@@ -160,7 +171,9 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         ? "paused" : busy ? "active" : "standby";
       if (brainLink.current) {
         brainLink.current.dataset.mode = brainMode;
-        const word = { offline: "Offline", paused: "Paused", active: "Processing", standby: "Standby" }[brainMode];
+        const word = brainMode === "active" && (consulting || consulted)
+          ? consulting || coreConsulted.current === "consulting" ? "Consulting guidance" : "Consulted guidance"
+          : { offline: "Offline", paused: "Paused", active: "Processing", standby: "Standby" }[brainMode];
         brainLink.current.setAttribute("aria-label", `Brain Core: ${word}. Open Brain workspace`);
         const label = brainLink.current.querySelector("span");
         if (label && label.textContent !== `CORE · ${word}`) label.textContent = `CORE · ${word}`;
@@ -169,6 +182,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       if (note) {
         note.dataset.phase = transfer?.phase || "idle";
         note.dataset.from = transfer?.from || ""; note.dataset.to = transfer?.to || "";
+        note.dataset.job = transfer?.card.job_id || "";
         const label = transfer ? `${BY_ID[transfer.from].name} → ${BY_ID[transfer.to].name} · ${
           transfer.phase === "approach" ? "Bringing work" : transfer.phase === "pass"
             ? "Passing document" : "Received"}` : "";

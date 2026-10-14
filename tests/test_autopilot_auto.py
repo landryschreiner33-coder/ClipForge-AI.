@@ -38,7 +38,8 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(providers, "TAVILY_URL", f"{web.url}/search")
     monkeypatch.setattr(providers, "COMMONS_API", f"{lib.url}/w/api.php")
     db.init()
-    db.save_settings({"autopilot_public_videos": False})  # exercise reuse-covered-only discovery
+    db.save_settings({"autopilot_public_videos": False,
+                      "autopilot_discovery_uploadable_only": False})  # exercise legacy local-search opt-in
     db.save_settings({"youtube_api_key": "test-api-key", "trend_topics": "podcast, space", "autopilot_enabled": True,
                       "youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret"})
@@ -485,7 +486,8 @@ def test_after_downtime_missed_posts_are_spread_out_not_dumped(env):
     from clipfoundry.autopilot import scheduler
 
     db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": False, "autopilot_min_gap_minutes": 45,
-                      "autopilot_youtube_daily_limit": 15})
+                      "autopilot_youtube_daily_limit": 15, "autopilot_active_start": 9,
+                      "autopilot_active_end": 21})
     now = time.time()
     ids = []
     for k in range(4):
@@ -510,8 +512,8 @@ def test_posting_times_stay_inside_the_window_across_daylight_saving_changes(env
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler
 
-    s = db.get_settings()
-    assert (s["autopilot_active_start"], s["autopilot_active_end"]) == (9, 21)  # 9 a.m. to 9 p.m. by default
+    s = {**db.get_settings(), "autopilot_active_start": 9, "autopilot_active_end": 21,
+         "autopilot_min_gap_minutes": 45}  # an explicit owner window still applies across DST
     slots = scheduler.grid(s, day, 4)
     local = [dt.datetime.fromtimestamp(t, CHI) for t in slots]
     assert len(slots) == 4 and all(x.date() == day and 9 <= x.hour < 21 for x in local)

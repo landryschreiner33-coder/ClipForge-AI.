@@ -45,6 +45,9 @@ import json
 import math
 import time
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 from .. import db
@@ -84,6 +87,115 @@ COHORT_LABELS = {"selected": "Selected viewers", "public": "Public (platform con
                  "unlinked": "Not linked to a post", "unconfirmed": "Your viewers could not watch it yet"}
 STATE_LABELS = {"cold_start": "Cold start", "collecting": "Collecting data", "evaluating": "Evaluating",
                 "updated": "Strategy updated", "paused": "Paused", "error": "Error"}
+CONSULTATION_SECONDS = 120.0  # abandoned consultations never look like indefinitely running work
+CONSULTATION_PURPOSES = {"selection": "Consulting saved guidance for source moments",
+                         "ranking": "Consulting saved guidance while ranking moments",
+                         "blueprint": "Consulting saved guidance for a clip plan",
+                         "render": "Consulting saved guidance for a clip render"}
+CONSULTATION_EVENTS = ("brain_consultation_started", "brain_consultation_done", "brain_consultation_failed")
+
+
+@dataclass
+class _Consultation:
+    """Count actual local decisions, without recording private lesson text or its title."""
+
+    consulted: int = 0
+    applied: int = 0
+    lookups: int = 0
+
+    def use(self, influences: list[dict], *, replace: bool = False) -> None:
+        # Across a ranking batch these are decision counts, not a count of unique saved notes.
+        changes = sum(len(item.get("decisions") or {}) for item in influences)
+        self.applied = changes if replace else self.applied + changes
+
+
+_consultation: ContextVar[_Consultation | None] = ContextVar("brain_consultation", default=None)
+
+
+def consulted(rows: list[tuple[dict, dict]]) -> None:
+    """Account for a real lookup only inside an explicit processing span; previews stay read-only."""
+    activity = _consultation.get()
+    if activity is not None:
+        activity.consulted += len(rows)
+        activity.lookups += 1
+
+
+def applied(influences: list[dict]) -> None:
+    activity = _consultation.get()
+    if activity is not None:
+        activity.use(influences)
+
+
+@contextmanager
+def consultation(purpose: str, settings: dict, *, ref: tuple[str, str] = ("", "")):
+    """Describe actual production knowledge use, never a durable job or a model training session.
+
+    Callers opt in around processing only. Matching, workspace/graph reads and the guidance preview do not create
+    events. A whole ranking batch uses a single pair, even when it consults notes for many candidate moments.
+    """
+    if purpose not in CONSULTATION_PURPOSES:
+        raise ValueError("Unknown Brain consultation purpose")
+    current = _consultation.get()
+    if current is not None:
+        yield current  # a nested phase does not multiply events
+        return
+    if settings.get("brain_paused") or not db.scalar("SELECT COUNT(*) FROM brain_knowledge WHERE enabled = 1"):
+        yield None
+        return
+    safe_ref = ref if ref[0] in ("clip", "project", "source") and len(ref[1]) <= 80 else ("", "")
+    ident, started = db.new_id(), time.time()
+    activity = _Consultation()
+    token = _consultation.set(activity)
+    feed.emit(CONSULTATION_EVENTS[0], "synapse", kind="brain_consultation", ref=safe_ref,
+              message=CONSULTATION_PURPOSES[purpose], consultation_id=ident, purpose=purpose)
+    failed = False
+    try:
+        yield activity
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        _consultation.reset(token)
+        feed.emit(CONSULTATION_EVENTS[2] if failed else CONSULTATION_EVENTS[1], "curator",
+                  kind="brain_consultation", ref=safe_ref,
+                  message="Saved-guidance consultation stopped before completion" if failed else
+                          "Consulted saved guidance", consultation_id=ident, purpose=purpose,
+                  consulted=activity.consulted, applied=activity.applied, lookups=activity.lookups,
+                  elapsed_s=round(max(0.0, time.time() - started), 3), handoff_kind="report",
+                  handoff_path=["synapse", "curator"] if failed else ["synapse", "curator", "command"])
+
+
+def work_activity(settings: dict, now: float | None = None) -> dict:
+    """Read bounded recent consultation evidence; a finished or abandoned lookup is not live work."""
+    now = time.time() if now is None else now
+    events = db.select("office_events", "type IN (?, ?, ?)", CONSULTATION_EVENTS, "id DESC", 200)
+    last = next((event for event in events if event["type"] != CONSULTATION_EVENTS[0]), None)
+    ended = {(event.get("data") or {}).get("consultation_id") for event in events
+             if event["type"] != CONSULTATION_EVENTS[0]}
+    active = next((event for event in events if event["type"] == CONSULTATION_EVENTS[0] and
+                   (event.get("data") or {}).get("consultation_id") not in ended and
+                   0 <= now - float(event["at"]) <= CONSULTATION_SECONDS), None)
+    if settings.get("brain_paused"):
+        active = None
+
+    def compact(event: dict | None) -> dict | None:
+        if event is None:
+            return None
+        data = event.get("data") or {}
+        purpose = data.get("purpose") or ""
+        return {"at": event["at"], "state": "working" if event["type"] == CONSULTATION_EVENTS[0] else
+                "failed" if event["type"] == CONSULTATION_EVENTS[2] else "done",
+                "message": CONSULTATION_PURPOSES.get(purpose, "Consulting saved guidance") if
+                event["type"] == CONSULTATION_EVENTS[0] else "Saved-guidance consultation stopped before completion"
+                if event["type"] == CONSULTATION_EVENTS[2] else "Consulted saved guidance",
+                "consultation_id": data.get("consultation_id") or "", "purpose": purpose,
+                "consulted": int(data.get("consulted") or 0), "applied": int(data.get("applied") or 0),
+                "lookups": int(data.get("lookups") or 0), "ref_type": event.get("ref_type") or "",
+                "ref_id": event.get("ref_id") or ""}
+
+    return {"state": "working" if active else "idle", "role": "synapse", "message": "", "at": None,
+            "consultation_id": "", "purpose": "", "consulted": 0, "applied": 0, "lookups": 0,
+            "ref_type": "", "ref_id": "", **(compact(active) or {}), "last": compact(last)}
 
 
 class Invalid(ValueError):
@@ -718,7 +830,11 @@ def summary(settings: dict | None = None) -> dict:
         st = "updated"
     else:
         st = "collecting"
-    message = {"cold_start": "No results yet. Autopilot uses your own settings.",
+    enabled = int(db.scalar("SELECT COUNT(*) FROM brain_knowledge WHERE enabled = 1") or 0)
+    message = {"cold_start": "No posting results yet. " +
+               ("Enabled saved guidance is consulted for new clips, with Settings filling unspecified choices. "
+                if enabled else "Autopilot uses your own settings. ") +
+               "Results-based strategy learning waits for enough mature evidence.",
                "paused": "Learning is paused: results are still collected, no strategy changes."}.get(st) or \
         last.get("message") or "Not enough evidence yet."
     return {"state": st, "label": STATE_LABELS[st], "message": message, "observations": counts,
@@ -726,7 +842,8 @@ def summary(settings: dict | None = None) -> dict:
             "strategies": [{k: s.get(k) for k in ("id", "name", "platform", "cohort", "version", "params", "reason",
                                                   "created_at")} for s in strategies],
             "baseline_target": _baseline(settings), "min_clips": max(30, int(settings.get("brain_min_clips") or 30)),
-            "max_step": min(0.10, float(settings.get("brain_max_step") or 0.10))}
+            "max_step": min(0.10, float(settings.get("brain_max_step") or 0.10)),
+            "enabled_guidance": enabled, "activity": work_activity(settings)}
 
 
 def history(limit: int = 50) -> list[dict]:

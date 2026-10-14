@@ -378,6 +378,8 @@ def test_manual_publish_cannot_bypass_linked_source_reuse_gate(env, api, monkeyp
 def test_manual_publish_rechecks_owned_source_and_exact_confirmed_file_at_start(env, api, monkeypatch, change):
     from pathlib import Path
 
+    from quality_stub import passed_report
+
     from clipfoundry import db
     from clipfoundry.autopilot import rights
     from clipfoundry.publish import jobs
@@ -390,6 +392,7 @@ def test_manual_publish_rechecks_owned_source_and_exact_confirmed_file_at_start(
     source = db.insert("sources", {"platform": "local", "external_id": "owned-local-fixture"})
     rights.add_rule("source", source["id"], rights.OWNED, "My own video")
     db.update("projects", clip["project_id"], source_id=source["id"])
+    passed_report(clip)  # The confirmed source and its ownership must be included in the checked snapshot.
     monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
     result = api.post(f"/api/clips/{clip['id']}/publish/youtube", headers=H, json={
         "title": "My own clip", "privacy": "public", "made_for_kids": False, "confirm": True})
@@ -415,6 +418,8 @@ def test_manual_publish_rechecks_owned_source_and_exact_confirmed_file_at_start(
 
 
 def test_manual_publish_respects_platform_agreement_and_failed_quality(env, api, monkeypatch):
+    from quality_stub import passed_report
+
     from clipfoundry import db
     from clipfoundry.autopilot import gate, rights
     from clipfoundry.publish import jobs
@@ -430,6 +435,7 @@ def test_manual_publish_respects_platform_agreement_and_failed_quality(env, api,
     rights.add_rule("source", source["id"], rights.LICENSED, "License for YouTube only",
                     conditions={"platforms": ["youtube"], "third_party": True})
     db.update("projects", clip["project_id"], source_id=source["id"])
+    passed_report(clip)  # Test a failed current check, rather than an earlier report for a source-less clip.
     monkeypatch.setattr(jobs.worker, "submit", lambda _pub_id: None)
     forbidden = api.post(f"/api/clips/{clip['id']}/publish/tiktok", headers=H, json={
         "description": "Licensed clip", "privacy": "PUBLIC_TO_EVERYONE", "confirm": True})

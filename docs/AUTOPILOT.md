@@ -11,8 +11,11 @@ TikTok, schedules them, publishes the posts you approved through the official AP
 > [OFFICE.md](OFFICE.md) for the office, the audience policy, the capability matrix and the Brain.
 
 Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your
-own results. The daily numbers (3 sources, up to 5 clips per source, 15 clips a day) are **targets, never quotas**:
-quality, rights, availability and platform limits always come first, so a day can end with fewer posts.
+own results. There is no app daily source or upload cap by default: **0 means unlimited**. Eligible clips can be
+planned at any hour while quality, reuse permission, availability and platform limits still apply. Automatic
+broad searches now look for videos covered for a connected upload destination; public availability alone is not
+permission. Explicit links may still be clipped locally. Five best clips per source remains a quality-oriented
+default, not a daily total.
 
 Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-autopilot) ·
 [setup](#setting-it-up) · [how it works](#how-it-works) · [scores](#scores) · [Posts](#posts) ·
@@ -22,7 +25,7 @@ Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-aut
 
 ## What the platforms allow (and what that means for Autopilot)
 
-These rules come from the platforms, and they win over the 15-clips-a-day target and over full automation.
+These rules come from the platforms and apply to continuous operation too.
 
 | Rule | Source | Effect in ClipFoundry |
 | --- | --- | --- |
@@ -104,8 +107,12 @@ uploading back to Posts → *Needs review*, where it waits for your OK. Permissi
 and confirmed audience: new Public uploads require fresh Public permission; existing Private posts stay Private.
 Selected-viewer Private uploads still need you to share them in YouTube Studio. Public posts need no invitations.
 
-For all-day scheduling, choose **0–24** as the posting window; this does not raise the daily limit or override
-quality, rights, quota or duplicate checks. For long-running Google access, an External OAuth app in Testing has
+The default posting window is **0–24**, with no app daily cap or forced spacing. Eligible approved clips get the
+earliest permitted time, and the upload worker serializes its actual work. Platform/API waits, quality, reuse and
+duplicate checks remain active. Existing scheduled posts retain their times and audiences. This update applies
+a one-time recorded volume/hours amendment to existing YouTube permission; it never creates a missing grant.
+Optional positive limits chosen after the update persist across restarts. For long-running Google access, an
+External OAuth app in Testing has
 seven-day refresh grants for YouTube scopes. Set its OAuth publishing status to Production, then reconnect for a
 fresh grant. Personal-use apps may be exempt from OAuth verification; Production and API quota audits are separate.
 Authorization can still expire or be revoked. [UNATTENDED.md](UNATTENDED.md) covers the optional app-exit watchdog,
@@ -139,11 +146,11 @@ If TikTok does not approve the app or grant a posting scope, use the ready-to-po
 You do not add sources, feeds, folders, rules or workers. Behind the scenes Autopilot uses whatever is available (the
 connected YouTube account for discovery; your videos folder; other watch folders and feeds only if you added some;
 Google Trends and TikTok trends are not available to apps and are skipped without bothering you) and these defaults:
-United States, English, all trending categories plus broad topics, 3 videos a day, up to 5 clips each, 15 clips a day
-as a target, posting times chosen for you (America/Chicago, 9:00 to 21:00, spread over the day), a new look for videos
+United States, English, your topics, no app daily source/upload cap, up to 5 best clips per source,
+posting at the earliest eligible time (America/Chicago, any hour), a new look for videos
 every 3 hours, dynamic replacement, live monitoring, learning, automatic scheduling and automatic publishing of the
 posts that are approved. Autopilot is turned on and off with **Start Autopilot** / **Pause Autopilot** on the
-Autopilot page; Settings → Defaults has the daily target, the posting hours and the topics, and Settings → Accounts
+Autopilot page; Settings → Defaults has the optional daily clip cap, posting hours and topics, and Settings → Accounts
 has automatic publishing; everything else is under Settings → Advanced.
 
 **The Autopilot page** has four tabs. **Overview** shows only: whether Autopilot is on, with **Start Autopilot** /
@@ -192,10 +199,18 @@ use the combined backlog limit, keeping new parked finds bounded; saved parked r
 exceed six. Existing work and history are retained. Within the quality floor, available reuse-covered videos take
 precedence over local-only finds, including candidates saved by an earlier search. Explicitly chosen input keeps
 its priority. The shortlist also spreads topics and filters probable duplicate uploads. The configured
-daily source limit bounds broad processing attempts (**3 per day by default**): a weak or failed attempt still
-uses that budget, so replacing weak finds cannot create an endless stream of new work. It resets on the next
-local day, without changing a saved source limit. Held candidates can compete in later passes; low-scoring finds
-do not lower the quality floor just to fill the clip target.
+daily source limit is optional (**0 means unlimited**). With no app daily cap, completed work frees capacity for
+more strong eligible sources; the six-workable-pick bound, per-search shortlist and API/cost allowances still
+prevent unlimited queue growth. A positive source cap counts weak/failed attempts and resets next local day.
+Old inactive local-only picks do not occupy uploadable-source capacity. Held candidates can compete in later
+passes; low-scoring finds never lower the quality floor to fill an optional cap.
+
+**Find videos eligible for uploading** is on by default. Own/agreed channels are checked before broad-search
+quota is used; broad YouTube topic searches request Creative Commons and actual metadata still verifies each
+video's license/channel. Free-license library downloads and creator-provided originals remain valid paths.
+Missions explains local-only finished clips and links to original videos, recorded creator agreements and the
+free-license library. A new agreement must cover the destination; its required attribution is checked against
+actual post text. Choosing local-discovery mode does not remove any upload check.
 
 Manual links/videos, owned folders, recorded creator agreements and channels or feeds the owner chose retain
 their existing intake path. They bypass the broad-search admission and attempt limits; rights, media access and

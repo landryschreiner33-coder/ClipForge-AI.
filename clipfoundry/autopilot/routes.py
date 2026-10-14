@@ -317,9 +317,9 @@ class AutoPublishIn(BaseModel):
     platform: str = "youtube"
     visibility: str = ""
     made_for_kids: bool | None = None
-    daily_limit: int = 3
-    start_hour: int = 9
-    end_hour: int = 21
+    daily_limit: int = 0
+    start_hour: int = 0
+    end_hour: int = 24
     agreed: bool = False
     expected_account_id: str = ""
     expected_audience_version: int | None = None
@@ -333,10 +333,11 @@ def auto_publish_view() -> dict:
     yt = _youtube_state(settings)
     return {**autopublish.view(settings), "channel": yt.get("name") or yt.get("account_id") or "",
             "timezone": settings.get("autopilot_timezone"),
-            "defaults": {"daily_limit": min(3, int(settings.get("autopilot_youtube_daily_limit") or 3)),
-                         "start_hour": 9, "end_hour": 21},
+            "defaults": {"daily_limit": int(settings.get("autopilot_youtube_daily_limit") or 0),
+                         "start_hour": int(settings.get("autopilot_active_start", 0)),
+                         "end_hour": int(settings.get("autopilot_active_end", 24))},
             "preview": autopublish.text_for("youtube", {"visibility": "VISIBILITY", "made_for_kids": False,
-                                                        "daily_limit": 3, "start_hour": 9, "end_hour": 21,
+                                                        "daily_limit": 0, "start_hour": 0, "end_hour": 24,
                                                         "timezone": settings.get("autopilot_timezone")})}
 
 
@@ -593,8 +594,9 @@ def status() -> dict:
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
-        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), **counts, "processed": processed,
-                   "note": "A target, not a quota: quality, rights and platform limits come first. It counts unique "
+        "target": {"daily": int(settings.get("autopilot_daily_target") or 0), **counts, "processed": processed,
+                   "note": "Zero means no app daily cap. Quality, reuse permission and platform allowances still "
+                           "apply. It counts unique "
                            "clips; one clip on YouTube and TikTok is two platform posts."},
         "sources_today": today_counts(settings, now), "sources_per_day": settings.get("autopilot_sources_per_day"),
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),

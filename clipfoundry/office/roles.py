@@ -56,7 +56,8 @@ ROLES: list[dict] = [
     # ---- workers
     _r("radar", "RADAR", "worker", "discover", "Scout",
        "Runs the searches (YouTube, the web, the free-license library, your folders and feeds) and live checks.",
-       kinds=("source_scout", "feed_scan", "live_watch"), stages={"trend_scan": ("youtube", "web", "library", "feeds")}),
+       kinds=("source_scout", "feed_scan", "live_watch"),
+       stages={"trend_scan": ("youtube", "web", "library", "feeds")}),
     _r("archive", "ARCHIVE", "worker", "discover", "Researcher",
        "Gathers a source's context: reads pasted links, records live streams and transcribes the video.",
        kinds=("identify_link", "live_capture"), stages={"hunt_source": ("transcribe",), "live_capture": ("live",)}),
@@ -132,6 +133,22 @@ def department_of(role_id: str) -> str:
 def manager_of(role_id: str) -> str:
     r = BY_ID.get(role_id) or {}
     return r.get("manager") or ("command" if r.get("rank") == "manager" else "")
+
+
+def handoff_path(*role_ids: str) -> list[str]:
+    """Known recipients in order, with repeated adjacent seats removed. Never invent a missing role."""
+    path: list[str] = []
+    for role_id in role_ids:
+        if role_id in BY_ID and (not path or path[-1] != role_id):
+            path.append(role_id)
+    return path
+
+
+def reporting_path(role_id: str) -> list[str]:
+    """A recorded worker report goes through its own manager before reaching the Director."""
+    if role_id not in BY_ID:
+        return []
+    return handoff_path(role_id, manager_of(role_id), "command")
 
 
 def public() -> list[dict]:

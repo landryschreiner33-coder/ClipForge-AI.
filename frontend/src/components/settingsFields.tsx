@@ -29,7 +29,7 @@ add("defaults", {
   target_duration: "Ideal clip length", caption_style: "Caption style", caption_position: "Caption position",
   highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", silence: "Silence cleanup",
   auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
-  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", autopilot_daily_target: "Daily target",
+  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",
 });
 add("advanced", {
@@ -55,6 +55,7 @@ add("advanced", {
   discovery_audience_terms: "Audience context clues", discovery_min_source_score: "Minimum discovery estimate",
   discovery_require_complete_clips: "Require a complete story",
   discovery_quality_first: "Quality before quantity", discovery_candidates_per_scan: "New finds per search",
+  autopilot_discovery_uploadable_only: "Find videos eligible for uploading",
   discovery_queue_limit: "Unfinished search limit", discovery_creator_limit: "Finds from one creator",
   youtube_derived_metrics_approved: "Derived metrics approval", tavily_api_key: "Web search key",
   tavily_free_credits: "Web search credits", discovery_monthly_budget_usd: "Monthly cost limit",
@@ -86,7 +87,7 @@ add("integrations", {
 const RANGES: Record<string, [number, number]> = {
   clip_count: [1, 20], min_duration: [5, 180], max_duration: [5, 180], target_duration: [5, 180], crf: [10, 35],
   max_fps: [15, 60], min_score: [0, 100], ai_max_candidates: [1, 30], whisper_beam_size: [0, 10], hook_seconds: [0, 10],
-  autopilot_daily_target: [1, 100], autopilot_sources_per_day: [1, 30], autopilot_clips_per_source: [1, 10],
+  autopilot_daily_target: [0, 100], autopilot_sources_per_day: [0, 30], autopilot_clips_per_source: [1, 10],
   autopilot_min_quality: [0, 100], autopilot_replacement_threshold: [0, 500],
   autopilot_replacement_cooldown_hours: [0, 168], autopilot_active_start: [0, 23], autopilot_active_end: [1, 24],
   autopilot_min_gap_minutes: [0, 1440], autopilot_youtube_daily_limit: [0, 100], autopilot_tiktok_daily_limit: [0, 100],

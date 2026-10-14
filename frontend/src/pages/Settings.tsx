@@ -482,11 +482,12 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
             <a className="textlink" href="#/missions">Open Autopilot</a>
           </span>
         </SettingRow>
-        <SettingRow k="autopilot_daily_target" label="Daily target"
-          hint="Clips a day to aim for. A target, not a quota: quality and your rights come first" errors={errors}>
+        <SettingRow k="autopilot_daily_target" label="Daily clip cap"
+          hint="0 means no app daily cap. Quality, reuse permission and platform waits still apply" errors={errors}>
           <NumInput k="autopilot_daily_target" c={c} />
         </SettingRow>
-        <SettingRow label="Posting hours" hint={`Posts only between these hours${tz ? ` (${tz})` : ""}`} group>
+        <SettingRow label="Posting hours"
+          hint={`0 to 24 allows posting at any hour${tz ? ` (${tz})` : ""}`} group>
           <div className="inline-fields small">
             <NumInput k="autopilot_active_start" c={c} label="Posting hours from (0 to 23)" width={90} />
             <span>to</span>

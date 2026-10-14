@@ -114,6 +114,7 @@
     text("updated", `Updated ${time(data.server_time)}`);
     text("zone", timezone || "PC time zone");
     for (const key of ["published", "scheduled", "processed", "daily"]) text(key, count(data.today[key]));
+    if (data.today.daily === 0) text("daily", "No daily cap");
     text("published-posts", `${count(data.today.published_posts)} platform posts`);
     text("scheduled-posts", `${count(data.today.scheduled_posts)} platform posts`);
     const next = data.next_post;

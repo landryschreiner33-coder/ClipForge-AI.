@@ -24,7 +24,8 @@ def transfer_started(pub: dict | None) -> bool:
     return bool(info.get("upload_session") or info.get("final_chunk_at") or (pub or {}).get("remote_id"))
 
 
-def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict) -> None:
+def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict,
+                       publication: dict | None = None) -> None:
     """Manual Publish keeps the existing source terms and checks the selected Autopilot artifact, too."""
     from ..autopilot import gate, queue as work_queue, rights, verify
     from ..pipeline import artifact
@@ -52,7 +53,7 @@ def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, se
         db.select("quality_reports", "clip_id = ?", (clip["id"],), limit=1))
     if applicable:
         try:
-            gate.verify_file(clip, path)
+            gate.verify_file(clip, path, publication=publication)
         except work_queue.Wait as exc:
             raise PublishError(exc.message, "Wait for the final quality check, then publish again.", "quality") \
                 from exc
@@ -86,7 +87,7 @@ def _check_manual_publication(pub: dict, settings: dict) -> None:
     clip = db.get_clip(pub["clip_id"])
     if not clip or clip["status"] != "ready":
         raise PublishError("The clip is missing or not rendered.", "Render the clip and review it again.", "quality")
-    manual_eligibility(clip, pub["platform"], pub["video_path"], pub.get("version_id") or "", settings)
+    manual_eligibility(clip, pub["platform"], pub["video_path"], pub.get("version_id") or "", settings, publication=pub)
 
 
 def feature_snapshot(clip: dict, version: dict | None = None) -> dict:

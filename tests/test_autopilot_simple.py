@@ -25,7 +25,8 @@ def fakes(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
-    db.save_settings({"autopilot_public_videos": False})  # verify the existing restricted discovery flow
+    db.save_settings({"autopilot_public_videos": False,
+                      "autopilot_discovery_uploadable_only": False})  # verify legacy local-search opt-in
     for var in ("NO_PROXY", "no_proxy"):
         monkeypatch.setenv(var, "127.0.0.1,localhost")
     from clipfoundry.publish import tiktok, youtube
@@ -119,7 +120,7 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     for key in ("autopilot_sources_per_day", "autopilot_daily_target", "autopilot_clips_per_source",
                 "autopilot_dynamic_replacement", "autopilot_learning", "autopilot_live_monitoring",
                 "autopilot_auto_schedule", "autopilot_auto_publish", "trend_region", "trend_language"):
-        assert s[key] == {"autopilot_sources_per_day": 3, "autopilot_daily_target": 15, "autopilot_clips_per_source": 5,
+        assert s[key] == {"autopilot_sources_per_day": 0, "autopilot_daily_target": 0, "autopilot_clips_per_source": 5,
                           "trend_region": "US", "trend_language": "en"}.get(key, True), key
     kinds = {j["kind"] for j in queue.jobs(("queued",))}
     assert {"trend_scan", "feed_scan", "schedule_tick"} <= kinds  # discovery starts right away
@@ -266,7 +267,8 @@ def test_you_are_asked_only_about_strong_videos_and_only_when_needed(client, fak
                 duration="P0D")  # a YouTube live stream: a yes could not be used without the download setting
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
-    client.put("/api/settings", json={"rights_ask_per_video": True})  # the questions are off by default
+    # This case opts into questions under a finite plan; continuous mode need not stop after three originals.
+    client.put("/api/settings", json={"rights_ask_per_video": True, "autopilot_sources_per_day": 3})
     run("trend_scan")
     run("source_scout")
     asked = [i for i in client.get("/api/autopilot/status").json()["home"]["needs_you"] if i["type"] == "rights"]
@@ -305,7 +307,7 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
                          "upcoming", "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos",
                          "posts", "next", "posting"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
-    assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
+    assert "at any hour" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
     run("trend_scan")
     run("source_scout")

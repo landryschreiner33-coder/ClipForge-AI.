@@ -270,15 +270,18 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if blueprint is not None:
         opts.update(blueprint_mod.render_options(blueprint))
     else:
-        from ..autopilot import knowledge
+        from ..autopilot import brain, knowledge
 
-        opts, brain_used = knowledge.choose(clip, opts, settings)
-        # An explicit edit in the clip/version editor remains the owner's final choice for this render.
-        overrides = {key: value for key, value in (clip.get("edit") or {}).items() if value is not None}
-        opts.update(overrides)
-        brain_used = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
-                                            if key not in overrides}} for item in brain_used]
-        brain_used = [item for item in brain_used if item["decisions"]]
+        with brain.consultation("render", settings, ref=("clip", clip["id"])) as activity:
+            opts, brain_used = knowledge.choose(clip, opts, settings)
+            # An explicit edit in the clip/version editor remains the owner's final choice for this render.
+            overrides = {key: value for key, value in (clip.get("edit") or {}).items() if value is not None}
+            opts.update(overrides)
+            brain_used = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
+                                                if key not in overrides}} for item in brain_used]
+            brain_used = [item for item in brain_used if item["decisions"]]
+            if activity is not None:
+                activity.use(brain_used, replace=True)
 
     duration_src = float(project.get("duration") or 0)
     if blueprint is not None:

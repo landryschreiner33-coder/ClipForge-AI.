@@ -203,6 +203,8 @@ const TYPE_WORD: Record<string, string> = {
   job_waiting: "Waiting", job_canceled: "Canceled", job_stage: "Next step", report: "Report", decision: "Decision",
   control: "Control", brain_observation: "Result saved", brain_lookup: "Memory lookup", brain_evaluation: "Comparing",
   brain_evaluated: "Evaluated", strategy_changed: "Strategy changed", strategy_rolled_back: "Rolled back",
+  brain_consultation_started: "Consulting guidance", brain_consultation_done: "Guidance consulted",
+  brain_consultation_failed: "Guidance lookup stopped",
 };
 
 export function ActivityList({ events, skew, limit, onRobot, filter = "all" }: {
@@ -284,9 +286,11 @@ export function RobotPanel({ id, row, card, onRobot }: {
           <dd>{manager ? <button type="button" className="op-chip" onClick={() => onRobot(manager.id)}>
             <Portrait id={manager.id} scale={1} crop />{manager.name}</button> : <span className="muted">Reports to you</span>}</dd>
         </div>
-        <div><dt>Usual handoff</dt><dd>{NEXT_STAGE[c.dept]}</dd></div>
+        <div><dt>Report goes to</dt><dd>{manager?.name || "You"}</dd></div>
+        <div><dt>Usual next department</dt><dd>{NEXT_STAGE[c.dept]}</dd></div>
       </dl>
       <p className="small">{c.job}</p>
+      {!row?.task && row?.idle_reason && <p className="small muted">{row.idle_reason}</p>}
       {row?.task && (
         <Section title="Current task">
           <p className="small">{row.task.message || row.task.kind}</p>
@@ -305,8 +309,13 @@ export function RobotPanel({ id, row, card, onRobot }: {
             <p className="small">{row.task.handoff.reason}</p>
             <p className="tiny muted">Repair {row.task.handoff.attempt} of {row.task.handoff.max_attempts}</p>
           </div>}
-          <div className="op-task-meta"><span className="muted">Job {row.task.job_id.slice(0, 8)}</span>
+          <div className="op-task-meta">{row.task.job_id ? <>
+            <span className="muted">Job {row.task.job_id.slice(0, 8)}</span>
             <a href="#/missions/jobs">Detailed jobs</a>
+          </> : <>
+            <span className="muted">Saved guidance consultation</span>
+            <a href="#/brain">Open Brain workspace</a>
+          </>}
             {row.task.shared?.project_id && <a href={`#/project/${row.task.shared.project_id}`}>Shared source video</a>}
             {row.task.shared?.clip_id && <a href={`#/clip/${row.task.shared.clip_id}`}>Shared clip</a>}
           </div>
@@ -315,8 +324,9 @@ export function RobotPanel({ id, row, card, onRobot }: {
       )}
       {card && (
         <Section title="Selected handoff report">
-          <p className="small">{card.summary || card.kind} <span className="muted">({card.state === "failed" ? "failed" : "finished"})</span></p>
-          <p className="muted tiny">Job {card.job_id.slice(0, 8)}</p>
+          <p className="small">{card.summary || card.kind}</p>
+          {card.from && card.to && <p className="small">{BY_ID[card.from]?.name} → {BY_ID[card.to]?.name}</p>}
+          {card.job_id && <p className="muted tiny">Job {card.job_id.slice(0, 8)}</p>}
         </Section>
       )}
       {state === "error" && row?.error && (
@@ -579,6 +589,11 @@ function BrainBody({ summary }: { summary: BrainSummary | undefined }) {
   return (<>
     <Section title="State">
       <p className="small"><span className="pill">{s.label}</span> {s.message}</p>
+      {s.activity && <>
+        <p className="small">{s.activity.state === "working" ? s.activity.message
+          : s.activity.last?.message || "Saved guidance is consulted when a new clip is selected, planned or rendered."}</p>
+        <p className="muted tiny">Using saved guidance is separate from learning from published results.</p>
+      </>}
       <p className="small">Results stored: {obs.platform_api || 0} from the platforms, {obs.owner_import || 0} you imported, {obs.tester_feedback || 0} from testers.</p>
       <p className="muted tiny">A change needs {s.min_clips} mature clips from your selected viewers and moves at most {Math.round(s.max_step * 100)}% at a time. Your own setting: {s.baseline_target} s.</p>
     </Section>

@@ -255,8 +255,12 @@ def matching(clip: dict, settings: dict) -> list[tuple[dict, dict]]:
     haystack = " ".join(str(clip.get(k) or "") for k in ("title", "hook", "caption_text", "category")).lower()
     rows = db.select("brain_knowledge", "enabled = 1", (),
                      "CASE kind WHEN 'instruction' THEN 0 WHEN 'example' THEN 1 ELSE 2 END, updated_at DESC, id")
-    return [(row, compile_note(row)) for row in rows if not row["tags"] or any(
+    matches = [(row, compile_note(row)) for row in rows if not row["tags"] or any(
         re.search(r"(?<!\w)" + re.escape(tag) + r"(?!\w)", haystack) for tag in row["tags"])]
+    from . import brain
+
+    brain.consulted(matches)
+    return matches
 
 
 def _influence(row: dict, decisions: dict) -> dict:
@@ -280,7 +284,11 @@ def choose(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]
             continue
         item = influenced.setdefault(row["id"], _influence(row, {}))
         item["decisions"][key] = {"before": before, "after": out[key]}
-    return out, list(influenced.values())
+    used = list(influenced.values())
+    from . import brain
+
+    brain.applied(used)
+    return out, used
 
 
 def selection_options(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]:
@@ -304,6 +312,9 @@ def selection_options(clip: dict, options: dict, settings: dict) -> tuple[dict, 
             influences += [_influence(row, {"target_duration": {"before": original, "after": out["target_duration"]}})
                            for row, _ in examples]
     out["brain_consulted"] = len(rows)
+    from . import brain
+
+    brain.applied(influences)
     return out, influences
 
 

@@ -61,8 +61,9 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
           <a className="btn btn-quiet btn-small" href="#/queue/scheduled">Open the Queue</a>
         </div>
         <dl className="kv daily">
-          <dt>Daily target</dt>
-          <dd><b className="tnum">{t.published}</b> of {t.daily} unique clips posted today. {t.note}</dd>
+          <dt>Daily clip cap</dt>
+          <dd><b className="tnum">{t.published}</b>{t.daily > 0 ? ` of ${t.daily}` : ""} unique clips posted today.
+            {t.daily === 0 ? " No app daily cap." : ""} {t.note}</dd>
           <dt>Platform posts today</dt>
           <dd>{t.published_posts} published, {t.scheduled_posts} scheduled ({PLATFORMS.map((p) => {
             const c = t.posts_by_platform?.[p];
@@ -71,7 +72,8 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
           <dt>Clips</dt>
           <dd>{t.processed} processed · {t.scheduled} scheduled today</dd>
           <dt>Source videos today</dt>
-          <dd>{st.sources_today.counted} of {st.sources_per_day} chosen</dd>
+          <dd>{st.sources_today.counted}{st.sources_per_day > 0 ? ` of ${st.sources_per_day}` : ""} chosen
+            {st.sources_per_day === 0 ? " · no app daily cap" : ""}</dd>
           <dt>Jobs in the queue</dt>
           <dd>{st.queue.size}</dd>
           <dt>Next post</dt>

@@ -168,10 +168,16 @@ async ({ page, request }) => {
   feed.emit("job_stage", "glyph", { stage: "captions" });
   const note = page.locator(".handoff-note");
   await expect(note).toHaveAttribute("data-from", "splice", { timeout: 8000 });
-  await expect(note).toHaveAttribute("data-to", "glyph");
+  await expect(note).toHaveAttribute("data-to", "frame");
   await expect(robot(page, "glyph")).toHaveAttribute("data-room", "caption");
   await expect(note).toHaveAttribute("data-phase", "pass", { timeout: 20_000 });
   await expect(note).toHaveAttribute("data-phase", "received", { timeout: 5000 });
+  await expect(note).toHaveAttribute("data-from", "frame", { timeout: 8000 });
+  await expect(note).toHaveAttribute("data-to", "script");
+  await expect(note).toHaveAttribute("data-phase", "received", { timeout: 20_000 });
+  await expect(note).toHaveAttribute("data-from", "script", { timeout: 8000 });
+  await expect(note).toHaveAttribute("data-to", "glyph");
+  await expect(note).toHaveAttribute("data-phase", "received", { timeout: 8000 });
   await expect(robot(page, "glyph")).toHaveAttribute("data-posture", "desk", { timeout: 8000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio", { timeout: 20_000 });
   await expect(robot(page, "splice")).toHaveAttribute("data-duty", "support");

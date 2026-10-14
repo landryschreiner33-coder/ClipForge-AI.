@@ -2,9 +2,9 @@
 
 Trend Scout collects signals from the legitimate providers (providers.py), keeps their history, and scores them
 (trends.py). Source Scout turns signals into candidate sources, runs the rights gate on each, estimates how many
-strong clips each one is likely to hold, ranks them, and sends the best eligible ones to the Clip Hunter, up to the
-number of sources per day. Quality-first discovery admits only a few strong estimates and waits when unfinished
-search picks or the daily attempt budget are full; it never pads a clip target with more weak results. Explicit
+strong clips each one is likely to hold, ranks them, and sends the best eligible ones to the Clip Hunter. By default
+the small unfinished work queue refills continuously with no daily cap. Quality-first discovery admits only a few
+strong estimates and waits when unfinished search picks or an optional daily budget are full. Explicit
 input retains its replacement behavior, and opting out restores the earlier broad-search refill behavior.
 
 Nothing that is unclear blocks the day. A video no agreement, license or ownership covers, or whose file cannot be
@@ -680,9 +680,12 @@ def _automatic_today(settings: dict, now: float, all_rules: list[dict]) -> int:
 
 
 def discovery_attempts_remaining(settings: dict, now: float | None = None,
-                                 all_rules: list[dict] | None = None) -> int:
-    """Today's broad-search attempts left, shared by recorded selection and livestream admission."""
-    return max(0, int(settings.get("autopilot_sources_per_day") or 3) -
+                                 all_rules: list[dict] | None = None) -> int | None:
+    """Today's broad-search allowance, or None when there is no app daily cap."""
+    budget = int(settings.get("autopilot_sources_per_day") or 0)
+    if budget == 0:
+        return None
+    return max(0, budget -
                _automatic_today(settings, now or time.time(), rights.rules() if all_rules is None else all_rules))
 
 
@@ -731,12 +734,15 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
                   and automatic_discovery(src, settings=settings, all_rules=all_rules)]
     summary["backlog"] = len(unfinished)
     targets = _publishing_targets(settings)
-    workable = sum(src["status"] in ACTIVE_SOURCE or _discovery_path(src, settings, all_rules, targets)[1]
+    path_index = 0 if settings.get("autopilot_discovery_uploadable_only", True) else 1
+    workable = sum(src["status"] in ACTIVE_SOURCE or _discovery_path(src, settings, all_rules, targets)[path_index]
                    for src in unfinished)
     summary["workable_backlog"] = workable
     summary["parked_backlog"] = len(unfinished) - workable
     remaining = discovery_attempts_remaining(settings, now, all_rules)
-    per_pass = min(int(settings.get("discovery_candidates_per_scan") or 3), remaining)
+    per_pass = int(settings.get("discovery_candidates_per_scan") or 3)
+    if remaining is not None:
+        per_pass = min(per_pass, remaining)
     queue_limit = int(settings.get("discovery_queue_limit") or 6)
     capacity = min(per_pass, max(0, queue_limit - len(unfinished)))
     reusable_capacity = min(per_pass, max(0, queue_limit - workable))
@@ -762,6 +768,10 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
         if rights.evaluate(src, settings, all_rules)["status"] == rights.BLOCKED:
             reason("Blocked by your saved permissions", True)
             continue
+        if settings.get("autopilot_discovery_uploadable_only", True) and \
+                not rights.discovery_publishable(src, settings, all_rules, targets):
+            reason("No recorded reuse permission for your upload destinations", True)
+            continue
         estimate = score_source(src, sig, settings, now)
         if estimate["score"] < float(settings.get("discovery_min_source_score", 50)):
             reason("Below your minimum source estimate; waiting for stronger videos", True)
@@ -779,7 +789,8 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
         allowed_capacity = reusable_capacity if reusable else capacity
         if len(chosen) >= allowed_capacity:
             reason("Daily search budget reached; quality mode does not fill the clip target with extra videos"
-                   if remaining <= 0 else "Waiting for unfinished search picks" if allowed_capacity <= 0 else
+                   if remaining is not None and remaining <= 0 else
+                   "Waiting for unfinished search picks" if allowed_capacity <= 0 else
                    "Outside this pass's strongest shortlist")
             continue
         if any(_same_video(src, other) for other in chosen):
@@ -866,13 +877,20 @@ def still_needed(settings: dict, now: float | None = None) -> int:
 
     Weak sources do not count toward the day, so a weak pick is replaced by the next best source. When the day's
     sources are done but the clip target was not reached, one more source is tried at a time, never lowering the
-    quality bar. This desired work does not override quality mode's broad-search daily attempt budget; explicit
-    sources retain their replacement behavior, and the broad budget renews the next local day.
+    quality bar. A zero daily budget continuously refills a small queue across day boundaries. A positive configured
+    broad-search budget still binds; explicit sources retain their replacement behavior.
     """
-    per_day = int(settings.get("autopilot_sources_per_day") or 3)
+    per_day = int(settings.get("autopilot_sources_per_day") or 0)
+    if per_day == 0:
+        # Across local-day boundaries and restarts, an unfinished queue cannot grow without bound. Explicit
+        # links retain their individual intent; this capacity governs autonomous continuous production.
+        busy = int(db.scalar("SELECT COUNT(*) FROM sources WHERE user_added = 0 AND "
+                             "status IN ('queued', 'ingesting', 'analyzing')") or 0)
+        return max(0, int(settings.get("discovery_queue_limit") or 6) - busy)
     counts = today_counts(settings, now)
     needed = per_day - counts["counted"]
-    if needed <= 0 and counts["busy"] == 0 and counts["clips"] < int(settings.get("autopilot_daily_target") or 15):
+    target = int(settings.get("autopilot_daily_target") or 0)
+    if needed <= 0 and counts["busy"] == 0 and (target == 0 or counts["clips"] < target):
         needed = 1
     return max(0, needed)
 
@@ -918,8 +936,10 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             group = 0 if src.get("user_added") else 1 if not broad_sources[src["id"]] else 2 if reusable else 3
             order[src["id"]] = (group, index)
         rows.sort(key=lambda src: order[src["id"]])
-    broad_limit = min(int(settings.get("discovery_candidates_per_scan") or 3),
-                      discovery_attempts_remaining(settings, now, all_rules)) if quality_mode else needed
+    remaining = discovery_attempts_remaining(settings, now, all_rules)
+    per_pass = int(settings.get("discovery_candidates_per_scan") or 3)
+    broad_limit = min(per_pass, remaining) if quality_mode and remaining is not None else \
+        per_pass if quality_mode else needed
     broad_picks = 0
     creators: dict[str, int] = {}
     topic_counts: dict[str, int] = {}
@@ -931,6 +951,10 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             continue
         signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
         broad = broad_sources[src["id"]] if quality_mode else automatic_discovery(src, signal, settings, all_rules)
+        if broad and settings.get("autopilot_discovery_uploadable_only", True) and \
+                not rights.discovery_publishable(src, settings, all_rules):
+            _skip_discovery(src, "Local use only: no recorded reuse permission for your upload destinations")
+            continue  # preserve history/media and reconsider after permission or preferences change
         creator = f"{src['platform']}:{src['channel_id']}" if src.get("channel_id") else ""
         topic = str(src.get("topic") or "").strip().casefold()
         if quality_mode and broad:
@@ -968,7 +992,11 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
         state.resolve(f"file:{src['id']}")
         with locks.named("discovery-selection"):
             # Live and recorded work have different workers; share the final budget check/queue transition.
-            if quality_mode and broad and discovery_attempts_remaining(settings, now, all_rules) <= 0:
+            remaining = discovery_attempts_remaining(settings, now, all_rules)
+            if quality_mode and broad and remaining is not None and remaining <= 0:
+                continue
+            if not src.get("user_added") and int(settings.get("autopilot_sources_per_day") or 0) == 0 and \
+                    still_needed(settings, now) <= 0:
                 continue
             db.update("sources", src["id"], status="queued", selected_day=day,
                       status_note="Waiting for the Clip Hunter", access=access.record(src, found))

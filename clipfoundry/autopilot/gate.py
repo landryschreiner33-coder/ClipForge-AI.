@@ -27,6 +27,12 @@ from . import packaging, queue, rights, state
 from .host import Job, handler
 
 MAX_REGENERATIONS = 2
+
+
+class CreditRequired(queue.Fail):
+    """The owner must review and approve post text containing the source's current required credit."""
+
+
 # Rebuild damaged output/captions or conservatively repair word boundaries. Source sound, reuse terms and creative
 # judgments require their responsible stage's review, so the same impossible operation is never blindly retried.
 REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "streams", "duration", "audio_stream", "av_timing",
@@ -82,12 +88,34 @@ def report_for(clip: dict) -> dict | None:
     return rows[0] if rows else None
 
 
+def rights_context(clip: dict, settings: dict | None = None) -> str:
+    """Bind checks to current reuse terms and credit without storing agreement text in a quality report."""
+    settings = settings if settings is not None else db.get_settings()
+    source = _source(clip)
+    evaluation = rights.evaluate(source, settings) if source else None
+    return artifact.sha256_json({"source": (source or {}).get("id") or "", "evaluation": evaluation,
+                                 "attribution": rights.current_attribution(source, settings)})
+
+
+def context_valid(report: dict, clip: dict, settings: dict | None = None) -> bool:
+    return (report.get("coverage") or {}).get("rights_context") == rights_context(clip, settings)
+
+
+def _request_terms_check(clip: dict, priority: int = 0) -> dict | None:
+    """A changed agreement needs another check, without reviving a canceled or exhausted previous check."""
+    jobs = db.select("worker_jobs", "kind = 'quality_check' AND (ref_id = ? OR "
+                     "json_extract(payload, '$.clip_id') = ?)", (clip["id"], clip["id"]), "created_at DESC", 1)
+    if jobs and jobs[0]["status"] in ("canceled", "failed"):
+        return None
+    return request(clip, priority=priority, revive=False)
+
+
 def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
     """For each Autopilot platform: does the selected packaging describe this very file, and only what is said in
     it? (Word matching: it catches invented names, numbers, quotes and topics, but does not prove a claim true.)"""
     sents, _ = packaging.clip_sentences(clip)
     text = " ".join(sents)
-    attribution = rights.attribution(_source(clip) or {})
+    attribution = rights.current_attribution(_source(clip), settings)
     prior = packaging.prior_titles(clip["id"])
     out = {}
     for platform in packaging.platforms(settings):
@@ -99,7 +127,8 @@ def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
         stale = bool(meta.get("artifact_sha256")) and meta["artifact_sha256"] != sha
         if stale:
             problems.append("written for an earlier render of this clip")
-        problems += packaging.validate(meta, text, prior, [attribution])
+        problems += packaging.validate(meta, text, prior, [attribution], required_attribution=attribution,
+                                       platform=platform)
         out[platform] = {"status": "failed" if problems else "passed", "problems": problems, "stale": stale,
                          "metadata_id": meta["id"],
                          "hash": artifact.sha256_json({k: meta.get(k) for k in ("title", "description", "caption",
@@ -158,6 +187,7 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
              "blockers": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.FAIL],
              "warnings": [f"{c['label']}: {c['detail']}" for c in checks if c["status"] == quality.WARN]}
     media["passed"] = not media["blockers"]
+    media["coverage"] = {**(media.get("coverage") or {}), "rights_context": rights_context(clip, settings)}
     metadata = check_metadata(clip, media["artifact_sha256"], settings)
     fields = {"clip_id": clip["id"], "version_id": version, "gate_version": quality.GATE_VERSION,
               "status": "passed" if media["passed"] else "failed", "metadata": metadata,
@@ -169,7 +199,7 @@ def run(clip: dict, settings: dict, cancelled=None) -> dict:
     return db.insert("quality_reports", fields)
 
 
-def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
+def request(clip: dict, priority: int = 0, sha: str = "", *, revive: bool = True) -> dict | None:
     """Queue a gate run for the current rules, file and packaging. `sha`: the hash of
     bytes that were found unchecked although the file's size and time are unchanged, so it is checked once more."""
     path, _, _ = artifact.active(clip)
@@ -180,9 +210,17 @@ def request(clip: dict, priority: int = 0, sha: str = "") -> dict | None:
         return repair_media(clip, priority=priority)
     selected = sorted(filter(None, ((_selected(clip["id"], p) or {}).get("id") for p in ("youtube", "tiktok"))))
     key = f"quality:v{quality.GATE_VERSION}:{clip['id']}:{quality.file_stamp(path)}:{','.join(selected)}" \
-        + (f":{sha[:16]}" if sha else "")
+        + f":terms:{rights_context(clip)}" + (f":{sha[:16]}" if sha else "")
+    previous_report = report_for(clip)
+    if previous_report and not context_valid(previous_report, clip):
+        # Returning to earlier agreement terms still needs a fresh check; a completed job for those terms
+        # cannot stand in for the newer report. Repeated reads of the same stale report share one refresh job.
+        previous_context = (previous_report.get("coverage") or {}).get("rights_context")
+        key += ":refresh:" + artifact.sha256_json({"id": previous_report["id"], "at": previous_report.get("updated_at"),
+                                                  "context": previous_context})
     return queue.enqueue("quality_check", {"clip_id": clip["id"]}, idem_key=key, ref=("clip", clip["id"]),
-                         priority=priority, timeout_s=1800, message="Waiting for the final quality check")
+                         priority=priority, timeout_s=1800, message="Waiting for the final quality check",
+                         revive=revive)
 
 
 def _render_identity(clip: dict) -> str:
@@ -364,7 +402,21 @@ def recover_regenerations() -> int:
 
 def repair_text(clip: dict, rep: dict, priority: int) -> dict | None:
     """Missing, stale or rejected generated text is safely regenerated without changing the video."""
-    key = f"quality_text:{clip['id']}:{rep['artifact_sha256']}"
+    credit_changed = any("missing required source attribution" in problem
+                         for meta in (rep.get("metadata") or {}).values() for problem in meta.get("problems") or [])
+    if credit_changed:
+        project = db.get_project(clip["project_id"]) or {}
+        source = _source(clip) or {}
+        intake = source.get("intake") or {}
+        latest = db.select("worker_jobs", "kind = 'package_clip' AND (ref_id = ? OR "
+                           "json_extract(payload, '$.clip_id') = ?)", (clip["id"], clip["id"]), "created_at DESC", 1)
+        scheduled = db.select("scheduled_publications", "clip_id = ? AND status NOT IN ('canceled', 'replaced')",
+                              (clip["id"],), limit=1)
+        if project.get("origin") not in ("autopilot", "live") or clip.get("edit") or clip.get("active_version") or \
+                source.get("status") in ("canceled", "removed") or intake.get("canceled") or intake.get("removed") or \
+                scheduled or (latest and latest[0]["status"] in ("canceled", "failed")):
+            return None  # retain edits, existing post approvals, stopped work and the owner's chosen text
+    key = f"quality_text:{clip['id']}:{rep['artifact_sha256']}:terms:{rights_context(clip)}"
     attempts = int(state.get(key, 0) or 0)
     if attempts >= MAX_REGENERATIONS:
         return None
@@ -488,6 +540,9 @@ def schedulable(clip: dict, platform: str, metadata_id: str) -> tuple[bool, str]
     if rep is None or md.get("metadata_id") != metadata_id:
         request(clip)
         return False, "waiting for the final quality check"
+    if not context_valid(rep, clip):
+        _request_terms_check(clip)
+        return False, "waiting for the final check of current reuse terms and source credit"
     if rep["status"] != "passed":
         return False, "failed the final quality check: " + "; ".join(rep["blockers"][:2])
     if md.get("status") != "passed":
@@ -497,7 +552,7 @@ def schedulable(clip: dict, platform: str, metadata_id: str) -> tuple[bool, str]
     return True, ""
 
 
-def verify_file(clip: dict, path: str) -> dict:
+def verify_file(clip: dict, path: str, publication: dict | None = None) -> dict:
     """Right before an upload: hash the file itself and find a passing report for exactly that content.
     Raises queue.Wait while a check is pending and queue.Fail when the file did not pass."""
     if not path or not Path(path).is_file():
@@ -509,6 +564,16 @@ def verify_file(clip: dict, path: str) -> dict:
         stale = report_for(clip)  # checked at this size and time, but those were other bytes: check these ones
         request(clip, priority=100, sha=sha if stale and stale["artifact_sha256"] != sha else "")
         raise queue.Wait("quality", 60, "Checking the final file before uploading it")
+    if publication is not None:
+        problem = packaging.attribution_problem(publication, publication.get("platform") or "",
+                                                rights.current_attribution(_source(clip)))
+        if problem:
+            raise CreditRequired("The planned post is missing the credit required by the source's current reuse terms",
+                                 "Review its text in Queue and add the required source attribution before "
+                                 "approving again.")
+    if not context_valid(rows[0], clip):
+        _request_terms_check(clip, priority=100)
+        raise queue.Wait("quality", 60, "Checking current reuse terms and source credit before uploading")
     if rows[0]["status"] != "passed":
         raise queue.Fail("The file did not pass the final quality check: " + "; ".join(rows[0]["blockers"][:2]),
                          "Fix the clip in the editor and render it again.")

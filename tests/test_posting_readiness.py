@@ -193,7 +193,7 @@ def test_running_new_preparation_takes_precedence_over_older_failed_attempt(data
     ({"autopilot_enabled": False}, "paused"),
     ({"autopilot_publishing_paused": True}, "publishing_paused"),
     ({"autopilot_auto_publish": False}, "publish_off"),
-    ({"autopilot_youtube_daily_limit": 0}, "limit"),
+    ({"autopilot_youtube_daily_limit": 0}, "preparing"),  # zero now means no app-imposed daily cap
     ({"autopilot_active_start": 9, "autopilot_active_end": 9}, "window"),
 ])
 def test_explicit_owner_controls_are_explained_without_changing_them(data, patch, expected):

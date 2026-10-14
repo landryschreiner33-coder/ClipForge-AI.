@@ -13,7 +13,8 @@ def data(monkeypatch, tmp_path):
 
     monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
     db.init()
-    db.save_settings({"trend_topics": "interview", "autopilot_sources_per_day": 3})
+    db.save_settings({"trend_topics": "interview", "autopilot_sources_per_day": 3,
+                      "autopilot_discovery_uploadable_only": False})  # exercise saved local-search history too
     db.save_account("youtube", tokens={"access_token": "fake"}, account_id="UCtest")
     host.WorkerHost(periodic=False)
     return tmp_path
@@ -72,6 +73,23 @@ def test_six_parked_rights_holds_do_not_starve_a_reusable_candidate(data):
     assert all(db.fetch("sources", row["id"])["status"] == "needs_rights" for row in parked)
     assert all(db.fetch("sources", row["id"])["rights_status"] == rights.MANUAL for row in parked)
     assert len(queue.jobs(worker="clip_hunter")) == 1
+
+
+def test_upgrade_six_old_accessible_local_only_finds_do_not_starve_uploadable_work(data):
+    from clipfoundry import db
+
+    db.save_settings({"autopilot_discovery_uploadable_only": True, "autopilot_sources_per_day": 0})
+    previous = [source(candidate(f"old-local{i}"), "eligible") for i in range(6)]
+    candidate("new-uploadable", 90, covered=True)
+    result = scan()
+    assert result["shortlist"]["workable_backlog"] == 0
+    assert result["shortlist"]["parked_backlog"] == 6
+    assert len(result["picked"]) == 1
+    assert db.fetch("sources", result["picked"][0])["external_id"] == "new-uploadable"
+    for row in previous:
+        saved = db.fetch("sources", row["id"])
+        assert saved["status"] == "skipped" and "no recorded reuse permission" in saved["status_note"]
+        assert saved["components"]["discovery_filter"]
 
 
 def test_six_missing_library_files_do_not_starve_an_accessible_candidate(data):

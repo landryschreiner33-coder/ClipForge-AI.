@@ -325,7 +325,7 @@ def test_gates_before_every_upload(env):
 
 def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     from clipfoundry import db
-    from clipfoundry.autopilot import queue
+    from clipfoundry.autopilot import gate, queue
     from clipfoundry.pipeline import artifact, quality
 
     g, t, tmp = env
@@ -340,7 +340,8 @@ def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     db.insert("quality_reports", {"clip_id": clip["id"], "artifact_path": path, "artifact_sha256":
                                   artifact.sha256_file(path), "file_stamp": quality.file_stamp(path),
                                   "gate_version": quality.GATE_VERSION,
-                                  "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"]})
+                                  "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"],
+                                  "coverage": {"rights_context": gate.rights_context(clip)}})
     with pytest.raises(queue.Fail, match="did not pass"):
         run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "blocked"
@@ -410,7 +411,7 @@ def test_publish_center_api(env):
         assert c.post(f"/api/autopilot/scheduled/{tt['id']}/cancel", headers=H).json()["status"] == "canceled"
         assert c.post(f"/api/autopilot/scheduled/{tt['id']}/retry", headers=H).json()["status"] == "approved"
         st = c.get("/api/autopilot/status").json()
-        assert st["target"]["daily"] == 15 and "workers" in st and "gpu" in st and st["platforms"]["youtube"]
+        assert st["target"]["daily"] == 0 and "workers" in st and "gpu" in st and st["platforms"]["youtube"]
         stop = c.post("/api/autopilot/stop-all", headers=H).json()
         assert stop["paused"] and queue.get(queue.jobs(worker="publisher")[0]["id"])["status"] == "canceled"
         assert c.post("/api/autopilot/enable", headers=H, json={"enabled": False}).json()["enabled"] is False
