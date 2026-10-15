@@ -34,27 +34,36 @@ folder as fallback. Occupied unknown destinations are skipped. Owned staging, ch
 exclusive directory move prevent merging into an existing root. Setup runs before selecting a free loopback
 port. The original data directory remains the CLIPFOUNDRY_DATA location. No execution-policy, antivirus,
 certificate trust, firewall/router or Windows scheduled task is changed. No missing account/audience permission
-is created; the app's requested one-time volume amendment is described below.
+is created.
 
 ## Included application
 
-The app is the tested revision **d0b7102e8273cee068531da554c8d83f3fa43f8f**. Its archive
-SHA-256 is **32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202**. Setup verifies the archive and
+The app is the tested revision **ec20aec76825a284393af00d812ec4a08a8beca3**. Its archive
+SHA-256 is **8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2**. Setup verifies the archive and
 known start.bat hash before installing new code. Existing managed identity checks verify the marker and start
 file, rather than claiming a full checksum of every file already present on the PC.
 
-This build includes immediate finished-clip handoffs, bounded recovery of older eligible outputs, accessible
-reusable discovery priority, YouTube-only audience/automatic-permission controls and **Missions → Why clips are
-waiting to post**. Historical Private plans, manual edits, canceled work, exact-file checks and posting consent
-remain protected. No TikTok connection is required for YouTube. Setup prepares and starts the app; the app
-resumes approved eligible uploads when its saved Autopilot and publishing permission are on.
+Autopilot prepares clips and assigns proposed posting times for your review. Missing recorded reuse permission
+does not stop a clip from reaching the review queue. A proposed time is local to ClipFoundry; the app does not
+upload it to YouTube or send it to a platform scheduler until you approve it.
 
-This update removes the app's daily source/clip/platform caps (0 means unlimited), chooses the earliest eligible
-posting time at any hour and defaults broad discovery to verified uploadable sources. Existing local-only clips
-still need valid reuse permission. A one-time recorded volume/hours amendment updates old limits and existing
-YouTube permission while retaining its channel, audience and made-for-kids choice; missing permission is never
-created. Future owner caps persist. Old posts and Private plans keep their audiences and times.
-The app resumes eligible uploads when Autopilot and the existing permission are enabled.
+After updating, check **Missions → Prepare & schedule for review**. Open a **Needs review** post in **Queue**,
+watch the clip, check the source and reuse permission, and review its caption, posting time and destination.
+Tick **I have checked that I can reuse this clip**, fill in **Why I can reuse it**, then click
+**Approve & schedule upload**. An approved YouTube post can publish at its scheduled time. If its proposed time
+has passed, choose a new time first or approve to allow uploading on the next publishing check. Clips still
+awaiting review stay on your PC. Manual TikTok handoff uses **Approve for TikTok**; supported inbox/direct
+uploads retain their separate per-post controls.
+
+This update stops standing automatic approval. Existing uploads that have already started or have an uncertain
+platform result keep their identity so recovery cannot upload the same clip twice. Existing posted videos are
+unchanged. No TikTok connection is required for YouTube.
+
+Earlier fixes remain: app daily source/clip/platform caps default to 0 (unlimited), with any-hour earliest
+eligible posting times, bounded recovery of older outputs, Brain guidance and clear Missions explanations.
+Owner caps, platform/API limits and quality checks still apply. A source being public is not recorded reuse
+permission; review makes that decision explicit before publishing. Audience choices and made-for-kids answers
+remain required, and private/unlisted account settings are not a substitute for per-video visibility.
 
 Real Brain guidance consultations and ordered worker/manager/boss handoffs now appear in the office. Quiet rooms
 explain their actual waits. Current reuse/required-credit checks also bind to actual post text, with safe editable
@@ -64,9 +73,10 @@ Enabled saved Brain guidance applies automatically to new clips, with Settings f
 The optional **Settings → Integrations → Check from your phone** dashboard remains read-only and separate from
 desktop/account/publishing controls. Setup does not install Tailscale or connect a phone automatically.
 
-The app's final verification was 1,047 fast checks, eight actual-FFmpeg/synthetic-speech media/restart checks,
-11 final built browser checks and a production build. All 472 archived source files match the exact Git
-revision, apart from six intentional BAT CRLF exports; all 17 browser-tested frontend file hashes match.
+This revision passed 1,112 fast checks, nine actual-media/restart checks, 12 built browser checks and a production
+build. All 478 archived source files match the exact Git revision apart from six intentional BAT CRLF exports;
+all 17 browser-tested frontend file hashes match. Delivery checks and hashes are recorded in
+launcher/plain_setup_verification.json and launcher/DELIVERY_CHANGELOG.md.
 No owner Windows data, RTX3050 execution, actual account upload, real phone/Tailscale connection or 24-hour
 unattended soak is claimed. GPU and other app dependency pins are unchanged.
 
@@ -80,6 +90,7 @@ Generated launcher/app.zip is ignored by Git because the final source-setup ZIP 
 Run these commands from this artifact branch:
 
     python launcher/plain_setup_test.py
+    python launcher/pin_bundle_test.py
     python launcher/build_plain_zip_test.py
     python launcher/build_plain_zip.py
 

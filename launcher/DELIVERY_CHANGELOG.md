@@ -1,5 +1,37 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Local schedules and individual reuse review — 2026-10-14 (America/Chicago)
+
+App revision: ec20aec76825a284393af00d812ec4a08a8beca3. Artifact base: f092834.
+Autopilot defaults to preparing and scheduling for individual review. Accessible unblocked videos with
+unrecorded reuse permission can reach local plans without becoming owned/licensed or approved to upload.
+New posts wait for manual approval. Uncovered posts require an owner reuse statement and basis bound to the
+exact post, source/current terms/credit, file/version, account, platform, audience, text and options.
+Known required credit and physical-media checks remain binding; editing requires another review. Drafts do
+not expire after 48 hours. Proposed times are local, not uploads to a platform scheduler. Approving a past-due
+post permits prompt upload; its timing warning is displayed before approval.
+
+Standing automatic approval is suspended. Old provably unstarted automatic approvals return to review while
+preserving payload, audience, time and publication identity. Retry and not-published recovery cannot restore
+an automatic grant. Started/uncertain uploads keep their session and account-bound readback. Existing posts,
+saved media and earlier fixes remain. Verified same-SID managed installations retain their original profile;
+unknown ordinary ZIP installations are left untouched. No EXE or security-setting changes were made.
+
+Final app validation: 1,112 fast checks (529.54 s), nine actual-media/restart checks (879.93 s), 12 final built
+browser checks (40.23 s), production build (8.79 s). All 478 archived files match the exact Git revision except
+six declared BAT CRLF exports, and all 17 tested frontend hashes match. Independent delivery verification:
+48 installer checks (1.313 s), 13 pin-helper (.387 s), 12 builder (.012 s), plus 10 exact-export helper checks.
+The builder checks all four outer ZIP members byte-for-byte and their CRCs.
+
+App archive: 41,816,502 bytes, SHA-256
+8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2.
+Source setup ZIP: 41,760,159 bytes, SHA-256
+315098d40ca40fbb85f5c61c4b3cb5772f5bf32ddef9d4f1ee480706b8d1b0b0.
+
+Native Windows/Defender, the owner profile/RTX3050, real account uploads, phone connectivity and a 24-hour
+soak remain unverified. Source/integrity checks are not an antivirus certification. Immutable remote download
+verification must match this ZIP, app payload, setup source and instructions before sharing its URL.
+
 ## Continuous eligible uploading and actual office activity
 
 App revision: d0b7102e8273cee068531da554c8d83f3fa43f8f. Artifact base: 876d142.

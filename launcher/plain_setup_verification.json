@@ -1,46 +1,48 @@
 {
-  "source_commit": "d0b7102e8273cee068531da554c8d83f3fa43f8f",
-  "app_archive_sha256": "32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202",
-  "zip_bytes": 41728594,
-  "zip_sha256": "ac3a11c159d389d44b11466e66efbd540cd67d64b749e4ff7ac9e86362783aba",
+  "source_commit": "ec20aec76825a284393af00d812ec4a08a8beca3",
+  "app_archive_sha256": "8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2",
+  "zip_bytes": 41760159,
+  "zip_sha256": "315098d40ca40fbb85f5c61c4b3cb5772f5bf32ddef9d4f1ee480706b8d1b0b0",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "0e2e01fcb9b8874551a4b046c54894dbea3cc3c56e128ec88b5bd1d27aa878c9",
-    "app.zip": "32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202",
-    "README.txt": "6e3b655118bb09de63563c224c7a1751ef29e1fde8d775f7b0712491f269bbd5"
+    "setup.py": "d70e29e7042918214c4dd3377f99380092676130e9ac21f665f9abca06529cc7",
+    "app.zip": "8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2",
+    "README.txt": "df7fd7b9f84ba45e6aae149f5054a3f0f71ed6f223c97d96a2a62bc8351ff3d7"
   },
-  "app_files": 472,
+  "app_files": 478,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "876d1426a240864dc5730db487e69306dd402ff0",
-  "app_archive_bytes": 41784343,
+  "artifact_base": "f092834ed55e3ce2e86499de0e8305e9f3f4082f",
+  "app_archive_bytes": 41816502,
   "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
   "app_tests": {
     "fast": {
-      "passed": 1047,
-      "seconds": 556.14
+      "passed": 1112,
+      "seconds": 529.54
     },
     "real_media_and_restart": {
-      "passed": 8,
-      "seconds": 836.38
+      "passed": 9,
+      "seconds": 879.93
     },
     "final_built_browser": {
-      "passed": 11,
-      "seconds": 94.42
+      "passed": 12,
+      "seconds": 40.23
     },
-    "build_seconds": 6.16,
-    "focused_reuse_publishing": 93,
-    "public_manual_publishing": 34
+    "build_seconds": 8.79,
+    "focused_publishing_reuse": 95,
+    "scheduler_public_manual": 64,
+    "final_review_current_terms": 46,
+    "legacy_recovery": 107
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 48,
-      "seconds": 1.47
+      "seconds": 1.313
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.334
+      "seconds": 0.387
     },
     "build_plain_zip": {
       "passed": 12,
@@ -49,7 +51,7 @@
     "exact_git_export": 10
   },
   "payload_verification": {
-    "source_files": 472,
+    "source_files": 478,
     "exact_git_match_with_declared_bat_crlf": true,
     "tested_frontend_files": 17,
     "tested_frontend_exact_match": true,
@@ -60,10 +62,11 @@
   "no_powershell_loader": true,
   "no_app_archive_download": true,
   "no_security_settings_change": true,
-  "volume_amendment": "Requested one-time app volume/hours amendment; no missing grant or audience change",
+  "review_before_publish": "Default-on local preparation and plans; no standing automatic approval; uncovered posts need exact owner reuse confirmation and basis before manual approval.",
   "owner_profile_accessed": false,
   "real_upload_performed": false,
   "soak_24_hours_verified": false,
   "blocked_exe_detection_name": null,
-  "blocked_exe_false_positive_established": false
+  "blocked_exe_false_positive_established": false,
+  "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26"
 }

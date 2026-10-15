@@ -9,7 +9,7 @@ ClipFoundry source setup
 This package includes the exact verified app archive, a readable Python setup.py and a plain CMD launcher.
 It uses your installed Python. It includes no custom EXE launcher or PowerShell loader and does not change
 antivirus settings, execution policy, Windows trust/certificates or the firewall, and grants no missing posting
-permission. The app's requested one-time volume amendment is described below.
+permission.
 Python packages/GPU libraries and the later speech-model download may still need internet access.
 Python 3.11/3.12 and FFmpeg are recommended, as for normal ClipFoundry setup.
 
@@ -24,16 +24,26 @@ Their data is left in place. No old files or virtual environments are copied ove
 An active app/profile lock, multiple original profiles or unverifiable same-user managed revision stops setup.
 Missing/malformed JSON markers are treated as unknown installations and left untouched.
 
-Application revision: d0b7102e8273cee068531da554c8d83f3fa43f8f
-Included app.zip SHA-256: 32d0af142d7a34b6dcdd3d0b90048b0d977566bde4faf9b579c9ef496f468202
+Application revision: ec20aec76825a284393af00d812ec4a08a8beca3
+Included app.zip SHA-256: 8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2
 Setup verifies that hash and its known start.bat hash before installing or launching new app files.
 The Python setup source is included for inspection. The archive is also inspectable with normal ZIP tools.
 
-This app includes the finished-clip/YouTube scheduling repairs, automatic Brain guidance and phone dashboard.
-In Missions, Why clips are waiting to post explains any remaining input, quality or YouTube permission hold.
-App daily source/clip/platform caps now default to 0 (unlimited), with any-hour earliest eligible posting.
-First startup records a one-time volume/hours update to earlier limits and existing YouTube permission.
-Its channel/audience/kids answer and old post times/visibility stay intact; missing permission is never granted.
-Future owner caps persist. Your own or validly licensed/creator-permitted videos are still required for uploads.
-The app resumes eligible uploads when Autopilot and your existing permission are enabled.
-Brain guidance consultations and ordered manager/boss handoffs show actual work; quiet rooms explain their waits.
+Autopilot prepares clips and assigns proposed posting times for review, even when reuse permission has not
+been recorded yet. These times are local plans: nothing is sent to YouTube or a platform scheduler before
+you approve it. Clips awaiting review stay on your PC even after their proposed posting time passes.
+
+After updating:
+1. Check Missions -> Prepare & schedule for review.
+2. Open a Needs review post in Queue and watch the clip. Check the source and valid reuse permission.
+3. Review its caption, posting time and destination. Tick "I have checked that I can reuse this clip" and
+   fill in "Why I can reuse it". Click "Approve & schedule upload" when satisfied.
+4. An approved YouTube post can publish at its scheduled time. If the time has passed, choose a new time or
+   approve to allow uploading on the next publishing check. Future clips each wait for your review.
+   Manual TikTok handoff uses "Approve for TikTok"; supported inbox/direct uploads keep their per-post controls.
+
+Standing automatic approval stops. Started/uncertain uploads retain their original identity for safe recovery;
+already posted videos stay unchanged. Per-video audience settings, the made-for-kids answer, exact-file checks,
+quality checks and platform/API limits still apply. No TikTok connection is needed for YouTube.
+Earlier fixes remain: default app caps of 0 (unlimited), Brain guidance, phone dashboard and manager/boss
+handoffs. Quiet rooms and Missions explain actual waits. Future owner caps persist.
