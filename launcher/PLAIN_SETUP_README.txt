@@ -27,10 +27,32 @@ Their data is left in place. No old files or virtual environments are copied ove
 An active app/profile lock, multiple original profiles or unverifiable same-user managed revision stops setup.
 Missing/malformed JSON markers are treated as unknown installations and left untouched.
 
-Application revision: 11bdb43523f9b01e82590d2dd9e67473d323c88d
-Included app.zip SHA-256: 7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8
+Application revision: 0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7
+Included app.zip SHA-256: b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf
 Setup verifies that hash and its known start.bat hash before installing or launching new app files.
 The Python setup source is included for inspection. The archive is also inspectable with normal ZIP tools.
+
+Bug-fix update:
+- New renders downmix the chosen audio track before processing, use clip-relative audio timing and limit peaks
+  after gain. Preview a newly rendered clip before approval. Existing rendered/uploaded files are unchanged,
+  and distortion already present in a source cannot be repaired by the limiter.
+- YouTube made-for-kids answers require an actual Yes/No value. Made-for-kids and Private videos do not allow
+  comments; other YouTube restrictions may also apply. Check YouTube Studio for affected existing posts.
+  The app does not change a kids answer or audience merely to enable comments.
+- Autopilot continues bounded discovery scans and lets available providers work while another provider waits.
+  With spare preparation capacity and remaining source budget, scans run at most 15 minutes apart or at your
+  faster configured interval. A busy queue retains the regular configured cadence. Quality, saved limits,
+  budgets and API quotas apply.
+- Settings -> Integrations -> Search connections accepts optional YouTube and Tavily keys. A connected
+  YouTube account already supports search. Tavily's free plan currently includes 1,000 credits a month with
+  no card; basic requests cost one credit. Choose Use free Tavily plan limits, then save, for 1,000 included
+  credits and a $0 paid-search allowance. This is an app allowance, not a live provider balance; usage in other
+  apps also counts at Tavily. Wikimedia Commons needs no key. Keys do not grant reuse or posting permission.
+- Supported separate HLS video/audio tracks can be captured. Ended streams get bounded archive-recovery
+  checks, although some never provide a usable recording. The specific Windows disconnected-socket cleanup
+  error is handled without hiding unrelated errors. Native Windows remains unverified here.
+- CLAUDE_HANDOFF.md is included in the application. Ask Claude to read it and AGENTS.md before continuing.
+  Do not share account keys or your private app data in a handoff.
 
 Autopilot prepares clips and assigns proposed posting times for review, even when reuse permission has not
 been recorded yet. These times are local plans: nothing is sent to YouTube or a platform scheduler before
@@ -70,6 +92,18 @@ and their saved preferences or notes, not automatic visual-style learning. Gener
 searchable; unsupported instructions do not become editing controls. Check a new clip's Brain influence to
 see which saved items actually changed its plan or render. Previously rendered clips are not silently changed.
 
-This revision passed 1,195 fast checks (739.22 seconds), 11 actual-media/restart checks (1024.81 seconds),
-31 built browser checks (95.78 seconds) and a production build (9.44 seconds). Focused checks passed: 42 bulk
-approval, 19 independent approval audit and 86 Brain/context checks.
+Final application validation: 1,278 fast checks passed in 579.81 s; 43 final built-browser checks passed
+in 93.25 s, with all 17 tested frontend hashes unchanged; production build passed in 10.32 s.
+All 14 media/restart scenarios passed across full and targeted runs: the full attempt passed 12
+with two repeat-discovery fixture timeouts in 1153.68 s; after a fixture-only compressed-clock
+cache correction, the two private/public repeat scenarios passed in 374.57 s. This was not one
+all-green full-media run. The final pure health-cadence refactor is covered by the full fast suite
+and 77 focused checks; all 39 media-scope source hashes were unchanged. Detailed evidence is in
+the application CLAUDE_HANDOFF.md and launcher/plain_setup_verification.json.
+Source files: 498. Tested frontend files: 17.
+Final delivery validation: 48 installer checks (1.576 s), 13 pin-helper checks (0.598 s), 12 builder checks (0.019 s)
+and 10 exact-export helper checks (0.739 s) passed; the pinned archive was independently verified
+against exact committed Git source and the final tested frontend manifest.
+Owner Windows data, native Windows/RTX3050 operation, real account uploads, phone/Tailscale and a 24-hour
+unattended soak remain unverified. This update preserves the earlier reviewed source setup and its profile
+checks; it does not change GPU dependency pins or security settings.

@@ -41,10 +41,45 @@ is created.
 
 ## Included application
 
-The app is the tested revision **11bdb43523f9b01e82590d2dd9e67473d323c88d**. Its archive
-SHA-256 is **7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8**. Setup verifies the archive and
+The app is the tested revision **0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7**. Its archive
+SHA-256 is **b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf**. Setup verifies the archive and
 known start.bat hash before installing new code. Existing managed identity checks verify the marker and start
 file, rather than claiming a full checksum of every file already present on the PC.
+
+This update addresses distorted audio in new renders by downmixing the chosen audio track before processing,
+using clip-relative audio timing and limiting peaks after gain. It does not repair distortion already present
+in a source or change previously rendered/uploaded clips. Preview a new clip before approving it; an existing
+clip needs a fresh render and final checks before its corrected bytes can be approved.
+
+YouTube made-for-kids answers now require an actual Yes/No value instead of interpreting text such as "false"
+as Yes. The review screens explain that made-for-kids and Private videos cannot receive comments. ClipFoundry
+does not change an audience or kids designation to turn comments on. YouTube may also restrict comments for
+other reasons; check an affected video's settings in YouTube Studio. There is no general YouTube Data API
+switch that guarantees comments stay enabled.
+
+Discovery continues in bounded scans while Autopilot is running. A provider's rate limit pauses that provider,
+while other available providers and folder checks continue. When preparation has spare capacity and the saved
+source budget allows more work, scans run at most 15 minutes apart, or at your faster configured interval.
+A busy queue retains the configured regular cadence. Search pagination is bounded, and Missions explains the
+actual next search/wait. Quality, saved owner limits, app cost allowances and platform quotas still apply;
+this is not a promise of nonstop API calls.
+
+Open **Settings → Integrations → Search connections** to enter an optional YouTube Data API key or Tavily key.
+A connected YouTube account already supports search; a key does not add posting permission or bypass its quota.
+Tavily's free plan currently includes 1,000 credits each month without a credit card; the app uses one credit per
+basic request. Choose **Use free Tavily plan limits** to set 1,000 included credits and a $0 paid-search allowance,
+then save. This is an app allowance, not a live provider balance; usage in other apps counts at Tavily too.
+Wikimedia Commons provides a no-key free-license library. Enter keys only in the app, never in chat. Search
+results do not grant reuse rights or guarantee a better clip.
+
+The live-capture fixes accept supported separate HLS video/audio tracks and perform bounded checks for an
+ended stream's recording. Some streams never publish a usable archive; those still finish with an explanation.
+The Windows disconnected-socket cleanup fix handles the specific WinError 10054 cleanup path without hiding
+unrelated failures. Native Windows execution remains unverified here.
+
+The application includes **CLAUDE_HANDOFF.md** with the release's code changes, verification and remaining
+checks. Ask Claude to read that file and AGENTS.md before continuing the project. Keep account keys and your
+private app data out of any handoff you share.
 
 Autopilot prepares clips and assigns proposed posting times for your review. Missing recorded reuse permission
 does not stop a clip from reaching the review queue. A proposed time is local to ClipFoundry; the app does not
@@ -92,12 +127,20 @@ rendered clips are not silently rewritten.
 The optional **Settings → Integrations → Check from your phone** dashboard remains read-only and separate from
 desktop/account/publishing controls. Setup does not install Tailscale or connect a phone automatically.
 
-This revision passed 1,195 fast checks (739.22 seconds), 11 actual-media/restart checks (1024.81 seconds),
-31 built browser checks (95.78 seconds) and a production build (9.44 seconds). Focused checks passed: 42 bulk
-approval, 19 independent approval audit and 86 Brain/context checks.
-All 488 archived source files match the exact Git revision apart from six intentional
-BAT CRLF exports; all 17 browser-tested frontend file hashes match. Delivery checks and hashes are recorded in
-launcher/plain_setup_verification.json and launcher/DELIVERY_CHANGELOG.md.
+Final application validation: 1,278 fast checks passed in 579.81 s; 43 final built-browser checks passed
+in 93.25 s, with all 17 tested frontend hashes unchanged; production build passed in 10.32 s.
+All 14 media/restart scenarios passed across full and targeted runs: the full attempt passed 12
+with two repeat-discovery fixture timeouts in 1153.68 s; after a fixture-only compressed-clock
+cache correction, the two private/public repeat scenarios passed in 374.57 s. This was not one
+all-green full-media run. The final pure health-cadence refactor is covered by the full fast suite
+and 77 focused checks; all 39 media-scope source hashes were unchanged. Detailed evidence is in
+the application CLAUDE_HANDOFF.md and launcher/plain_setup_verification.json.
+Exact committed-source archive verification: 498 files with the six declared BAT CRLF
+exports; 17 browser-tested frontend files. Final delivery validation:
+48 installer checks (1.576 s), 13 pin-helper checks (0.598 s), 12 builder checks (0.019 s)
+and 10 exact-export helper checks (0.739 s) passed; the pinned archive was independently verified
+against exact committed Git source and the final tested frontend manifest. Final evidence and hashes are recorded
+in launcher/plain_setup_verification.json and launcher/DELIVERY_CHANGELOG.md.
 No owner Windows data, RTX3050 execution, actual account upload, real phone/Tailscale connection or 24-hour
 unattended soak is claimed. GPU and other app dependency pins are unchanged.
 

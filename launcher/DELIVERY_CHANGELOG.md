@@ -1,5 +1,56 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Audio, comments, recurring discovery and live/Windows fixes — 2026-10-15 (America/Chicago)
+
+App revision: 0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7. Artifact base: 40393e4.
+New renders downmix the selected first audio track before normalization and apply a compensated final peak
+limiter after gain. Transcription selects the same audio track; clip-relative timing preserves delayed starts
+and gaps as silence. Existing/source distortion and earlier renders/posts are not silently repaired or replaced.
+YouTube kids answers are strict booleans, not truthiness of text such as "false". Current returned audience
+flags take priority over historical requests. Review explains made-for-kids/Private/other comment restrictions;
+no audience/kids answer is changed to force comments, and the upload API has no guaranteed comments-enable switch.
+
+Discovery retains independent provider waits and recurs within 15 minutes when capacity and saved source
+allowance permit; a busy queue retains the regular configured interval. Drained queues shorten stale regular
+deadlines without polling postponement. Bounded provider pagination preserves ranks and YouTube time boundaries.
+Status/phone reads stay read-only. Search connections exposes sealed optional YouTube/Tavily keys and official
+setup help; Commons needs no key. The Tavily free preset sets 1,000 included monthly credits and a $0 paid-search
+allowance, not a live provider balance. Quality, saved caps, API/cost limits and exact Retry-After remain.
+Compatible separate HLS video/audio share a checked local relay/master and clock. Empty ended captures receive
+bounded public-archive checks with durable recovery; absent/private/protected archives remain unavailable.
+The specific native WinError10054 Proactor shutdown cleanup path closes/detaches correctly; unrelated errors
+remain visible. The included CLAUDE_HANDOFF.md records exact changes, missing owner evidence and continuation steps.
+
+Final app checks: 1,278 fast passed (579.81 s), 43 built-browser passed (93.25 s), production build (10.32 s),
+all 17 tested frontend hashes unchanged. All 14 actual-media/restart scenarios passed across full and targeted
+runs: the full attempt passed 12 with two repeat-discovery timeouts (1,274 deselected, 1153.68 s); after only the
+compressed-clock fixture's discovery-list cache expiry correction, both private/public repeat scenarios passed
+(374.57 s). This was not a single all-green full-media run. Production cache/quota behavior and all actual render,
+report, upload-byte and restart assertions were unchanged by that fixture correction. All 39 media-scope source
+hashes stayed unchanged; the later pure health-cadence refactor passed the final full fast run and 77 focused
+health/phone/search checks. Rich full-attempt and targeted-run evidence remains separate in the verification JSON.
+Focused checks also passed: 73 independent bugfix, 63 Windows/phone, 89 discovery, 61 queue/deadline/discovery,
+47 final comments/search and 77 final health/phone/search. No real owner profile or platform upload was used.
+
+All 498 archived source files match the exact Git revision except six intentional BAT CRLF exports; all 17
+browser-tested frontend hashes match. Final delivery checks: 48 installer (1.576 s), 13 pin helper (0.598 s),
+12 builder (0.019 s), 10 exact-export helper (0.739 s). An independent exact-export verification checked the
+pinned archive against Git and the final browser manifest. The builder and final ZIP inspection verified all
+four member hashes and both archive CRCs. All eight prior exact managed-release pins remain, plus the new one;
+Python and historical PS/BAT source pins/history agree. Verified same-SID original data profiles remain intact.
+
+App archive: 41,913,540 bytes, SHA-256
+b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf.
+Source setup ZIP: 41,855,919 bytes, SHA-256
+6b48d845931595f7037d97ef36da68b773db3e5e1d8eab1748fccc4bbc6df882.
+
+Extract All the outer ZIP and open its extracted CMD beside setup.py, app.zip and README.txt; keep inner app.zip
+zipped. No EXE was rebuilt or security setting changed. Historical EXE SHA-256 remains
+3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26.
+Native Windows/Defender, owner data/RTX3050, real provider keys/uploads, phone/Tailscale and a 24-hour soak remain
+unverified. Source/integrity checks do not certify antivirus acceptance. Verify the immutable remote ZIP before
+sharing it. Earlier Brain, selected-post approval, review-before-publishing and uncertain-upload guards remain.
+
 ## Faster selected-post approval and consistent Brain guidance — 2026-10-15 (America/Chicago)
 
 App revision: 11bdb43523f9b01e82590d2dd9e67473d323c88d. Artifact base: 6cd12e1.

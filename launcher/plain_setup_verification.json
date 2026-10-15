@@ -1,67 +1,93 @@
 {
-  "source_commit": "11bdb43523f9b01e82590d2dd9e67473d323c88d",
-  "app_archive_sha256": "7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8",
-  "zip_bytes": 41808314,
-  "zip_sha256": "4b365d80eee9d9a8deceb1a6a33ab35621d3f3d71818a7f2846bee62d50fe070",
+  "source_commit": "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7",
+  "app_archive_sha256": "b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf",
+  "zip_bytes": 41855919,
+  "zip_sha256": "6b48d845931595f7037d97ef36da68b773db3e5e1d8eab1748fccc4bbc6df882",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "1593c78de9f671e8a5b29c5f7b2622a3a9d1a2f36cdbd1b9ad1fac275661dcf1",
-    "app.zip": "7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8",
-    "README.txt": "c2c815c3bacf8d8e84157e1868e65c08a5208b5e2d814da0534ddf17702b7ff4"
+    "setup.py": "1b09f07a0fc0341b5a3c4308d1e9477ec3075ac3dc9e9d7ceff28e4a4501ead6",
+    "app.zip": "b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf",
+    "README.txt": "39b4955b9f306bc64535916dff03969b347143e71b89290680fec59f5bf6f874"
   },
-  "app_files": 488,
+  "app_files": 498,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "6cd12e1c262fbcebb9b3b1700870560ff8ad5590",
-  "app_archive_bytes": 41865645,
+  "artifact_base": "40393e4c2e30119d9dd70dc42d9770098f11202d",
+  "app_archive_bytes": 41913540,
   "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
   "app_tests": {
     "fast": {
-      "passed": 1195,
-      "deselected": 11,
-      "seconds": 739.22
+      "passed": 1278,
+      "deselected": 14,
+      "seconds": 579.81
     },
     "real_media_and_restart": {
-      "passed": 11,
-      "deselected": 1195,
-      "seconds": 1024.81
+      "scenarios_passed_across_runs": 14,
+      "full_attempt": {
+        "passed": 12,
+        "failed": 2,
+        "deselected": 1274,
+        "seconds": 1153.68,
+        "failed_cases": [
+          "tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[private]",
+          "tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[public]"
+        ]
+      },
+      "targeted_repeat_after_fixture_correction": {
+        "passed": 2,
+        "deselected": 0,
+        "seconds": 374.57
+      },
+      "fixture_change": "CompleteLoopFixture.repeat expires only discovery-list cache rows to model elapsed compressed time; production cache/quota policy and all media/approval/upload/restart assertions remain intact."
     },
     "final_built_browser": {
-      "passed": 31,
-      "seconds": 95.78
+      "passed": 43,
+      "seconds": 93.25
     },
-    "build_seconds": 9.44,
-    "focused_bulk": 42,
-    "independent_bulk_audit": 19,
-    "focused_brain": 86
+    "build_seconds": 10.32,
+    "focused_independent_bugfixes": 73,
+    "windows_phone": 63,
+    "discovery_focused": 89,
+    "final_queue_deadline_discovery": 61,
+    "final_comments_search": 47,
+    "final_health_phone_search": 77,
+    "media_scope_files_unchanged": 39
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 48,
-      "seconds": 1.756
+      "seconds": 1.576
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.737
+      "seconds": 0.598
     },
     "build_plain_zip": {
       "passed": 12,
-      "seconds": 0.036
+      "seconds": 0.019
     },
     "exact_git_export": {
       "passed": 10,
-      "seconds": 0.778
+      "seconds": 0.739
     }
   },
   "payload_verification": {
-    "source_files": 488,
+    "source_files": 498,
     "exact_git_match_with_declared_bat_crlf": true,
     "tested_frontend_files": 17,
     "tested_frontend_exact_match": true,
     "missing_or_extra_files": 0,
     "exe_or_dll_files": 0,
-    "runtime_or_credential_paths": 0
+    "runtime_or_credential_paths": 0,
+    "both_archive_crcs_verified": true
+  },
+  "managed_release_history": {
+    "prior_exact_pins_retained": true,
+    "previous_revisions": 8,
+    "current_revisions": 9,
+    "new_revision": "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7",
+    "python_powershell_history_agree": true
   },
   "no_powershell_loader": true,
   "no_app_archive_download": true,
@@ -74,6 +100,17 @@
   "blocked_exe_false_positive_established": false,
   "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26",
   "brain_guidance": "Enabled saved notes and examples are matched using source and spoken context through selection, plan and render. Recognized supported preferences apply with Settings fallback and explicit clip-edit precedence. Example appearance is not automatically learned; existing rendered media is not silently rewritten.",
+  "audio_fix": "First-track stereo downmix precedes processing, with compensated clip-relative timing and a final peak limiter after gain. Existing/source distortion and previously rendered/uploaded media are not repaired automatically.",
+  "youtube_comments": "Strict boolean kids answers and returned current status; review explains kids/private/platform restrictions without changing audience/kids answers or promising an API comments-enable switch.",
+  "ongoing_discovery": "Independent provider waits; at most 15-minute recurrence with available preparation capacity and remaining source allowance, otherwise configured cadence; bounded page rotation, quality/cost/API limits and exact waits remain.",
+  "optional_free_search": "Existing sealed YouTube/Tavily keys exposed under Search connections; connected YouTube search and no-key Commons supported. Tavily free-plan preset uses 1,000 included credits and $0 paid budget; this is an app allowance, not a live provider balance.",
+  "live_capture": "Compatible split HLS video/audio with shared-clock relay and bounded ended-public-archive availability recovery; private/protected/missing media remains unavailable.",
+  "windows_cleanup": "Specific native WinError10054 stdlib Proactor cleanup callback handled with transport/socket detachment; unrelated failures still reported. Linux native-transport tests do not establish Windows runtime behavior.",
+  "claude_handoff": {
+    "path": "CLAUDE_HANDOFF.md",
+    "included": true,
+    "sha256": "0aeba73815a9ae5530b97b6c5e32ba653cc4fe049795af59006e9e0de53a2063"
+  },
   "date": "2026-10-15",
   "timezone": "America/Chicago"
 }
