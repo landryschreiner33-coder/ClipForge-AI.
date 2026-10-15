@@ -1,5 +1,46 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Faster selected-post approval and consistent Brain guidance — 2026-10-15 (America/Chicago)
+
+App revision: 11bdb43523f9b01e82590d2dd9e67473d323c88d. Artifact base: 6cd12e1.
+Queue provides inline video/full-text previews, Quick approve for one YouTube post and selection of up to 50
+reviewed YouTube posts. One fixed batch preview shows account, audiences and times; reuse-basis presets avoid
+repeated typing. A single combined confirmation approves each successful exact selected post individually.
+Missing made-for-kids answers may be filled once; existing answers remain intact. Changed, blocked, replacement,
+active or uncertain work is skipped with a reason. Identical-request retries keep their prior result. Future
+arrivals are never selected or approved automatically. Single-post review shares the presets and combined
+confirmation. TikTok retains its individual platform controls. Past-due timing is visible before approval.
+
+Brain topic context now follows the source title and spoken words through candidate generation, including
+cached/resumed and live paths, ranking, blueprint and render. Tagged example length is consulted after
+transcription; per-candidate priorities avoid leaking unrelated transcript topics. Natural caption declarations
+and named example feature fields are recognized. Bad-example observations no longer promote unwanted traits;
+explicit corrective preferences remain usable. Settings fill unspecified choices, owner duration bounds remain
+binding and explicit editor overrides win. The UI distinguishes recognized effects and measured example length
+from searchable unsupported material. This does not add video-appearance recognition, external model calls,
+raw-note transmission, silent rewriting of old media or publishing permission.
+
+Final application checks passed: 1,195 fast (739.22 s), 11 actual-media/restart (1024.81 s), 31 built browser
+(95.78 s), production build (9.44 s), plus 42 focused bulk, 19 independent approval audit and 86 Brain/context.
+Actual-media cases include exact selected-post fake upload/restart and Brain-guided/owner-overridden caption
+renders with persisted influence records. All 488 archived files match the exact Git revision except six
+intentional BAT CRLF exports, and all 17 browser-tested frontend file hashes match. Final delivery checks:
+48 installer (1.756 s), 13 pin helper (.737 s), 12 builder (.036 s), 10 exact-export helper (.778 s). The builder
+verified each of the four outer ZIP members and both archive CRCs; the committed-source export was independently
+verified against Git and the tested frontend manifest before packaging.
+
+App archive: 41,865,645 bytes, SHA-256
+7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8.
+Source setup ZIP: 41,808,314 bytes, SHA-256
+4b365d80eee9d9a8deceb1a6a33ab35621d3f3d71818a7f2846bee62d50fe070.
+
+The four-file readable setup preserves verified same-user managed profile history and the original data folder.
+Instructions require Extract All and opening the extracted CMD beside setup.py, app.zip and README.txt; the
+inner app.zip stays zipped. No EXE was rebuilt or security setting changed. Historical EXE SHA-256 remains
+3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26.
+Native Windows/Defender, owner profile/RTX3050, real uploads, phone/Tailscale and a 24-hour soak remain unverified.
+Source/integrity checks do not certify antivirus acceptance. Verify the immutable remote ZIP before sharing it.
+
 ## Local schedules and individual reuse review — 2026-10-14 (America/Chicago)
 
 App revision: ec20aec76825a284393af00d812ec4a08a8beca3. Artifact base: f092834.

@@ -1,57 +1,61 @@
 {
-  "source_commit": "ec20aec76825a284393af00d812ec4a08a8beca3",
-  "app_archive_sha256": "8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2",
-  "zip_bytes": 41760159,
-  "zip_sha256": "315098d40ca40fbb85f5c61c4b3cb5772f5bf32ddef9d4f1ee480706b8d1b0b0",
+  "source_commit": "11bdb43523f9b01e82590d2dd9e67473d323c88d",
+  "app_archive_sha256": "7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8",
+  "zip_bytes": 41808314,
+  "zip_sha256": "4b365d80eee9d9a8deceb1a6a33ab35621d3f3d71818a7f2846bee62d50fe070",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "d70e29e7042918214c4dd3377f99380092676130e9ac21f665f9abca06529cc7",
-    "app.zip": "8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2",
-    "README.txt": "df7fd7b9f84ba45e6aae149f5054a3f0f71ed6f223c97d96a2a62bc8351ff3d7"
+    "setup.py": "1593c78de9f671e8a5b29c5f7b2622a3a9d1a2f36cdbd1b9ad1fac275661dcf1",
+    "app.zip": "7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8",
+    "README.txt": "c2c815c3bacf8d8e84157e1868e65c08a5208b5e2d814da0534ddf17702b7ff4"
   },
-  "app_files": 478,
+  "app_files": 488,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "f092834ed55e3ce2e86499de0e8305e9f3f4082f",
-  "app_archive_bytes": 41816502,
+  "artifact_base": "6cd12e1c262fbcebb9b3b1700870560ff8ad5590",
+  "app_archive_bytes": 41865645,
   "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
   "app_tests": {
     "fast": {
-      "passed": 1112,
-      "seconds": 529.54
+      "passed": 1195,
+      "deselected": 11,
+      "seconds": 739.22
     },
     "real_media_and_restart": {
-      "passed": 9,
-      "seconds": 879.93
+      "passed": 11,
+      "deselected": 1195,
+      "seconds": 1024.81
     },
     "final_built_browser": {
-      "passed": 12,
-      "seconds": 40.23
+      "passed": 31,
+      "seconds": 95.78
     },
-    "build_seconds": 8.79,
-    "focused_publishing_reuse": 95,
-    "scheduler_public_manual": 64,
-    "final_review_current_terms": 46,
-    "legacy_recovery": 107
+    "build_seconds": 9.44,
+    "focused_bulk": 42,
+    "independent_bulk_audit": 19,
+    "focused_brain": 86
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 48,
-      "seconds": 1.313
+      "seconds": 1.756
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.387
+      "seconds": 0.737
     },
     "build_plain_zip": {
       "passed": 12,
-      "seconds": 0.012
+      "seconds": 0.036
     },
-    "exact_git_export": 10
+    "exact_git_export": {
+      "passed": 10,
+      "seconds": 0.778
+    }
   },
   "payload_verification": {
-    "source_files": 478,
+    "source_files": 488,
     "exact_git_match_with_declared_bat_crlf": true,
     "tested_frontend_files": 17,
     "tested_frontend_exact_match": true,
@@ -62,11 +66,14 @@
   "no_powershell_loader": true,
   "no_app_archive_download": true,
   "no_security_settings_change": true,
-  "review_before_publish": "Default-on local preparation and plans; no standing automatic approval; uncovered posts need exact owner reuse confirmation and basis before manual approval.",
+  "review_before_publish": "Default-on local preparation and plans; selected YouTube posts can be approved together after one explicit review, with an individual approval and exact-post reuse assertion where needed. No standing approval or future-post grant.",
   "owner_profile_accessed": false,
   "real_upload_performed": false,
   "soak_24_hours_verified": false,
   "blocked_exe_detection_name": null,
   "blocked_exe_false_positive_established": false,
-  "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26"
+  "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26",
+  "brain_guidance": "Enabled saved notes and examples are matched using source and spoken context through selection, plan and render. Recognized supported preferences apply with Settings fallback and explicit clip-edit precedence. Example appearance is not automatically learned; existing rendered media is not silently rewritten.",
+  "date": "2026-10-15",
+  "timezone": "America/Chicago"
 }

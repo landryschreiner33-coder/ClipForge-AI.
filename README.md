@@ -4,6 +4,9 @@ Download **ClipFoundry-Source-Setup.zip**, close the previous ClipFoundry/setup 
 and choose **Extract All**. Open the extracted folder and double-click **Open-ClipFoundry.cmd**. Keep its
 console open while setup finishes and the app runs. Use the same CMD file for later sessions.
 
+Do not open the CMD from inside the ZIP. In the extracted folder, keep **Open-ClipFoundry.cmd**, **setup.py**,
+**app.zip** and **README.txt** together. Leave the inner **app.zip** zipped; setup opens it for you.
+
 The ZIP contains four inspectable files: the CMD launcher, Python setup.py, the exact app app.zip, and
 README.txt. It uses your installed Python and normal application start script. No custom compiled launcher,
 PowerShell loader, app-archive download or administrator access is needed. Python 3.11/3.12 and FFmpeg are
@@ -38,8 +41,8 @@ is created.
 
 ## Included application
 
-The app is the tested revision **ec20aec76825a284393af00d812ec4a08a8beca3**. Its archive
-SHA-256 is **8f873e6acd924db131fdd600e1b4a83b9a20895eedb4ab77bc1fd21e7726d2f2**. Setup verifies the archive and
+The app is the tested revision **11bdb43523f9b01e82590d2dd9e67473d323c88d**. Its archive
+SHA-256 is **7f34cc54d84ade2a920e49efd87e1f0ba37f14031c3300997efe7048b547d6f8**. Setup verifies the archive and
 known start.bat hash before installing new code. Existing managed identity checks verify the marker and start
 file, rather than claiming a full checksum of every file already present on the PC.
 
@@ -47,13 +50,21 @@ Autopilot prepares clips and assigns proposed posting times for your review. Mis
 does not stop a clip from reaching the review queue. A proposed time is local to ClipFoundry; the app does not
 upload it to YouTube or send it to a platform scheduler until you approve it.
 
-After updating, check **Missions → Prepare & schedule for review**. Open a **Needs review** post in **Queue**,
-watch the clip, check the source and reuse permission, and review its caption, posting time and destination.
-Tick **I have checked that I can reuse this clip**, fill in **Why I can reuse it**, then click
-**Approve & schedule upload**. An approved YouTube post can publish at its scheduled time. If its proposed time
-has passed, choose a new time first or approve to allow uploading on the next publishing check. Clips still
-awaiting review stay on your PC. Manual TikTok handoff uses **Approve for TikTok**; supported inbox/direct
-uploads retain their separate per-post controls.
+After updating, check **Missions → Prepare & schedule for review**. In **Queue**, play clips directly from
+their cards. Check the source and valid reuse permission, caption, destination and proposed posting time.
+Use **Quick approve** for one YouTube post, or select reviewed YouTube posts and choose **Approve selected**
+for a batch of up to 50. The dialog shows the exact posts and their audiences and times.
+
+Choose a reuse-permission basis when requested. Presets avoid repeated typing; **Other permission** accepts
+your explanation. Choose a basis that truthfully covers all selected clips, or approve separate groups with
+different bases. Answer the made-for-kids question if requested, confirm the review once and approve. Each
+successful approval belongs to its own reviewed post; anything needing correction stays in review with a
+reason. New arrivals are not selected or approved automatically.
+
+An approved YouTube post can publish at its scheduled time. Review past-due times before approving: those
+posts can upload on the next publishing check. Clips awaiting review stay on your PC. Individual **Post
+review** also offers presets and one combined confirmation. TikTok retains individual per-post review;
+manual handoff uses **Approve for TikTok**, with separate controls for supported inbox/direct uploads.
 
 This update stops standing automatic approval. Existing uploads that have already started or have an uncertain
 platform result keep their identity so recovery cannot upload the same clip twice. Existing posted videos are
@@ -70,12 +81,22 @@ explain their actual waits. Current reuse/required-credit checks also bind to ac
 review and recovery of provably unstarted uploads. Started/uncertain sessions retain their original identity.
 
 Enabled saved Brain guidance applies automatically to new clips, with Settings filling unspecified choices.
+Topic matching follows source context and spoken content through clip selection and supported rendering
+choices, so a topic-tagged note is not lost when a generated clip title uses different wording. Recognized
+guidance takes priority for its supported choices; explicit clip-editor changes still take priority. Example
+videos provide measured duration and their saved preferences or notes; they are not a visual-style training
+model. General reference text remains searchable, and unsupported requests do not become editing controls.
+Check a new clip's Brain influence to see which saved items actually changed its plan or render. Existing
+rendered clips are not silently rewritten.
+
 The optional **Settings → Integrations → Check from your phone** dashboard remains read-only and separate from
 desktop/account/publishing controls. Setup does not install Tailscale or connect a phone automatically.
 
-This revision passed 1,112 fast checks, nine actual-media/restart checks, 12 built browser checks and a production
-build. All 478 archived source files match the exact Git revision apart from six intentional BAT CRLF exports;
-all 17 browser-tested frontend file hashes match. Delivery checks and hashes are recorded in
+This revision passed 1,195 fast checks (739.22 seconds), 11 actual-media/restart checks (1024.81 seconds),
+31 built browser checks (95.78 seconds) and a production build (9.44 seconds). Focused checks passed: 42 bulk
+approval, 19 independent approval audit and 86 Brain/context checks.
+All 488 archived source files match the exact Git revision apart from six intentional
+BAT CRLF exports; all 17 browser-tested frontend file hashes match. Delivery checks and hashes are recorded in
 launcher/plain_setup_verification.json and launcher/DELIVERY_CHANGELOG.md.
 No owner Windows data, RTX3050 execution, actual account upload, real phone/Tailscale connection or 24-hour
 unattended soak is claimed. GPU and other app dependency pins are unchanged.
