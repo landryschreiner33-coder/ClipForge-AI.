@@ -9,6 +9,7 @@ import {
   PostActionDialog, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel, VIEW_NAME, viewOf,
 } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
+import { ReuseBasis, ReuseKind } from "../components/ReuseBasis";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, toast,
@@ -113,7 +114,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const [base, setBase] = useState<Form>(() => formOf(p));
   const [f, setF] = useState<Form>(base);
   const [agree, setAgree] = useState(false);
-  const [reuseConfirmed, setReuseConfirmed] = useState(false);
+  const [reuseKind, setReuseKind] = useState<ReuseKind>("");
   const [reuseBasis, setReuseBasis] = useState("");
   const key = serverKey(p);
   const dirtyKeys = (Object.keys(LABELS) as (keyof Form)[]).filter((k) => f[k] !== base[k]);
@@ -130,14 +131,14 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     if (!dirty) setF(next);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (patch: Partial<Form>) => {
-    setF((x) => ({ ...x, ...patch })); setAgree(false); setReuseConfirmed(false);
+    setF((x) => ({ ...x, ...patch })); setAgree(false);
   };
 
   const [dialog, setDialog] = useState<PostAction | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setAgree(false); setReuseConfirmed(false); setReuseBasis("");
+    setAgree(false); setReuseKind(""); setReuseBasis("");
   }, [key, account?.account_id, p.reuse_review?.confirmed, p.reuse_review?.status]);
 
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
@@ -175,12 +176,12 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     return out as Post;
   };
 
-  const reuseDirty = needsOk && needsReuseCheck && (reuseConfirmed || !!reuseBasis.trim());
+  const reuseDirty = needsOk && needsReuseCheck && (!!reuseKind || !!reuseBasis.trim());
   const guard = useMemo(() => (dirty || reuseDirty ? {
     what: [...dirtyKeys.map((k) => LABELS[k]), ...(reuseDirty ? ["reuse review"] : [])].join(", "),
     save: !reuseDirty && dirtyKeys.every((k) => SAVED_BY_EDIT.includes(k)) && p.status !== "approved"
       ? async () => { await saveText(); } : undefined,
-    discard: () => { setF(base); setReuseConfirmed(false); setReuseBasis(""); },
+    discard: () => { setF(base); setAgree(false); setReuseKind(""); setReuseBasis(""); },
   } : null), [dirty, reuseDirty, dirtyKeys.join(), base, p.status]); // eslint-disable-line react-hooks/exhaustive-deps
   useLeaveGuard(guard);
 
@@ -206,9 +207,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     tooLong && `trim the clip to ${creator!.max_duration} seconds`,
     p.quality?.status === "failed" && "fix what the final check found",
     p.source?.rights_status === "BLOCKED" && "remove this blocked source from the plan",
-    needsReuseCheck && !reuseConfirmed && "confirm that you checked you can reuse this clip",
-    needsReuseCheck && !reuseBasis.trim() && "record why you can reuse this clip",
-    !agree && "tick that you watched the video and read its text",
+    needsReuseCheck && (!reuseKind || (reuseKind === "custom" && !reuseBasis.trim()))
+      && "choose why you can reuse this clip",
+    !agree && (needsReuseCheck ? "confirm your video, text, audience and reuse review"
+      : "tick that you watched the video and read its text"),
   ].filter(Boolean) as string[];
 
   const approve = async () => {
@@ -220,7 +222,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     try {
       const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
         expected_account_id: account?.account_id };
-      if (needsReuseCheck) Object.assign(body, { reuse_confirmed: reuseConfirmed, reuse_basis: reuseBasis.trim() });
+      if (needsReuseCheck) Object.assign(body, { reuse_confirmed: agree, reuse_kind: reuseKind,
+        ...(reuseKind === "custom" ? { reuse_basis: reuseBasis.trim() } : {}) });
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
       else Object.assign(body, {
         mode: f.mode, privacy: direct ? f.privacy : "", allow_comment: f.comment, allow_duet: f.duet,
@@ -297,17 +300,9 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
               <p className="small muted">There is no current reuse confirmation covering this post.
                 Your confirmation records your own review; it does not verify a license or change the source's
                 recorded permission.</p>
-              <label className="stack small" htmlFor="reuse-basis">
-                <span className="strong">Why I can reuse it</span>
-                <textarea id="reuse-basis" className="input" rows={3} maxLength={4000} value={reuseBasis}
-                  onChange={(e) => { setReuseBasis(e.target.value); setReuseConfirmed(false); }}
-                  placeholder="For example: I created the footage, or the creator agreed to this use; record the details." />
-              </label>
-              <label className="choice">
-                <input type="checkbox" checked={reuseConfirmed}
-                  onChange={(e) => setReuseConfirmed(e.target.checked)} />
-                <span className="small">I have checked that I can reuse this clip</span>
-              </label>
+              <ReuseBasis kind={reuseKind} basis={reuseBasis} onChange={(kind, basis) => {
+                setReuseKind(kind); setReuseBasis(basis); setAgree(false);
+              }} />
             </section>
           )}
           {editable ? (
@@ -375,7 +370,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             <label className="choice">
               <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
               <span className="small">I watched this video, read its text and authorize this audience
-                {f.privacy === "public" || p.audience?.intent === "PUBLIC" ? ": Public (anyone can watch)." : "."}</span>
+                {f.privacy === "public" || p.audience?.intent === "PUBLIC" ? ": Public (anyone can watch)." : "."}
+                {needsReuseCheck ? " I checked I can reuse this clip on the basis selected above." : ""}</span>
             </label>
           </div>
           <div className="stack approve-side">

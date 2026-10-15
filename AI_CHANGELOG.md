@@ -7,6 +7,25 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-15 · Faster review, bulk approval and consistent Brain guidance
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `ec20aec`.
+* **What changed:** inline Queue video/text previews, Quick approve and selection of up to 50 YouTube posts.
+  Permission presets replace required typing, and one combined consent replaces duplicate checkboxes. Batch
+  approval uses a fixed, expiring, account/file/source/terms/payload/audience/check-bound preview, explicit common
+  permission basis and any missing kids answer; each success receives its own manual approval. Future posts gain
+  no permission. Final guarded writes reject changed or active work without hashing under the database lock.
+  Partial results retain skipped posts for review; exact retries return prior results. Known credit, physical
+  quality, grounded text, post audience/time, platform waits and duplicate protections remain. TikTok stays
+  individual. Single review and current per-post assertions retain exact-payload confirmation.
+  Brain matching now retains source-title/spoken context through candidate generation, ranking, planning and
+  rendering, including resume/live. Natural caption declarations and example feature fields are recognized;
+  disliked-example observations no longer become desirable ranking traits. Recognized effects/length hints are
+  shown honestly, Settings remain the fallback and explicit clip edits win. Unsupported text stays searchable.
+* **Why:** the owner finds repeated review too slow and reports saved Brain notes/examples not changing clips.
+* **Validation:** Final full fast suite: 1,195 passed, 11 slow deselected, in 739.22 s. Final real-FFmpeg/synthetic-speech media and restart suite: 11 passed, 1,195 deselected, in 1024.81 s. This includes exact selected-post fake uploads/restart and two actual Brain-guided/owner-overridden caption renders with persisted provenance. Final production build: 9.44 s; TypeScript passed. All 31 final built-browser checks passed in 95.78 s, with all 17 frontend hashes unchanged. Focused checks: 42 bulk, 19 independent approval audit and 86 Brain/context checks passed. Browser fixture wording/details visibility and async readiness were corrected before the final run; earlier interrupted or fixture-correction runs are not final evidence.
+* **Not verified:** the owner's PC/profile, native Windows/GPU, real social uploads or a 24-hour soak.
+
 ## 2026-10-14 · Prepare and schedule for individual reuse review
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `d0b7102`.

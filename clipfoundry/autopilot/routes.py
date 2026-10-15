@@ -731,6 +731,44 @@ def scheduled_list(view: str = "upcoming", limit: int = 200) -> dict:
             "counts": {r["status"]: r["n"] for r in _count("scheduled_publications", "status")}}
 
 
+class BulkPreviewBody(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class BulkApproveBody(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    confirm: bool = False
+    reuse_confirmed: bool = False
+    reuse_kind: str = Field(default="custom", max_length=50)
+    reuse_basis: str = Field(default="", max_length=4000)
+    made_for_kids: bool | None = None
+
+
+@router.post("/scheduled/bulk-preview", dependencies=WRITE)
+def bulk_preview(body: BulkPreviewBody) -> dict:
+    from . import bulk_review
+
+    try:
+        result = bulk_review.preview(body.ids)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    settings = db.get_settings()
+    for row in result["items"]:
+        if row["item"]:
+            row["item"] = _public_item(row["item"], settings)
+    return result
+
+
+@router.post("/scheduled/bulk-approve", dependencies=WRITE)
+def bulk_approve(body: BulkApproveBody) -> dict:
+    from . import bulk_review
+
+    try:
+        return bulk_review.approve(**body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 def _item_or_404(item_id: str) -> dict:
     item = db.fetch("scheduled_publications", item_id)
     if not item:
@@ -763,6 +801,7 @@ class ApproveBody(BaseModel):
     confirm: bool = False
     reuse_confirmed: bool = False
     reuse_basis: str = Field(default="", max_length=4000)
+    reuse_kind: str | None = Field(default=None, max_length=50)
     expected_account_id: str = ""
 
 
@@ -789,7 +828,7 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
     from ..publish import tiktok
     from ..publish.common import PublishError
-    from . import packaging, scheduler
+    from . import bulk_review, packaging, scheduler
 
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
@@ -801,8 +840,9 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
         creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
     try:
+        basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
         out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
-                                reuse_basis=body.reuse_basis)
+                                reuse_basis=basis)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])

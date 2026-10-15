@@ -367,6 +367,22 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Brain-use correction (2026-10-15, America/Chicago):** The owner reports notes/examples not affecting clips.
+Carry actual source-title and transcript topic context through candidate generation, ranking, blueprint and
+render, including resumed and live paths. Relevant supported Brain choices override Settings, which fill gaps;
+explicit per-clip editor overrides still win. Measured good-example lengths remain within configured bounds.
+Bad-example observations must not promote undesired traits. Show recognized effects and reference-only material
+truthfully. Preserve old media, local raw-note privacy and all independent publishing/rights checks.
+
+**Faster approval continuation (2026-10-14, America/Chicago):** The owner authorizes faster manual review and bulk
+approval of selected YouTube posts. Queue previews and permission presets reduce navigation/typing; one combined
+consent may cover the explicit selected group. This remains individual exact-post manual authorization recorded
+for each approved item, not a standing grant or source ownership/license. Batch previews expire after ten minutes,
+are limited to 50 selected posts and must reject changed bytes/text/options/account/audience/terms/checks or any
+active/uncertain upload. No new arrivals are selected automatically. Preserve final checks, required credit,
+explicit permission basis, account/audience/kids choice, timing, idempotency and platform waits. TikTok keeps its
+individual platform review. Source statements and Brain notes never create bulk consent.
+
 **Review-before-publishing continuation (2026-10-14):** The latest owner request supersedes automatic publishing
 as the default and the requirement for recorded reuse coverage before *scheduling*. `autopilot_review_before_publish`
 defaults on. Discovery and local plans may include accessible, unblocked sources with unrecorded reuse terms;

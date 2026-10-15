@@ -91,13 +91,20 @@ def view(row: dict) -> dict:
     compiled = compile_note(row)
     out["effective_preferences"] = compiled["preferences"]
     out["priorities"] = compiled["priorities"]
+    out["example_duration"] = compiled["example_duration"]
     usable = bool(compiled["preferences"] or compiled["priorities"] or compiled["example_duration"])
     out["state"] = "disabled" if not row["enabled"] else "active" if usable else \
         "saved_example" if row["kind"] == "example" else "reference"
     out["use_note"] = ("Disabled: this lesson is not used for new clips." if not row["enabled"] else
                        "Used automatically for matching new clips; Settings fill unspecified choices." if usable else
-                       "Saved and consulted. Add a supported editing preference or describe a hook, payoff, "
-                       "context or pacing goal to change future clips.")
+                       "Saved as a searchable reference; no recognized editing guidance yet. Add a supported "
+                       "caption or pacing preference, or describe a hook, payoff or context goal for new clips.")
+    if row["enabled"] and row["kind"] == "example" and row.get("example_label") == "bad" and not usable:
+        out["use_note"] = ("Saved as a bad example. Its described traits are not copied. Choose a corrective "
+                           "caption or pacing preference below to change new clips.")
+    elif row["enabled"] and compiled["example_duration"] is not None:
+        out["use_note"] += (" Its measured length is blended with your target and stays within the minimum "
+                            "and maximum clip lengths in Settings.")
     return out
 
 
@@ -252,7 +259,8 @@ def matching(clip: dict, settings: dict) -> list[tuple[dict, dict]]:
     """Consult enabled knowledge at decision time; tags narrow its topic, not its activation."""
     if settings.get("brain_paused"):
         return []
-    haystack = " ".join(str(clip.get(k) or "") for k in ("title", "hook", "caption_text", "category")).lower()
+    haystack = " ".join(str(clip.get(k) or "") for k in
+                        ("title", "hook", "caption_text", "category", "source_title")).lower()
     rows = db.select("brain_knowledge", "enabled = 1", (),
                      "CASE kind WHEN 'instruction' THEN 0 WHEN 'example' THEN 1 ELSE 2 END, updated_at DESC, id")
     matches = [(row, compile_note(row)) for row in rows if not row["tags"] or any(
@@ -263,9 +271,15 @@ def matching(clip: dict, settings: dict) -> list[tuple[dict, dict]]:
     return matches
 
 
+def context(clip: dict, project: dict) -> dict:
+    """Keep the source title available after ranking replaces it with a short clip title."""
+    return {**clip, "source_title": project.get("name") or ""}
+
+
 def _influence(row: dict, decisions: dict) -> dict:
     return {"knowledge_id": row["id"], "revision": row["revision"],
-            "snapshot": {k: row[k] for k in ("title", "kind", "example_label", "preferences", "features", "tags")},
+            "snapshot": {k: row[k] for k in
+                         ("title", "kind", "example_label", "preferences", "features", "tags", "media")},
             "decisions": decisions}
 
 

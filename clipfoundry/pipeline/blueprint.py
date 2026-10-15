@@ -110,7 +110,7 @@ class Blueprint:
     payoff: Payoff = field(default_factory=Payoff)
     reasons: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
-    knowledge: list[dict] = field(default_factory=list)  # approved reference revisions that changed this plan
+    knowledge: list[dict] = field(default_factory=list)  # enabled guidance revisions that changed this plan
     origin: str = "strategist"
     schema_version: int = SCHEMA_VERSION
 
@@ -419,7 +419,7 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
 
     opts = render.effective_options(settings, project.get("options") or {}, {})
     with brain.consultation("blueprint", settings, ref=("clip", clip["id"])):
-        opts, influences = knowledge.choose(clip, opts, settings)
+        opts, influences = knowledge.choose(knowledge.context(clip, project), opts, settings)
     # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
     selected = (selection or {}).get("brain_knowledge") or []
     combined = {}
@@ -514,6 +514,14 @@ def with_edit(bp: Blueprint, edit: dict, origin: str = "edit") -> Blueprint:
         changed.append("caption text")
     if not changed:
         return bp
+    # The stored strategist plan keeps its original explanation. This edited render must not attribute an
+    # owner's explicit look or replacement range to the earlier Brain choice; selection evidence still applies.
+    overridden = set(edit)
+    if "range" in changed:
+        overridden.add("pacing")
+    new.knowledge = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
+                                          if key not in overridden}} for item in new.knowledge]
+    new.knowledge = [item for item in new.knowledge if item["decisions"]]
     new.origin = origin
     who = "you" if origin == "edit" else "the version"
     new.reasons = [*bp.reasons, f"changed by {who}: {', '.join(changed)}"]

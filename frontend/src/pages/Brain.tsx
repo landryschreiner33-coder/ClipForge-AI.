@@ -11,6 +11,7 @@ import {
   Workspace,
 } from "../brain";
 import { Banner, Dialog, EmptyState, Icon, LinkTabs, PageHead, toast } from "../components/ui";
+import { brainApi } from "../office/api";
 import BrainGraph from "./BrainGraph";
 import { BrainNode, buildBrainGraph, filterBrainGraph, GraphCategory } from "./brainGraphModel";
 import "./Brain.css";
@@ -23,6 +24,8 @@ const stateLabel = {
   needs_approval: "Needs approval",
   disabled: "Disabled",
 };
+const lessonLabel = (item: Knowledge, paused = false) =>
+  paused && item.state === "active" ? "Ready when Brain resumes" : stateLabel[item.state];
 const pretty = (key: string) => key.replace(/_/g, " ");
 const valueLabel = (value: unknown) =>
   typeof value === "boolean" ? (value ? "on" : "off") : value == null ? "default" : pretty(String(value));
@@ -179,8 +182,10 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
     setNodeId(`knowledge:${saved.id}`);
     remember("editor", saved.id);
     await refresh();
-    toast(saved.enabled ? "Saved. Brain uses recognized guidance automatically for new clips." :
-      "Saved. This lesson is disabled for future clips.");
+    toast(!saved.enabled ? "Saved. This lesson is disabled for future clips."
+      : workspace?.guidance?.paused ? "Saved. Resume Brain to use this lesson on new clips."
+        : saved.state === "active" ? "Saved. Recognized guidance applies to matching new clips."
+          : "Saved as a reference. Choose a supported preference to change new clips.");
     return saved;
   };
   const action = async (run: () => Promise<unknown>, message: string) => {
@@ -235,7 +240,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
           </div>
           <div>
             <strong>{workspace.counts.active ?? workspace.counts.approved}</strong>
-            <span>active lessons</span>
+            <span>enabled lessons</span>
           </div>
           <div>
             <strong>{Object.values(workspace.brain.observations).reduce((a, b) => a + b, 0)}</strong>
@@ -243,6 +248,13 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
           </div>
         </div>
       )}
+      {workspace?.guidance?.paused && <Banner tone="warn" title="Brain is paused" actions={
+        <button type="button" className="btn btn-small" disabled={busy} onClick={() => void action(
+          () => brainApi.pause(false), "Brain resumed. Saved guidance applies to matching new clips.")}
+        ><Icon name="play" />Resume Brain</button>
+      }>
+        {workspace.guidance.note || "Saved guidance and learning from results are paused. Your Settings still apply."}
+      </Banner>}
       {(active === "knowledge" || active === "examples") && (
         <>
           <div className="brain-toolbar brain-main-toolbar">
@@ -358,6 +370,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
               />
               <GraphInspector
                 node={inspected}
+                paused={Boolean(workspace?.guidance?.paused)}
                 model={model}
                 onEdit={edit}
                 onSelect={selectNode}
@@ -400,7 +413,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
                       }}
                     >
                       <div className="brain-tags">
-                        <span className={`brain-pill ${item.state}`}>{stateLabel[item.state]}</span>
+                        <span className={`brain-pill ${item.state}`}>{lessonLabel(item, Boolean(workspace?.guidance?.paused))}</span>
                         <span className="brain-pill">
                           {item.kind === "example" ? `${item.example_label} example` : item.kind}
                         </span>
@@ -431,12 +444,13 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
                 <KnowledgeEditor
                   key={`${chosen?.id || "new"}:${chosen?.revision || 0}:${newKind}:${detailed}`}
                   item={chosen}
+                  paused={Boolean(workspace?.guidance?.paused)}
                   kind={adding ? newKind : examples ? "example" : "reference"}
                   detailed={detailed}
                   onGraph={showGraph}
                   onReload={refresh}
                   onSave={save}
-                                    onDelete={setRemoving}
+                  onDelete={setRemoving}
                   onToggle={(item) =>
                     void action(
                       () => knowledgeApi.edit(item.id, { enabled: !item.enabled }, item.revision),
@@ -449,8 +463,8 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
           )}
           <div className="brain-bottom-note">
             <p>
-              Notes stay on this computer. Only active lessons change new Autopilot plans. Saving a note does
-              not train a model.
+              Relevant enabled lessons guide new clips. Settings fill unspecified choices; changes you make in
+              the clip editor take priority. Existing clips keep their edits.
             </p>
             {mode === "editor" && (
               <button onClick={() => setPreviewing(true)}>
@@ -509,6 +523,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
 
 function GraphInspector({
   node,
+  paused,
   model,
   onEdit,
   onSelect,
@@ -517,6 +532,7 @@ function GraphInspector({
   onTeach,
 }: {
   node: BrainNode;
+  paused: boolean;
   model: ReturnType<typeof buildBrainGraph>;
   onEdit: (id: string | null) => void;
   onSelect: (id: string) => void;
@@ -540,7 +556,7 @@ function GraphInspector({
       <h2>{node.title}</h2>
       {item ? (
         <>
-          <span className={`brain-pill ${item.state}`}>{stateLabel[item.state]}</span>
+          <span className={`brain-pill ${item.state}`}>{lessonLabel(item, paused)}</span>
           <p className="brain-inspector-content">{item.content || "No written notes yet."}</p>
           <div className="brain-tags">
             {item.tags.map((tag) => (
@@ -560,6 +576,7 @@ function GraphInspector({
               ))}
             </div>
           )}
+          <LessonEffect item={item} paused={paused} compact />
           <p className="brain-note">
             Revision {item.revision} · {date(item.updated_at)}
             {item.filename ? ` · ${item.filename}` : ""}
@@ -668,6 +685,7 @@ function GraphInspector({
 
 function KnowledgeEditor({
   item,
+  paused,
   kind,
   detailed,
   onGraph,
@@ -677,6 +695,7 @@ function KnowledgeEditor({
   onDelete,
 }: {
   item: Knowledge | null;
+  paused: boolean;
   kind: KnowledgeKind;
   onSave: (data: KnowledgeInput, file: File | null) => Promise<Knowledge>;
   detailed: boolean;
@@ -747,7 +766,7 @@ function KnowledgeEditor({
         </h2>
         {item && (
           <span className={`brain-pill ${dirty ? "unsaved" : item.state}`}>
-            {dirty ? "Unsaved changes" : stateLabel[item.state]}
+            {dirty ? "Unsaved changes" : lessonLabel(item, paused)}
           </span>
         )}
       </div>
@@ -761,21 +780,11 @@ function KnowledgeEditor({
         </p>
       )}
       <p className="brain-note">
-        Save an enabled lesson and Brain reads it automatically for new clips. Supported editing guidance and
-        ranking priorities are interpreted locally; your Settings fill in anything it does not specify. Good
-        video examples contribute a measured length preference, while their visual appearance is not copied.
-
+        Recognized editing guidance and ranking goals apply to matching new clips. Your Settings fill in missing
+        choices; your clip editor changes take priority. Other prose stays as a searchable reference.
+        {isExample ? " Good video examples can guide clip length. They do not copy the example's visual style." : ""}
       </p>
-      {item?.use_note && (
-        <div className="brain-note brain-use-note" aria-label="How Brain uses this lesson">
-          <p>{dirty ? "Unsaved edits have not changed how this lesson is used." : item.use_note}</p>
-          {!!item.priorities?.length && <p>Ranking priorities: {item.priorities.map(pretty).join(", ")}.</p>}
-          {!!Object.keys(item.effective_preferences || {}).length && (
-            <p>Recognized choices: {Object.entries(item.effective_preferences || {}).map(([key, value]) =>
-              `${pretty(key)}: ${valueLabel(value)}`).join(" · ")}.</p>
-          )}
-        </div>
-      )}
+      {item && <LessonEffect item={item} paused={paused} dirty={dirty} />}
       <label>
         <span>Title</span>
         <input
@@ -879,8 +888,8 @@ function KnowledgeEditor({
             placeholder="science, basketball, cooking"
           />
           <small className="brain-note">
-            With tags, preferences apply only when the clip's text or category contains one. Without tags, they apply to
-            every new clip.
+            With tags, guidance applies when the source title, spoken words, clip text or category matches a tag.
+            Without tags, it can guide every new clip.
           </small>
         </label>
       </details>
@@ -1104,6 +1113,26 @@ function PerformanceHistory({ workspace }: { workspace: Workspace }) {
       </div>
     </>
   );
+}
+
+function LessonEffect({ item, paused, dirty = false, compact = false }: {
+  item: Knowledge; paused: boolean; dirty?: boolean; compact?: boolean;
+}) {
+  const choices = Object.entries(item.effective_preferences || item.preferences);
+  const measuredLength = item.example_duration;
+  return <section className="brain-note brain-use-note" aria-label="How Brain uses this lesson">
+    <h3 className="small strong">Effect on new clips</h3>
+    {dirty ? <p>Unsaved edits have not changed this saved lesson. Save to update its recognized guidance.</p>
+      : paused && item.state === "active" ? <p>Brain is paused. Resume it to apply this lesson to new clips.</p>
+        : item.use_note ? <p>{item.use_note}</p>
+        : !choices.length && !item.priorities?.length && measuredLength == null
+          ? <p>Saved reference. Choose a supported preference to change new clips.</p> : null}
+    {!!choices.length && !compact && <p>Recognized choices: {choices.map(([key, value]) =>
+      `${pretty(key)}: ${valueLabel(value)}`).join(" · ")}.</p>}
+    {!!item.priorities?.length && <p>Ranking priorities: {item.priorities.map(pretty).join(", ")}.</p>}
+    {measuredLength != null && <p>Measured length hint: <b>{measuredLength.toFixed(1)} seconds</b>.
+      {" "}Blended with your target. Your minimum and maximum clip lengths still apply, so the target may stay the same.</p>}
+  </section>;
 }
 
 function DecisionTry({ onClose }: { onClose: () => void }) {

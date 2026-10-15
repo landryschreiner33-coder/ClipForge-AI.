@@ -1,5 +1,27 @@
 # Implementation status
 
+## Fast review, bulk approval and consistent Brain use — 2026-10-15 (America/Chicago)
+
+Base: `ec20aec76825a284393af00d812ec4a08a8beca3`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Inline Queue previews/full post text/source, Quick approve and selection of up to 50 YouTube posts.
+- [x] Permission presets/custom basis, missing-only shared kids choice and one combined explicit manual consent;
+  single review also avoids mandatory typing and duplicate checkboxes. TikTok retains individual review.
+- [x] Expiring bounded snapshots and final guarded writes bind approval to actual current files, terms/credit,
+  account, audience, payload, schedule, checks and state; skip active/unknown/replacement work without overwriting.
+- [x] Store per-post manual approvals/assertions, with no fabricated source ownership or future grant; preserve
+  partial successes, show skipped reasons, retain selection and make exact request retries idempotent.
+- [x] Test actual selected-file uploads and restart with fake platforms, later unapproved arrivals, API boundaries
+  and desktop/mobile controls; retain all earlier quality/permission/account/recovery protections.
+- [x] Carry source-title/spoken topic context through candidate generation, ranking, blueprint and render,
+  including cached/resumed and live paths; use tagged good-example lengths after transcription.
+- [x] Recognize natural caption declarations and named example feature fields, suppress positive imitation of
+  bad examples, retain Settings fallback/owner duration bounds/explicit editor overrides, and show actual effects.
+
+**Validation:** Final full fast suite: 1,195 passed, 11 slow deselected, in 739.22 s. Final real-FFmpeg/synthetic-speech media and restart suite: 11 passed, 1,195 deselected, in 1024.81 s. This includes exact selected-post fake uploads/restart and two actual Brain-guided/owner-overridden caption renders with persisted provenance. Final production build: 9.44 s; TypeScript passed. All 31 final built-browser checks passed in 95.78 s, with all 17 frontend hashes unchanged. Focused checks: 42 bulk, 19 independent approval audit and 86 Brain/context checks passed. Browser fixture wording/details visibility and async readiness were corrected before the final run; earlier interrupted or fixture-correction runs are not final evidence.
+No owner data, Windows/RTX3050, real platform uploads or 24-hour soak was tested. Pin readable delivery only after
+the tested app commit/build manifest is final; keep verified earlier managed profiles and dependency pins intact.
+
 ## Local schedules and individual reuse review — 2026-10-14
 
 Base: `d0b7102e8273cee068531da554c8d83f3fa43f8f`, on `codex/brain-graph-quality-discovery`.

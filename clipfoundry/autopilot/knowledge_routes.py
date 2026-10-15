@@ -34,13 +34,21 @@ def list_knowledge(q: str = "", kind: str = "") -> list[dict]:
 @router.get("/workspace", dependencies=READ)
 def workspace() -> dict:
     rows = knowledge.search()
+    settings = db.get_settings()
+    paused = bool(settings.get("brain_paused"))
     observations = brain.observations(limit=80)
     for row in observations:
         row["clip_title"] = (db.get_clip(row["clip_id"]) or {}).get("title") or "Deleted clip"
     return {"counts": {"total": len(rows), "approved": sum(r["state"] == "active" for r in rows),
                         "active": sum(r["state"] == "active" for r in rows),
                         "examples": sum(r["kind"] == "example" for r in rows)},
-            "brain": brain.summary(), "history": brain.history(30), "observations": observations,
+            "brain": brain.summary(settings), "history": brain.history(30), "observations": observations,
+            "guidance": {"paused": paused,
+                         "enabled": int(db.scalar("SELECT COUNT(*) FROM brain_knowledge WHERE enabled = 1") or 0),
+                         "label": "Saved guidance is paused" if paused else "Saved guidance is on",
+                         "note": "Resume Brain to use enabled notes and examples for new clips." if paused else
+                                 "Enabled matching notes and examples guide new clips; Settings fill other choices. "
+                                 "Existing clips are not changed."},
             "influences": knowledge.influences(), "formats": {"documents": knowledge.DOCUMENTS,
             "examples": knowledge.VIDEOS, "document_limit_mb": 2, "example_limit_mb": 64},
             "preferences": knowledge.PREFERENCES}

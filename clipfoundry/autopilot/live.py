@@ -435,12 +435,14 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
 
 def detect(sess: Session, job: Job) -> dict | None:
     """The best complete, strong moment in the rolling window that is not already a clip."""
+    from . import knowledge
+
     edge = sess.offset
     words = [w for w in sess.words if w["start"] >= edge - WINDOW_SECONDS]
     sents = build_sentences(words)
     if len(sents) < 3:
         return None
-    opts = process._options(sess.project, sess.settings)  # noqa: SLF001 - the project's clip options
+    opts = process._options(sess.project, sess.settings, words=words)  # noqa: SLF001 - the project's clip options
     loud = Loudness({"hop": 0.1, "db": sess.env})
     feats = cand_mod.sentence_features(sents, words)
     min_quality = float(sess.settings.get("autopilot_min_quality") or 0)
@@ -452,8 +454,13 @@ def detect(sess: Session, job: Job) -> dict | None:
         if any(min(c["end"], k["end"]) - max(c["start"], k["start"]) > 0.15 * (c["end"] - c["start"])
                for k in sess.clips):
             continue
-        r = max((virality.analyze(a, b, sents, feats, words, loud, opts)
-                 for a, b in virality.variants(c["s0"], c["s1"], sents, opts, feats)), key=lambda x: x["raw"])
+        local, used = knowledge.selection_options(
+            {"title": sess.project.get("name") or "", "caption_text": " ".join(
+                sentence["text"] for sentence in sents[c["s0"]:c["s1"] + 1])}, opts, sess.settings)
+        if not any("target_duration" in item["decisions"] for item in used):
+            used += opts.get("brain_duration_knowledge") or []
+        r = max((virality.analyze(a, b, sents, feats, words, loud, local)
+                 for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
         if r["blocked"] or r["viral_potential"] < max(min_quality, float(opts.get("min_score", 50))) or \
                 r["end"] > edge - EDGE_MARGIN:
             continue
@@ -462,6 +469,7 @@ def detect(sess: Session, job: Job) -> dict | None:
         if clip_reason(r, sess.settings):
             continue
         if best is None or r["viral_potential"] > best[0]["viral_potential"]:
+            r["brain_knowledge"] = used
             best = (r, sents, loud)
     return {"r": best[0], "sents": best[1], "loud": best[2]} if best else None
 

@@ -1,8 +1,45 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-14 (UTC).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-15 (UTC).
 Fetch before trusting branch state.
+
+## Latest continuation: fast selected-post approval and consistent Brain use
+
+Base: `ec20aec76825a284393af00d812ec4a08a8beca3`, on `codex/brain-graph-quality-discovery`.
+The owner requested fewer navigation/typing steps and mass approval. Queue now provides inline video/full-text
+previews, Quick approve, selection of visible YouTube posts (up to 50), and Approve selected. A fixed batch preview
+shows actual posts, account, audiences and times. Reuse presets or one custom basis cover only the selected posts
+that need assertions; one explicit combined consent covers the reviewed files/text/audiences/reuse. Missing
+made-for-kids answers may be filled once, while existing answers stay intact. Single-post review shares these
+presets and one combined consent. TikTok retains its individual platform review.
+
+The owner also reports saved Brain notes/examples not affecting clips. Source title and spoken-word topic context
+now follows candidate generation (including cached/resumed and live paths), ranking, blueprint and render. Tagged
+example length is consulted after transcription, while per-candidate priorities avoid leaking unrelated transcript
+topics. Natural caption declarations and named example feature fields are recognized. Bad-example observations
+no longer promote unwanted traits; explicit corrective preferences remain usable. Settings fill unspecified
+choices, owner duration bounds remain binding and explicit editor overrides win. Public lesson metadata/UI show
+recognized effects and measured example length; unsupported material stays searchable without changing edits.
+No video appearance recognition, new external model calls, raw-note transmission, old-media rewrite or publishing
+permission is implied. The earlier docs/AUTOPILOT.md Brain-approval instructions were corrected to match save activation.
+
+Batch previews are bounded in-memory snapshots with ten-minute validity, at most 64 entries and no future-post
+grant. Expired/old entries are evicted on later previews or app exit. Confirmation rechecks actual bytes/version,
+current source terms/credit, row/text/options, account/audience, posting mode/timing and passing final checks.
+A final SQLite write guard prevents an active job/state change from being overwritten, with hashing outside the
+write lock. Changed, blocked, unchecked, replacement or active/uncertain-upload work is skipped with a reason.
+Each success receives its own manual approval and exact-post assertion if needed; repeated identical requests
+return their prior result. No source is marked owned/licensed by a preset. Future arrivals are never selected
+automatically. Partial success keeps failed selections for review and cannot silently retarget or rewrite posts.
+
+Review-before-publishing stays the default. Required credit, file/media/grounding checks, explicit account/audience/
+kids choices, exact approval binding, platform waits and duplicate protections remain. Selected due posts can start
+after approval; disabled dispatch still waits for Publish now. The readable source setup must preserve verified
+same-user managed profiles and the entire earlier application; do not recommend the blocked EXE or change security.
+
+**Validation:** Final full fast suite: 1,195 passed, 11 slow deselected, in 739.22 s. Final real-FFmpeg/synthetic-speech media and restart suite: 11 passed, 1,195 deselected, in 1024.81 s. This includes exact selected-post fake uploads/restart and two actual Brain-guided/owner-overridden caption renders with persisted provenance. Final production build: 9.44 s; TypeScript passed. All 31 final built-browser checks passed in 95.78 s, with all 17 frontend hashes unchanged. Focused checks: 42 bulk, 19 independent approval audit and 86 Brain/context checks passed. Browser fixture wording/details visibility and async readiness were corrected before the final run; earlier interrupted or fixture-correction runs are not final evidence.
+No owner Windows profile, native Windows/RTX3050, real account uploads or 24-hour soak was accessed or verified.
 
 ## Latest continuation: local schedules, owner reuse review and manual approval
 

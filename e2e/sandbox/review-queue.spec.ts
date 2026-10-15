@@ -125,7 +125,7 @@ test("a missing-permission draft appears in the schedule with its time and revie
   expect(errors).toEqual([]);
 });
 
-test("unknown reuse requires both an owner check and a recorded basis before exact-post approval",
+test("unknown reuse needs a chosen basis and combined owner consent before exact-post approval",
 async ({ page, request }) => {
   const status = await (await request.get("/api/autopilot/status")).json();
   const { writes, errors } = await controlled(page, status);
@@ -135,10 +135,15 @@ async ({ page, request }) => {
   await page.getByRole("checkbox", { name: /^I watched this video/ }).check();
   await approve.click({ force: true }); // Also check the handler refuses an incomplete review.
   expect(writes).toEqual([]);
-  await page.getByLabel("Why I can reuse it", { exact: true }).fill("The creator agreed in writing to this edit and public YouTube use.");
+  await page.getByRole("radio", { name: "Other permission", exact: true }).check();
+  await page.getByRole("textbox", { name: "Permission details", exact: true })
+    .fill("The creator agreed in writing to this edit and public YouTube use.");
+  const consent = page.getByRole("checkbox", { name: /^I watched this video/ });
+  await expect(consent).not.toBeChecked(); // Changing the asserted basis needs a fresh combined review.
   await approve.click({ force: true });
   expect(writes).toEqual([]);
-  await page.getByRole("checkbox", { name: "I have checked that I can reuse this clip", exact: true }).check();
+  await expect(consent).toHaveAccessibleName(/I checked I can reuse this clip/);
+  await consent.check();
   await expect(approve).toHaveAttribute("aria-disabled", "false");
   await expect(page.getByText(/Your confirmation records your own review/)).toBeVisible();
   await capture(page, "post-reuse-review");
@@ -146,7 +151,7 @@ async ({ page, request }) => {
   await expect(page.getByRole("status").filter({ hasText: "Controlled review preview" })).toBeVisible();
   expect(writes).toEqual([{ path: "/api/autopilot/scheduled/controlled-review-post/approve", body: {
     title: "A complete story", description: "A complete story with a clear ending", expected_account_id: channel.account_id,
-    reuse_confirmed: true, reuse_basis: "The creator agreed in writing to this edit and public YouTube use.",
+    reuse_confirmed: true, reuse_kind: "custom", reuse_basis: "The creator agreed in writing to this edit and public YouTube use.",
     tags: [], privacy: "public", made_for_kids: false, confirm: true,
   } }]);
   expect(errors).toEqual([]);
@@ -160,7 +165,7 @@ test("recorded reuse coverage remains distinct from a per-post owner confirmatio
   const { writes, errors } = await controlled(page, status, post);
   await page.goto("/#/post/controlled-review-post");
   await expect(page.getByText("Recorded creator agreement", { exact: true })).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "I have checked that I can reuse this clip", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Why I can reuse it", exact: true })).toHaveCount(0);
   await expect(page.getByText("Reuse confirmed by you for this exact post", { exact: true })).toHaveCount(0);
   const approve = page.getByRole("button", { name: "Approve & schedule upload", exact: true });
   await expect(approve).toHaveAttribute("aria-disabled", "true");
@@ -200,22 +205,24 @@ async ({ page, request }) => {
       explanation: "Your reuse confirmation covers the saved post without marking the source as licensed." } });
   const { writes, errors } = await controlled(page, status, post);
   await page.goto("/#/post/controlled-review-post");
-  const reuse = page.getByRole("checkbox", { name: "I have checked that I can reuse this clip", exact: true });
+  const reuse = page.getByRole("group", { name: "Why I can reuse it", exact: true });
   await expect(reuse).toHaveCount(0);
   await page.locator("#rv-title").fill("A complete story again");
   await expect(reuse).toBeVisible();
-  await expect(reuse).not.toBeChecked();
+  const consent = page.getByRole("checkbox", { name: /^I watched this video/ });
+  await expect(consent).not.toBeChecked();
   const approve = page.getByRole("button", { name: "Approve & schedule upload", exact: true });
   await expect(approve).toHaveAttribute("aria-disabled", "true");
-  await page.getByLabel("Why I can reuse it", { exact: true }).fill("The creator's agreement covers this exact edit and revised public YouTube post.");
-  await reuse.check();
-  await page.getByRole("checkbox", { name: /^I watched this video/ }).check();
+  await reuse.getByRole("radio", { name: "Other permission", exact: true }).check();
+  await reuse.getByRole("textbox", { name: "Permission details", exact: true })
+    .fill("The creator's agreement covers this exact edit and revised public YouTube post.");
+  await consent.check();
   await expect(approve).toHaveAttribute("aria-disabled", "false");
   await approve.click();
   await expect(page.getByRole("status").filter({ hasText: "Controlled review preview" })).toBeVisible();
   expect(writes).toEqual([{ path: "/api/autopilot/scheduled/controlled-review-post/approve", body: {
     title: "A complete story again", description: "A complete story with a clear ending", expected_account_id: channel.account_id,
-    reuse_confirmed: true, reuse_basis: "The creator's agreement covers this exact edit and revised public YouTube post.",
+    reuse_confirmed: true, reuse_kind: "custom", reuse_basis: "The creator's agreement covers this exact edit and revised public YouTube post.",
     tags: [], privacy: "public", made_for_kids: false, confirm: true,
   } }]);
   expect(errors).toEqual([]);

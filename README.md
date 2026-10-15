@@ -75,7 +75,10 @@ authorize uploads or grant reuse permission. [Unattended setup and troubleshooti
 6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says
    who it is for and what really happened. **Prepare & schedule for review** is now the default: accessible clips
    can get a proposed time even when reuse permission is unrecorded. Open the preview, check your permission,
-   record its basis if needed, and press **Approve & schedule upload**. Nothing new uploads before your approval;
+   choose a permission preset or enter its basis if needed, and press **Approve & schedule upload**. To review
+   faster, preview videos directly in Queue, select up to 50 YouTube posts and use **Approve selected**. Choose a
+   common permission reason and any missing made-for-kids answer once, then confirm the selected posts together.
+   Each receives its own exact-post approval; future clips still need your review. Nothing new uploads before your approval;
    an approved post goes out at its time, or promptly if that time has already passed. Existing automatic
    YouTube permission is suspended while this review mode is on.
 7. **Tell it what your viewers thought.** **Clips → Test feedback**: enter what a tester said about a clip, or copy
@@ -123,6 +126,12 @@ Topic tags narrow which clips use a lesson; leave them blank for general guidanc
 Brain stop new use. Saved revisions and actual decision changes remain inspectable; existing rendered clips and
 posting results are preserved. Raw notes and examples stay on this PC, and uploads do not fine-tune a model.
 The selected text AI receives only fixed recognized priority names alongside the existing transcript excerpt.
+
+Matching uses the source title and spoken words, and carries that context into planning and rendering. Descriptions
+such as “captions should be bold” and a good example's **Captions: bold** field are recognized. A bad example's
+described traits are not promoted as desirable; choose corrective editing preferences for it. The lesson editor
+shows the recognized effect and measured length. Reference-only notes remain searchable but do not change edits.
+Explicit changes made in the clip editor still override automatic guidance.
 
 ## Find fewer, stronger videos
 

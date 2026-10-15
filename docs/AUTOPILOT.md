@@ -26,6 +26,16 @@ Public availability alone is not permission. If you explicitly turn review mode 
 requires the separate account-bound YouTube permission and recorded reuse coverage. Five best clips per source remains a quality-oriented
 default, not a daily total.
 
+For faster review, Queue has inline video previews and selection for up to 50 YouTube posts at a time.
+**Approve selected** opens a fixed preview of that selection. Choose a reuse-permission preset (or a custom basis)
+once for selected posts that need it, answer made-for-kids once for posts with no saved answer, and confirm the
+videos, text, audiences and permission together. Existing answers, post text, audiences and proposed times stay
+as displayed. Due posts can start uploading after approval; disabled approved-post dispatch still waits for Publish
+now. Each successful post has its own manual approval and, if needed, exact-post reuse statement. This grants no
+permission to future clips. Changed, blocked, unchecked or active-upload posts are skipped with a reason;
+successful approvals remain while skipped posts stay selected for review. TikTok keeps its individual platform
+review. A single post also offers permission presets and one combined review checkbox without mandatory typing.
+
 Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-autopilot) ·
 [setup](#setting-it-up) · [how it works](#how-it-works) · [scores](#scores) · [Posts](#posts) ·
 [controls and emergency stop](#controls-and-emergency-stop) · [what is not possible](#blocked-or-limited-capabilities) ·
@@ -342,16 +352,20 @@ completed work. Saved upload sessions and uncertain-outcome holds prevent blind 
 Jobs you start by hand (for example *Clip now*) run even while Autopilot is off.
 
 **Teaching the Brain.** Open Brain for the Obsidian-inspired graph built from saved notes, examples, topics,
-approved clip preferences and recorded results/influence. Search or click a node to inspect what it actually
+active clip preferences and recorded results/influence. Search or click a node to inspect what it actually
 contains; graph links represent saved relationships and evidence, with coverage limits shown. Pan, zoom, fit and
 motion controls make it inspectable without changing work.
 
-**Add note** saves a local reference. **Teach preference** saves a draft of supported clip choices; use
-**Review & approve** and confirm the displayed choices before new Autopilot clips use them. **Add example** stores
-a good or bad example with its explanation, and supported preferences still need their own approval. More options
-keeps file imports, detailed fields and advanced controls accessible. Saving, importing or visualizing references
-does not fine-tune a model or execute uploaded code. Decisions shows recorded influence; Performance retains real
-results and their provenance. Existing rendered clips keep their previous plans.
+**Add note** saves a local reference. **Teach preference** saves supported clip choices. Saving an enabled lesson
+activates recognized guidance automatically for new clips, with Settings supplying missing choices. Topic matching
+uses the source title and spoken words; the context follows each candidate into planning and rendering. **Add
+example** stores a good or bad example with its explanation. Recognized feature descriptions can change caption/
+pacing choices and ranking; good examples also supply a measured length hint, within your configured length range.
+Bad-example observations are not promoted as positive traits; use corrective preferences to change future edits.
+The editor shows recognized effects. Unsupported notes stay searchable without changing edits. More options keeps
+file imports and detailed fields accessible. Saving or importing does not infer video appearance, fine-tune a model
+or execute uploaded code. Decisions shows actual influence; Performance retains real results and their provenance.
+Explicit clip-editor choices win, and existing rendered clips keep their previous plans.
 
 **Recovery and resource limits.** Failed worker initialization stops partially started workers before releasing its
 host lock. Job setup failures clear their running/heartbeat entry instead of retaining a phantom lease. Media

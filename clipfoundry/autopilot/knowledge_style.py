@@ -21,27 +21,50 @@ PRIORITIES = {
 }
 
 
+def _last_declaration(pattern: str, text: str) -> int:
+    """Caption declarations are local clauses; negated examples must not become preferences."""
+    last = -1
+    for match in re.finditer(pattern, text):
+        prefix = re.split(r"[.!?;\n]", text[:match.start()])[-1]
+        if not re.search(r"\b(?:no|not|avoid|never|without|don't|do not)\b", prefix):
+            last = match.start()
+    return last
+
+
 def compile_note(row: dict) -> dict:
     """Recognize supported settings and ranking priorities, without guessing from unrelated prose or video pixels."""
     text = "\n".join([str(row.get("title") or ""), str(row.get("content") or ""),
-                      *(str(v) for v in (row.get("features") or {}).values())]).lower().replace("_", " ")
+                      *(f"{key}: {value}" for key, value in
+                        (row.get("features") or {}).items())]).lower().replace("_", " ")
+    # A disliked video's traits are observations to avoid, not positive instructions to imitate.
+    # Explicit editing controls still express the owner's chosen correction for future clips.
+    if row.get("kind") == "example" and row.get("example_label") == "bad":
+        return {"preferences": dict(row.get("preferences") or {}), "priorities": [], "example_duration": None}
     preferences: dict = {}
     # Only caption-specific declarations count. A note about a clean fight or a bold claim changes no captions.
     styles = {"clean": r"clean", "bold": r"bold", "minimal": r"minimal|quiet|subtle",
               "high_energy": r"high[ -]energy"}
+    declared_styles = []
     for value, pattern in styles.items():
         explicit = rf"\bcaption style\s*[:=\-]\s*(?:{pattern})\b"
         natural = rf"\b(?:prefer|use|keep|choose|want)\s+(?:a |the )?(?:{pattern}).{{0,18}}\bcaptions?\b"
         adjacent = rf"\b(?:{pattern})\s+(?:readable\s+)?(?:captions?|subtitles?)\b"
-        matches = list(re.finditer(rf"{explicit}|{natural}|{adjacent}", text))
-        matches = [m for m in matches if not re.search(r"\b(?:no|not|avoid|never|without|don't)\s+$",
-                                                     text[max(0, m.start() - 16):m.start()])]
-        if matches:
-            preferences["caption_style"] = value
+        declaration = (rf"\b(?:captions?|subtitles?)\s*(?:should be|must be|are|look|style\s*(?:is|:)|:)\s+"
+                       rf"(?:a |the )?(?:{pattern})\b")
+        last = _last_declaration(rf"{explicit}|{natural}|{adjacent}|{declaration}", text)
+        if last >= 0:
+            declared_styles.append((last, value))
+    if declared_styles:
+        preferences["caption_style"] = max(declared_styles)[1]
+    declared_positions = []
     for value in ("bottom", "middle", "top"):
-        if re.search(rf"\bcaption position\s*[:=\-]\s*{value}\b|"
-                     rf"\b(?:captions?|subtitles?)\s+(?:at|in|near|on)\s+(?:the\s+)?{value}\b", text):
-            preferences["caption_position"] = value
+        last = _last_declaration(rf"\bcaption position\s*[:=\-]\s*{value}\b|"
+                                 rf"\b(?:captions?|subtitles?)\s+(?:(?:should be|must be|are)\s+)?"
+                                 rf"(?:at|in|near|on)\s+(?:the\s+)?{value}\b", text)
+        if last >= 0:
+            declared_positions.append((last, value))
+    if declared_positions:
+        preferences["caption_position"] = max(declared_positions)[1]
     if re.search(r"\b(?:caption emphasis\s*[:=\-]\s*(?:off|false)|"
                  r"(?:no|disable|avoid|without)\s+(?:caption\s+)?emphasis)\b", text):
         preferences["caption_emphasis"] = False

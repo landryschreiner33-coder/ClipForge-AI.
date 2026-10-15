@@ -47,7 +47,7 @@ export default defineConfig({
         "pixel-office.spec.ts", "living-office.spec.ts", "lounge-life.spec.ts", "department-office.spec.ts",
         "manual-publish.spec.ts", "public-consent.spec.ts", "brain-graph.spec.ts", "tiktok-setup.spec.ts",
         "discovery-quality.spec.ts", "phone-settings.spec.ts", "posting-readiness.spec.ts",
-        "continuous-publishing.spec.ts", "office-handoff-flow.spec.ts", "review-queue.spec.ts"],
+        "continuous-publishing.spec.ts", "office-handoff-flow.spec.ts", "review-queue.spec.ts", "bulk-review.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

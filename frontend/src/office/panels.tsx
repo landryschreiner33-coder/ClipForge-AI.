@@ -581,7 +581,8 @@ function BrainBody({ summary }: { summary: BrainSummary | undefined }) {
   const pause = async () => {
     try {
       setS(await brainApi.pause(s.state !== "paused"));
-      toast(s.state === "paused" ? "Learning resumed" : "Learning paused");
+      toast(s.state === "paused" ? "Brain resumed: saved guidance and learning are active"
+        : "Brain paused: saved guidance and learning are paused");
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -615,9 +616,10 @@ function BrainBody({ summary }: { summary: BrainSummary | undefined }) {
     </Section>
     <div className="row wrap">
       <a className="btn btn-small" href="#/clips/feedback"><Icon name="plus" />Add test feedback</a>
-      <button type="button" className="btn btn-small" onClick={pause}><Icon name={s.state === "paused" ? "play" : "pause"} />{s.state === "paused" ? "Resume learning" : "Pause learning"}</button>
+      <button type="button" className="btn btn-small" onClick={pause}><Icon name={s.state === "paused" ? "play" : "pause"} />{s.state === "paused" ? "Resume Brain" : "Pause Brain"}</button>
       <button type="button" className="btn btn-small btn-quiet" onClick={() => setConfirm("reset")}>Reset learning</button>
     </div>
+    <p className="tiny muted">Pausing Brain stops saved guidance and learning from results for new clips.</p>
     {confirm === "reset" && (
       <ConfirmDialog title="Reset what the Brain learned?" confirmLabel="Reset learning" danger
         onConfirm={async () => {

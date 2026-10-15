@@ -5,7 +5,7 @@ export type Preferences = Partial<{ caption_style: string; caption_position: str
 export type KnowledgeInput = { kind: KnowledgeKind; title: string; content: string; tags: string[];
   features: Record<string, string>; preferences: Preferences; example_label: string; enabled: boolean };
 export type Knowledge = KnowledgeInput & { id: string; revision: number; approved: boolean; approved_at: number | null;
-  effective_preferences?: Preferences; priorities?: string[]; use_note?: string;
+  effective_preferences?: Preferences; priorities?: string[]; use_note?: string; example_duration?: number | null;
   state: "active" | "disabled" | "reference" | "saved_example" | "approved" | "needs_approval";
   filename: string; has_asset: boolean;
   asset_sha256: string; media: { duration_s?: number; width?: number; height?: number; has_audio?: boolean; provenance?: string };
@@ -14,6 +14,7 @@ export type Influence = { id: string; clip_id: string; clip_title: string; knowl
   snapshot: { title: string; kind: KnowledgeKind; example_label: string; features: Record<string, string> };
   decisions: Record<string, { before: unknown; after: unknown }>; knowledge_exists: boolean; created_at: number };
 export type Workspace = { counts: { total: number; active?: number; approved: number; examples: number };
+  guidance?: { paused: boolean; enabled: number; label: string; note: string };
   brain: { label: string; message: string; min_clips: number; max_step: number; observations: Record<string, number> };
   observations: { id: string; clip_id: string; clip_title: string; platform: string; cohort: string; provenance: string;
     observed_at: number; metrics: Record<string, number | null>; note: string }[];

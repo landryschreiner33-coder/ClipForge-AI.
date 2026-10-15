@@ -596,8 +596,15 @@ def review_info(item: dict, settings: dict | None = None) -> dict:
     required = not allowed or sound_review
     record = _confirmation_record(item)
     confirmed = bool(record and not confirmation_problem(item, settings))
+    # An older statement still participates in approval validation even if a new source rule now provides
+    # coverage. Ask for a fresh exact-post statement rather than silently discarding the owner's old record.
+    stale_statement = bool(record and not confirmed)
+    required = required or stale_statement
     explanation = ("Your reuse confirmation covers this exact post; it does not mark the source as owned or licensed."
-                   if confirmed else ("Review any music or other material inside this clip before confirming reuse."
+                   if confirmed else ("Your earlier permission statement no longer matches this post. Review and "
+                                      "confirm your permission again."
+                                      if stale_statement else
+                                      "Review any music or other material inside this clip before confirming reuse."
                                       if sound_review else why or evaluation.get("basis") or "Recorded reuse coverage"))
     return {"required": required, "confirmed": confirmed, "basis": str(record.get("basis") or ""),
             "explanation": explanation, "status": evaluation["status"]}

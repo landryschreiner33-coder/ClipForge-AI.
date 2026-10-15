@@ -24,6 +24,7 @@ import json
 import math
 import time
 from pathlib import Path
+from typing import Callable
 
 from .. import db
 from ..pipeline import artifact, fingerprint
@@ -801,7 +802,7 @@ def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
 
 
 def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_confirmed: bool = False,
-            reuse_basis: str = "") -> dict:
+            reuse_basis: str = "", review_guard: Callable[[dict, dict, dict], None] | None = None) -> dict:
     """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
     item = db.fetch("scheduled_publications", item_id)
     if not item:
@@ -847,13 +848,27 @@ def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_co
     if not approval:
         raise ValueError("The clip's video file is missing or cannot be read. Render the clip again before approving "
                          "it.")
-    db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
-                                                                             "options", "audience",
-                                                                             "reuse_confirmation")},
-              status="approved", approval=approval, last_error="", fix="",
-              status_note="Approved: it will be published at its time" if (item.get("planned_at") or 0) > now else
-              "Approved: publishing now",
-              audit=_audit(item, "approved", "Approved by you", privacy=updated["privacy"]))
+    changes = {**{k: updated[k] for k in ("title", "description", "tags", "privacy", "options", "audience",
+                                         "reuse_confirmation")},
+               "status": "approved", "approval": approval, "last_error": "", "fix": "",
+               "status_note": "Approved: it will be published at its time" if (item.get("planned_at") or 0) > now
+                              else "Approved: publishing now",
+               "audit": _audit(item, "approved", "Approved by you", privacy=updated["privacy"])}
+    if review_guard is None:
+        db.update("scheduled_publications", item_id, **changes)
+    else:
+        # Hashing is complete before taking the write lock. The batch preview guard binds those fresh bytes,
+        # terms and payload to a final current row while a publisher cannot claim or start this post.
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = db._decode("scheduled_publications", conn.execute(
+                "SELECT * FROM scheduled_publications WHERE id = ?", (item_id,)).fetchone())
+            if not current:
+                raise ValueError("The post was removed while approving it. Preview the selection again.")
+            review_guard(updated, approval, current)
+            encoded = db._encode("scheduled_publications", {**changes, "updated_at": time.time()})
+            conn.execute("UPDATE scheduled_publications SET " + ", ".join(f"{key} = ?" for key in encoded) +
+                         " WHERE id = ?", [*encoded.values(), item_id])
     if item.get("replaces"):
         _take_slot(item_id, updated, now, "you approved it")
     state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved", ref_type="scheduled",

@@ -19,9 +19,11 @@ automatic permission in the posting step; disconnected TikTok does not block You
 batches hand off each finished output before yielding, and bounded reconciliation resumes proven old handoffs.
 Canceled work, manual edits, post-live replacement decisions and exact-file/rights/consent guards remain intact.
 
-Continuous operation defaults to no app daily source/upload cap and an all-day posting window. Automatic broad
-discovery prioritizes owned or reuse-covered videos for the connected publishing destinations; completed local
-clips without permission remain local. Platform/API waits, quality checks and posting consent still apply.
+Continuous operation defaults to no app daily source/upload cap and an all-day posting window. Review before
+publishing is on by default: accessible unblocked videos with unrecorded permission may reach local plans, while
+uploads require owner review. Queue offers inline previews, permission presets and approval of up to 50 selected
+YouTube posts together; each receives its own exact-post manual authorization. Other clips remain unapproved.
+Platform/API waits, final checks and required credit still apply. TikTok keeps its individual review.
 
 The robots are a picture of the real job system (`clipfoundry/autopilot/queue.py`). A robot is a responsibility,
 not a separate program or AI. Work poses and document handoffs follow actual state and fresh events; off-duty lounge
@@ -415,6 +417,9 @@ Use **Add note** for a simple idea or document, or **Teach preference** for expl
 Saving an enabled lesson activates recognized guidance automatically for new clips. Settings remain the fallback
 for every unspecified choice; there is no separate Brain review/approval step. The editor displays recognized
 choices, ranking priorities and whether the lesson can affect future clips. Topic tags narrow applicability.
+Matching considers the source title and spoken words; that context follows candidates into planning and rendering,
+including resumed and live work. Source-length hints are consulted after a transcript is available. Candidate
+ranking uses its own spoken range so a topic elsewhere in the video does not supply unrelated ranking priorities.
 
 The local compiler reads supported editing language from notes, document text and example feature descriptions.
 Explicit typed choices win over prose; instructions take priority over examples, then reference notes, with the
@@ -425,7 +430,7 @@ preferences and cannot supply source facts, publishing permissions, arbitrary co
 
 Good video examples contribute measured container duration, blended with Settings by n/(n+3), capped at 60%.
 The target is always constrained by the configured minimum and maximum. Bad examples do not supply a desired
-length; their corrective typed preferences or recognized descriptions still apply. Uploaded appearance is not
+length or promote their described traits; their explicit corrective preferences still apply. Uploaded appearance is not
 inferred, and documents/videos do not fine-tune a model. Notes with no recognized guidance remain searchable and
 show how to add an actionable preference instead of an impossible approval demand.
 
