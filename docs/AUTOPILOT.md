@@ -166,8 +166,9 @@ You do not add sources, feeds, folders, rules or workers. Behind the scenes Auto
 connected YouTube account for discovery; your videos folder; other watch folders and feeds only if you added some;
 Google Trends and TikTok trends are not available to apps and are skipped without bothering you) and these defaults:
 United States, English, your topics, no app daily source/upload cap, up to 5 best clips per source,
-posting at the earliest eligible time (America/Chicago, any hour), a new look for videos
-every 3 hours, dynamic replacement, live monitoring, learning, automatic scheduling and automatic publishing of the
+posting at the earliest eligible time (America/Chicago, any hour), recurring searches (within 15 minutes when
+there is queue capacity, otherwise the saved regular interval), dynamic replacement, live monitoring, learning,
+automatic scheduling and automatic publishing of the
 posts that are approved. Autopilot is turned on and off with **Start Autopilot** / **Pause Autopilot** on the
 Autopilot page; Settings → Defaults has the optional daily clip cap, posting hours and topics, and Settings → Accounts
 has automatic publishing; everything else is under Settings → Advanced.
@@ -208,7 +209,12 @@ permission, or you're not sure (then it isn't used until you decide).
 
 ### Hands-off discovery, eligibility and files
 
-**Discovery** runs every 3 hours by itself, within the providers' quotas and your cost limit:
+**Discovery** runs repeatedly within the providers' quotas and your cost limit. With queue capacity and remaining
+configured source allowance, it checks again within 15 minutes; busy queues retain the regular interval (three
+hours by default). A YouTube quota or Retry-After wait stops that provider's requests while independent searches
+and free folder/feed checks continue. Saved active candidates are reconsidered on the free feed cadence.
+YouTube and Commons rotate through at most five result pages per query, one page per normal pass; they do not
+repeat only the first page indefinitely or add an unbudgeted burst of calls.
 
 **Quality first** is enabled by default. Missions → Permissions & sources → **Quality before quantity** controls
 the small broad-search shortlist: **3 new strong candidates per pass**, at most **6 workable unfinished picks**,
@@ -240,15 +246,18 @@ available signals; only transcript analysis and the final-file gate can establis
 * **YouTube** (Data API search and video details, the connected account or an API key): recent popular videos for
   your topics, and the **original long video behind a popular short clip** when the clip links to it or its channel
   has it.
-* **Web search** (optional, [Tavily](https://tavily.com), your own API key under Missions → Permissions & sources →
-  Quality before quantity → *Find better links with a free search key*, or Advanced → Settings → Discovery and
-  rights → *Web search (Tavily) key*): public TikTok links for your topics and originals behind clips. Web search
+* **Web search** (optional, [Tavily](https://tavily.com), your own API key under **Settings → Integrations → Search
+  connections**, also available under Missions → Permissions & sources → Quality before quantity → *Find better
+  links with a free search key*): public TikTok links for your topics and originals behind clips. Web search
   gives titles and links, never TikTok statistics: those stay *unknown*. It uses the credits your plan includes (the
   [free plan](https://docs.tavily.com/documentation/api-credits): 1,000 a month without a credit card) and spends
   money only up to the monthly cost limit you set
   (0 by default: never). Keep the budget at $0 to stop at the configured included allowance. The optional key can
   improve search coverage; it does not guarantee stronger clips or supply reuse permission. YouTube discovery can
   use a connected account or your own free YouTube Data API key. Local files need neither search key.
+  Search connections provides official key-creation steps and a **Use free Tavily plan limits** button. Save the
+  settings afterward. Included credits are a local app allowance, not a live provider balance; saving a key does
+  not test it or connect an upload account.
 * **A free-license library** (Wikimedia Commons, on by default): videos whose authors released them for reuse.
 
 Duplicates and re-uploads of videos already processed are dropped. Every number keeps where it came from and when it
@@ -443,6 +452,18 @@ Each planned post's page shows *Why this time and score (estimates)* with the ex
 
 **Posts** lists every planned and published post (one clip on one platform), in order, with its video, text,
 platform, permission, time and final check. Each post opens as its own page with its scores.
+
+**YouTube comments:** Private and made-for-kids videos do not allow comments. Review explains these effects before
+you approve. The answer must match the intended audience; malformed strings/numbers are rejected instead of
+coerced. Existing upload/status responses show YouTube's returned audience evidence when available. Channel
+defaults and platform restrictions may still turn comments off. The upload API has no enable-comments switch;
+check Audience and Comments in YouTube Studio for an already uploaded video. Default review mode still requires
+manual approval for every new post; standing automatic approval applies only if that mode is explicitly disabled.
+
+**Audio:** fresh processing preserves initial audio offsets/gaps and uses one consistent source track. Rendering
+downmixes before normalization and applies final peak control after speed/gain. Existing clips and uploads are
+not silently rewritten. A distorted original needs a better source; a bad old render needs fresh owner-reviewed
+processing and any new upload requires a fresh exact-file approval.
 
 * **Approve for YouTube** / **Approve for TikTok** (on the post's page, after ticking *I watched this video and read
   its text*): each post needs your approval or valid standing YouTube permission. For YouTube you confirm the title,

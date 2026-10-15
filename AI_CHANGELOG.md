@@ -7,6 +7,22 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-15 · Audio, comments, ongoing search and live/Windows recovery
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `11bdb435`.
+* **What changed:** stereo downmix before normalization, final post-gain peak control, shared audio-clock/track
+  handling; strict real kids answers and truthful YouTube comments/audience explanations; independent provider
+  waits, recurring capacity-aware search, bounded pagination and saved-signal refill; visible supported search
+  keys/free-only controls; safe paired HLS and bounded empty-ended-stream archive recovery; scoped Windows
+  10054 cleanup with Python-version-compatible detachment. Added concrete `CLAUDE_HANDOFF.md`.
+  Health/phone cadence reads remain pure; host-only deadline reconciliation also handles a full queue draining.
+* **Why:** owner confirmed distorted uploaded audio, comments off on some posts, searches stopping and the two
+  supplied live/Windows errors. Concrete defects were reproduced locally; no owner media/account was accessed.
+* **Validation:** Final full fast suite: 1,278 passed, 14 slow deselected, in 579.81 s. Real-FFmpeg/synthetic-speech media and restart verification covered all 14 scenarios across two runs: the full attempt passed 12 with 2 repeat-discovery timeouts (1,274 deselected, 1153.68 s); after correcting only the compressed-clock fixture's discovery-list cache expiry, both private/public repeat scenarios passed in 374.57 s. This was not a single all-green full-media run. Production cache/quota policy and all real render, final-report, exact-upload-byte and restart assertions were unchanged by that fixture correction. Final production build: 10.32 s; TypeScript passed. All 43 final built-browser checks passed in 93.25 s, with all 17 frontend hashes unchanged. Focused independent bugfix verification: 73 passed in 32.22 s, including measured encoded mono/surround audio, exact fake-upload bytes, real split-HLS synchronization and real asyncio cleanup compatibility. Windows/phone focused verification: 63 passed in 10.25 s; earlier discovery focused: 89 passed in 11.12 s. The final queue-drain deadline correction and surrounding discovery checks passed 61 tests in 9.13 s. Final comments/search checks after the current-label correction: 47 passed in 22.85 s. The final read-only health/phone/search correction passed 77 checks in 16.64 s, with database-unchanged assertions intact. The complete media run used the final audio/live/publishing code, preceding only the pure health-cadence refactor and its four new fast tests; all 39 media-scope source hashes remained unchanged. That refactor is covered by the final full fast run and 77 focused checks. The earlier interrupted suites preceded final deadline/returned-label corrections and are not final evidence. No real owner Windows profile/media, RTX3050, live provider key, account upload or 24-hour soak was tested.
+* **Not verified:** owner Windows runtime/profile/original audio, RTX3050, real provider keys/accounts/uploads,
+  actual platform comment settings, native Windows/Defender or a 24-hour unattended soak. Existing published
+  audio is not rewritten and source distortion cannot be reconstructed.
+
 ## 2026-10-15 · Faster review, bulk approval and consistent Brain guidance
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `ec20aec`.

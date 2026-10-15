@@ -678,7 +678,7 @@ def check_platform(item: dict, creator: dict | None = None) -> dict:
             raise PublishError("Say whether this video is made for kids.", "YouTube requires this answer (COPPA).")
         stamp = audience.check("youtube", item["privacy"], settings, stamp=item.get("audience") or None)
         youtube.video_body(item["title"], item["description"], item.get("tags") or [], item["privacy"],
-                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22",
+                           opts["made_for_kids"], settings.get("youtube_category_id") or "22",
                            audience_intent=stamp["intent"])
         return stamp
     clip = db.get_clip(item["clip_id"]) or {}
@@ -758,7 +758,7 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
                     "is reached")
         return False
     updated = {**item,
-               "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
+               "options": {**(item.get("options") or {}), "made_for_kids": cfg.get("made_for_kids")}}
     try:
         stamp = check_platform(updated)
     except PublishError as exc:

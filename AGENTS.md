@@ -367,6 +367,17 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Audio/search/live reliability continuation (2026-10-15, America/Chicago):** The owner reports distorted uploaded
+audio, comments disabled on some YouTube posts, searches stopping, Windows Proactor WinError 10054 cleanup
+tracebacks, and split-audio/video or ended-stream capture failures. Preserve source clocks/track choice through
+transcription and rendering; downmix before normalization and prevent post-gain clipping. Keep genuine boolean
+made-for-kids choices, explain their and Private visibility's comment restrictions, and do not claim the upload
+API can enable comments. Keep discovery recurring when capacity permits without bypassing provider waits,
+quality/queue/cost/API limits; expose existing supported search keys and free-only controls. Support safe paired
+HLS and bounded public-archive recovery without changing partial timelines or duplicate handoffs. Repair only
+the known Windows disconnect cleanup and report genuine errors. Provide a concrete Claude handoff and verified
+readable setup; never alter old uploads, owner media, audience answers, account permissions or security settings.
+
 **Brain-use correction (2026-10-15, America/Chicago):** The owner reports notes/examples not affecting clips.
 Carry actual source-title and transcript topic context through candidate generation, ranking, blueprint and
 render, including resumed and live paths. Relevant supported Brain choices override Settings, which fill gaps;

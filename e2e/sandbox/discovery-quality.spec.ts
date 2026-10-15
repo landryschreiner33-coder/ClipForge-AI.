@@ -21,7 +21,9 @@ async function discovery(page: Page, initial: Settings = {}) {
       writes.push({ path, method: request.method(), body });
       if (path === "/api/settings" && request.method() === "PUT") {
         settings = { ...settings, ...body };
-        if (body.tavily_api_key) settings.tavily_api_key = "********";
+        for (const key of ["tavily_api_key", "youtube_api_key"]) {
+          if (body[key]) settings[key] = "********";
+        }
         return route.fulfill({ json: settings });
       }
       return route.fulfill({ status: 409, json: { detail: "Only controlled discovery settings are accepted." } });
@@ -124,6 +126,29 @@ test("out-of-range and fractional shortlist limits never reach the settings endp
   expect(fixture.errors).toEqual([]);
 });
 
+test("a YouTube discovery key saves privately without changing the Tavily plan or upload account",
+async ({ page }) => {
+  const fixture = await discovery(page, { youtube_api_key: "********" }), { panel, writes } = fixture;
+  await panel.getByText("Find better links with a free search key", { exact: true }).click();
+  await panel.getByText("Optional YouTube search key", { exact: true }).click();
+  await expect(panel).toContainText("A YouTube search key is already saved");
+  await expect(panel).toContainText("It does not add unlimited searches or authorize uploads");
+  const key = panel.getByLabel("YouTube Data API key", { exact: false });
+  await expect(key).toHaveAttribute("type", "password");
+  await expect(key).toHaveValue("");
+  await key.fill("  nonfunctional-youtube-test-key  ");
+  await panel.getByRole("button", { name: "Save discovery choices", exact: true }).click();
+  await expect(page.locator(".toast").getByText("Discovery choices saved for the next search")).toBeVisible();
+  expect(writes).toEqual([{ path: "/api/settings", method: "PUT",
+    body: { youtube_api_key: "nonfunctional-youtube-test-key" } }]);
+  await expect(key).toHaveValue("");
+  expect(fixture.settings()).toMatchObject({
+    youtube_api_key: "********", tavily_api_key: "********", tavily_free_credits: 2000,
+    discovery_monthly_budget_usd: 7, youtube_client_secret: "********", default_visibility: "private",
+  });
+  expect(fixture.errors).toEqual([]);
+});
+
 test("a saved fractional score floor remains valid when another discovery choice changes", async ({ page }) => {
   const fixture = await discovery(page, { discovery_min_source_score: 57.5 }), { panel, writes } = fixture;
   await expect(panel.getByLabel("Minimum discovery estimate", { exact: false })).toHaveValue("57.5");
@@ -133,5 +158,85 @@ test("a saved fractional score floor remains valid when another discovery choice
   expect(writes).toEqual([{ path: "/api/settings", method: "PUT", body: { discovery_candidates_per_scan: 2 } }]);
   expect(fixture.settings().discovery_min_source_score).toBe(57.5);
   await expect(panel.getByLabel("Minimum discovery estimate", { exact: false })).toHaveValue("57.5");
+  expect(fixture.errors).toEqual([]);
+});
+
+async function searchConnections(page: Page) {
+  const savedResponse = await page.request.get("/api/settings");
+  expect(savedResponse.ok()).toBe(true);
+  let settings: Settings = {
+    ...await savedResponse.json(),
+    tavily_api_key: "********", youtube_api_key: "********", tavily_free_credits: 2000,
+    discovery_monthly_budget_usd: 7, library_discovery: true, youtube_client_secret: "********",
+  };
+  const writes: Settings[] = [], errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.route("**/api/**", async route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (request.method() !== "GET") {
+      if (path !== "/api/settings" || request.method() !== "PUT") {
+        return route.fulfill({ status: 409, json: { detail: "Only controlled search settings are accepted." } });
+      }
+      const body = request.postDataJSON() as Settings;
+      writes.push(body);
+      settings = { ...settings, ...body };
+      for (const key of ["youtube_api_key", "tavily_api_key"]) {
+        if (settings[key]) settings[key] = "********";
+      }
+      return route.fulfill({ json: settings });
+    }
+    if (path === "/api/settings") return route.fulfill({ json: settings });
+    return route.continue();
+  });
+  await page.goto("/#/settings/integrations");
+  const panel = page.getByRole("region", { name: "Search connections", exact: true });
+  await expect(panel.getByLabel("Tavily web search key", { exact: true })).toHaveValue("•••••••• (saved)");
+  return { panel, writes, errors, settings: () => settings };
+}
+
+test("Integrations exposes real search setup, masked keys and explicit free-only plan controls", async ({ page }) => {
+  const fixture = await searchConnections(page), { panel, writes } = fixture;
+  await expect(panel).toContainText("saving a key does not test it or upload anything");
+  await expect(panel).toContainText("1,000 credits each month with no credit card");
+  await expect(panel).toContainText("The default allowance includes 100 searches a day");
+  await expect(panel.getByRole("link", { name: "Current Tavily free allowance and credit costs" })).toHaveAttribute(
+    "href", "https://docs.tavily.com/documentation/api-credits");
+  await expect(panel.getByLabel("YouTube Data API key", { exact: true })).toHaveValue("•••••••• (saved)");
+  await panel.getByRole("button", { name: "Use free Tavily plan limits", exact: true }).click();
+  const savebar = page.getByRole("region", { name: "Save settings", exact: true });
+  await savebar.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect(page.locator(".toast").getByText("Settings saved", { exact: true })).toBeVisible();
+  expect(writes).toEqual([{ tavily_free_credits: 1000, discovery_monthly_budget_usd: 0 }]);
+  expect(fixture.settings()).toMatchObject({
+    tavily_api_key: "********", youtube_api_key: "********", youtube_client_secret: "********",
+    tavily_free_credits: 1000, discovery_monthly_budget_usd: 0, library_discovery: true,
+  });
+  expect(fixture.errors).toEqual([]);
+});
+
+test("Integrations can replace and remove search keys without echoing a saved key or changing posting settings",
+async ({ page }) => {
+  const fixture = await searchConnections(page), { panel, writes } = fixture;
+  const tavilyRow = panel.locator(".setting").filter({ has: page.locator("#set-tavily_api_key") });
+  await tavilyRow.getByRole("button", { name: "Replace…", exact: true }).click();
+  const key = panel.getByLabel("Tavily web search key", { exact: true });
+  await expect(key).toHaveAttribute("type", "password");
+  await expect(key).toHaveValue("");
+  await key.fill("nonfunctional-replacement-test-key");
+  const savebar = page.getByRole("region", { name: "Save settings", exact: true });
+  await savebar.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect(key).toHaveValue("•••••••• (saved)");
+  expect(writes).toEqual([{ tavily_api_key: "nonfunctional-replacement-test-key" }]);
+  await expect(page.locator("body")).not.toContainText("nonfunctional-replacement-test-key");
+  const youtubeRow = panel.locator(".setting").filter({ has: page.locator("#set-youtube_api_key") });
+  await youtubeRow.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(panel.getByLabel("YouTube Data API key", { exact: true })).toHaveValue("Removed when you save");
+  await savebar.getByRole("button", { name: "Save settings", exact: true }).click();
+  expect(writes).toEqual([{ tavily_api_key: "nonfunctional-replacement-test-key" }, { youtube_api_key: "" }]);
+  await expect(panel.getByLabel("YouTube Data API key", { exact: true })).toHaveValue("");
+  expect(fixture.settings()).toMatchObject({
+    youtube_api_key: "", tavily_api_key: "********", tavily_free_credits: 2000,
+    discovery_monthly_budget_usd: 7, youtube_client_secret: "********",
+  });
   expect(fixture.errors).toEqual([]);
 });

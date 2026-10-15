@@ -4,6 +4,7 @@ import { plural } from "../format";
 import { Post, timeLabel } from "./postShared";
 import { ReuseBasis, ReuseKind, ReuseOption } from "./ReuseBasis";
 import { Dialog, Icon, Pill, toast } from "./ui";
+import { YouTubeComments } from "./YouTubeComments";
 
 type PreviewRow = { id: string; eligible: boolean; reason: string; item: Post | null;
   needs_reuse_confirmation: boolean; needs_made_for_kids: boolean };
@@ -125,6 +126,7 @@ export function BulkApproval({ ids, autoPublish, tz, onApproved, onClose }: {
               <label className="choice"><input type="radio" name="bulk-kids" value="yes" checked={kids === "yes"}
                 onChange={() => { setKids("yes"); setAgree(false); }} /><span>Yes, made for kids</span></label>
             </div>
+            <YouTubeComments kids={kids === "yes" ? true : kids === "no" ? false : null} />
           </fieldset>}
           {!!eligible.length && <label className="choice bulk-agree">
             <input type="checkbox" checked={agree} disabled={busy} onChange={(e) => setAgree(e.target.checked)} />
@@ -154,6 +156,8 @@ function BatchPost({ row, tz }: { row: PreviewRow; tz?: string }) {
       <span>{p.options?.made_for_kids === true ? "Made for kids: Yes" : p.options?.made_for_kids === false
         ? "Made for kids: No" : "Made for kids: needs your answer"}</span>
     </div>
+    {(p.privacy === "private" || p.options?.made_for_kids === true) &&
+      <p className="tiny muted">Comments off on YouTube: {p.privacy === "private" ? "Private video" : "made for kids"}.</p>}
     {!row.eligible && <p className="small error-text">{row.reason}</p>}
     <PostInlinePreview p={p} />
     <a className="textlink tiny" href={`#/post/${p.id}`}>Edit this post separately</a>

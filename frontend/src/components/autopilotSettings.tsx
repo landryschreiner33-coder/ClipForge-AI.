@@ -193,7 +193,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           is checked when available; unknown language is confirmed from transcription. Clip quality is assessed
           after the video is read. Scores are estimates and do not predict virality.</p>
         <SettingRow k="trend_poll_minutes" label="Check trends every"
-          hint="Minutes (every 3 hours by default); slowed down automatically near the quota share" {...row}>
+          hint={"Regular interval in minutes. When the work queue has room, discovery checks again within 15 "
+            + "minutes; service limits and requested waits still apply"} {...row}>
           <NumInput k="trend_poll_minutes" c={c} />
         </SettingRow>
         <SettingRow k="trend_max_age_hours" label="Consider videos up to" hint="Hours old" {...row}>

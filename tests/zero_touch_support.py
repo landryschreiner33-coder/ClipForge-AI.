@@ -210,8 +210,14 @@ class CompleteLoopFixture:
 
     def repeat(self) -> None:
         """The upstream platform exposes another video; ordinary periodic discovery must pick it up."""
+        from clipfoundry import db
+
         self.add_catalog(SECOND, "Podcast honest stage story with a broken laptop", self.second)
         self.google.popular = [SECOND]
+        # The fixture compresses the normal discovery period to 30 seconds. Advance only the age of the
+        # platform's cached video lists as well, so a normal refresh can see its newly available recording.
+        # Media, final reports, approvals, quota counters and remote wait deadlines remain untouched.
+        db.execute("UPDATE api_cache SET expires_at = 0 WHERE method IN ('search.list', 'playlistItems.list')")
         self.elapse_period("trend_scan")
 
     def upcoming_stream(self) -> str:

@@ -234,13 +234,13 @@ def _places(settings: dict) -> list[str]:
 
 def discovery(settings: dict) -> dict:
     """Autopilot is on but nothing is happening: it has nowhere to look, or the regular search stopped starting."""
-    from ..autopilot import host, state
+    from ..autopilot import scout, state
 
     label = "Finding videos"
     if not settings.get("autopilot_enabled") or state.paused():
         return _c("discovery", label, "unknown", "Autopilot is off, so it is not looking for videos.",
                   "Press Start when you want it to look.", status_label="Off", info=True)
-    places = _places(settings)  # imports scout, which registers the quota's slowdown in PERIOD_ADJUST
+    places = _places(settings)
     if not places:
         return _c("discovery", label, "error", "Autopilot is on, but it has nowhere to look for videos.",
                   "Put a video in your videos folder (Videos\\ClipFoundry), connect YouTube in Settings → "
@@ -248,9 +248,8 @@ def discovery(settings: dict) -> dict:
     now = time.time()
     where = "Looks in " + ", ".join(places) + "."
     period = 60.0 * float(settings.get("trend_poll_minutes") or 180)
-    slower = host.PERIOD_ADJUST.get("trend_scan")  # the quota manager stretches the period near its limit
-    if slower:
-        period = slower(settings, period)
+    # Health and phone reads may inspect the cadence, but only the worker host changes search deadlines.
+    period = scout.discovery_period(settings, period)
     for job in db.select("worker_jobs", "kind = 'trend_scan' AND status IN ('running', 'queued', 'retrying', "
                                         "'waiting')", (), "created_at DESC", 5):
         if job["status"] == "running":

@@ -333,7 +333,7 @@ def cards(settings: dict | None = None) -> list[dict]:
     out.append(_card("web", "Web search (Tavily)", "connected" if key else "not_connected",
                      "Finds public video links, including TikTok." if key else
                      "Optional: add a Tavily key to find TikTok links and originals of popular clips.",
-                     action="" if key else "Add a key in Settings → Advanced", caps="web"))
+                     action="" if key else "Add a key in Settings → Integrations", caps="web"))
     out.append(_card("library", "Free-license library", "connected" if settings.get("library_discovery") else "off",
                      "Wikimedia Commons videos with free licenses.", caps="library"))
     # NVIDIA

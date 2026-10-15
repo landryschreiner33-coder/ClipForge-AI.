@@ -56,14 +56,18 @@ class PublicStream:
     """An ephemeral, bounded HTTP/HLS relay. Keep it alive until its recording process has stopped."""
 
     def __init__(self, url: str, max_bytes: int = MAX_RESOURCE_BYTES,
-                 on_retry: Callable[[float], None] | None = None):
+                 on_retry: Callable[[float], None] | None = None, *, audio_url: str | None = None):
         _public(url)
+        if audio_url:
+            _public(audio_url)
         if urlsplit(url).path.lower().endswith(".mpd"):
             raise StreamRefused("DASH streams are not supported for safe live capture. Use a public HLS stream.")
         self._lock = threading.RLock()
         self._close_lock = threading.Lock()
         self._tokens: OrderedDict[str, str] = OrderedDict()
         self._reverse: dict[str, str] = {}
+        self._entry_tokens: set[str] = set()
+        self._generated_playlist: bytes | None = None
         self._clients: set[httpx.Client] = set()
         self._closed = threading.Event()
         self._error = ""
@@ -86,6 +90,19 @@ class PublicStream:
         self._base = f"http://127.0.0.1:{self._server.server_port}"
         self.url = self._map(url, checked=True)
         self._root_token = self.url[len(self._base):]
+        self._entry_tokens.add(self._root_token)
+        if audio_url:
+            # Platforms commonly expose separate HLS renditions. One local master lets the HLS demuxer use
+            # their shared source timestamps, rather than independently resetting two ffmpeg inputs.
+            audio = self._map(audio_url, checked=True)
+            self._entry_tokens.add(audio[len(self._base):])
+            self._generated_playlist = (
+                '#EXTM3U\n#EXT-X-VERSION:3\n'
+                f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="sound",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="{audio}"\n'
+                '#EXT-X-STREAM-INF:BANDWIDTH=12000000,AUDIO="sound"\n' + self.url + '\n'
+            ).encode("utf-8")
+            self._root_token = "/" + secrets.token_urlsafe(32) + ".m3u8"
+            self.url = self._base + self._root_token
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.1},
                                         daemon=True, name="cf-public-stream")
         self._thread.start()
@@ -106,7 +123,7 @@ class PublicStream:
             self._reverse[url] = token
             while len(self._tokens) > MAX_TOKENS:
                 old, address = self._tokens.popitem(last=False)
-                if old == getattr(self, "_root_token", ""):
+                if old in self._entry_tokens:
                     self._tokens[old] = address
                     continue  # periodic playlist reloads must keep their original entry point for long recordings
                 self._reverse.pop(address, None)
@@ -175,6 +192,16 @@ class PublicStream:
                 raise StreamRefused("The live stream reached the configured download size limit.")
 
     def _serve(self, handler: BaseHTTPRequestHandler) -> None:
+        if handler.path == self._root_token and self._generated_playlist is not None and not self._closed.is_set():
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/vnd.apple.mpegurl")
+            handler.send_header("Content-Length", str(len(self._generated_playlist)))
+            handler.end_headers()
+            try:
+                handler.wfile.write(self._generated_playlist)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         with self._lock:
             url = self._tokens.get(handler.path)
             if url:

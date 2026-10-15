@@ -126,12 +126,12 @@ def test_a_search_that_stopped_starting_is_detected(data):
     off = health.discovery(db.get_settings())
     assert off["info"] and off["status_label"] == "Off"  # not a fault, and not counted
     db.save_settings({"autopilot_enabled": True})
-    state.put("trend:last_scan", {"at": time.time() - 3600, "signals": 3, "active": 1})
+    state.put("trend:last_scan", {"at": time.time() - 600, "signals": 3, "active": 1})
     fine = health.discovery(db.get_settings())
     assert fine["status"] == "healthy" and "free-license library" in fine["reason"]
     state.put("trend:last_scan", {"at": time.time() - 7 * 3600, "signals": 3, "active": 1})
     late = health.discovery(db.get_settings())
-    assert late["status"] == "degraded" and "7 h ago" in late["reason"] and "every 3 h" in late["reason"]
+    assert late["status"] == "degraded" and "7 h ago" in late["reason"] and "every 15 min" in late["reason"]
     assert "Background work" in late["action"]
     # a search that is running, or waiting for a time the platform asked for, is not late
     job = queue.enqueue("trend_scan", {"periodic": True})
@@ -148,6 +148,33 @@ def test_a_search_that_stopped_starting_is_detected(data):
     db.execute("UPDATE autopilot_events SET at = ? WHERE kind = 'autopilot_on'", (time.time() - 6.5 * 3600,))
     late = health.discovery(db.get_settings())
     assert late["status"] == "degraded" and "since Autopilot was turned on 6.5 h ago" in late["reason"]
+
+
+@pytest.mark.parametrize("migrated", [False, True])
+@pytest.mark.parametrize("busy", [0, 6])
+def test_discovery_health_reads_current_cadence_without_changing_search_state(data, migrated, busy):
+    from clipfoundry import db
+    from clipfoundry.autopilot import state
+    from clipfoundry.office import health
+
+    now = time.time()
+    db.save_settings({"autopilot_enabled": True, "library_discovery": True, "trend_poll_minutes": 180})
+    state.put("trend:last_scan", {"at": now - 3600})
+    state.put("next:trend_scan", now + 3 * 3600)
+    state.put("providers", {"youtube": {"status": "quota"}})
+    if migrated:
+        state.put("discovery:independent_checks", True)
+    for i in range(busy):
+        db.insert("sources", {"platform": "url", "external_id": f"busy-health-{i}", "status": "analyzing"})
+    with db.connect() as connection:
+        before = list(connection.iterdump())
+    reading = health.discovery(db.get_settings())
+    if busy:
+        assert reading["status"] == "healthy" and "60 min ago" in reading["reason"]
+    else:
+        assert reading["status"] == "degraded" and "every 15 min" in reading["reason"]
+    with db.connect() as connection:
+        assert list(connection.iterdump()) == before
 
 
 def test_silent_workers_and_stalled_leases_are_reported(data):

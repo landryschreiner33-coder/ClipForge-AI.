@@ -95,7 +95,10 @@
       folder</td></tr>
     <tr><td>Posts</td><td>What you planned, approved or published, when and where, the text and choices of each post,
       each post's ID and link, a record of approvals and changes, and a SHA-256 fingerprint of the exact video
-      file you confirmed, so a changed file needs a new review</td><td>Until you delete the data folder (see
+      file you confirmed, so a changed file needs a new review. YouTube upload/status responses may also store
+      its returned made-for-kids and self-declared-made-for-kids flags, alongside your actual approved answer,
+      and an explanation of possible comment restrictions. These flags do not report whether comments are enabled
+      or authorize changing the video's audience</td><td>Until you delete the data folder (see
       section 7)</td></tr>
     <tr><td>Results</td><td>Views, likes, comments, shares and watch time that YouTube and TikTok report for your own
       posts</td><td>YouTube: deleted after 30 days, unless you tell ClipFoundry your Google project was approved to
@@ -202,6 +205,21 @@
   the video's website and media servers without using your browser login or saved cookies. Optional web search
   also searches for public video pages using your configured provider and existing credit limit. Files and clips
   stay on this computer; this mode does not grant reuse or publishing permission.
+</p>
+<p>
+  Searches retain bounded pagination positions and provider-specific retry deadlines locally so they can resume
+  without repeating only the first results page or blocking independent services. Searches recur when the queue
+  has capacity, subject to saved source limits, provider quotas and credit/cost allowances. Search keys entered
+  under Settings → Integrations are sealed like other secret settings and are sent only to their own provider;
+  saving a key does not itself test it or start an external request. Free-credit allowances are app settings,
+  not a reading of the provider's account balance.
+</p>
+<p>
+  Compatible split HLS capture uses one temporary local relay for both video and audio, sharing the existing
+  download limit and URL checks. An empty ended platform capture may check for its public recording through
+  the same supported downloader. Attempt counts, requested wait deadlines and completion state are stored with
+  the live checkpoint to survive restarts. Existing partial captures are not replaced. Checkpoints follow the
+  existing project/data-folder retention; this adds no browser cookies, login scraping or new service.
 </p>
 <p>
   When the deletions happen: ClipFoundry deletes 30-day-old YouTube information each time it starts, and about once

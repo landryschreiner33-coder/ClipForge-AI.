@@ -147,11 +147,11 @@ def _provider_status(name: str, status: str, detail: str = "", count: int = 0, f
             "at": time.time()}
 
 
-def _search_error(name: str, exc: Exception) -> dict:
+def _search_error(name: str, exc: Exception, provider: str = "") -> dict:
     """Keep a temporary failure local to one search; later periodic scans always get a fresh attempt."""
     asked = getattr(exc, "retry_after", None)
-    if asked is not None:
-        state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), time.time() + float(asked)))
+    if asked is not None and provider:
+        providers.defer(provider, float(asked))
     return _provider_status(name, "error", str(exc), problem=f"{name} did not work last time.",
                             fix="ClipFoundry will try again automatically.")
 
@@ -248,7 +248,7 @@ def trend_scan(job: Job) -> dict:
             detail += f" · {first}"
             for exc in yt.errors:
                 if exc.retry_after is not None:
-                    state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
+                    providers.defer("youtube", exc.retry_after)
                 if exc.code in ("reconnect", "setup"):
                     state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                                  level="warning")
@@ -262,8 +262,8 @@ def trend_scan(job: Job) -> dict:
         yt = None
         statuses["youtube"] = _provider_status("YouTube Data API", "quota" if exc.code in QUOTA_CODES else "error",
                                                str(exc), fix=exc.fix)
-        if exc.retry_after is not None:  # YouTube asked to wait: the next scan is not sooner than that
-            state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
+        if exc.retry_after is not None:  # Only this service waits; independent searches continue.
+            providers.defer("youtube", exc.retry_after)
         if exc.code in ("reconnect", "setup"):
             state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                          level="warning")
@@ -271,7 +271,7 @@ def trend_scan(job: Job) -> dict:
         raise
     except Exception as exc:  # noqa: BLE001 - the free library and folders still work while YouTube is unavailable
         yt = None
-        statuses["youtube"] = _search_error("YouTube search", exc)
+        statuses["youtube"] = _search_error("YouTube search", exc, "youtube")
     state.put("trend:scans", int(state.get("trend:scans", 0) or 0) + 1)
     job.check()
     job.progress(0.3, "Searching the web for public TikTok links", stage="web")
@@ -314,7 +314,7 @@ def web_search(settings: dict, chosen: list[str], yt: providers.YouTubeDiscovery
     except queue.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - optional search must not prevent other discovery
-        statuses["web_search"] = _search_error("Web search", exc)
+        statuses["web_search"] = _search_error("Web search", exc, "web")
         return []
     use = providers.web_usage(settings)
     tiktok = [s for s in sigs if s["platform"] == "tiktok"]
@@ -341,7 +341,7 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
     except queue.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - folders are still checked when the library is offline
-        statuses["library"] = _search_error("The free video library", exc)
+        statuses["library"] = _search_error("The free video library", exc, "library")
         return []
     statuses["library"] = _provider_status(name, "ok", f"{len(sigs)} videos with a license", len(sigs))
     return sigs
@@ -364,7 +364,8 @@ def feed_scan(job: Job) -> dict:
         rescore(db.get_settings(), now)
     # A known recording can stop growing, or a creator's missing original can arrive, without a new signal ID.
     # Check these on the free folder cadence instead of waiting for another (possibly quota-delayed) web scan.
-    if sigs or db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('eligible', 'needs_file')"):
+    if sigs or db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('eligible', 'needs_file')") or \
+            db.scalar("SELECT COUNT(*) FROM trend_signals WHERE status = 'active'"):
         queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}",
                       priority=job.row["priority"])
     return {"signals": len(sigs), "new": new, "message": f"{new} new item(s) in watch folders and feeds"}
@@ -408,11 +409,38 @@ def refill(item: dict) -> dict | None:
                          revive=False, message="Choosing another video")
 
 
+def _discovery_has_capacity(settings: dict) -> bool:
+    remaining = discovery_attempts_remaining(settings)
+    busy = int(db.scalar("SELECT COUNT(*) FROM sources WHERE user_added = 0 AND "
+                          "status IN ('queued', 'ingesting', 'analyzing')") or 0)
+    room = busy < int(settings.get("discovery_queue_limit") or 6)
+    return room and (remaining is None or remaining > 0)
+
+
+def discovery_period(settings: dict, period: float) -> float:
+    """Read the current search cadence without changing a deadline or applying migrations."""
+    return min(period, 900.0) if _discovery_has_capacity(settings) else period
+
+
 def _period(settings: dict, period: float) -> float:
-    factor = quota.discovery_period_factor(settings)
-    if factor == float("inf"):
-        return max(period, quota.next_reset() - time.time() + 60)
-    return period * factor
+    # Older builds used a YouTube-only wait as the deadline for every service. Preserve any possible remote
+    # request as a conservative YouTube cooldown, while allowing independent free searches to wake again.
+    if not state.get("discovery:independent_checks"):
+        due = float(state.get("next:trend_scan", 0) or 0)
+        youtube_status = (state.get("providers", {}) or {}).get("youtube", {}) or {}
+        if youtube_status.get("status") in ("error", "quota") and due > time.time():
+            providers.defer("youtube", due - time.time())
+        state.put("next:trend_scan", min(due, time.time() + 900))
+        state.put("discovery:independent_checks", True)
+    has_capacity = _discovery_has_capacity(settings)
+    adjusted = min(period, 900.0) if has_capacity else period
+    if has_capacity:
+        # Capacity can return after a busy pass scheduled the regular, much later deadline. Changing the
+        # interval alone leaves that old deadline in place; shorten it without postponing an earlier scan.
+        due = float(state.get("next:trend_scan", 0) or 0)
+        if due > time.time() + adjusted:
+            state.put("next:trend_scan", time.time() + adjusted)
+    return adjusted
 
 
 PERIOD_ADJUST["trend_scan"] = _period

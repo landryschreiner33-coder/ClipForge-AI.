@@ -1,5 +1,27 @@
 # Implementation status
 
+## Audio, comments, recurring search and live/Windows recovery — 2026-10-15 (America/Chicago)
+
+Base: `11bdb43523f9b01e82590d2dd9e67473d323c88d`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Reproduce boosted/default-surround clipping, delayed/gapped audio clocks and different selected tracks;
+  correct extraction/rendering and verify measured samples/encoded output/exact fake-upload bytes.
+- [x] Keep genuine kids answers, reject coercible strings/numbers, explain kids/Private comment restrictions and
+  retain returned YouTube audience evidence without promising a writable comments switch.
+- [x] Separate provider waits, recheck capacity within 15 minutes, page bounded results and wake saved signals on
+  free feed checks; expose sealed existing YouTube/Tavily keys and free-only allowances with official setup links.
+- [x] Shorten persisted deadlines when capacity returns and keep health/phone cadence reads free of state writes;
+  preserve existing read-only assertions and detect genuinely stopped background work at the effective cadence.
+- [x] Support safely relayed paired HLS with measured A/V sync and finite restart-safe public-archive recovery for
+  empty ended captures, preserving partial timelines, project identity and a single durable handoff.
+- [x] Finish only the native Windows 10054 transport cleanup, retain genuine errors, support Python 3.11–3.13
+  detach signatures, and verify the phone lifespan starts no desktop workers.
+- [x] Prepare [Claude's concrete handoff](../CLAUDE_HANDOFF.md) with missing owner evidence and continuation steps.
+
+**Validation:** Final full fast suite: 1,278 passed, 14 slow deselected, in 579.81 s. Real-FFmpeg/synthetic-speech media and restart verification covered all 14 scenarios across two runs: the full attempt passed 12 with 2 repeat-discovery timeouts (1,274 deselected, 1153.68 s); after correcting only the compressed-clock fixture's discovery-list cache expiry, both private/public repeat scenarios passed in 374.57 s. This was not a single all-green full-media run. Production cache/quota policy and all real render, final-report, exact-upload-byte and restart assertions were unchanged by that fixture correction. Final production build: 10.32 s; TypeScript passed. All 43 final built-browser checks passed in 93.25 s, with all 17 frontend hashes unchanged. Focused independent bugfix verification: 73 passed in 32.22 s, including measured encoded mono/surround audio, exact fake-upload bytes, real split-HLS synchronization and real asyncio cleanup compatibility. Windows/phone focused verification: 63 passed in 10.25 s; earlier discovery focused: 89 passed in 11.12 s. The final queue-drain deadline correction and surrounding discovery checks passed 61 tests in 9.13 s. Final comments/search checks after the current-label correction: 47 passed in 22.85 s. The final read-only health/phone/search correction passed 77 checks in 16.64 s, with database-unchanged assertions intact. The complete media run used the final audio/live/publishing code, preceding only the pure health-cadence refactor and its four new fast tests; all 39 media-scope source hashes remained unchanged. That refactor is covered by the final full fast run and 77 focused checks. The earlier interrupted suites preceded final deadline/returned-label corrections and are not final evidence. No real owner Windows profile/media, RTX3050, live provider key, account upload or 24-hour soak was tested.
+No native Windows/owner profile/media/RTX3050, real provider keys/platform uploads or 24-hour soak was verified.
+Earlier Brain/bulk review/upload-recovery and readable managed-profile setup guarantees remain required.
+
 ## Fast review, bulk approval and consistent Brain use — 2026-10-15 (America/Chicago)
 
 Base: `ec20aec76825a284393af00d812ec4a08a8beca3`, on `codex/brain-graph-quality-discovery`.

@@ -3,6 +3,7 @@ import { errorText } from "../api";
 import { ap, AutoPublishView } from "../autopilot";
 import { audienceApi, AudienceView } from "../office/api";
 import { Banner, ConfirmDialog, Dialog, Disclosure, Pill, toast } from "./ui";
+import { YouTubeComments } from "./YouTubeComments";
 
 const hourWord = (h?: number) => (h === undefined ? "?" : h === 0 || h === 24 ? "midnight" : h === 12 ? "noon"
   : h < 12 ? `${h} a.m.` : `${h - 12} p.m.`);
@@ -118,6 +119,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
               <span>Yes</span>
             </label>
           </div>
+          <YouTubeComments privacy={visibility} kids={kids} />
         </dd>
         <dt>How many</dt>
         <dd className="inline-fields">

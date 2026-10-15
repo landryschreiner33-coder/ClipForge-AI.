@@ -77,6 +77,9 @@ add("advanced", {
 });
 
 add("integrations", {
+  youtube_api_key: "YouTube Data API key", tavily_api_key: "Web search key",
+  tavily_free_credits: "Web search credits", discovery_monthly_budget_usd: "Monthly cost limit",
+  library_discovery: "Free-license library",
   nvidia_enabled: "Use NVIDIA AI", nvidia_api_key: "NVIDIA API key", nvidia_model: "NVIDIA model",
   nvidia_mode: "NVIDIA mode", nvidia_production_url: "NVIDIA endpoint", nvidia_daily_requests: "NVIDIA requests a day",
   nvidia_daily_tokens: "NVIDIA tokens a day", nvidia_max_input_tokens: "NVIDIA text per request",

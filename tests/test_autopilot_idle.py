@@ -171,7 +171,8 @@ def test_partial_discovery_preserves_retry_after_and_does_not_send_more_requests
     monkeypatch.setattr(providers, "client", lambda timeout: httpx.Client(transport=httpx.MockTransport(respond)))
     before = time.time()
     run("trend_scan")
-    assert state.get("next:trend_scan") >= before + 600
+    assert providers.wait_until("youtube") >= before + 600
+    assert float(state.get("next:trend_scan", 0) or 0) < before + 600
     assert requests == ["/youtube/v3/videos", "/youtube/v3/search"]
     assert db.select("trend_signals", "external_id = 'chartvideo1'")
     transport.close()

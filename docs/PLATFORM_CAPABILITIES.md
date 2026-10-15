@@ -4,6 +4,18 @@ What YouTube and TikTok allow for a single-user, local ClipFoundry, and what the
 connection, granted scopes, app/project approval (audit) and whether the product's use case is acceptable to the
 platform are **separate** checks: passing one says nothing about the others.
 
+## Current comments and review behavior (2026-10-15)
+
+Default local schedules wait for manual owner review, including selected-post bulk approval for YouTube. A search
+API key supplies discovery access, not upload authorization or reuse permission.
+
+YouTube disables comments for Private and made-for-kids videos. ClipFoundry preserves real audience choices,
+rejects ambiguous boolean inputs and explains returned audience flags from existing upload/status responses.
+It does not infer whether comments are enabled from a successful upload: the video upload API has no switch for
+enabling comments. Even a Public video marked not made for kids may have channel or YouTube restrictions. Use
+YouTube Studio to check an existing video's Audience and Comments settings; no automatic audience/visibility
+change is made to force comments. See the [Claude handoff](../CLAUDE_HANDOFF.md) for this release's verification.
+
 ## Current PR #14 workflow (verified 2026-10-10)
 
 New Public YouTube uploads use explicit audience confirmation and channel/visibility-bound standing permission,

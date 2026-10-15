@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -20,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__, config, db
+from .asyncio_windows import disconnect_cleanup
 from .publish.common import app_request, local_only
 
 PAIRING_SECONDS = 300
@@ -239,7 +241,7 @@ class PhoneManager:
             self._error = ""
             self._server = uvicorn.Server(uvicorn.Config(create_companion_app(self), host=address, port=port,
                                                         access_log=False, log_level="critical", proxy_headers=False,
-                                                        lifespan="off", timeout_graceful_shutdown=2))
+                                                        lifespan="on", timeout_graceful_shutdown=2))
             self._thread = threading.Thread(target=self._serve, name="phone-status", daemon=True)
             self._thread.start()
             deadline = time.monotonic() + 3
@@ -392,7 +394,14 @@ class EnableBody(BaseModel):
 
 
 def create_companion_app(manager: PhoneManager) -> FastAPI:
-    companion = FastAPI(title="ClipFoundry phone status", docs_url=None, redoc_url=None, openapi_url=None)
+    @asynccontextmanager
+    async def lifespan(_):
+        # This companion never starts desktop workers; it owns only its connection cleanup handler.
+        with disconnect_cleanup():
+            yield
+
+    companion = FastAPI(title="ClipFoundry phone status", docs_url=None, redoc_url=None, openapi_url=None,
+                        lifespan=lifespan)
 
     @companion.middleware("http")
     async def private_responses(request: Request, call_next):

@@ -9,6 +9,7 @@ import { audienceApi, AudienceDestination, AudienceView } from "../office/api";
 import { AccountBadge, ConnectButton } from "../components/accounts";
 import { loadPosts, Post, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
+import { YouTubeComments, YouTubeCommentsResult } from "../components/YouTubeComments";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, IconName, LoadingPage, PageHead, Pill, PlatformName, ProgressBar,
@@ -379,6 +380,7 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
           <input type="radio" name="pp-kids" checked={kids === "yes"} onChange={() => setKids("yes")} />
           <span>Yes, it's made for kids</span>
         </label>
+        <YouTubeComments privacy={privacy} kids={kids === "yes" ? true : kids === "no" ? false : null} />
       </fieldset>
       <label className="choice">
         <input type="checkbox" checked={shortsTag} onChange={(e) => setShortsTag(e.target.checked)} />
@@ -731,6 +733,7 @@ function PubRow({ p, onChange }: { p: Publication; onChange: (p: Publication) =>
       {setup === "public_requested" && <span className="small muted">TikTok did not report the post’s actual
         visibility; Everyone was requested.</span>}
       {p.message && <span className="small">{p.message}</span>}
+      {p.platform === "youtube" && <YouTubeCommentsResult info={p.info} />}
       {p.error && <span className="small bad-text">{p.error}{p.fix ? <> <b>What to do:</b> {p.fix}</> : null}</span>}
       <span className="tiny faint">“{p.title || p.description.slice(0, 80)}”</span>
       <div className="row wrap">

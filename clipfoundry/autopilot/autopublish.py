@@ -115,7 +115,7 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError("Read and confirm what automatic publishing will do")
     if visibility not in config.YOUTUBE_PRIVACY:
         raise ValueError("Choose Public or Private for automatic YouTube uploads")
-    if made_for_kids is None:
+    if type(made_for_kids) is not bool:
         raise ValueError("Say whether your videos are made for kids (YouTube requires this answer)")
     if not 0 <= int(daily_limit) <= 100:
         raise ValueError("Use 0 for no app daily cap, or a daily limit from 1 to 100 posts")
@@ -145,7 +145,7 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     elif dest["intent"] == audience.PUBLIC:
         raise ValueError("The permission's visibility must match Who watches. Choose Public, or confirm a Private "
                          "audience in Settings → Integrations")
-    cfg = {"visibility": visibility, "made_for_kids": bool(made_for_kids), "daily_limit": int(daily_limit),
+    cfg = {"visibility": visibility, "made_for_kids": made_for_kids, "daily_limit": int(daily_limit),
            "start_hour": int(start_hour), "end_hour": int(end_hour),
            "timezone": settings.get("autopilot_timezone") or "America/Chicago",
            "min_quality": float(settings.get("autopilot_min_quality") or 0), "text_version": TEXT_VERSION,

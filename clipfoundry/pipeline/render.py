@@ -177,21 +177,24 @@ def _decode_size(w: int, h: int) -> tuple[int, int]:
 
 def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> str:
     rel = [(a - start, b - start) for a, b in segs]
-    parts = []
+    # Input seeking resets the shared source clock, but the first audio packet may still arrive late. Rebuild
+    # that clock before any trims: resetting PTS independently would move all speech earlier than the picture.
+    parts = [f"[1:a:0]aresample=48000:async=1:first_pts=0,apad=whole_dur={rel[-1][1]:.6f}[clock]"]
     fade = 0.01
     if len(rel) == 1:
         a, b = rel[0]
-        parts.append(f"[1:a]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
+        parts.append(f"[clock]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
     else:
         labels = "".join(f"[s{i}]" for i in range(len(rel)))
-        parts.append(f"[1:a]asplit={len(rel)}{labels}")
+        parts.append(f"[clock]asplit={len(rel)}{labels}")
         for i, (a, b) in enumerate(rel):
             d = b - a
             parts.append(f"[s{i}]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS,"
                          f"afade=t=in:st=0:d={fade},afade=t=out:st={max(0.0, d - fade):.4f}:d={fade}[c{i}]")
         parts.append("".join(f"[c{i}]" for i in range(len(rel))) + f"concat=n={len(rel)}:v=0:a=1[ac]")
     chain = "[ac]"
-    post = []
+    # Downmix before loudness/peak control so a multichannel mix cannot overload after being limited.
+    post = ["aformat=sample_rates=48000:channel_layouts=stereo"]
     speed = float(opts.get("speed", 1.0) or 1.0)
     if abs(speed - 1.0) > 0.001:
         post.append(f"atempo={max(SPEED_RANGE[0], min(SPEED_RANGE[1], speed)):.4f}")  # faster, same pitch
@@ -200,7 +203,9 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> 
     gain = float(opts.get("gain_db", 0) or 0)
     if abs(gain) > 0.01:
         post.append(f"volume={gain:.2f}dB")
-    post.append("aresample=48000")
+    # Gain follows normalization, so even normalized speech can otherwise hard-clip at the allowed +12 dB.
+    # Disable the limiter's default auto-level boost and compensate its lookahead to keep cuts/captions aligned.
+    post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1"]
     parts.append(chain + ",".join(post) + "[a]")
     return ";".join(parts)
 

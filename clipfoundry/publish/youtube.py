@@ -235,6 +235,9 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
     Public needs the explicit audience stamp validated by the caller; Private stays Private and unlisted is not
     supported. Scheduling is local: public uploads start at their planned time. `publish_at` from older callers is
     ignored, so an existing Private upload never becomes public later."""
+    if type(made_for_kids) is not bool:
+        raise PublishError("Say whether this video is made for kids.",
+                           "Choose Yes or No again; an invalid saved answer cannot be used for uploading.")
     title = _clean(title)
     if not title:
         raise PublishError("A title is required for YouTube.", "Enter a title on the publish screen.")
@@ -257,7 +260,7 @@ def video_body(title: str, description: str, tags: list[str], privacy: str, made
         if t and t not in clean_tags and total + cost <= 480:
             clean_tags.append(t)
             total += cost
-    status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": bool(made_for_kids), "embeddable": True}
+    status = {"privacyStatus": privacy, "selfDeclaredMadeForKids": made_for_kids, "embeddable": True}
     return {"snippet": {"title": title, "description": description, "tags": clean_tags,
                         "categoryId": str(category_id or "22")}, "status": status}
 
@@ -426,6 +429,34 @@ def studio_url(video_id: str) -> str:
     return f"https://studio.youtube.com/video/{video_id}/edit"
 
 
+def audience_readback(status: dict, requested_kids: object, privacy: str) -> dict:
+    """Report returned audience evidence without claiming that the API reports comment settings."""
+    declared = status.get("selfDeclaredMadeForKids")
+    actual = status.get("madeForKids")
+    declared = declared if type(declared) is bool else None
+    actual = actual if type(actual) is bool else None
+    requested = requested_kids if type(requested_kids) is bool else None
+    current = actual if actual is not None else declared
+    if privacy == "private":
+        reason = "private"
+        note = "YouTube does not allow comments on Private videos. This upload keeps its selected visibility."
+    elif current is True:
+        reason = "made_for_kids"
+        note = ("YouTube reports this video as made for kids, which disables comments. Check Audience in YouTube "
+                "Studio if that label is incorrect; choose the answer that matches the video's intended audience.")
+    elif current is None and requested is True:
+        reason = "requested_made_for_kids"
+        note = ("This upload was marked made for kids by your approval, which disables comments. YouTube did not "
+                "return its final audience label. Check Audience in YouTube Studio if the label is incorrect.")
+    else:
+        reason = "not_reported"
+        note = ("YouTube does not report whether comments are enabled through this upload API. If comments are "
+                "off, check YouTube Studio → Content → this video → Show more → Comments, and its Audience label. "
+                "Channel defaults and YouTube's own restrictions can also disable comments.")
+    return {"requested_made_for_kids": requested, "self_declared_made_for_kids": declared,
+            "made_for_kids": actual, "comments_reason": reason, "comments_note": note}
+
+
 def video_status(token: Token, video_id: str) -> dict:
     """Current privacy / processing status of an uploaded video (None fields if it was deleted)."""
     items = _get(token, f"{API_URL}/videos", {"part": "status,processingDetails", "id": video_id}).get("items") or []
@@ -434,7 +465,8 @@ def video_status(token: Token, video_id: str) -> dict:
     st = items[0].get("status") or {}
     return {"exists": True, "privacy": st.get("privacyStatus", ""), "upload_status": st.get("uploadStatus", ""),
             "rejection_reason": st.get("rejectionReason", ""), "failure_reason": st.get("failureReason", ""),
-            "processing": ((items[0].get("processingDetails") or {}).get("processingStatus", ""))}
+            "processing": ((items[0].get("processingDetails") or {}).get("processingStatus", "")),
+            "madeForKids": st.get("madeForKids"), "selfDeclaredMadeForKids": st.get("selfDeclaredMadeForKids")}
 
 
 def video_statistics(token: Token, video_id: str) -> dict | None:

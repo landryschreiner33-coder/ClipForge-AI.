@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -316,7 +316,7 @@ def activity(limit: int = 60) -> dict:
 class AutoPublishIn(BaseModel):
     platform: str = "youtube"
     visibility: str = ""
-    made_for_kids: bool | None = None
+    made_for_kids: StrictBool | None = None
     daily_limit: int = 0
     start_hour: int = 0
     end_hour: int = 24
@@ -741,7 +741,7 @@ class BulkApproveBody(BaseModel):
     reuse_confirmed: bool = False
     reuse_kind: str = Field(default="custom", max_length=50)
     reuse_basis: str = Field(default="", max_length=4000)
-    made_for_kids: bool | None = None
+    made_for_kids: StrictBool | None = None
 
 
 @router.post("/scheduled/bulk-preview", dependencies=WRITE)
@@ -790,7 +790,7 @@ class ApproveBody(BaseModel):
     description: str | None = None
     tags: list[str] | None = None
     privacy: str | None = None
-    made_for_kids: bool | None = None
+    made_for_kids: StrictBool | None = None
     mode: str | None = None
     allow_comment: bool = False
     allow_duet: bool = False

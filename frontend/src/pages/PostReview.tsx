@@ -10,6 +10,7 @@ import {
 } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
 import { ReuseBasis, ReuseKind } from "../components/ReuseBasis";
+import { YouTubeComments, YouTubeCommentsResult } from "../components/YouTubeComments";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, toast,
@@ -514,6 +515,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
           <Banner tone="info" icon="clock" title={postStatus(p).word}>
             It was accepted ahead of its planned time ({atLabel(p.planned_at, tz)}). Its recorded visibility is
             {" "}{privacyLabel(p.platform, p.publication?.privacy || p.privacy)}. {p.delivery_label} {p.status_note}
+            {p.platform === "youtube" && <YouTubeCommentsResult info={p.publication?.info} />}
           </Banner>
         );
       }
@@ -751,6 +753,7 @@ function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => voi
     <section className="panel" aria-labelledby="st-h">
       <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{postStatus(p).word}</h2>
       {p.status_note && <p className="small muted">{p.status_note}</p>}
+      {p.platform === "youtube" && <YouTubeCommentsResult info={pub?.info || p.publication?.info} />}
       {p.delivery_state === "awaiting_invitations" && (
         <Banner tone="warn" icon="user" title="Share it with your invited viewers"
           actions={<button type="button" className="btn btn-small" disabled={sharing} onClick={shared}>
@@ -923,6 +926,7 @@ function TextPanel({ p, f, set, creator, creatorError, account }: {
                 <span>{l}</span>
               </label>
             ))}
+            <YouTubeComments privacy={f.privacy} kids={f.kids === "yes" ? true : f.kids === "no" ? false : null} />
           </fieldset>
         </>
       ) : (

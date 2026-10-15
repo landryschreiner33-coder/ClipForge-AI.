@@ -133,6 +133,31 @@ described traits are not promoted as desirable; choose corrective editing prefer
 shows the recognized effect and measured length. Reference-only notes remain searchable but do not change edits.
 Explicit changes made in the clip editor still override automatic guidance.
 
+## Audio, comments and ongoing searches
+
+Newly processed clips preserve delayed audio starts and gaps, and use the same first audio track for transcription
+and rendering. Stereo downmix happens before normalization; final peak control also covers volume boosts. Existing
+renders and uploaded videos are kept. Previously distorted uploads need a newly checked render; source distortion
+already present in the original cannot be reconstructed by a limiter.
+
+YouTube review explains when comments will be off: Private videos and videos made for kids do not support comments.
+Choose the audience that actually matches the content. The app preserves real Yes/No answers and rejects malformed
+ones. Upload and Refresh show YouTube's returned audience evidence; other comment restrictions and channel defaults
+must be checked in YouTube Studio because the upload API has no enable-comments switch.
+
+Open **Settings → Integrations → Search connections** to add a YouTube Data API key or Tavily key. Tavily's free
+plan currently includes 1,000 monthly credits without a credit card; **Use free Tavily plan limits** selects that
+allowance and a $0 paid budget in this app. This is not a live account balance. YouTube keys use the project's
+quota and do not replace the connected upload account. The free-license library and local folders need no key.
+Discovery checks again within 15 minutes when its queue has room and the configured source allowance remains;
+busy queues retain the saved regular interval. One provider's wait does not stop independent providers. Platform
+quotas, exact retry waits, credit/cost caps and quality checks remain active.
+
+Live capture accepts compatible separate HLS audio/video renditions through the same guarded local relay. If an
+empty platform capture ends, it checks for a public recording with finite, restart-safe waits. A platform must
+actually make that recording available; private, protected or absent media is not bypassed. Saved partial captures
+keep their original timeline. See [the Claude handoff](CLAUDE_HANDOFF.md) for the exact fixes and verification limits.
+
 ## Find fewer, stronger videos
 
 **Quality first** is on by default. Open **Missions → Permissions & sources → Quality before quantity** to adjust it.

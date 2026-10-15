@@ -22,6 +22,7 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
   const [saved, setSaved] = useState<Settings | null>(null);
   const [choice, setChoice] = useState<Choice>(fromSettings({}));
   const [key, setKey] = useState("");
+  const [youtubeKey, setYoutubeKey] = useState("");
   const [freeOnly, setFreeOnly] = useState(true);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -50,11 +51,12 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
       patch.tavily_api_key = key.trim();
       if (freeOnly) { patch.tavily_free_credits = 1000; patch.discovery_monthly_budget_usd = 0; }
     }
+    if (youtubeKey.trim()) patch.youtube_api_key = youtubeKey.trim();
     if (!Object.keys(patch).length) { toast("Your discovery choices are already saved"); return; }
     setBusy(true); setProblem("");
     try {
       const result = await api.saveSettings(patch);
-      setSaved(result); setChoice(fromSettings(result)); setKey(""); refresh();
+      setSaved(result); setChoice(fromSettings(result)); setKey(""); setYoutubeKey(""); refresh();
       toast("Discovery choices saved for the next search");
     } catch (e) { setProblem(errorText(e)); }
     finally { setBusy(false); }
@@ -129,6 +131,19 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
         <p className="small muted">No key is required for your own folders or the free-license library.
           YouTube can also use your connected account or its optional Data API key.
           Search results provide links, not TikTok viewing statistics or reuse permission.</p>
+        <details><summary>Optional YouTube search key</summary>
+          <p className="small muted">Your connected YouTube account already supports discovery. A Data API key can
+            search public videos without an account, using its Google project's allowance. It does not add
+            unlimited searches or authorize uploads.</p>
+          {saved?.youtube_api_key === "********" && <p className="small">A YouTube search key is already saved.</p>}
+          <label><span>YouTube Data API key</span><input type="password" autoComplete="new-password"
+            spellCheck={false} maxLength={4096} placeholder="AIza…" value={youtubeKey} disabled={!saved || busy}
+            onChange={e => setYoutubeKey(e.target.value)} />
+            <small>Leave blank to keep your saved key. Save these choices after entering a new key.</small>
+          </label>
+        </details>
+        <a className="textlink small" href="#/settings/integrations">
+          Search-key setup, saved keys and free-only limits</a>
         <a className="textlink small" href="https://www.tavily.com/pricing" target="_blank" rel="noreferrer">
           Current free-plan details</a>
       </details>

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from .. import config, db, learning, secure
 from . import audience, jobs, stats, tiktok, tiktok_setup, youtube
@@ -168,7 +168,7 @@ class PublishBody(BaseModel):
     description: str = ""          # YouTube description, or the TikTok caption
     tags: list[str] = []
     privacy: str = ""              # YouTube: public/unlisted/private. TikTok: one of creator_info's options
-    made_for_kids: bool | None = None
+    made_for_kids: StrictBool | None = None
     mode: str = "direct"           # TikTok: direct (Direct Post) or inbox (draft in the TikTok app)
     allow_comment: bool = False
     allow_duet: bool = False

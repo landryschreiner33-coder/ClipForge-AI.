@@ -66,10 +66,22 @@ def reusable_discovery_only(settings: dict) -> bool:
 
 
 class Unavailable(Exception):
-    def __init__(self, status: str, detail: str, fix: str = ""):
+    def __init__(self, status: str, detail: str, fix: str = "", retry_after: float | None = None):
         super().__init__(detail)
         self.status = status
         self.fix = fix
+        self.retry_after = retry_after
+
+
+def wait_until(provider: str) -> float:
+    return float(state.get(f"discovery:wait:{provider}", 0) or 0)
+
+
+def defer(provider: str, seconds: float) -> float:
+    """A service's requested wait survives restarts without stopping unrelated services."""
+    until = max(wait_until(provider), time.time() + max(0.0, seconds))
+    state.put(f"discovery:wait:{provider}", until)
+    return until
 
 
 def iso_duration(text: str | None) -> float | None:
@@ -116,9 +128,14 @@ class YouTubeDiscovery:
         self.cache_hits = 0
         self.denied: list[str] = []
         self.errors: list[PublishError] = []
+        self.search_offset = 0
 
     def _get(self, method: str, path: str, params: dict, ttl: float) -> dict:
         def fetch() -> dict:
+            remaining = wait_until("youtube") - time.time()
+            if remaining > 0:
+                raise PublishError("YouTube asked discovery to wait before another request.",
+                                   "Other searches and folder checks continue.", "rate_limit", retry_after=remaining)
             quota.check(method, "discovery", self.settings)
             query, headers = dict(params), {}
             if self.key:
@@ -134,7 +151,10 @@ class YouTubeDiscovery:
             quota.record(method, "discovery")
             self.calls += 1
             if r.status_code != 200:
-                raise youtube.api_error(r, method)
+                exc = youtube.api_error(r, method)
+                if exc.retry_after is not None:
+                    defer("youtube", exc.retry_after)
+                raise exc
             try:
                 data = r.json()
                 if not isinstance(data, dict) or not isinstance(data.get("items", []), list):
@@ -163,9 +183,35 @@ class YouTubeDiscovery:
         if event_type:
             params["eventType"] = event_type
         elif published_after:
-            params["publishedAfter"] = dt.datetime.fromtimestamp(published_after, dt.timezone.utc).strftime(
+            # A moving second-by-second boundary defeated the thirty-minute response cache.
+            params["publishedAfter"] = dt.datetime.fromtimestamp(int(published_after // 1800) * 1800,
+                                                                 dt.timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
-        data = self._get("search.list", "search", params, ttl=1800)
+        cursor_key = "discovery:youtube_page:" + hashlib.sha256(json.dumps(
+            {k: v for k, v in params.items() if k != "publishedAfter"}, sort_keys=True).encode()).hexdigest()
+        cursor = state.get(cursor_key, {}) or {}
+        fresh = float(cursor.get("at") or 0) > time.time() - 6 * 3600
+        page = int(cursor.get("page") or 0) if fresh else 0
+        token = str(cursor.get("token") or "") if fresh else ""
+        if token and 0 < page < 5:
+            params["pageToken"] = token
+            if cursor.get("published_after") and "publishedAfter" in params:
+                # Page tokens belong to the exact original query, including its time boundary.
+                params["publishedAfter"] = cursor["published_after"]
+        else:
+            page = 0
+        self.search_offset = page * max_results
+        try:
+            data = self._get("search.list", "search", params, ttl=1800)
+        except PublishError as exc:
+            if exc.code == "invalidPageToken":
+                state.delete(cursor_key)  # a later ordinary scan restarts; never add an unbudgeted retry
+            raise
+        next_token = data.get("nextPageToken")
+        state.put(cursor_key, {"token": next_token if isinstance(next_token, str) and page < 4 else "",
+                               "page": page + 1 if isinstance(next_token, str) and next_token and page < 4 else 0,
+                               "published_after": params.get("publishedAfter", ""),
+                               "at": time.time()})
         return [((i.get("id") or {}).get("videoId")) for i in data.get("items") or [] if (i.get("id") or {}).get("videoId")]
 
     def videos(self, ids: list[str]) -> dict[str, dict]:
@@ -191,6 +237,9 @@ class YouTubeDiscovery:
 
     def discover(self, topics: list[str], channels: list[dict], include_live: bool, job=None) -> list[dict]:
         """One discovery pass. Stops using a bucket as soon as the quota manager refuses it."""
+        if float(state.get("discovery:youtube_paced_until", 0) or 0) > time.time():
+            self.denied.append("Spacing YouTube discovery checks to stay within its quota share")
+            return []
         region = self.settings.get("trend_region") or "US"
         lang = self.settings.get("trend_language") or "en"
         since = time.time() - 3600 * float(self.settings.get("trend_max_age_hours") or 72)
@@ -231,17 +280,20 @@ class YouTubeDiscovery:
         for topic in topics:
             if job:
                 job.check()
+            self.search_offset = 0
             ids = attempt(self.search, topic, region, lang, since, creative_commons=uploadable_only)
             if ids is None:
                 break  # the search bucket said no: no point trying the next topic
             for rank, vid in enumerate(ids, 1):
-                ranked.setdefault(vid, ("youtube_search", rank, len(ids), topic))
+                ranked.setdefault(vid, ("youtube_search", self.search_offset + rank,
+                                        self.search_offset + len(ids), topic))
         if include_live and topics:
             # A generic "live" search brings ambient loops and waiting rooms rather than the owner's interests.
+            self.search_offset = 0
             ids = attempt(self.search, topics[0], region, lang, None, event_type="live",
                           creative_commons=uploadable_only)
             for rank, vid in enumerate(ids or [], 1):
-                ranked[vid] = ("youtube_live", rank, len(ids or []), topics[0])
+                ranked[vid] = ("youtube_live", self.search_offset + rank, self.search_offset + len(ids or []), topics[0])
         missing = [v for v in ranked if v not in items]
         details = attempt(self.videos, missing) if missing else {}
         items.update(details or {})
@@ -254,6 +306,9 @@ class YouTubeDiscovery:
                                     found_from=found_from.get(vid, ""))
             sig["raw"]["curated_channel"] = vid in curated
             out.append(sig)
+        factor = quota.discovery_period_factor(self.settings)
+        if 1 < factor < float("inf"):
+            state.put("discovery:youtube_paced_until", time.time() + 900 * factor)
         return out
 
     def originals(self, items: dict[str, dict], ranked: dict, attempt) -> dict[str, str]:
@@ -387,7 +442,7 @@ class WebSearch:
         self.stopped = ""
 
     def search(self, query: str, domains: list[str], max_results: int = 10, time_range: str = "week") -> list[dict]:
-        until = float(state.get("web:wait_until", 0) or 0)
+        until = max(float(state.get("web:wait_until", 0) or 0), wait_until("web"))
         if until > time.time():  # Tavily asked to wait: nothing is sent before that time
             raise Unavailable("quota", "Tavily asked to wait before the next search.",
                               f"Web search starts again at {time.strftime('%H:%M', time.localtime(until))}.")
@@ -411,7 +466,7 @@ class WebSearch:
         if r.status_code == 429:
             asked = retry_after(r)
             if asked is not None:
-                state.put("web:wait_until", time.time() + asked)
+                state.put("web:wait_until", defer("web", asked))
             raise Unavailable("quota", "Tavily is rate limiting requests right now.",
                               f"Tavily asked to wait {wait_text(asked)}; web search starts again then."
                               if asked is not None else "It is tried again next scan.")
@@ -516,9 +571,6 @@ class WebSearch:
                 except PublishError as exc:
                     # Do not issue more requests after a platform wait/error. A later normal scan retries.
                     self.stopped = str(exc)
-                    if exc.retry_after is not None:
-                        state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0),
-                                                         time.time() + float(exc.retry_after)))
                     break
                 for rank, item in enumerate(items.values(), 1):
                     out.append(signal_from_video(item, "youtube_web_reusable", rank, len(items), topic))
@@ -569,11 +621,22 @@ class Library:
         self.calls = 0
 
     def search(self, topic: str, limit: int = 10) -> list[dict]:
+        remaining = wait_until("library") - time.time()
+        if remaining > 0:
+            raise Unavailable("quota", "Wikimedia Commons asked discovery to wait before another request.",
+                              "Other searches and folder checks continue.", retry_after=remaining)
         params = {"action": "query", "format": "json", "formatversion": "2", "generator": "search",
                   "gsrsearch": f"{topic} filetype:video", "gsrnamespace": "6", "gsrlimit": str(limit),
                   "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata|metadata",
                   "iiextmetadatafilter": "License|LicenseShortName|LicenseUrl|AttributionRequired|Artist|Credit|"
                                          "Restrictions|DateTimeOriginal|ObjectName|Copyrighted"}
+        cursor_key = "discovery:commons_page:" + hashlib.sha256(topic.casefold().encode()).hexdigest()
+        cursor = state.get(cursor_key, {}) or {}
+        offset = int(cursor.get("offset") or 0) if float(cursor.get("at") or 0) > time.time() - 6 * 3600 else 0
+        if 0 < offset < limit * 5:
+            params["gsroffset"] = str(offset)
+        else:
+            offset = 0
         try:
             with client(30) as c:
                 r = c.get(COMMONS_API, params=params, headers={"User-Agent": USER_AGENT})
@@ -581,6 +644,12 @@ class Library:
             raise Unavailable("error", f"Could not reach Wikimedia Commons ({type(exc).__name__}).",
                               "Check the internet connection.") from exc
         if r.status_code != 200:
+            asked = retry_after(r)
+            if asked is not None:
+                defer("library", asked)
+            if r.status_code in (429, 503):
+                raise Unavailable("quota", f"Wikimedia Commons answered {r.status_code} and is temporarily busy.",
+                                  "Other searches and folder checks continue.", retry_after=asked)
             raise Unavailable("error", f"Wikimedia Commons answered {r.status_code}.", "It is tried again next scan.")
         self.calls += 1
         try:
@@ -593,14 +662,24 @@ class Library:
         if data.get("error"):
             error = data["error"]
             code = error.get("code", "unknown") if isinstance(error, dict) else "unknown"
+            asked = retry_after(r)
+            if asked is not None:
+                defer("library", asked)
             raise Unavailable("error", f"Wikimedia Commons could not search ({str(code)[:80]}).",
-                              "It is tried again next scan.")
+                              "It is tried again next scan.", retry_after=asked)
+        next_offset = (data.get("continue") or {}).get("gsroffset", 0)
+        try:
+            next_offset = int(next_offset)
+        except (ValueError, TypeError):
+            next_offset = 0
+        state.put(cursor_key, {"offset": next_offset if 0 < next_offset < limit * 5 else 0, "at": time.time()})
         pages = (data.get("query") or {}).get("pages") or []
         if isinstance(pages, dict):  # formatversion 1
             pages = list(pages.values())
         now = time.time()
         pages = sorted((p for p in pages if isinstance(p, dict)), key=lambda p: p.get("index", 0))
-        return [s for s in (library_signal(p, topic, k, len(pages), now) for k, p in enumerate(pages, 1)) if s]
+        return [s for s in (library_signal(p, topic, offset + k, offset + len(pages), now)
+                           for k, p in enumerate(pages, 1)) if s]
 
     def discover(self, topics: list[str], job=None) -> list[dict]:
         out: list[dict] = []

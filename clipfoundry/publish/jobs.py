@@ -125,7 +125,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
         stamp = audience.check("youtube", pub["requested_privacy"], settings, stamp=stamp or None)
         db.update_publication(pub["id"], audience=stamp)
     body = youtube.video_body(pub["title"], pub["description"], pub.get("tags") or [], pub["requested_privacy"],
-                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22",
+                              opts.get("made_for_kids"), settings.get("youtube_category_id") or "22",
                               audience_intent=stamp.get("intent") or "")
     requested = pub["requested_privacy"]
     db.update_publication(pub["id"], status="uploading", progress=0,
@@ -149,7 +149,8 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     st = video.get("status") or {}
     privacy = st.get("privacyStatus") or ""
     info = {**((db.get_publication(pub["id"]) or pub).get("info") or {}), "studio_url": youtube.studio_url(vid),
-            "upload_status": st.get("uploadStatus", "")}
+            "upload_status": st.get("uploadStatus", ""),
+            "youtube_audience": youtube.audience_readback(st, opts.get("made_for_kids"), privacy)}
     delivery = audience.delivery_after_upload("youtube", stamp, privacy, "api")
     locked_private = requested == "public" and privacy == "private"
     if requested == "private" and privacy and privacy != "private":
@@ -328,6 +329,8 @@ def refresh(pub: dict) -> dict:
         if not st["exists"]:
             db.update_publication(pub["id"], info=info, message="This video no longer exists on YouTube.")
         else:
+            info["youtube_audience"] = youtube.audience_readback(
+                st, (pub.get("options") or {}).get("made_for_kids"), st["privacy"])
             delivery = dict(pub.get("delivery") or {})
             delivery["visibility"] = {**(delivery.get("visibility") or {}), "returned": st["privacy"],
                                       "evidence": "api", "checked_at": time.time()}

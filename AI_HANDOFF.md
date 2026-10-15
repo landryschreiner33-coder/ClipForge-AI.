@@ -4,6 +4,38 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-15 (UTC).
 Fetch before trusting branch state.
 
+## Latest continuation: audio distortion, comments, ongoing search and live/Windows recovery
+
+Base: `11bdb43523f9b01e82590d2dd9e67473d323c88d`, on `codex/brain-graph-quality-discovery`.
+The owner confirmed distorted audio, comments disabled on some YouTube uploads, discovery stopping, and two
+screenshots of Windows Proactor reset cleanup and split/ended live capture failures. The concrete Claude
+continuation guide is [CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md); preserve its verification limits and owner-PC follow-up.
+
+Real audio reproductions found default surround downmix and boosted gain clipping, lost delayed starts/gaps and
+different transcription/render tracks. Downmix now precedes normalization, final latency-compensated peak control
+follows gain, timestamps become real silence before processing and first-track selection is consistent. Existing
+renders/uploads/transcripts are not silently rewritten. A limiter cannot restore distortion already in a source.
+
+Made-for-kids values are strictly real booleans through all upload paths; malformed legacy/API values wait for
+a real answer. UI explains kids/Private comment restrictions, returned YouTube audience flags are retained without
+extra requests, and unknown comment availability points to Studio. No owner answers/visibility are auto-flipped;
+the upload API has no enable-comments control. Provider-specific waits, capacity-aware recurring checks, bounded
+five-page cursors and free feed refill prevent unrelated services and saved signals from stalling. Existing
+encrypted YouTube/Tavily keys and free-only allowances are visible in Search connections; no new provider added.
+When a busy queue drains, the persisted search deadline shortens as well as its interval; polling does not extend
+the shortened deadline or alter an individual provider's wait.
+Health and phone status use a pure cadence calculation. Only the periodic host updates deadlines/migration;
+viewing status cannot change scheduling state. Existing phone database-unchanged checks remain binding.
+
+Split HLS uses one guarded local A/V relay with common clocks/shared budgets. Empty ended platform captures have
+finite, restart-safe public-archive recovery; partial timelines/project identity/single handoff remain intact.
+The Windows handler finishes only the known native 10054 stdlib cleanup, supports differing Python detach
+signatures, preserves other errors and restores handlers. Phone's own lifespan starts no desktop workers.
+
+**Validation:** Final full fast suite: 1,278 passed, 14 slow deselected, in 579.81 s. Real-FFmpeg/synthetic-speech media and restart verification covered all 14 scenarios across two runs: the full attempt passed 12 with 2 repeat-discovery timeouts (1,274 deselected, 1153.68 s); after correcting only the compressed-clock fixture's discovery-list cache expiry, both private/public repeat scenarios passed in 374.57 s. This was not a single all-green full-media run. Production cache/quota policy and all real render, final-report, exact-upload-byte and restart assertions were unchanged by that fixture correction. Final production build: 10.32 s; TypeScript passed. All 43 final built-browser checks passed in 93.25 s, with all 17 frontend hashes unchanged. Focused independent bugfix verification: 73 passed in 32.22 s, including measured encoded mono/surround audio, exact fake-upload bytes, real split-HLS synchronization and real asyncio cleanup compatibility. Windows/phone focused verification: 63 passed in 10.25 s; earlier discovery focused: 89 passed in 11.12 s. The final queue-drain deadline correction and surrounding discovery checks passed 61 tests in 9.13 s. Final comments/search checks after the current-label correction: 47 passed in 22.85 s. The final read-only health/phone/search correction passed 77 checks in 16.64 s, with database-unchanged assertions intact. The complete media run used the final audio/live/publishing code, preceding only the pure health-cadence refactor and its four new fast tests; all 39 media-scope source hashes remained unchanged. That refactor is covered by the final full fast run and 77 focused checks. The earlier interrupted suites preceded final deadline/returned-label corrections and are not final evidence. No real owner Windows profile/media, RTX3050, live provider key, account upload or 24-hour soak was tested.
+No owner Windows profile/media, native Windows/RTX3050, real provider key/account upload or 24-hour soak was tested.
+Pin source delivery only after the final commit/build manifest; preserve earlier managed profile history and EXE bytes.
+
 ## Latest continuation: fast selected-post approval and consistent Brain use
 
 Base: `ec20aec76825a284393af00d812ec4a08a8beca3`, on `codex/brain-graph-quality-discovery`.

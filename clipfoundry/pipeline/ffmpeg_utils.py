@@ -280,8 +280,15 @@ def probe(path: str | Path, *, cancel: Callable[[], bool] | None = None) -> dict
 
 def extract_audio(src: Path, dst: Path, duration: float, progress=None, cancel=None) -> None:
     tmp = dst.with_suffix(".tmp.wav")
+    # WAV carries no timestamps. Preserve delayed starts and discontinuities as silence before Whisper sees
+    # samples, otherwise its word times are early compared with the original video. Use the same first track
+    # that probe and render select; FFmpeg's automatic choice may prefer a different, higher-channel track.
+    audio_filter = "aresample=16000:async=1:first_pts=0"
+    if duration > 0:
+        audio_filter += f",apad=whole_dur={duration:.6f},atrim=end={duration:.6f}"
     run(
-        ["-i", str(src), "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(tmp)],
+        ["-i", str(src), "-map", "0:a:0", "-vn", "-sn", "-dn", "-af", audio_filter,
+         "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(tmp)],
         duration=duration,
         progress=progress,
         cancel=cancel,

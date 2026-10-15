@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__, config, db, phone
+from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
 from .pipeline import cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
@@ -31,19 +32,20 @@ from .office import routes as office_routes
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    db.init()
-    _youtube_retention()
-    worker.resume(db.interrupted_work())
-    worker.start()
-    publish_jobs.worker.start()
-    publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
-    autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
-    phone.manager.restore()
-    try:
-        yield
-    finally:
-        phone.manager.stop()
-        autopilot_host.supervisor.stop()
+    with disconnect_cleanup():
+        db.init()
+        _youtube_retention()
+        worker.resume(db.interrupted_work())
+        worker.start()
+        publish_jobs.worker.start()
+        publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
+        autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
+        phone.manager.restore()
+        try:
+            yield
+        finally:
+            phone.manager.stop()
+            autopilot_host.supervisor.stop()
 
 
 def _youtube_retention() -> None:

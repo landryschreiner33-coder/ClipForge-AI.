@@ -48,6 +48,7 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
         is needed. Platform posting permissions still apply. Nothing here posts a video.
       </p>
       {error && <Banner tone="bad" icon="alert" title="Integrations could not be loaded">{error}</Banner>}
+      <SearchConnections c={c} />
       <PhoneMonitorPanel />
       {aud && <AudiencePanel view={aud} onSaved={(v) => { setAud(v); load(); }} />}
       <SettingsPanel id="int-cards" title="Connections"
@@ -62,6 +63,71 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
       <NvidiaPanel c={c} dirty={nvidiaDirty} unsaved={changed.length > 0}
         card={cards?.find((x) => x.id === "nvidia")} onChange={load} reload={reload} />
     </>
+  );
+}
+
+// Discovery keys are separate from the account authorization needed to upload a video.
+function SearchConnections({ c }: { c: FieldCtx }) {
+  return (
+    <SettingsPanel id="int-search" title="Search connections"
+      intro={<>Add an optional search key to find more relevant video links. Your folders and the free-license
+        library work without a key. Save changes below; saving a key does not test it or upload anything.</>}>
+      <SettingRow k="youtube_api_key" label="YouTube Data API key"
+        hint="Optional for public-video discovery. A connected YouTube account already supports search.">
+        <SecretField k="youtube_api_key" c={c} removable placeholder="AIza…" />
+        <span className="small muted">A key uses its Google project's allowance; it does not remove YouTube's
+          daily limits or authorize uploads. The default allowance includes 100 searches a day.</span>
+        <Disclosure summary="Get a YouTube search key">
+          <ol className="small">
+            <li>Choose your project in <a className="textlink"
+              href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank"
+              rel="noreferrer">Google Cloud and enable YouTube Data API v3</a>.</li>
+            <li>Open <a className="textlink" href="https://console.cloud.google.com/apis/credentials"
+              target="_blank" rel="noreferrer">Credentials</a>, create an API key, and restrict its API access to
+              YouTube Data API v3.</li>
+            <li>Paste the key here, then save your changes. Keep your YouTube account connected for uploading.</li>
+          </ol>
+          <a className="textlink small" href="https://developers.google.com/youtube/v3/getting-started"
+            target="_blank" rel="noreferrer">Official setup and current quota details</a>
+        </Disclosure>
+      </SettingRow>
+      <SettingRow k="tavily_api_key" label="Tavily web search key"
+        hint="Adds topic-based web search for public video links and the originals behind clips.">
+        <SecretField k="tavily_api_key" c={c} removable placeholder="tvly-…" />
+        <span className="small muted">The free plan includes 1,000 credits each month with no credit card.
+          This app uses basic searches, at one credit per request. Search results give links, not TikTok viewing
+          statistics or reuse permission.</span>
+        <ol className="small" style={{ margin: 0, paddingLeft: 20 }}>
+          <li><a className="textlink" href="https://app.tavily.com" target="_blank" rel="noreferrer">
+            Open Tavily and create a free account</a>.</li>
+          <li>Copy the API key from your dashboard, paste it here, then save your changes.</li>
+        </ol>
+        <a className="textlink small" href="https://docs.tavily.com/documentation/api-credits" target="_blank"
+          rel="noreferrer">Current Tavily free allowance and credit costs</a>
+      </SettingRow>
+      <SettingRow k="tavily_free_credits" label="Included Tavily credits each month" errors={c.errors}
+        hint="Match your provider plan. The free plan includes 1,000; usage in other apps also counts there.">
+        <NumInput k="tavily_free_credits" c={c} />
+      </SettingRow>
+      <SettingRow k="discovery_monthly_budget_usd" label="Paid web-search limit each month" errors={c.errors}
+        hint="US dollars beyond the included credits. Keep this at 0 for free-only use in this app.">
+        <NumInput k="discovery_monthly_budget_usd" c={c} step={1} />
+        <button type="button" className="btn btn-small" style={{ justifySelf: "start" }}
+          onClick={() => c.set({ tavily_free_credits: 1000, discovery_monthly_budget_usd: 0 })}>
+          Use free Tavily plan limits
+        </button>
+        <span className="tiny muted">This is an app allowance, not a live provider balance. Check Tavily's dashboard
+          before enabling paid usage or sharing a key with another app.</span>
+      </SettingRow>
+      <SettingRow k="library_discovery" label="Free-license library"
+        hint="Search Wikimedia Commons for videos with recorded free licenses. No API key is needed.">
+        <Switch k="library_discovery" c={c} />
+      </SettingRow>
+      <p className="small muted" style={{ margin: 0 }}>Keys are stored sealed on this PC and saved keys stay hidden.
+        Enter keys here, never in chat. The next search uses your saved setup; Missions shows search waits and
+        problems. Your shortlist quality, review and publishing checks still apply.</p>
+      <a className="textlink small" href="#/missions/sources">Open discovery choices and recent search results</a>
+    </SettingsPanel>
   );
 }
 
@@ -289,6 +355,7 @@ function actionLink(card: IntegrationCard): string {
   const a = card.action.toLowerCase();
   if (a.startsWith("confirm the audience")) return "#/settings/integrations";
   if (a.startsWith("connect")) return "#/settings";
+  if (a.includes("settings → integrations")) return "#/settings/integrations";
   if (a.includes("settings → advanced")) return "#/settings/advanced";
   return "";
 }
