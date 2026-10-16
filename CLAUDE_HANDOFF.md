@@ -7,12 +7,12 @@ Prepared October 15, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HAN
 
 The application repository is `landryschreiner33-coder/ClipForge-AI.` (including the final dot).
 Work is on `codex/brain-graph-quality-discovery`, based on tested revision
-`11bdb43523f9b01e82590d2dd9e67473d323c88d`. The commit containing this handoff adds the current fixes. Fetch and
+`0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7`. The commit containing this handoff adds the current fixes. Fetch and
 inspect the branch and working tree before trusting a cached checkout; do not reset or discard someone else's work.
 The earlier PR #14 is merged; this is later continuation work, not a request to recreate that PR or merge blindly.
 
 The readable setup lives on `codex/clipfoundry-one-click` in a separate checkout. Its previous tested artifact
-was `40393e4c2e30119d9dd70dc42d9770098f11202d`. The delivered artifact's
+was `8fa4e5dd8381d3ec34a6c90e45297fc795ef6415`. The delivered artifact's
 `launcher/plain_setup_verification.json` records the final exact app revision, ZIP hashes and test evidence.
 Do not rebuild or recommend the previously blocked custom EXE, change antivirus settings or discard managed profiles.
 
@@ -23,7 +23,40 @@ Suggested opening prompt:
 > selected-post bulk approval and verified Windows profile reuse. Start with any owner-provided reproduction
 > evidence still missing below. Use isolated data and fake accounts; do not publish real test videos.
 
-## The owner's current request
+## Latest request: failing search keys and post-only permission records
+
+The owner reports no clips and clarifies **both API keys fail**; no exact service error or owner-PC access was
+provided. They confirm reuse text appears **only in the clip's approval/reuse details**. These records already
+stay with the exact post, not Brain. No automatic permission-to-knowledge write was found; do not invent one or
+delete/filter deliberately saved references. Single/bulk approval and real learner projection tests verify this
+boundary. Forms and post details now explain it explicitly.
+
+YouTube discovery refreshes a rejected same-account OAuth token once, with every request counted and no override
+of quota or Retry-After. Saved optional API keys stay explicitly selected. Static errors distinguish invalid keys,
+application restrictions and a disabled API. Remove a bad optional key and save to use the connected account.
+Legacy and new keys trim outer whitespace; API saves reject internal whitespace/control characters without echo.
+Tavily busy-server Retry-After becomes a durable provider-local wait; other providers/folders can continue.
+
+Settings → Integrations → Search connections has **Test saved YouTube connection** / **Test saved Tavily connection**.
+New `autopilot/search_connections.py` plus local-page-only integration POSTs perform bounded checks: YouTube makes
+an uncached general-quota `videos.list` read; Tavily GETs `/usage` with its key in the Authorization header, no
+query/body/search. Both validate actual response shape. Checks retain safe results/times and a nonpublic credential
+fingerprint, handle waits/local budgets/concurrency and mark changed credentials stale. GET is strictly read-only.
+A passed check proves credential/API access at that time, not available search credits, downloadable media,
+passing quality checks or posting permission. No express zero-credit guarantee was found for Tavily `/usage`.
+
+Home and health no longer use YouTube reset advice for Tavily/Commons, blame missing reuse coverage in review
+mode or call configured failing searches healthy. They preserve independent work and static safe diagnosis.
+
+Official contracts checked: https://docs.tavily.com/documentation/api-reference/endpoint/usage and
+https://developers.google.com/youtube/v3/docs/videos/list .
+
+**Latest validation:** Final full fast suite: 1,373 passed, 14 slow deselected, in 755.18 s. Final full real-FFmpeg/synthetic-media and restart suite: 14 passed, 1,373 deselected, in 945.34 s. Final TypeScript and production build passed (5.17 s). All 51 final built-browser checks passed in 167.41 s, with all 17 built-file hashes unchanged. Focused provider verification: 77 passed in 7.83 s; focused diagnosis/health/phone: 88 passed in 11.26 s; independent saved-search/Brain separation checks: 113 passed in 22.43 s before the final wait-order correction, then 53 passed in 4.06 s including both same-key full-server-wait regressions. All 261 frozen production/frontend/Python-test hashes remained unchanged through final verification. Tests used isolated data, synthetic media, MockTransport and fake platforms. No owner keys, Windows profile/RTX3050, actual search-service account, real upload, Defender acceptance or 24-hour soak was verified. Permission answers were already post-only; the update clarifies and verifies that boundary.
+The owner's keys/configuration and Windows run remain unverified. After installing, test both saved connections
+and use the actual sanitized failure to guide setup; never ask the owner to paste keys or tokens. Preserve all
+audio/live/Brain/bulk-review fixes below. Do not claim every possible bug or a 24-hour run was verified.
+
+## Earlier audio/search/live request, retained in this update
 
 1. Uploaded audio is **distorted**. This clarification is confirmed; the owner has not supplied an affected file
    or link, or confirmed whether the same distortion is present in the local preview.

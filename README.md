@@ -135,6 +135,16 @@ Explicit changes made in the clip editor still override automatic guidance.
 
 ## Audio, comments and ongoing searches
 
+If keys fail, open **Settings → Integrations → Search connections**, save and press **Test saved YouTube
+connection** or **Test saved Tavily connection**. Results distinguish credential/setup errors from service limits.
+A YouTube key differs from an OAuth client ID/secret; browser-referrer-restricted keys cannot authorize a desktop
+app. Remove the optional key and save to use the connected account instead. Tests run no search/upload: YouTube
+uses general-quota reads and Tavily reads account usage. Success does not prove remaining search credits or
+downloadable originals. Other providers and local folders continue when one service fails.
+
+Reuse answers stay with the exact reviewed posts. They do not become Brain lessons or teach future clips.
+Notes and examples you deliberately save in Brain remain separate.
+
 Newly processed clips preserve delayed audio starts and gaps, and use the same first audio track for transcription
 and rendering. Stereo downmix happens before normalization; final peak control also covers volume boosts. Existing
 renders and uploaded videos are kept. Previously distorted uploads need a newly checked render; source distortion

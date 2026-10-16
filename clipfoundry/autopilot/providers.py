@@ -39,9 +39,9 @@ from typing import Iterable
 
 import httpx
 
-from .. import config, db, netguard
+from .. import config, db, locks, netguard
 from ..publish import youtube
-from ..publish.common import PublishError, client, retry_after, wait_text
+from ..publish.common import PublishError, client, retry_after, wait_text, with_retry_after
 from . import quota, state, trends
 
 UNAVAILABLE = {
@@ -112,17 +112,82 @@ def _int(v: object) -> int | None:
 
 
 # ------------------------------------------------------------------ YouTube (official Data API)
+SEARCH_CONNECTIONS_FIX = "Settings → Integrations → Search connections"
+
+
+def youtube_discovery_error(response: httpx.Response, *, api_key: bool, method: str = "videos.list") -> PublishError:
+    """Describe discovery failures without retaining a provider body that may repeat a credential.
+
+    Google may report API-key restrictions in either legacy errors[] or google.rpc.ErrorInfo details[].
+    An optional search key is distinct from the OAuth connection used for uploads.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    error = body.get("error") if isinstance(body, dict) else None
+    error = error if isinstance(error, dict) else {}
+    reasons = []
+    for key in ("errors", "details"):
+        items = error.get(key)
+        if isinstance(items, list):
+            reasons.extend(item["reason"] for item in items if isinstance(item, dict)
+                           and isinstance(item.get("reason"), str))
+    invalid = {"keyInvalid", "keyExpired", "API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_NOT_FOUND"}
+    restricted = {"ipRefererBlocked", "API_KEY_HTTP_REFERRER_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED",
+                  "API_KEY_SERVICE_BLOCKED", "API_KEY_ANDROID_APP_BLOCKED", "API_KEY_IOS_APP_BLOCKED"}
+    disabled = {"accessNotConfigured", "SERVICE_DISABLED", "API_DISABLED"}
+    safe_shared = {"quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded",
+                   "youtubeSignupRequired", "insufficientPermissions", "forbidden"}
+    if api_key and (invalid.intersection(reasons) or response.status_code == 401):
+        exc = PublishError("YouTube did not accept the search API key (it may be invalid, expired or deleted).",
+                           f"{SEARCH_CONNECTIONS_FIX}: replace the YouTube Data API key. To search with your "
+                           "connected YouTube account instead, remove this optional key.", "api_key_invalid")
+    elif api_key and restricted.intersection(reasons):
+        exc = PublishError("The Google Cloud restrictions on the YouTube search API key do not allow this request.",
+                           "In Google Cloud Credentials, check this key's application restrictions and allow the "
+                           "YouTube Data API v3. Browser website/referrer restrictions do not work for a desktop "
+                           f"app. Replace or remove the optional key in {SEARCH_CONNECTIONS_FIX}.",
+                           "api_key_restricted")
+    elif disabled.intersection(reasons):
+        exc = PublishError("The YouTube Data API v3 is not enabled for this Google Cloud project.",
+                           "Google Cloud console → APIs & Services → Library → YouTube Data API v3 → Enable. "
+                           f"Then test again in {SEARCH_CONNECTIONS_FIX}.", "api_disabled")
+    elif api_key and response.status_code in (400, 403) and not \
+            {"quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"}.intersection(reasons) and \
+            "invalidPageToken" not in reasons:
+        exc = PublishError(f"YouTube rejected the search API key or its project setup (HTTP {response.status_code}).",
+                           f"{SEARCH_CONNECTIONS_FIX}: test this key, check its Google Cloud project and "
+                           "restrictions, or remove the optional key to search with your connected account.",
+                           "api_key_rejected")
+    else:
+        reason = next((value for value in reasons if value in safe_shared or value == "invalidPageToken"), "")
+        if reason == "invalidPageToken":
+            exc = PublishError("YouTube's saved search page has expired; the next search will start again.",
+                               "No action is needed.", reason)
+        elif reason or response.status_code in (401, 429):
+            # Keep the shared quota/reconnect policy, but never feed reflected request text into saved state.
+            clean = httpx.Response(response.status_code, headers=response.headers,
+                                   json={"error": {"errors": [{"reason": reason}]}})
+            exc = youtube.api_error(clean, method)
+        else:
+            exc = PublishError(f"YouTube discovery answered HTTP {response.status_code}.",
+                               "ClipFoundry will try again automatically. Check the connection if this continues.",
+                               "response")
+    return with_retry_after(exc, response, "YouTube")
+
+
 class YouTubeDiscovery:
     def __init__(self, settings: dict):
         self.settings = settings
-        self.key = settings.get("youtube_api_key") or ""
+        self.key = str(settings.get("youtube_api_key") or "").strip()
         self.token: youtube.Token | None = None
         if not self.key:
             if not (db.get_account("youtube") or {}).get("has_tokens") or not youtube.configured(settings):
                 raise Unavailable("not_configured", "YouTube discovery needs a YouTube Data API key or a connected "
                                                     "YouTube account.",
-                                  "Settings → Autopilot → Discovery: paste an API key from your Google Cloud project, "
-                                  "or connect YouTube in Settings → Publishing.")
+                                  f"{SEARCH_CONNECTIONS_FIX}: paste an API key from your Google Cloud project, "
+                                  "or connect YouTube in Settings → Integrations.")
             self.token = youtube.Token(settings)
         self.calls = 0
         self.cache_hits = 0
@@ -130,28 +195,38 @@ class YouTubeDiscovery:
         self.errors: list[PublishError] = []
         self.search_offset = 0
 
-    def _get(self, method: str, path: str, params: dict, ttl: float) -> dict:
-        def fetch() -> dict:
+    @property
+    def auth_mode(self) -> str:
+        return "api_key" if self.key else "connected_account"
+
+    def _get(self, method: str, path: str, params: dict, ttl: float, *, use_cache: bool = True) -> dict:
+        def request() -> dict:
             remaining = wait_until("youtube") - time.time()
             if remaining > 0:
                 raise PublishError("YouTube asked discovery to wait before another request.",
                                    "Other searches and folder checks continue.", "rate_limit", retry_after=remaining)
-            quota.check(method, "discovery", self.settings)
             query, headers = dict(params), {}
             if self.key:
                 query["key"] = self.key
-            else:
-                headers["Authorization"] = f"Bearer {self.token.get()}"  # type: ignore[union-attr]
-            try:
-                with client(30) as c:
-                    r = c.get(f"{youtube.API_URL}/{path}", params=query, headers=headers)
-            except httpx.HTTPError as exc:
-                raise PublishError(f"Could not reach YouTube ({type(exc).__name__}).",
-                                   "Check the internet connection.", "network") from exc
-            quota.record(method, "discovery")
-            self.calls += 1
+            for attempt in range(2):
+                quota.check(method, "discovery", self.settings)
+                if not self.key:
+                    headers["Authorization"] = f"Bearer {self.token.get(force=bool(attempt))}"  # type: ignore[union-attr]
+                try:
+                    with client(30) as c:
+                        r = c.get(f"{youtube.API_URL}/{path}", params=query, headers=headers)
+                except httpx.HTTPError as exc:
+                    raise PublishError(f"Could not reach YouTube ({type(exc).__name__}).",
+                                       "Check the internet connection.", "network") from exc
+                quota.record(method, "discovery")
+                self.calls += 1
+                if r.status_code == 401 and not self.key and attempt == 0 and retry_after(r) is None:
+                    # A server-invalidated token may still look unexpired locally. Refresh the same authorized
+                    # account once, counting both requests; never silently replace an optional API key.
+                    continue
+                break
             if r.status_code != 200:
-                exc = youtube.api_error(r, method)
+                exc = youtube_discovery_error(r, api_key=bool(self.key), method=method)
                 if exc.retry_after is not None:
                     defer("youtube", exc.retry_after)
                 raise exc
@@ -164,8 +239,28 @@ class YouTubeDiscovery:
                 raise PublishError("YouTube returned an unreadable answer.", "It is tried again next scan.",
                                    "response") from exc
 
-        data, hit = quota.cached(["youtube", path, params], ttl, fetch, method)
+        def fetch() -> dict:
+            # A manual connection check and the worker may run in separate processes. Keep the allowance check,
+            # actual request/count and any returned service wait together; cached reads take no request lock.
+            with locks.named("youtube-discovery-request"):
+                return request()
+
+        data, hit = quota.cached(["youtube", path, params], ttl, fetch, method) if use_cache else (fetch(), False)
         self.cache_hits += int(hit)
+        return data
+
+    def check_connection(self) -> dict:
+        """One uncached, quota-counted check of the selected credential; never a search or an upload."""
+        data = self._get("videos.list", "videos", {"part": "id", "chart": "mostPopular", "maxResults": 1,
+                                                   "regionCode": self.settings.get("trend_region") or "US"},
+                         ttl=0, use_cache=False)
+        items = data.get("items")
+        if "error" in data or data.get("kind") != "youtube#videoListResponse" or not isinstance(items, list) or \
+                any(not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+                    for item in items):
+            raise PublishError("YouTube returned an unreadable connection-check response.",
+                               f"Test again in {SEARCH_CONNECTIONS_FIX}; no search results were imported.",
+                               "response")
         return data
 
     def most_popular(self, region: str, max_results: int = 50) -> list[dict]:
@@ -433,10 +528,10 @@ class WebSearch:
 
     def __init__(self, settings: dict):
         self.settings = settings
-        self.key = settings.get("tavily_api_key") or ""
+        self.key = str(settings.get("tavily_api_key") or "").strip()
         if not self.key:
             raise Unavailable("not_configured", "Web search is off (no Tavily API key).",
-                              "Optional: Settings → Advanced → Discovery and rights, paste a Tavily API key "
+                              f"Optional: {SEARCH_CONNECTIONS_FIX}, paste a Tavily API key "
                               "(the free plan includes 1,000 searches a month).")
         self.calls = 0
         self.stopped = ""
@@ -460,18 +555,20 @@ class WebSearch:
         except httpx.HTTPError as exc:
             raise Unavailable("error", f"Could not reach Tavily ({type(exc).__name__}).",
                               "Check the internet connection.") from exc
+        asked = retry_after(r)
+        if asked is not None and r.status_code != 200:
+            state.put("web:wait_until", defer("web", asked))
         if r.status_code in (401, 403):
             raise Unavailable("error", "Tavily did not accept the API key.",
-                              "Check the key in Settings → Advanced → Discovery and rights.")
-        if r.status_code == 429:
-            asked = retry_after(r)
-            if asked is not None:
-                state.put("web:wait_until", defer("web", asked))
-            raise Unavailable("quota", "Tavily is rate limiting requests right now.",
+                              f"{SEARCH_CONNECTIONS_FIX}: replace the Tavily API key and test again.",
+                              retry_after=asked)
+        if r.status_code == 429 or r.status_code >= 500 and asked is not None:
+            raise Unavailable("quota", "Tavily is temporarily busy or rate limiting requests.",
                               f"Tavily asked to wait {wait_text(asked)}; web search starts again then."
-                              if asked is not None else "It is tried again next scan.")
+                              if asked is not None else "It is tried again next scan.", retry_after=asked)
         if r.status_code != 200:
-            raise Unavailable("error", f"Tavily answered {r.status_code}.", "It is tried again next scan.")
+            raise Unavailable("error", f"Tavily answered {r.status_code}.", "It is tried again next scan.",
+                              retry_after=asked)
         state.put(f"cost:tavily:{use['month']}", use["used"] + 1)
         self.calls += 1
         try:

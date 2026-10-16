@@ -93,6 +93,11 @@
       (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
       itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
       folder</td></tr>
+    <tr><td>Search connection checks</td><td>When you press Test saved connection: its time, safe result and
+      requested wait, selected authentication method and a private SHA-256 fingerprint of the saved credentials.
+      The fingerprint marks old results stale after credentials change; it and the credentials are never sent
+      to the page. Viewing check status makes no provider request or database change</td>
+      <td>The latest check for each search provider replaces the previous one; kept until you delete the data folder</td></tr>
     <tr><td>Posts</td><td>What you planned, approved or published, when and where, the text and choices of each post,
       each post's ID and link, a record of approvals and changes, and a SHA-256 fingerprint of the exact video
       file you confirmed, so a changed file needs a new review. YouTube upload/status responses may also store
@@ -157,6 +162,7 @@
       posting plans even when reuse permission is unrecorded. A plan does not authorize an upload. Your individual
       reuse confirmation stores its basis, date and a binding to the source, exact file, clip, destination account,
       audience and post payload. This is your statement, not a verified license or a change to source ownership.
+      It stays with that post and is not copied into Brain knowledge or used as a lesson for future clips.
       Editing that payload requires another confirmation when recorded coverage is missing. Every new post waits
       for your approval. You can choose a permission preset rather than type a statement, or approve a selected
       group of up to 50 YouTube posts together. Each approved post still stores its own manual approval and any
@@ -237,7 +243,8 @@
 <div class="table"><table>
   <thead><tr><th scope="col">Service</th><th scope="col">When</th><th scope="col">What is sent</th></tr></thead>
   <tbody>
-    <tr><td>Google and YouTube</td><td>You connect YouTube, publish or look at results. While Autopilot is on, it
+    <tr><td>Google and YouTube</td><td>You connect YouTube, publish, look at results or explicitly test the saved
+      search connection. While Autopilot is on, it
       also searches YouTube, updates your posts' results and checks which channel posted a video</td><td>Your sign-in
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
       posts under the account/visibility-bound automatic-publishing permission you turned on, as explicitly chosen
@@ -247,7 +254,8 @@
       channel and of the YouTube channels you added, gave a permission to or have an agreement with, to see their new
       videos;
       video IDs, to read a video's details and check which channel posted it; and your YouTube API key, if you entered
-      one</td></tr>
+      one. The saved search check reads one public video-list response with your region, without running a search
+      or uploading; an expired connected sign-in may require one refresh and retry</td></tr>
     <tr><td>TikTok</td><td>You connect TikTok, approve or post a video, or look at results. While Autopilot is on, it
       also updates your posts' results and checks TikTok links</td><td>Your sign-in (on TikTok's page) and your TikTok
       app's client key and secret; the videos you approve with their caption and settings, using only a privacy
@@ -257,7 +265,8 @@
       off)</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
     <tr><td>Tavily web search</td><td>Only if you enter your own Tavily key</td><td>Your topics as search words; the
       first words of the titles of TikTok videos it found, to look for the longer YouTube videos they came from; and
-      your key</td></tr>
+      your key. Pressing Test saved Tavily connection instead sends only your key in an Authorization header to
+      read account usage; it does not run a search or send Brain text, video titles or topics</td></tr>
     <tr><td>An AI service you choose</td><td>Only if you turn on AI scoring in Settings (off by default)</td><td>The
       words said in a video's strongest moments (up to 12 by default), the sentence just before each one, each
       moment's length and the video's name, so they can be scored; and the words said in each clip, so titles and

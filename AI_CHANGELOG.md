@@ -7,6 +7,17 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-15 · Failed search keys and post-only reuse explanations
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `0c2729d`.
+* **What changed:** bounded same-account OAuth refresh, safe key setup/restriction errors, explicit uncached saved
+  search tests, credential-current results, strict responses and quota-aware concurrency. Key whitespace handling,
+  provider-specific/review-mode diagnosis and clear post-only reuse text with independent Brain boundary tests.
+* **Why:** owner reports no clips, clarifies both keys fail and asks that reuse entries not be saved in Brain.
+  They confirmed these appear only on the post. No automatic Brain write existed; deliberate notes stay intact.
+* **Validation:** Final full fast suite: 1,373 passed, 14 slow deselected, in 755.18 s. Final full real-FFmpeg/synthetic-media and restart suite: 14 passed, 1,373 deselected, in 945.34 s. Final TypeScript and production build passed (5.17 s). All 51 final built-browser checks passed in 167.41 s, with all 17 built-file hashes unchanged. Focused provider verification: 77 passed in 7.83 s; focused diagnosis/health/phone: 88 passed in 11.26 s; independent saved-search/Brain separation checks: 113 passed in 22.43 s before the final wait-order correction, then 53 passed in 4.06 s including both same-key full-server-wait regressions. All 261 frozen production/frontend/Python-test hashes remained unchanged through final verification. Tests used isolated data, synthetic media, MockTransport and fake platforms. No owner keys, Windows profile/RTX3050, actual search-service account, real upload, Defender acceptance or 24-hour soak was verified. Permission answers were already post-only; the update clarifies and verifies that boundary.
+* **Not verified:** owner keys/provider setup, Windows/profile/RTX3050, real uploads or a 24-hour soak.
+
 ## 2026-10-15 · Audio, comments, ongoing search and live/Windows recovery
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `11bdb435`.

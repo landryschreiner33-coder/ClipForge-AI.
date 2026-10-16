@@ -367,6 +367,13 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Search-key and Brain separation continuation (2026-10-15, America/Chicago):** The owner reports no new clips
+and clarifies both search keys fail. Preserve explicit key/account selection, refresh rejected same-account OAuth
+once within quotas, provide safe actionable key errors and explicit saved-connection checks. A check cannot prove
+search/download/upload readiness or silently switch credentials. Provider waits, budgets and independent sources
+remain binding. The owner confirms reuse text appears only in approval/reuse details: retain that exact-post
+record and explain it never becomes Brain knowledge or future guidance. Do not filter/delete deliberate Brain notes.
+
 **Audio/search/live reliability continuation (2026-10-15, America/Chicago):** The owner reports distorted uploaded
 audio, comments disabled on some YouTube posts, searches stopping, Windows Proactor WinError 10054 cleanup
 tracebacks, and split-audio/video or ended-stream capture failures. Preserve source clocks/track choice through

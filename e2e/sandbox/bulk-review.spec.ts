@@ -146,6 +146,8 @@ test("one basis and common kids choice approve only the selected unchanged publi
   await bulkOpen(page).click();
   const dialog = bulkDialog(page);
   await expect(dialog.getByRole("heading", { name: "Review 2 YouTube posts", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("group", { name: "Why I can reuse these clips", exact: true })).toContainText(
+    "Saved only with these selected posts. It is not added to Brain knowledge or used to teach future clips.");
   await expect(dialog).toContainText("Public · anyone can watch");
   await expect(dialog).toContainText("Only me");
   await dialog.getByRole("button", { name: "Preview video: Story public", exact: true }).click();

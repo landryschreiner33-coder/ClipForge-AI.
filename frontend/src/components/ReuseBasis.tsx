@@ -22,6 +22,8 @@ export function ReuseBasis({ kind, basis, onChange, options = REUSE_OPTIONS, mul
       <p className="tiny muted">Choose the reason you checked. {multiple
         ? "It must cover every selected clip that needs your reuse confirmation, including music and other material."
         : "Include music and any other material in the clip."} This records your review, not a verified license.</p>
+      <p className="tiny muted">Saved only with {multiple ? "these selected posts" : "this post"}.
+        It is not added to Brain knowledge or used to teach future clips.</p>
       <div className="reuse-choices">
         {options.map((option) => <label key={option.value} className={`reuse-option ${kind === option.value ? "selected" : ""}`}>
           <input type="radio" name={`reuse-kind-${id}`} value={option.value} checked={kind === option.value}

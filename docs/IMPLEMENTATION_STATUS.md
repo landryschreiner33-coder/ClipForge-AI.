@@ -1,5 +1,19 @@
 # Implementation status
 
+## Search-key diagnosis and post-only reuse records — 2026-10-15 (America/Chicago)
+
+Base: `0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Retry rejected same-account OAuth once; preserve explicit key selection, quotas and service waits.
+- [x] Explain invalid/restricted keys/API setup safely; trim outer whitespace without exposing credentials.
+- [x] Add explicit uncached connection checks, strict responses, bounded concurrency and stale-result status.
+- [x] Keep status reads pure, independent sources running and provider/review-mode explanations truthful.
+- [x] Clarify reuse records stay with exact posts and verify no automatic Brain/learning writes.
+
+**Validation:** Final full fast suite: 1,373 passed, 14 slow deselected, in 755.18 s. Final full real-FFmpeg/synthetic-media and restart suite: 14 passed, 1,373 deselected, in 945.34 s. Final TypeScript and production build passed (5.17 s). All 51 final built-browser checks passed in 167.41 s, with all 17 built-file hashes unchanged. Focused provider verification: 77 passed in 7.83 s; focused diagnosis/health/phone: 88 passed in 11.26 s; independent saved-search/Brain separation checks: 113 passed in 22.43 s before the final wait-order correction, then 53 passed in 4.06 s including both same-key full-server-wait regressions. All 261 frozen production/frontend/Python-test hashes remained unchanged through final verification. Tests used isolated data, synthetic media, MockTransport and fake platforms. No owner keys, Windows profile/RTX3050, actual search-service account, real upload, Defender acceptance or 24-hour soak was verified. Permission answers were already post-only; the update clarifies and verifies that boundary.
+Owner PC/keys and live services remain unverified. Invalid/restricted provider setup can require owner changes.
+Previous audio/live/publishing and Brain/bulk approval fixes remain included.
+
 ## Audio, comments, recurring search and live/Windows recovery — 2026-10-15 (America/Chicago)
 
 Base: `11bdb43523f9b01e82590d2dd9e67473d323c88d`, on `codex/brain-graph-quality-discovery`.

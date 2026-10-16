@@ -130,6 +130,8 @@ async ({ page, request }) => {
   const status = await (await request.get("/api/autopilot/status")).json();
   const { writes, errors } = await controlled(page, status);
   await page.goto("/#/post/controlled-review-post");
+  await expect(page.getByRole("group", { name: "Why I can reuse it", exact: true })).toContainText(
+    "Saved only with this post. It is not added to Brain knowledge or used to teach future clips.");
   const approve = page.getByRole("button", { name: "Approve & schedule upload", exact: true });
   await expect(approve).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("checkbox", { name: /^I watched this video/ }).check();
@@ -207,6 +209,8 @@ async ({ page, request }) => {
   await page.goto("/#/post/controlled-review-post");
   const reuse = page.getByRole("group", { name: "Why I can reuse it", exact: true });
   await expect(reuse).toHaveCount(0);
+  await expect(page.getByText("Saved with this post only. It is not Brain knowledge or guidance for future clips.",
+    { exact: true })).toBeVisible();
   await page.locator("#rv-title").fill("A complete story again");
   await expect(reuse).toBeVisible();
   const consent = page.getByRole("checkbox", { name: /^I watched this video/ });

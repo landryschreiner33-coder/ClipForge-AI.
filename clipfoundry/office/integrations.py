@@ -4,6 +4,7 @@ nothing, an explicit small test, and disconnect)."""
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,6 +22,20 @@ WRITE = [Depends(app_request)]
 @router.get("", dependencies=READ)
 def cards() -> dict:
     return {"cards": capabilities.cards(), "registry": capabilities.matrix()}
+
+
+@router.get("/search", dependencies=READ)
+def search_status() -> dict:
+    from ..autopilot import search_connections
+
+    return search_connections.view()
+
+
+@router.post("/search/{provider}/test", dependencies=WRITE)
+def search_test(provider: Literal["youtube", "tavily"]) -> dict:
+    from ..autopilot import search_connections
+
+    return search_connections.test(provider)
 
 
 def _test(platform: str) -> dict:

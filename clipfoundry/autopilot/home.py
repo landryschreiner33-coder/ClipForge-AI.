@@ -48,6 +48,8 @@ STAGE = {
 NOT_OPPORTUNITIES = ("skipped", "blocked", "needs_rights", "needs_file")  # listed in the activity log instead
 NOT_POSTED = ("Its clips stay on this PC and are never posted: nothing shows you may reuse this video. Record an "
               "agreement with the creator if they allow it.")
+REVIEW_NOT_POSTED = ("Its clips can be prepared for local review. Before anything uploads, check reuse and approve "
+                     "the individual post in Queue. This does not grant permission for other videos.")
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
 PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
@@ -76,8 +78,8 @@ STOPPED_AFTER = 60.0  # seconds without an answer from the background work befor
 SEARCH_NAMES = {"youtube": "YouTube search", "web_search": "Web search", "library": "The free video library"}
 SEARCH_PROBLEMS = {  # a search that did not work last time, by its status: what happened and what to do
     "error": ("It did not work last time.", "It tries again at the next search."),
-    "quota": ("YouTube's daily limit for searches is used up.",
-              "YouTube searches start again after midnight Pacific time. Your videos folder is still checked."),
+    "quota": ("This online search is temporarily waiting.",
+              "Other searches and your videos folder keep being checked."),
     "budget": ("Web search reached this month's limit.",
                "It starts again next month. You can change the limit in Settings → Advanced."),
 }
@@ -190,6 +192,17 @@ def discovery_status() -> dict:
         detail, fix = SEARCH_PROBLEMS[status]
         if status == "error":
             detail, fix = p.get("problem") or p.get("detail") or detail, p.get("fix") or fix
+        elif status == "quota":
+            if key == "youtube":
+                detail = p.get("problem") or "YouTube's daily discovery allowance is used up."
+                fix = p.get("fix") or ("YouTube searches start again after midnight Pacific time. "
+                                        "Other searches and your videos folder still work.")
+            elif key == "web_search":
+                detail = p.get("problem") or "Web search is temporarily waiting for Tavily."
+                fix = p.get("fix") or fix
+            elif key == "library":
+                detail = p.get("problem") or "The free video library is temporarily waiting for Wikimedia Commons."
+                fix = p.get("fix") or fix
         problems.append({"name": SEARCH_NAMES.get(key) or f"Checking “{p.get('name') or 'a folder'}”",
                          "detail": detail, "fix": fix})
     return {"last_scan": last.get("at"), "next_scan": state.get("next:trend_scan"),
@@ -395,6 +408,7 @@ def activity(limit: int = 40) -> list[dict]:
     one. Optional reading; nothing here waits for you."""
     marks = ",".join("?" * len(ACTIVITY))
     rows = db.select("sources", f"status IN ({marks})", ACTIVITY, "updated_at DESC", limit)
+    settings = db.get_settings()
     out = []
     for s in rows:
         made = int(s.get("clips_selected") or 0)
@@ -402,12 +416,14 @@ def activity(limit: int = 40) -> list[dict]:
         stage = STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped"
         if made and s["status"] in ("analyzed", "weak", "exhausted"):
             stage = f"{made} clip{'s' if made != 1 else ''} made"  # a weak video still gave you these clips
-        covered = bool(rights.evaluate(s)["auto_allowed"])
+        evaluation = rights.evaluate(s, settings)
+        covered = bool(evaluation["auto_allowed"])
+        review = settings.get("autopilot_review_before_publish", True) and evaluation["status"] != rights.BLOCKED
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
                     # clipping a public video (getting its file) is a separate question from posting it
-                    "posting": "" if covered or not used else NOT_POSTED,
+                    "posting": "" if covered or not used else REVIEW_NOT_POSTED if review else NOT_POSTED,
                     "can_add_file": s["status"] == "needs_file" and covered})
     return out
 
@@ -424,10 +440,16 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Autopilot is looking for opportunities."
     skipped = skipped_count()
     if skipped:
-        if settings.get("autopilot_discovery_uploadable_only", True):
+        from . import providers
+
+        if providers.reusable_discovery_only(settings):
             return ("No strong videos with posting permission and usable originals yet. Automatic search checks your "
                     "channel, recorded creator agreements and free-license media. Add your own recordings or a valid "
                     "agreement under Permissions & sources; public videos without coverage stay local.")
+        if settings.get("autopilot_review_before_publish", True):
+            return ("No accessible strong videos yet. Activity shows why each video was skipped. "
+                    "Automatic search continues; you can also add your own recording or a public video link. "
+                    "Clips are prepared for local review and wait for your approval in Queue before uploading.")
         if settings.get("autopilot_public_videos"):
             return ("No accessible strong videos yet. ClipFoundry is still looking. "
                     "Activity shows why each video was skipped. You can also paste a public video link.")
@@ -486,8 +508,11 @@ def next_look(settings: dict) -> float | None:
         return None
     due = float(state.get("next:trend_scan", 0) or 0)
     if due <= time.time():  # not planned yet (a look you started): the usual interval after the last look
+        from . import scout
+
         last = float((state.get("trend:last_scan") or {}).get("at") or 0)
-        due = last + 60.0 * float(settings.get("trend_poll_minutes") or 180) if last else 0.0
+        period = scout.discovery_period(settings, 60.0 * float(settings.get("trend_poll_minutes") or 180))
+        due = last + period if last else 0.0
     return due if due > time.time() else None
 
 

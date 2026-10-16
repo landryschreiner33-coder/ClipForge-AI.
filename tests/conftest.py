@@ -14,10 +14,12 @@ def _no_real_discovery_services(monkeypatch):
     """Tests never reach Wikimedia Commons, Tavily or TikTok's embed API: their addresses point at a closed local
     port, unless a test points them at a stand-in (tests/fake_platforms.py)."""
     from clipfoundry.autopilot import providers
+    from clipfoundry.autopilot import search_connections
     from clipfoundry.publish import tiktok
 
     monkeypatch.setattr(providers, "COMMONS_API", "http://127.0.0.1:9/w/api.php")
     monkeypatch.setattr(providers, "TAVILY_URL", "http://127.0.0.1:9/search")
+    monkeypatch.setattr(search_connections, "TAVILY_USAGE_URL", "http://127.0.0.1:9/usage")
     monkeypatch.setattr(tiktok, "OEMBED_URL", "http://127.0.0.1:9/oembed")
 
 

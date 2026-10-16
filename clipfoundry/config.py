@@ -218,6 +218,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
                "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
+SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
@@ -289,6 +290,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             v = v.upper()[:2]
         elif key == "trend_language":
             v = v.strip().lower()[:20]
+        elif key in SEARCH_API_KEYS:
+            v = v.strip()
         elif key in ("discovery_excluded_topics", "discovery_audience_terms"):
             v = v[:2000]
         out[key] = v

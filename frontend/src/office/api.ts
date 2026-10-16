@@ -356,9 +356,18 @@ export interface NvidiaView {
   development_note: string;
 }
 export interface NvidiaResult { ok: boolean; detail?: string; key_verified?: boolean; models?: string[]; code?: string }
+export interface SearchCheck {
+  provider: string; ok: boolean; status: string; detail: string; fix: string; code: string;
+  until: number | null; at: number; current?: boolean; auth_mode?: string;
+}
+export interface SearchConnection {
+  configured: boolean; auth_mode: "api_key" | "connected_account" | "not_configured"; last_check: SearchCheck | null;
+}
 
 const I = "/api/integrations";
 export const integrations = {
+  searchStatus: () => req<Record<"youtube" | "tavily", SearchConnection>>("GET", `${I}/search`),
+  testSearch: (provider: "youtube" | "tavily") => req<SearchCheck>("POST", `${I}/search/${provider}/test`),
   list: () => req<{ cards: IntegrationCard[]; registry: { capabilities: Record<string, string>;
     platforms: Record<string, Record<string, { state: string; detail: string }>> } }>("GET", I),
   nvidia: () => req<NvidiaView>("GET", `${I}/nvidia`),

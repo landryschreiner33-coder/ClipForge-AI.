@@ -1,8 +1,35 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-15 (UTC).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-15 (America/Chicago).
 Fetch before trusting branch state.
+
+## Latest continuation: failed search keys and separate post-only reuse records
+
+Base: `0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7`, on `codex/brain-graph-quality-discovery`.
+The owner reports no clips and says both search keys fail; exact provider errors and owner-PC access were not
+available. They confirm permission text appears only on the clip's approval/reuse details. That already belongs
+to the exact post, not Brain; no automatic permission-to-knowledge leak was found or claimed.
+
+YouTube discovery refreshes rejected same-account OAuth once, counting requests and preserving waits. Key errors
+distinguish invalid/restricted keys and disabled APIs without reflecting credentials. No automatic credential
+substitution occurs. A request lock protects the discovery allowance against concurrent probes. Copied outer key
+whitespace is trimmed; new saves reject extra lines/control characters safely. Tavily server waits stay durable.
+
+Settings → Integrations → Search connections adds explicit saved-connection tests. YouTube makes an uncached
+general-quota read (one more if sign-in refreshes); Tavily reads `/usage` without running a search. Strict responses,
+bounded repeated/concurrent checks, provider waits and credential-current results apply. GET stays read-only.
+Only safe results/times and a private credential fingerprint persist. The tests cannot prove search quota,
+downloadable originals or publishing readiness; no guaranteed-zero-credit claim is made for Tavily `/usage`.
+
+Missions/health distinguish each provider's waits and review mode from reuse blocks. Failed configured searches
+degrade health while independent sources continue; removed keys stop adding stale health failures. Forms/details
+say reuse answers stay with those posts and never teach Brain. Single/bulk and learning regressions verify that
+ordinary owner notes, all Brain evidence and exact-post approval remain separate and intact.
+
+**Validation:** Final full fast suite: 1,373 passed, 14 slow deselected, in 755.18 s. Final full real-FFmpeg/synthetic-media and restart suite: 14 passed, 1,373 deselected, in 945.34 s. Final TypeScript and production build passed (5.17 s). All 51 final built-browser checks passed in 167.41 s, with all 17 built-file hashes unchanged. Focused provider verification: 77 passed in 7.83 s; focused diagnosis/health/phone: 88 passed in 11.26 s; independent saved-search/Brain separation checks: 113 passed in 22.43 s before the final wait-order correction, then 53 passed in 4.06 s including both same-key full-server-wait regressions. All 261 frozen production/frontend/Python-test hashes remained unchanged through final verification. Tests used isolated data, synthetic media, MockTransport and fake platforms. No owner keys, Windows profile/RTX3050, actual search-service account, real upload, Defender acceptance or 24-hour soak was verified. Permission answers were already post-only; the update clarifies and verifies that boundary.
+Owner Windows/profile/keys and actual provider access remain unverified. Preserve prior fixes and managed-install
+history; pin the source delivery only after the final commit and tested frontend export.
 
 ## Latest continuation: audio distortion, comments, ongoing search and live/Windows recovery
 

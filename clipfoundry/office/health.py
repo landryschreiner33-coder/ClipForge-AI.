@@ -247,17 +247,37 @@ def discovery(settings: dict) -> dict:
                   "Integrations, or turn on the free-license library in Settings → Autopilot.")
     now = time.time()
     where = "Looks in " + ", ".join(places) + "."
+    statuses = state.get("providers", {}) or {}
+    account = db.get_account("youtube") or {}
+    configured = [("youtube", "YouTube search", settings.get("youtube_api_key") or account.get("has_tokens")),
+                  ("web_search", "web search", settings.get("tavily_api_key")),
+                  ("library", "the free video library", settings.get("library_discovery"))]
+    failed = [(key, name) for key, name, enabled in configured
+              if enabled and isinstance(statuses.get(key), dict) and statuses[key].get("status") == "error"]
+
+    def search_reading(reason: str, **data: object) -> dict:
+        if not failed:
+            return _c("discovery", label, "healthy", reason, **data)
+        names = ", ".join(name for _, name in failed)
+        fix = ("Open Settings → Integrations → Search connections and test the saved keys."
+               if any(key in ("youtube", "web_search") for key, _ in failed) else
+               "Check the internet connection and open Missions → Advanced → System for search details.")
+        # Search completion is not credential success. Keep the failed services visible while independent
+        # searches/folder checks proceed; never copy a raw provider response or request URL into health output.
+        return _c("discovery", label, "degraded", f"{names} did not work last time. {reason}",
+                  f"{fix} Other available searches and folder checks continue.", **data)
+
     period = 60.0 * float(settings.get("trend_poll_minutes") or 180)
     # Health and phone reads may inspect the cadence, but only the worker host changes search deadlines.
     period = scout.discovery_period(settings, period)
     for job in db.select("worker_jobs", "kind = 'trend_scan' AND status IN ('running', 'queued', 'retrying', "
                                         "'waiting')", (), "created_at DESC", 5):
         if job["status"] == "running":
-            return _c("discovery", label, "healthy", f"Searching for videos now. {where}")
+            return search_reading(f"Searching for videos now. {where}")
         wake = float(job.get("run_after") or 0)
         if wake > now:  # a platform asked to wait (Retry-After) or a retry backs off: not a fault
-            return _c("discovery", label, "healthy", f"The next search starts in {_span(wake - now)}: "
-                      f"{job.get('message') or 'a platform asked to wait'}"[:300], next_scan=wake)
+            return search_reading(f"The next search starts in {_span(wake - now)}: "
+                                  f"{job.get('message') or 'a platform asked to wait'}"[:300], next_scan=wake)
     last = float((state.get("trend:last_scan") or {}).get("at") or 0)
     turned_on = max([float(e["at"]) for k in ("autopilot_on", "resumed") for e in state.events(1, kind=k)] or [0.0])
     since = max(last, turned_on, float(state.get("setup:started", 0) or 0))
@@ -268,8 +288,8 @@ def discovery(settings: dict) -> dict:
                   + f"; it should run every {_span(period)}.",
                   "Check Background work above. If it is running, open Missions → Advanced → Jobs to see why the "
                   "search did not start.", last_scan=last or None)
-    return _c("discovery", label, "healthy", where + (f" Last search {_span(now - last)} ago." if last else
-                                                      " The first search starts soon."), last_scan=last or None)
+    return search_reading(where + (f" Last search {_span(now - last)} ago." if last else
+                                  " The first search starts soon."), last_scan=last or None)
 
 
 def check(settings: dict | None = None) -> dict:

@@ -813,6 +813,7 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
             <b>Reuse confirmed by you for this exact post</b>
             <span>{p.reuse_review.basis}</span>
             <span className="tiny muted">Owner review; the app has not independently verified a license.</span>
+            <span className="tiny muted">Saved with this post only. It is not Brain knowledge or guidance for future clips.</span>
           </div>}
         </dd>
         <dt>Final check</dt>

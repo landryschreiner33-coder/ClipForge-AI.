@@ -146,6 +146,14 @@ def get_settings() -> dict:
 def put_settings(patch: dict[str, Any]) -> dict:
     patch = {k: v for k, v in patch.items() if not (k in config.SECRET_KEYS and v == "********")
              and k not in config.ACTION_ONLY_KEYS}
+    for key in config.SEARCH_API_KEYS & patch.keys():
+        value = patch[key]
+        if not isinstance(value, str):
+            raise HTTPException(422, "A search API key must be text copied from its provider dashboard.")
+        value = value.strip()
+        if len(value) > 4096 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
+            raise HTTPException(422, "Paste only the search API key, without spaces, headers or extra lines.")
+        patch[key] = value
     db.save_settings(patch)
     return get_settings()
 

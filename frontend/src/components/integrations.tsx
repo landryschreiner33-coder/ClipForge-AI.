@@ -3,7 +3,7 @@ import { errorText } from "../api";
 import { at } from "../format";
 import {
   audienceApi, AudienceDestination, AudienceIntent, AudienceView, ConnectionCheck, DevLogEntry, INTENT_OF,
-  IntegrationCard, integrations, NvidiaResult, NvidiaView, office,
+  IntegrationCard, integrations, NvidiaResult, NvidiaView, office, SearchCheck, SearchConnection,
 } from "../office/api";
 import { FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput } from "./settingsFields";
 import { Banner, ConfirmDialog, Disclosure, Icon, Pill, toast, Tone } from "./ui";
@@ -48,7 +48,7 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
         is needed. Platform posting permissions still apply. Nothing here posts a video.
       </p>
       {error && <Banner tone="bad" icon="alert" title="Integrations could not be loaded">{error}</Banner>}
-      <SearchConnections c={c} />
+      <SearchConnections c={c} changed={changed} />
       <PhoneMonitorPanel />
       {aud && <AudiencePanel view={aud} onSaved={(v) => { setAud(v); load(); }} />}
       <SettingsPanel id="int-cards" title="Connections"
@@ -67,7 +67,7 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
 }
 
 // Discovery keys are separate from the account authorization needed to upload a video.
-function SearchConnections({ c }: { c: FieldCtx }) {
+function SearchConnections({ c, changed }: { c: FieldCtx; changed: string[] }) {
   return (
     <SettingsPanel id="int-search" title="Search connections"
       intro={<>Add an optional search key to find more relevant video links. Your folders and the free-license
@@ -86,10 +86,16 @@ function SearchConnections({ c }: { c: FieldCtx }) {
               target="_blank" rel="noreferrer">Credentials</a>, create an API key, and restrict its API access to
               YouTube Data API v3.</li>
             <li>Paste the key here, then save your changes. Keep your YouTube account connected for uploading.</li>
+            <li>This is a desktop app. A key restricted to browser websites/referrers cannot authorize its requests.
+              Keep the API restriction set to YouTube Data API v3 and use application restrictions suited to your PC.</li>
           </ol>
           <a className="textlink small" href="https://developers.google.com/youtube/v3/getting-started"
             target="_blank" rel="noreferrer">Official setup and current quota details</a>
         </Disclosure>
+        <p className="tiny muted">If this optional key fails, Remove it and save to search with your connected
+          YouTube account instead. An API key is different from an OAuth client ID or client secret.</p>
+        <SearchConnectionCheck provider="youtube" dirty={changed.some((key) =>
+          ["youtube_api_key", "youtube_client_id", "youtube_client_secret"].includes(key))} />
       </SettingRow>
       <SettingRow k="tavily_api_key" label="Tavily web search key"
         hint="Adds topic-based web search for public video links and the originals behind clips.">
@@ -104,6 +110,7 @@ function SearchConnections({ c }: { c: FieldCtx }) {
         </ol>
         <a className="textlink small" href="https://docs.tavily.com/documentation/api-credits" target="_blank"
           rel="noreferrer">Current Tavily free allowance and credit costs</a>
+        <SearchConnectionCheck provider="tavily" dirty={changed.includes("tavily_api_key")} />
       </SettingRow>
       <SettingRow k="tavily_free_credits" label="Included Tavily credits each month" errors={c.errors}
         hint="Match your provider plan. The free plan includes 1,000; usage in other apps also counts there.">
@@ -129,6 +136,51 @@ function SearchConnections({ c }: { c: FieldCtx }) {
       <a className="textlink small" href="#/missions/sources">Open discovery choices and recent search results</a>
     </SettingsPanel>
   );
+}
+
+function SearchConnectionCheck({ provider, dirty }: { provider: "youtube" | "tavily"; dirty: boolean }) {
+  const [connection, setConnection] = useState<SearchConnection | null>(null);
+  const [result, setResult] = useState<SearchCheck | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    let live = true;
+    integrations.searchStatus().then((data) => {
+      if (live) { setConnection(data[provider]); setResult(data[provider].last_check); }
+    }).catch((e) => { if (live) setProblem(errorText(e)); });
+    return () => { live = false; };
+  }, [provider]);
+  const test = async () => {
+    setBusy(true);
+    setProblem("");
+    try { setResult(await integrations.testSearch(provider)); }
+    catch (e) { setProblem(errorText(e)); }
+    finally { setBusy(false); }
+  };
+  const name = provider === "youtube" ? "YouTube" : "Tavily";
+  const stale = dirty || result?.current === false;
+  return <div className="stack" style={{ gap: 8 }}>
+    <div className="row wrap">
+      <button type="button" className="btn btn-small" disabled={busy || dirty || !connection?.configured}
+        onClick={() => void test()}>{busy ? "Checking…" : `Test saved ${name} connection`}</button>
+      <span className="tiny muted">{dirty ? "Save changes first; this checks the saved connection."
+        : provider === "youtube" ? "One general-quota read, with one retry if sign-in expires. No search or upload."
+          : "Checks the saved key through account usage, without running a search."}</span>
+    </div>
+    {connection?.configured && <p className="tiny muted">{provider === "youtube"
+      ? `Saved search method: ${connection.auth_mode === "api_key" ? "YouTube API key" : "connected YouTube account"}.`
+      : "Saved search method: Tavily API key."}</p>}
+    {!dirty && connection && !connection.configured && <p className="tiny muted">{provider === "youtube"
+      ? "Save a search API key or connect your YouTube account first." : "Save your Tavily API key first."}</p>}
+    {result && <Banner tone={stale ? "neutral" : result.ok ? "info" : result.status === "waiting" ? "warn" : "bad"}
+      title={stale ? "Previous connection result" : result.ok ? `${name} connection accepted` : `${name} needs attention`}>
+      {stale && <p>The saved connection has changed. Save and test again to check the new setup.</p>}
+      <p>{result.detail}</p>
+      {result.fix && <p>{result.fix}</p>}
+      {result.until && result.until * 1000 > Date.now() && <p>Try again after {at(result.until)}.</p>}
+    </Banner>}
+    {problem && <Banner tone="bad" title="Connection check could not finish">{problem}</Banner>}
+  </div>;
 }
 
 // ------------------------------------------------------------------ who watches
