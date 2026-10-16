@@ -1,80 +1,72 @@
 {
-  "source_commit": "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7",
-  "app_archive_sha256": "b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf",
-  "zip_bytes": 41855919,
-  "zip_sha256": "6b48d845931595f7037d97ef36da68b773db3e5e1d8eab1748fccc4bbc6df882",
+  "source_commit": "ab666fd5f2c4ca9c84a4fe9a2e874bc852437231",
+  "app_archive_sha256": "1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601",
+  "zip_bytes": 41886576,
+  "zip_sha256": "b15943c878d15a91dd5837e8acc1c648588df87d6fbab498347ebe05d6ffe93a",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "1b09f07a0fc0341b5a3c4308d1e9477ec3075ac3dc9e9d7ceff28e4a4501ead6",
-    "app.zip": "b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf",
-    "README.txt": "39b4955b9f306bc64535916dff03969b347143e71b89290680fec59f5bf6f874"
+    "setup.py": "c3f176d4ce646365216caaa0326c163b8cc3739c25b99b12fa5ecf71f684cfdf",
+    "app.zip": "1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601",
+    "README.txt": "fcd77f0e5f1b89b952c0eb745d9146da2e0f8e41fc90b8a2564c64bd86f4a79e"
   },
-  "app_files": 498,
+  "app_files": 504,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "40393e4c2e30119d9dd70dc42d9770098f11202d",
-  "app_archive_bytes": 41913540,
+  "artifact_base": "8fa4e5dd8381d3ec34a6c90e45297fc795ef6415",
+  "app_archive_bytes": 41944927,
   "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
   "app_tests": {
     "fast": {
-      "passed": 1278,
+      "passed": 1373,
       "deselected": 14,
-      "seconds": 579.81
+      "seconds": 755.18
     },
     "real_media_and_restart": {
-      "scenarios_passed_across_runs": 14,
-      "full_attempt": {
-        "passed": 12,
-        "failed": 2,
-        "deselected": 1274,
-        "seconds": 1153.68,
-        "failed_cases": [
-          "tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[private]",
-          "tests/test_zero_touch_loop.py::test_worker_host_runs_complete_loop_and_repeats_after_restart[public]"
-        ]
-      },
-      "targeted_repeat_after_fixture_correction": {
-        "passed": 2,
-        "deselected": 0,
-        "seconds": 374.57
-      },
-      "fixture_change": "CompleteLoopFixture.repeat expires only discovery-list cache rows to model elapsed compressed time; production cache/quota policy and all media/approval/upload/restart assertions remain intact."
+      "passed": 14,
+      "deselected": 1373,
+      "seconds": 945.34
     },
     "final_built_browser": {
-      "passed": 43,
-      "seconds": 93.25
+      "passed": 51,
+      "seconds": 167.41
     },
-    "build_seconds": 10.32,
-    "focused_independent_bugfixes": 73,
-    "windows_phone": 63,
-    "discovery_focused": 89,
-    "final_queue_deadline_discovery": 61,
-    "final_comments_search": 47,
-    "final_health_phone_search": 77,
-    "media_scope_files_unchanged": 39
+    "build_seconds": 5.17,
+    "focused_provider": 77,
+    "focused_diagnosis_health_phone": 88,
+    "independent_search_and_brain": 113,
+    "final_wait_and_brain": 53,
+    "frozen_source_and_python_tests": 261
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 48,
-      "seconds": 1.576
+      "seconds": 1.477
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.598
+      "seconds": 0.511
     },
     "build_plain_zip": {
       "passed": 12,
-      "seconds": 0.019
+      "seconds": 0.012
     },
     "exact_git_export": {
       "passed": 10,
-      "seconds": 0.739
+      "seconds": 0.409
     }
   },
   "payload_verification": {
-    "source_files": 498,
+    "source_files": 504,
     "exact_git_match_with_declared_bat_crlf": true,
+    "bat_crlf_files": [
+      "e2e/run-beginner-test.bat",
+      "e2e/run-tests.bat",
+      "gpu-check.bat",
+      "run-unattended.bat",
+      "start.bat",
+      "test-isolated.bat"
+    ],
     "tested_frontend_files": 17,
     "tested_frontend_exact_match": true,
     "missing_or_extra_files": 0,
@@ -84,10 +76,11 @@
   },
   "managed_release_history": {
     "prior_exact_pins_retained": true,
-    "previous_revisions": 8,
-    "current_revisions": 9,
-    "new_revision": "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7",
-    "python_powershell_history_agree": true
+    "previous_revisions": 9,
+    "current_revisions": 10,
+    "new_revision": "ab666fd5f2c4ca9c84a4fe9a2e874bc852437231",
+    "python_powershell_history_agree": true,
+    "historical_bat_embedded_script_agrees": true
   },
   "no_powershell_loader": true,
   "no_app_archive_download": true,
@@ -109,8 +102,27 @@
   "claude_handoff": {
     "path": "CLAUDE_HANDOFF.md",
     "included": true,
-    "sha256": "0aeba73815a9ae5530b97b6c5e32ba653cc4fe049795af59006e9e0de53a2063"
+    "sha256": "5abf1ea4090332650b3b10a3745267e587dc1ae8568bbc9c34291fbee252aca2"
   },
   "date": "2026-10-15",
-  "timezone": "America/Chicago"
+  "timezone": "America/Chicago",
+  "search_connection_recovery": "Saved YouTube/Tavily keys trim outer whitespace and reject accidental internal whitespace/control text. YouTube discovery refreshes a rejected same-account OAuth token once, counts every read and preserves Retry-After/quota and explicit optional-key selection. Credential-safe errors distinguish invalid/restricted keys and disabled projects; Tavily server waits remain durable and provider-local.",
+  "saved_search_tests": "Explicit local-page-only uncached checks: selected YouTube credential via general-quota videos.list, Tavily via authenticated account-usage GET. No source import, web search, upload or automatic credential switch. Actual response shapes, concurrency/cooldowns, provider waits, budgets and changed-key staleness are checked. Success proves API credential access at that time, not available search allowance/media/quality or posting permission. Tavily usage endpoint has no documented express zero-credit guarantee.",
+  "discovery_diagnosis": "Missions and health show provider-specific safe actions, retain independent provider/local work and avoid treating a configured but failing connection as healthy or applying YouTube reset advice to other services.",
+  "reuse_review_brain_separation": "Reuse statements remain exact selected-post approval records, not Brain knowledge or future guidance. No automatic permission-to-Brain write was found; existing behavior is verified by single/bulk approval and learner projection tests and clarified in forms/saved details. Existing review records are retained.",
+  "owner_api_keys_tested": false,
+  "browser_verification": {
+    "browser_checks": 51,
+    "browser_seconds": 167.409303,
+    "built_files": 17,
+    "hashes_unchanged": true,
+    "frontend_source_hashes_unchanged": true,
+    "capture_recheck": {
+      "browser_checks": 8,
+      "browser_seconds": 28.59926,
+      "hashes_unchanged": true,
+      "reason": "Only new connection screenshot framing was changed to center each row and avoid the sticky save bar. Product code and test assertions were unchanged."
+    },
+    "scope": "Disposable sandbox and fake platforms. All key-tests/settings/reuse approval mutations intercepted. Eight new checks cover missing connections, explicit safe tests, saved API-key/connected-account modes, no automatic provider calls, unsaved-key disabling/save refresh, both provider rejection/correction flows, durable waits, stale earlier results and service interruption. Existing discovery masking/replacement/removal/free-only controls and previous Brain, comments, single/bulk approval coverage retained. Single and bulk review show that permission assertions remain with exact posts and are not Brain knowledge. Actual local Brain uploads/lookup/reload tests still use throwaway data. No owner data, real provider keys, external searches, account publishing or Windows/GPU was tested."
+  }
 }

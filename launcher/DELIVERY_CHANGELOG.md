@@ -1,5 +1,56 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Search connection recovery and per-post reuse clarity — 2026-10-15 (America/Chicago)
+
+App revision: ab666fd5f2c4ca9c84a4fe9a2e874bc852437231. Artifact base: 8fa4e5d.
+The owner reported no clips and both search keys failing. Saved optional YouTube/Tavily keys are trimmed and
+reject accidental headers, embedded whitespace and nontext values. Connected-account YouTube discovery
+refreshes an expired sign-in once using the same account and counts both requests. API-key failure never
+silently switches credentials. Credential-safe provider errors distinguish invalid/rejected/restricted keys,
+disabled API projects, network/response problems and actual quota/Retry-After waits.
+
+Search connections provides explicit uncached saved-connection tests. The YouTube test makes a small read
+against the selected credential and can refresh the same connected account once; the Tavily test reads
+account usage without a search. Saving alone calls no provider. Test requests respect existing allowances,
+request serialization and service waits; no source import or upload occurs. Provider-specific Missions and
+health status expose each failure independently, so another working provider cannot hide a bad connection.
+The app cannot validate the owner's unavailable keys here or override provider restrictions.
+
+Reuse explanations remain exact-post approval records, not Brain knowledge or future clipping guidance.
+Shared single/bulk review controls and the saved post details now state that separation. Prior source rights,
+required-credit, exact-file/account/audience approval and uncertain-upload recovery remain intact. Existing
+Brain guidance, quality filtering, audio/live/Windows fixes and earlier selected-post review are included.
+
+Final application validation: 1,373 fast checks passed in 755.18 s; all 14 real-FFmpeg/synthetic-media and
+restart checks passed together in 945.34 s. All 51 final built-browser checks passed in 167.41 s, with all
+17 tested frontend hashes unchanged. TypeScript and the production build passed (5.17 s). Focused checks also
+passed: 77 provider, 88 diagnosis/health/phone, 113 independent search/Brain before the final wait-order fix,
+then 53 wait/Brain checks. All 261 frozen source/frontend/Python-test hashes remained unchanged during final
+verification. Eight screenshot-framing-only checks passed separately (28.60 s), with no product/assertion changes.
+Tests used isolated data, synthetic media and fake platforms; no owner keys or real account upload was used.
+All 504 archived source files match the exact Git revision except six intentional BAT CRLF exports;
+all 17 browser-tested frontend files match. No extra/missing source files, EXE/DLL or runtime/credential paths
+were included. The pinned archive was independently verified against committed Git and the tested frontend
+manifest. Detailed application evidence remains in CLAUDE_HANDOFF.md and launcher/plain_setup_verification.json.
+Final delivery validation: 48 installer checks (1.477 s), 13 pin-helper checks (0.511 s),
+12 builder checks (0.012 s) and 10 exact-export helper checks (0.409 s) passed.
+The builder checks all four outer ZIP members byte-for-byte and verifies both archive CRCs.
+App archive: 41,944,927 bytes, SHA-256
+1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601.
+Source setup ZIP: 41,886,576 bytes, SHA-256
+b15943c878d15a91dd5837e8acc1c648588df87d6fbab498347ebe05d6ffe93a.
+
+All nine prior exact managed-release pins remain, plus the current release (ten revisions total).
+Python and historical PowerShell/BAT source pins/history agree. Verified same-SID original data profiles
+remain intact. The builder and independent final inspection verified all four outer members and both CRCs.
+
+No EXE was rebuilt or security setting changed. Historical EXE SHA-256 remains
+3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26.
+Native Windows/Defender, owner data/RTX3050, real provider keys/uploads, phone/Tailscale and a 24-hour soak remain
+unverified. Source/integrity checks do not certify antivirus acceptance. Verify the immutable remote ZIP before
+sharing it. Extract All the outer ZIP and open its extracted CMD beside setup.py, app.zip and README.txt;
+keep the inner app.zip zipped.
+
 ## Audio, comments, recurring discovery and live/Windows fixes — 2026-10-15 (America/Chicago)
 
 App revision: 0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7. Artifact base: 40393e4.

@@ -41,10 +41,30 @@ is created.
 
 ## Included application
 
-The app is the tested revision **0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7**. Its archive
-SHA-256 is **b7af499e03b140f374abcaa3b1c2cf3c9127719ee1f17fc336203a70acb10ccf**. Setup verifies the archive and
+The app is the tested revision **ab666fd5f2c4ca9c84a4fe9a2e874bc852437231**. Its archive
+SHA-256 is **1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601**. Setup verifies the archive and
 known start.bat hash before installing new code. Existing managed identity checks verify the marker and start
 file, rather than claiming a full checksum of every file already present on the PC.
+
+This update fixes discovery credential handling and makes each failing search connection actionable. Saved
+YouTube and Tavily keys are trimmed and checked for accidental extra text. An expired connected YouTube
+session is refreshed once using that same account. Invalid keys, disabled API projects, desktop-incompatible
+key restrictions and provider quota/rate waits have separate, credential-safe explanations. These fixes do
+not create a valid key or override a provider restriction; follow the actual error shown by the provider.
+
+Open **Settings → Integrations → Search connections**, save your changes and use **Test saved YouTube
+connection** and **Test saved Tavily connection**. Tests are explicit, uncached credential checks: YouTube
+uses a small quota-counted read, with one same-account retry if its sign-in expired; Tavily checks account
+usage without running a search. Saving alone does not call a provider. Tests do not import sources or upload
+videos. Missions identifies each provider separately so one working provider cannot hide another's error.
+If an optional YouTube search key is rejected, remove it and save to use your connected YouTube account for
+search. Keep the account connected for posting. Never paste keys into chat or a Claude handoff.
+
+Reuse explanations stay with the exact reviewed post or selected posts. They are not added to Brain knowledge
+or used as guidance for future clips. The approval screens now say this directly. Existing review records
+remain available on their posts; this update does not delete them or grant permission to future clips.
+
+Earlier fixes are included below.
 
 This update addresses distorted audio in new renders by downmixing the chosen audio track before processing,
 using clip-relative audio timing and limiting peaks after gain. It does not repair distortion already present
@@ -127,20 +147,20 @@ rendered clips are not silently rewritten.
 The optional **Settings → Integrations → Check from your phone** dashboard remains read-only and separate from
 desktop/account/publishing controls. Setup does not install Tailscale or connect a phone automatically.
 
-Final application validation: 1,278 fast checks passed in 579.81 s; 43 final built-browser checks passed
-in 93.25 s, with all 17 tested frontend hashes unchanged; production build passed in 10.32 s.
-All 14 media/restart scenarios passed across full and targeted runs: the full attempt passed 12
-with two repeat-discovery fixture timeouts in 1153.68 s; after a fixture-only compressed-clock
-cache correction, the two private/public repeat scenarios passed in 374.57 s. This was not one
-all-green full-media run. The final pure health-cadence refactor is covered by the full fast suite
-and 77 focused checks; all 39 media-scope source hashes were unchanged. Detailed evidence is in
-the application CLAUDE_HANDOFF.md and launcher/plain_setup_verification.json.
-Exact committed-source archive verification: 498 files with the six declared BAT CRLF
-exports; 17 browser-tested frontend files. Final delivery validation:
-48 installer checks (1.576 s), 13 pin-helper checks (0.598 s), 12 builder checks (0.019 s)
-and 10 exact-export helper checks (0.739 s) passed; the pinned archive was independently verified
-against exact committed Git source and the final tested frontend manifest. Final evidence and hashes are recorded
-in launcher/plain_setup_verification.json and launcher/DELIVERY_CHANGELOG.md.
+Final application validation: 1,373 fast checks passed in 755.18 s; all 14 real-FFmpeg/synthetic-media and
+restart checks passed together in 945.34 s. All 51 final built-browser checks passed in 167.41 s, with all
+17 tested frontend hashes unchanged. TypeScript and the production build passed (5.17 s). Focused checks also
+passed: 77 provider, 88 diagnosis/health/phone, 113 independent search/Brain before the final wait-order fix,
+then 53 wait/Brain checks. All 261 frozen source/frontend/Python-test hashes remained unchanged during final
+verification. Eight screenshot-framing-only checks passed separately (28.60 s), with no product/assertion changes.
+Tests used isolated data, synthetic media and fake platforms; no owner keys or real account upload was used.
+All 504 archived source files match the exact Git revision except six intentional BAT CRLF exports;
+all 17 browser-tested frontend files match. No extra/missing source files, EXE/DLL or runtime/credential paths
+were included. The pinned archive was independently verified against committed Git and the tested frontend
+manifest. Detailed application evidence remains in CLAUDE_HANDOFF.md and launcher/plain_setup_verification.json.
+Final delivery validation: 48 installer checks (1.477 s), 13 pin-helper checks (0.511 s),
+12 builder checks (0.012 s) and 10 exact-export helper checks (0.409 s) passed.
+The builder checks all four outer ZIP members byte-for-byte and verifies both archive CRCs.
 No owner Windows data, RTX3050 execution, actual account upload, real phone/Tailscale connection or 24-hour
 unattended soak is claimed. GPU and other app dependency pins are unchanged.
 
