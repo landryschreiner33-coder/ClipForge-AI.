@@ -1,14 +1,15 @@
 # Installing ClipFoundry (Windows)
 
-ClipFoundry is a local app: a small Python server plus a web UI that opens in your browser. Nothing is uploaded
-anywhere.
+ClipFoundry runs a small Python server and web UI on your computer. Transcription and rendering stay local.
+Requested YouTube/TikTok uploads, supplied video links, model downloads and optional connected services use the
+network. No ClipFoundry server receives your media.
 
 ## Requirements
 
 | | Minimum | Recommended |
 | --- | --- | --- |
 | OS | Windows 10/11 (64-bit) | Windows 11 |
-| Python | 3.10 | 3.11 or 3.12 |
+| Python | Standard 64-bit CPython 3.11 for Windows AMD64 | Standard 64-bit CPython 3.12 for Windows AMD64 |
 | FFmpeg | any recent build with libx264 + libass | `winget install Gyan.FFmpeg` |
 | RAM | 8 GB | 16 GB |
 | GPU | not required | NVIDIA RTX (recent driver) for fast transcription and NVENC encoding |
@@ -18,8 +19,16 @@ Node.js is **not** required. The UI ships prebuilt in `frontend/dist`.
 
 ## 1. Install Python
 
-Download Python 3.11 or 3.12 from <https://www.python.org/downloads/windows/>. In the installer, tick
-**"Add python.exe to PATH"**.
+Install **Python 3.12 — Windows installer (64-bit)** from <https://www.python.org/downloads/windows/>.
+Standard 64-bit CPython 3.11 is also supported. Choose the **64-bit** installer, not **32-bit**, **ARM64** or a
+free-threaded build. If you already use another Python version, install 3.12 alongside it; do not uninstall your
+other Python or change another app's environment. In the official installer, you may choose **Add python.exe to
+PATH** so the command can be found; ClipFoundry itself does not edit PATH or the registry.
+
+The launcher checks the interpreter that actually runs, preferring compatible 3.12 before 3.11. A generic
+`py -3` or `python` can otherwise select a newer or different-architecture interpreter. If none passes the check,
+setup stops before dependency installation and tells you to install official 64-bit Python 3.12, then reopen the
+launcher. It does not automatically download or install Python globally.
 
 ## 2. Install FFmpeg
 
@@ -43,13 +52,21 @@ dependency filenames can exceed Windows' path limit. Use a new folder for a revi
 
 Double-click **`start.bat`**. On the first run it:
 
-1. creates a private Python environment in `.venv`,
+1. verifies standard 64-bit CPython 3.12/3.11 for Windows AMD64 and prepares a private `.venv`,
 2. installs the dependencies from `requirements.txt` (a few minutes),
 3. if an NVIDIA GPU is present, installs the CUDA libraries for GPU transcription (see below),
 4. prints `Transcription: GPU mode` or `CPU mode`, then starts the server and opens <http://127.0.0.1:8765> in your
    browser.
 
-Later runs start in seconds. Keep the console window open while you use the app; close it (or press Ctrl+C) to quit.
+Later runs reuse a verified compatible `.venv`. Keep the console window open while you use the app; close it
+(or press Ctrl+C) to quit.
+
+The launcher now checks an existing `.venv` as well as system Python. If it is incompatible or cannot be verified,
+setup preserves it under a unique `.venv-backup-*` name and creates a fresh compatible environment. It refuses to
+replace a known environment still used by a Python process: close the other ClipFoundry window first. A failed
+creation preserves its partial directory under `.venv-failed-*` and restores the old environment where possible;
+it never automatically deletes either environment. Your `data`, Brain, account connections and clips are kept.
+Do not copy an incompatible environment into a fresh installation or delete your data to fix dependencies.
 
 If pip fails with `No such file or directory` for a long dependency filename and mentions **Windows long paths**,
 close the failed console and put **fresh ZIP contents** in a shorter new folder. Run its launcher to create a new
@@ -64,7 +81,8 @@ network (only do this on a trusted network, since there is no login).
 ## 4. First video
 
 The first transcription downloads the Whisper model into `data\models` (about 500 MB for `small`, 1.6 GB for
-`large-v3-turbo`). After that ClipFoundry works fully offline.
+`large-v3-turbo`). Once its model is available, local-file processing with local scoring can run offline.
+Link imports, uploads, statistics and any optional cloud AI still need their respective network services.
 
 Each model goes into its own short folder, e.g. `data\models\large-v3-turbo`. Before Whisper loads it, ClipFoundry
 checks that every file is there (`config.json`, `model.bin`, `preprocessor_config.json`, `tokenizer.json`,
@@ -130,7 +148,8 @@ synthetic test, or run `gpu-check.bat "C:\path\to\video.mp4" --seconds 120` from
 
 If `gpu-check.bat` is missing, or it says the folder is out of date, update the whole ClipFoundry folder (`git pull`,
 or download the branch ZIP again and copy it over the folder). Copying only the `.bat` file is not enough, because
-the check also needs the newer app files. Your `data` and `.venv` folders are kept.
+the check also needs the newer app files. Your `data` is kept. A compatible `.venv` is reused; an incompatible
+one is preserved and replaced as described above.
 
 In **Windows Task Manager** (Performance → GPU), CUDA work does **not** appear on the default "3D" graph. Click the
 title of one of the small graphs and choose **Cuda** (or **Compute_0**) to see it. `nvidia-smi -l 1` in a terminal
@@ -334,8 +353,10 @@ With the ZIP (https://github.com/landryschreiner33-coder/ClipForge-AI./archive/r
 5. Unzip the download and rename the unzipped folder to the old name (`ClipFoundry`), in the same place, so the path is
    exactly the same as before.
 6. Move `data`, `.venv` and `tools` (if they exist) from `ClipFoundry-old` into the new `ClipFoundry` folder. Keeping
-   `.venv` at the same path keeps your working CUDA setup; nothing is downloaded again.
-7. Start `start.bat`. It reinstalls packages only when `requirements.txt` or `requirements-gpu.txt` changed. Check that
+   a compatible `.venv` at the same path allows its working CUDA setup to be reused. An incompatible environment
+   is preserved under `.venv-backup-*` and a fresh compatible one gets dependencies installed.
+7. Start `start.bat`. A retained compatible environment reinstalls packages when `requirements.txt` or
+   `requirements-gpu.txt` changed; a fresh environment installs them even when the requirements are unchanged. Check that
    your videos are in Clips and your accounts are still connected (Settings → Accounts), then delete
    `ClipFoundry-old`.
 
@@ -346,6 +367,8 @@ account; the database copy is otherwise complete.
 
 | Problem | Fix |
 | --- | --- |
+| `No matching distribution found for ctranslate2` | Use the updated complete setup and official standard 64-bit Python 3.12 (3.11 also supported), then reopen. The launcher verifies the actual runtime and safely preserves an incompatible `.venv`. If it still fails, keep the exact error and the printed Python version/architecture; a custom index or network policy can also affect available packages. Do not change GPU requirements or security settings. |
+| "Compatible Python was not found" | Install Python 3.12 using python.org's **Windows installer (64-bit)** alongside your existing Python, then reopen the launcher. ClipFoundry does not install global Python for you. |
 | "FFmpeg was not found" | `winget install Gyan.FFmpeg`, then reopen the terminal; or set Settings → Advanced → Rendering, AI scoring and system → *FFmpeg location*. |
 | Captions missing or wrong font | Use a full FFmpeg build (it needs `libass`). Gyan's builds include it. |
 | Console says `CPU mode` although you have an NVIDIA GPU | Read the `Reason:` line. Usually run `start.bat` again (it installs the GPU libraries), or `.venv\Scripts\python -m pip install -r requirements-gpu.txt`. Also check Settings → Advanced → Transcription and GPU → *Device* is *Auto*. |
@@ -356,8 +379,13 @@ account; the database copy is otherwise complete.
 | Out of memory on GPU | Settings → Advanced → Transcription and GPU: *Whisper model* `small` or `medium`, or *Compute type* `int8_float16`. |
 | Port 8765 already in use | `start.bat --port 8877` |
 | Nothing happens after upload | Check the console window for errors. Only one job runs at a time; others wait in the queue. |
-| Re-running the setup | Delete the `.venv` folder and run `start.bat` again. |
+| Re-running setup | Close other ClipFoundry windows and rerun the updated `start.bat`. It verifies `.venv` and preserves an incompatible one automatically. Keep your data and backups; do not delete them to resolve an installation error. |
 | Autopilot problems | See the troubleshooting table in [docs/AUTOPILOT.md](docs/AUTOPILOT.md#troubleshooting). |
+
+A matching-distribution error does not by itself prove a specific Python version caused it. CTranslate2 currently
+publishes Windows AMD64 wheels for CPython 3.13 and 3.14 too; this app deliberately selects its supported 3.11/3.12
+runtime. The matching 32-bit/native ARM64 wheel is unavailable. A Windows-targeted wheel download from another OS
+checks that one artifact exists; it does not exercise native installation, CUDA loading or Windows behavior.
 
 ## Linux / macOS
 

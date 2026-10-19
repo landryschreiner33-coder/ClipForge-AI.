@@ -51,7 +51,7 @@ Standing instructions below supersedes the older coverage-before-scheduling requ
 
 | Part | Details |
 | --- | --- |
-| Backend | Python 3.11/3.12, FastAPI + uvicorn, SQLite (`clipfoundry/db.py`), served at http://127.0.0.1:8765 |
+| Backend | Standard 64-bit CPython 3.12 recommended / 3.11 supported on Windows AMD64, FastAPI + uvicorn, SQLite (`clipfoundry/db.py`), served at http://127.0.0.1:8765 |
 | Media | ffmpeg (NVENC or x264), OpenCV (YuNet face model), PySceneDetect |
 | Transcription | faster-whisper / CTranslate2 on CUDA 12 (cuBLAS + cuDNN 9 from pip, `requirements-gpu.txt`) |
 | AI scoring | Local heuristic by default. Optional: Ollama / LM Studio / OpenAI-compatible, Claude API (paid, off by default). |
@@ -370,6 +370,23 @@ checks remain unchanged. Prose is interpreted only into a bounded local editing 
 sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
 
 ## Standing instructions from the owner
+
+**Latest Windows setup continuation (2026-10-19, America/Chicago):** The owner reports pip cannot find a
+matching CTranslate2 distribution. The screenshot alone does not identify the actual Python version, architecture
+or index. Use the project's supported Windows runtime policy: standard **64-bit CPython 3.12**, then **3.11**,
+verified by executing each candidate and checking implementation/version/platform (`win-amd64`), pointer width
+and non-free-threaded build. Do not choose the latest generic `py -3` or infer compatibility from a launcher label.
+The readable installer uses the bundled helper's `--check-python` before app/profile writes, then forwards its
+verified interpreter as `CLIPFOUNDRY_BOOTSTRAP_PYTHON`; `start.bat` checks it again. `windows_bootstrap.py` uses only
+the standard library and verifies an existing `.venv`. Keep compatible environments; preserve incompatible ones
+under unique `.venv-backup-*` names, create and verify a fresh environment, and preserve a failed partial under
+`.venv-failed-*` with old-environment rollback where possible. Refuse replacement of a known active environment; never kill its
+processes or delete old environments automatically. Keep Brain/accounts/clips/data and GPU/dependency pins intact.
+If no compatible runtime exists, request official Windows installer **64-bit Python 3.12** side by side and reopen;
+do not install/remove global Python, change PATH/registry/security settings automatically or rebuild the blocked
+EXE. Current CTranslate2 CPython 3.13/3.14 Windows AMD64 wheels exist; do not claim those versions inherently lack
+wheels. Native ARM64/32-bit lack the applicable wheel. The narrow tested policy and a direct 3.12-wheel probe do
+not prove the owner's exact cause or native Windows installation. Leave rendering/frontend/Autopilot unchanged.
 
 **Latest submitted-video continuation (2026-10-19, America/Chicago):** The owner replaces automatic video finding
 with a link/file they supply, followed by Brain-guided creation and automatic YouTube upload. Default

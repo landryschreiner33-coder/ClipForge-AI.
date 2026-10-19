@@ -103,6 +103,13 @@
       (what the platform answered, or its error), with a short fingerprint of the sign-in it tested, never the sign-in
       itself</td><td>Until you disconnect the account. The last Test connection result: until you delete the data
       folder</td></tr>
+    <tr><td>Python setup environment backups</td><td>When the Windows launcher replaces an incompatible
+      environment, it preserves the old dependency files and Python environment metadata in a local
+      <code>.venv-backup-*</code> folder. An unsuccessful replacement may also leave a
+      <code>.venv-failed-*</code> folder. Metadata can include the local Python installation path.
+      This repair does not copy or change Brain knowledge, account connections or media</td>
+      <td>Until you remove those environment folders or their containing app folder. Setup does not delete them
+      automatically; deleting the separate app data folder does not remove these backups</td></tr>
     <tr><td>Search connection checks</td><td>When you press Test saved connection: its time, safe result and
       requested wait, selected authentication method and a private SHA-256 fingerprint of the saved credentials.
       The fingerprint marks old results stale after credentials change; it and the credentials are never sent

@@ -21,8 +21,11 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 > keeps the results on this PC. No search API key is needed. Automatic searching and watched-folder intake are off
 > by default. See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
 
-> **Windows quick start:** install Python 3.11/3.12 and FFmpeg (`winget install Gyan.FFmpeg`), then double-click
-> **`start.bat`**. The app opens at <http://127.0.0.1:8765>. Full instructions are in [INSTALL.md](INSTALL.md).
+> **Windows quick start:** install **Python 3.12 — Windows installer (64-bit)** (standard CPython 3.11 also
+> supported) and FFmpeg (`winget install Gyan.FFmpeg`), then open **`start.bat`**. It verifies the actual interpreter
+> and preserves an incompatible `.venv` before replacing it; your data stays intact. If Python setup fails, install
+> 64-bit 3.12 alongside your existing Python and reopen. The app opens at <http://127.0.0.1:8765>.
+> [Installation and dependency troubleshooting](INSTALL.md).
 
 For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
 [Processing measurements and server advice](docs/PERFORMANCE.md).

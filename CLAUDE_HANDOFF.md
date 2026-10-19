@@ -7,24 +7,51 @@ Prepared October 19, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HAN
 
 The application repository is `landryschreiner33-coder/ClipForge-AI.` (including the final dot).
 Work is on `codex/brain-graph-quality-discovery`, based on tested revision
-`ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`. The commit containing this handoff adds the submitted-video workflow. Fetch and
+`fcd48aecece759ed676d871a9282d81b83f0ab92`. The commit containing this handoff repairs Windows setup without changing the submitted-video workflow. Fetch and
 inspect the branch and working tree before trusting a cached checkout; do not reset or discard someone else's work.
 The earlier PR #14 is merged; this is later continuation work, not a request to recreate that PR or merge blindly.
 
 The readable setup lives on `codex/clipfoundry-one-click` in a separate checkout. Its previous tested artifact
-was `9cb4636e34c7656f46e217fe5033a50f68796c7b`. The delivered artifact's
+was `39c58577b86c806d04bf3db5e15596c4415efced`. The delivered artifact's
 `launcher/plain_setup_verification.json` records the final exact app revision, ZIP hashes and test evidence.
 Do not rebuild or recommend the previously blocked custom EXE, change antivirus settings or discard managed profiles.
 
 Suggested opening prompt:
 
 > Continue ClipFoundry from the current `codex/brain-graph-quality-discovery` branch. Read CLAUDE_HANDOFF.md,
-> AGENTS.md and AI_HANDOFF.md first. The current default is submitted video link/file → relevant supported Brain
+> AGENTS.md and AI_HANDOFF.md first. Preserve actual supported Windows Python verification and nondeleting
+> environment recovery; do not change GPU pins or owner profiles. The current default is submitted video link/file → relevant supported Brain
 > guidance plus Settings → creation/checks → automatic YouTube upload under that input's explicit Make & upload
 > request. Preserve old backlog/manual review, TikTok per-post consent, exact-file/source/account/audience checks,
 > measured audio/live/Windows fixes and managed-profile reuse. Use isolated data and fake accounts; no real test posts.
 
-## Latest request: supplied video to automatic YouTube clips
+## Latest request: CTranslate2 setup cannot find a matching distribution
+
+The latest owner screenshot shows pip resolution failing for CTranslate2. It does not prove which Python,
+architecture, index or network setup was used. Current CPython 3.13/3.14 Windows AMD64 wheels exist; do not claim
+those versions inherently lack support. ClipFoundry deliberately selects its standard, supported Windows runtime:
+**64-bit CPython 3.12**, then **3.11**, `win-amd64`, not free-threaded. Native ARM64/32-bit lack the applicable wheel.
+
+New `windows_bootstrap.py` is standard-library-only. `--runtime-json` exposes nonsensitive actual runtime traits;
+`--check-python` is the authoritative success/failure check; `--prepare-venv APP_FOLDER` verifies/reuses an existing
+compatible environment or safely preserves and replaces it. The readable installer checks before profile/app
+writes and forwards `CLIPFOUNDRY_BOOTSTRAP_PYTHON`; `start.bat` validates it again or probes supported selectors.
+Do not revert to generic `py -3` or trust labels instead of actual runtime output. The outer installer and bundled
+helper must remain pinned together.
+
+Incompatible/unverifiable `.venv` becomes a unique `.venv-backup-*`; failed creation is preserved separately as
+`.venv-failed-*`, with prior environment restoration where possible. Known active `.venv` Python processes block
+replacement; the helper inspects without terminating processes. Never automatically delete environments or app
+data. Compatible environments, Brain notes, account grants, clips, submitted-video behavior and GPU/dependency
+pins remain intact. With no supported interpreter, install official python.org **Windows installer (64-bit)**
+Python 3.12 side by side and reopen; no automatic global install/removal, PATH/registry/security modification.
+
+**Validation:** Full fast regression suite: 1,489 passed, 17 slow deselected in 527.16 s. All 203 frozen source/test/bootstrap/dependency hashes matched. The 38 focused bootstrap checks passed in 3.54 s, including real disposable-host venv creation, reuse and replacement, preserved dependency markers/data, failure rollback, active-process and concurrency guards, exact runtime checks and read-only probes. A 19,230,360-byte CPython 3.12 Windows AMD64 CTranslate2 4.8.3 wheel was downloaded and its SHA-256 matched PyPI (b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9). No dependency/GPU pins, app pipeline or frontend files changed; all 17 previously browser-tested built files retain their hashes. The previous 17 media and 59 browser results apply to unchanged scopes and were not rerun. The readable setup is separately pinned to this exact app commit; its delivery proof records installer/helper tests, full source hashes, managed-release history and immutable download readback. This is evidence for one wheel, not actual Windows installation/CUDA execution. A full cross-platform pip dry run on Linux uses Linux markers and is not a
+Windows dependency proof. Previous `fcd48aecece759ed676d871a9282d81b83f0ab92` media (17) and built-browser (59)
+results below apply to unchanged code, not reruns here. Native Windows CMD/process/venv behavior, owner PC/
+RTX3050, real account uploads, Defender acceptance and a 24-hour run remain unverified.
+
+## Previous request: supplied video to automatic YouTube clips
 
 The owner no longer wants the default workflow to find videos. They supply a recorded-video link/file and want
 creation, supported Brain guidance and automatic upload. `autopilot_input_mode=submitted` is the default, with a

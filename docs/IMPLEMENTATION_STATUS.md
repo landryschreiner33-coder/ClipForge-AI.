@@ -1,5 +1,26 @@
 # Implementation status
 
+## Windows Python bootstrap and safe environment replacement — 2026-10-19 (America/Chicago)
+
+Base: `fcd48aecece759ed676d871a9282d81b83f0ab92`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Verify actual standard 64-bit CPython 3.12 then 3.11, Windows AMD64, before dependency setup; share the
+  authoritative bundled check with the readable installer rather than relying on a generic latest selector.
+- [x] Validate an existing `.venv`; preserve incompatible environments uniquely, refuse known active use,
+  preserve failed creation and restore the prior environment where possible, without changing owner app data.
+- [x] Explain official side-by-side 64-bit 3.12 installation when needed; no automatic global Python installation,
+  dependency/GPU pin changes, PATH/registry/security changes or prior-environment deletion.
+- [x] Correct Windows minimum/recommended runtime and local-processing/requested-network descriptions.
+- [x] Complete focused/full-fast checks; the readable source setup is pinned separately after this app commit.
+
+**Validation:** Full fast regression suite: 1,489 passed, 17 slow deselected in 527.16 s. All 203 frozen source/test/bootstrap/dependency hashes matched. The 38 focused bootstrap checks passed in 3.54 s, including real disposable-host venv creation, reuse and replacement, preserved dependency markers/data, failure rollback, active-process and concurrency guards, exact runtime checks and read-only probes. A 19,230,360-byte CPython 3.12 Windows AMD64 CTranslate2 4.8.3 wheel was downloaded and its SHA-256 matched PyPI (b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9). No dependency/GPU pins, app pipeline or frontend files changed; all 17 previously browser-tested built files retain their hashes. The previous 17 media and 59 browser results apply to unchanged scopes and were not rerun. The readable setup is separately pinned to this exact app commit; its delivery proof records installer/helper tests, full source hashes, managed-release history and immutable download readback.
+
+**Validation so far:** direct Windows CPython 3.12 AMD64 CTranslate2 wheel acquisition/probe passed. The screenshot
+alone does not identify the owner's Python/index; current 3.13/3.14 AMD64 wheels exist. A Linux cross-target full
+pip dry run uses host markers and cannot prove native Windows dependency resolution. Native Windows CMD/process
+inspection/environment creation, owner profile/RTX3050, Defender acceptance, real uploads and a 24-hour soak
+remain unverified. Prior 17-media/59-browser release results below are historical for unchanged code scopes.
+
 ## Submitted-video creation and automatic YouTube upload — 2026-10-19 (America/Chicago)
 
 Base: `ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`, on `codex/brain-graph-quality-discovery`.

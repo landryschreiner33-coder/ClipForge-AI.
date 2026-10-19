@@ -4,6 +4,34 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-19 (America/Chicago).
 Fetch before trusting branch state.
 
+## Latest continuation: Windows Python selection and safe environment recovery
+
+Date: 2026-10-19 (America/Chicago). Base: `fcd48aecece759ed676d871a9282d81b83f0ab92`, on
+`codex/brain-graph-quality-discovery`. The owner reports pip cannot find a matching CTranslate2 distribution.
+The screenshot alone does not identify the actual runtime, architecture or package index; do not assign an
+unverified cause. Current CTranslate2 CPython 3.13/3.14 Windows AMD64 wheels exist. The app's supported Windows
+policy is standard 64-bit CPython 3.12, then 3.11 (`win-amd64`, non-free-threaded); native ARM64/32-bit lack the
+applicable wheel.
+
+`start.bat` probes candidates by executing new standard-library-only `windows_bootstrap.py --check-python`,
+instead of selecting a generic latest `py -3`. The readable source installer performs the same authoritative
+check before app/profile writes and forwards the verified executable in `CLIPFOUNDRY_BOOTSTRAP_PYTHON`.
+The app rechecks that interpreter and the actual `.venv` interpreter. Compatible `.venv` is reused; an
+incompatible/unverifiable one is preserved as unique `.venv-backup-*`, then a fresh supported environment is
+created and verified. Creation failures preserve partials under `.venv-failed-*` and roll back the old environment
+where possible. Setup refuses to replace a known active environment and never kills its processes or deletes old copies.
+If no candidate qualifies, install official 64-bit Python 3.12 side by side, then reopen; no automatic global
+Python installation/removal, PATH/registry/security changes or owner-data deletion is introduced.
+
+Brain, accounts, clips and the data profile are not migrated or rewritten by this repair. GPU/dependency pins,
+frontend, media/rendering and submitted-video/Autopilot behavior remain unchanged. The installer artifact is pinned
+separately after this source checkpoint; preserve managed-profile revision history and the historical blocked EXE.
+
+**Validation:** Full fast regression suite: 1,489 passed, 17 slow deselected in 527.16 s. All 203 frozen source/test/bootstrap/dependency hashes matched. The 38 focused bootstrap checks passed in 3.54 s, including real disposable-host venv creation, reuse and replacement, preserved dependency markers/data, failure rollback, active-process and concurrency guards, exact runtime checks and read-only probes. A 19,230,360-byte CPython 3.12 Windows AMD64 CTranslate2 4.8.3 wheel was downloaded and its SHA-256 matched PyPI (b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9). No dependency/GPU pins, app pipeline or frontend files changed; all 17 previously browser-tested built files retain their hashes. The previous 17 media and 59 browser results apply to unchanged scopes and were not rerun. The readable setup is separately pinned to this exact app commit; its delivery proof records installer/helper tests, full source hashes, managed-release history and immutable download readback. A Linux cross-platform full pip dry run evaluates host markers and is not native Windows dependency
+proof. The prior submitted-video release's 17 media and 59 built-browser checks below remain historical evidence
+for unchanged scopes, not reruns for this setup repair. Native Windows CMD/process inspection/venv creation,
+owner installation/RTX3050, real uploads, Defender acceptance and a 24-hour soak remain unverified.
+
 ## Latest continuation: submitted videos, Brain-guided creation and automatic YouTube upload
 
 Date: 2026-10-19 (America/Chicago). Base: `ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`, on

@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 title ClipFoundry
 cd /d "%~dp0"
 
@@ -8,15 +8,63 @@ echo   ClipFoundry - local AI clipping
 echo   --------------------------------
 
 rem ---------------------------------------------------------------- Python
-set "PY="
-where py >nul 2>nul && set "PY=py -3"
-if not defined PY (
-  where python >nul 2>nul && set "PY=python"
+rem Never let the Python install manager download a different interpreter during a probe.
+set "PYTHON_MANAGER_AUTOMATIC_INSTALL=false"
+set "PYLAUNCHER_ALLOW_INSTALL="
+set "CF_PY_EXE="
+set "CF_PY_SELECTOR="
+if not exist "windows_bootstrap.py" (
+  echo   [!] Setup files are missing. Extract a complete fresh app ZIP and retry.
+  pause
+  exit /b 1
 )
-if not defined PY (
-  echo   [!] Python 3.10+ was not found.
-  echo       Install Python 3.11 or 3.12 from https://www.python.org/downloads/
-  echo       and tick "Add python.exe to PATH", then run start.bat again.
+rem The readable source installer forwards its already verified interpreter explicitly.
+if defined CLIPFOUNDRY_BOOTSTRAP_PYTHON (
+  "%CLIPFOUNDRY_BOOTSTRAP_PYTHON%" "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 set "CF_PY_EXE=%CLIPFOUNDRY_BOOTSTRAP_PYTHON%"
+)
+if not defined CF_PY_EXE (
+  py -3.12-64 "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 (
+    set "CF_PY_EXE=py"
+    set "CF_PY_SELECTOR=-3.12-64"
+  )
+)
+if not defined CF_PY_EXE (
+  py -3.12 "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 (
+    set "CF_PY_EXE=py"
+    set "CF_PY_SELECTOR=-3.12"
+  )
+)
+if not defined CF_PY_EXE (
+  py -3.11-64 "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 (
+    set "CF_PY_EXE=py"
+    set "CF_PY_SELECTOR=-3.11-64"
+  )
+)
+if not defined CF_PY_EXE (
+  py -3.11 "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 (
+    set "CF_PY_EXE=py"
+    set "CF_PY_SELECTOR=-3.11"
+  )
+)
+if not defined CF_PY_EXE (
+  python "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 set "CF_PY_EXE=python"
+)
+if not defined CF_PY_EXE (
+  python3 "%~dp0windows_bootstrap.py" --check-python >nul 2>nul
+  if errorlevel 0 if not errorlevel 1 set "CF_PY_EXE=python3"
+)
+if not defined CF_PY_EXE (
+  echo   [!] Compatible Python was not found.
+  echo       Install standard Python 3.12 or 3.11 - Windows installer 64-bit:
+  echo       https://www.python.org/downloads/release/python-31210/
+  echo       Choose Add python.exe to PATH, then reopen this launcher.
+  echo       32-bit, ARM64 and newer Python runtimes are not used for this app.
   pause
   exit /b 1
 )
@@ -41,20 +89,18 @@ set "CF_INSTALL_ROOT=%CD%"
 set "CF_LONG_PATH_RISK="
 if not "%CF_INSTALL_ROOT:~126,1%"=="" set "CF_LONG_PATH_RISK=1"
 
-if not exist ".venv\Scripts\python.exe" (
-  echo   Creating Python environment in .venv ...
-  %PY% -m venv .venv
-  if errorlevel 1 (
-    echo   [!] Could not create the virtual environment.
-    if defined CF_LONG_PATH_RISK (
-      echo       This folder may exceed Windows path limits during setup.
-      echo       Put fresh ZIP contents in C:\CF14 with start.bat directly inside,
-      echo       then run setup there. Keep your normal app/data untouched.
-      echo       Do not move or copy the partially created .venv.
-    )
-    pause
-    exit /b 1
+set "CF_VENV_READY="
+"%CF_PY_EXE%" %CF_PY_SELECTOR% "%~dp0windows_bootstrap.py" --prepare-venv "%CD%"
+if errorlevel 0 if not errorlevel 1 set "CF_VENV_READY=1"
+if not defined CF_VENV_READY (
+  echo   [!] Could not prepare a compatible Python environment.
+  if defined CF_LONG_PATH_RISK (
+    echo       Put fresh ZIP contents in C:\CF14 with start.bat directly inside,
+    echo       then run setup there. Keep your normal app/data untouched.
+    echo       Do not move or copy the partially created .venv.
   )
+  pause
+  exit /b 1
 )
 set "VPY=.venv\Scripts\python.exe"
 

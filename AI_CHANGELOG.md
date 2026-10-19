@@ -7,6 +7,21 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-19 · Verified Windows Python selection and preserved environment recovery
+
+* **Changed:** standard-library bootstrap verifies actual standard 64-bit CPython 3.12/3.11 for Windows AMD64;
+  both readable installer and app launcher share the check. Compatible `.venv` is kept; incompatible copies get
+  unique backups before fresh creation, failed partials are preserved with rollback where possible, and a known
+  active environment blocks replacement. Missing supported Python yields side-by-side official-install guidance.
+* **Why:** owner screenshot reports no matching CTranslate2 distribution. Its exact runtime/index is unknown;
+  current CPython 3.13/3.14 AMD64 wheels exist, so this uses the app's supported runtime policy without claiming
+  those versions inherently lack wheels. Native ARM64/32-bit lack the applicable wheel.
+* **Preserved:** owner data/Brain/accounts/clips, GPU/dependency pins, rendering, frontend and submitted-video
+  upload behavior; no automatic global Python installation, PATH/registry/security change or old-environment
+  deletion. Previous release evidence remains separate.
+* **Validation:** Full fast regression suite: 1,489 passed, 17 slow deselected in 527.16 s. All 203 frozen source/test/bootstrap/dependency hashes matched. The 38 focused bootstrap checks passed in 3.54 s, including real disposable-host venv creation, reuse and replacement, preserved dependency markers/data, failure rollback, active-process and concurrency guards, exact runtime checks and read-only probes. A 19,230,360-byte CPython 3.12 Windows AMD64 CTranslate2 4.8.3 wheel was downloaded and its SHA-256 matched PyPI (b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9). No dependency/GPU pins, app pipeline or frontend files changed; all 17 previously browser-tested built files retain their hashes. The previous 17 media and 59 browser results apply to unchanged scopes and were not rerun. The readable setup is separately pinned to this exact app commit; its delivery proof records installer/helper tests, full source hashes, managed-release history and immutable download readback. No native Windows/owner install, CUDA/RTX3050,
+  real upload/Defender or 24-hour run verified. Linux cross-pip dry runs are not native Windows proof.
+
 ## 2026-10-19 · Submitted videos to Brain-guided clips and automatic YouTube uploads
 
 * **Changed:** Missions accepts a recorded-video link/file with **Make & upload clips** or **Make clips only**.
