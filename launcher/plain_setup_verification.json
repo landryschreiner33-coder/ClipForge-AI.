@@ -1,51 +1,57 @@
 {
-  "source_commit": "ab666fd5f2c4ca9c84a4fe9a2e874bc852437231",
-  "app_archive_sha256": "1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601",
-  "zip_bytes": 41886576,
-  "zip_sha256": "b15943c878d15a91dd5837e8acc1c648588df87d6fbab498347ebe05d6ffe93a",
+  "source_commit": "fcd48aecece759ed676d871a9282d81b83f0ab92",
+  "app_archive_sha256": "c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee",
+  "zip_bytes": 41940268,
+  "zip_sha256": "66afad07d18a835c85f9d39006c1d73c9d56a8ab427cd1d4c0072f4d740773fe",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "5360dca06b1e4402cc8f054ecac610a31108c8668a6d9569b5d287bb1e50a002",
-    "setup.py": "c3f176d4ce646365216caaa0326c163b8cc3739c25b99b12fa5ecf71f684cfdf",
-    "app.zip": "1a251f7890fc260f1a89086dfac54b3b98cc87d517a04183fd5406d3400c9601",
-    "README.txt": "fcd77f0e5f1b89b952c0eb745d9146da2e0f8e41fc90b8a2564c64bd86f4a79e"
+    "setup.py": "0f993b837f8c874276e2147ad2a58a991ef4a7fbba63cb20c31ea0be1b8816be",
+    "app.zip": "c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee",
+    "README.txt": "838210e1f81b343d990faf852d4bbdca63a1b534bb35abf6e2c139636569f2c9"
   },
-  "app_files": 504,
+  "app_files": 513,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "8fa4e5dd8381d3ec34a6c90e45297fc795ef6415",
-  "app_archive_bytes": 41944927,
+  "artifact_base": "9cb4636e34c7656f46e217fe5033a50f68796c7b",
+  "app_archive_bytes": 42001568,
   "start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
   "app_tests": {
     "fast": {
-      "passed": 1373,
-      "deselected": 14,
-      "seconds": 755.18
+      "passed": 1451,
+      "deselected": 17,
+      "seconds": 676.07
     },
     "real_media_and_restart": {
-      "passed": 14,
-      "deselected": 1373,
-      "seconds": 945.34
+      "passed": 17,
+      "deselected": 1451,
+      "seconds": 934.97
     },
     "final_built_browser": {
-      "passed": 51,
-      "seconds": 167.41
+      "passed": 59,
+      "seconds": 161.54830399999997
     },
-    "build_seconds": 5.17,
-    "focused_provider": 77,
-    "focused_diagnosis_health_phone": 88,
-    "independent_search_and_brain": 113,
-    "final_wait_and_brain": 53,
-    "frozen_source_and_python_tests": 261
+    "build_seconds": 10.0,
+    "tested_frontend_files": 17,
+    "frozen_source_and_python_tests": 198,
+    "frozen_frontend_source_files": 81,
+    "focused_mode_health_phone": 99,
+    "focused_submission_consent": 60,
+    "final_status_and_routes": 79,
+    "final_advanced_routes": 29,
+    "focused_actual_media": 3,
+    "focused_legacy_audio_quality": 26,
+    "focused_retention": 9,
+    "focused_legacy_publishing": 119
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 48,
-      "seconds": 1.477
+      "seconds": 1.48
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.511
+      "seconds": 0.518
     },
     "build_plain_zip": {
       "passed": 12,
@@ -53,11 +59,11 @@
     },
     "exact_git_export": {
       "passed": 10,
-      "seconds": 0.409
+      "seconds": 0.396
     }
   },
   "payload_verification": {
-    "source_files": 504,
+    "source_files": 513,
     "exact_git_match_with_declared_bat_crlf": true,
     "bat_crlf_files": [
       "e2e/run-beginner-test.bat",
@@ -76,16 +82,16 @@
   },
   "managed_release_history": {
     "prior_exact_pins_retained": true,
-    "previous_revisions": 9,
-    "current_revisions": 10,
-    "new_revision": "ab666fd5f2c4ca9c84a4fe9a2e874bc852437231",
+    "previous_revisions": 10,
+    "current_revisions": 11,
+    "new_revision": "fcd48aecece759ed676d871a9282d81b83f0ab92",
     "python_powershell_history_agree": true,
     "historical_bat_embedded_script_agrees": true
   },
   "no_powershell_loader": true,
   "no_app_archive_download": true,
   "no_security_settings_change": true,
-  "review_before_publish": "Default-on local preparation and plans; selected YouTube posts can be approved together after one explicit review, with an individual approval and exact-post reuse assertion where needed. No standing approval or future-post grant.",
+  "review_before_publish": "Default-on review remains for old backlog and optional discovery. Each explicit Make & upload clips action authorizes qualifying clips only from that submitted input, bound to its source bytes, reuse basis/terms, connected YouTube account, actual audience and genuine kids answer. No separate per-clip review for that input, no authorization of other inputs or TikTok. Make clips only stays local.",
   "owner_profile_accessed": false,
   "real_upload_performed": false,
   "soak_24_hours_verified": false,
@@ -95,34 +101,67 @@
   "brain_guidance": "Enabled saved notes and examples are matched using source and spoken context through selection, plan and render. Recognized supported preferences apply with Settings fallback and explicit clip-edit precedence. Example appearance is not automatically learned; existing rendered media is not silently rewritten.",
   "audio_fix": "First-track stereo downmix precedes processing, with compensated clip-relative timing and a final peak limiter after gain. Existing/source distortion and previously rendered/uploaded media are not repaired automatically.",
   "youtube_comments": "Strict boolean kids answers and returned current status; review explains kids/private/platform restrictions without changing audience/kids answers or promising an API comments-enable switch.",
-  "ongoing_discovery": "Independent provider waits; at most 15-minute recurrence with available preparation capacity and remaining source allowance, otherwise configured cadence; bounded page rotation, quality/cost/API limits and exact waits remain.",
+  "ongoing_discovery": "Optional only: when explicitly selected, independent provider waits, bounded page rotation, quality/cost/API limits and exact waits remain. Default submitted input does not automatically discover or watch folders.",
   "optional_free_search": "Existing sealed YouTube/Tavily keys exposed under Search connections; connected YouTube search and no-key Commons supported. Tavily free-plan preset uses 1,000 included credits and $0 paid budget; this is an app allowance, not a live provider balance.",
   "live_capture": "Compatible split HLS video/audio with shared-clock relay and bounded ended-public-archive availability recovery; private/protected/missing media remains unavailable.",
   "windows_cleanup": "Specific native WinError10054 stdlib Proactor cleanup callback handled with transport/socket detachment; unrelated failures still reported. Linux native-transport tests do not establish Windows runtime behavior.",
   "claude_handoff": {
     "path": "CLAUDE_HANDOFF.md",
     "included": true,
-    "sha256": "5abf1ea4090332650b3b10a3745267e587dc1ae8568bbc9c34291fbee252aca2"
+    "sha256": "2bf01e5750d059d6c5f859db57c0cab44dcc3f5b79749d8c1a36c5164d31c4a8",
+    "immutable_remote_exact_match": true,
+    "http_status": 200
   },
-  "date": "2026-10-15",
+  "date": "2026-10-19",
   "timezone": "America/Chicago",
   "search_connection_recovery": "Saved YouTube/Tavily keys trim outer whitespace and reject accidental internal whitespace/control text. YouTube discovery refreshes a rejected same-account OAuth token once, counts every read and preserves Retry-After/quota and explicit optional-key selection. Credential-safe errors distinguish invalid/restricted keys and disabled projects; Tavily server waits remain durable and provider-local.",
   "saved_search_tests": "Explicit local-page-only uncached checks: selected YouTube credential via general-quota videos.list, Tavily via authenticated account-usage GET. No source import, web search, upload or automatic credential switch. Actual response shapes, concurrency/cooldowns, provider waits, budgets and changed-key staleness are checked. Success proves API credential access at that time, not available search allowance/media/quality or posting permission. Tavily usage endpoint has no documented express zero-credit guarantee.",
-  "discovery_diagnosis": "Missions and health show provider-specific safe actions, retain independent provider/local work and avoid treating a configured but failing connection as healthy or applying YouTube reset advice to other services.",
-  "reuse_review_brain_separation": "Reuse statements remain exact selected-post approval records, not Brain knowledge or future guidance. No automatic permission-to-Brain write was found; existing behavior is verified by single/bulk approval and learner projection tests and clarified in forms/saved details. Existing review records are retained.",
+  "discovery_diagnosis": "Optional-discovery mode retains provider-specific safe actions and saved-connection checks. Default submitted mode reports video-input readiness instead of stale discovery-key warnings.",
+  "reuse_review_brain_separation": "Reuse statements stay with a submitted source upload authorization or exact selected-post approval records. They are not Brain knowledge or guidance for other inputs. Existing Brain/review records remain unchanged.",
   "owner_api_keys_tested": false,
   "browser_verification": {
-    "browser_checks": 51,
-    "browser_seconds": 167.409303,
+    "build": "npm run build: TypeScript passed; Vite production build passed in 10.00 s",
+    "build_seconds": 10.0,
+    "browser_checks": 59,
+    "browser_seconds": 161.54830399999997,
     "built_files": 17,
+    "frontend_source_files": 81,
     "hashes_unchanged": true,
     "frontend_source_hashes_unchanged": true,
     "capture_recheck": {
-      "browser_checks": 8,
-      "browser_seconds": 28.59926,
+      "browser_checks": 7,
+      "browser_seconds": 13.332349,
       "hashes_unchanged": true,
-      "reason": "Only new connection screenshot framing was changed to center each row and avoid the sticky save bar. Product code and test assertions were unchanged."
+      "reason": "Only screenshot capture scroll-to-top was added to the submitted-video helper so the sticky header does not cover the link field in a full-page image. Product code and contract assertions remained unchanged."
     },
-    "scope": "Disposable sandbox and fake platforms. All key-tests/settings/reuse approval mutations intercepted. Eight new checks cover missing connections, explicit safe tests, saved API-key/connected-account modes, no automatic provider calls, unsaved-key disabling/save refresh, both provider rejection/correction flows, durable waits, stale earlier results and service interruption. Existing discovery masking/replacement/removal/free-only controls and previous Brain, comments, single/bulk approval coverage retained. Single and bulk review show that permission assertions remain with exact posts and are not Brain knowledge. Actual local Brain uploads/lookup/reload tests still use throwaway data. No owner data, real provider keys, external searches, account publishing or Windows/GPU was tested."
-  }
+    "scope": "Disposable sandbox, synthetic source and fake platforms only. Submitted-link/file, setup drift, source-only consent, public/private and genuine kids answer, local-only mode, actual progress counts, source authorization labels across Missions/Queue/post detail and mobile overflow are checked. Request interception refuses unexpected mutations; inherited Brain persistence tests write only disposable local knowledge. Earlier Brain, discovery, search-key, comments and single/bulk approval checks retained. Historical sandbox explicitly opts into optional discovery; new submitted tests explicitly use submitted mode. No owner data/keys, real uploads, native Windows, GPU or 24-hour soak tested.",
+    "screenshot_review": "Inspected final submitted-video source consent desktop, phone layout and exact-post authorization; account/audience, input and submit controls readable, no horizontal overflow or sticky-header overlap after capture correction. Brain knowledge example also inspected; actual recognized guidance is shown.",
+    "earlier_attempts": "First built-browser full suite passed all 59 checks in 180.263 s. Seven submitted checks passed again in 13.332 s after screenshot-only scroll framing correction. The full 59-check suite then passed again against the final backend freeze; results.json/browser.log now record that last run, and first-full-results.json/log preserve the earlier run. Existing final controlled screenshots were retained, with no need to capture them again.",
+    "final_backend": "Full 59-check run repeated after the final source-aware readiness/activity status and advanced-route corrections. Production frontend remained unchanged."
+  },
+  "submitted_video_workflow": {
+    "default_input_mode": "submitted",
+    "automatic_discovery_and_watch_folders": false,
+    "search_key_required": false,
+    "inputs": [
+      "supported publicly accessible recorded-video link",
+      "bounded streamed video file"
+    ],
+    "upload_target": "YouTube",
+    "authorization_scope": "One explicitly submitted new source and its qualifying generated clips only. Never old backlog or other inputs.",
+    "explicit_action": "Make & upload clips",
+    "local_only_action": "Make clips only",
+    "global_platform_settings_mutated": false,
+    "publishing_pause_and_emergency_stop_preserved": true,
+    "source_identity_and_original_bytes_bound": true,
+    "current_reuse_terms_and_required_credit_bound": true,
+    "finished_checked_upload_bytes_bound": true,
+    "durable_creation_enqueue_recovery": true,
+    "uncertain_upload_identity_retained": true,
+    "per_source_cancel_supported": true,
+    "permission_text_saved_to_brain": false,
+    "tiktok_automatic_authorization_added": false
+  },
+  "audio_verification": "All 17 final actual-media/restart cases passed. Three new real FFmpeg cases include delayed/gapped first audio tracks, competing other track, multichannel downmix, trim/speed/boost, actual Brain-guided caption render, final gate, exact fake-YouTube upload bytes, global YouTube-off/TikTok-on per-source routing and restart without duplicate. Measured decoded AAC timing, finite samples, peaks, tone frequency and energy pass. This does not prove real YouTube transcode behavior or repair already distorted source audio.",
+  "final_freeze_evidence": "Final fast run retained all 198 frozen backend/test hashes. The media run used identical production and selected-media-test bytes; an unrelated fast retention fixture was corrected before the final fast run. All 81 frontend source and 17 built files stayed unchanged."
 }

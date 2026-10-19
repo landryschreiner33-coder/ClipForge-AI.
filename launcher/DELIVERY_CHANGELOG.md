@@ -1,5 +1,55 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Submitted-video creation and automatic YouTube upload — 2026-10-19 (America/Chicago)
+
+App revision: fcd48aecece759ed676d871a9282d81b83f0ab92. Artifact base: 9cb4636e34c7656f46e217fe5033a50f68796c7b.
+
+The default now accepts an explicit video link or uploaded file in Missions, with discovery/watched-folder
+intake off. Make & upload clips uses relevant enabled Brain guidance plus Settings, creates/checks vertical
+clips and authorizes qualifying automatic YouTube uploads only for that submitted input. The action names
+the connected account and actual saved Public/Private audience and requires an actual kids answer plus a
+truthful source reuse basis and one confirmation. Make clips only stays local. No search API key is needed.
+
+The source grant does not cover old backlog or other inputs, mutate global platform toggles, insert source
+permission text into Brain or authorize TikTok. Source identity/bytes, attribution/terms, account/audience,
+finished artifact and quality checks remain bound. Canceled/revoked/changed inputs and paused publishing
+hold future work. Creation enqueue recovery is durable; started/uncertain uploads retain identity and
+reconcile instead of restarting duplicates. Optional discovery remains available only when selected.
+
+Prior audio fixes remain: first-track downmix before normalization, clip-relative delayed/gapped timing and
+final gain peak control. New actual-media tests exercise Brain selection, captions, multichannel/delayed audio,
+exact checked/uploaded bytes and restart without duplicates. Measured synthetic AAC is evidence for the local
+pipeline, not a real YouTube transcode or reconstruction of already distorted source audio. Existing rendered
+and uploaded clips are preserved. Earlier comments, Brain, office/handoff, review, live, phone and Windows
+cleanup changes remain included. Application/GPU dependency pins remain unchanged.
+
+Final application validation: 1,451 fast checks passed (17 deselected, 676.07 s); all 17 actual-media and
+restart checks passed together (1,451 deselected, 934.97 s). All 59 final built-browser checks passed in
+161.548 s; TypeScript and the production build passed (10.00 s). All 17 tested frontend files and 81 frontend
+source files stayed unchanged. The final fast run retained all 198 frozen backend/test hashes. The media run
+used identical production and selected-media-test bytes; an unrelated fast retention fixture was corrected
+before the final fast run. Seven screenshot-framing-only rechecks passed in 13.332 s with no product or
+contract-assertion changes.
+Final delivery validation: 48 installer checks (1.480 s), 13 pin-helper checks (0.518 s), 12 builder checks
+(0.012 s) and 10 exact-export helper checks (0.396 s) passed. The builder checks all four outer ZIP members
+byte-for-byte and both archive CRCs.
+All 513 archived source files match the committed Git revision except six intentional BAT CRLF exports;
+all 17 browser-tested frontend files match. The pinned app.zip is 42,001,568 bytes. No extra/missing source
+files, EXE/DLL or runtime/credential paths are included. An independent exact-export check verifies the
+pinned archive against Git and the final browser manifest.
+App archive: 42,001,568 bytes, SHA-256
+c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee.
+Source setup ZIP: 41,940,268 bytes, SHA-256
+66afad07d18a835c85f9d39006c1d73c9d56a8ab427cd1d4c0072f4d740773fe.
+
+All ten previous exact managed-release pins remain, plus this new revision (eleven total).
+Python and historical PS/BAT source pins/history agree. Verified same-SID original data profiles remain
+intact; ordinary unknown ZIP installations are not adopted and their data is left untouched.
+Historical blocked EXE SHA-256 remains 3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26;
+no EXE is rebuilt or recommended. Native Windows/Defender, owner data/RTX3050, real uploads, real phone/Tailscale
+and a 24-hour soak remain unverified. Extract All the outer ZIP and open the extracted CMD beside setup.py,
+app.zip and README.txt; keep the inner app.zip zipped. Verify immutable remote bytes before sharing the link.
+
 ## Search connection recovery and per-post reuse clarity — 2026-10-15 (America/Chicago)
 
 App revision: ab666fd5f2c4ca9c84a4fe9a2e874bc852437231. Artifact base: 8fa4e5d.
