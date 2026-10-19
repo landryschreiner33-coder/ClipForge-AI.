@@ -14,21 +14,24 @@ import re
 import shutil
 import socket
 import stat
+import struct
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import zipfile
 from dataclasses import dataclass
 
-COMMIT = "fcd48aecece759ed676d871a9282d81b83f0ab92"
-ARCHIVE_HASH = "c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee"
-START_HASH = "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c"
+COMMIT = "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f"
+ARCHIVE_HASH = "ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae"
+START_HASH = "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1"
 ARCHIVE_PREFIX = "ClipForge-AI.-" + COMMIT + "/"
 KNOWN_RELEASES = {
     "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "11bdb43523f9b01e82590d2dd9e67473d323c88d": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "28aee85b4ef239584da296cec900bc3d8dde4399": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+    "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
     "718358f30110ab871e21059177f83ccd9ea3d3a9": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "7201047b795085f0cb608ea643efadf90074290c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "987ebb288ae9097bedbd80d0adee2b3c05c4271f": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
@@ -43,6 +46,22 @@ RUNNING_ERROR = "ClipFoundry is still running. Close its app/setup windows, then
 
 class SetupError(RuntimeError):
     pass
+
+
+def supported_python() -> bool:
+    """Keep the installer on this build's supported Windows Python runtimes."""
+    return (sys.implementation.name == "cpython" and sys.version_info[:2] in ((3, 11), (3, 12))
+            and struct.calcsize("P") == 8 and sysconfig.get_platform().lower() == "win-amd64"
+            and not sysconfig.get_config_var("Py_GIL_DISABLED"))
+
+
+def require_supported_python() -> None:
+    if not supported_python():
+        raise SetupError(
+            "This ClipFoundry build supports 64-bit x86-64 CPython 3.12 or 3.11. "
+            "Install the Windows installer (64-bit) for Python 3.12 from "
+            "https://www.python.org/downloads/release/python-31210/, then reopen Open-ClipFoundry.cmd. "
+            "Keep your other Python versions; no existing app or data was changed.")
 
 
 def file_hash(path: Path) -> str:
@@ -524,8 +543,7 @@ def invoke_launcher(root: Path, setup_only: bool, environment: dict[str, str]) -
 def start_setup(package: Path) -> None:
     if os.name != "nt":
         raise SetupError("This setup is for Windows 10 or Windows 11.")
-    if sys.version_info < (3, 11):
-        raise SetupError("ClipFoundry needs Python 3.11 or newer. Install Python, then reopen this setup.")
+    require_supported_python()  # Before identity, mutex, extraction or any profile write.
     owner = windows_owner()
     with WindowsMutex(owner) as mutex:
         if not mutex.held:
@@ -546,6 +564,9 @@ def start_setup(package: Path) -> None:
                 write_marker(app, install.data_root, owner)
                 exclusive_move(app, install.root)
             environment = dict(os.environ)
+            # The app bootstrap must use the interpreter just checked here,
+            # rather than rediscovering an unsupported newer Python via PATH.
+            environment["CLIPFOUNDRY_BOOTSTRAP_PYTHON"] = sys.executable
             environment["CLIPFOUNDRY_DATA"] = str(install.data_root / "data")
             environment.pop("CLIPFOUNDRY_WORKERS", None)
             print("ClipFoundry folder:", install.root)
@@ -562,7 +583,13 @@ def start_setup(package: Path) -> None:
                 remove_owned_stage(install.stage, owner)
 
 
-def main() -> int:
+def main(arguments: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if arguments is None else arguments
+    if arguments == ["--check-python"]:
+        return 0 if os.name == "nt" and supported_python() else 1
+    if arguments:
+        print("Use Open-ClipFoundry.cmd to start setup.", file=sys.stderr)
+        return 1
     print("ClipFoundry - readable Python setup")
     try:
         start_setup(Path(__file__).absolute().parent)

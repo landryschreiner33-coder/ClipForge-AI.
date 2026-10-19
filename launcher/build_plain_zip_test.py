@@ -131,8 +131,17 @@ class SourcePackageTests(unittest.TestCase):
     def test_cmd_launches_adjacent_python_without_loader_or_policy_change(self):
         command = (HERE / "Open-ClipFoundry.cmd").read_text()
         self.assertIn("DisableDelayedExpansion", command)
-        self.assertIn('py -3 "%~dp0setup.py"', command)
+        self.assertIn('py -3.12-64 "%~dp0setup.py"', command)
+        self.assertIn('py -3.11-64 "%~dp0setup.py"', command)
         self.assertIn('python "%~dp0setup.py"', command)
+        self.assertNotIn('py -3 "%~dp0setup.py"', command)
+        self.assertIn('set "PYTHON_MANAGER_AUTOMATIC_INSTALL=false"', command)
+        self.assertIn('set "PYLAUNCHER_ALLOW_INSTALL="', command)
+        probes = [command.index(value + ' "%~dp0setup.py" --check-python >nul 2>nul')
+                  for value in ("py -3.12-64", "py -3.12", "py -3.11-64", "py -3.11", "python", "python3")]
+        self.assertEqual(probes, sorted(probes))
+        self.assertEqual(command.count('if "%errorlevel%"=="0" goto '), len(probes))
+        self.assertLess(command.index('if not exist "%~dp0app.zip"'), probes[0])
         for value in ("powershell", "executionpolicy", "bypass", "downloadstring", "scriptblock", "add-mppreference"):
             self.assertNotIn(value, command.lower())
 

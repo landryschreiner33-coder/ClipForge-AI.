@@ -9,8 +9,13 @@ Do not open the CMD from inside the ZIP. In the extracted folder, keep **Open-Cl
 
 The ZIP contains those four inspectable files. It uses your installed Python and the normal application start
 script, with no custom compiled launcher, PowerShell loader, app-archive download or administrator access.
-Python 3.11/3.12 and FFmpeg are recommended. Python dependencies/GPU libraries and later speech-model downloads
-may still need internet access. GPU and application dependency pins are unchanged.
+This build requires 64-bit x86-64 CPython 3.12 or 3.11. The launcher checks installed interpreters and prefers
+3.12, then 3.11; it does not select an unsupported newer or 32-bit Python just because it is on PATH. If none
+is available, install the **Windows installer (64-bit)** from the official Python 3.12 release page:
+https://www.python.org/downloads/release/python-31210/. Keep other Python versions and reopen the CMD afterward.
+No Python runtime is installed automatically, and no system PATH or registry setting is changed by ClipFoundry.
+FFmpeg is recommended. Python dependencies/GPU libraries and later speech-model downloads may still need
+internet access. GPU and application dependency pins are unchanged.
 
 Windows blocked the prior ClipFoundry-Setup.exe download. Its detection name is unknown, so a false positive
 is not established. The historical unsigned executable is no longer the recommended download; do not restore
@@ -25,6 +30,11 @@ original data folder. Brain lessons, connected accounts, settings, projects and 
 New app code goes into a fresh short folder with its own virtual environment. Old app files, data and virtual
 environments are neither copied over nor deleted. Ordinary ZIP installations and unknown/different-user
 markers are left untouched and are not automatically adopted; their data is not migrated.
+
+The selected app folder's Python environment is checked before dependency setup. If it was created with an
+unsupported Python, the app bootstrap preserves it in a separate backup and creates a supported environment.
+Saved Brain knowledge, settings, accounts, source files and rendered clips are not part of that environment.
+Setup stops before installation/profile writes if its own interpreter is incompatible.
 
 Managed markers use the same Windows SID, v1/v2 formats, exact release/start-file pins and original profile
 identity as the earlier launcher. Multiple original profiles, unverifiable same-user managed revisions,
@@ -95,27 +105,30 @@ data in chat or a Claude handoff.
 
 ## Exact application and verification
 
-Application revision: **fcd48aecece759ed676d871a9282d81b83f0ab92**
-Included app.zip SHA-256: **c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee**
+Application revision: **4fae46c82f5b14e3a54c451dee7ff5e3d948b21f**
+Included app.zip SHA-256: **ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae**
 
 Setup verifies the archive and known start.bat hash before installing new code. Existing managed identity
 checks verify the marker and start file, rather than claiming a complete checksum of every installed file.
-All ten prior exact managed-release pins are retained, plus this new revision (eleven total).
+The new release retains all eleven prior exact managed-release pins and adds its own new start-file pin
+(twelve total). Historical start-file SHA-256 remains
+40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c; the corrected launcher SHA-256 is
+26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1.
 
-Final application validation: 1,451 fast checks passed (17 deselected, 676.07 s); all 17 actual-media and
-restart checks passed together (1,451 deselected, 934.97 s). All 59 final built-browser checks passed in
-161.548 s; TypeScript and the production build passed (10.00 s). All 17 tested frontend files and 81 frontend
-source files stayed unchanged. The final fast run retained all 198 frozen backend/test hashes. The media run
-used identical production and selected-media-test bytes; an unrelated fast retention fixture was corrected
-before the final fast run. Seven screenshot-framing-only rechecks passed in 13.332 s with no product or
-contract-assertion changes.
-Final delivery validation: 48 installer checks (1.480 s), 13 pin-helper checks (0.518 s), 12 builder checks
-(0.012 s) and 10 exact-export helper checks (0.396 s) passed. The builder checks all four outer ZIP members
-byte-for-byte and both archive CRCs.
-All 513 archived source files match the committed Git revision except six intentional BAT CRLF exports;
-all 17 browser-tested frontend files match. The pinned app.zip is 42,001,568 bytes. No extra/missing source
-files, EXE/DLL or runtime/credential paths are included. An independent exact-export check verifies the
-pinned archive against Git and the final browser manifest.
+Current application validation: 1,489 fast checks passed (17 deselected, 527.16 s), including 38 focused
+Windows-bootstrap checks (3.54 s in the focused run). All 203 frozen source/test/bootstrap/requirements
+hashes stayed unchanged. Final delivery checks passed: 52 installer checks (1.500 s), 13 pin-helper checks
+(0.514 s), 12 builder checks (0.012 s) and 10 exact-export-helper checks (0.426 s).
+
+The previous submitted-video release passed 17 actual-media/restart checks and 59 built-browser checks.
+Those are historical results, not reruns for this bootstrap-only update. Audio/render/publishing and Brain
+logic, dependency/GPU pins and every frontend source/build byte are unchanged. The new focused checks cover
+actual runtime rejection, safe environment preservation/rebuild/rollback and quoted interpreter forwarding;
+the installer checks cover every historical start-file hash and unchanged disposable owner data. Official
+PyPI Windows CPython 3.12 CTranslate2 wheel-resolution/hash evidence is recorded separately; no native Windows
+runtime was available. The exact export verifies all 515 committed files and all 17 previously tested
+frontend hashes, with six declared BAT CRLF exports and no extra or missing source files. The builder
+verifies the four outer ZIP members byte-for-byte and both archive CRCs.
 
 Tests use isolated data, synthetic media and fake platforms. Native Windows/Defender, the owner's data or
 RTX3050, real account uploads, phone/Tailscale pairing and a 24-hour unattended soak remain unverified.

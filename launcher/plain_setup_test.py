@@ -34,6 +34,8 @@ class PlainSetupTests(unittest.TestCase):
         cls.archive_path = HERE / "app.zip"
         with zipfile.ZipFile(cls.archive_path) as archive:
             cls.start = archive.read(setup.ARCHIVE_PREFIX + "start.bat")
+        cls.legacy_start = (HERE / "fixtures/start-legacy.bat.txt").read_bytes()
+        cls.legacy_start_hash = hashlib.sha256(cls.legacy_start).hexdigest()
         cls.original_commit = setup.COMMIT
         cls.original_start_hash = setup.START_HASH
 
@@ -52,8 +54,10 @@ class PlainSetupTests(unittest.TestCase):
     def managed(self, name, commit=None, kind="clipfoundry-oneclick-v1", data_root=None, owner=None):
         root = self.root / name
         root.mkdir()
-        (root / "start.bat").write_bytes(self.start)
-        marker = {"kind": kind, "commit": commit or self.original_commit, "owner": owner or self.owner}
+        revision = commit or self.original_commit
+        start = self.legacy_start if setup.KNOWN_RELEASES.get(revision) == self.legacy_start_hash else self.start
+        (root / "start.bat").write_bytes(start)
+        marker = {"kind": kind, "commit": revision, "owner": owner or self.owner}
         if kind == "clipfoundry-oneclick-v2":
             marker["data_root"] = str(data_root or root)
         (root / setup.MARKER).write_text(json.dumps(marker), encoding="utf-8")
@@ -95,6 +99,63 @@ class PlainSetupTests(unittest.TestCase):
         expected_history = dict(re.findall(r"'([0-9a-f]{40})'\s*=\s*'([0-9a-f]{64})'", table))
         expected_history[setup.COMMIT] = setup.START_HASH
         self.assertEqual(setup.KNOWN_RELEASES, expected_history)
+
+    def test_supported_python_requires_the_actual_runtime_version_abi_and_architecture(self):
+        cases = (
+            ((3, 12), "cpython", 8, "win-amd64", None, True),
+            ((3, 11), "cpython", 8, "win-amd64", None, True),
+            ((3, 10), "cpython", 8, "win-amd64", None, False),
+            ((3, 13), "cpython", 8, "win-amd64", None, False),
+            ((3, 14), "cpython", 8, "win-amd64", None, False),
+            ((3, 12), "cpython", 4, "win32", None, False),
+            ((3, 12), "cpython", 8, "win-arm64", None, False),
+            ((3, 12), "pypy", 8, "win-amd64", None, False),
+            ((3, 12), "cpython", 8, "linux-x86_64", None, False),
+            ((3, 12), "cpython", 8, "win-amd64", 1, False),
+        )
+        for version, implementation, size, platform, free_threaded, expected in cases:
+            with self.subTest(version=version, implementation=implementation, size=size, platform=platform), \
+                    patch.object(setup, "sys", types.SimpleNamespace(
+                        version_info=version, implementation=types.SimpleNamespace(name=implementation))), \
+                    patch.object(setup, "struct", types.SimpleNamespace(calcsize=lambda unused: size)), \
+                    patch.object(setup, "sysconfig", types.SimpleNamespace(
+                        get_platform=lambda: platform, get_config_var=lambda unused: free_threaded)):
+                self.assertEqual(setup.supported_python(), expected)
+
+    def test_python_probe_is_quiet_and_does_not_start_or_inspect_an_installation(self):
+        for supported in (True, False):
+            with self.subTest(supported=supported), self.windows_runtime(), \
+                    patch.object(setup, "supported_python", return_value=supported), \
+                    patch.object(setup, "start_setup", side_effect=AssertionError("probe started setup")), \
+                    patch("sys.stdout", new=io.StringIO()) as output, \
+                    patch("sys.stderr", new=io.StringIO()) as errors:
+                self.assertEqual(setup.main(["--check-python"]), 0 if supported else 1)
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(errors.getvalue(), "")
+                self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_unsupported_python_refuses_before_identity_mutex_or_profile_writes(self):
+        original = self.root / "original"
+        original.mkdir()
+        data = original / "Brain-and-settings.fixture"
+        data.write_bytes(b"synthetic original knowledge and account data")
+        with self.windows_runtime(), patch.object(setup, "supported_python", return_value=False), \
+                patch.object(setup, "windows_owner", side_effect=AssertionError("identity read too early")), \
+                patch.object(setup, "WindowsMutex", side_effect=AssertionError("mutex created too early")), \
+                patch.object(setup, "install_roots", side_effect=AssertionError("profile inspected too early")), \
+                patch.object(setup, "invoke_launcher", side_effect=AssertionError("app launched too early")):
+            with self.assertRaisesRegex(setup.SetupError, "64-bit.*3.12.*python.org/downloads/release/python-31210/"):
+                setup.start_setup(HERE)
+        self.assertEqual(list(self.root.iterdir()), [original])
+        self.assertEqual(data.read_bytes(), b"synthetic original knowledge and account data")
+
+    def test_all_historical_start_hashes_have_an_exact_fixture_for_upgrade_checks(self):
+        self.assertEqual(self.legacy_start_hash,
+                         "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c")
+        for revision, expected in setup.KNOWN_RELEASES.items():
+            root = self.managed("managed-" + revision[:12], commit=revision)
+            self.assertEqual(setup.file_hash(root / "start.bat"), expected)
+            self.assertEqual(setup.managed_marker(root, self.owner)["commit"], revision)
 
     def test_checked_archive_extracts_every_exact_file_without_profile(self):
         app = self.root / "app"
@@ -691,6 +752,7 @@ class PlainSetupTests(unittest.TestCase):
                 original_move(source, destination)
 
         with self.windows_runtime(), \
+                patch.object(setup, "supported_python", return_value=True), \
                 patch.object(setup, "windows_owner", return_value=self.owner), \
                 patch.object(setup, "WindowsMutex", Mutex), \
                 patch.object(setup, "install_roots", return_value=roots), \
@@ -715,9 +777,11 @@ class PlainSetupTests(unittest.TestCase):
             self.assertTrue((app / "frontend/dist/index.html").is_file())
             self.assertEqual(setup.file_hash(app / "start.bat"), setup.START_HASH)
             self.assertEqual(environment["CLIPFOUNDRY_DATA"], str(target / "data"))
+            self.assertEqual(environment["CLIPFOUNDRY_BOOTSTRAP_PYTHON"], sys.executable)
             self.assertNotIn("CLIPFOUNDRY_WORKERS", environment)
 
-        with patch.dict(os.environ, {"CLIPFOUNDRY_WORKERS": "disabled-fixture"}), \
+        with patch.dict(os.environ, {"CLIPFOUNDRY_WORKERS": "disabled-fixture",
+                                    "CLIPFOUNDRY_BOOTSTRAP_PYTHON": "unverified-other-python"}), \
                 self.setup_runtime([target], launch, check) as free_port:
             setup.start_setup(HERE)
         self.assertEqual(events, ["profile-check", "dependency-setup", "profile-check", "app-open"])

@@ -11,8 +11,12 @@ Leave the inner app.zip zipped; setup opens it for you.
 
 This package contains the exact app archive, readable Python setup.py and a plain CMD launcher. It uses your
 installed Python. There is no custom EXE launcher, PowerShell loader or app-archive download. It changes no
-antivirus, execution-policy, trust/certificate, firewall or Windows scheduled-task setting. Python 3.11/3.12
-and FFmpeg are recommended. Python/GPU packages and later speech models may still need internet access.
+antivirus, execution-policy, trust/certificate, firewall or Windows scheduled-task setting. This build requires
+64-bit x86-64 CPython 3.12 or 3.11. The launcher checks installed runtimes, preferring 3.12 then 3.11, and does
+not choose an unsupported newer or 32-bit Python from PATH. If none is found, install the Windows installer
+(64-bit) from https://www.python.org/downloads/release/python-31210/, then reopen Open-ClipFoundry.cmd. Keep
+other Python versions. ClipFoundry does not install a runtime automatically or change system PATH/registry.
+FFmpeg is recommended. Python/GPU packages and later speech models may still need internet access.
 
 Do not turn off antivirus or restore/allow the previously blocked EXE. If Windows also blocks the ZIP or an
 extracted file, inspect Windows Security / Protection history for the detection name. Source/integrity checks
@@ -24,8 +28,13 @@ stays in place. No old files or virtual environments are copied over or deleted.
 multiple original profiles or unverifiable same-user managed revision stops setup. Missing/malformed JSON
 markers are treated as unknown installations and left untouched.
 
-Application revision: fcd48aecece759ed676d871a9282d81b83f0ab92
-Included app.zip SHA-256: c01eda46ba14dd26395f9f47dd83f6c4231815e0dff1de16497163e35e58d9ee
+The selected app folder's Python environment is checked before dependencies are installed. An incompatible
+environment is preserved in a separate backup before a supported one is created. Brain knowledge, settings,
+accounts and clips are outside that environment. An incompatible setup interpreter stops before profile or
+installation writes; do not try to fix dependency resolution by deleting your saved data or changing GPU pins.
+
+Application revision: 4fae46c82f5b14e3a54c451dee7ff5e3d948b21f
+Included app.zip SHA-256: ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae
 Setup verifies the archive and known start.bat hash before installing or launching new app files.
 
 New workflow: add a video, then make and upload clips
@@ -59,20 +68,19 @@ Audio and earlier changes remain included
 - Optional discovery/key diagnostics remain under Settings -> Advanced -> Autopilot details -> Video input.
   Search keys are not required for submitted videos and do not grant upload authorization.
 
-Final application validation: 1,451 fast checks passed (17 deselected, 676.07 s); all 17 actual-media and
-restart checks passed together (1,451 deselected, 934.97 s). All 59 final built-browser checks passed in
-161.548 s; TypeScript and the production build passed (10.00 s). All 17 tested frontend files and 81 frontend
-source files stayed unchanged. The final fast run retained all 198 frozen backend/test hashes. The media run
-used identical production and selected-media-test bytes; an unrelated fast retention fixture was corrected
-before the final fast run. Seven screenshot-framing-only rechecks passed in 13.332 s with no product or
-contract-assertion changes.
-Final delivery validation: 48 installer checks (1.480 s), 13 pin-helper checks (0.518 s), 12 builder checks
-(0.012 s) and 10 exact-export helper checks (0.396 s) passed. The builder checks all four outer ZIP members
-byte-for-byte and both archive CRCs.
-All 513 archived source files match the committed Git revision except six intentional BAT CRLF exports;
-all 17 browser-tested frontend files match. The pinned app.zip is 42,001,568 bytes. No extra/missing source
-files, EXE/DLL or runtime/credential paths are included. An independent exact-export check verifies the
-pinned archive against Git and the final browser manifest.
+Current application validation: 1,489 fast checks passed (17 deselected, 527.16 s), including 38 focused
+Windows-bootstrap checks (3.54 s in the focused run). All 203 frozen source/test/bootstrap/requirements
+hashes stayed unchanged. Final delivery checks passed: 52 installer checks (1.500 s), 13 pin-helper checks
+(0.514 s), 12 builder checks (0.012 s) and 10 exact-export-helper checks (0.426 s). The exact source export
+verifies all 515 files and all 17 previously tested frontend hashes, with six declared BAT CRLF exports.
+The builder verifies every outer ZIP member byte-for-byte and both archive CRCs. All eleven previous exact
+managed release pins remain, plus the twelfth revision with the corrected start-file hash.
+
+The previous submitted-video release passed 17 actual-media/restart checks and 59 built-browser checks.
+These are historical results and were not rerun for this bootstrap-only update. Audio/render/upload/Brain
+logic, dependency/GPU pins and all frontend source/build bytes are unchanged. New checks cover runtime
+selection, environment preservation/rebuild/rollback and interpreter forwarding. Installer tests retain
+historical release hashes and disposable Brain/accounts/media data. Native Windows execution is unverified.
 
 CLAUDE_HANDOFF.md inside the app has code, evidence and continuation details; ask Claude to read it and
 AGENTS.md. Never share account keys or private app data. No owner profile, real account upload, native Windows,

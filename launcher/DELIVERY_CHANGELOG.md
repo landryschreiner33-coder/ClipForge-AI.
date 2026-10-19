@@ -1,5 +1,57 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Windows Python runtime compatibility repair — 2026-10-19 (America/Chicago)
+
+App revision: 4fae46c82f5b14e3a54c451dee7ff5e3d948b21f.
+Artifact base: 39c58577b86c806d04bf3db5e15596c4415efced.
+
+The owner screenshot shows pip unable to select a matching CTranslate2 distribution while backtracking
+faster-whisper. It does not identify the actual interpreter/version/architecture or prove a conflict in the
+listed shared CTranslate2 range. The correction uses this build's supported runtime policy rather than
+changing dependency/GPU pins: standard 64-bit Windows AMD64 CPython 3.12, then 3.11.
+
+Both readable-source and application launchers probe the actual interpreter. Versioned selectors try
+3.12-64/3.12, then 3.11-64/3.11, then verified PATH python/python3. There is no unrestricted py -3 choice.
+Only an exact zero probe result passes. Unsupported versions, 32-bit, native ARM64, non-CPython and
+free-threaded builds are rejected. The selected installer interpreter is passed to the app by a quoted
+CLIPFOUNDRY_BOOTSTRAP_PYTHON value. The installer rejects incompatibility before identity/profile/extraction
+writes. Python-manager automatic installation is disabled only in this launcher process; no runtime,
+system PATH, registry, security setting or scheduled task is changed. If no supported runtime exists,
+the user is directed to the official Python 3.12 Windows installer (64-bit) and can retain other versions.
+
+The app checks its .venv before pip setup. A compatible environment is retained; an incompatible one is
+preserved under a backup name before rebuilding with the verified interpreter. Failed rebuilds preserve
+the incomplete environment and restore the prior environment without deleting either. Existing setup/profile
+locks, active-environment process checks and linked-path guards remain. Saved Brain, accounts, settings,
+media and database data stay outside this operation. No old managed profile or unknown ZIP is adopted anew.
+
+All eleven previous exact managed release/start-file pins remain. Their historical start SHA-256 is
+40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c. A saved exact legacy fixture tests every old
+pin alongside the changed current launcher. The new start SHA-256 is
+26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1; pinning adds the twelfth revision.
+Historical EXE SHA-256 remains 3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26; it is not
+rebuilt or recommended. No antivirus exception or protection change is made.
+
+Current application checks: 1,489 fast checks passed (17 deselected, 527.16 s), including 38 focused
+bootstrap cases (3.54 s in the focused run). All 203 frozen source/test/bootstrap/requirements hashes stayed
+unchanged. Final pinned delivery checks passed: 52 installer checks (1.500 s), 13 pin-helper checks (0.514 s),
+12 builder checks (0.012 s) and 10 exact-export-helper checks (0.426 s). The committed-source export verifies
+all 515 files and all 17 previously tested frontend hashes, with six declared BAT CRLF exports and no extra
+or missing source files. Final ZIP assembly verifies every outer member byte-for-byte and both archive CRCs.
+
+The prior submitted-video release's 17 actual-media/restart and 59 built-browser results are preserved as
+historical evidence. They were not rerun for this bootstrap-only update. Processing/publishing/Brain logic,
+dependency/GPU pins and all frontend source/build bytes remain unchanged. The prior automatic submitted-video
+workflow and audio changes remain included. Official PyPI Windows CPython 3.12 CTranslate2 wheel resolution
+and hash were checked (SHA-256 b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9).
+This is dependency availability evidence, not native Windows execution or proof of the screenshot's cause.
+
+App archive: 42,016,818 bytes, SHA-256 ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae.
+Source setup ZIP: 41,956,249 bytes, SHA-256 841f4c314861e32e4bcf4033cf8a2fad4f3e1e397f8a2ed32a6724793172c2e1.
+Native Windows/Defender, owner data/GPU, real account uploads and 24-hour operation remain unverified.
+Extract All the outer ZIP, open the extracted CMD beside setup.py/app.zip/README.txt, and keep the inner
+app.zip zipped. Verify immutable remote bytes after final commit before sharing a download link.
+
 ## Submitted-video creation and automatic YouTube upload — 2026-10-19 (America/Chicago)
 
 App revision: fcd48aecece759ed676d871a9282d81b83f0ab92. Artifact base: 9cb4636e34c7656f46e217fe5033a50f68796c7b.
