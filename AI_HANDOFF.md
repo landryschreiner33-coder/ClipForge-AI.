@@ -1,8 +1,46 @@
 # AI handoff
 
 Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
-[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-15 (America/Chicago).
+[docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-19 (America/Chicago).
 Fetch before trusting branch state.
+
+## Latest continuation: submitted videos, Brain-guided creation and automatic YouTube upload
+
+Date: 2026-10-19 (America/Chicago). Base: `ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`, on
+`codex/brain-graph-quality-discovery`. The owner replaces unreliable video finding with a link/file they supply,
+then wants Brain-guided creation and automatic upload without per-clip approval.
+
+Default `autopilot_input_mode=submitted` suppresses periodic/queued discovery and automatic watched-folder
+admission. Existing sources, media, keys, Brain and post history remain. A one-time migration records this default
+for old profiles without overriding a later explicit choice. Optional discovery is still selectable in Advanced.
+Missions offers **Make & upload clips** and **Make clips only**, with actual per-input counts and hold reasons.
+
+The upload action requires the actual connected YouTube channel, confirmed audience, genuine kids answer, source
+reuse basis and one explicit checkbox. `source_submissions` stores its exact wording/options separately from
+Brain/standing consent. A supplied file is copied to `data/submitted/<id>/`; acquisition binds original SHA,
+project and current terms/credit. Accepted source/request creation is atomic; the scheduler recovers only an
+unstarted enqueue gap, never deliberate cancellation. Retention preserves source rows referenced by submission
+audits while clearing stale API metrics/cache and ordinary unused discovery rows. Re-adding an existing video
+cannot grant old backlog access.
+Guarded links need no search key; private/protected/unavailable/live media is not bypassed.
+
+Relevant supported Brain notes and example preferences are consulted with source/spoken context and Settings
+fallback, retaining explicit editor overrides. Raw notes/examples stay local; unsupported references and measured
+example lengths are described honestly. Submission/reuse text never becomes Brain guidance or ownership/license.
+Each qualifying new YouTube post gets an exact-file/payload approval labeled `by=submission`, tied to its input
+request. It may schedule/dispatch despite broad scheduling/publishing/YouTube toggles being off, without changing
+those globals. Old backlog and later inputs remain unapproved; local-only inputs create no automatic posts;
+TikTok keeps per-post consent. Stop, Pause publishing, cancellation, source/hash/account/audience/terms drift,
+credit, final quality, quotas/waits and active/uncertain upload recovery remain binding. Manual edits can require
+manual review rather than being overwritten by automatic approval.
+
+The prior downmix-before-normalization, final peak control, first-track and delayed/gapped-clock fixes remain.
+Actual synthetic FFmpeg/AAC and exact fake-upload checks exercise the new path, including Brain-guided caption
+rendering and restart without duplicate uploads. A limiter cannot reconstruct preexisting source distortion.
+
+**Validation:** Final full fast suite: 1,451 passed, 17 slow deselected, in 676.07 s. Final full real-FFmpeg/synthetic-media and restart suite: 17 passed, 1,451 deselected, in 934.97 s. TypeScript and the production build passed (10.00 s). All 59 final built-browser checks passed in 161.55 s. The final fast suite used 198 frozen Python source/test files. All production and selected media-test sources stayed unchanged during the full media run; 81 frontend source and 17 built-file hashes stayed unchanged through the final browser checks. A deselected fast retention fixture's timestamp setup was corrected before the final fast run; the media run's production/selected sources were unaffected. Focused checks also passed: 60 submission/consent, 79 final status/routes/legacy readiness, 29 advanced-route/legacy, 119 legacy intake/scheduler/publishing, three new actual-media and 26 legacy audio/quality and nine retention checks. The three new media cases use relevant saved Brain guidance, real caption/AAC rendering, exact fake-upload bytes and restart without duplicates, including the broad YouTube switch off and TikTok enabled. Earlier full attempts were interrupted before the final route/status/retention corrections and are not final evidence. Tests use isolated profiles, synthetic media and fake platforms only. The readable source setup is pinned separately to this committed app tree with the tested frontend manifest; its delivery verification records exact archive hashes and source revision.
+No owner Windows/profile/RTX3050, real YouTube transcode/account upload, Defender acceptance or 24-hour soak has
+been verified. Prior release results below are historical, not proof for this new checkpoint.
 
 ## Latest continuation: failed search keys and separate post-only reuse records
 

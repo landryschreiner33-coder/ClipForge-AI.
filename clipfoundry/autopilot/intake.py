@@ -154,6 +154,10 @@ def identify(source: dict, settings: dict) -> dict:
     """Read only public/platform metadata; no cookies, authentication bypass or DRM handling."""
     netguard.check(source["url"], schemes=netguard.STREAM, allow_private=False)
     if source["platform"] == "youtube":
+        if (source.get("intake") or {}).get("submitted"):
+            # A supplied URL is an input, not a search. Optional discovery keys must not gate its metadata.
+            # The same bounded public extractor checks the page without cookies, logins or protected access.
+            return media_import.inspect_video(source["url"])
         try:
             api = providers.YouTubeDiscovery(settings)
         except providers.Unavailable:
@@ -250,6 +254,8 @@ def identify_link(job: Job) -> dict:
     try:
         settings = db.get_settings()
         fields = identify(source, settings)
+        if meta.get("submitted") and fields.get("kind") == "live":
+            raise queue.Fail("This input is a live or upcoming stream. Submit its recorded video after it ends, or use the live-stream tools.")
         scheduled_at = fields.pop("scheduled_at", None)
         fresh = db.fetch("sources", source["id"]) or source
         meta = fresh.get("intake") or {}

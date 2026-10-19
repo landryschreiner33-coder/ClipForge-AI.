@@ -1,16 +1,19 @@
 # Running ClipFoundry unattended
 
-ClipFoundry can keep preparing quality-checked clips and local posting plans unattended. Review before publishing
-is now the default: missing recorded reuse permission does not prevent a local review plan, but every new post
-waits for your approval. Approved posts can upload at their planned time. Fully automatic YouTube approval remains
-an optional separate mode requiring current recorded coverage and channel/audience-bound publishing permission.
+ClipFoundry can turn a recorded-video link/file you submit into quality-checked clips and automatically upload
+qualifying clips to YouTube. **Missions → Make & upload clips** asks once for that input's connected account,
+confirmed audience, kids answer and reuse basis. Relevant supported Brain guidance uses Settings fallback.
+**Make clips only** keeps results local. No automatic searching or watched-folder intake runs in the default
+submitted mode, and no search key is required. Older Queue backlog still waits for manual review by default;
+TikTok always keeps individual review. An input request does not approve other inputs or grant source ownership.
 This is a local PC app: the PC must remain powered on, connected to the internet and able to use its GPU and disk.
 It cannot promise uninterrupted operation, make a sleeping/offline PC run, or override platform/account restrictions.
 
 ## Start the watchdog
 
 1. Finish the normal setup and a real GPU check using `gpu-check.bat`.
-2. Connect the intended accounts in ClipFoundry. Start Autopilot and select your sources and publishing limits.
+2. Connect YouTube and confirm who watches. Submit your video in Missions with **Make & upload clips**; check its
+   actual progress/holds before relying on unattended work. Keep any deliberate posting limits/window.
 3. Close the ordinary ClipFoundry window, then double-click `run-unattended.bat`.
 4. Open `http://127.0.0.1:8765` to check progress. Keep the unattended window open; Ctrl+C stops it and its workers.
 
@@ -67,7 +70,13 @@ restarts or network failures. A locked screen is different from logging out.
 
 ## What still needs attention
 
-If finished clips exist but nothing is scheduled, open **Missions → Why clips are waiting to post**. This panel
+For a submitted video, first check **Missions → Submitted videos** for ready/waiting/uploading/uploaded counts
+and a hold reason. **Ready for a video link or file** means the app is waiting for your input. **Cancel video**
+stops its future work without deleting completed media or already published posts. Missing/changed source bytes,
+account/audience/terms changes, final checks and Pause publishing can hold an automatic request. The request does
+not clear emergency Stop or grant any old backlog upload permission.
+
+For optional discovery or older backlog, open **Missions → Why clips are waiting to post**. This panel
 reports post-text preparation, final checks, local-only coverage and actual scheduled counts for connected
 platforms. It explains unconfirmed audiences, disabled scheduling/publishing, pending owner review, and, when
 review mode is explicitly off, missing or outdated YouTube
@@ -76,8 +85,8 @@ approval; failed/canceled post preparation remains visible in Jobs. Interrupted 
 their post preparation automatically, without re-rendering the whole batch or reviving canceled work.
 
 With only YouTube connected, TikTok is optional. In Setup or **Settings → Integrations → Who watches**, choose
-and confirm the intended YouTube audience. Leave **Prepare & schedule for review** on, then open **Queue → Needs
-review** to inspect each exact clip and confirm any unrecorded reuse permission with its basis before approval.
+and confirm the intended YouTube audience. For older/optional discovery posts, leave **Prepare & schedule for
+review** on, then open **Queue → Needs review** to inspect each exact clip and confirm any unrecorded reuse permission with its basis before approval.
 YouTube also needs the post's made-for-kids answer. The approved post uploads at its time; approving a past-due
 post allows prompt publishing. If you deliberately turn review mode off, **Missions → How posts go out → Turn on
 automatic publishing** provides the separate channel/audience-bound permission for covered clips.
@@ -86,8 +95,8 @@ turn those older posts public. Uncovered clips remain local review drafts until 
 reuse confirmation and approve their exact post. A draft's posting time grants no upload permission.
 
 Public posting requires an explicit supported audience choice, the correct connected account, reuse permission,
-passing final-file checks and the appropriate approval or standing YouTube permission. Previous private schedules
-stay private. The app reports actual returned visibility and restrictions. An External Google OAuth app left in
+passing final-file checks and the appropriate exact-post approval, input-scoped request or optional standing
+YouTube permission. Previous private schedules stay private. The app reports actual returned visibility and restrictions. An External Google OAuth app left in
 Testing usually gives YouTube refresh-token grants a seven-day lifetime; move that OAuth app to Production and
 reconnect the channel for long-running access. Production is not a guarantee against later token revocation,
 account restrictions or quota exhaustion. Check the Google Console requirements for your app's requested scopes.

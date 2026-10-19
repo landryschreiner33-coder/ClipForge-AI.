@@ -1,6 +1,6 @@
 import { Settings } from "../api";
 import {
-  Check, FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput,
+  Check, FieldCtx, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, Switch, TextInput,
 } from "./settingsFields";
 
 /**
@@ -17,11 +17,20 @@ export function AutopilotSettings({ s, set, errors, saved }: {
   return (
     <>
       <SettingsPanel id="adv-ap" title="Autopilot details"
-        intro={<>Autopilot prepares clips and plans their times. In review mode, every post waits for you to check
-          reuse, the video, its text and audience in Queue. <b>Planning a time never uploads it.</b></>}>
+        intro={<>Add videos in Missions to make Brain-guided clips. “Make & upload clips” authorizes passing clips
+          from just that submitted video. Other posts keep their own review and publishing requirements.</>}>
+        <SettingRow k="autopilot_input_mode" label="Video intake"
+          hint="Only videos I add is the default. Automatic discovery also checks online searches and saved folders."
+          {...row}>
+          <Select k="autopilot_input_mode" c={c} options={[
+            { value: "submitted", label: "Only videos I add (link or file)" },
+            { value: "discovery", label: "Automatic discovery (optional)" },
+          ]} />
+          <span className="tiny muted">Changing intake never approves earlier clips or changes their audience.</span>
+        </SettingRow>
         <SettingRow k="autopilot_review_before_publish" label="Prepare & schedule for review"
-          hint={"On: prepare accessible videos even when recorded reuse permission is missing. Every post waits "
-            + "for your review and approval; standing automatic-publishing permission is suspended."} {...row}>
+          hint={"On: ordinary posts wait for your review and approval; standing automatic-publishing permission "
+            + "is suspended. A new video you explicitly submit with Make & upload uses only its own authorization."} {...row}>
           <Switch k="autopilot_review_before_publish" c={c} />
           <a className="textlink small" href="#/queue/review">Review prepared posts</a>
           <span className="tiny muted">Turning this off lets eligible YouTube posts use an existing
@@ -86,8 +95,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             options={[{ value: "separate", label: "Own process" }, { value: "in_app", label: "Inside the app" }]} />
         </SettingRow>
         <SettingRow label="Largest source"
-          hint={"Autopilot doesn't download bigger files or process longer videos (videos you add yourself have no "
-            + "limit)"}
+          hint="Limits for automatic discovery. Submitted links and files also have bounded file-size and duration checks."
           group>
           <div className="inline-fields small">
             <NumInput k="autopilot_max_source_gb" c={c} label="Largest source in GB" step={0.5} width={100} />
@@ -133,8 +141,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       </SettingsPanel>
 
       <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={"Discovery uses your interests and available evidence. Review mode can prepare accessible videos "
-          + "without a recorded agreement. You check reuse before approving each post. Blocked videos are skipped."}>
+        intro={s.autopilot_input_mode === "submitted"
+          ? "Automatic discovery is off. These saved options apply only if you choose Automatic discovery under Video intake above. No search key is needed for videos you add."
+          : "Optional discovery uses your interests and available evidence. Review mode can prepare accessible videos without a recorded agreement. You check reuse before approving each ordinary post. Blocked videos are skipped."}>
         <SettingRow k="discovery_quality_first" label="Quality before quantity"
           hint="Prefer strong usable videos and keep the unfinished work queue small, even with no daily cap"
           {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>

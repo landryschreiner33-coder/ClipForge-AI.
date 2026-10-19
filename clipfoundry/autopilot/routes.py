@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import time
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, StrictBool
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -18,6 +19,53 @@ from .host import MANUAL_PRIORITY, supervisor
 router = APIRouter(prefix="/api/autopilot")
 READ = [Depends(local_only)]
 WRITE = [Depends(app_request)]
+
+
+class SubmissionIn(BaseModel):
+    url: str = ""
+    auto_upload: StrictBool
+    account_id: str = ""
+    privacy: str = ""
+    made_for_kids: StrictBool | None = None
+    audience_version: StrictInt = 0
+    reuse_basis: str = ""
+    reuse_statement: str = ""
+    agreed: StrictBool = False
+
+
+@router.get("/submissions/setup", dependencies=READ)
+def submission_setup() -> dict:
+    from . import submissions
+
+    return submissions.setup()
+
+
+@router.get("/submissions", dependencies=READ)
+def submissions_list() -> list[dict]:
+    from . import submissions
+
+    return submissions.list_items()
+
+
+@router.post("/submissions/link", dependencies=WRITE)
+def submit_link(body: SubmissionIn) -> dict:
+    from . import submissions
+
+    try:
+        return submissions.add_link(body.url, body.model_dump())
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/submissions/file", dependencies=WRITE)
+def submit_file(file: UploadFile = File(...), options: str = Form("{}")) -> dict:
+    from . import submissions
+
+    try:
+        parsed = SubmissionIn.model_validate(json.loads(options))
+        return submissions.add_file(file.file, file.filename or "video.mp4", parsed.model_dump())
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", "")) -> dict:
@@ -108,6 +156,9 @@ class SourceIn(BaseModel):
 def add_source(body: SourceIn) -> dict:
     """Add one source by hand (a local file or a URL you may use)."""
     import hashlib
+
+    if not config.discovery_enabled(db.get_settings()):
+        raise HTTPException(409, "Use Add video in Missions to submit a link or file and choose Make clips only or Make and upload.")
 
     if body.path:
         p = Path(body.path).expanduser()

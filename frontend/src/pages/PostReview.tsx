@@ -412,7 +412,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
         <ConfirmDialog title="Save the changes?" confirmLabel="Save and remove my OK" cancelLabel="Keep it as approved"
           onClose={() => setConfirmSave(false)} onConfirm={async () => { await saveText(); }}>
           <p className="muted">
-            You approved this {name} post as it was. Saving the changes removes your OK: it won't go out until you
+            {p.approval?.by === "submission" ? `This ${name} post was authorized by its submitted video's Make & upload request.`
+              : `You approved this ${name} post as it was.`} Saving the changes removes its approval: it won't go out until you
             approve it again.
           </p>
         </ConfirmDialog>
@@ -468,6 +469,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
       return p.status_note ? <p className="small muted">{p.status_note}</p> : null;
     case "approved": {
       const auto = p.approval?.by === "automatic";
+      const submitted = p.approval?.by === "submission";
       // "approved today, 9:14" reads better mid-sentence than "approved Today, 9:14".
       const approvedAt = p.approval?.at
         ? when(p.approval.at, tz).replace(/^(Today|Tomorrow|Yesterday)/, (m) => m.toLowerCase()) : "";
@@ -476,14 +478,16 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
       const overdue = !!p.planned_at && p.planned_at < Date.now() / 1000 - 15 * 60;
       return (
         <section className="panel" aria-labelledby="st-h">
-          <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{auto ? "Approved automatically" : "Approved by you"}</h2>
+          <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{submitted ? "Authorized for this submitted video"
+            : auto ? "Approved automatically" : "Approved by you"}</h2>
           <p className="small muted">
-            {auto ? `Your automatic-publishing permission for ${name} approved it, because every check passed. `
+            {submitted ? "Approved under this video's Make & upload request, after its exact finished file and post passed the checks. You did not review this clip individually."
+              : auto ? `Your automatic-publishing permission for ${name} approved it, because every check passed. `
               + "You did not review it."
               : `You approved this exact video and text${approvedAt ? ` ${approvedAt}` : ""}.`}{" "}
             {overdue ? `Its time, ${atLabel(p.planned_at, tz)}, passed while Autopilot wasn't running. It stays `
               + "approved and gets a new time the next time Autopilot runs."
-              : autoPublish ? `It goes out ${atLabel(p.planned_at, tz)} by itself.`
+              : autoPublish || submitted ? `It goes out ${atLabel(p.planned_at, tz)} by itself, unless publishing is paused.`
               : "Posting at the planned time is turned off (Settings, Advanced), so at its time it waits for you to "
                 + "press Publish now."}
           </p>
@@ -810,10 +814,13 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
           )}
           {p.reuse_review?.explanation && <p className="small muted">{p.reuse_review.explanation}</p>}
           {p.reuse_review?.confirmed && <div className="stack small" style={{ marginTop: 6 }}>
-            <b>Reuse confirmed by you for this exact post</b>
+            <b>{p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? "Reuse basis recorded with this submitted video" : "Reuse confirmed by you for this exact post"}</b>
             <span>{p.reuse_review.basis}</span>
-            <span className="tiny muted">Owner review; the app has not independently verified a license.</span>
-            <span className="tiny muted">Saved with this post only. It is not Brain knowledge or guidance for future clips.</span>
+            <span className="tiny muted">Owner assertion; the app has not independently verified a license.</span>
+            <span className="tiny muted">{p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? "Saved with this submitted video's authorization and resulting posts. It does not authorize other videos."
+              : "Saved with this post only."} It is not Brain knowledge or editing guidance.</span>
           </div>}
         </dd>
         <dt>Final check</dt>

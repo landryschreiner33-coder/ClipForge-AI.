@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .. import awake, db
+from .. import awake, config, db
 from . import autopublish, myvideos, queue, rights, state, trends
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
@@ -117,6 +117,8 @@ def can_discover(settings: dict, platforms: dict) -> bool:
     """Include the free library and agreement folders, which do not require a connected account."""
     from . import scout
 
+    if not config.discovery_enabled(settings):
+        return False
     if settings.get("library_discovery", True) or settings.get("tavily_api_key"):
         return True
     yt = platforms.get("youtube") or {}
@@ -164,6 +166,8 @@ def currently(settings: dict, workers_alive: bool, discovery: dict | None = None
         return DOING["analyze_source"] if "analyzing" in busy else DOING["hunt_source"]
     if any(j["wait_reason"] in ("gpu", "gpu_failed") for j in queue.jobs(("waiting",), limit=50)):
         return "Waiting for the GPU"
+    if not config.discovery_enabled(settings):
+        return "Ready for a video link or file"
     discovery = discovery if discovery is not None else discovery_status()
     counts = discovery["counts"]
     if not any(counts.get(s) for s in USABLE):  # say why nothing is being clipped, not just "looking"
@@ -184,6 +188,9 @@ def discovery_status() -> dict:
     last = state.get("trend:last_scan") or {}
     with db.connect() as conn:
         counts = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) AS n FROM sources GROUP BY status")}
+    if not config.discovery_enabled(db.get_settings()):
+        # Keep old diagnostics for a later switch back, without presenting unused search keys as blockers.
+        return {"last_scan": None, "next_scan": None, "found": 0, "counts": counts, "problems": []}
     problems = []
     for key, p in (state.get("providers") or {}).items():
         status = p.get("status")
@@ -253,6 +260,8 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
     setup_keys = {i['key'] for i in setup}
     for a in state.open_actions():
         kind, key = a["kind"], a["key"]
+        if key == "youtube:discovery" and not config.discovery_enabled(settings):
+            continue
         if key in setup_keys:
             continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
@@ -305,7 +314,7 @@ def needs_videos(settings: dict) -> dict | None:
     """Autopilot is on and has looked, but has nothing it may clip: nothing it may use is waiting or being worked on,
     and it made no clip in the last day. Videos from other channels are skipped (the activity log says why), so
     this is said once, here, with the one thing that helps: your own videos in your videos folder."""
-    if not state.enabled(settings) or not state.get("trend:last_scan"):
+    if not config.discovery_enabled(settings) or not state.enabled(settings) or not state.get("trend:last_scan"):
         return None
     marks = ",".join("?" * len(USABLE))
     if db.scalar(f"SELECT COUNT(*) FROM sources WHERE status IN ({marks})", USABLE):
@@ -382,7 +391,9 @@ def upcoming(limit: int = 5) -> list[dict]:
         state_ = audience.delivery_state(r)
         out.append({"id": r["id"], "platform": r["platform"], "title": r.get("title") or "",
                     "planned_at": r.get("planned_at"), "status": r["status"],
-                    "auto": (r.get("approval") or {}).get("by") == "automatic", "on_platform": r["status"] == "published",
+                    "auto": (r.get("approval") or {}).get("by") == "automatic",
+                    "approval_by": (r.get("approval") or {}).get("by", ""),
+                    "on_platform": r["status"] == "published",
                     "delivery_state": state_, "delivery_label": audience.DELIVERY_LABELS.get(state_, "")})
     return out
 
@@ -419,11 +430,22 @@ def activity(limit: int = 40) -> list[dict]:
         evaluation = rights.evaluate(s, settings)
         covered = bool(evaluation["auto_allowed"])
         review = settings.get("autopilot_review_before_publish", True) and evaluation["status"] != rights.BLOCKED
+        posting = "" if covered or not used else REVIEW_NOT_POSTED if review else NOT_POSTED
+        from . import submissions
+
+        request = submissions.for_source(s)
+        if request:
+            if not (request.get("settings") or {}).get("auto_upload"):
+                posting = "You chose Make clips only. These clips stay on this PC without automatic uploads."
+            else:
+                hold = submissions.problem(s, settings, require_bound=False)
+                posting = ("Uploads held: " + hold if hold else
+                           "Qualifying YouTube clips upload automatically under this video's Make & upload request.")
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
                     # clipping a public video (getting its file) is a separate question from posting it
-                    "posting": "" if covered or not used else REVIEW_NOT_POSTED if review else NOT_POSTED,
+                    "posting": posting,
                     "can_add_file": s["status"] == "needs_file" and covered})
     return out
 
@@ -432,6 +454,8 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
     """What to say when there is nothing to show yet (never "no sources configured")."""
     if found:
         return ""
+    if not config.discovery_enabled(settings):
+        return "Add a video link or file in Missions. ClipFoundry uses Brain guidance to create your clips."
     if not discover:
         return "Connect YouTube to start finding content."
     if not settings.get("autopilot_enabled"):
@@ -504,7 +528,7 @@ def needs_sleep_fix(settings: dict) -> dict | None:
 
 def next_look(settings: dict) -> float | None:
     """When Autopilot next looks for new videos online (it checks your videos folder every few minutes)."""
-    if not state.enabled(settings):
+    if not config.discovery_enabled(settings) or not state.enabled(settings):
         return None
     due = float(state.get("next:trend_scan", 0) or 0)
     if due <= time.time():  # not planned yet (a look you started): the usual interval after the last look
@@ -594,7 +618,7 @@ def next_step(settings: dict) -> str:
         return DOING.get(job["kind"], "Continue preparing videos")
     if any(j["kind"] == "live_capture" for j in pending):
         return "Listen for more good moments"
-    return "Check for more trending videos"
+    return "Check for more trending videos" if config.discovery_enabled(settings) else "Add another video link or file"
 
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:

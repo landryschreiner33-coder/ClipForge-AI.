@@ -55,7 +55,8 @@ async function controlled(page: Page, initialStatus: any, post = item(), autoPub
       status.home.next = "Open Queue to check reuse and approve each post.";
       status.home.posts = { ...status.home.posts, ready: 0, scheduled: 1, review: 1 };
       status.home.upcoming = [{ id: post.id, title: post.title, platform: post.platform,
-        planned_at: post.planned_at, status: post.status, auto: false, on_platform: false }];
+        planned_at: post.planned_at, status: post.status, auto: false, approval_by: post.approval?.by || "",
+        on_platform: false }];
       status.home.posting = { finished: 1, checked: 1, sampled: false, platforms: [{
         platform: "youtube", code: "review", title: "Prepared posts need your review",
         detail: "Check reuse, the video, text and audience in Queue. No clip uploads before your approval.",
@@ -209,7 +210,7 @@ async ({ page, request }) => {
   await page.goto("/#/post/controlled-review-post");
   const reuse = page.getByRole("group", { name: "Why I can reuse it", exact: true });
   await expect(reuse).toHaveCount(0);
-  await expect(page.getByText("Saved with this post only. It is not Brain knowledge or guidance for future clips.",
+  await expect(page.getByText("Saved with this post only. It is not Brain knowledge or editing guidance.",
     { exact: true })).toBeVisible();
   await page.locator("#rv-title").fill("A complete story again");
   await expect(reuse).toBeVisible();
@@ -229,6 +230,31 @@ async ({ page, request }) => {
     reuse_confirmed: true, reuse_kind: "custom", reuse_basis: "The creator's agreement covers this exact edit and revised public YouTube post.",
     tags: [], privacy: "public", made_for_kids: false, confirm: true,
   } }]);
+  expect(errors).toEqual([]);
+});
+
+test("submitted-video authorization never claims an individual finished-post review", async ({ page, request }) => {
+  const status = await (await request.get("/api/autopilot/status")).json();
+  const post = item({ status: "approved", approval_valid: true, status_note: "Authorized for this submitted video.",
+    approval: { by: "submission", scheme: 3, video_sha256: "controlled-file-fingerprint", hash: "source-grant" },
+    reuse_review: { required: true, confirmed: true, status: "MANUAL", basis: "My original video",
+      confirmed_from: "source_submission", explanation: "The source-scoped request covers this new clip." } });
+  const { writes, errors } = await controlled(page, status, post, false);
+  await page.goto("/#/missions");
+  await expect(page.getByText("Authorized for this video", { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved by you", { exact: true })).toHaveCount(0);
+  await page.goto("/#/queue/scheduled");
+  const row = page.locator('.post-row[data-id="controlled-review-post"]');
+  await expect(row.getByText("Authorized for this video", { exact: true })).toBeVisible();
+  await expect(row).toContainText("Reuse basis recorded with submitted video");
+  await page.goto("/#/post/controlled-review-post");
+  await expect(page.getByRole("heading", { name: "Authorized for this submitted video", exact: true })).toBeVisible();
+  await expect(page.getByText(/You did not review this clip individually/)).toBeVisible();
+  await expect(page.getByText(/by itself, unless publishing is paused/)).toBeVisible();
+  await expect(page.getByText("Reuse basis recorded with this submitted video", { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved by you", { exact: true })).toHaveCount(0);
+  await capture(page, "submitted-video-post-authorization");
+  expect(writes).toEqual([]);
   expect(errors).toEqual([]);
 });
 

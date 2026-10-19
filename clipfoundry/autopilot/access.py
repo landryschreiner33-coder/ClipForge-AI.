@@ -104,6 +104,10 @@ def resolve(source: dict, settings: dict) -> dict:
             return _ok("library", "Wikimedia Commons serves its files for reuse", url=url)
         return _no("The link is not one of the library's own files")
     if rights.is_platform_url(url) and source.get("platform") != "stream":
+        from . import submissions
+
+        if submissions.for_source(source):
+            return _ok("platform", "This public video was explicitly supplied for processing; no login or DRM", url=url)
         if settings.get("rights_allow_remote_download") or settings.get("autopilot_public_videos"):
             return _ok("platform", "Public video extraction enabled in Settings; no login or DRM", url=url)
         where = PLATFORM_NAMES.get(source.get("platform") or "", "The platform")

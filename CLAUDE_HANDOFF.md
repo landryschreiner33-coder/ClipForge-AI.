@@ -1,29 +1,71 @@
 # ClipFoundry handoff for Claude
 
-Prepared October 15, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
+Prepared October 19, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
 `AI_CHANGELOG.md` before changing anything. This is a local Windows desktop app, not a hosted service.
 
 ## Start here
 
 The application repository is `landryschreiner33-coder/ClipForge-AI.` (including the final dot).
 Work is on `codex/brain-graph-quality-discovery`, based on tested revision
-`0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7`. The commit containing this handoff adds the current fixes. Fetch and
+`ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`. The commit containing this handoff adds the submitted-video workflow. Fetch and
 inspect the branch and working tree before trusting a cached checkout; do not reset or discard someone else's work.
 The earlier PR #14 is merged; this is later continuation work, not a request to recreate that PR or merge blindly.
 
 The readable setup lives on `codex/clipfoundry-one-click` in a separate checkout. Its previous tested artifact
-was `8fa4e5dd8381d3ec34a6c90e45297fc795ef6415`. The delivered artifact's
+was `9cb4636e34c7656f46e217fe5033a50f68796c7b`. The delivered artifact's
 `launcher/plain_setup_verification.json` records the final exact app revision, ZIP hashes and test evidence.
 Do not rebuild or recommend the previously blocked custom EXE, change antivirus settings or discard managed profiles.
 
 Suggested opening prompt:
 
 > Continue ClipFoundry from the current `codex/brain-graph-quality-discovery` branch. Read CLAUDE_HANDOFF.md,
-> AGENTS.md and AI_HANDOFF.md first. Preserve the tested audio/comments/discovery/live/Windows fixes, Brain use,
-> selected-post bulk approval and verified Windows profile reuse. Start with any owner-provided reproduction
-> evidence still missing below. Use isolated data and fake accounts; do not publish real test videos.
+> AGENTS.md and AI_HANDOFF.md first. The current default is submitted video link/file → relevant supported Brain
+> guidance plus Settings → creation/checks → automatic YouTube upload under that input's explicit Make & upload
+> request. Preserve old backlog/manual review, TikTok per-post consent, exact-file/source/account/audience checks,
+> measured audio/live/Windows fixes and managed-profile reuse. Use isolated data and fake accounts; no real test posts.
 
-## Latest request: failing search keys and post-only permission records
+## Latest request: supplied video to automatic YouTube clips
+
+The owner no longer wants the default workflow to find videos. They supply a recorded-video link/file and want
+creation, supported Brain guidance and automatic upload. `autopilot_input_mode=submitted` is the default, with a
+one-time old-profile migration that preserves later explicit choices. Optional discovery remains available in
+Advanced; its periodic and stale queued discovery handlers and watched-folder admission are inactive in submitted
+mode. Earlier discovery-key fixes remain included but are not a prerequisite for this input workflow.
+
+Missions → **Add a video** offers **Make & upload clips** and **Make clips only**. Upload requires an actual
+connected YouTube account, confirmed audience, real kids answer, source reuse basis and one explicit checkbox.
+The action covers only this input's newly generated qualifying clips, not old backlog, future inputs or TikTok.
+The chosen source request can target YouTube even if broad schedule/publish/platform toggles are off, without
+changing those globals. Stop all jobs, Pause publishing, cancellation, quality/grounding/credit, source/account/
+audience/terms drift and real waits still hold. Keep manually edited/canceled and active/uncertain work intact.
+
+`autopilot/submissions.py` owns strict options, bounded file copy, canonical new-source insertion, source grant,
+original/project binding, final per-post automatic approval and progress. `source_submissions` stores wording and
+options outside Brain, including source identity/hash/project/current terms. Files copied under `data/submitted/`
+remain after project deletion/cancellation until the data folder is removed; project outputs have their own
+normal deletion. Source assertions do not verify ownership or rewrite source rights. The accepted source, grant
+and enabled worker state commit together; `recover_unstarted` closes only a no-job enqueue gap, never a prior
+attempt/cancellation. Re-adding a known video refuses to give old media a fresh grant. Link acquisition uses
+supported guarded media import without discovery credentials or login/access bypass; new live links are rejected.
+
+`packaging.platforms(settings, source)` and the gate honor the explicit per-input YouTube target. The scheduler
+restricts new plans to submitted sources in this mode, with `approval.by=submission` for exact final bytes/text
+covered by that request. Publisher rechecks original consent/account/audience/quality before starting, while
+started/uncertain sessions retain their existing identity and reconcile. A fresh render/edit can require manual
+review. Source request and per-post reuse records never teach Brain. Relevant supported notes/example choices
+use source title/spoken context with Settings fallback; uploaded examples are not model fine-tuning or visual
+style inference. Existing explicit editor overrides remain.
+
+**Focused validation so far:** 99 mode/diagnosis/continuous-search/office-health/phone checks passed (36.02 s);
+60 submission-routes/consent-audit checks passed (35.02 s); three new actual-media cases passed (53.82 s);
+26 legacy packaging/quality/audio checks passed (68.03 s). New measured AAC cases include actual Brain-guided
+caption rendering, exact fake-upload bytes and restart without duplicates, including global YouTube toggle off.
+Final full fast suite: 1,451 passed, 17 slow deselected, in 676.07 s. Final full real-FFmpeg/synthetic-media and restart suite: 17 passed, 1,451 deselected, in 934.97 s. TypeScript and the production build passed (10.00 s). All 59 final built-browser checks passed in 161.55 s. The final fast suite used 198 frozen Python source/test files. All production and selected media-test sources stayed unchanged during the full media run; 81 frontend source and 17 built-file hashes stayed unchanged through the final browser checks. A deselected fast retention fixture's timestamp setup was corrected before the final fast run; the media run's production/selected sources were unaffected. Focused checks also passed: 60 submission/consent, 79 final status/routes/legacy readiness, 29 advanced-route/legacy, 119 legacy intake/scheduler/publishing, three new actual-media and 26 legacy audio/quality and nine retention checks. The three new media cases use relevant saved Brain guidance, real caption/AAC rendering, exact fake-upload bytes and restart without duplicates, including the broad YouTube switch off and TikTok enabled. Earlier full attempts were interrupted before the final route/status/retention corrections and are not final evidence. Tests use isolated profiles, synthetic media and fake platforms only. The readable source setup is pinned separately to this committed app tree with the tested frontend manifest; its delivery verification records exact archive hashes and source revision.
+Prior sections' final counts are historical. No real YouTube transcode/upload, owner media,
+native Windows/RTX3050, Defender acceptance or 24-hour soak was verified. Source distortion is not reconstructible
+by the final peak limiter. Preserve all earlier audio/comment/live/Windows fixes below.
+
+## Earlier request: failing search keys and post-only permission records
 
 The owner reports no clips and clarifies **both API keys fail**; no exact service error or owner-PC access was
 provided. They confirm reuse text appears **only in the clip's approval/reuse details**. These records already
@@ -204,7 +246,8 @@ documentation with meaningful changes. Keep GPU dependencies and `.mcp.json` unc
   Verified earlier same-Windows-user managed installs keep their original data; unknown ordinary ZIP profiles
   are not automatically adopted. Never alter security settings or recommend the historical blocked EXE.
 
-Preserve review-before-publishing, exact-file/source/account/audience approval, selected-post bulk review up to
-50 YouTube posts, required credit, uncertain-upload recovery and no-duplicate guarantees. Brain guidance cannot
+Preserve review-before-publishing outside explicit submitted-source requests, exact-file/source/account/audience
+approval, selected-post bulk review up to 50 YouTube posts, required credit, uncertain-upload recovery and
+no-duplicate guarantees. Brain guidance cannot
 grant publishing rights or consent. Never create real test posts, spend money, change account permissions,
 delete owner media, force-push or deploy public pages without the corresponding owner instruction.

@@ -310,12 +310,13 @@ function PostRow({ p, tz, reviewing, selected, selectionFull, onSelect, onApprov
         )}
         {/* An approved post's note ("Approved: it will be published…") is out of date once its OK no longer
             covers it. */}
-        {okOutdated(p) ? <span className="small">You approved it, but it changed since: it needs your OK again.</span>
+        {okOutdated(p) ? <span className="small">Its approval no longer covers the current post: it needs your OK again.</span>
           : p.status_note && <span className={`small ${s.tone === "bad" ? "" : "muted"}`}>{p.status_note}</span>}
         {(p.status === "awaiting_approval" || p.status === "approved") && (
           <span className="tiny faint">
             Permission to use: {p.source?.rights_label || p.source?.rights_status || "unknown"}
-            {p.reuse_review?.confirmed ? " · Reuse confirmed by you for this post" : ""}
+            {p.reuse_review?.confirmed ? p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? " · Reuse basis recorded with submitted video" : " · Reuse confirmed by you for this post" : ""}
             {" "}· Final check: {checkSummary(p)}
           </span>
         )}

@@ -194,10 +194,18 @@ def ensure_project(src: dict, settings: dict, ctx: JobContext) -> dict:
                 raise queue.Fail(str(exc), "Autopilot goes on with other videos. If you have a copy of this video, "
                                            "add the file in Clips → Add video.") from exc
             write_provenance(pdir, src, found, settings)
-            return db.get_project(project["id"]) or project
+            prepared = db.get_project(project["id"]) or project
+            from . import submissions
+
+            submissions.bind_project(db.fetch("sources", src["id"]) or src, prepared)
+            return prepared
         write_provenance(pdir, src, found, settings)
     db.update_project(project["id"], source_path=str(dst), source_filename=dst.name)
-    return db.get_project(project["id"]) or project
+    prepared = db.get_project(project["id"]) or project
+    from . import submissions
+
+    submissions.bind_project(db.fetch("sources", src["id"]) or src, prepared)
+    return prepared
 
 
 def _suffix(url: str) -> str:
@@ -278,7 +286,11 @@ def hunt_source(job: Job) -> dict:
         raise queue.Fail("The source was deleted")
     if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
         return {"skipped": True, "message": "Canceled by you"}
-    r = rights.recheck(src, settings)  # judged again now, including a channel never confirmed (queued earlier)
+    from . import submissions
+
+    # Supplied sources use their explicit source assertion; metadata search credentials are irrelevant and
+    # unverified extractor channel claims cannot turn them into owned/allowlisted videos.
+    r = (rights.apply(src, settings)["rights"] if submissions.for_source(src) else rights.recheck(src, settings))
     if not rights.local_allowed(src, r, settings):
         feed.decide("source", "rejected", ("source", src["id"]), f"Not processed: {r['label']} ({r['basis']})",
                     job_id=job.id, reported_by="gavel", once=True, rights=r["label"])
@@ -565,7 +577,9 @@ def analyze_source(job: Job) -> dict:
         raise queue.Fail("The source or its transcript is missing", "Start the source again in Autopilot → Sources.")
     if (src.get("intake") or {}).get("canceled") or (src.get("intake") or {}).get("removed"):
         return {"skipped": True, "message": "Canceled by you"}
-    r = rights.recheck(src, settings)  # no clip is rendered from a source that is no longer covered
+    from . import submissions
+
+    r = (rights.apply(src, settings)["rights"] if submissions.for_source(src) else rights.recheck(src, settings))
     if not rights.local_allowed(src, r, settings):
         return _not_used(src, r)
     ctx = job.pipeline_ctx(0.0, 1.0)

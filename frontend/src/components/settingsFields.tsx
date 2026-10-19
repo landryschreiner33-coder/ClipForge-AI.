@@ -36,7 +36,7 @@ add("advanced", {
   whisper_model: "Whisper model", whisper_device: "Transcription device", whisper_compute_type: "Compute type",
   whisper_beam_size: "Beam size", language: "Language", autopilot_allow_cpu_fallback: "CPU transcription in Autopilot",
   gpu_min_free_vram_mb: "Free GPU memory needed", gpu_wait_minutes: "Wait for the GPU",
-  autopilot_timezone: "Time zone", autopilot_keep_awake: "Keep the PC awake",
+  autopilot_timezone: "Time zone", autopilot_keep_awake: "Keep the PC awake", autopilot_input_mode: "Video intake",
   autopilot_sources_per_day: "Sources per day", autopilot_clips_per_source: "Clips per source",
   autopilot_min_quality: "Minimum clip quality", autopilot_youtube: "Post to YouTube",
   autopilot_tiktok: "Post to TikTok",
@@ -131,6 +131,9 @@ export function validTimeZone(tz: string): boolean {
 /** Field errors that block saving, in plain words, keyed by setting. */
 export function validate(s: Settings): Record<string, string> {
   const e: Record<string, string> = {};
+  if ("autopilot_input_mode" in s && !["submitted", "discovery"].includes(s.autopilot_input_mode)) {
+    e.autopilot_input_mode = "Choose only videos you add, or automatic discovery.";
+  }
   for (const [k, [lo, hi]] of Object.entries(RANGES)) {
     if (!(k in s)) continue;
     const v = s[k];

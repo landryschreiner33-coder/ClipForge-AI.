@@ -38,7 +38,8 @@ export default function Library() {
     <>
       <PageHead title="Clips"
         sub="Your source videos and the clips made from them. Everything is stored on this computer."
-        actions={<a className="btn btn-primary" href="#/create"><Icon name="plus" />Add video</a>} />
+        actions={<><a className="btn btn-primary" href="#/missions"><Icon name="upload" />Make & upload clips</a>
+          <a className="btn" href="#/create"><Icon name="plus" />Make clips manually</a></>} />
       <ClipsTabs current="clips" />
     </>
   );

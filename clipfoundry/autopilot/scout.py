@@ -21,7 +21,7 @@ import math
 import time
 from zoneinfo import ZoneInfo
 
-from .. import db, locks
+from .. import config, db, locks
 from ..pipeline import fingerprint
 from ..publish.common import PublishError
 from . import access, providers, quota, rights, state, trends, verify
@@ -194,6 +194,8 @@ def discovery_feeds(settings: dict) -> list[dict]:
 
 
 def collect_feeds(job: Job | None, statuses: dict) -> list[dict]:
+    if not config.discovery_enabled(db.get_settings()):
+        return []
     out: list[dict] = []
     for feed in discovery_feeds(db.get_settings()):
         scan = providers.FEED_SCANNERS.get(feed["kind"])
@@ -218,6 +220,8 @@ def collect_feeds(job: Job | None, statuses: dict) -> list[dict]:
 @handler("trend_scan")
 def trend_scan(job: Job) -> dict:
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"signals": 0, "message": "Automatic discovery is off. Add a video link or file in Missions."}
     now = time.time()
     statuses: dict = dict(state.get("providers", {}) or {})
     collected: list[dict] = []
@@ -350,6 +354,8 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
 @handler("feed_scan")
 def feed_scan(job: Job) -> dict:
     """Frequent, free check of watch folders and stream/signal feeds (no API quota)."""
+    if not config.discovery_enabled(db.get_settings()):
+        return {"signals": 0, "new": 0, "message": "Folder and feed discovery is off. Add a video in Missions."}
     statuses: dict = dict(state.get("providers", {}) or {})
     now = time.time()
     reconcile_sources(now)
@@ -401,7 +407,7 @@ def reconcile_sources(now: float | None = None) -> int:
 def refill(item: dict) -> dict | None:
     """A failed or weak video releases its turn immediately; select another without waiting for the next search.
     Explicit cancellation remains final for that video. The replacement is separate, ordinary discovery work."""
-    if not state.enabled():
+    if not state.enabled() or not config.discovery_enabled(db.get_settings()):
         return None
     key = item.get("ref_id") or item.get("id") or "recovery"
     return queue.enqueue("source_scout", {"reason": "replacement"},
@@ -850,6 +856,8 @@ def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[d
 @handler("source_scout")
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"created": 0, "picked": [], "message": "Only videos you explicitly add are processed."}
     now = time.time()
     reconcile_sources(now)
     all_rules = rights.rules()
@@ -947,6 +955,8 @@ def _usable_after_yes(src: dict, settings: dict) -> bool:
 
 def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     """Send the best eligible sources to the Clip Hunter, up to what today's plan still needs (still_needed)."""
+    if not config.discovery_enabled(settings):
+        return []
     now = now or time.time()
     day = local_day(settings, now)
     needed = still_needed(settings, now)
@@ -1073,7 +1083,8 @@ def rights_check(job: Job) -> dict:
     settings = db.get_settings()
     marks = ",".join("?" * len(REAPPLY))
     rows = db.select("sources", f"status IN ({marks})", REAPPLY)
-    verify.ensure(rows, settings)  # channels named by feeds that were never confirmed, or are due for another look
+    if config.discovery_enabled(settings):
+        verify.ensure(rows, settings)  # Optional discovery's unconfirmed or stale channel claims.
     changed = reapply(rows, settings)
     # A public video clipped before a rule covered (or blocked) it keeps its clips: its stored rights must follow
     # the rule, so the Queue and Activity say what the scheduler and publisher decide (they evaluate it afresh)
@@ -1088,6 +1099,8 @@ def confirm_channels(job: Job | None = None) -> dict:
     could not be asked (offline, quota), and work queued before channels were confirmed. A video that is not
     confirmed loses its turn before any clipping; one already clipped is held back at scheduling and publishing."""
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"channels_checked": 0, "channels_changed": 0}
     now = time.time()
     rows = [r for r in db.select("sources", "channel_id != '' AND status NOT IN ('skipped', 'failed')")
             if verify.due(r, now)]
@@ -1112,7 +1125,8 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
     stale = ("(updated_at < ? OR signal_id IN (SELECT id FROM trend_signals WHERE platform = 'youtube' AND "
              "last_checked < ?))")
     unused = db.execute(f"DELETE FROM sources WHERE platform = 'youtube' AND {stale} AND project_id = '' AND "
-                        "status NOT IN ('queued', 'ingesting', 'analyzing')", (cutoff, cutoff))
+                        "status NOT IN ('queued', 'ingesting', 'analyzing') AND NOT EXISTS "
+                        "(SELECT 1 FROM source_submissions WHERE source_id = sources.id)", (cutoff, cutoff))
     cleared = db.execute(f"UPDATE sources SET metrics = '{{}}', updated_at = ? WHERE platform = 'youtube' AND {stale} "
                          "AND metrics != '{}'", (now, cutoff, cutoff))
     old = [r["id"] for r in db.select("trend_signals", "platform = 'youtube' AND last_checked < ?", (cutoff,))]

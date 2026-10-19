@@ -26,12 +26,11 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 There are two ways to use it:
 
 * **Manual:** drop in a video, get ranked clips, edit, export, or publish through the official APIs.
-* **Autopilot:** 12 background workers on a durable SQLite job queue. Every 3 hours they look for videos the user may
-  use (own content, recorded creator agreements, CC BY, public domain), clip and package them, check the final file,
-  schedule eligible posts at any hour (America/Chicago) and publish them: YouTube automatically once the user
-  has given that
-  permission, TikTok only after the user's OK on each post. Then they learn from the real results. Nothing asks the
-  user about single videos: what is not covered is skipped and explained in the Activity log.
+* **Autopilot:** 12 background workers on a durable SQLite job queue. The default is **submitted videos**:
+  Missions accepts a recorded-video link or file, uses relevant supported Brain guidance and Settings, renders and
+  checks clips, then automatically uploads qualifying YouTube clips when the owner explicitly chooses **Make &
+  upload clips** for that input. **Make clips only** keeps them local. Automatic discovery and folder admission are
+  off in this mode; optional discovery is a separate advanced choice. TikTok still requires per-post review.
 
 **Current continuous-upload continuation:** app daily source/clip/platform caps default to 0 (unlimited), while
 quality floors, bounded queues, API/cost allowances and platform refusals remain active. Automatic broad discovery
@@ -42,7 +41,7 @@ restarts. Current reuse terms and credit must cover the actual approved upload p
 silently rewrite owner text or an active/uncertain upload. Real saved-guidance consultations and recorded manager/
 boss paths appear in the office without invented work, approval or model training. See the latest handoff.
 
-**Latest review continuation:** the owner now wants local schedules followed by individual reuse review and
+**Earlier review continuation (superseded for explicitly submitted inputs below):** the owner wanted local schedules followed by individual reuse review and
 manual approval. `autopilot_review_before_publish` defaults on; missing recorded coverage can reach the review
 queue without becoming an upload grant. Existing standing permission cannot approve new work in this mode.
 Uncovered posts need an exact-post owner reuse statement and basis before approval. The continuation under
@@ -101,9 +100,10 @@ data/              created at runtime (gitignored): clipfoundry.db, projects/<id
 The Autopilot flow is:
 
 ```
-hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, render follows it)
-  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Queue
-  → publish (audience check first: YouTube Private, TikTok followers, or a ready-to-post package)
+submitted link/file → hunt_source → analyze_source (relevant Brain guidance + Settings → Clip Blueprint)
+  → render → package_clip → quality_check (exact file + text) → schedule_tick
+  → input-scoped automatic YouTube approval → publish (the account/audience chosen for this input)
+  [Make clips only: no automatic upload; existing backlog/TikTok: separate manual review]
 ```
 
 ## Run and test
@@ -265,7 +265,7 @@ fixes to it). Start new work from the default branch; the tested commits are in 
       with rollback per platform that the same results cannot undo.
     * Optional NVIDIA text AI (`pipeline/nvidia.py`), off by default, with opt-in, budgets and local fallback.
 
-**Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
+**Historical zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
   activity, empty-state text, setup). `POST /api/autopilot/start`.
@@ -277,7 +277,7 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
   feed, provider, source, quota) off Home, the Autopilot overview, Setup and Settings → Accounts/Defaults;
   `test_autopilot_simple.py` checks the backend's page text.
 
-**Decided:** live monitoring is on by default (owner, 2026-09-29). Public video discovery (`autopilot_public_videos`)
+**Earlier discovery-mode defaults:** live monitoring is enabled within optional discovery (owner, 2026-09-29). Public video discovery (`autopilot_public_videos`)
 stays on, with publishing eligibility checked separately (owner, 2026-10-08); `e2e/sandbox/beginner-flow.spec.ts`
 now expects public videos to be clipped on the PC and never planned or posted, and passes.
 
@@ -300,14 +300,18 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
    clipping with `autopilot_public_videos` (default on, owner request 2026-10-03). With that mode off, only Owned,
    Licensed, Allowlisted, creator agreements, CC BY and public domain are selected. Public links submitted in
    Autopilot may be processed locally through supported media access even when reuse permission is unknown;
-   explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
-   re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
+   explicit Blocks always win. A link alone grants no download, reuse or publishing permission. The separate
+   **Make & upload clips** confirmation records the owner's reuse basis and input-scoped YouTube request; it is
+   an assertion, not verified ownership/license. Local review plans need no recorded reuse prerequisite; actual
+   publication needs current coverage or its exact-post assertion, final checks and applicable consent.
    * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
      confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
      confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.
 2. **Approval for every post.** A post goes out only with the user's approval: their OK on the post, or for YouTube
-   the automatic-publishing permission they turned on (stored with its wording in `publish_consents`). TikTok
-   always needs the OK on each post.
+   a new input's explicit **Make & upload clips** request (`source_submissions`), or the optional standing
+   permission (`publish_consents`) when review mode is deliberately off. A source submission covers only its new
+   clips on its bound YouTube account/audience; it cannot approve old backlog or other inputs. TikTok always needs
+   the OK on each post.
 3. **Publish exactly what was checked.** The publisher re-hashes the file and needs a passing gate report for those
    exact bytes. Any re-render needs a new report.
 4. **No silent CPU fallback in Autopilot.** Manual mode may fall back, but it must say so visibly.
@@ -367,6 +371,23 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Latest submitted-video continuation (2026-10-19, America/Chicago):** The owner replaces automatic video finding
+with a link/file they supply, followed by Brain-guided creation and automatic YouTube upload. Default
+`autopilot_input_mode=submitted` disables periodic search, watched-folder admission and stale queued discovery
+handlers, while existing media/history remain. A one-time mode migration preserves later explicit choices.
+Missions offers **Make & upload clips** or **Make clips only**. For upload, show the actual connected account and
+confirmed audience, require a genuine kids answer, source reuse basis and one explicit confirmation. Store the
+input-scoped request separately in `source_submissions`; bind acquired original hash/project/current terms and
+credit, then approve each qualifying final file/text/account/audience separately as `approval.by=submission`.
+This explicitly supersedes per-post manual review for that input's new clips, even while global review or broad
+scheduling/publishing/platform toggles are off. It changes no global audience or standing grant and covers no old
+backlog, later input or TikTok post. Explicit Blocks, Cancel, Stop all jobs, Pause publishing, current terms/credit,
+quality/hash checks, real platform waits and uncertain-upload identity remain binding. Canceling future work
+retains saved media/history. Permission text never becomes Brain guidance. Relevant supported notes/example
+preferences apply with Settings fallback; raw notes and examples stay local and do not fine-tune a model.
+Preserve the measured audio fixes; never promise reconstruction of already distorted audio, real YouTube
+transcoding, native Windows/RTX3050 behavior or a 24-hour run without evidence.
+
 **Search-key and Brain separation continuation (2026-10-15, America/Chicago):** The owner reports no new clips
 and clarifies both search keys fail. Preserve explicit key/account selection, refresh rejected same-account OAuth
 once within quotas, provide safe actionable key errors and explicit saved-connection checks. A check cannot prove
@@ -401,10 +422,11 @@ active/uncertain upload. No new arrivals are selected automatically. Preserve fi
 explicit permission basis, account/audience/kids choice, timing, idempotency and platform waits. TikTok keeps its
 individual platform review. Source statements and Brain notes never create bulk consent.
 
-**Review-before-publishing continuation (2026-10-14):** The latest owner request supersedes automatic publishing
+**Earlier review-before-publishing continuation (2026-10-14):** Subject to the input-scoped exception above,
+this request superseded automatic publishing
 as the default and the requirement for recorded reuse coverage before *scheduling*. `autopilot_review_before_publish`
 defaults on. Discovery and local plans may include accessible, unblocked sources with unrecorded reuse terms;
-rights status must stay truthful. Every new post waits for manual approval. An uncovered post additionally needs
+rights status must stay truthful. Posts outside an explicit source submission wait for manual approval. An uncovered post additionally needs
 an owner reuse statement and basis bound to its exact source, file/version, account, platform, audience, text and
 options. This records an assertion, not verified ownership/license or permission for other posts. Current credit,
 physical-media quality, grounded text, platform choices, account approval, cancellation, idempotency and waits

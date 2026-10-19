@@ -848,6 +848,27 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .ap-control-room > * { min-width: 0; }
 .ap-control-room .ap-link-intake { padding: 20px; gap: 12px; }
 .ap-control-room .ap-link-intake h2 { font-size: var(--fs-h3); }
+.submitted-videos { border-top: 3px solid var(--primary); }
+.submitted-form, .submitted-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.submitted-form > .seg { align-self: start; }
+.submitted-drop { display: flex; align-items: center; gap: var(--s4); padding: var(--s5);
+  border: 1px dashed var(--control-border); border-radius: var(--r-control); background: var(--canvas); }
+.submitted-drop.over { border-color: var(--primary); }
+.submitted-drop .grow { min-width: 0; }
+.submitted-mode { display: grid; gap: var(--s2); }
+.submitted-mode legend, .submitted-consent legend { margin-bottom: var(--s2); }
+.submitted-mode .choice, .submitted-agreement { align-items: flex-start; }
+.submitted-mode .choice input, .submitted-agreement input { margin-top: 4px; flex: none; }
+.submitted-consent { padding: var(--s4); border: 1px solid var(--border); border-radius: var(--r-control); }
+.submitted-destination { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.submitted-destination > a { grid-column: 1 / -1; justify-self: start; }
+.submitted-actions > .grow { flex-basis: 360px; }
+@media (max-width: 640px) {
+  .submitted-drop { flex-wrap: wrap; }
+  .submitted-drop > button { width: 100%; }
+  .submitted-destination { grid-template-columns: minmax(0, 1fr); }
+  .submitted-actions > button { width: 100%; }
+}
 
 /* ------------------------------------------------------------------ the robot office (docs/OFFICE.md) */
 .grow { flex: 1 1 auto; min-width: 0; }

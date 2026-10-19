@@ -237,6 +237,9 @@ def discovery(settings: dict) -> dict:
     from ..autopilot import scout, state
 
     label = "Finding videos"
+    if not config.discovery_enabled(settings):
+        return _c("discovery", "Video input", "healthy", "Only videos you add in Missions are processed. "
+                  "Automatic searches and watched folders are off.", info=True, status_label="Submitted videos")
     if not settings.get("autopilot_enabled") or state.paused():
         return _c("discovery", label, "unknown", "Autopilot is off, so it is not looking for videos.",
                   "Press Start when you want it to look.", status_label="Off", info=True)

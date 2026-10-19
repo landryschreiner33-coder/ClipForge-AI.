@@ -133,8 +133,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "audience_tiktok_confirmed_at": 0.0,
     "audience_youtube_group_version": 1,    # raised when you say the people in the test group changed
     "audience_tiktok_group_version": 1,
-    # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
+    # Autopilot (docs/AUTOPILOT.md). Off initially; a source request can authorize only its own YouTube clips.
     "autopilot_enabled": False,
+    "autopilot_input_mode": "submitted",  # submitted: process only explicitly added links/files; discovery is optional
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
     "autopilot_daily_target": 0,        # 0: no app daily cap; quality, rights and platform allowances still apply
@@ -270,6 +271,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
             continue
+        elif key == "autopilot_input_mode" and v not in {"submitted", "discovery"}:
+            continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
         elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:
@@ -296,6 +299,11 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             v = v[:2000]
         out[key] = v
     return out
+
+
+def discovery_enabled(settings: dict) -> bool:
+    """Background searching and watched feeds require the explicit discovery mode."""
+    return settings.get("autopilot_input_mode", "submitted") == "discovery"
 
 
 _RANGES: dict[str, tuple[float, float]] = {

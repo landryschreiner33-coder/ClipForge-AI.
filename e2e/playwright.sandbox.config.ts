@@ -26,14 +26,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `"${python}" sandbox/run_sandbox.py --port ${port}`,
+      command: `"${python}" sandbox/run_sandbox.py --input-mode discovery --port ${port}`,
       url: `http://127.0.0.1:${port}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,
       stdout: "pipe",
     },
     {
-      command: `"${python}" sandbox/run_sandbox.py --scenario zero-touch --port ${loopPort}`,
+      command: `"${python}" sandbox/run_sandbox.py --scenario zero-touch --input-mode discovery --port ${loopPort}`,
       url: `http://127.0.0.1:${loopPort}/api/health`,
       reuseExistingServer: false,
       timeout: 300_000,
@@ -48,7 +48,7 @@ export default defineConfig({
         "manual-publish.spec.ts", "public-consent.spec.ts", "brain-graph.spec.ts", "tiktok-setup.spec.ts",
         "discovery-quality.spec.ts", "phone-settings.spec.ts", "posting-readiness.spec.ts",
         "continuous-publishing.spec.ts", "office-handoff-flow.spec.ts", "review-queue.spec.ts", "bulk-review.spec.ts",
-        "youtube-comments.spec.ts", "search-connections.spec.ts"],
+        "youtube-comments.spec.ts", "search-connections.spec.ts", "submitted-videos.spec.ts"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 }, launchOptions: { executablePath } },
     },
     {

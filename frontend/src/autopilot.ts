@@ -268,6 +268,8 @@ export interface UpcomingPost {
   status: string;
   /** Approved by your automatic-publishing permission (not reviewed by you). */
   auto: boolean;
+  /** A source submission authorizes its new clips without a separate review of each finished post. */
+  approval_by?: string;
   /** Already uploaded: the platform publishes it at its time, even if this PC is off. */
   on_platform: boolean;
 }
@@ -489,7 +491,8 @@ export interface ScheduledItem extends ScheduledItemRow {
   approval_valid: boolean;
   clip: { id: string; title: string; duration: number; score: number; category: string; status: string; has_thumbnail: boolean; video_url: string; thumbnail_url: string; caption_text: string };
   source: { id?: string; title: string; url?: string; platform?: string; channel?: string; rights_status: string; rights_label: string };
-  reuse_review?: { required: boolean; confirmed: boolean; basis: string; explanation: string; status: string };
+  reuse_review?: { required: boolean; confirmed: boolean; basis: string; explanation: string; status: string;
+    confirmed_from?: string };
   trend: { topic: string; score: number; mode: string } | null;
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];

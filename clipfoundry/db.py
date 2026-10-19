@@ -362,6 +362,16 @@ CREATE TABLE IF NOT EXISTS publish_consents (
     updated_at REAL NOT NULL,
     revoked_at REAL
 );
+CREATE TABLE IF NOT EXISTS source_submissions (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL UNIQUE REFERENCES sources(id),
+    platform TEXT DEFAULT 'youtube',
+    settings TEXT DEFAULT '{}',
+    text TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    revoked_at REAL
+);
 CREATE TABLE IF NOT EXISTS clip_candidates (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
@@ -706,6 +716,7 @@ JSON_FIELDS = {
     "sources": {"components", "metrics", "rights_info", "access", "channel_check", "intake"},
     "source_rights": {"conditions"},
     "publish_consents": {"settings"},
+    "source_submissions": {"settings"},
     "clip_candidates": {"scores", "rejected"},
     "clip_analysis": {"audio", "visual", "semantic", "boundary", "deep"},
     "clip_scores": {"components", "explanation"},
@@ -779,6 +790,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
     _migrate_audience(conn)
     _migrate_continuous_volume(conn)
+    _migrate_submitted_input(conn)
+
+
+SUBMITTED_INPUT_MIGRATION = "submitted_input_migrated_v1"
+
+
+def _migrate_submitted_input(conn: sqlite3.Connection) -> None:
+    """Apply the owner's input-only workflow once; never approve old work or replace later mode choices."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (SUBMITTED_INPUT_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    saved = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_input_mode'").fetchone()
+    if not saved and conn.execute("SELECT 1 FROM settings LIMIT 1").fetchone():
+        conn.execute("INSERT INTO settings (key, value) VALUES ('autopilot_input_mode', ?)",
+                     (json.dumps(config.DEFAULT_SETTINGS["autopilot_input_mode"]),))
+    conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (SUBMITTED_INPUT_MIGRATION, json.dumps({"at": now, "version": 1}), now))
 
 
 CONTINUOUS_VOLUME_MIGRATION = "continuous_volume_migrated_v1"

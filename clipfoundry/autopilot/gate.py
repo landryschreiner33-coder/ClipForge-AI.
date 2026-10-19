@@ -120,10 +120,11 @@ def check_metadata(clip: dict, sha: str, settings: dict) -> dict:
     it? (Word matching: it catches invented names, numbers, quotes and topics, but does not prove a claim true.)"""
     sents, _ = packaging.clip_sentences(clip)
     text = " ".join(sents)
-    attribution = rights.current_attribution(_source(clip), settings)
+    source = _source(clip)
+    attribution = rights.current_attribution(source, settings)
     prior = packaging.prior_titles(clip["id"])
     out = {}
-    for platform in packaging.platforms(settings):
+    for platform in packaging.platforms(settings, source):
         meta = _selected(clip["id"], platform)
         if not meta:
             out[platform] = {"status": "missing", "problems": ["not packaged yet"], "metadata_id": ""}

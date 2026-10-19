@@ -7,6 +7,24 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-19 · Submitted videos to Brain-guided clips and automatic YouTube uploads
+
+* **Changed:** Missions accepts a recorded-video link/file with **Make & upload clips** or **Make clips only**.
+  Submitted input is now the default; periodic/queued search and watched-folder admission stop without deleting
+  old data or removing optional discovery. Relevant supported Brain guidance uses Settings fallback.
+* **Authorization:** one explicit input-scoped request records destination/audience, genuine kids answer and
+  reuse basis outside Brain. Acquired original/project/current terms and every final file/payload are bound.
+  Only its newly generated qualifying YouTube posts can auto-approve; old backlog/later inputs/TikTok stay separate.
+  Source requests do not change ownership or global audience/standing consent. Stop/pause/cancel, credit, quality,
+  source drift, waits and uncertain-session/no-duplicate handling remain. An accepted-input enqueue gap recovers
+  durably without reviving attempted/canceled jobs. Retention keeps referenced source/audit records while
+  clearing stale API data and ordinary unused discovery; its foreign key no longer interrupts maintenance.
+* **Audio:** retain measured downmix/peak/clock/track corrections and exercise actual Brain-guided rendered AAC
+  through the exact fake YouTube upload bytes and restart. Existing distortion and real platform processing are
+  not guaranteed repaired. Existing media/uploads remain unchanged.
+* **Validation:** Final full fast suite: 1,451 passed, 17 slow deselected, in 676.07 s. Final full real-FFmpeg/synthetic-media and restart suite: 17 passed, 1,451 deselected, in 934.97 s. TypeScript and the production build passed (10.00 s). All 59 final built-browser checks passed in 161.55 s. The final fast suite used 198 frozen Python source/test files. All production and selected media-test sources stayed unchanged during the full media run; 81 frontend source and 17 built-file hashes stayed unchanged through the final browser checks. A deselected fast retention fixture's timestamp setup was corrected before the final fast run; the media run's production/selected sources were unaffected. Focused checks also passed: 60 submission/consent, 79 final status/routes/legacy readiness, 29 advanced-route/legacy, 119 legacy intake/scheduler/publishing, three new actual-media and 26 legacy audio/quality and nine retention checks. The three new media cases use relevant saved Brain guidance, real caption/AAC rendering, exact fake-upload bytes and restart without duplicates, including the broad YouTube switch off and TikTok enabled. Earlier full attempts were interrupted before the final route/status/retention corrections and are not final evidence. Tests use isolated profiles, synthetic media and fake platforms only. The readable source setup is pinned separately to this committed app tree with the tested frontend manifest; its delivery verification records exact archive hashes and source revision.
+  No real owner account/Windows/RTX3050/Defender/24-hour run verified.
+
 ## 2026-10-15 · Failed search keys and post-only reuse explanations
 
 * **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `0c2729d`.

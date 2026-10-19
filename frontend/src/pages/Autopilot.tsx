@@ -4,6 +4,7 @@ import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
 import { PLATFORM_NAME } from "../components/accounts";
 import AdvancedView from "../components/apAdvanced";
 import LinkIntake from "../components/apLinkIntake";
+import SubmittedVideos from "../components/submittedVideos";
 import { ConnectAction, OpenVideosFolder, PLATFORMS, UpcomingRow } from "../components/apShared";
 import SourcesView from "../components/apSources";
 import { AutoPublishLine } from "../components/autoPublish";
@@ -32,7 +33,9 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Missions" sub={st.settings.autopilot_review_before_publish !== false
+      <PageHead title="Missions" sub={st.settings.autopilot_input_mode === "submitted"
+        ? "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."
+        : st.settings.autopilot_review_before_publish !== false
         ? "Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post."
         : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
           + "or the permission you gave for YouTube."} />
@@ -111,7 +114,8 @@ function Overview({ st, lost, since, refresh, setData }: {
   const h = st.home;
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
-  if (!st.enabled && !h.setup.started) {
+  const submittedOnly = st.settings.autopilot_input_mode === "submitted";
+  if (!submittedOnly && !st.enabled && !h.setup.started) {
     return (
       <>
         <section className="panel" aria-labelledby="ap-off">
@@ -162,10 +166,11 @@ function Overview({ st, lost, since, refresh, setData }: {
   const progress = lost ? "Unknown" : !on ? "Waiting" : w?.message || (w?.progress != null
     ? `${Math.round(w.progress * 100)}% of this step` : w ? w.step : "No video being processed right now");
   const next = lost ? "Unknown" : !on ? "Waiting until Autopilot resumes"
-    : h.next || "Checking for more videos";
+    : h.next || (submittedOnly ? "Waiting for a video from you" : "Checking for more videos");
 
   return (
     <>
+      {submittedOnly && <SubmittedVideos timezone={st.timezone} stopped={st.paused} refreshStatus={refresh} />}
       <section className="panel" aria-labelledby="ap-state">
         <div className="ap-status">
           <div className="grow stack">
@@ -182,9 +187,9 @@ function Overview({ st, lost, since, refresh, setData }: {
         </div>
       </section>
 
-      <div className="ap-control-room">
+      {!submittedOnly && <div className="ap-control-room">
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
-      </div>
+      </div>}
 
       {h.posting && h.posting.platforms.length > 0 && (
         <section className="panel" aria-labelledby="ap-posting-path">
@@ -230,7 +235,7 @@ function Overview({ st, lost, since, refresh, setData }: {
             value={lost ? "Unknown" : `${h.posts.ready ?? 0} ready · ${h.posts.scheduled
               ?? st.target.scheduled_posts} scheduled · ${h.posts.review} need your OK`} />
         </div>
-        {on && h.discovery.problems.length > 0 && (
+        {!submittedOnly && on && h.discovery.problems.length > 0 && (
           <div className="note search-problems" role="status">
             <Icon name="alert" />
             <div className="stack">
@@ -261,7 +266,7 @@ function Overview({ st, lost, since, refresh, setData }: {
           {lost ? <p className="muted">Unknown: ClipFoundry hasn't answered{since ? ` since ${since}` : ""}.</p>
             : <WorkingOn st={st} searchEvery={searchEvery} />}
           <hr className="divider" />
-          <div className="stack my-videos">
+          {!submittedOnly ? <div className="stack my-videos">
             <h3>Your videos</h3>
             <p className="small muted">Put videos you made here. Autopilot turns them into clips by itself.</p>
             <div className="row wrap">
@@ -275,7 +280,12 @@ function Overview({ st, lost, since, refresh, setData }: {
             <Disclosure plain summary="Show folder location">
               <code className="break my-videos-path">{folder.path}</code>
             </Disclosure>
-          </div>
+          </div> : <div className="stack small muted">
+            <h3>You choose the videos</h3>
+            <p>Automatic searching and watched-folder intake are off in this mode. Add each video above;
+              no YouTube or Tavily search key is needed.</p>
+            <a className="textlink" href="#/clips">View your source videos and clips<Icon name="chev" className="sm" /></a>
+          </div>}
         </section>
         <section className="panel" aria-labelledby="ap-up">
           <div className="panel-head">
@@ -290,17 +300,25 @@ function Overview({ st, lost, since, refresh, setData }: {
           ) : <p className="muted small">No posts planned yet. Finished clips show up here with their posting time.</p>}
           <hr className="divider" />
           <h3>How posts go out</h3>
-          <AutoPublishLine onChange={refresh} />
-          <Accounts st={st} refresh={refresh} />
-          <p className="tiny faint">Connecting an account does not approve posts. Review each prepared clip in Queue,
-            check that you can reuse it, then approve its exact video, text and audience.</p>
+          {submittedOnly ? <>
+            <p className="small muted">“Make & upload clips” authorizes only the new video you submit, using the
+              shown YouTube account, visibility and kids answer. Its passing clips upload automatically.</p>
+            <p className="small muted">Existing clips and posts keep their own review requirements. “Make clips only”
+              keeps the new clips on this PC. TikTok still needs individual review.</p>
+            <a className="textlink small" href="#/settings">Manage connected accounts<Icon name="chev" className="sm" /></a>
+          </> : <>
+            <AutoPublishLine onChange={refresh} />
+            <Accounts st={st} refresh={refresh} />
+            <p className="tiny faint">Connecting an account does not approve posts. Review each prepared clip in Queue,
+              check that you can reuse it, then approve its exact video, text and audience.</p>
+          </>}
         </section>
       </div>
 
       <p className="small muted">
         {h.skipped_today ? `${plural(h.skipped_today, "video")} skipped in the last 24 hours (not covered, no `
           + "allowed way to get the file, too short or a repeat). " : ""}
-        <a className="textlink" href="#/missions/activity">See Activity</a> for what it did with each video it found.
+        <a className="textlink" href="#/missions/activity">See Activity</a> for what it did with each video.
       </p>
 
       <section className="panel tight" aria-labelledby="ap-stop">
@@ -308,8 +326,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         <div className="estop">
           <div className="grow stack small muted">
             <span><b>Pause Autopilot</b> (at the top) stops new work: nothing new is found, clipped or posted, and
-              what's queued waits. Videos already uploaded stay as they are: YouTube videos are uploaded Private and
-              never set to go public later.</span>
+              what's queued waits. Videos already uploaded keep their visibility.</span>
             <span><b>Stop all jobs</b> is the emergency stop: queued work is canceled and running jobs stop at their
               next safe point, including videos and uploads you started yourself. Nothing starts again until you press
               Resume jobs.</span>
@@ -360,6 +377,9 @@ function WorkingOn({ st, searchEvery }: { st: AutopilotStatus; searchEvery: stri
     if (h.currently === "Background work has stopped") {
       return <p className="muted">Nothing: Autopilot's background work has stopped. See Needs you.</p>;
     }
+    if (st.settings.autopilot_input_mode === "submitted") return <p className="muted">
+      {h.currently === "Waiting for a video from you" || idle ? "No video is being processed right now. Add a video link or file above."
+        : h.currently}</p>;
     return idle
       ? <p className="muted">Nothing right now. It checks your videos folder {FOLDER_CHECK} and looks online
         {" "}{searchEvery}.</p>

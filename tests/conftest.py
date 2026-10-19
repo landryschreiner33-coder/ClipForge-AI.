@@ -51,3 +51,13 @@ def _legacy_automatic_publishing_contract(monkeypatch, request):
     from clipfoundry import config
 
     monkeypatch.setitem(config.DEFAULT_SETTINGS, "autopilot_review_before_publish", False)
+
+
+@pytest.fixture(autouse=True)
+def _historical_discovery_contract(monkeypatch, request):
+    """Earlier suites explicitly exercise optional discovery; submitted-workflow suites keep the new default."""
+    if request.module.__name__.split(".")[-1].startswith("test_review_submitted_"):
+        return
+    from clipfoundry import config
+
+    monkeypatch.setitem(config.DEFAULT_SETTINGS, "autopilot_input_mode", "discovery")

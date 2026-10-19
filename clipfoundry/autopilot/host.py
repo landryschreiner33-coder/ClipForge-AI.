@@ -94,10 +94,11 @@ def _minutes(key: str, default: float) -> Callable[[dict], float]:
 PERIODIC: list[tuple[str, Callable[[dict], float], Callable[[dict], bool]]] = [
     ("maintenance", lambda s: 3600.0, lambda s: True),
     ("schedule_tick", lambda s: 60.0, lambda s: state.enabled(s)),
-    ("feed_scan", lambda s: 180.0, lambda s: state.enabled(s)),
-    ("trend_scan", _minutes("trend_poll_minutes", 60), lambda s: state.enabled(s)),
+    ("feed_scan", lambda s: 180.0, lambda s: state.enabled(s) and config.discovery_enabled(s)),
+    ("trend_scan", _minutes("trend_poll_minutes", 60), lambda s: state.enabled(s) and config.discovery_enabled(s)),
     ("learn", lambda s: 6 * 3600.0, lambda s: state.enabled(s) and bool(s.get("autopilot_learning"))),
-    ("live_watch", lambda s: 60.0, lambda s: state.enabled(s) and bool(s.get("autopilot_live_monitoring"))),
+    ("live_watch", lambda s: 60.0, lambda s: state.enabled(s) and config.discovery_enabled(s)
+     and bool(s.get("autopilot_live_monitoring"))),
 ]
 PERIOD_ADJUST: dict[str, Callable[[dict, float], float]] = {}  # e.g. the quota manager slows discovery down
 

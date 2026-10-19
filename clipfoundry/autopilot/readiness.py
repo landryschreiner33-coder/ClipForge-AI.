@@ -1,7 +1,7 @@
 """Read-only posting explanations. Running workers and rendered files do not prove a clip can be uploaded."""
 from __future__ import annotations
 
-from .. import db
+from .. import config, db
 from ..publish import audience
 from . import autopublish, gate, providers, rights, state
 
@@ -11,6 +11,14 @@ ACTIVE_POSTS = ('awaiting_approval', 'approved', 'publishing', 'reconciling', 'a
 
 def source_guidance(settings: dict) -> dict:
     """Fixed desktop guidance; no folder scan, remote request or automatic permission decision."""
+    if not config.discovery_enabled(settings):
+        return {'uploadable_only': False,
+                'review_before_publish': bool(settings.get('autopilot_review_before_publish', True)),
+                'title': 'Add a video link or file in Missions',
+                'detail': 'Use Make & upload clips to authorize qualifying YouTube clips from that input. '
+                          'Relevant supported Brain guidance shapes new clips, with Settings filling gaps. '
+                          'Make clips only keeps them on this PC. Earlier posts keep their review requirements.',
+                'options': [{'title': 'Add your video', 'detail': 'No search API key is needed.', 'link': '#/missions'}]}
     if settings.get('autopilot_review_before_publish', True):
         return {'uploadable_only': False, 'review_before_publish': True,
                 'title': 'Automatic discovery prepares clips for your review',
@@ -46,6 +54,19 @@ def source_guidance(settings: dict) -> dict:
             ]}
 
 
+def _submitted_upload_requested(settings: dict, platform: str) -> bool:
+    """Display only: a current source request is independent of broad automation switches."""
+    from . import submissions
+
+    for request in db.select('source_submissions', "platform=? AND revoked_at IS NULL", (platform,)):
+        if not (request.get('settings') or {}).get('auto_upload'):
+            continue
+        source = db.fetch('sources', request['source_id'])
+        if source and not submissions.problem(source, settings, require_bound=False):
+            return True
+    return False
+
+
 def setup_needs(settings: dict, platforms: dict) -> list[dict]:
     """Derive setup holds during reads; a stalled scheduler cannot be the only writer of an audience warning."""
     if state.paused() or not settings.get('autopilot_enabled'):
@@ -66,7 +87,8 @@ def setup_needs(settings: dict, platforms: dict) -> list[dict]:
                           'title': f'Choose who watches your {name} clips',
                           'detail': 'Finished clips cannot be scheduled until their audience is chosen and confirmed.',
                           'fix': 'Settings → Integrations → Who watches.', 'link': '#/settings/integrations'})
-        elif platform == 'youtube' and not settings.get('autopilot_review_before_publish', True) \
+        elif platform == 'youtube' and config.discovery_enabled(settings) \
+                and not settings.get('autopilot_review_before_publish', True) \
                 and finished and settings.get('autopilot_auto_publish') \
                 and not permission[platform]['enabled']:
             items.append({'key': 'auto_publish_setup:youtube', 'type': 'other',
@@ -89,6 +111,7 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
         account = platforms.get(platform) or {}
         if not account.get("connected"):
             continue  # A disconnected TikTok account cannot hold a YouTube-only setup.
+        submitted_request = _submitted_upload_requested(settings, platform)
         dest = audience.destination(platform, settings)
         counts = {k: 0 for k in ('local_only', 'other_platform', 'preparing', 'checking', 'failed_check', 'ready',
                                'scheduled', 'review', 'planned_for_review', 'problems', 'preparation_stopped',
@@ -111,9 +134,14 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
                 continue
             project = db.get_project(clip['project_id']) or {}
             source = db.fetch('sources', project.get('source_id') or '') if project.get('source_id') else None
+            from . import submissions
+
+            targets = submissions.target_platforms(source or {}, settings)
             try:
                 rights.gate(source, 'schedule', settings)
-                allowed, _ = rights.platform_allowed(source, platform, settings, stage='schedule')
+                allowed, _ = (rights.scheduling_allowed(source, platform, settings) if targets is not None else
+                              rights.platform_allowed(source, platform, settings, stage='schedule'))
+                allowed = allowed and (targets is None or platform in targets)
                 if not allowed:
                     counts['other_platform'] += 1
             except rights.RightsBlocked:
@@ -140,16 +168,16 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
             else:
                 counts['ready'] += 1
         code, title, detail, link = _explanation(settings, platform, name, account, dest, permission[platform],
-                                               counts, total, workers_alive)
+                                               counts, total, workers_alive, submitted_request)
         out.append({'platform': platform, 'code': code, 'title': title, 'detail': detail, 'link': link,
-                    'counts': counts, 'automatic': bool(permission[platform]['enabled'] and
-                        not settings.get('autopilot_review_before_publish', True))})
+                    'counts': counts, 'automatic': bool(submitted_request or (permission[platform]['enabled'] and
+                        not settings.get('autopilot_review_before_publish', True)))})
     return {'finished': total, 'checked': len(clips), 'sampled': total > LIMIT, 'platforms': out,
             'source_guidance': source_guidance(settings)}
 
 
 def _explanation(settings: dict, platform: str, name: str, account: dict, dest: dict, consent: dict,
-                 counts: dict, total: int, alive: bool) -> tuple[str, str, str, str]:
+                 counts: dict, total: int, alive: bool, submitted_request: bool = False) -> tuple[str, str, str, str]:
     integrations, queue_link = "#/settings/integrations", "#/queue/review"
     if state.paused() or not settings.get("autopilot_enabled"):
         return ("paused", "Automatic work is paused",
@@ -157,7 +185,7 @@ def _explanation(settings: dict, platform: str, name: str, account: dict, dest: 
     if account.get("needs_reconnect"):
         return ("account", f"{name} needs reconnection",
                 "The saved sign-in needs to be renewed on this PC.", "#/settings")
-    if not settings.get(f"autopilot_{platform}"):
+    if not submitted_request and not settings.get(f"autopilot_{platform}"):
         return ("platform_off", f"{name} is not used by Autopilot",
                 "Turn on this destination under How posts go out.", "#/missions")
     if dest["intent"] == audience.LOCAL_ONLY:
@@ -166,7 +194,7 @@ def _explanation(settings: dict, platform: str, name: str, account: dict, dest: 
         return "audience", f"Choose who watches on {name}", (
             "Finished clips stay on this PC until you choose and confirm their audience in Settings → Integrations."
         ), integrations
-    if not settings.get("autopilot_auto_schedule"):
+    if not submitted_request and not settings.get("autopilot_auto_schedule"):
         return "schedule_off", "Automatic scheduling is off", (
             "Finished clips are not assigned posting times. Turn on automatic scheduling in Settings → Advanced."
         ), "#/settings/advanced"
@@ -174,14 +202,14 @@ def _explanation(settings: dict, platform: str, name: str, account: dict, dest: 
         return ("workers", "Background work is not reporting",
                 "Check Missions → Advanced → System on this PC.", "#/missions/system")
     review_first = bool(settings.get("autopilot_review_before_publish", True))
-    if platform == "youtube" and not review_first and not consent["enabled"]:
+    if platform == "youtube" and not review_first and not submitted_request and not consent["enabled"]:
         message = consent.get("blocker") or (
             "Turn on automatic YouTube publishing, or approve each planned post yourself.")
         return "permission", "Automatic YouTube publishing is off for new clips", message, "#/missions"
     if settings.get("autopilot_publishing_paused"):
         return ("publishing_paused", "Publishing is paused",
                 "Clips can still be made and scheduled; resume publishing on the Office.", "#/")
-    if not settings.get("autopilot_auto_publish"):
+    if not submitted_request and not settings.get("autopilot_auto_publish"):
         return ("publish_off", "Scheduled uploads are off",
                 "Turn on publishing approved posts in Settings → Advanced.", "#/settings/advanced")
     if counts["review"]:

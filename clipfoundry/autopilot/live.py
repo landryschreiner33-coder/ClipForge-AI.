@@ -759,6 +759,8 @@ def live_watch(job: Job) -> dict:
     from . import scout
 
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"started": [], "message": "Automatic stream discovery is off. Add a stream explicitly to record it."}
     if not settings.get("autopilot_live_monitoring"):
         return {"message": "Live monitoring is off"}
     started = []

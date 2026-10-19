@@ -70,6 +70,12 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
       <span className="discovery-eyebrow">A smaller, stronger shortlist</span>
       <h2 id="discovery-quality-title">Quality before quantity</h2>
     </div><Icon name="spark" /></div>
+    {st.settings.autopilot_input_mode === "submitted" && <div className="note stack small">
+      <b>Automatic discovery is off</b>
+      <p>ClipFoundry now processes videos you add in Missions. No search key is needed. These choices stay saved
+        for optional discovery; saving them does not turn searches on.</p>
+      <a className="textlink" href="#/settings/advanced">Change Video intake in Advanced settings</a>
+    </div>}
     <p className="small muted">Choose a few promising videos and wait when none meets your bar.
       Search scores are estimates; the full video and finished clip are checked afterward.</p>
     {problem && <Banner tone="bad" title="Discovery choices could not be saved">{problem}</Banner>}

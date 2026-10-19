@@ -70,6 +70,7 @@ export function upcomingStatus(u: UpcomingPost): [Tone, string, IconName] {
   switch (u.status) {
     case "awaiting_approval": return ["warn", "Needs your OK", "clock"];
     case "approved":
+      if (u.approval_by === "submission") return ["good", "Authorized for this video", "shield"];
       return u.auto ? ["good", "Approved automatically", "shield"] : ["good", "Approved by you", "check"];
     case "publishing": return ["info", "Uploading now", "upload"];
     case "reconciling": return ["warn", "Upload not confirmed", "question"];

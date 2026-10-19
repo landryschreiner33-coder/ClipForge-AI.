@@ -1,40 +1,44 @@
 # ClipFoundry Autopilot
 
-Autopilot turns ClipFoundry into a persistent, local-first content opportunity engine: it discovers what is gaining
-attention, checks whether each source may be used, finds the strongest moments, packages them for YouTube Shorts and
-TikTok, schedules them, publishes the posts you approved through the official APIs, and learns from the real results.
+Autopilot makes clips from a recorded video you submit. In **Missions**, paste a supported public video link or
+choose a file, then choose **Make & upload clips** or **Make clips only**. Relevant supported Brain notes and
+example preferences guide selection and editing; Settings fill missing choices. Processing stays on this PC.
+No search API key is needed for this workflow.
 
-> **Names since the robot office (October 2026):** Home is now the **Office**, the Autopilot page is **Missions**,
-> the Library is **Clips**, Posts is the **Queue**, and **Brain** has its own workspace; old addresses still open
-> the right page. New uploads can be Public after explicit setup and eligible platform permission. Existing Private
-> schedules stay Private. TikTok needs per-post consent or a manual handoff. See
-> [OFFICE.md](OFFICE.md) for the office, the audience policy, the capability matrix and the Brain.
+> **Names:** Home is **Office**, Autopilot is **Missions**, Library is **Clips**, Posts is **Queue**, and **Brain**
+> has its own workspace. Old addresses still work. See [OFFICE.md](OFFICE.md).
 
-Everything runs on your computer. The platform APIs are used only for discovery signals, publishing and reading your
-own results. There is no app daily source or upload cap by default: **0 means unlimited**. Eligible clips can be
-planned at any hour while quality, availability and platform limits still apply. **Prepare & schedule for review**
-is now the default: broad searches may prepare accessible videos even when reuse permission is unrecorded.
-Every new post waits in Queue for your review; a posting time is a plan, not an upload approval. Check the preview,
-text, audience and reuse permission. If existing records do not cover the post, confirm that you checked your
-permission and enter its basis, then approve. This records your statement for that exact clip, account, destination,
-audience, file and post text; it does not mark the original as owned or licensed. Approved posts upload at their
-planned time (or promptly if that time has passed), subject to the usual checks and platform waits.
-Existing standing YouTube permission cannot approve posts while review mode is on. Old automatic approvals for
-uploads that have not started return to review; active or uncertain transfers retain their original session.
-Already published videos and saved media are preserved. Explicit blocks and canceled sources still prevent use.
-Public availability alone is not permission. If you explicitly turn review mode off, automatic approval again
-requires the separate account-bound YouTube permission and recorded reuse coverage. Five best clips per source remains a quality-oriented
-default, not a daily total.
+**Submitted videos is the default input mode.** Periodic searches, folder admission and stale queued discovery
+handlers do not find new work in this mode. Existing media, saved search connections, old sources and post history
+remain intact. Optional **Discover videos** mode is under Settings → Advanced → Autopilot details → Video input.
+The discovery, watched-folder and live-monitor descriptions later in this document apply only to that optional
+mode; existing explicitly queued stream tools remain available separately.
 
-For faster review, Queue has inline video previews and selection for up to 50 YouTube posts at a time.
-**Approve selected** opens a fixed preview of that selection. Choose a reuse-permission preset (or a custom basis)
-once for selected posts that need it, answer made-for-kids once for posts with no saved answer, and confirm the
-videos, text, audiences and permission together. Existing answers, post text, audiences and proposed times stay
-as displayed. Due posts can start uploading after approval; disabled approved-post dispatch still waits for Publish
-now. Each successful post has its own manual approval and, if needed, exact-post reuse statement. This grants no
-permission to future clips. Changed, blocked, unchecked or active-upload posts are skipped with a reason;
-successful approvals remain while skipped posts stay selected for review. TikTok keeps its individual platform
-review. A single post also offers permission presets and one combined review checkbox without mandatory typing.
+For **Make & upload clips**, the form shows the actual connected YouTube channel and confirmed audience. Choose a
+genuine made-for-kids answer and the reuse basis for this video's footage and sound, then confirm the input once.
+Qualifying new clips from that input can upload without another click on every clip. The stored request is bound
+to that source, acquired original hash, project, account, audience, kids answer and current terms/credit. Every
+post still needs grounded metadata, a passing exact-file quality report and a fresh hash before upload. An
+assertion does not verify ownership or grant rights you do not have. Merely pasting a link grants no permission.
+Permission answers are stored with the submission/posts, never in Brain.
+
+This request applies only to its input's newly generated YouTube clips. It does not approve old backlog, later
+inputs or TikTok posts, and does not change global audience or standing permission. It can schedule and dispatch
+its clips even if broad automatic scheduling, automatic publishing or the general YouTube platform toggle is off.
+**Pause publishing**, **Stop all jobs**, canceled/blocked inputs, changed original/destination/terms, quality holds,
+platform quotas and exact server waits still apply. A missing or replaced original holds new uploads; uncertain
+transfers retain their identity and reconcile rather than uploading again blindly. **Cancel video** stops future
+work without deleting completed clips or posts already on YouTube. Existing files and published videos are not
+rewritten by the update.
+
+**Make clips only** requires no upload consent and creates no automatic posting plan. Use Clips to edit/export the
+results. Existing Queue backlog keeps the default manual review behavior. Inline previews and **Approve selected**
+can approve up to 50 selected YouTube posts with one explicit batch review; this is not permission for future work.
+TikTok always requires its supported per-post choices and consent or a manual posting handoff.
+
+There is no app daily source/upload cap by default: **0 means unlimited**. Positive owner caps, quality floors,
+bounded queues, disk/GPU availability and platform/API limits remain active. Up to five strong clips per source is
+a quality-oriented default, not a daily quota. No clip or upload is promised for unusable or weak input.
 
 Contents: [platform rules](#what-the-platforms-allow-and-what-that-means-for-autopilot) ·
 [setup](#setting-it-up) · [how it works](#how-it-works) · [scores](#scores) · [Posts](#posts) ·
@@ -48,11 +52,11 @@ These rules come from the platforms and apply to continuous operation too.
 
 | Rule | Source | Effect in ClipFoundry |
 | --- | --- | --- |
-| Users must have final control over data published to YouTube and know what the app does in their name. | YouTube API Services Developer Policies | By default every YouTube post waits for your approval in Posts (*Needs review*). With **automatic publishing** turned on (an explicit, stored permission: which channel, what content, who can see it, how many a day, when), clips that passed every check are approved by that permission, labeled *Approved automatically*, never as approved by you, and each stays cancellable until it goes out. |
+| Users must control what is published to YouTube and know what the app does in their name. | YouTube API Services Developer Policies | **Make & upload clips** explicitly authorizes qualifying new clips from one submitted input to the displayed account/audience. Each is labeled as approved for its submitted video, not individually reviewed. Old backlog stays in *Needs review*. Optional standing consent applies only outside review mode. Unstarted work stays cancellable. |
 | TikTok apps may only upload after the user expressly consents, must show a preview, must let the user edit the text, must read the creator's options before posting and must not pre-select a privacy level. | TikTok Content Sharing Guidelines | Every TikTok post waits for your approval, made on the post's own page, which shows the preview, the creator nickname and TikTok's options (privacy is never pre-selected). Automatic publishing is not offered for TikTok, and the app says why. Once approved, a post goes out at its time by itself. |
 | API data must not be used to create derived data or metrics without Google's approval. | YouTube Developer Policies III.E.4; Additional policies for derived metrics | Momentum scores (view velocity, engagement rates) are computed from YouTube data only when you confirm that your Google Cloud project was granted this. Otherwise YouTube results are ranked by YouTube's own order and shown as YouTube reported them. |
 | Stored YouTube API data must be refreshed or deleted within 30 days. Approved projects may keep statistics of the user's own videos (Authorized Data) longer. | YouTube Developer Policies; Additional policies for derived metrics and data storage | A maintenance job deletes YouTube data older than 30 days. With the approval setting on and the channel connected, only the statistics of your own videos are kept longer. |
-| Content may only be downloaded from YouTube through means YouTube authorizes, or with permission from YouTube and the rights holders. | YouTube Terms of Service | Getting the file is decided separately from the right to reuse it (`autopilot/access.py`). Autopilot uses your own files, a folder or file links a creator shares with you under an agreement, a free-license library's own downloads, and direct links you configured. A connected account or a public link is never treated as permission to download. Downloading platform-hosted videos with the URL importer is off by default. |
+| Content may only be downloaded from YouTube through means YouTube authorizes, or with permission from YouTube and the rights holders. | YouTube Terms of Service | Getting the file is decided separately from the right to reuse it (`autopilot/access.py`). Autopilot uses your own files, a folder or file links a creator shares with you under an agreement, a free-license library's own downloads, and direct links you configured. A connected account or public availability never proves download permission. An explicitly submitted link uses guarded public extraction without a search key; the owner remains responsible for its lawful use. Other inputs keep the existing download settings. |
 | `chart=mostPopular` now covers the Trending Music, Movies and Gaming charts only. | YouTube Data API revision history (July 2025) | Broad discovery uses topic searches (their own 100-call daily quota bucket since June 2026) plus channels you follow. |
 | Google Trends API is an application-gated alpha; TikTok has no trend API for general developers. | Google Search Central; TikTok for Developers | Not used. Shown as unavailable in the UI. ClipFoundry never scrapes either. |
 | YouTube project status | Current API docs | Unverified projects may upload Public; audits cover more quota. |
@@ -66,45 +70,34 @@ visibility. TikTok's app audit remains separate; a private TikTok account cannot
 
 ## Setting it up
 
-### Adding a video or stream while Autopilot runs
+### Submit a recorded video
 
-On Overview, paste a public link into **Add a video or stream** and press **ADD**. **Added by you** shows its durable
-status immediately. No feed configuration is needed. The same video's supported URL aliases return **Already added**
-and point to the existing item. Submitted links have priority over discovered work after the current safe step;
-manual **Clip now** remains first. You can cancel, retry, move an item to the top, or remove it before processing.
-Completed clips remain in the Library. Discovery keeps running alongside submitted work.
+1. Connect your intended YouTube channel in Settings → Integrations and confirm **Who watches**. Public and Private
+   remain deliberate choices; existing posts keep their audience. Private sharing still happens in YouTube Studio.
+2. Open **Missions → Add a video**. Paste a public recorded-video link or select/drop a supported file (default
+   source cap 8 GB; configured duration and disk limits also apply). Login-only, protected, unavailable and live
+   sources are not accepted by this new recorded-video form. Link import contacts the supplied service using the
+   guarded importer, without search-service keys, cookies or authentication bypass.
+3. Choose **Make & upload clips**. Review the actual account/audience, answer made-for-kids, choose your reuse basis
+   and tick the confirmation. **Another legal basis** needs your explanation; the other bases offer optional
+   details. Press **Make & upload clips** once. Or choose **Make clips only** to keep results local.
+4. Keep the app open and PC awake. **Submitted videos** reports actual ready/waiting/uploading/uploaded counts and
+   holds. **View clips** opens results; **Cancel video** cancels future processing/uploads. Resume an existing
+   emergency Stop explicitly before adding work; submitting a video does not clear Stop or publishing pause.
 
-Upcoming streams wait without consuming a processing turn; live streams capture and search recorded segments,
-then analyze the recording after the stream ends. Queue records, finished clips and stream state survive app
-restarts. Autopilot resumes automatically when it was on; an intentional pause or Stop all jobs stays in effect.
-Temporary failures wait and retry, unusable or weak videos release their turn, and ordinary failures stay in
-Activity. **Needs you** is reserved for missing account access, required approvals, resource problems and outcomes
-that cannot safely be decided automatically.
+The accepted input and its request are stored together. A restart can recover an accepted input whose first job
+was not yet queued, without reviving deliberately canceled work. Re-pasting an existing video does not grant its
+old project/backlog a new upload request. The original uploaded file is copied under the data folder's
+`submitted/<id>/`; your own original is not changed. Saved requests and post history remain for audit/recovery.
 
-Submitting a link expresses local processing intent. If supported access is available, its clips can be saved and
-quality-checked even when reuse permission is unknown. An explicit block still wins. Publishing requires its own
-rights, quality, account and approval checks. Platform downloads remain subject to the existing download setting;
-the app never uses cookies or credentials to bypass private content, DRM, paywalls or authentication.
+### Optional discovery and earlier intake tools
 
-The first time, **Get started** on Home (or **Set up Autopilot** on the Autopilot page) opens a setup in three steps
-(`#/setup`), and that is all a normal user needs:
-
-1. **Add your videos.** *Open videos folder* opens your videos folder (see below); put videos you made in it. *Choose
-   a video* makes clips from one video right away instead. You can do this any time later.
-2. **Choose how to work.** Choose *Let Autopilot do it*, then the topics: a suggestion is filled in; pick or type
-   others if you like.
-3. **Set up posting.** **Connect YouTube**: Autopilot uses the connected account to post your Shorts and to look for
-   videos. **Connect TikTok** is optional: one platform without the other works too. Then **Start Autopilot**: it
-   turns Autopilot on for the accounts you connected and starts looking right away.
-
-**Your videos folder.** Videos from other people's channels are never used without an agreement or a license, so
-with only a connected account Autopilot usually finds nothing it may clip. The simplest way to give it work is your
-videos folder: `Videos\ClipFoundry` in your Windows user folder (`ClipFoundry videos` in your user folder if there is no
-Videos folder). **Start Autopilot** creates it and watches it (`autopilot/myvideos.py`). It is outside the ClipFoundry
-folder, so updating ClipFoundry never deletes it. Every video you put there is clipped by itself and counts as your own
-content (*Owned*), like a video added on the Add video page, so only put videos there that you made or may use. It is
-an ordinary watch folder under Autopilot → Permissions & sources (*Where videos come from*): turning it off there
-keeps it off, and removing it there keeps it removed until you press *Open videos folder* again.
+Select **Discover videos** explicitly to use searches, watched folders, channel lists and live monitoring. The
+older three-step setup and **Open videos folder** tools remain for that mode. Starting Autopilot in the default
+submitted mode does not create an automatic Owned folder rule or admit its files. Existing folders and their
+files are preserved. Old standalone link/live tools do not create a new Make & upload request; in submitted mode,
+use the new Missions form for new recorded inputs. Discovery keys and access/reuse rules remain separate from
+upload authorization. Streams retain their existing bounded capture/public-archive recovery and restart behavior.
 
 **Keeping the PC awake.** While Autopilot is on, ClipFoundry asks Windows not to put the PC to sleep (the screen may
 still turn off). The request ends by itself when ClipFoundry closes. A laptop still sleeps when you close its lid.
@@ -117,7 +110,7 @@ in Windows' power settings. It asks again every minute (not every few seconds), 
 → Advanced → System → *Recent events*), and the item goes away by itself when a retry works or Autopilot or the
 setting is turned off. The same app thread asks and gives up the request, because Windows ties it to that thread.
 
-To let YouTube posts go out without reviewing each one, turn on **automatic publishing** afterwards (*Turn on
+For optional discovery with review mode deliberately off, turn on **automatic publishing** afterwards (*Turn on
 automatic publishing…* under *How posts go out* on Autopilot → Overview, or in Settings → Accounts → YouTube). It
 shows exactly what you allow: the channel, what gets posted (only clips that passed every check, from videos you own
 or that an agreement or license covers), who can see the posts, made for kids or not, how many a day and between
@@ -162,7 +155,7 @@ restriction. Sandbox is for target-user testing and cannot post Public videos. U
 private TikTok account and Only me. A private profile cannot offer Everyone; each upload still needs your consent.
 If TikTok does not approve the app or grant a posting scope, use the ready-to-post package and post it yourself.
 
-You do not add sources, feeds, folders, rules or workers. Behind the scenes Autopilot uses whatever is available (the
+In optional discovery mode, the advanced source system uses configured services and folders (the
 connected YouTube account for discovery; your videos folder; other watch folders and feeds only if you added some;
 Google Trends and TikTok trends are not available to apps and are skipped without bothering you) and these defaults:
 United States, English, your topics, no app daily source/upload cap, up to 5 best clips per source,
@@ -322,6 +315,17 @@ its own with `python -m clipfoundry workers`.
 
 ## How it works
 
+The default path is:
+
+```
+Submitted link/file → acquire original → relevant Brain guidance + Settings → select/render clips
+  → grounded packaging → exact-file/text Quality Gate → source-scoped approval → local due time → YouTube
+```
+
+**Make clips only** stops before scheduling. The workers below are reused by both modes; Trend/Source Scout,
+free-feed admission and Live Monitor polling run only in optional discovery mode. Historical source-count examples
+are not current default daily caps. The optional discovery path is:
+
 ```
 Trend Scout ─┐                                   ┌─ Live Monitor (live sources, rolling window, post-live pass)
 Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunter ─> Deep Clip Analyzer ─> Diversity Selection
@@ -332,7 +336,7 @@ Feeds ───────┼─> Source Scout ─> Rights Gate ─> Clip Hunte
              │                                                    │
              │                   Smart Scheduler (America/Chicago, limits, replacement)
              │                                                    │
-             │   Approval: yours in Posts, or your automatic-publishing permission (YouTube only)
+             │   Approval: manual review, or standing YouTube permission when review mode is off
              │                                                    │
              └────────── Learning Worker <── real results <── Publisher (official APIs, resumable, idempotent)
 ```
@@ -384,7 +388,7 @@ capture rechecks free space while recording. Low disk shows Needs you and a dura
 segments and completed files; it is not treated as the stream ending. Final assemblies replace a completed recording
 only after the temporary assembly succeeds. No owner media is automatically deleted to make room.
 
-Before a new scheduled upload session begins, Pause, standing permission, account/audience and final-file checks
+Before a new scheduled upload session begins, Pause, applicable input/post/standing authorization, account/audience and final-file checks
 run again even if a local publication row already exists. A valid existing session continues with its original
 confirmed bytes. Final-chunk crashes, cancellation or ambiguous platform replies retain an unknown-outcome hold;
 later reconnect, setup, scope and quota errors preserve that hold and publication identity after final-byte evidence.
@@ -457,8 +461,9 @@ platform, permission, time and final check. Each post opens as its own page with
 you approve. The answer must match the intended audience; malformed strings/numbers are rejected instead of
 coerced. Existing upload/status responses show YouTube's returned audience evidence when available. Channel
 defaults and platform restrictions may still turn comments off. The upload API has no enable-comments switch;
-check Audience and Comments in YouTube Studio for an already uploaded video. Default review mode still requires
-manual approval for every new post; standing automatic approval applies only if that mode is explicitly disabled.
+check Audience and Comments in YouTube Studio for an already uploaded video. Qualifying new clips from an
+explicit Make & upload request use that input-scoped authorization; other posts retain manual review by default.
+Standing automatic approval applies only if review mode is explicitly disabled.
 
 **Audio:** fresh processing preserves initial audio offsets/gaps and uses one consistent source track. Rendering
 downmixes before normalization and applies final peak control after speed/gain. Existing clips and uploads are
@@ -466,14 +471,14 @@ not silently rewritten. A distorted original needs a better source; a bad old re
 processing and any new upload requires a fresh exact-file approval.
 
 * **Approve for YouTube** / **Approve for TikTok** (on the post's page, after ticking *I watched this video and read
-  its text*): each post needs your approval or valid standing YouTube permission. For YouTube you confirm the title,
+  its text*): posts outside an explicit Make & upload request need your review or applicable standing YouTube permission. For YouTube you confirm the title,
   description, tags, made-for-kids answer and explicit Public/Private audience. For TikTok the page reads creator info
   first, shows your nickname and lets you choose the privacy options it returns, without preselection. Everyone
   needs a public TikTok account and eligible app; followers/friends/Only me depend on the account and app. It also shows
   interactions (off by default), the commercial content disclosure,
   and shows TikTok's Music Usage Confirmation. An approval is bound to the exact video (its SHA-256, not its size or
-  date) and text: editing either, or a new render, needs a new approval. With automatic publishing on, YouTube posts
-  are approved again by themselves only after the final check passed on the new file; TikTok always asks you.
+  date) and text: editing either, or a new render, needs a new approval. A valid source or standing request may authorize a fresh automatic approval after final checks; manual
+  edits/cancellation cannot be overwritten by that process. TikTok always asks you.
 * On the post's page: edit the text (**Save changes**, or **Save the text without approving**), **Change the
   time…**, **Cancel this post…**, **Try again…**, **Publish now…** (on an approved post), and **Link the post…** for
   inbox drafts finished in the TikTok app. A post's More menu in the list also has **Open the clip**, **Open on
@@ -518,8 +523,8 @@ These are not simulated; the UI shows them as unavailable or explains the restri
 | TikTok trends and TikTok discovery | Not available: TikTok offers no trend or search API for general developers. TikTok is never scraped. |
 | YouTube momentum metrics (velocity, engagement rates, derived totals, learning from YouTube results) | Only with Google's approval under the additional policies for derived metrics; enable the setting only if your project was approved. |
 | Broad YouTube trending | `chart=mostPopular` covers Music, Movies and Gaming only; general discovery uses topic searches within the 100-call search bucket. |
-| Downloading YouTube or other platform videos | Off by default. YouTube's Terms allow downloads only through YouTube's own features or with permission. Use your original files, YouTube Studio downloads of your own videos, or turn it on only with permission. |
-| Unattended YouTube publishing | Designed for it after setup and standing permission; deliberate holds still apply. |
+| Downloading YouTube or other platform videos | Explicit submitted links use guarded public extraction; other inputs retain existing download settings. No login/protection bypass is offered. The owner must have lawful access/use rights; original files or official creator downloads avoid unavailable-link problems. |
+| Unattended YouTube publishing | New submitted inputs can use explicit Make & upload requests. Other posts need review or optional standing consent outside review mode. Deliberate holds and actual platform limits still apply. |
 | Unattended TikTok publishing | Each post still needs your consent; packages/drafts need completion in TikTok. |
 | Public from an unverified YouTube project | Current API permits it; check actual returned visibility and quota. |
 | Public from a private TikTok profile | Everyone is unavailable; this app does not change your profile privacy. |
@@ -561,7 +566,12 @@ Where they are served:
 
 ## Troubleshooting
 
-If Autopilot ran overnight without making clips, first look at Autopilot → Overview: the line under the headline
+In submitted mode, **Ready for a video link or file** means it is waiting for your input, not running a search.
+Add a video in Missions, then inspect that video's progress/hold and Queue. Search-key failures do not block this
+path. Failed download/access, missing GPU/model/disk, weak moments, final checks, paused publishing, account drift
+and actual platform waits can still require action.
+
+For optional discovery, if Autopilot ran overnight without making clips, first look at Autopilot → Overview: the line under the headline
 (what it is doing, or why nothing is being clipped), *Next online search* (with the last search), any search that did
 not work, **Needs you**, and **Activity**. Posting hours limit when posts go out; they do not prevent
 discovery or clipping overnight. A connected account alone does not supply downloadable original files. Discovery

@@ -373,6 +373,11 @@ def scheduling_allowed(source: dict | None, platform: str, settings: dict | None
         return False, str(exc)
     if review_before_publish(settings):
         return True, ""
+    from . import submissions
+
+    request = submissions.for_source(source)
+    if platform == "youtube" and request and (request.get("settings") or {}).get("auto_upload"):
+        return True, ""  # local plan only; source request and exact final-post approval are checked later
     return platform_allowed(source, platform, settings)
 
 
@@ -458,8 +463,11 @@ def gate(source: dict | None, stage: str, settings: dict | None = None) -> dict:
         raise RightsBlocked("Canceled by you: no further automatic posts will be made from this video.", BLOCKED)
     settings = settings if settings is not None else db.get_settings()
     r = evaluate(source, settings)
+    from . import submissions
+
+    submitted_plan = stage == "schedule" and submissions.for_source(source)
     if not r["auto_allowed"] and not (stage == "schedule" and review_before_publish(settings) and
-                                      r["status"] != BLOCKED):
+                                      r["status"] != BLOCKED) and not (submitted_plan and r["status"] != BLOCKED):
         raise RightsBlocked(f"{r['label']}: not used automatically at the {stage} stage. {r['explain']}", r["status"])
     return r
 
@@ -607,7 +615,8 @@ def review_info(item: dict, settings: dict | None = None) -> dict:
                                       "Review any music or other material inside this clip before confirming reuse."
                                       if sound_review else why or evaluation.get("basis") or "Recorded reuse coverage"))
     return {"required": required, "confirmed": confirmed, "basis": str(record.get("basis") or ""),
-            "explanation": explanation, "status": evaluation["status"]}
+            "explanation": explanation, "status": evaluation["status"],
+            "confirmed_from": str(record.get("confirmed_from") or "")}
 
 
 # ------------------------------------------------------------------ acquisition policy (see access.py)

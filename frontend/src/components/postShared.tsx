@@ -136,14 +136,14 @@ function changed(approvedSha: string, currentSha: string): { word: string; detai
   if (approvedSha && currentSha && approvedSha !== currentSha) {
     return {
       word: "Needs a new OK: the video changed",
-      detail: "The video changed after you approved it (the clip was made again), so it needs your OK again. Your " +
-        "earlier OK covered the old file only.",
+      detail: "The video changed after its authorization (the clip was made again), so it needs your OK again. The " +
+        "earlier authorization covered the old file only.",
     };
   }
   return {
     word: "Needs a new OK: it changed after your OK",
-    detail: "The video or its text changed after you approved it, or the video file can't be read right now. Your " +
-      "earlier OK covered what you saw then only, so it needs your OK again.",
+    detail: "The video or its text changed after its authorization, or the video file can't be read right now. The " +
+      "earlier authorization covered the previous post only, so it needs your OK again.",
   };
 }
 const OLD_AUTHORIZATION = {
@@ -174,6 +174,7 @@ export function postStatus(p: Post): StatusWord {
         : { tone: "warn", word: "Needs your review", icon: "clock" };
     case "approved":
       if (again) return { tone: "warn", word: again.word, icon: "alert" };
+      if (p.approval?.by === "submission") return { tone: "good", word: "Authorized for this video", icon: "shield" };
       return p.approval?.by === "automatic" ? { tone: "good", word: "Approved automatically", icon: "shield" }
         : { tone: "good", word: "Approved by you", icon: "check" };
     case "publishing": return { tone: "info", word: "Uploading now", icon: "upload" };

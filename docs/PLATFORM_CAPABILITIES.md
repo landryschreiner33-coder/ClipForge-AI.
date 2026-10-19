@@ -4,9 +4,24 @@ What YouTube and TikTok allow for a single-user, local ClipFoundry, and what the
 connection, granted scopes, app/project approval (audit) and whether the product's use case is acceptable to the
 platform are **separate** checks: passing one says nothing about the others.
 
+## Current submitted-video workflow (2026-10-19)
+
+Missions defaults to a user-supplied recorded-video link/file; automatic searches and watched-folder admission are
+off. Search API keys are not required. **Make & upload clips** explicitly authorizes only qualifying new YouTube
+clips from that input to the displayed connected channel and confirmed audience, with a genuine kids answer and
+source reuse basis. It is separate from standing consent and does not approve old backlog or TikTok. **Make clips
+only** keeps results local. Source assertions do not verify ownership/license or replace download access rules.
+
+Each automatic post still passes source/hash/project/terms/credit, final-file/text quality, exact-post and
+account/audience checks. Global discovery scheduling/publishing/platform toggles do not negate an explicit
+source request; emergency Stop, Pause publishing, cancellation and real platform waits still apply. Existing
+backlog retains manual review by default. These are implemented contracts; final release verification is recorded
+in [AI_HANDOFF.md](../AI_HANDOFF.md). No real YouTube upload or indefinite operation is implied.
+
 ## Current comments and review behavior (2026-10-15)
 
-Default local schedules wait for manual owner review, including selected-post bulk approval for YouTube. A search
+Outside an explicit submitted-video upload request, default local schedules wait for manual owner review,
+including selected-post bulk approval for YouTube. A search
 API key supplies discovery access, not upload authorization or reuse permission.
 
 YouTube disables comments for Private and made-for-kids videos. ClipFoundry preserves real audience choices,
@@ -16,7 +31,7 @@ enabling comments. Even a Public video marked not made for kids may have channel
 YouTube Studio to check an existing video's Audience and Comments settings; no automatic audience/visibility
 change is made to force comments. See the [Claude handoff](../CLAUDE_HANDOFF.md) for this release's verification.
 
-## Current PR #14 workflow (verified 2026-10-10)
+## Earlier Public-publishing policy review (2026-10-10; retained)
 
 New Public YouTube uploads use explicit audience confirmation and channel/visibility-bound standing permission,
 with configured limits, emergency stop and exact-file quality checks. Current official `videos.insert` and video
@@ -111,7 +126,7 @@ saw.
 | Quota | Per Cloud project per day, reset at midnight Pacific. Separate allowances for `search.list` calls, `videos.insert` calls, and units for all other methods. | Task specification (2026-09-28) and `autopilot/quota.py` (`BUCKETS`, `COSTS`) | Settings `youtube_quota_default` (10000 units), `youtube_quota_uploads` (100 calls), `youtube_quota_search` (100 calls) are **configuration**, to be set to the project's real allowances. The app counts its own calls (app-observed), believes `quotaExceeded` over its count, keeps a publishing reserve, caches discovery. Project-level usage is not readable through the API: the Google Cloud console is the authority. | implemented, unit-tested; configured limits unverified against the user's project |
 | Public uploads and API audits | Current upload and privacy-field docs allow unverified API projects to request Public; compliance audits are required for quota increases. Account restrictions may still affect visibility. | videos.insert, video resource and quota/audit guide (re-read 2026-10-10) | Explicit new-Public setup and consent required. Owner-reported audit setting is informational only. Returned privacy is verified; restricted outcomes stay restricted. | contract-tested; real-account check pending |
 | OAuth for continuous operation | External OAuth apps in Testing receive seven-day refresh tokens for YouTube scopes. Production status avoids that specific expiry; personal use can qualify for a verification exception. Revocation or invalid grants can still require reconnection. | OAuth refresh-token and sensitive-scope verification docs (re-read 2026-10-10) | Setup explains Production and reconnecting after changing status; expired account access holds posts rather than switching accounts or claiming success. | guidance implemented; real grant configuration is owner action |
-| User control over published data | The app may suggest, the user decides (title, description, privacy) | Developer Policies (as recorded in `docs/AUTOPILOT.md`) | Per-post approval by default; optional explicit channel/visibility-bound standing permission for eligible YouTube posts, with limits and cancellation | unit-tested |
+| User control over published data | Explicit publishing intent and destination | Developer Policies (as recorded in `docs/AUTOPILOT.md`) | Input-scoped Make & upload confirmation for new submitted clips; other posts keep manual review by default. Optional standing consent applies outside review mode. Exact checks and cancellation remain. | implemented; see latest verification |
 | Made-for-kids | Must be answered | YouTube API / COPPA | Required in approval (`scheduler.check_platform`) | unit-tested |
 | Native scheduling | Upload as private with `publishAt` | YouTube Data API | `publishAt` remains unused. Public uploads start at the local due time; Private uploads stay Private and invitation sharing remains in Studio | contract-tested (`test_audience.py`) |
 | Sharing a private video | Private videos are shared by email invitation from YouTube Studio | YouTube Help (private sharing), as recorded in the owner's brief | The post waits as *Awaiting viewer invitations* until the owner presses *I shared it*; labeled as the owner's confirmation | unit-tested; the Studio step is the owner's |

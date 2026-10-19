@@ -227,6 +227,12 @@ def candidates(settings: dict, now: float) -> list[dict]:
     for clip in rows:
         project = db.get_project(clip["project_id"]) or {}
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+        from . import submissions
+
+        submitted_platforms = submissions.target_platforms(source or {}, settings)
+        if settings.get("autopilot_input_mode", "submitted") == "submitted" and submitted_platforms is None:
+            continue  # input-only mode never admits an older discovered/backlog clip to a new posting plan
+        source_platforms = submitted_platforms if submitted_platforms is not None else platforms
         try:
             rights.gate(source, "schedule", settings)
         except rights.RightsBlocked:
@@ -237,7 +243,7 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
         sc = db.fetch("clip_scores", clip["id"], "clip_id") or {}
         retention, _ = learner.expected_retention(sc.get("retention"))
-        for platform in platforms:
+        for platform in source_platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
             if not rights.scheduling_allowed(source, platform, settings)[0]:
@@ -373,8 +379,11 @@ def _meta_fields(c: dict, settings: dict) -> dict:
     stamp = {"intent": want, "platform": platform, "policy_version": audience.POLICY_VERSION, "group": dest["group"],
              "group_version": dest["group_version"], "visibility": audience.visibility(platform, want, settings)}
     if platform == "youtube":
+        from . import submissions
+
+        submitted_fields = submissions.post_fields(c.get("source") or {})
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
-                "privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp}
+                **(submitted_fields or {"privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp})}
     route = audience.tiktok_route(settings, db.get_account("tiktok"))
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
             "options": {"mode": route, "allow_comment": False, "allow_duet": False, "allow_stitch": False,
@@ -636,6 +645,11 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     appr = item.get("approval") or {}
     if not appr.get("hash"):
         return "not approved"
+    if appr.get("by") == "submission" and publication_unstarted(item):
+        from . import submissions
+
+        if not submissions.still_covers(item, quick=quick):
+            return "this input's make-and-upload request no longer covers the source or destination"
     if appr.get("by") == "automatic" and rights.review_before_publish() and publication_unstarted(item):
         return "review before publishing is on; approve this post yourself"
     if appr.get("scheme") != APPROVAL_SCHEME:
@@ -698,6 +712,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     """Approve a post under your automatic-publishing permission, if the platform allows it and the clip qualifies.
     It is recorded as approved automatically (with the permission), never as approved by you."""
     from ..publish.common import PublishError
+    from . import submissions
+
+    if submissions.for_source(db.fetch("sources", item.get("source_id") or "")):
+        return submissions.auto_approve(item, settings, now)
 
     if rights.review_before_publish(settings):
         return False
@@ -1022,7 +1040,7 @@ def process_due(settings: dict, now: float) -> dict:
             if settings.get("autopilot_publishing_paused"):  # clips are still made; uploads wait for Resume
                 _note(item, "Publishing is paused: it goes out after you resume publishing")
                 continue
-            if not settings.get("autopilot_auto_publish"):
+            if not settings.get("autopilot_auto_publish") and (item.get("approval") or {}).get("by") != "submission":
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
                              "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
@@ -1095,6 +1113,9 @@ def schedule_tick(job: Job) -> dict:
     # A previous analysis can finish its files before it reaches the packaging handoff. Recover those exact
     # ready outputs without letting a damaged old record stop already-approved posts from going out.
     from . import hunter
+    from . import submissions
+
+    recovered_inputs = submissions.recover_unstarted()
 
     try:
         recovered = hunter.recover_ready_clips(limit=24, cancelled=job.cancelled)
@@ -1104,9 +1125,14 @@ def schedule_tick(job: Job) -> dict:
         recovered = 0
         state.event("clip_handoff_recovery", "Finished clips could not be handed on this time; the next posting "
                     "check tries again. Existing scheduled posts continue normally.", "warning")
-    planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
+    # This input's explicit Make and upload request can schedule its own new clips while broad automatic
+    # scheduling is off. It never changes that setting or authorizes an older source.
+    planning = dict(settings)
+    if not settings.get("autopilot_auto_schedule"):
+        planning["autopilot_input_mode"] = "submitted"
+    planned = plan_new(planning, now)
     if planned.get("created"):
         due["awaiting_approval"] = remind_approvals()  # new posts that need your OK are listed right away
-    return {**due, **planned, "recovered_ready_clips": recovered,
+    return {**due, **planned, "recovered_ready_clips": recovered, "recovered_submitted_inputs": recovered_inputs,
             "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
                                          f"replaced, {due['publishing']} publishing"}

@@ -360,7 +360,15 @@ def package(clip: dict, source: dict | None, platform: str, settings: dict) -> d
     return {**best[1], "id": chosen_id, "score": best[0], "components": best[2]["components"], "problems": best[3]}
 
 
-def platforms(settings: dict) -> list[str]:
+def platforms(settings: dict, source: dict | None = None) -> list[str]:
+    if source:
+        from . import submissions
+
+        # A new input's explicit Make and upload request targets YouTube even when broad automation is off.
+        # Keep creation-only packaging choices and other sources' platform switches unchanged.
+        submitted = submissions.target_platforms(source, settings)
+        if submitted:
+            return submitted
     return [p for p in ("youtube", "tiktok") if settings.get(f"autopilot_{p}")]
 
 
@@ -377,7 +385,7 @@ def package_clip(job: Job) -> dict:
     if source and not rights.local_allowed(source, settings=settings):
         return {"message": "No further automatic work on this video; keeping its local clips"}
     chosen = {}
-    for platform in platforms(settings):
+    for platform in platforms(settings, source):
         job.check()
         chosen[platform] = package(clip, source, platform, settings)
     scores = [c["score"] for c in chosen.values()]

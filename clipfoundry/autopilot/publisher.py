@@ -310,7 +310,9 @@ def publish(job: Job) -> dict:
     project = db.get_project(clip["project_id"]) or {}
     source_id = project.get("source_id") or item.get("source_id") or ""
     source = db.fetch("sources", source_id) if source_id else None
-    if source and verify.ensure([source], settings):  # a channel never confirmed (work from before the check)
+    from . import submissions
+
+    if source and not submissions.for_source(source) and verify.ensure([source], settings):
         source = db.fetch("sources", source["id"]) or source
     allowed, why = rights.publication_allowed(source, item["platform"], settings, publication=item)
     if not allowed and not started and not uncertain:

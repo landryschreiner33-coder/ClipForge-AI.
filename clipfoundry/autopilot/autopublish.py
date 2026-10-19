@@ -192,6 +192,10 @@ def disable(platform: str) -> int:
 def still_covers(item: dict) -> bool:
     """Is the permission that approved this post still in force?"""
     appr = item.get("approval") or {}
+    if appr.get("by") == "submission":
+        from . import submissions
+
+        return submissions.still_covers(item)
     if appr.get("by") != "automatic":
         return True
     if db.get_settings().get("autopilot_review_before_publish", True):

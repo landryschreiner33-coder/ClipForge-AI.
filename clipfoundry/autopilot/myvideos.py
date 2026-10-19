@@ -44,6 +44,8 @@ def folder() -> Path:
 def ensure(explicit: bool = False) -> dict | None:
     """Create the folder and watch it. Idempotent. If you removed it under Advanced, it only comes back when you
     ask for it (`explicit`: OPEN MY VIDEOS FOLDER); if you turned it off there, it stays off."""
+    if not explicit and not config.discovery_enabled(db.get_settings()):
+        return None
     f = feed()
     if f is None and state.get(FEED_KEY) and not explicit:
         return None  # removed under Advanced: respected until you open the folder again
@@ -91,7 +93,8 @@ def unseen() -> int:
 
 def view() -> dict:
     f = feed()
-    return {"path": str(folder()), "watching": bool(f and f.get("enabled")), "videos": videos()}
+    return {"path": str(folder()), "watching": bool(f and f.get("enabled")
+                                                    and config.discovery_enabled(db.get_settings())), "videos": videos()}
 
 
 def open_in_explorer() -> dict:

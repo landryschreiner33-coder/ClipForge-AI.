@@ -41,6 +41,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_SANDBOX_PORT", 8799)))
     parser.add_argument("--scenario", choices=("beginner", "zero-touch"), default="beginner")
+    parser.add_argument("--input-mode", choices=("submitted", "discovery"), default="submitted")
     args = parser.parse_args()
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         sys.exit("The sandbox needs ffmpeg and ffprobe on the PATH (winget install Gyan.FFmpeg).")
@@ -74,7 +75,8 @@ def main() -> None:
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
                       "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast",
-                      "library_discovery": False})  # offline: the free-license library is not searched
+                      "library_discovery": False,
+                      "autopilot_input_mode": args.input_mode})  # historical discovery suites opt in explicitly
 
     # The original file of a video (what "Add the file" asks for), a synthetic talk
     original = data / "sandbox" / "original.mp4"

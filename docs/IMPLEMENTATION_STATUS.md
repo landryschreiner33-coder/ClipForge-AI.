@@ -1,5 +1,25 @@
 # Implementation status
 
+## Submitted-video creation and automatic YouTube upload — 2026-10-19 (America/Chicago)
+
+Base: `ab666fd5f2c4ca9c84a4fe9a2e874bc852437231`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Default to submitted link/file input; preserve data and optional discovery while disabling automatic search,
+  watched-folder admission and stale queued discovery in submitted mode.
+- [x] Add one input-scoped Make & upload request or local-only creation, actual account/audience/kids/basis choices,
+  per-video progress/holds and cancellation, with no search-key dependency or automatic old-backlog approval.
+- [x] Bind acquired original/project/current terms and final file/payload; retain relevant supported Brain guidance,
+  Settings fallback, credit, pause/stop, source/destination drift, waits, durable recovery and no-duplicate checks.
+- [x] Keep permission records outside Brain/ownership and retain TikTok individual review.
+- [x] Add actual synthetic AAC/Brain-caption/exact fake-upload/restart cases and independent input-scope audits.
+- [x] Complete final full fast, full media and built-browser verification.
+
+**Validation:** Final full fast suite: 1,451 passed, 17 slow deselected, in 676.07 s. Final full real-FFmpeg/synthetic-media and restart suite: 17 passed, 1,451 deselected, in 934.97 s. TypeScript and the production build passed (10.00 s). All 59 final built-browser checks passed in 161.55 s. The final fast suite used 198 frozen Python source/test files. All production and selected media-test sources stayed unchanged during the full media run; 81 frontend source and 17 built-file hashes stayed unchanged through the final browser checks. A deselected fast retention fixture's timestamp setup was corrected before the final fast run; the media run's production/selected sources were unaffected. Focused checks also passed: 60 submission/consent, 79 final status/routes/legacy readiness, 29 advanced-route/legacy, 119 legacy intake/scheduler/publishing, three new actual-media and 26 legacy audio/quality and nine retention checks. The three new media cases use relevant saved Brain guidance, real caption/AAC rendering, exact fake-upload bytes and restart without duplicates, including the broad YouTube switch off and TikTok enabled. Earlier full attempts were interrupted before the final route/status/retention corrections and are not final evidence. Tests use isolated profiles, synthetic media and fake platforms only. The readable source setup is pinned separately to this committed app tree with the tested frontend manifest; its delivery verification records exact archive hashes and source revision.
+
+No owner Windows profile/RTX3050, real account upload/YouTube transcode, Defender acceptance or 24-hour soak has
+been verified. Audio peak/timing measurements do not reconstruct distortion already in an original. Older test
+results below apply to their stated release snapshots, not this checkpoint.
+
 ## Search-key diagnosis and post-only reuse records — 2026-10-15 (America/Chicago)
 
 Base: `0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7`, on `codex/brain-graph-quality-discovery`.

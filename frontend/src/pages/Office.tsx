@@ -149,6 +149,7 @@ function StudioHeading({ connected, loading = false, count }: { connected: boole
         <p className="studio-description">A little studio. Real work behind every robot.</p>
       </div>
       <div className="studio-status" aria-label="Office connection">
+        <a className="btn btn-primary btn-small" href="#/missions"><Icon name="plus" />Add a video</a>
         <span className={`studio-connection${connected ? " connected" : ""}`}>
           <Icon name={connected ? "dot" : loading ? "clock" : "offline"} size={14} />
           {connected ? "Live connection" : loading ? "Connecting" : "Not updating"}

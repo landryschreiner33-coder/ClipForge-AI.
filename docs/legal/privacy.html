@@ -22,7 +22,7 @@
 </header>
 <main class="wrap doc">
 <h1>Privacy Policy</h1>
-<p class="meta">ClipFoundry · Effective October 15, 2026</p>
+<p class="meta">ClipFoundry · Effective October 19, 2026</p>
 
 <section class="box" aria-labelledby="short">
   <h2 id="short">The short version</h2>
@@ -38,8 +38,8 @@
     <li>If you enable the optional phone dashboard, a paired phone receives a small read-only status snapshot
       directly from your PC. It includes video titles, work progress, posting counts and system-check status.
       Account credentials, media, transcripts and Brain notes are excluded. We receive none of it.</li>
-    <li>Deleting a video in ClipFoundry removes ClipFoundry's copy of it, its clips and its transcript from your
-      computer. Some records stay, such as your post history (section 7). Deleting does not remove a video you already
+    <li>Deleting a project removes its project media, clips and transcript. A separately submitted input copy,
+      its source request and post history stay until you remove the data folder (section 7). Deleting does not remove a video you already
       posted on YouTube or TikTok. You do that on the platform.</li>
   </ul>
 </section>
@@ -58,8 +58,9 @@
 <h2>2. What ClipFoundry stores on your computer</h2>
 <p>
   ClipFoundry keeps its information in files in its data folder (the <code>data</code> folder inside the ClipFoundry
-  folder, unless you chose another one). When you start Autopilot it also creates your videos folder
-  (<code>Videos\ClipFoundry</code>) for videos you want it to use.
+  folder, unless you chose another one). The default workflow accepts a link or file you submit; it does not
+  search or admit watched-folder files automatically. Optional discovery mode can create/watch your videos folder
+  (<code>Videos\ClipFoundry</code>). Existing folders are preserved when submitted mode is selected.
 </p>
 <p>
   ClipFoundry doesn't use cookies. The Follow system, Full or Reduced animation preference stays in your browser's
@@ -79,9 +80,18 @@
 <div class="table"><table>
   <thead><tr><th scope="col">What</th><th scope="col">Examples</th><th scope="col">How long it is kept</th></tr></thead>
   <tbody>
-    <tr><td>Your videos and clips</td><td>A copy of each video you add or Autopilot uses (including free-license
-      videos it downloads), the clips made from it, thumbnails, and ClipFoundry's own copy of each export</td>
-      <td>Until you delete the video in ClipFoundry, or delete the data folder</td></tr>
+    <tr><td>Your videos and clips</td><td>A copy of each video you add or Autopilot uses, clips, thumbnails and
+      ClipFoundry's own exports. A file submitted through Missions is first copied under
+      <code>submitted/&lt;id&gt;/</code> in the data folder; your own original is not changed</td>
+      <td>Project outputs: until you delete the video in ClipFoundry or the data folder. The separate submitted
+      original copy remains after project deletion or cancellation, until you delete the data folder</td></tr>
+    <tr><td>Submitted-video upload requests</td><td>The source link or copied-file location and identity, original
+      SHA-256 fingerprint, bound project, current reuse/credit fingerprint, exact confirmation wording, chosen
+      YouTube account, visibility, audience, genuine kids answer and your reuse basis/details, creation and any
+      revocation time. Each qualifying post has its own exact-file/text approval bound to this request.
+      These records are separate from Brain and never become editing lessons or verified source ownership</td>
+      <td>Until you delete the data folder. Canceling stops future work and retains history; it does not remove
+      completed clips or posts already on YouTube</td></tr>
     <tr><td>Transcripts and clip text</td><td>The words spoken in your videos, captions, hooks, titles, descriptions,
       hashtags, edits and versions</td><td>Until you delete the video</td></tr>
     <tr><td>Temporary recovery copies</td><td>When an automatic clip needs a fresh render: local copies of its
@@ -158,13 +168,16 @@
       records a one-time volume/hours amendment to existing YouTube permission, preserving its channel,
       audience and made-for-kids choice, plus the previous app limits. It grants no missing permission and
       changes no previously planned post. New limits you choose after that update stay in effect.
-      Review-before-publishing is now the default. Broad discovery may prepare accessible videos and local
-      posting plans even when reuse permission is unrecorded. A plan does not authorize an upload. Your individual
+      Submitted-video input is now the default. An explicit Make &amp; upload clips request authorizes only new
+      qualifying YouTube clips from its input, with no separate manual review of every clip. Existing backlog and
+      other inputs remain outside that request. Make clips only creates no automatic post. For older backlog or
+      optional discovery, review-before-publishing stays the default; local plans can be made without recorded
+      reuse permission, but a plan does not authorize an upload. Your individual
       reuse confirmation stores its basis, date and a binding to the source, exact file, clip, destination account,
       audience and post payload. This is your statement, not a verified license or a change to source ownership.
       It stays with that post and is not copied into Brain knowledge or used as a lesson for future clips.
-      Editing that payload requires another confirmation when recorded coverage is missing. Every new post waits
-      for your approval. You can choose a permission preset rather than type a statement, or approve a selected
+      Editing that payload can require another confirmation when recorded coverage is missing. Posts outside an
+      explicit source submission wait for your approval. You can choose a permission preset rather than type a statement, or approve a selected
       group of up to 50 YouTube posts together. Each approved post still stores its own manual approval and any
       required reuse statement. Batch previews temporarily keep the selected IDs, exact-file/post/account/audience/
       terms/check snapshots and retry results in this app process's memory. Previews are valid for ten minutes;
@@ -206,8 +219,9 @@
   queue records remain in the data folder to prevent duplicate processing.
 </p>
 <p>
-  Public video discovery for local clipping is on by default and can be turned off in Autopilot's advanced
-  settings. It may select public internet videos without a recorded reuse license. Website extraction contacts
+  Automatic discovery and watched-folder admission are off in the default submitted-video mode. You can choose
+  discovery in advanced settings; in that mode public local clipping may select videos without a recorded reuse
+  license. Website extraction contacts
   the video's website and media servers without using your browser login or saved cookies. Optional web search
   also searches for public video pages using your configured provider and existing credit limit. Files and clips
   stay on this computer; this mode does not grant reuse or publishing permission.
@@ -245,9 +259,11 @@
   <tbody>
     <tr><td>Google and YouTube</td><td>You connect YouTube, publish, look at results or explicitly test the saved
       search connection. While Autopilot is on, it
-      also searches YouTube, updates your posts' results and checks which channel posted a video</td><td>Your sign-in
+      updates your posts' results; when optional discovery is selected, it also searches YouTube and checks which
+      channel posted a video</td><td>Your sign-in
       (on Google's page) and your Google project's client ID and secret; the videos you approve, or that Autopilot
-      posts under the account/visibility-bound automatic-publishing permission you turned on, as explicitly chosen
+      posts under an input-scoped Make &amp; upload request or optional account/visibility-bound standing
+      automatic-publishing permission, as explicitly chosen
       Public or Private videos, with their title, description, tags, category and made-for-kids answer
       (never a YouTube publishing time; public uploads start at their local due time); requests to read your channel, its newest uploads, and your
       posts' status and results; your Autopilot topics as search words, with your region and language; the IDs of your own
@@ -261,9 +277,8 @@
       app's client key and secret; the videos you approve with their caption and settings, using only a privacy
       choice supported by TikTok and explicitly approved by you; requests for your posting
       options, your posts' status and results; public TikTok links, to check which account posted them</td></tr>
-    <tr><td>Wikimedia Commons</td><td>Autopilot searches the free-license video library (on unless you turn it
-      off)</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
-    <tr><td>Tavily web search</td><td>Only if you enter your own Tavily key</td><td>Your topics as search words; the
+    <tr><td>Wikimedia Commons</td><td>Optional discovery mode searches the enabled free-license video library</td><td>Your topics as search words, and downloads of the freely licensed videos it picks</td></tr>
+    <tr><td>Tavily web search</td><td>Only in optional discovery with your Tavily key, or when you explicitly test its saved connection</td><td>Your topics as search words; the
       first words of the titles of TikTok videos it found, to look for the longer YouTube videos they came from; and
       your key. Pressing Test saved Tavily connection instead sends only your key in an Authorization header to
       read account usage; it does not run a search or send Brain text, video titles or topics</td></tr>
@@ -285,10 +300,10 @@
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are
       missing or damaged</td><td>A request to download the model. If you have signed in to Hugging Face on this
       computer, the download also sends your Hugging Face sign-in token</td></tr>
-    <tr><td>YouTube, TikTok and other video sites</td><td>Only if you turn on "Download authorized platform sources"
-      in Settings → Advanced (off by default), for videos that passed Autopilot's permission check</td><td>Requests to
-      download those videos, or to record those live streams. These downloads don't go through the sites' official
-      APIs</td></tr>
+    <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link, or existing
+      source/download settings allow acquisition in optional discovery or stream tools</td><td>Requests to identify
+      and download the supplied/selected media, or record the stream. These downloads use the guarded importer,
+      not the sites' official APIs, and do not use browser cookies or bypass login/protection</td></tr>
     <tr><td>The Python Package Index and other download sites</td><td>When ClipFoundry is installed or updated</td>
       <td>Requests to download the software parts it needs</td></tr>
     <tr><td>Addresses you give it</td><td>You import a video from a link, add a live stream, add a list of videos to
@@ -308,10 +323,12 @@
 <p>When you connect YouTube, ClipFoundry asks Google for these permissions:</p>
 <ul>
   <li><b>Manage your YouTube videos</b> (<code>youtube.upload</code>). ClipFoundry uses it only to upload videos: the
-    posts you approve, and the posts Autopilot publishes under the automatic-publishing permission you turned on.</li>
+    posts you approve, new qualifying clips covered by your input-scoped Make &amp; upload request, and posts
+    covered by optional standing automatic-publishing permission.</li>
   <li><b>View your YouTube account</b> (<code>youtube.readonly</code>), for your channel's name and picture, your
-    channel's newest uploads, and the status and statistics of videos posted with ClipFoundry. If Autopilot is on and
-    you have not entered your own YouTube API key, Autopilot also uses this permission to find videos: it searches
+    channel's newest uploads, and the status and statistics of videos posted with ClipFoundry. If optional
+    discovery is selected, Autopilot is on and you have not entered your own YouTube API key, it also uses this
+    permission to find videos: it searches
     YouTube for your topics, reads YouTube's lists of popular and live videos, lists the new videos of your channel
     and of channels you added, gave a permission to or have an agreement with, reads the public details of the videos it finds, and checks
     which channel posted a video.</li>
@@ -411,15 +428,19 @@
     unpair from the PC to revoke access. Clearing phone browser storage also removes its saved key.</li>
   <li><b>Disconnect an account:</b> Settings → Accounts → Disconnect. ClipFoundry tries to cancel its access on the
     platform, then deletes the sign-in tokens and the account's ID, name and picture link on your computer. If you turned on
-    automatic publishing, your channel's name stays in that permission's saved wording. It deletes
+    automatic publishing or made an input-scoped upload request, the recorded channel identity stays in its
+    saved wording/history. It deletes
     them even if cancelling did not work, and it doesn't tell you whether cancelling worked, so to be sure, also
     remove access on the platform (sections 4 and 5). While an account needs to be reconnected, Disconnect is not
     shown; you can still remove access on the platform. Your post history stays until you delete the data folder.
     YouTube statistics are deleted as section 4 says. TikTok statistics stay until you delete the data folder.</li>
-  <li><b>Stop automatic publishing:</b> turn off the automatic-publishing permission for YouTube in Autopilot. Posts
-    it approved that are not uploaded yet go back to waiting for your OK. TikTok posts always wait for your OK.</li>
+  <li><b>Stop automatic publishing:</b> Pause publishing holds new uploads globally. For a submitted input, use
+    Missions → Submitted videos → Cancel video to stop its future work/uploads. Turning off separate standing
+    permission affects its own unstarted approvals; it does not revoke a different input-scoped request.
+    Completed and uncertain uploads retain their history/session. TikTok posts always require per-post consent.</li>
   <li><b>Delete a video and its clips:</b> in the Library. This deletes ClipFoundry's copy of the video, its clips,
-    transcript and analysis. The original file in your own folders is not touched. Some records stay until you delete
+    transcript and analysis. Your own original is not touched. A separate uploaded source copy under
+    <code>submitted/</code>, its request and source history remain until you delete the data folder. Some records stay until you delete
     the data folder: the history of posts that were planned or published; for each clip Autopilot made, a short
     fingerprint (its title words, which video it came from, its start and end time, and short codes made from its
     words and pictures) that stops the same clip from being posted twice; and Autopilot's record of the video it came
@@ -430,8 +451,8 @@
     Deleting the folder alone does not cancel ClipFoundry's access to YouTube or TikTok. Your videos folder and any
     files you exported are separate, and stay until you delete them.</li>
   <li><b>Stop watching a YouTube channel:</b> remove it from the places Autopilot watches, and also remove its
-    permission (Autopilot → Permissions &amp; sources). While the permission stays, Autopilot still looks for that
-    channel's new videos.</li>
+    permission (Autopilot → Permissions &amp; sources). While optional discovery is selected and the permission
+    stays, Autopilot can still look for that channel's new videos. Submitted mode admits no new channel videos.</li>
   <li><b>Optional services:</b> turn off the free-license library or platform downloads, remove a Tavily key, or set
     AI scoring back to "Local" in Settings → Advanced. Settings → Integrations → NVIDIA AI → Disconnect removes
     the NVIDIA key and your agreement and turns NVIDIA AI off.</li>
@@ -445,7 +466,8 @@
 </p>
 <p>
   New planned Public YouTube posts upload at their planned local time only after explicit audience confirmation
-  and suitable account-bound approval or automatic-publishing permission. Existing scheduled Private posts stay
+  and suitable account-bound approval, an input-scoped request or optional standing automatic-publishing
+  permission. Existing scheduled Private posts stay
   Private, may upload ahead of their planned time, and still need your Studio invitations for selected viewers.
   ClipFoundry does not use YouTube’s <code>publishAt</code> field. It reads back actual visibility and reports
   restrictions. Once uploaded, deleting the clip, stopping automation or disconnecting does not remove the video;
