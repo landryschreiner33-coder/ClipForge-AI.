@@ -109,7 +109,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
 
       <SettingsPanel id="adv-posting" title="Autopilot posting">
         <SettingRow k="autopilot_min_gap_minutes" label="Minimum gap"
-          hint="0 uploads eligible clips as they become ready; platform waits still apply" {...row}>
+          hint="30 minutes by default, including after a restart. 0 disables spacing; platform waits still apply" {...row}>
           <NumInput k="autopilot_min_gap_minutes" c={c} />
         </SettingRow>
         <SettingRow label="Posts a day per platform"

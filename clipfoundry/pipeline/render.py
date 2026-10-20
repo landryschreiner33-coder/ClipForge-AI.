@@ -28,7 +28,7 @@ from .text_utils import ends_sentence
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
 SPEED_RANGE = (0.8, 1.25)
-PLAN_VERSION = 2  # bump when the framing analysis changes, so cached plans are recomputed
+PLAN_VERSION = 3  # moving-content fallback and recovery after prolonged face dropouts
 CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
 FRAMES_STEP = "Rendering"
 
@@ -289,6 +289,17 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             brain_used = [item for item in brain_used if item["decisions"]]
             if activity is not None:
                 activity.use(brain_used, replace=True)
+        # Ranking-only notes (for example, standalone moments) select the range rather than a caption style.
+        # Preserve their original revision evidence on manual clips as well as on Autopilot blueprints.
+        selected = (clip.get("analysis") or {}).get("brain_knowledge") or []
+        combined = {}
+        for item in selected + brain_used:
+            key = (item["knowledge_id"], item["revision"])
+            if key not in combined:
+                combined[key] = {**item, "decisions": dict(item["decisions"])}
+            else:
+                combined[key]["decisions"].update(item["decisions"])
+        brain_used = list(combined.values())
 
     duration_src = float(project.get("duration") or 0)
     if blueprint is not None:
@@ -464,6 +475,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         "thumb_path": str(thumb) if thumb.exists() else "",
         "duration": round(tl.duration, 2),
         "render_info": {"brain_knowledge": brain_used, "mode": plan.mode, "faces": plan.faces_found,
+                        "framing_evidence": dict(plan.info),
                         "cuts": len(plan.cuts), "encoder": encoder,
                         "crop_w": round(cw_frac, 3), "layout": layout,
                         "fps": fps, "segments": len(segs),

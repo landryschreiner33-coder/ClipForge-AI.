@@ -5,6 +5,18 @@ choose a file, then choose **Make & upload clips** or **Make clips only**. Relev
 example preferences guide selection and editing; Settings fill missing choices. Processing stays on this PC.
 No search API key is needed for this workflow.
 
+New posting plans use a **30-minute minimum gap** by default. The old zero-gap default is corrected once on
+upgrade; positive custom gaps and later choices stay intact. Settings → Advanced → Autopilot posting changes
+the gap (0 disables it), without adding a daily cap. Automatic pending collisions are replanned, and already
+queued uploads also respect per-account pacing after a restart or platform wait. Your explicit rescheduled times,
+approval content and active/uncertain upload identities are preserved.
+
+Brain labels such as TikTok and Shorts apply across topics; actual topic tags still narrow the lesson. The
+clip editor shows which saved revisions influenced selection or rendering. Auto framing follows measured moving
+content if faces are missed/lost; explicit Center/Manual choices stay fixed. Existing output files need a new
+render to use that change. A valid existing Make & upload request also supplies its source reuse statement in
+Queue, rather than asking you to type it for each resulting clip. It does not authorize old backlog or new inputs.
+
 > **Names:** Home is **Office**, Autopilot is **Missions**, Library is **Clips**, Posts is **Queue**, and **Brain**
 > has its own workspace. Old addresses still work. See [OFFICE.md](OFFICE.md).
 

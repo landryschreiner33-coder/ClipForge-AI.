@@ -1,5 +1,23 @@
 # Implementation status
 
+## Creation, framing, spacing and reuse continuation — 2026-10-19 (America/Chicago)
+
+Base: `82784dd41463dc3559082b9c8e252e20051d789e`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Keep platform tags global while retaining actual topic relevance and disabled/explicit-edit controls.
+- [x] Preserve actual Brain ranking revisions on manual clips and display used lessons in the editor.
+- [x] Follow measured moving content after missed/lost faces, centre equal-energy windows and invalidate old caches.
+- [x] Carry measured framing evidence through the final heuristic check; retain full media and audio checks.
+- [x] Default to 30-minute spacing with a one-time old-zero migration and no new daily cap.
+- [x] Space automatic unstarted collisions and persist atomic per-account pacing for already queued uploads.
+- [x] Carry valid existing input reuse into Queue without retyping; retain exact-post approval and consent boundaries.
+- [x] Preserve old data, runtime/GPU pins, active/uncertain sessions and all earlier fixes in the readable update.
+
+**Validation:** Final full fast suite: 1,504 passed, 18 slow deselected in 687.23 s. All 18 selected real-FFmpeg/synthetic-media and restart cases passed: 15 in 766.75 s before stopping the remaining legacy zero-gap fixture wait, then its corrected three cases in 455.55 s. TypeScript/production build passed (6.03 s); all 61 built-browser checks passed in 170.29 s. All 204 other frozen Python/source/test/bootstrap/dependency files and 17 tested built files retain their hashes. Only the slow-loop fixture changed after the fast/first-15-media checks, to explicitly select zero spacing for compressed test time; all its three affected cases were rerun. Production source stayed unchanged. The final 205-file manifest matches the delivered source. The final source adds the reviewed alternate-version repair guard, covered by the final full suites and 62 focused checks; the already completed browser run covers unchanged frontend paths. Earlier full attempts stopped for evidence/pacing/version corrections are not final evidence. Actual moving-frame output, saved Brain ranking influence, input-bound reuse, concurrent/restarted pacing, platform waits and exact fake uploads were checked in disposable profiles. No owner profile, real social upload, native Windows/RTX3050 or 24-hour soak was tested.
+
+Native Windows/RTX3050, actual owner data and real social uploads are unverified. Public Pages is not changed
+by this app update. Previously rendered or uploaded files require an explicit new render to use new framing.
+
 ## Consistent TikTok review icon — 2026-10-19 (America/Chicago)
 
 Base: `4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`, on `codex/brain-graph-quality-discovery`.

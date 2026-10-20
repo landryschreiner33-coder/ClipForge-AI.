@@ -120,8 +120,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const key = serverKey(p);
   const dirtyKeys = (Object.keys(LABELS) as (keyof Form)[]).filter((k) => f[k] !== base[k]);
   const dirty = editable && dirtyKeys.length > 0;
+  const sourceReuse = p.reuse_review?.confirmed && p.reuse_review.confirmed_from === "source_submission";
+  const changesSourceScope = dirtyKeys.some(key => key === "privacy" || key === "kids" || key === "mode");
   const needsReuseCheck = p.reuse_review
-    ? p.reuse_review.required && (!p.reuse_review.confirmed || dirty)
+    ? p.reuse_review.required && (!p.reuse_review.confirmed || (dirty && (!sourceReuse || changesSourceScope)))
     : !CLEARED_RIGHTS.includes(p.source?.rights_status || "");
   const lastKey = useRef(key);
   useEffect(() => {

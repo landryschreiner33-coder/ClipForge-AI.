@@ -231,7 +231,8 @@ def _choose_mode(a: dict) -> str:
         return "speaker" if together >= 0.15 * n else "face"
     if a["edge"] > 0.07 and a["sat"] < 70 and a["motion"] < 6:
         return "screen"
-    return "center"
+    # A missed face must not lock a narrow crop in the middle of moving footage (games, sports, profiles).
+    return "motion" if a["motion"] > 0.25 else "screen" if a["edge"] > 0.03 else "center"
 
 
 def speech_mask(times: list[float], speech: list[tuple[float, float]] | None, pad: float = 0.25) -> np.ndarray:
@@ -335,7 +336,11 @@ def _screen_targets(a: dict, crop_w: float, crop_h: float) -> tuple[np.ndarray, 
         else:
             cs = np.concatenate([[0.0], np.cumsum(col)])
             sums = cs[win:] - cs[:-win]
-            k = int(np.argmax(sums))
+            # Many crop windows contain the same moving object. The first maximum pins it to the edge of
+            # the crop; choose the equally good window nearest its measured centre instead.
+            candidates = np.flatnonzero(sums >= sums.max() * 0.98)
+            centre = float(np.dot(np.arange(W) + 0.5, col) / col.sum())
+            k = int(candidates[np.argmin(abs(candidates + win / 2 - centre))])
             if sums[k] > 0.25 * col.sum():
                 xs[i] = (k + win / 2) / W
         H = len(row)
@@ -451,16 +456,21 @@ def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, 
     used = _choose_mode(a) if mode == "auto" else mode
     faces_found = len([t for t in a["tracks"] if t.presence >= 3])
     if used in {"face", "speaker"} and not a["tracks"]:
-        used = "center" if mode == "auto" else "screen" if mode == "screen" else "center"
+        used = _choose_mode(a)
     sample_t = np.asarray(a["times"], dtype=np.float64)
     cuts = refine_cuts(src, start, list(a["cuts"])) if a["cuts"] else []
     if used in {"face", "speaker"}:
         xs, ys, switches = _face_targets(a, cw, ch, speaker=(used == "speaker"))
+        # Face tracks already hold through short dropouts. After that, follow measured visual activity rather
+        # than keeping an obsolete face position for the rest of the scene.
+        visual_x, visual_y = _screen_targets(a, cw, ch)
+        xs = np.where(np.isnan(xs), visual_x, xs)
+        ys = np.where(np.isnan(ys), visual_y, ys)
         cuts = sorted(set(cuts + switches))
         smooth = "normal"
-    elif used == "screen":
+    elif used in {"screen", "motion"}:
         xs, ys = _screen_targets(a, cw, ch)
-        smooth = "slow"
+        smooth = "slow" if used == "screen" else "normal"
     else:
         return Plan("center", fps, n_out, np.full(n_out, 0.5), np.full(n_out, 0.5), a["cuts"], faces_found)
     cx = build_path(sample_t, xs, cuts, fps, n_out, cw, 0.5, smooth)
@@ -468,4 +478,4 @@ def plan(src: str, start: float, end: float, src_w: int, src_h: int, mode: str, 
     cy = build_path(sample_t, ys, cuts, fps, n_out, min(ch, 0.87), 0.5, smooth)
     return Plan(used, fps, n_out, cx, cy, a["cuts"], faces_found,
                 {"edge": round(a["edge"], 3), "sat": round(a["sat"], 1), "motion": round(a["motion"], 2),
-                 "samples": a["n"]})
+                 "samples": a["n"], "visual_target_samples": int(np.isfinite(xs).sum())})

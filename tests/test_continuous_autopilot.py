@@ -24,10 +24,11 @@ def test_uncapped_defaults_and_zero_validation(data):
 
     settings = db.get_settings()
     for key in ("autopilot_daily_target", "autopilot_sources_per_day", "autopilot_youtube_daily_limit",
-                "autopilot_tiktok_daily_limit", "autopilot_min_gap_minutes"):
+                "autopilot_tiktok_daily_limit"):
         assert settings[key] == 0
         assert config.validate_settings({key: 0})[key] == 0
     assert (settings["autopilot_active_start"], settings["autopilot_active_end"]) == (0, 24)
+    assert settings["autopilot_min_gap_minutes"] == 30
 
 
 def test_zero_is_uncapped_but_a_platform_reported_zero_still_stops_posting(data):
@@ -79,7 +80,10 @@ def test_unlimited_grant_approves_more_than_fifteen_qualified_clips(env, client)
     assert result["created"] == 18
     items = db.select("scheduled_publications")
     assert all(item["status"] == "approved" for item in items)
-    assert all(now <= item["planned_at"] <= now + 60 for item in items)
+    times = sorted(item["planned_at"] for item in items)
+    assert times[0] == pytest.approx(now)
+    gap = db.get_settings()["autopilot_min_gap_minutes"] * 60
+    assert all(b - a >= gap for a, b in zip(times, times[1:]))
     assert scheduler.plan_new(db.get_settings(), now)["created"] == 0
 
 

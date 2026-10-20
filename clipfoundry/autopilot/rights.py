@@ -604,6 +604,12 @@ def review_info(item: dict, settings: dict | None = None) -> dict:
     required = not allowed or sound_review
     record = _confirmation_record(item)
     confirmed = bool(record and not confirmation_problem(item, settings))
+    if not confirmed and (not record or record.get("confirmed_from") == "source_submission"):
+        from . import submissions
+
+        inherited = submissions.reuse_confirmation(item, settings)
+        if inherited:
+            record, confirmed = inherited, True
     # An older statement still participates in approval validation even if a new source rule now provides
     # coverage. Ask for a fresh exact-post statement rather than silently discarding the owner's old record.
     stale_statement = bool(record and not confirmed)

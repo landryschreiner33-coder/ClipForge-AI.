@@ -7,6 +7,21 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-19 · Brain-guided creation, moving crops and spaced publishing
+
+* **Changed:** platform-tagged Brain lessons apply across subjects, manual clips retain real ranking provenance,
+  and the editor lists used lessons. Automatic crops follow measured visual motion when faces disappear, with
+  cache invalidation and recorded quality-gate evidence. Default posts are 30 minutes apart; automatic pending
+  collisions and already queued transfers respect spacing across restarts. Positive custom gaps/explicit rescheduled times
+  and active/uncertain transfers remain intact. Existing valid input reuse statements carry through Queue
+  review; generated repairs require fresh exact-file checks and approval, without retyping source reuse.
+* **Why:** owner reports unused Brain guidance, static crops, simultaneous schedules and repeated Queue reuse
+  questions for supplied inputs. No local-file ownership assumption or new old-backlog grant was introduced.
+* **Validation:** Final full fast suite: 1,504 passed, 18 slow deselected in 687.23 s. All 18 selected real-FFmpeg/synthetic-media and restart cases passed: 15 in 766.75 s before stopping the remaining legacy zero-gap fixture wait, then its corrected three cases in 455.55 s. TypeScript/production build passed (6.03 s); all 61 built-browser checks passed in 170.29 s. All 204 other frozen Python/source/test/bootstrap/dependency files and 17 tested built files retain their hashes. Only the slow-loop fixture changed after the fast/first-15-media checks, to explicitly select zero spacing for compressed test time; all its three affected cases were rerun. Production source stayed unchanged. The final 205-file manifest matches the delivered source. The final source adds the reviewed alternate-version repair guard, covered by the final full suites and 62 focused checks; the already completed browser run covers unchanged frontend paths. Earlier full attempts stopped for evidence/pacing/version corrections are not final evidence. Actual moving-frame output, saved Brain ranking influence, input-bound reuse, concurrent/restarted pacing, platform waits and exact fake uploads were checked in disposable profiles. No owner profile, real social upload, native Windows/RTX3050 or 24-hour soak was tested.
+* **Delivery/limits:** readable source setup is pinned separately with managed release history preserved; no
+  custom EXE rebuild or security setting changes. Native Windows/GPU, owner profile, real platform delivery,
+  approval and 24-hour operation are unverified. Existing media/uploads remain unchanged.
+
 ## 2026-10-19 · Matching TikTok icon across the app and public website
 
 * **Changed:** reuse the exact submitted 1024-square robot PNG for app branding, the public site's headers and

@@ -164,7 +164,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_timezone": "America/Chicago",
     "autopilot_active_start": 0,        # local hour, inclusive
     "autopilot_active_end": 24,         # local hour, exclusive; default: posting may run at any hour
-    "autopilot_min_gap_minutes": 0,     # optional owner spacing; 0: upload eligible clips as they become ready
+    "autopilot_min_gap_minutes": 30,    # spread new posts; daily totals stay uncapped
     "autopilot_youtube_daily_limit": 0, # 0: no app cap, never overrides platform/API restrictions
     "autopilot_tiktok_daily_limit": 0,
     "autopilot_discovery_uploadable_only": True,  # broad automatic searches need recorded reuse coverage

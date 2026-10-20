@@ -38,7 +38,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(providers, "TAVILY_URL", f"{web.url}/search")
     monkeypatch.setattr(providers, "COMMONS_API", f"{lib.url}/w/api.php")
     db.init()
-    db.save_settings({"autopilot_public_videos": False,
+    db.save_settings({"autopilot_public_videos": False, "autopilot_min_gap_minutes": 0,
                       "autopilot_discovery_uploadable_only": False})  # exercise legacy local-search opt-in
     db.save_settings({"youtube_api_key": "test-api-key", "trend_topics": "podcast, space", "autopilot_enabled": True,
                       "youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",

@@ -261,7 +261,9 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             p.id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
-            reason=r["reason"], analysis=virality.summary(r["analysis"]), post=post, edit={}, status="queued",
+            reason=r["reason"], analysis={**virality.summary(r["analysis"]),
+                                        "brain_knowledge": list(r.get("brain_knowledge") or [])},
+            post=post, edit={}, status="queued",
             duration=round(end - start, 2), **stable,
         ))
     return rows

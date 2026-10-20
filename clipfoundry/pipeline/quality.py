@@ -368,6 +368,12 @@ def framing_checks(render_info: dict) -> list[dict]:
     if mode in ("screen", "manual"):
         return [check("framing", "Framing", HEURISTIC, PASS, "Follows the screen's action (estimate)." if mode ==
                       "screen" else "Framed by you.")]
+    if mode == "motion":
+        evidence = render_info.get("framing_evidence") or {}
+        samples, tracked = evidence.get("samples") or 0, evidence.get("visual_target_samples") or 0
+        if samples >= 3 and tracked >= max(3, samples * .5) and (evidence.get("motion") or 0) > .25:
+            return [check("framing", "Framing", HEURISTIC, PASS,
+                          "Follows measured moving visual activity (estimate); this is not face identification.")]
     return [check("framing", "Framing", HEURISTIC, WARN, "No face or subject was tracked, so the picture is cropped in "
                                                         "the middle; people at the sides may be cut off.")]
 

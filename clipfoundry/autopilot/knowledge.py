@@ -263,8 +263,15 @@ def matching(clip: dict, settings: dict) -> list[tuple[dict, dict]]:
                         ("title", "hook", "caption_text", "category", "source_title")).lower()
     rows = db.select("brain_knowledge", "enabled = 1", (),
                      "CASE kind WHEN 'instruction' THEN 0 WHEN 'example' THEN 1 ELSE 2 END, updated_at DESC, id")
-    matches = [(row, compile_note(row)) for row in rows if not row["tags"] or any(
-        re.search(r"(?<!\w)" + re.escape(tag) + r"(?!\w)", haystack) for tag in row["tags"])]
+    # Platform/workflow labels describe these clips, rather than topics someone must say out loud. A lesson
+    # tagged "TikTok, Shorts" must still apply to an interview; actual topic tags continue to narrow relevance.
+    general = {"tiktok", "youtube", "youtube shorts", "youtube-shorts", "shorts", "short-form", "short form",
+               "clips", "editing", "captions", "general", "global", "all topics", "across topics"}
+    matches = []
+    for row in rows:
+        topics = [tag for tag in row["tags"] if tag.lower().strip().lstrip("#") not in general]
+        if not topics or any(re.search(r"(?<!\w)" + re.escape(tag) + r"(?!\w)", haystack) for tag in topics):
+            matches.append((row, compile_note(row)))
     from . import brain
 
     brain.consulted(matches)

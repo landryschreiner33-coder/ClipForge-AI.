@@ -428,6 +428,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const currentHook = str("hook");
   const hookOptions = currentHook && !hookList.includes(currentHook) ? [...hookList, currentHook] : hookList;
   const ri = clip.render_info || {};
+  const brainLessons = (ri.brain_knowledge || clip.analysis?.brain_knowledge || []) as
+    { knowledge_id: string; revision: number; snapshot: { title: string } }[];
   const sizePct = Math.round(num("caption_size") * 100);
   const gain = num("gain_db");
 
@@ -686,6 +688,12 @@ export default function ClipEditor({ id }: { id: string }) {
           {clip.has_video && <p>The video below is the last render that worked.</p>}
         </Banner>
       )}
+
+      {brainLessons.length > 0 && <p className="small muted" data-testid="clip-brain-guidance">
+        Brain guidance used for this clip: {brainLessons.map(item =>
+          `${item.snapshot.title} (revision ${item.revision})`).join("; ")}.
+        {" "}<a className="textlink" href="#/brain">Open Brain</a>
+      </p>}
 
       <div className="editor">
         <div className="stage-area">

@@ -4,6 +4,45 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-19 (America/Chicago).
 Fetch before trusting branch state.
 
+## Latest continuation: Brain use, moving framing, spaced uploads and input reuse
+
+Date: 2026-10-19 (America/Chicago). Base: `82784dd41463dc3559082b9c8e252e20051d789e`, on
+`codex/brain-graph-quality-discovery`. The owner reports Brain not affecting clips, fixed framing, simultaneous
+posting times and Queue asking again for supplied-video reuse permission. The supplied example note is
+"Find strong standalone moments across topics for TikTok and YouTube Shorts. Prioritize:".
+
+* Brain platform/workflow tags no longer require those literal words in spoken content. Remaining topic tags
+  still narrow relevance. That example note supplies the recognized standalone ranking priority. Manual clip
+  creation now retains actual ranking revision/decision snapshots, and rendering combines them with the
+  supported caption/style guidance. The editor lists the lessons actually used. Disabled lessons, explicit clip
+  edits, local raw-note privacy and reference-only unsupported prose remain unchanged.
+* Auto framing uses measured motion/edge activity when face detection has no usable subject, including long
+  tracking dropouts. Equally good visual crop windows centre the measured activity rather than pinning it to a
+  crop edge. The framing cache version is 3. The final gate recognizes motion only with recorded analysis
+  coverage/activity evidence and labels the result an estimate. Explicit Center/Manual and uncropped portrait
+  frames remain steady. Existing files and old uploads are not silently rewritten or uploaded again.
+* Default spacing is 30 minutes. A one-time migration repairs the old saved zero; positive custom gaps and later
+  explicit choices survive. There is no new daily cap. Local replans serialize; pending automatic collisions are
+  spaced without changing valid content approvals, owner-rescheduled times or started/uncertain sessions. A
+  durable per-account atomic reservation also spaces already queued transfers after a restart/platform wait.
+  Actual new starts refresh pacing after a long wait, and completions extend it after slow uploads. Rechecking/
+  resuming the same logical transfer retains its identity; platform waits and all publishing gates bind.
+* An existing unique source-submission record remains discoverable if an older intake refresh lost its marker.
+  Queue can carry that input's reuse statement onto its exact new post, avoiding retyping during quality/manual
+  review and ordinary text edits. It does not become a verified ownership/license rule or Brain knowledge.
+  Auto-repaired generated output can receive fresh exact-file authorization only after new checks, with the
+  generated metadata intact and no owner edit/cancel or selected alternate version. Input account/audience/kids/terms/source-byte binding,
+  old-backlog exclusion, explicit blocks and TikTok per-post consent remain. A clip with no valid saved upload
+  request still needs the owner's actual approval; a local file alone creates no grant.
+
+**Validation:** Final full fast suite: 1,504 passed, 18 slow deselected in 687.23 s. All 18 selected real-FFmpeg/synthetic-media and restart cases passed: 15 in 766.75 s before stopping the remaining legacy zero-gap fixture wait, then its corrected three cases in 455.55 s. TypeScript/production build passed (6.03 s); all 61 built-browser checks passed in 170.29 s. All 204 other frozen Python/source/test/bootstrap/dependency files and 17 tested built files retain their hashes. Only the slow-loop fixture changed after the fast/first-15-media checks, to explicitly select zero spacing for compressed test time; all its three affected cases were rerun. Production source stayed unchanged. The final 205-file manifest matches the delivered source. The final source adds the reviewed alternate-version repair guard, covered by the final full suites and 62 focused checks; the already completed browser run covers unchanged frontend paths. Earlier full attempts stopped for evidence/pacing/version corrections are not final evidence. Actual moving-frame output, saved Brain ranking influence, input-bound reuse, concurrent/restarted pacing, platform waits and exact fake uploads were checked in disposable profiles. No owner profile, real social upload, native Windows/RTX3050 or 24-hour soak was tested.
+
+The readable setup is pinned separately after this exact source checkpoint, retaining every prior managed
+release identity and the historical blocked EXE unchanged. It includes the prior Python compatibility, audio,
+submitted-video and TikTok icon fixes. Close the desktop app before updating; new framing applies to new renders.
+Native Windows/RTX3050, the owner's actual Brain/profile and real YouTube/TikTok delivery are not verified here.
+Public Pages remains at its separately deployed icon correction; this task does not redeploy public legal pages.
+
 ## Latest continuation: consistent TikTok app, website and tab icon
 
 Date: 2026-10-19 (America/Chicago). Base: `4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`, on

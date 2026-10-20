@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -272,7 +273,7 @@ class Plan:
         self.now = now
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
                                                          "'reconciling', 'published') AND planned_at IS NOT NULL")
-        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
+        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 30))
         self.held = 0  # replacements held back by the cooldown
 
     def occupies(self, item: dict) -> bool:
@@ -494,7 +495,16 @@ def _replace(c: dict, weak: dict, score: float, threshold: float, settings: dict
     return new
 
 
+_planning_lock = threading.RLock()
+
+
 def plan_new(settings: dict, now: float) -> dict:
+    # The scheduler worker is unique across processes; also serialize local replan requests with its tick.
+    with _planning_lock:
+        return _plan_new(settings, now)
+
+
+def _plan_new(settings: dict, now: float) -> dict:
     plan = Plan(settings, now)
     timings = {p: Timing(p, settings) for p in PLATFORMS}
     created, replaced, no_slot = 0, 0, 0
@@ -840,6 +850,14 @@ def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_co
     settings = db.get_settings()
     if reuse_confirmed:
         updated["reuse_confirmation"] = rights.make_reuse_confirmation(updated, reuse_basis, settings)
+    elif not updated.get("reuse_confirmation") or (
+            updated["reuse_confirmation"].get("confirmed_from") == "source_submission" and
+            rights.confirmation_problem(updated, settings)):
+        from . import submissions
+
+        inherited = submissions.reuse_confirmation(updated, settings)
+        if inherited:
+            updated["reuse_confirmation"] = inherited
     clip = db.get_clip(item["clip_id"]) or {}
     project = db.get_project(clip.get("project_id") or "") or {}
     source = db.fetch("sources", project.get("source_id") or item.get("source_id") or "") if (
@@ -958,6 +976,82 @@ def lead_seconds(item: dict, settings: dict) -> float:
     return 0.0
 
 
+def _spacing_key(item: dict) -> str:
+    account = (item.get("approval") or {}).get("account") or (
+        db.get_account(item["platform"]) or {}).get("account_id") or ""
+    return f"upload_spacing:{item['platform']}:{account}"
+
+
+def record_upload_finished(item: dict, now: float) -> None:
+    """A slow upload must not let its followers finish back-to-back when it finally completes."""
+    state.put(_spacing_key(item), {"at": now, "scheduled_id": item["id"]})
+
+
+def reserve_upload_spacing(item: dict, settings: dict, now: float, *, starting: bool = False) -> float:
+    """Atomically space new transfers by account, including already queued jobs and restarts.
+
+    Returning a delay consumes no attempt. The same logical post retains its reservation on retry, refreshing
+    its clock at the actual new transfer after a long platform wait. Active transfers bypass this in the caller.
+    A later explicit zero gap disables this optional pacing.
+    """
+    gap = max(0.0, float(settings.get("autopilot_min_gap_minutes", 30))) * 60
+    if not gap:
+        return 0.0
+    key = _spacing_key(item)
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value FROM autopilot_state WHERE key=?", (key,)).fetchone()
+        try:
+            previous = json.loads(row["value"]) if row else {}
+            last_at = float(previous.get("at") or 0)
+        except (TypeError, ValueError, AttributeError):
+            previous, last_at = {}, 0.0
+        if previous.get("scheduled_id") == item["id"]:
+            if starting:
+                conn.execute("UPDATE autopilot_state SET value=?,updated_at=? WHERE key=?",
+                             (json.dumps({"at": now, "scheduled_id": item["id"]}), now, key))
+            return 0.0
+        delay = max(0.0, last_at + gap - now) if row and math.isfinite(last_at) else 0.0
+        if delay:
+            return delay
+        conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) "
+                     "DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                     (key, json.dumps({"at": now, "scheduled_id": item["id"]}), now))
+    return 0.0
+
+
+def space_pending_posts(settings: dict, now: float) -> int:
+    """Repair automatic pending collisions, without changing a manual time or a started/uncertain upload."""
+    if float(settings.get("autopilot_min_gap_minutes", 30)) <= 0:
+        return 0
+    plan = Plan(settings, now)
+    pending = [item for item in plan.items if item["status"] in ("awaiting_approval", "approved")
+               and not item.get("replaces") and publication_unstarted(item)
+               and (item["status"] != "approved" or not approval_problem(item, quick=True))
+               and not (item["status"] == "awaiting_approval" and item["planned_at"] < now)
+               and not any(event.get("event") == "rescheduled" and "by you" in event.get("detail", "")
+                           for event in item.get("audit") or [])]
+    selected = {item["id"] for item in pending}
+    plan.items = [item for item in plan.items if item["id"] not in selected]
+    changed = 0
+    for item in sorted(pending, key=lambda row: (row["planned_at"], row["id"])):
+        when = max(now, item["planned_at"])
+        if plan.free(item["platform"], item["planned_at"], item["clip_id"]):
+            plan.add(item)
+            continue
+        plan.now = when
+        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, Timing(item["platform"], settings))
+        if not slot:
+            plan.add(item)
+            continue
+        updated = {**item, "planned_at": slot[0], "slot": slot[1]}
+        db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1],
+                  audit=_audit(item, "spacing", "Posting times spread out to respect your minimum gap"))
+        plan.add(updated)
+        changed += 1
+    return changed
+
+
 ORPHAN_AFTER = 120  # seconds a post may show "publishing" without a publish job before it is reconciled
 
 
@@ -1000,6 +1094,7 @@ def process_due(settings: dict, now: float) -> dict:
     waiting = 0
     held_for_review = hold_automatic_approvals(settings)
     reconciled = reconcile_orphans(now)
+    moved += space_pending_posts(settings, now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
         # Old volume holds and recovered slots may already be due. Checking only future times strands them when
@@ -1047,6 +1142,10 @@ def process_due(settings: dict, now: float) -> dict:
                 continue
             # The approved post decides, not an earlier upload job: one canceled before its upload started (the
             # post came back with a new time) runs again now. The publisher itself never uploads a video twice.
+            delay = reserve_upload_spacing(item, settings, now)
+            if delay:
+                _note(item, f"Waiting for the gap between uploads; next available {_label(now + delay, settings)}")
+                continue
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",

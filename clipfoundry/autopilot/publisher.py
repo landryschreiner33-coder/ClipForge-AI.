@@ -409,6 +409,18 @@ def publish(job: Job) -> dict:
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
+    if not started and not uncertain:
+        from .scheduler import reserve_upload_spacing
+
+        delay = reserve_upload_spacing(item, settings, time.time(), starting=True)
+        if delay:
+            note = "Waiting for the minimum gap between uploads; your approval is saved."
+            manual_time = any(event.get("event") == "rescheduled" and "by you" in event.get("detail", "")
+                              for event in item.get("audit") or [])
+            changes = {} if manual_time else {"planned_at": max(item.get("planned_at") or 0,
+                                                               time.time() + delay)}
+            db.update("scheduled_publications", item["id"], status_note=note, **changes)
+            raise queue.Wait("upload_spacing", delay, note)
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:
@@ -472,6 +484,10 @@ def finish(item: dict, pub: dict) -> dict:
     before anyone can watch (an upload alone never means viewers can watch)."""
     item = _item(item["id"]) or item
     if pub["status"] == "done":
+        if item["status"] != "published":
+            from .scheduler import record_upload_finished
+
+            record_upload_finished(item, time.time())
         note = pub.get("message") or "Uploaded"
         delivery = pub.get("delivery") or audience.delivery_after_upload(
             item["platform"], item.get("audience") or {}, pub.get("privacy") or "", "api")

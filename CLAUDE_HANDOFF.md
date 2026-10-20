@@ -3,7 +3,29 @@
 Prepared October 19, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
 `AI_CHANGELOG.md` before changing anything. This is a local Windows desktop app, not a hosted service.
 
-## Latest: TikTok icon review correction — 2026-10-19 (America/Chicago)
+## Latest: creation reliability — 2026-10-19 (America/Chicago)
+
+Continue from the newest `AI_HANDOFF.md` section and current source branch. The owner requested Brain use,
+subject-following framing, spaced schedules and no repeated reuse typing for videos with an existing input
+authorization. Platform tags no longer exclude unrelated spoken topics; actual topic tags still narrow lessons.
+Manual clips retain ranking revision snapshots, and the editor names used lessons. Framing cache v3 follows
+measured moving activity when faces are missed/lost; its final check needs recorded evidence and stays an
+estimate. Explicit fixed framing and existing files are unchanged until an owner-requested render.
+
+Default spacing is 30 minutes; a one-time old-zero migration preserves positive custom gaps and future choices.
+Pending automatic collisions and queued uploads get spaced, retaining explicit rescheduled times, exact approvals and active/
+uncertain sessions. Input reuse can be inherited into exact-post Queue review and repaired generated output can
+receive new file-bound approval only after fresh checks; no local-file ownership assumption, broad permission,
+old-backlog adoption or TikTok automatic consent is added. User edits/cancels, owner-selected alternative versions and source/destination changes bind.
+The supplied note's recognized effect is standalone ranking. No model is fine-tuned by saving that text.
+
+See current validation and delivery proof for actual test results and the final source/setup revisions. All
+prior Python/runtime, audio, submitted-video and icon fixes are included in the new readable source bundle.
+Keep every known managed release identity and the historical blocked EXE unchanged; never weaken platform waits,
+quality checks, exact hash binding or account/audience consent. Owner Windows/GPU/profile and real uploads remain
+unverified. The current app update does not deploy new public website/legal copy.
+
+## Previous: TikTok icon review correction — 2026-10-19 (America/Chicago)
 
 The current owner request fixes TikTok's icon mismatch rejection. The existing public `gh-pages` site now uses
 the same unchanged 1024-square dark robot PNG as Basic information, in all three headers and browser tabs.
@@ -23,13 +45,13 @@ approval, real sign-in, account permission change or real post is claimed by the
 
 The application repository is `landryschreiner33-coder/ClipForge-AI.` (including the final dot).
 Work is on `codex/brain-graph-quality-discovery`, based on tested revision
-`4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`. The current checkpoint corrects TikTok icon consistency after the
-Windows setup repair, preserving the submitted-video workflow. Fetch and
+`82784dd41463dc3559082b9c8e252e20051d789e`. The current checkpoint repairs creation, framing, posting spacing
+and repeated source reuse review after the icon/Windows setup corrections. Fetch and
 inspect the branch and working tree before trusting a cached checkout; do not reset or discard someone else's work.
 The earlier PR #14 is merged; this is later continuation work, not a request to recreate that PR or merge blindly.
 
 The readable setup lives on `codex/clipfoundry-one-click` in a separate checkout. Its previous tested artifact
-was `39c58577b86c806d04bf3db5e15596c4415efced`. The delivered artifact's
+was `25a410cb5e750514975c8af7d8d11781742c7350`. The delivered artifact's
 `launcher/plain_setup_verification.json` records the final exact app revision, ZIP hashes and test evidence.
 Do not rebuild or recommend the previously blocked custom EXE, change antivirus settings or discard managed profiles.
 

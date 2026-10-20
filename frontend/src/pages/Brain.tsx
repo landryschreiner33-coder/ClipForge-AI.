@@ -888,7 +888,8 @@ function KnowledgeEditor({
             placeholder="science, basketball, cooking"
           />
           <small className="brain-note">
-            With tags, guidance applies when the source title, spoken words, clip text or category matches a tag.
+            Topic tags match the source title, spoken words, clip text or category. Platform tags such as TikTok
+            and Shorts apply across topics.
             Without tags, it can guide every new clip.
           </small>
         </label>

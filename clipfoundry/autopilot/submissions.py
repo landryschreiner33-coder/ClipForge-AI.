@@ -86,8 +86,37 @@ def _terms(source: dict, settings: dict) -> str:
 
 def for_source(source: dict | None) -> dict | None:
     sid = ((source or {}).get("intake") or {}).get("submission_id")
-    row = db.fetch("source_submissions", sid) if sid else None
+    # The explicit source-bound record is authoritative even if an older intake refresh lost its UI marker.
+    # Never infer authorization just from a local file or user_added: a matching saved request must exist.
+    rows = db.select("source_submissions", "source_id = ?", ((source or {}).get("id") or "",), limit=2) if not sid else []
+    row = db.fetch("source_submissions", sid) if sid else rows[0] if len(rows) == 1 else None
     return row if row and row["source_id"] == (source or {}).get("id") else None
+
+
+def reuse_confirmation(item: dict, settings: dict) -> dict | None:
+    """Carry an existing per-input reuse assertion onto its exact new clip; this is not post approval."""
+    if item.get("platform") != "youtube":
+        return None
+    clip = db.get_clip(item.get("clip_id") or "") or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", project.get("source_id") or item.get("source_id") or "") or {}
+    row = for_source(source)
+    if not row or problem(source, settings):
+        return None
+    cfg = row["settings"]
+    if clip.get("project_id") != cfg.get("bound_project_id") or \
+            float(clip.get("created_at") or 0) < row["created_at"] or \
+            float(item.get("created_at") or 0) < row["created_at"] or \
+            item.get("privacy") != cfg["privacy"] or any(
+                (item.get("audience") or {}).get(k) != cfg["audience"].get(k) for k in
+                ("intent", "platform", "policy_version", "group", "group_version", "visibility")) or \
+            (item.get("options") or {}).get("made_for_kids") is not cfg["made_for_kids"]:
+        return None
+    try:
+        confirmation = rights.make_reuse_confirmation(item, cfg["reuse_statement"], settings)
+    except (OSError, ValueError):
+        return None
+    return {**confirmation, "submission_id": row["id"], "confirmed_from": "source_submission"}
 
 
 def _create(fields: dict, cfg: dict, *, original_url: str = "", sha: str = "") -> dict:
@@ -321,8 +350,17 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     row = for_source(source)
     if not row or not row["settings"].get("auto_upload"):
         return False
-    if any(a.get("event") in ("edited", "cancelled", "canceled", "approval_invalidated") for a in item.get("audit") or []):
+    events = item.get("audit") or []
+    if any(a.get("event") in ("edited", "cancelled", "canceled") for a in events):
         return False
+    if any(a.get("event") == "approval_invalidated" for a in events):
+        # A repaired generated file needs a fresh exact-file check/approval, not another reuse statement.
+        # Manual text/options/clip edits still require the owner to review their changed post.
+        metadata = db.fetch("metadata_candidates", item.get("metadata_id") or "") or {}
+        clip = db.get_clip(item.get("clip_id") or "") or {}
+        if not any(a.get("event") == "submission_approved" for a in events) or clip.get("edit") or clip.get("active_version") or \
+                any(item.get(k) != metadata.get(k) for k in ("title", "description", "tags")):
+            return False
     why = problem(source, settings)
     if why:
         scheduler._note(item, "Submission held: " + why)

@@ -65,6 +65,7 @@ export interface ClipFlag {
 
 /** Viral Potential analysis. Every number is an estimate used for ranking, never a prediction of views. */
 export interface ClipAnalysis {
+  brain_knowledge?: { knowledge_id: string; revision: number; snapshot: { title: string }; decisions: Record<string, any> }[];
   factors: Record<string, number>; // 0-10
   subscores: { hook: number; retention: number; context: number; engagement: number }; // 0-100
   structure: { hook: boolean; context: boolean; payoff: boolean; complete: boolean; label: string; missing: string[] };

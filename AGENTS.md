@@ -371,6 +371,19 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Creation reliability continuation (2026-10-19, America/Chicago):** The owner reports unused Brain guidance,
+stationary framing, same-time schedules and repeated reuse questions in Queue for supplied videos. Platform
+labels such as TikTok/Shorts apply across topics; remaining topic tags still narrow guidance. Keep actual ranking
+revision evidence on manual clips as well as blueprints. Auto framing may follow measured visual activity when
+faces are absent/lost, with honest heuristic evidence, stable motion and a new cache version; explicit fixed
+framing stays fixed. Default posting gap is 30 minutes, with a one-time old-zero correction; preserve positive
+custom spacing and later explicit choices, daily uncapped totals, exact platform waits and uncertain-session
+identity. Repair only automatic unstarted collisions, preserving explicit manual times and approval bindings.
+Carry a valid existing input's reuse assertion into Queue review instead of retyping it; never infer ownership
+or new publishing authorization from a local upload alone, or attach a new request to old backlog. Repaired
+generated clips need fresh exact-file approval/checks; owner edits, cancellation and source/destination drift
+still hold them. Deliver a verified readable source update with prior managed-profile identities preserved.
+
 **TikTok icon review correction (2026-10-19, America/Chicago):** The reviewer requires the Basic information
 icon to match the public website and browser tab. Keep `design/tiktok/app-icon-dark.png` as the canonical
 unchanged 1024-square robot, reused by the app, public pages, favicon and current form export. Recommend one

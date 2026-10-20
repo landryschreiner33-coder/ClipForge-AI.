@@ -32,7 +32,7 @@ def env(monkeypatch, tmp_path):
     db.init()
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
-                      "autopilot_youtube": True, "autopilot_tiktok": True,
+                      "autopilot_youtube": True, "autopilot_tiktok": True, "autopilot_min_gap_minutes": 0,
                       # these tests are about uploads; an unaudited app's TikTok Direct Post is "Only me" staging
                       "audience_tiktok": "owner_only"})
     yield g, t, tmp_path

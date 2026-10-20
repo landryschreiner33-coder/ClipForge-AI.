@@ -21,6 +21,12 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 > keeps the results on this PC. No search API key is needed. Automatic searching and watched-folder intake are off
 > by default. See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
 
+New posts are normally spaced **30 minutes apart**, including after restarts; change Minimum gap in Settings →
+Advanced → Autopilot posting. Daily totals remain uncapped by default. Auto framing can follow moving visual
+content when a face is unavailable. The clip editor lists the saved Brain lessons used for its selection/look.
+Queue carries an existing submitted video's reuse statement forward; final quality or changed upload choices
+can still require review. These changes affect new renders, not files already uploaded.
+
 > **Windows quick start:** install **Python 3.12 — Windows installer (64-bit)** (standard CPython 3.11 also
 > supported) and FFmpeg (`winget install Gyan.FFmpeg`), then open **`start.bat`**. It verifies the actual interpreter
 > and preserves an incompatible `.venv` before replacing it; your data stays intact. If Python setup fails, install

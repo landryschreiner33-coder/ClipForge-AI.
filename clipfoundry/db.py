@@ -791,6 +791,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_audience(conn)
     _migrate_continuous_volume(conn)
     _migrate_submitted_input(conn)
+    _migrate_post_spacing(conn)
+
+
+POST_SPACING_MIGRATION = "post_spacing_migrated_v1"
+
+
+def _migrate_post_spacing(conn: sqlite3.Connection) -> None:
+    """Repair the old zero-gap default once; preserve positive spacing and all later owner choices."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (POST_SPACING_MIGRATION,)).fetchone():
+        return
+    row = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_min_gap_minutes'").fetchone()
+    if row and row["value"] in ("0", "0.0"):
+        conn.execute("UPDATE settings SET value = '30' WHERE key = 'autopilot_min_gap_minutes'")
+    now = time.time()
+    conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?)",
+                 (POST_SPACING_MIGRATION, json.dumps({"at": now, "version": 1}), now))
 
 
 SUBMITTED_INPUT_MIGRATION = "submitted_input_migrated_v1"

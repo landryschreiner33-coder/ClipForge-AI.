@@ -188,6 +188,9 @@ class CompleteLoopFixture:
                           "rights_allow_remote_download": True,
                           "autopilot_clips_per_source": 1, "autopilot_sources_per_day": 1,
                           "autopilot_daily_target": 4, "autopilot_min_quality": 40,
+                          # This compressed loop tests real rendering/restart, not a 30-minute wall-clock wait.
+                          # Durable production pacing is checked independently in test_review_creation_fixes.
+                          "autopilot_min_gap_minutes": 0,
                           "autopilot_active_start": 0, "autopilot_active_end": 24,
                           "autopilot_upload_lead_minutes": 720,
                           "autopilot_tiktok": False, "autopilot_youtube": True,
