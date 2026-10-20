@@ -1,56 +1,78 @@
 {
-  "source_commit": "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f",
-  "app_archive_sha256": "ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae",
-  "zip_bytes": 41956249,
-  "zip_sha256": "841f4c314861e32e4bcf4033cf8a2fad4f3e1e397f8a2ed32a6724793172c2e1",
+  "source_commit": "2eda06afe16b9dbfd22a2f42c3056d08c88c7094",
+  "app_archive_sha256": "2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832",
+  "zip_bytes": 42184610,
+  "zip_sha256": "aa47f352f919cc60bec4c61274014ae9815e375037928165ce2f049abe86f274",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "b56134c66d803d169425d91017e2ff85812f53f1509719601e3e87a100b7b108",
-    "setup.py": "4248de504f629e5bd105a488c9f826630124c0b887f317cea0d13eed20e666cd",
-    "app.zip": "ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae",
-    "README.txt": "72c7f76c850593c59c8e0366cc2c11f6e1fab21dad61cac5cada2893bcf83346"
+    "setup.py": "80d3644ba4da7aa198e782ea724cff1ac0f205449f037db5ebdb4cda12f97619",
+    "app.zip": "2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832",
+    "README.txt": "fbfc729dcdc551e21381cca7264dcbc03a43e516d37d208f503cfc4a8f89fc3e"
   },
-  "app_files": 515,
+  "app_files": 521,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "artifact_base": "39c58577b86c806d04bf3db5e15596c4415efced",
-  "app_archive_bytes": 42016818,
+  "artifact_base": "25a410cb5e750514975c8af7d8d11781742c7350",
+  "app_archive_bytes": 42245492,
   "start_bat_sha256": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
   "app_tests": {
     "fast": {
-      "passed": 1489,
-      "deselected": 17,
-      "seconds": 527.16
+      "passed": 1504,
+      "deselected": 18,
+      "seconds": 687.23
     },
-    "focused_windows_bootstrap": {
-      "passed": 38,
-      "seconds": 3.54
+    "real_media_and_restart": {
+      "passed": 18,
+      "segments": [
+        {
+          "passed": 15,
+          "deselected": 1504,
+          "seconds": 766.75
+        },
+        {
+          "passed": 3,
+          "seconds": 455.55
+        }
+      ],
+      "all_selected_cases_covered": true,
+      "fixture_only_correction": "The compressed slow loop explicitly uses zero gap instead of a 30-minute wall-clock wait. Production code stayed unchanged. The first 15 cases passed before interrupting the remaining legacy wait; its corrected three cases passed afterward."
     },
-    "frozen_source_test_bootstrap_and_requirements_files": 203,
-    "all_203_frozen_hashes_retained": true,
-    "full_media_and_browser_rerun": false,
-    "previous_media_and_browser_scope": "Historical results from fcd48aecece759ed676d871a9282d81b83f0ab92; application processing/publishing/Brain logic, dependency pins and all frontend source/build bytes are unchanged."
+    "final_built_browser": {
+      "passed": 61,
+      "seconds": 170.293893
+    },
+    "build_seconds": 6.03,
+    "frozen_source_test_bootstrap_and_requirements_files": 205,
+    "final205filemanifest_matches": true,
+    "original_frozen_files_unchanged": 204,
+    "slow_fixture_only_correction": "Explicit zero pacing in compressed end-to-end fixture; all3affected slow cases rerun",
+    "full_media_and_browser_rerun": true,
+    "focused_selected_version_and_source_reuse": {
+      "passed": 62,
+      "seconds": 13.16
+    }
   },
   "current_delivery_tests": {
     "plain_setup": {
       "passed": 52,
-      "seconds": 1.5
+      "seconds": 1.578
     },
     "pin_bundle": {
       "passed": 13,
-      "seconds": 0.514
+      "seconds": 0.617
     },
     "build_plain_zip": {
       "passed": 12,
-      "seconds": 0.012
+      "seconds": 0.025
     },
     "exact_git_export": {
       "passed": 10,
-      "seconds": 0.426
+      "seconds": 0.459
     }
   },
   "payload_verification": {
-    "source_files": 515,
+    "source_files": 521,
     "exact_git_match_with_declared_bat_crlf": true,
     "bat_crlf_files": [
       "e2e/run-beginner-test.bat",
@@ -70,9 +92,9 @@
   },
   "managed_release_history": {
     "prior_exact_pins_retained": true,
-    "previous_revisions": 11,
-    "current_revisions": 12,
-    "new_revision": "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f",
+    "previous_revisions": 12,
+    "current_revisions": 13,
+    "new_revision": "2eda06afe16b9dbfd22a2f42c3056d08c88c7094",
     "historical_start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "new_start_bat_sha256": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
     "python_powershell_history_agree": true,
@@ -81,14 +103,14 @@
   "no_powershell_loader": true,
   "no_app_archive_download": true,
   "no_security_settings_change": true,
-  "review_before_publish": "Default-on review remains for old backlog and optional discovery. Each explicit Make & upload clips action authorizes qualifying clips only from that submitted input, bound to its source bytes, reuse basis/terms, connected YouTube account, actual audience and genuine kids answer. No separate per-clip review for that input, no authorization of other inputs or TikTok. Make clips only stays local.",
+  "review_before_publish": "Qualifying newly generated YouTube originals under a valid Make & upload clips request can upload without repeated reuse entry. Fresh exact-file checks and all source/account/audience/terms binding remain. Owner edits, alternative selections, quality holds, changed scope, old backlog, later inputs and TikTok can still need exact-post review.",
   "owner_profile_accessed": false,
   "real_upload_performed": false,
   "soak_24_hours_verified": false,
   "blocked_exe_detection_name": null,
   "blocked_exe_false_positive_established": false,
   "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26",
-  "brain_guidance": "Enabled saved notes and examples are matched using source and spoken context through selection, plan and render. Recognized supported preferences apply with Settings fallback and explicit clip-edit precedence. Example appearance is not automatically learned; existing rendered media is not silently rewritten.",
+  "brain_guidance": "Enabled supported lessons match source/spoken context; general platform/workflow tags apply across subjects while actual topic tags narrow relevance. Manual ranking snapshots and render decisions retain actual revision evidence; editor lists used lessons. Settings fallback and explicit edits remain; unsupported prose and example appearance are not arbitrary commands or fine-tuning.",
   "audio_fix": "First-track stereo downmix precedes processing, with compensated clip-relative timing and a final peak limiter after gain. Existing/source distortion and previously rendered/uploaded media are not repaired automatically.",
   "youtube_comments": "Strict boolean kids answers and returned current status; review explains kids/private/platform restrictions without changing audience/kids answers or promising an API comments-enable switch.",
   "ongoing_discovery": "Optional only: when explicitly selected, independent provider waits, bounded page rotation, quality/cost/API limits and exact waits remain. Default submitted input does not automatically discover or watch folders.",
@@ -98,7 +120,7 @@
   "claude_handoff": {
     "path": "CLAUDE_HANDOFF.md",
     "included": true,
-    "sha256": "d3b1427c878504eba3e1cb2d6796ce112be4a17628d241492a8b72e0a2798ef8",
+    "sha256": "69c587b032134b07eafc2f2ce2690e513c8a472640a0799eb2e5dc5279c28843",
     "immutable_remote_exact_match": true,
     "http_status": 200
   },
@@ -107,13 +129,15 @@
   "search_connection_recovery": "Saved YouTube/Tavily keys trim outer whitespace and reject accidental internal whitespace/control text. YouTube discovery refreshes a rejected same-account OAuth token once, counts every read and preserves Retry-After/quota and explicit optional-key selection. Credential-safe errors distinguish invalid/restricted keys and disabled projects; Tavily server waits remain durable and provider-local.",
   "saved_search_tests": "Explicit local-page-only uncached checks: selected YouTube credential via general-quota videos.list, Tavily via authenticated account-usage GET. No source import, web search, upload or automatic credential switch. Actual response shapes, concurrency/cooldowns, provider waits, budgets and changed-key staleness are checked. Success proves API credential access at that time, not available search allowance/media/quality or posting permission. Tavily usage endpoint has no documented express zero-credit guarantee.",
   "discovery_diagnosis": "Optional-discovery mode retains provider-specific safe actions and saved-connection checks. Default submitted mode reports video-input readiness instead of stale discovery-key warnings.",
-  "reuse_review_brain_separation": "Reuse statements stay with a submitted source upload authorization or exact selected-post approval records. They are not Brain knowledge or guidance for other inputs. Existing Brain/review records remain unchanged.",
+  "reuse_review_brain_separation": "Valid source-submission reuse carries onto only its exact new Queue posts without retyping and never enters Brain. New original repair bytes require fresh QC/approval with unchanged generated metadata and no owner edit/cancel/alternate selection. Original/source/account/audience/kids/terms/credit binding, old backlog exclusion and TikTok per-post consent remain.",
   "owner_api_keys_tested": false,
   "browser_verification": {
-    "rerun_for_current_update": false,
-    "historical_source_commit": "fcd48aecece759ed676d871a9282d81b83f0ab92",
-    "passed_previously": 59,
-    "scope": "Historical built-browser checks only; current frontend source and built bytes unchanged."
+    "rerun_for_current_update": true,
+    "passed": 61,
+    "seconds": 170.293893,
+    "scope": "Built frontend in disposable fake profile, including actual lesson-provenance display and Queue source-reuse controls. Final alternate-version backend guard covered by final full Python suites; frontend unchanged after browser checks.",
+    "built_files": 17,
+    "hashes_unchanged": true
   },
   "submitted_video_workflow": {
     "default_input_mode": "submitted",
@@ -138,8 +162,8 @@
     "permission_text_saved_to_brain": false,
     "tiktok_automatic_authorization_added": false
   },
-  "audio_verification": "Historical evidence: all 17 actual-media/restart cases passed in the previous release. The audio/render/upload implementation is unchanged and these suites were not rerun for the current Windows bootstrap-only change. Native Windows and real YouTube transcoding remain unverified.",
-  "final_freeze_evidence": "All 203 source/test/bootstrap/requirements hashes stayed unchanged during the final 1,489-check fast suite. Processing/publishing/Brain code, dependency pins and all 81 frontend source and 17 built files remain byte-identical to the prior media/browser-tested release.",
+  "audio_verification": "All 18 current actual-media/restart cases passed, including real FFmpeg/AAC and exact fake uploads. Prior downmix/clock/peak fixes remain. Native Windows, original/source distortion and actual YouTube processing remain unverified.",
+  "final_freeze_evidence": "All 204 other original Python/source/test/bootstrap/requirements hashes and 17 browser-tested built hashes match. One slow-only compressed-loop fixture explicitly sets zero gap after the fast/first-15-media checks; its three affected cases passed in the final rerun. The final 205-file manifest matches the delivered source; production source unchanged. Earlier stopped full attempts are not final evidence.",
   "prior_release_validation": {
     "source_commit": "fcd48aecece759ed676d871a9282d81b83f0ab92",
     "app_tests": {
@@ -264,5 +288,87 @@
       "Current upstream cp313 and cp314 Windows AMD64 wheels also exist; this app deliberately supports stable CPython 3.11/3.12."
     ]
   },
-  "immutable_download_verification": "Performed separately after the artifact commit is pushed; proof is recorded outside this self-contained package manifest."
+  "immutable_download_verification": "Performed separately after the artifact commit is pushed; proof is recorded outside this self-contained package manifest.",
+  "previous_update_validation": {
+    "source_commit": "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f",
+    "app_tests": {
+      "fast": {
+        "passed": 1489,
+        "deselected": 17,
+        "seconds": 527.16
+      },
+      "focused_windows_bootstrap": {
+        "passed": 38,
+        "seconds": 3.54
+      },
+      "frozen_source_test_bootstrap_and_requirements_files": 203,
+      "all_203_frozen_hashes_retained": true,
+      "full_media_and_browser_rerun": false,
+      "previous_media_and_browser_scope": "Historical results from fcd48aecece759ed676d871a9282d81b83f0ab92; application processing/publishing/Brain logic, dependency pins and all frontend source/build bytes are unchanged."
+    },
+    "current_delivery_tests": {
+      "plain_setup": {
+        "passed": 52,
+        "seconds": 1.5
+      },
+      "pin_bundle": {
+        "passed": 13,
+        "seconds": 0.514
+      },
+      "build_plain_zip": {
+        "passed": 12,
+        "seconds": 0.012
+      },
+      "exact_git_export": {
+        "passed": 10,
+        "seconds": 0.426
+      }
+    },
+    "payload_verification": {
+      "source_files": 515,
+      "exact_git_match_with_declared_bat_crlf": true,
+      "bat_crlf_files": [
+        "e2e/run-beginner-test.bat",
+        "e2e/run-tests.bat",
+        "gpu-check.bat",
+        "run-unattended.bat",
+        "start.bat",
+        "test-isolated.bat"
+      ],
+      "tested_frontend_files": 17,
+      "tested_frontend_exact_match": true,
+      "missing_or_extra_files": 0,
+      "exe_or_dll_files": 0,
+      "runtime_or_credential_paths": 0,
+      "both_archive_crcs_verified": true,
+      "windows_bootstrap_sha256": "418af6a1d63674e25552208748473be5e8f1835d0c542e3c6c19fe9abc771f33"
+    },
+    "managed_release_history": {
+      "prior_exact_pins_retained": true,
+      "previous_revisions": 11,
+      "current_revisions": 12,
+      "new_revision": "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f",
+      "historical_start_bat_sha256": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
+      "new_start_bat_sha256": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
+      "python_powershell_history_agree": true,
+      "historical_bat_embedded_script_agrees": true
+    },
+    "browser_verification": {
+      "rerun_for_current_update": false,
+      "historical_source_commit": "fcd48aecece759ed676d871a9282d81b83f0ab92",
+      "passed_previously": 59,
+      "scope": "Historical built-browser checks only; current frontend source and built bytes unchanged."
+    },
+    "audio_verification": "Historical evidence: all 17 actual-media/restart cases passed in the previous release. The audio/render/upload implementation is unchanged and these suites were not rerun for the current Windows bootstrap-only change. Native Windows and real YouTube transcoding remain unverified.",
+    "final_freeze_evidence": "All 203 source/test/bootstrap/requirements hashes stayed unchanged during the final 1,489-check fast suite. Processing/publishing/Brain code, dependency pins and all 81 frontend source and 17 built files remain byte-identical to the prior media/browser-tested release.",
+    "claude_handoff": {
+      "path": "CLAUDE_HANDOFF.md",
+      "included": true,
+      "sha256": "d3b1427c878504eba3e1cb2d6796ce112be4a17628d241492a8b72e0a2798ef8",
+      "immutable_remote_exact_match": true,
+      "http_status": 200
+    }
+  },
+  "moving_framing": "Cache v3 follows faces/speakers or measured motion after missed/lost faces; motion gate pass needs recorded sample/activity evidence and is an estimate. Center/Manual remain fixed. New renders only; existing files/uploads unchanged.",
+  "posting_spacing": "30-minute default, one-time old-zero migration, positive/future custom choices retained and no new daily cap. Serialized planning, automatic collision repair and durable per-account atomic enqueue/start/completion pacing survive restart/platform waits. Explicit rescheduled times and active/uncertain sessions preserved; zero explicitly disables pacing."
 }

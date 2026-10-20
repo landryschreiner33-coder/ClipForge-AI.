@@ -33,8 +33,8 @@ environment is preserved in a separate backup before a supported one is created.
 accounts and clips are outside that environment. An incompatible setup interpreter stops before profile or
 installation writes; do not try to fix dependency resolution by deleting your saved data or changing GPU pins.
 
-Application revision: 4fae46c82f5b14e3a54c451dee7ff5e3d948b21f
-Included app.zip SHA-256: ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae
+Application revision: 2eda06afe16b9dbfd22a2f42c3056d08c88c7094
+Included app.zip SHA-256: 2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832
 Setup verifies the archive and known start.bat hash before installing or launching new app files.
 
 New workflow: add a video, then make and upload clips
@@ -55,6 +55,22 @@ New workflow: add a video, then make and upload clips
 - Reuse answers stay outside Brain knowledge. Brain examples contribute measured duration and supported
   preferences/notes; their visual appearance is not learned from their pixels. Existing knowledge stays.
 
+Brain guidance, framing and upload timing
+- General Brain lessons tagged TikTok or YouTube Shorts can apply across subjects; actual topic tags still
+  narrow relevance. The editor shows the lesson titles/revisions actually used. Unsupported prose remains
+  reference material, Settings fills unspecified choices, and explicit clip edits take priority.
+- Auto framing uses face/speaker tracks where available and measured visual motion when tracks are missing
+  or lost. The quality report labels motion fallback as an estimate. Center and Manual remain as chosen.
+  These changes apply to newly rendered clips; saved files and existing uploads are not rewritten.
+- The default posting gap is 30 minutes, with no new daily cap. A one-time migration updates the old saved
+  zero; positive custom gaps and later choices remain. Change the gap in Settings; zero disables pacing.
+  Automatic collisions and queued uploads stay spaced after restarts/platform waits. Explicit rescheduled
+  times and started/uncertain upload identities remain; account cooldown can delay an upload past its time.
+- Queue carries an existing valid Make & upload clips input's reuse answer onto its exact new posts so you
+  need not retype it during quality/manual review. Repaired generated output needs fresh passing checks.
+  Owner edits, changed destinations, old backlog and inputs without a valid request can still need review.
+  A local file alone grants no permission. TikTok keeps its per-post review.
+
 Audio and earlier changes remain included
 - New renders use the same first audio track for transcription/output, downmix before normalization, preserve
   delayed starts/gaps and control peaks after gain. The checked output bytes are the bytes sent for upload.
@@ -68,19 +84,12 @@ Audio and earlier changes remain included
 - Optional discovery/key diagnostics remain under Settings -> Advanced -> Autopilot details -> Video input.
   Search keys are not required for submitted videos and do not grant upload authorization.
 
-Current application validation: 1,489 fast checks passed (17 deselected, 527.16 s), including 38 focused
-Windows-bootstrap checks (3.54 s in the focused run). All 203 frozen source/test/bootstrap/requirements
-hashes stayed unchanged. Final delivery checks passed: 52 installer checks (1.500 s), 13 pin-helper checks
-(0.514 s), 12 builder checks (0.012 s) and 10 exact-export-helper checks (0.426 s). The exact source export
-verifies all 515 files and all 17 previously tested frontend hashes, with six declared BAT CRLF exports.
-The builder verifies every outer ZIP member byte-for-byte and both archive CRCs. All eleven previous exact
-managed release pins remain, plus the twelfth revision with the corrected start-file hash.
-
-The previous submitted-video release passed 17 actual-media/restart checks and 59 built-browser checks.
-These are historical results and were not rerun for this bootstrap-only update. Audio/render/upload/Brain
-logic, dependency/GPU pins and all frontend source/build bytes are unchanged. New checks cover runtime
-selection, environment preservation/rebuild/rollback and interpreter forwarding. Installer tests retain
-historical release hashes and disposable Brain/accounts/media data. Native Windows execution is unverified.
+Current application and final pinned-delivery validation: 1,504 fast checks passed (687.23 s), all 18 actual-media/restart cases passed across the recorded 15 + 3 segments (the final three use an explicit zero-gap compressed fixture), and all 61 built-browser checks passed (170.29 s). TypeScript/production build passed. The final 205-file manifest and 17 tested frontend files match the source export; production code remained unchanged after the fast/first-15-media checks. Only the slow-loop timing fixture changed, and all its affected cases passed afterward. Delivery checks passed: 52 setup, 13 pin-helper, 12 builder and 10 exact-export checks. The exact export contains 521 committed files. Native Windows and real account uploads remain unverified.
+The final source export matches the committed app and tested frontend, with six declared BAT CRLF
+exports. The builder verifies every outer ZIP member byte-for-byte and both archive CRCs. Final pinning retains
+all twelve previous exact managed identities and adds the new revision (thirteen total). Earlier
+Windows runtime-selection/environment-preservation, audio and consistent TikTok-icon fixes remain included.
+This continuation does not redeploy the public website. Native Windows execution remains unverified.
 
 CLAUDE_HANDOFF.md inside the app has code, evidence and continuation details; ask Claude to read it and
 AGENTS.md. Never share account keys or private app data. No owner profile, real account upload, native Windows,

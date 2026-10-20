@@ -1,5 +1,44 @@
 # Delivery checkpoint: readable Windows source setup
 
+## Brain guidance, moving framing, upload spacing and input reuse — 2026-10-19 (America/Chicago)
+
+App revision: 2eda06afe16b9dbfd22a2f42c3056d08c88c7094.
+App archive SHA-256: 2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832.
+Artifact base: 25a410cb5e750514975c8af7d8d11781742c7350.
+
+General platform/workflow Brain tags no longer require those words in the source transcript; actual topic
+tags still narrow relevance. Supported selection/render decisions retain lesson revision evidence, and the
+editor shows the lessons used. Raw notes stay local; unsupported reference prose and explicit editor choices
+retain their existing behavior. Automatic framing follows usable face/speaker tracks, with measured visual
+motion fallback for missing tracks and long dropouts. The quality gate requires recorded evidence for that
+estimate. Center/Manual choices remain steady; old rendered/uploaded media is preserved.
+
+The default gap is 30 minutes without a new daily cap. A one-time migration updates the old saved zero,
+preserving positive custom gaps and later explicit choices. Serialized local planning repairs pending
+automatic collisions while retaining valid approvals and explicit rescheduled times. Durable per-account
+reservations also space queued transfers after restarts/platform waits, refreshing at actual transfer starts
+and completions. Started/uncertain transfers keep their reconciliation identity; due times do not bypass
+the upload cooldown or platform waits. Setting zero explicitly disables optional pacing.
+
+Queue carries an existing valid submitted input's reuse statement onto its exact new posts, avoiding repeat
+typing during quality/manual review. A unique real submission remains discoverable after an older intake
+marker is lost. Repaired generated output needs fresh passing checks; owner edits and changed destinations
+still need review. Source bytes/terms/credit, account/audience/kids choices, old-backlog exclusion, blocks and
+TikTok per-post consent remain bound. A file alone creates no permission; reuse text never becomes Brain.
+
+Current application and final pinned-delivery validation: 1,504 fast checks passed (687.23 s), all 18 actual-media/restart cases passed across the recorded 15 + 3 segments (the final three use an explicit zero-gap compressed fixture), and all 61 built-browser checks passed (170.29 s). TypeScript/production build passed. The final 205-file manifest and 17 tested frontend files match the source export; production code remained unchanged after the fast/first-15-media checks. Only the slow-loop timing fixture changed, and all its affected cases passed afterward. Delivery checks passed: 52 setup, 13 pin-helper, 12 builder and 10 exact-export checks. The exact export contains 521 committed files. Native Windows and real account uploads remain unverified.
+
+Final pinning preserves every one of the twelve prior managed-release/start-file identities and adds the
+new revision (thirteen total). Historical EXE SHA-256 remains
+3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26; it is neither rebuilt nor recommended.
+The readable CMD/Python setup, Python 3.12/3.11 policy and dependency/GPU pins are unchanged. Earlier audio,
+submitted-video and consistent TikTok-icon fixes remain included; the public website is not redeployed here.
+Native Windows/Defender, owner data/RTX3050, real social delivery and a 24-hour soak remain unverified.
+
+Extract All the outer ZIP, keep the four files together and the inner app.zip zipped, then open the CMD.
+Final exact-source, frontend, archive CRC and immutable remote-byte verification are required before sharing
+the new download. Machine pins and verification metadata are finalized only after the app source checkpoint.
+
 ## Windows Python runtime compatibility repair — 2026-10-19 (America/Chicago)
 
 App revision: 4fae46c82f5b14e3a54c451dee7ff5e3d948b21f.

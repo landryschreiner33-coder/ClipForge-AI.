@@ -78,6 +78,28 @@ Brain knowledge. Brain examples supply measured duration and supported saved pre
 not learn their visual appearance from their pixels. General reference text remains searchable. Explicit
 clip-editor changes take priority. Existing Brain content and rendered/uploaded clips are retained.
 
+## Brain guidance, framing and upload timing
+
+General Brain lessons tagged with platforms such as TikTok or YouTube Shorts can apply across subjects;
+actual topic tags still narrow relevance. Recognized preferences guide selection and rendering, with Settings
+filling unspecified choices. The clip editor shows the saved lesson titles and revisions actually used.
+Unsupported prose remains reference material rather than becoming an editing command.
+
+Automatic framing follows usable face/speaker tracks and can use measured visual motion when those tracks
+are missing or lost. The quality report identifies that fallback as an estimate. Explicit Center and Manual
+framing stay as chosen. These changes apply to newly rendered clips; existing files and uploads are preserved.
+
+The default posting gap is **30 minutes**, without adding a daily cap. A one-time migration updates the old
+saved zero; positive custom gaps and later explicit choices remain. Settings can change the gap or set it to
+zero to disable pacing. Automatic pending collisions and already queued uploads are spaced across restarts
+and platform waits. Explicit rescheduled times, valid content approvals and started/uncertain transfer
+identities are preserved; a due post can still wait for its account's upload cooldown.
+
+Queue can carry a valid **Make & upload clips** input's reuse statement onto its exact new posts, avoiding
+retyping it when a clip needs quality or manual review. Freshly repaired generated output still needs passing
+checks for its new bytes. Owner edits, changed destinations, old backlog and inputs without a valid saved
+request can still require review. A local file alone grants no permission, and TikTok keeps per-post review.
+
 ## Audio and earlier fixes
 
 New renders select the same first audio track for transcription and output, downmix before normalization,
@@ -105,30 +127,21 @@ data in chat or a Claude handoff.
 
 ## Exact application and verification
 
-Application revision: **4fae46c82f5b14e3a54c451dee7ff5e3d948b21f**
-Included app.zip SHA-256: **ab675182d3618c718a075b98f035a8cc5c0f8d2c702914f5659cd4f3de65fbae**
+Application revision: **2eda06afe16b9dbfd22a2f42c3056d08c88c7094**
+Included app.zip SHA-256: **2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832**
 
 Setup verifies the archive and known start.bat hash before installing new code. Existing managed identity
 checks verify the marker and start file, rather than claiming a complete checksum of every installed file.
-The new release retains all eleven prior exact managed-release pins and adds its own new start-file pin
-(twelve total). Historical start-file SHA-256 remains
+The release retains all twelve prior exact managed-release pins and adds its own identity (thirteen total). Historical start-file SHA-256 remains
 40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c; the corrected launcher SHA-256 is
 26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1.
 
-Current application validation: 1,489 fast checks passed (17 deselected, 527.16 s), including 38 focused
-Windows-bootstrap checks (3.54 s in the focused run). All 203 frozen source/test/bootstrap/requirements
-hashes stayed unchanged. Final delivery checks passed: 52 installer checks (1.500 s), 13 pin-helper checks
-(0.514 s), 12 builder checks (0.012 s) and 10 exact-export-helper checks (0.426 s).
+Current application and final pinned-delivery validation: 1,504 fast checks passed (687.23 s), all 18 actual-media/restart cases passed across the recorded 15 + 3 segments (the final three use an explicit zero-gap compressed fixture), and all 61 built-browser checks passed (170.29 s). TypeScript/production build passed. The final 205-file manifest and 17 tested frontend files match the source export; production code remained unchanged after the fast/first-15-media checks. Only the slow-loop timing fixture changed, and all its affected cases passed afterward. Delivery checks passed: 52 setup, 13 pin-helper, 12 builder and 10 exact-export checks. The exact export contains 521 committed files. Native Windows and real account uploads remain unverified.
 
-The previous submitted-video release passed 17 actual-media/restart checks and 59 built-browser checks.
-Those are historical results, not reruns for this bootstrap-only update. Audio/render/publishing and Brain
-logic, dependency/GPU pins and every frontend source/build byte are unchanged. The new focused checks cover
-actual runtime rejection, safe environment preservation/rebuild/rollback and quoted interpreter forwarding;
-the installer checks cover every historical start-file hash and unchanged disposable owner data. Official
-PyPI Windows CPython 3.12 CTranslate2 wheel-resolution/hash evidence is recorded separately; no native Windows
-runtime was available. The exact export verifies all 515 committed files and all 17 previously tested
-frontend hashes, with six declared BAT CRLF exports and no extra or missing source files. The builder
-verifies the four outer ZIP members byte-for-byte and both archive CRCs.
+The exact source export matches the committed app and tested frontend, with only the six declared BAT
+CRLF exports. Final assembly verifies the four outer ZIP members byte-for-byte and both archive CRCs. Earlier
+Windows runtime-selection, environment-preservation, audio and consistent TikTok-icon fixes remain included;
+application/GPU dependency pins are unchanged. This continuation does not redeploy the public website.
 
 Tests use isolated data, synthetic media and fake platforms. Native Windows/Defender, the owner's data or
 RTX3050, real account uploads, phone/Tailscale pairing and a 24-hour unattended soak remain unverified.
