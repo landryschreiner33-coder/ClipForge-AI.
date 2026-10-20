@@ -430,11 +430,14 @@ def test_the_website_is_ready_to_publish():
 
     from clipfoundry.api import LEGAL_DIR
 
-    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == ["index.html", "privacy.html", "site.css", "terms.html"]
+    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == [
+        "app-icon.png", "favicon.ico", "index.html", "privacy.html", "site.css", "terms.html"]
     for page in ("index.html", "privacy.html", "terms.html"):
         html = (LEGAL_DIR / page).read_text(encoding="utf-8")
         assert not re.search(r"\{\{|\[[A-Z][A-Z ]+\]", html), f"{page}: unresolved placeholder"
-        assert not re.search(r"<script|<form|<iframe|<img|@import", html, re.I), page
+        assert not re.search(r"<script|<form|<iframe|@import", html, re.I), page
+        # The visible logo is the same bundled PNG as TikTok; it must not load an external image.
+        assert re.findall(r'<img[^>]+src="([^"]+)"', html) == ["app-icon.png"], page
         assert re.findall(r'<link rel="stylesheet" href="([^"]+)"', html) == ["site.css"], page
         header = html.split("<main", 1)[0]
         assert 'href="privacy.html"' in header and 'href="terms.html"' in header, page

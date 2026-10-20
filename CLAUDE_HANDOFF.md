@@ -3,11 +3,28 @@
 Prepared October 19, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
 `AI_CHANGELOG.md` before changing anything. This is a local Windows desktop app, not a hosted service.
 
+## Latest: TikTok icon review correction — 2026-10-19 (America/Chicago)
+
+The current owner request fixes TikTok's icon mismatch rejection. The existing public `gh-pages` site now uses
+the same unchanged 1024-square dark robot PNG as Basic information, in all three headers and browser tabs.
+Branding-only site revision `80a6a3f4782de64fed88a06d9db54533de4869bd` deployed successfully in Pages run
+39347822850; exact remote source readback passed and existing verification/legal text was preserved. The site is
+https://landryschreiner33-coder.github.io/ClipForge-AI./ . Direct live-site HTTP is outside this environment's
+network policy; deployment and source-rendering checks are the available evidence.
+
+Source app changes use the same PNG for Logo/favicon and a single helper download; form packs include all matching
+website assets, with PNG/ICO served in local legal previews. Legacy dark/light API endpoints remain. The light
+image is a valid historical alternate, not a missing/blank file; new exports recommend the exact submitted dark
+image to avoid branding drift. Existing installer artifact was not rebuilt, and no reinstall is necessary for
+the public-site fix. See `AI_HANDOFF.md` for final validation. The owner must resubmit in TikTok's portal; no
+approval, real sign-in, account permission change or real post is claimed by these changes.
+
 ## Start here
 
 The application repository is `landryschreiner33-coder/ClipForge-AI.` (including the final dot).
 Work is on `codex/brain-graph-quality-discovery`, based on tested revision
-`fcd48aecece759ed676d871a9282d81b83f0ab92`. The commit containing this handoff repairs Windows setup without changing the submitted-video workflow. Fetch and
+`4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`. The current checkpoint corrects TikTok icon consistency after the
+Windows setup repair, preserving the submitted-video workflow. Fetch and
 inspect the branch and working tree before trusting a cached checkout; do not reset or discard someone else's work.
 The earlier PR #14 is merged; this is later continuation work, not a request to recreate that PR or merge blindly.
 

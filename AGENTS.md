@@ -371,6 +371,13 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**TikTok icon review correction (2026-10-19, America/Chicago):** The reviewer requires the Basic information
+icon to match the public website and browser tab. Keep `design/tiktok/app-icon-dark.png` as the canonical
+unchanged 1024-square robot, reused by the app, public pages, favicon and current form export. Recommend one
+icon rather than interchangeable themes. Publish only the branding correction to the existing `gh-pages` site;
+preserve its existing verification file and legal/product copy. This request grants no real-post authorization
+or TikTok eligibility/approval. The public website update does not require reinstalling the desktop app.
+
 **Latest Windows setup continuation (2026-10-19, America/Chicago):** The owner reports pip cannot find a
 matching CTranslate2 distribution. The screenshot alone does not identify the actual Python version, architecture
 or index. Use the project's supported Windows runtime policy: standard **64-bit CPython 3.12**, then **3.11**,

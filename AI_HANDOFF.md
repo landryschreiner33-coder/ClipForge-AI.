@@ -4,6 +4,41 @@ Read [AGENTS.md](AGENTS.md), this file, [docs/OFFICE.md](docs/OFFICE.md) and
 [docs/PLATFORM_CAPABILITIES.md](docs/PLATFORM_CAPABILITIES.md). Snapshot: 2026-10-19 (America/Chicago).
 Fetch before trusting branch state.
 
+## Latest continuation: consistent TikTok app, website and tab icon
+
+Date: 2026-10-19 (America/Chicago). Base: `4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`, on
+`codex/brain-graph-quality-discovery`. TikTok's reviewer rejected Basic information because its robot icon did
+not match the older filmstrip on the public site and browser tab.
+
+The unchanged submitted dark robot PNG (`design/tiktok/app-icon-dark.png`, 1024 x 1024 RGB, 9,382 bytes,
+SHA-256 `b4dae127e333ec936c29acc6d9baabebda2caaf724689a2435591a7652e077fa`) now supplies the app's Logo and
+favicon, all three legal-page headers and PNG favicons, and the current helper's single recommended download.
+Legacy dark/light API endpoints remain for existing clients. Form packs contain `app-icon.png` and complete
+website assets, including that exact PNG and an ICO with six nearest-neighbor frames (16 through 256 pixels).
+The local `/legal/` allowlist serves those images with their proper types; no credentials or app data are exported.
+
+Published the narrow branding correction to existing `gh-pages` as
+`80a6a3f4782de64fed88a06d9db54533de4869bd`. The site's existing product/legal text, `.nojekyll` and TikTok URL
+verification file are unchanged. [Pages run 39347822850](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/39347822850)
+succeeded for that exact revision and reports https://landryschreiner33-coder.github.io/ClipForge-AI./ . All eight
+published source files were read back byte-for-byte. Direct live-site HTTP is unverified because `github.io` is
+outside this environment's network policy; exact-source browser checks and successful deployment were verified.
+No desktop reinstall is needed to correct the public website. The existing readable installer remains pinned to
+its earlier app revision; this checkpoint does not rebuild or replace it. The owner can use the exact published
+`app-icon.png` in TikTok Basic information and resubmit. TikTok approval remains its own decision; no portal
+submission, real account connection, scope change or post was performed.
+
+**Validation:** TypeScript/production build passed (5.11 s). Final affected Python suites: 41 passed in 6.89 s.
+Twelve Chromium checks cover all three public pages at desktop/mobile widths in light/dark mode; the built app
+header, favicon, helper preview and download also match the exact submitted PNG. All six ICO frames match nearest-
+neighbor canonical pixels. The broad fast run completed with 1,489 passed, one obsolete website-readiness fixture
+failure and 17 slow deselected in 537.24 s. It had already collected the older fixture, which forbade added assets
+and all image elements. The corrected fixture permits only the bundled canonical image and passes in both the
+41-case affected-suite rerun and a final individual rerun. All 326 frozen code/test/build/website hashes match.
+Exact published source readback and successful Pages deployment were verified. The media/Autopilot pipeline and
+dependency/bootstrap files are unchanged; slow media and broad browser suites were not rerun for this branding
+correction.
+
 ## Latest continuation: Windows Python selection and safe environment recovery
 
 Date: 2026-10-19 (America/Chicago). Base: `fcd48aecece759ed676d871a9282d81b83f0ab92`, on

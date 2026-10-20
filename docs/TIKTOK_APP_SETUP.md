@@ -2,7 +2,7 @@
 
 Open **Settings → Accounts → TikTok → Help me fill out the TikTok app form**. The same helper is available in
 first-time account setup. It supplies copyable app details, a real callback address for the current local port,
-two branded 1024 × 1024 PNG icons, product/scope explanations and a demo-recording checklist.
+one canonical 1024 × 1024 PNG app icon, product/scope explanations and a demo-recording checklist.
 
 Start with **Send to my TikTok inbox** for the smallest posting scope. Direct Post and the optional statistics
 scope need their own demonstrated uses. **Use these permissions in ClipFoundry**, save Settings, then reconnect:
@@ -16,7 +16,10 @@ App review and Content Posting audit decisions must be checked in TikTok's devel
 ## What to enter in TikTok's portal
 
 1. Create the app with the name **ClipFoundry**, the closest video/video-editing category and platform **Desktop**.
-   Use one supplied PNG icon and the helper's truthful description of a local, personal desktop editor.
+   Use the supplied **app-icon.png** and the helper's truthful description of a local, personal desktop editor.
+   Use that same image for the public website logo and browser-tab icon; the included website pages already do.
+   Keep the PNG unchanged when publishing, including its background and proportions. After replacing an older
+   website icon, reload the website and browser tab before recording or resubmitting the app.
 2. Add **Login Kit** and **Content Posting API**. Add only the permissions used by your selected mode:
    inbox uses `user.info.basic,video.upload`; Direct Post only uses `user.info.basic,video.publish`.
    Request both posting scopes only if using both features. Statistics adds **Display API** and `video.list`.
@@ -37,7 +40,10 @@ App review and Content Posting audit decisions must be checked in TikTok's devel
    statistics requests also need the real returned metrics. TikTok permits one to five demo videos of up to 50 MB
    each. A fake-platform test or controlled UI preview is not a real integration demo.
 
-**Download TikTok form pack** saves a ZIP containing form text/JSON, the icons and draft website/legal pages.
+**Download TikTok form pack** saves a ZIP containing form text/JSON, **app-icon.png** and draft website/legal pages
+with that exact icon and a browser-compatible favicon. Publish all website-preview files together so image and
+favicon links work on the home, Terms and Privacy pages. The old light/dark download endpoints remain available
+for earlier clients; new form packs and the current helper use only the canonical dark-background icon.
 Entered invalid website addresses block download, including links containing credentials, query parameters or
 fragments. Correct them or leave them blank to export an incomplete draft with placeholders.
 It excludes settings dumps, app credentials, tokens, account identities and owner media. Website fields and

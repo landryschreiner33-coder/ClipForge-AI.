@@ -132,6 +132,7 @@ def form_packet(settings: dict, redirect: str, draft: SetupDraft | None = None) 
         "portal_status": "Check TikTok's developer portal; ClipFoundry cannot verify app review or audit status.",
         "limits": LIMITATIONS, "sources": SOURCES,
         "icon": {"width": 1024, "height": 1024, "format": "PNG", "max_bytes": 5 * 1024 * 1024,
+                 "url": "/api/publish/tiktok/setup/icon/dark",
                  "dark_url": "/api/publish/tiktok/setup/icon/dark",
                  "light_url": "/api/publish/tiktok/setup/icon/light"},
         "demo_steps": [
@@ -157,6 +158,9 @@ def export_packet(packet: dict) -> bytes:
     text.extend(["Products: " + ", ".join(packet["products"]), "Scopes: " + ", ".join(packet["scopes"]), ""])
     for name, value in packet["urls"].items():
         text.append(f"{name.title()}: {value or '[add your real published HTTPS page]'}")
+    text.extend(["", "App icon: app-icon.png (1024 x 1024 PNG). Use this exact image in TikTok Basic "
+                 "information, on your public website and as its browser-tab icon. The included website "
+                 "preview already uses this image."])
     text.extend(["", packet["url_check"], "", "Your checklist (self-reported, not platform verification):"])
     text.extend(f"[{'x' if row['completed'] else ' '}] {row['label']}" for row in packet["checklist"])
     text.extend(["", "Demo recording:", *packet["demo_steps"], "", "Official guides:"])
@@ -165,13 +169,14 @@ def export_packet(packet: dict) -> bytes:
     with zipfile.ZipFile(data, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("form-draft.txt", "\n".join(text) + "\n")
         z.writestr("form-draft.json", json.dumps(packet, ensure_ascii=False, indent=2) + "\n")
-        for theme in ("dark", "light"):
-            z.write(config.ROOT_DIR / "design" / "tiktok" / f"app-icon-{theme}.png", f"app-icon-{theme}.png")
-        for name in ("index.html", "privacy.html", "terms.html", "site.css"):
+        z.write(config.ROOT_DIR / "design" / "tiktok" / "app-icon-dark.png", "app-icon.png")
+        for name in ("index.html", "privacy.html", "terms.html", "site.css", "app-icon.png", "favicon.ico"):
             z.write(config.ROOT_DIR / "docs" / "legal" / name, f"website-preview/{name}")
         z.writestr("website-preview/READ-ME.txt", "These are local draft pages, not a deployed website. Review "
                    "the product, contact and legal text before publishing. TikTok expects a real developed "
                    "official website, active visible policy links and verified URL ownership. Hosting these "
-                   "files alone does not guarantee eligibility or approval. Never expose ClipFoundry's local "
+                   "files alone does not guarantee eligibility or approval. Publish all included files together; "
+                   "keep app-icon.png unchanged so TikTok Basic information, the website logo and browser tab "
+                   "show the same icon. Never expose ClipFoundry's local "
                    "API, credentials or your data folder as the public website.\n")
     return data.getvalue()

@@ -1,5 +1,31 @@
 # Implementation status
 
+## Consistent TikTok review icon — 2026-10-19 (America/Chicago)
+
+Base: `4fae46c82f5b14e3a54c451dee7ff5e3d948b21f`, on `codex/brain-graph-quality-discovery`.
+
+- [x] Reuse the submitted 1024-square robot PNG for app branding, public-page headers and browser-tab icons.
+- [x] Recommend one consistent icon and include complete matching website assets in form exports.
+- [x] Serve the legal-preview PNG/ICO through the existing bounded asset allowlist with correct media types.
+- [x] Publish branding-only existing-site update, preserving TikTok URL verification and existing legal text.
+- [x] Verify exact published source and successful Pages deployment for `80a6a3f4782de64fed88a06d9db54533de4869bd`.
+
+**Validation:** TypeScript/production build passed (5.11 s). Final affected Python suites: 41 passed in 6.89 s.
+Twelve Chromium checks cover all three public pages at desktop/mobile widths in light/dark mode; the built app
+header, favicon, helper preview and download also match the exact submitted PNG. All six ICO frames match nearest-
+neighbor canonical pixels. The broad fast run completed with 1,489 passed, one obsolete website-readiness fixture
+failure and 17 slow deselected in 537.24 s. It had already collected the older fixture, which forbade added assets
+and all image elements. The corrected fixture permits only the bundled canonical image and passes in both the
+41-case affected-suite rerun and a final individual rerun. All 326 frozen code/test/build/website hashes match.
+Exact published source readback and successful Pages deployment were verified. The media/Autopilot pipeline and
+dependency/bootstrap files are unchanged; slow media and broad browser suites were not rerun for this branding
+correction.
+
+Direct `github.io` HTTP is unavailable under the environment's network policy; successful deployment, remote
+source and local browser rendering were verified. No TikTok resubmission, production approval, real account
+upload or Windows install was performed. Existing installer was not replaced; no reinstall is needed for the
+public website correction.
+
 ## Windows Python bootstrap and safe environment replacement — 2026-10-19 (America/Chicago)
 
 Base: `fcd48aecece759ed676d871a9282d81b83f0ab92`, on `codex/brain-graph-quality-discovery`.

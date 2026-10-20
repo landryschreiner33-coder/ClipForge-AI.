@@ -65,13 +65,8 @@ export function Icon({ name, size, fill = false, className = "" }: { name: IconN
 
 export function Logo({ size = 32 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" shapeRendering="crispEdges"
-      aria-hidden="true" focusable="false">
-      <path d="M4 0h24v4h4v24h-4v4H4v-4H0V4h4z" fill="#26384c" />
-      <path d="M14 3h4v5h-4zM7 9h18v3h3v12h-3v3H7v-3H4V12h3z" fill="#f4ebd7" />
-      <path d="M8 13h16v9H8z" fill="#0b1421" />
-      <path d="M10 15h3v4h-3zM19 15h3v4h-3zM14 24h4v2h-4z" fill="#f5b94c" />
-    </svg>
+    <img src="/app-icon.png" width={size} height={size} alt="" aria-hidden="true"
+      style={{ flex: "none", imageRendering: "pixelated" }} />
   );
 }
 

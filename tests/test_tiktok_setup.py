@@ -5,6 +5,7 @@ import io
 import json
 import struct
 import zipfile
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -81,9 +82,10 @@ def test_form_export_uses_curated_fields_only_and_includes_real_1024_pngs(client
     response = client.post("/api/publish/tiktok/setup/export", json={"mode": "inbox"}, headers=H)
     assert response.status_code == 200 and response.headers["content-type"] == "application/zip"
     with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-        expected = {"form-draft.txt", "form-draft.json", "app-icon-dark.png", "app-icon-light.png",
+        expected = {"form-draft.txt", "form-draft.json", "app-icon.png",
                     "website-preview/index.html", "website-preview/privacy.html", "website-preview/terms.html",
-                    "website-preview/site.css", "website-preview/READ-ME.txt"}
+                    "website-preview/site.css", "website-preview/app-icon.png", "website-preview/favicon.ico",
+                    "website-preview/READ-ME.txt"}
         assert set(z.namelist()) == expected
         for name in expected:
             data = z.read(name)
@@ -93,14 +95,57 @@ def test_form_export_uses_curated_fields_only_and_includes_real_1024_pngs(client
         assert packet["scopes"] == ["user.info.basic", "video.upload"]
         assert "[add your real published HTTPS page]" in z.read("form-draft.txt").decode()
         assert "not a deployed website" in z.read("website-preview/READ-ME.txt").decode()
-        for theme in ("dark", "light"):
-            png = z.read(f"app-icon-{theme}.png")
-            assert png[:8] == b"\x89PNG\r\n\x1a\n"
-            assert struct.unpack(">II", png[16:24]) == (1024, 1024)
-            assert len(png) < 5 * 1024 * 1024
-            direct = client.get(f"/api/publish/tiktok/setup/icon/{theme}")
-            assert direct.status_code == 200 and direct.content == png
+        png = z.read("app-icon.png")
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+        assert struct.unpack(">II", png[16:24]) == (1024, 1024)
+        assert len(png) < 5 * 1024 * 1024
+        assert z.read("website-preview/app-icon.png") == png
+        direct = client.get(packet["icon"]["url"])
+        assert direct.status_code == 200 and direct.content == png
+        assert "this exact image" in z.read("form-draft.txt").decode()
+        # Older clients may still request either variant, but the current packet recommends one icon only.
+        assert client.get("/api/publish/tiktok/setup/icon/dark").content == png
+        assert client.get("/api/publish/tiktok/setup/icon/light").status_code == 200
     assert client.get("/api/publish/tiktok/setup/icon/other").status_code == 404
+
+
+def test_tiktok_icon_matches_app_and_every_legal_page_logo_and_browser_tab(client):
+    """Exercise served pages/assets so a bundle with stale branding fails before review."""
+    class Images(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.icons = []
+            self.images = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "link" and "icon" in attrs.get("rel", "").split():
+                self.icons.append(attrs.get("href", ""))
+            if tag == "img":
+                self.images.append(attrs.get("src", ""))
+
+    canonical = client.get("/api/publish/tiktok/setup/icon/dark").content
+    for path in ("/", "/legal/", "/legal/privacy.html", "/legal/terms.html"):
+        response = client.get(path)
+        assert response.status_code == 200
+        parsed = Images()
+        parsed.feed(response.text)
+        assert parsed.icons, f"Missing browser-tab icon: {path}"
+        assert urlparse(parsed.icons[0]).path.endswith("app-icon.png"), path
+        references = [ref for ref in parsed.icons if not urlparse(ref).path.endswith(".ico")]
+        if path != "/":
+            assert parsed.images, f"Missing visible app icon: {path}"
+            references += parsed.images
+        for reference in references:
+            address = urlparse(reference)
+            assert address.path.endswith("app-icon.png"), (path, reference)
+            base = "/legal/" if path != "/" else "/"
+            asset = client.get(base + reference.lstrip("/"))
+            assert asset.status_code == 200, (path, reference)
+            assert asset.headers["content-type"] == "image/png"
+            assert asset.content == canonical, (path, reference)
+    ico = client.get("/legal/favicon.ico")
+    assert ico.status_code == 200 and ico.content[:4] == b"\x00\x00\x01\x00"
 
 
 def test_form_routes_are_local_only_and_post_requests_need_the_app_header(client):

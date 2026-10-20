@@ -7,6 +7,29 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## 2026-10-19 · Matching TikTok icon across the app and public website
+
+* **Changed:** reuse the exact submitted 1024-square robot PNG for app branding, the public site's headers and
+  browser tabs, and the helper's single recommended icon. Form packs include matching PNG/ICO website assets;
+  local legal previews serve them correctly. Legacy icon download endpoints remain compatible.
+* **Published:** branding-only `gh-pages` revision `80a6a3f4782de64fed88a06d9db54533de4869bd`; successful
+  Pages deployment and exact readback of all eight source files. Preserve existing TikTok URL verification,
+  `.nojekyll` and product/legal copy. The public-site fix needs no desktop reinstall.
+* **Why:** TikTok's reviewer found the submitted robot differed from the website's old filmstrip logo/favicon.
+* **Validation:** TypeScript/production build passed (5.11 s). Final affected Python suites: 41 passed in 6.89 s.
+  Twelve Chromium checks cover all three public pages at desktop/mobile widths in light/dark mode; the built app
+  header, favicon, helper preview and download also match the exact submitted PNG. All six ICO frames match nearest-
+  neighbor canonical pixels. The broad fast run completed with 1,489 passed, one obsolete website-readiness fixture
+  failure and 17 slow deselected in 537.24 s. It had already collected the older fixture, which forbade added assets
+  and all image elements. The corrected fixture permits only the bundled canonical image and passes in both the
+  41-case affected-suite rerun and a final individual rerun. All 326 frozen code/test/build/website hashes match.
+  Exact published source readback and successful Pages deployment were verified. The media/Autopilot pipeline and
+  dependency/bootstrap files are unchanged; slow media and broad browser suites were not rerun for this branding
+  correction.
+* **Limits:** direct live-site HTTP is unavailable under this environment's network policy. No TikTok portal
+  submission/approval or real account upload verified. Existing installer artifact remains pinned to its prior
+  revision; media/Autopilot/dependency behavior is unchanged.
+
 ## 2026-10-19 · Verified Windows Python selection and preserved environment recovery
 
 * **Changed:** standard-library bootstrap verifies actual standard 64-bit CPython 3.12/3.11 for Windows AMD64;

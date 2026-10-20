@@ -13,7 +13,7 @@ interface Packet {
   scope_notes: Record<string, string>; urls: Record<string, string>; url_errors: Record<string, string>;
   url_check: string; review_explanation: string; completed_count: number; portal_status: string;
   checklist: { id: string; label: string; completed: boolean }[]; limits: string[];
-  sources: Record<string, string>; demo_steps: string[]; icon: { dark_url: string; light_url: string };
+  sources: Record<string, string>; demo_steps: string[]; icon: { url?: string; dark_url: string };
 }
 // Settings remounts its account cards after saving. Keep the user's non-secret draft in this tab through that
 // remount, without persisting it to the app database or browser storage. Reloading or closing clears it.
@@ -158,12 +158,13 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
         <p className="tiny muted">This HTTP address is correct for Desktop sign-in on this computer. It includes
           your current port. Register it exactly in Login Kit Desktop; it is separate from the public website.</p>
         <div className="tk-icons">
-          <img src={packet.icon.dark_url} alt="ClipFoundry robot app icon on a dark background" />
+          <img src={packet.icon.url || packet.icon.dark_url} alt="ClipFoundry robot app icon on a dark background" />
           <div><span className="small strong">Your app icon · 1024 × 1024 PNG</span>
             <div className="row wrap">
-              <a className="btn btn-small" href={packet.icon.dark_url} download>Download dark</a>
-              <a className="btn btn-small" href={packet.icon.light_url} download>Download light</a></div>
-            <p className="tiny muted">Use the ClipFoundry name and icon consistently. Both files are below 5 MB.</p>
+              <a className="btn btn-small" href={packet.icon.url || packet.icon.dark_url}
+                download="ClipFoundry-app-icon.png">Download app icon</a></div>
+            <p className="tiny muted">Upload this same icon in TikTok Basic information. The included website,
+              browser tab and ClipFoundry app use this exact image. The PNG is below 5 MB.</p>
           </div>
         </div>
         <Disclosure plain summary="Public website, Terms and Privacy fields">
