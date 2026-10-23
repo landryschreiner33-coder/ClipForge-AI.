@@ -1,5 +1,28 @@
 # ClipFoundry handoff for Claude
 
+## Upload-only audio clarification — 2026-10-23 (America/Chicago)
+
+**Unresolved:** The owner now clarifies that the video sounds fine before upload and becomes distorted/quiet
+only after upload. The earlier normalization defect is real, but it is not a confirmed explanation or fix for
+this reported upload-only problem. Do not claim the prior download fixes this case without comparing the actual
+finished local MP4 with its matching platform playback. It remains unknown whether the local preview means the
+original source, the finished clip, or another rendered version; the platform/link has been requested.
+
+Follow-up on app revision `58770e2242c8a84a6b6394048abde55a5065dc23`: traced selected-file resolution, content-hash
+checks, and YouTube/TikTok binary upload paths. The encoders are not invoked by the uploaders. Six focused
+resumable/interrupted/chunk tests passed (50 deselected, 6.63 s). A retained synthetic render has AAC-LC stereo
+at 48 kHz, with audio/video starting at zero and both container durations 11.600 s. Four local secondary encodes
+(AAC/Opus, mono/stereo, 128 kbps) retained clean initial tone and stable repeated passages: initial-to-later
+RMS change remained within 0.007 dB and initial tone purity exceeded 99.99%. These are local FFmpeg tests,
+not YouTube/TikTok processing tests and not evidence about the owner's particular media.
+
+No functional code, media, platform account or release package changed in this follow-up. Next evidence needed:
+the exact exported finished MP4 that sounds correct locally and the corresponding affected uploaded-video link
+(or the platform-processed file if the link cannot be accessed). Compare the same version, initial decoded
+samples, channel phase/downmix, timestamps and platform output before choosing another processing change.
+The cloud workspace has no owner-PC VPN/account connection and its network policy does not currently grant
+YouTube/TikTok access. Do not bypass that policy or ask for account credentials.
+
 ## Audio startup and volume stability — 2026-10-23 (America/Chicago)
 
 Base: `2eda06afe16b9dbfd22a2f42c3056d08c88c7094`, verified as the latest pushed source on both
