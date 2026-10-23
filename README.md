@@ -102,6 +102,13 @@ request can still require review. A local file alone grants no permission, and T
 
 ## Audio and earlier fixes
 
+The previous normalizer could boost a quiet opening and then sharply reduce the volume after a loud moment.
+New normalized renders measure the entire edited audio timeline first and use one constant volume adjustment,
+with peak headroom and a bounded boost. Initial silence, speech timing, first-track selection, speed changes,
+stereo downmix and the final limiter are preserved. Very dynamic clips may be quieter than the -14 LUFS target.
+Re-render an older affected clip from its source, preview it, and let fresh file checks run before uploading.
+Existing uploads are not changed. The original source must itself contain usable audio.
+
 New renders select the same first audio track for transcription and output, downmix before normalization,
 preserve delayed starts and gaps in clip-relative time, and apply final peak control after volume changes.
 Final checks inspect the exact output before upload; upload uses the checked bytes. Synthetic-media tests
@@ -127,16 +134,16 @@ data in chat or a Claude handoff.
 
 ## Exact application and verification
 
-Application revision: **2eda06afe16b9dbfd22a2f42c3056d08c88c7094**
-Included app.zip SHA-256: **2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832**
+Application revision: **58770e2242c8a84a6b6394048abde55a5065dc23**
+Included app.zip SHA-256: **494c52f3d295088b09bc2d007e7c402331b1d1e62990084e1aeb80a517a40d8e**
 
 Setup verifies the archive and known start.bat hash before installing new code. Existing managed identity
 checks verify the marker and start file, rather than claiming a complete checksum of every installed file.
-The release retains all twelve prior exact managed-release pins and adds its own identity (thirteen total). Historical start-file SHA-256 remains
+The release retains all thirteen prior exact managed-release pins and adds its own identity (fourteen total). Historical start-file SHA-256 remains
 40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c; the corrected launcher SHA-256 is
 26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1.
 
-Current application and final pinned-delivery validation: 1,504 fast checks passed (687.23 s), all 18 actual-media/restart cases passed across the recorded 15 + 3 segments (the final three use an explicit zero-gap compressed fixture), and all 61 built-browser checks passed (170.29 s). TypeScript/production build passed. The final 205-file manifest and 17 tested frontend files match the source export; production code remained unchanged after the fast/first-15-media checks. Only the slow-loop timing fixture changed, and all its affected cases passed afterward. Delivery checks passed: 52 setup, 13 pin-helper, 12 builder and 10 exact-export checks. The exact export contains 521 committed files. Native Windows and real account uploads remain unverified.
+Current validation: 1,515 fast tests passed (573.11 s); all 19 real-media/restart cases passed (890.51 s), with no final failures or skips. TypeScript/Vite build and two existing built-browser creation/editor checks passed. All 202 frozen Python source/test files and 17 built files match. Initial media setup lacked espeak on PATH; adding the existing isolated tool and rerunning all media cases resolved those fixture failures without changing code. New tests cover AAC startup/quiet passages, noise/silence, exact edited timelines, measurement errors/cancellation, real render and unchanged fake YouTube/TikTok transfer bytes. The exact app export contains 522 committed files. Native Windows, owner source/profile and real platform transcoding remain unverified.
 
 The exact source export matches the committed app and tested frontend, with only the six declared BAT
 CRLF exports. Final assembly verifies the four outer ZIP members byte-for-byte and both archive CRCs. Earlier

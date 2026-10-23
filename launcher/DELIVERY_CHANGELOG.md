@@ -1,5 +1,24 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-10-23: stable audio startup and volume
+
+Source `58770e2242c8a84a6b6394048abde55a5065dc23` continues from the latest verified Claude/source revision `2eda06afe16b9dbfd22a2f42c3056d08c88c7094`.
+
+The previous normalizer could boost a quiet opening and then sharply reduce the volume after a loud moment.
+New normalized renders measure the entire edited audio timeline first and use one constant volume adjustment,
+with peak headroom and a bounded boost. Initial silence, speech timing, first-track selection, speed changes,
+stereo downmix and the final limiter are preserved. Very dynamic clips may be quieter than the -14 LUFS target.
+Re-render an older affected clip from its source, preview it, and let fresh file checks run before uploading.
+Existing uploads are not changed. The original source must itself contain usable audio.
+
+Current validation: 1,515 fast tests passed (573.11 s); all 19 real-media/restart cases passed (890.51 s), with no final failures or skips. TypeScript/Vite build and two existing built-browser creation/editor checks passed. All 202 frozen Python source/test files and 17 built files match. Initial media setup lacked espeak on PATH; adding the existing isolated tool and rerunning all media cases resolved those fixture failures without changing code. New tests cover AAC startup/quiet passages, noise/silence, exact edited timelines, measurement errors/cancellation, real render and unchanged fake YouTube/TikTok transfer bytes. The exact app export contains 522 committed files. Native Windows, owner source/profile and real platform transcoding remain unverified.
+
+The source setup ZIP is 42,194,590 bytes; SHA-256 `ff502ebf8ea64ccf6d77cb6a15775f066d80cde77075b61a87393d93b7dd2110`.
+All 13 prior managed releases are preserved (14 total). The historical blocked EXE is unchanged.
+The four outer members and both ZIP CRCs are verified; source files match exact committed Git blobs
+with the six declared BAT CRLF exports. Public Pages and real accounts were not touched.
+
+
 ## Brain guidance, moving framing, upload spacing and input reuse — 2026-10-19 (America/Chicago)
 
 App revision: 2eda06afe16b9dbfd22a2f42c3056d08c88c7094.

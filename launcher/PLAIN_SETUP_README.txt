@@ -33,8 +33,8 @@ environment is preserved in a separate backup before a supported one is created.
 accounts and clips are outside that environment. An incompatible setup interpreter stops before profile or
 installation writes; do not try to fix dependency resolution by deleting your saved data or changing GPU pins.
 
-Application revision: 2eda06afe16b9dbfd22a2f42c3056d08c88c7094
-Included app.zip SHA-256: 2056e56c9d8c66d098596c7f6b0b75a373d4ec2cfebe9a1f579198176ec48832
+Application revision: 58770e2242c8a84a6b6394048abde55a5065dc23
+Included app.zip SHA-256: 494c52f3d295088b09bc2d007e7c402331b1d1e62990084e1aeb80a517a40d8e
 Setup verifies the archive and known start.bat hash before installing or launching new app files.
 
 New workflow: add a video, then make and upload clips
@@ -72,6 +72,12 @@ Brain guidance, framing and upload timing
   A local file alone grants no permission. TikTok keeps its per-post review.
 
 Audio and earlier changes remain included
+The previous normalizer could boost a quiet opening and then sharply reduce the volume after a loud moment.
+New normalized renders measure the entire edited audio timeline first and use one constant volume adjustment,
+with peak headroom and a bounded boost. Initial silence, speech timing, first-track selection, speed changes,
+stereo downmix and the final limiter are preserved. Very dynamic clips may be quieter than the -14 LUFS target.
+Re-render an older affected clip from its source, preview it, and let fresh file checks run before uploading.
+Existing uploads are not changed. The original source must itself contain usable audio.
 - New renders use the same first audio track for transcription/output, downmix before normalization, preserve
   delayed starts/gaps and control peaks after gain. The checked output bytes are the bytes sent for upload.
 - Synthetic-media checks cover decoded audio timing/frequency/peaks/distortion, real rendering through fake
@@ -84,10 +90,10 @@ Audio and earlier changes remain included
 - Optional discovery/key diagnostics remain under Settings -> Advanced -> Autopilot details -> Video input.
   Search keys are not required for submitted videos and do not grant upload authorization.
 
-Current application and final pinned-delivery validation: 1,504 fast checks passed (687.23 s), all 18 actual-media/restart cases passed across the recorded 15 + 3 segments (the final three use an explicit zero-gap compressed fixture), and all 61 built-browser checks passed (170.29 s). TypeScript/production build passed. The final 205-file manifest and 17 tested frontend files match the source export; production code remained unchanged after the fast/first-15-media checks. Only the slow-loop timing fixture changed, and all its affected cases passed afterward. Delivery checks passed: 52 setup, 13 pin-helper, 12 builder and 10 exact-export checks. The exact export contains 521 committed files. Native Windows and real account uploads remain unverified.
+Current validation: 1,515 fast tests passed (573.11 s); all 19 real-media/restart cases passed (890.51 s), with no final failures or skips. TypeScript/Vite build and two existing built-browser creation/editor checks passed. All 202 frozen Python source/test files and 17 built files match. Initial media setup lacked espeak on PATH; adding the existing isolated tool and rerunning all media cases resolved those fixture failures without changing code. New tests cover AAC startup/quiet passages, noise/silence, exact edited timelines, measurement errors/cancellation, real render and unchanged fake YouTube/TikTok transfer bytes. The exact app export contains 522 committed files. Native Windows, owner source/profile and real platform transcoding remain unverified.
 The final source export matches the committed app and tested frontend, with six declared BAT CRLF
 exports. The builder verifies every outer ZIP member byte-for-byte and both archive CRCs. Final pinning retains
-all twelve previous exact managed identities and adds the new revision (thirteen total). Earlier
+all thirteen previous exact managed identities and adds the new revision (fourteen total). Earlier
 Windows runtime-selection/environment-preservation, audio and consistent TikTok-icon fixes remain included.
 This continuation does not redeploy the public website. Native Windows execution remains unverified.
 
