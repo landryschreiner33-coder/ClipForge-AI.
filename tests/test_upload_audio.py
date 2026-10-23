@@ -114,6 +114,7 @@ def test_transcription_keeps_a_timestamp_gap_in_the_middle_of_a_recording(profil
                                                              (True, 0, 6), (False, 0, 6)])
 def test_loudness_downmix_and_gain_do_not_overload_audio(profile, normalize, gain, channels):
     from clipfoundry.pipeline import render
+    from clipfoundry.pipeline.common import JobContext
 
     source = profile / "peaks.wav"
     tone = "(0.03+0.72*lt(mod(t\\,1)\\,0.05))*sin(2*PI*440*t)"
@@ -121,7 +122,10 @@ def test_loudness_downmix_and_gain_do_not_overload_audio(profile, normalize, gai
     if channels == 6:
         generated += ":c=5.1"
     _ffmpeg("-f", "lavfi", "-i", generated, source)
-    graph = render._audio_filter([(0, 4)], 0, {"normalize_audio": normalize, "gain_db": gain})
+    opts = {"normalize_audio": normalize, "gain_db": gain}
+    measured = render._measure_audio(["-i", str(source)], [(0, 4)], 0, opts, 4, JobContext())
+    graph = render._audio_filter([(0, 4)], 0, opts,
+                                 normalization_gain_db=measured["normalization_gain_db"])
     out = _ffmpeg("-f", "lavfi", "-i", "color=size=16x16:duration=4", "-i", source,
                   "-filter_complex", graph, "-map", "[a]", "-ac", "2", "-ar", "48000", "-f", "f32le", "-")
     samples = np.frombuffer(out.stdout, dtype="<f4").reshape(-1, 2)

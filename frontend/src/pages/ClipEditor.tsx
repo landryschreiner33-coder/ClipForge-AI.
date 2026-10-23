@@ -604,7 +604,7 @@ export default function ClipEditor({ id }: { id: string }) {
             aria-valuetext={`${gain > 0 ? "plus " : gain < 0 ? "minus " : ""}${Math.abs(gain)} decibels`}
             onChange={(e) => set({ gain_db: +e.target.value })} />
         </div>
-        <Check label="Normalize loudness to −14 LUFS (the social media standard)" on={bool("normalize_audio")}
+        <Check label="Normalize loudness (target −14 LUFS; preserve peaks)" on={bool("normalize_audio")}
           onChange={(v) => set({ normalize_audio: v })} />
         <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>

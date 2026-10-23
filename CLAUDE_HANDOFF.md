@@ -1,6 +1,37 @@
 # ClipFoundry handoff for Claude
 
-Prepared October 19, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
+## Audio startup and volume stability — 2026-10-23 (America/Chicago)
+
+Base: `2eda06afe16b9dbfd22a2f42c3056d08c88c7094`, verified as the latest pushed source on both
+`claude/sharp-rubin-zmg6tx` and `codex/brain-graph-quality-discovery` before work. All 18 remote branch heads
+were checked. This update continues from that source and preserves the earlier Brain, framing, scheduler,
+submitted-video, Python setup and robot-office changes.
+
+The previous single-pass loudness normalizer could boost a quiet opening by about 50 dB, then reduce the same
+quiet signal by over 24 dB after a loud moment. This is a reproduced processing defect, not proof that every
+reported distorted source has this cause. The owner has not supplied an affected original/render/platform pair.
+The uploaders transfer the rendered MP4 bytes without changing the audio.
+
+New normalized renders measure the complete kept audio timeline after first-track selection, clock repair,
+trims/joins, stereo downmix and speed changes. The encode uses one constant gain targeting -14 LUFS, limited
+by the measured -1.5 dB true-peak headroom and a maximum 24 dB boost. Highly dynamic recordings can therefore
+finish quieter than -14 LUFS rather than pumping or flattening their dynamics. Silent/ungated material receives
+no guessed boost. Explicit gain and the existing compensated final limiter remain. Normalization off skips the
+measurement pass. Failed/malformed measurements stop rendering; cancellation and time bounds apply. Numeric
+measurements and the applied gain are retained in local `render_info.audio_processing`; no extra audio recording
+is saved or sent to a service. The editor describes -14 LUFS as a target, not a guaranteed platform standard.
+
+Existing files, approvals and uploads are not rewritten or posted again. To apply the fix to an older clip,
+render it again from its source, preview it, and let its new exact-file checks/approval run before uploading.
+Already damaged source samples cannot be reconstructed by changing loudness normalization.
+
+**Validation:** Full fast suite: 1,515 passed, 19 slow deselected in 573.11 s. Full real-media/restart suite: 19 passed, 1,515 deselected in 890.51 s. No failures or skips in these final runs. The first media attempt lacked espeak on PATH (12 passed, four skipped, three fixture-setup failures); the existing isolated speech tool was added to that test process's PATH and all 19 cases were rerun without code changes. TypeScript/Vite production build passed (Vite 4.88 s); two existing built-browser creation/editor checks passed (11.6 s). All 202 frozen Python source/test files and 17 built files match. New regressions verify stable AAC startup and repeated quiet passages, noise/silence, exact kept intervals and speed, invalid-measurement/cancellation handling, a full 1080x1920 render from AAC 44.1 kHz, and byte-identical transfers through fake YouTube and TikTok. Before/after output measurement reduced an artificial 24.42 dB drop on identical quiet audio to 0.0013 dB. Real platform transcoding and the owner's affected original remain unverified.
+
+No owner data/profile, native Windows/RTX3050, real YouTube/TikTok upload or platform transcoding was tested.
+The local privacy text describes the added measurements; public Pages is not redeployed by this update.
+
+
+Prepared October 23, 2026, America/Chicago. Read `AGENTS.md`, the latest `AI_HANDOFF.md` section and the top of
 `AI_CHANGELOG.md` before changing anything. This is a local Windows desktop app, not a hosted service.
 
 ## Latest: creation reliability — 2026-10-19 (America/Chicago)

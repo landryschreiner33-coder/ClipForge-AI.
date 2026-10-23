@@ -371,6 +371,14 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Audio startup continuation (2026-10-23, America/Chicago):** Continue from the latest pushed Claude/source
+revision, verified before edits. Replace single-pass loudness pumping with a whole-edited-clip measurement and
+constant bounded gain. Preserve track/clock/downmix/speed/limiter behavior, explicit normalization-off choice,
+source audio and exact-file upload checks. No automatic rewrite or reupload of old clips. Test actual decoded
+AAC beginnings/quiet passages and fake platform bytes. Record limits honestly: no affected owner original,
+native Windows/GPU or real platform transcode was available. Deliver the readable source update with prior
+managed-profile identities intact; keep the historical blocked EXE unchanged.
+
 **Creation reliability continuation (2026-10-19, America/Chicago):** The owner reports unused Brain guidance,
 stationary framing, same-time schedules and repeated reuse questions in Queue for supplied videos. Platform
 labels such as TikTok/Shorts apply across topics; remaining topic tags still narrow guidance. Keep actual ranking

@@ -6,6 +6,8 @@ keep-segments so picture and sound stay in sync.
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 import subprocess
@@ -22,7 +24,7 @@ from . import artifact, captions, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
-                           video_encoder_args)
+                           run_process, video_encoder_args)
 from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
@@ -175,11 +177,13 @@ def _decode_size(w: int, h: int) -> tuple[int, int]:
     return max(2, dw), max(2, dh)
 
 
-def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> str:
+def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
+                  normalization_gain_db: float | None = None, measure: bool = False,
+                  input_label: str = "1:a:0") -> str:
     rel = [(a - start, b - start) for a, b in segs]
     # Input seeking resets the shared source clock, but the first audio packet may still arrive late. Rebuild
     # that clock before any trims: resetting PTS independently would move all speech earlier than the picture.
-    parts = [f"[1:a:0]aresample=48000:async=1:first_pts=0,apad=whole_dur={rel[-1][1]:.6f}[clock]"]
+    parts = [f"[{input_label}]aresample=48000:async=1:first_pts=0,apad=whole_dur={rel[-1][1]:.6f}[clock]"]
     fade = 0.01
     if len(rel) == 1:
         a, b = rel[0]
@@ -194,12 +198,20 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> 
         parts.append("".join(f"[c{i}]" for i in range(len(rel))) + f"concat=n={len(rel)}:v=0:a=1[ac]")
     chain = "[ac]"
     # Downmix before loudness/peak control so a multichannel mix cannot overload after being limited.
-    post = ["aformat=sample_rates=48000:channel_layouts=stereo"]
+    post = ["aformat=sample_fmts=dbl:sample_rates=48000:channel_layouts=stereo"]
     speed = float(opts.get("speed", 1.0) or 1.0)
     if abs(speed - 1.0) > 0.001:
         post.append(f"atempo={max(SPEED_RANGE[0], min(SPEED_RANGE[1], speed)):.4f}")  # faster, same pitch
+    if measure:
+        # Discard this output. Only the measurements of the exact edited timeline are used on the encode pass.
+        post.append("loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json")
+        parts.append(chain + ",".join(post) + "[a]")
+        return ";".join(parts)
     if opts.get("normalize_audio", True):
-        post.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+        if normalization_gain_db is None or not math.isfinite(normalization_gain_db):
+            raise ValueError("Audio normalization requires a measured, finite gain")
+        # One constant gain avoids single-pass loudnorm's excessive startup boost and slow volume pumping.
+        post.append(f"volume={normalization_gain_db:.6f}dB:precision=double")
     gain = float(opts.get("gain_db", 0) or 0)
     if abs(gain) > 0.01:
         post.append(f"volume={gain:.2f}dB")
@@ -208,6 +220,40 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> 
     post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1"]
     parts.append(chain + ",".join(post) + "[a]")
     return ";".join(parts)
+
+
+def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: float, opts: dict,
+                   duration: float, ctx: JobContext) -> dict:
+    """Measure the kept/downmixed/speed-adjusted audio once, without storing samples or touching the GPU."""
+    base = {"version": 1, "normalization": "off", "normalization_gain_db": 0.0}
+    if not opts.get("normalize_audio", True):
+        return base
+    ctx.check()
+    ctx.progress(0.03, "Measuring audio")
+    graph = _audio_filter(segs, start, opts, measure=True, input_label="0:a:0")
+    result = run_process([ffmpeg_bin(), "-nostdin", "-hide_banner", "-nostats", "-loglevel", "info",
+                          *audio_in, "-filter_complex", graph, "-map", "[a]", "-f", "null", "-"],
+                         timeout=max(60.0, duration * 5), cancel=ctx.cancelled)
+    if result.returncode:
+        raise FFmpegError("Could not measure the clip's audio. Check the source and try rendering again.")
+    try:
+        # FFmpeg reports input measurements after processing the whole edited clip, including its last word.
+        blocks = re.findall(r'\{\s*"input_i"\s*:.*?\}', result.stderr.decode("utf-8", "replace"), re.S)
+        measured = json.loads(blocks[-1])
+        integrated, peak = float(measured["input_i"]), float(measured["input_tp"])
+        if math.isnan(integrated) or math.isnan(peak) or integrated == math.inf or peak == math.inf:
+            raise ValueError("invalid loudness")
+        if peak == -math.inf and integrated != -math.inf:
+            raise ValueError("invalid peak")
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise FFmpegError("Audio measurement was incomplete. Try rendering the clip again.") from exc
+    # Ungated/silent material has no usable integrated loudness; never amplify its background noise blindly.
+    gain = min(-14.0 - integrated, -1.5 - peak, 24.0) if math.isfinite(integrated) else 0.0
+    return {**base, "normalization": "measured_fixed_gain", "target_lufs": -14.0,
+            "integrated_lufs": integrated if math.isfinite(integrated) else None,
+            "true_peak_dbfs": peak if math.isfinite(peak) else None,
+            "normalization_gain_db": gain, "max_boost_db": 24.0,
+            "peak_limited": math.isfinite(integrated) and -1.5 - peak < -14.0 - integrated}
 
 
 def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> list[dict]:
@@ -381,7 +427,9 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
     else:
         audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-    fc = vf + ";" + _audio_filter(segs, start, opts)
+    audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx)
+    fc = vf + ";" + _audio_filter(segs, start, opts,
+                                normalization_gain_db=audio_processing["normalization_gain_db"])
     tmp_out = out_dir / "render.tmp.mp4"
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
@@ -475,6 +523,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         "thumb_path": str(thumb) if thumb.exists() else "",
         "duration": round(tl.duration, 2),
         "render_info": {"brain_knowledge": brain_used, "mode": plan.mode, "faces": plan.faces_found,
+                        "audio_processing": audio_processing,
                         "framing_evidence": dict(plan.info),
                         "cuts": len(plan.cuts), "encoder": encoder,
                         "crop_w": round(cw_frac, 3), "layout": layout,
