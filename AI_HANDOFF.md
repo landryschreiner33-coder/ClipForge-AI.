@@ -1,5 +1,27 @@
 # AI handoff
 
+## Supplied audio sample investigation — 2026-10-28 (America/Chicago)
+
+The owner supplied a finished 23.067-second MP4 and its matching YouTube Shorts URL. The local MP4 fully
+decodes without reported errors: H.264 video and AAC-LC stereo at 48 kHz, audio/video starting at zero,
+matching 23.066667-second container lengths, and continuous audio packet timestamps. There is no opening
+silent stretch of 100 ms at either -50 or -60 dBFS. One-second channel correlation stays positive; this
+sample does not establish a phase-cancellation cause. This is structural/sample analysis, not a listening
+assessment or proof about platform playback.
+
+The exact supplied file (8,906,887 bytes) passed three local fake-YouTube transfers using the production
+8 MiB chunk size: normal, interruption after the first chunk followed by resume, and retry after HTTP 503.
+All three delivered byte-identical media through one session and produced one fake video. Secondary local
+128 kbps AAC and Opus encodes of this real sample preserved the first ten seconds: sample correlation >0.9975
+and maximum active 100 ms-window RMS drop <0.167 dB. These are not real YouTube transcode tests.
+
+**Still unresolved:** the browser service could not fetch either Shorts or watch playback (throttled), and the
+workspace proxy rejected YouTube access with HTTP 403. Do not work around that access policy. Request the
+posted copy downloaded through YouTube Studio, or a playback recording if that copy does not reproduce it.
+An optional question about replay on another device/browser is pending. The app source still has no confirmed
+upload-only defect. No speculative processing change, new installer, real upload or owner-account action was
+performed. Supplied media and derived audio remain in the private workspace, outside Git and release packages.
+
 ## Upload-only audio clarification — 2026-10-23 (America/Chicago)
 
 **Unresolved:** The owner now clarifies that the video sounds fine before upload and becomes distorted/quiet
