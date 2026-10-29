@@ -371,6 +371,13 @@ sent raw to a model. Uploaded examples supply measured length hints, not visual 
 
 ## Standing instructions from the owner
 
+**Confirmed upload-audio continuation (2026-10-29, America/Chicago):** The matching supplied media proves the
+local MP4 has a damaged AAC timing table that default FFmpeg parsing hides; Google's processed copy loses the
+opening sound. Preserve samples and source-clock repair; regenerate the FINAL audio clock after all filters.
+Check stored packet timing with timestamp auto-repair disabled, invalidate old quality caches, preserve started
+upload sessions, and require fresh checks/approval for replacement bytes. Keep owner media outside Git/releases.
+Do not claim actual YouTube re-upload verification without performing an authorized test.
+
 **Audio startup continuation (2026-10-23, America/Chicago):** Continue from the latest pushed Claude/source
 revision, verified before edits. Replace single-pass loudness pumping with a whole-edited-clip measurement and
 constant bounded gain. Preserve track/clock/downmix/speed/limiter behavior, explicit normalization-off choice,

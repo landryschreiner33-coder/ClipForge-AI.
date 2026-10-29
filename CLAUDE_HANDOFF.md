@@ -1,5 +1,35 @@
 # ClipFoundry handoff for Claude
 
+## Confirmed upload audio timing defect — 2026-10-29 (America/Chicago)
+
+The owner has now supplied both matching versions: the local 1080x1920 render and Google's processed
+720x1280 copy. Their pictures match (692 frames each; downscaled grayscale RMSE 0.707). The YouTube copy
+contains exact silence from 0.8360 to 3.0607 s while the local decoded audio remains present.
+
+**Correction to the earlier investigation:** default ffprobe/FFmpeg parsing repaired the AAC packet clock,
+so its apparently continuous timestamps did not establish a valid MP4 sample table. Direct examination of
+`stts`, and ffprobe with `-fflags +nofillin`, exposes 140 invalid audio packets in the local file. Many opening
+packet durations are 1 sample instead of 1024; a later packet covers 113498 samples instead of 1024. This
+squeezes the opening and leaves a 2.36 s interval, matching the pattern in Google's output. The audio samples
+and transfer bytes were intact. The previous volume-normalization fix alone was not a verified solution.
+
+New rendering resets the audio time base to 1/48000 and rebuilds timestamps from actual output sample counts
+AFTER cuts, speed, resampling and the compensated limiter. Real source delays/gaps have already been represented
+by samples and remain intact. AAC-LC is explicit. Before promoting a temporary render, an independent bounded,
+cancellable probe checks the stored packet clock without automatic timestamp repair. The final quality gate
+performs the same check. Gate version 3 invalidates old cached passes for unstarted work; malformed clocks fail
+with a rerender explanation and can return to the existing bounded render-repair path. Active/uncertain uploads
+retain their existing session behavior. Existing uploaded media and approvals are not rewritten or reuploaded.
+Older local files must receive a fresh render/check to use the fix; updating cannot restore an existing YouTube
+copy's missing audio.
+
+A separate private-workspace copy of the supplied ORIGINAL was repaired by rebuilding AAC packet timestamps
+without re-encoding: encoded video/audio packets and decoded audio are identical; its raw clock now has zero
+invalid packets. Neither owner file nor derived media is committed to Git or included in releases. A real
+YouTube re-upload of the corrected file has not been performed or verified.
+
+**Validation:** Full fast suite: 1,524 passed, 19 deselected in 1777.86 s. Full real-media/restart suite: 19 passed, 1,524 deselected in 2168.08 s. No final failures or skips. Nine new timing regressions pass, covering broken raw AAC clocks despite successful playback, corrected clocks, priming/final padding, two sample rates, malformed probes, cancellation and render handoff. All 204 frozen Python source/test files match. The 17 previously built frontend files are unchanged; no new frontend build was needed. The supplied local file fails the new raw timing check; its privately repaired copy passes with identical encoded audio/video packets and decoded audio. A synthetic regression fixture was corrected to include a video track before the final full fast run. A cloud workspace restart interrupted both earlier full-suite runs; both were restarted completely. Real YouTube re-upload and native Windows remain unverified.
+
 ## Supplied audio sample investigation — 2026-10-28 (America/Chicago)
 
 The owner supplied a finished 23.067-second MP4 and its matching YouTube Shorts URL. The local MP4 fully

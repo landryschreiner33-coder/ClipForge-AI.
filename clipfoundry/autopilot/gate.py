@@ -40,6 +40,7 @@ class ReuseReviewRequired(queue.Fail):
 # Rebuild damaged output/captions or conservatively repair word boundaries. Source sound, reuse terms and creative
 # judgments require their responsible stage's review, so the same impossible operation is never blindly retried.
 REGENERATABLE = {"hash", "codecs", "dimensions", "decode", "streams", "duration", "audio_stream", "av_timing",
+                 "audio_packet_timing",
                  "captions", "cuts"}
 
 

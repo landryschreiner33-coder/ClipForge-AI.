@@ -20,7 +20,7 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, captions, reframe
+from . import artifact, audio_timing, captions, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
@@ -217,7 +217,10 @@ def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
         post.append(f"volume={gain:.2f}dB")
     # Gain follows normalization, so even normalized speech can otherwise hard-clip at the allowed +12 dB.
     # Disable the limiter's default auto-level boost and compensate its lookahead to keep cuts/captions aligned.
-    post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1"]
+    post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1",
+             "asettb=1/48000", "asetpts=N/SR/TB"]
+    # Rebuild the final clock from actual output samples, after every rate/cut/limiter operation. Source
+    # delays are already represented by samples above; filter buffering must not become MP4 timestamp gaps.
     parts.append(chain + ",".join(post) + "[a]")
     return ";".join(parts)
 
@@ -434,7 +437,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
                "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000",
+               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
+               "-ac", "2", "-ar", "48000",
                # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
                # video pipe early when concatenated audio is buffered, dropping frames after a silence cut.
                "-movflags", "+faststart", "-t", f"{tl.duration:.6f}", tmp_out.name]
@@ -498,6 +502,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             dec.wait()
     if rc != 0 or not tmp_out.exists():
         raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
+    audio_processing["packet_timing"] = audio_timing.require_valid(tmp_out, ctx.cancelled)
     # Versioned names: on Windows a file that the browser is still streaming cannot be replaced.
     stamp = str(int(time.time() * 1000))
     out_path = out_dir / f"clip-{stamp}.mp4"

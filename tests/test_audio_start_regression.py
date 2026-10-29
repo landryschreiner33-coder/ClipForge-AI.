@@ -152,6 +152,7 @@ def test_rendered_startup_audio_reaches_both_fake_platforms_unchanged(env):
     assert _purity(_window(samples, .05, .55)) > .995
     assert abs(probe(output)["audio_duration"] - probe(output)["video_duration"]) < .05
     assert result["render_info"]["audio_processing"]["normalization"] == "measured_fixed_gain"
+    assert result["render_info"]["audio_processing"]["packet_timing"]["valid"] is True
     body = {"snippet": {"title": "Synthetic audio test"},
             "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}}
     uploaded = youtube.upload(str(output), body, youtube.Token(db.get_settings()))
