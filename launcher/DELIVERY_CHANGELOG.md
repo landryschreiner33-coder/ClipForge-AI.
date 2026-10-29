@@ -1,5 +1,21 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-10-29: confirmed upload audio clock defect
+
+Source `88386d6cd4f4ede321d6f4d2fca406de67eba1cc`.
+
+This update fixes the invalid audio packet timestamps found in the supplied original clip.
+Normal local playback could hide the damage; the matching YouTube copy contained a 2.22-second silent gap.
+New renders rebuild the final clock from actual audio samples and check the stored timestamps independently.
+The final quality gate now rejects this defect and refreshes old cached checks before a fresh upload starts.
+Re-render affected local clips after updating. Already uploaded videos cannot regain their missing audio
+without a corrected replacement. A real YouTube re-upload has not been tested.
+
+Current validation: 1,524 fast tests passed (1777.86 s); all 19 real-media/restart cases passed (2168.08 s), with no final failures or skips. Nine new raw-clock regressions pass. All 204 frozen Python source/test files match. The 17 previously built frontend files are unchanged. The supplied original fails the raw-clock check; a separate private copy passes after timing-only repair, with encoded video/audio packets and decoded audio unchanged. Owner media is excluded from the 524-file exact app export. Native Windows and a real corrected YouTube upload remain unverified.
+
+ZIP: 42,209,821 bytes; SHA-256 `267f1dc686d1584fa86d91c4f56bf4e8db7399ea1954bbe876f3698ded55bddc`. All 14 prior managed release identities are retained (15 total). Historical blocked EXE unchanged. No public Pages deployment, real account action or inclusion of owner media.
+
+
 ## 2026-10-23: stable audio startup and volume
 
 Source `58770e2242c8a84a6b6394048abde55a5065dc23` continues from the latest verified Claude/source revision `2eda06afe16b9dbfd22a2f42c3056d08c88c7094`.

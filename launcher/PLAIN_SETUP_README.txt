@@ -33,8 +33,8 @@ environment is preserved in a separate backup before a supported one is created.
 accounts and clips are outside that environment. An incompatible setup interpreter stops before profile or
 installation writes; do not try to fix dependency resolution by deleting your saved data or changing GPU pins.
 
-Application revision: 58770e2242c8a84a6b6394048abde55a5065dc23
-Included app.zip SHA-256: 494c52f3d295088b09bc2d007e7c402331b1d1e62990084e1aeb80a517a40d8e
+Application revision: 88386d6cd4f4ede321d6f4d2fca406de67eba1cc
+Included app.zip SHA-256: 0cc389b2933c1ba5459267e19c7baedef49967f9785e7121277767fedc77aeb8
 Setup verifies the archive and known start.bat hash before installing or launching new app files.
 
 New workflow: add a video, then make and upload clips
@@ -72,6 +72,14 @@ Brain guidance, framing and upload timing
   A local file alone grants no permission. TikTok keeps its per-post review.
 
 Audio and earlier changes remain included
+
+This update fixes the invalid audio packet timestamps found in the supplied original clip.
+Normal local playback could hide the damage; the matching YouTube copy contained a 2.22-second silent gap.
+New renders rebuild the final clock from actual audio samples and check the stored timestamps independently.
+The final quality gate now rejects this defect and refreshes old cached checks before a fresh upload starts.
+Re-render affected local clips after updating. Already uploaded videos cannot regain their missing audio
+without a corrected replacement. A real YouTube re-upload has not been tested.
+
 The previous normalizer could boost a quiet opening and then sharply reduce the volume after a loud moment.
 New normalized renders measure the entire edited audio timeline first and use one constant volume adjustment,
 with peak headroom and a bounded boost. Initial silence, speech timing, first-track selection, speed changes,
@@ -90,10 +98,10 @@ Existing uploads are not changed. The original source must itself contain usable
 - Optional discovery/key diagnostics remain under Settings -> Advanced -> Autopilot details -> Video input.
   Search keys are not required for submitted videos and do not grant upload authorization.
 
-Current validation: 1,515 fast tests passed (573.11 s); all 19 real-media/restart cases passed (890.51 s), with no final failures or skips. TypeScript/Vite build and two existing built-browser creation/editor checks passed. All 202 frozen Python source/test files and 17 built files match. Initial media setup lacked espeak on PATH; adding the existing isolated tool and rerunning all media cases resolved those fixture failures without changing code. New tests cover AAC startup/quiet passages, noise/silence, exact edited timelines, measurement errors/cancellation, real render and unchanged fake YouTube/TikTok transfer bytes. The exact app export contains 522 committed files. Native Windows, owner source/profile and real platform transcoding remain unverified.
+Current validation: 1,524 fast tests passed (1777.86 s); all 19 real-media/restart cases passed (2168.08 s), with no final failures or skips. Nine new raw-clock regressions pass. All 204 frozen Python source/test files match. The 17 previously built frontend files are unchanged. The supplied original fails the raw-clock check; a separate private copy passes after timing-only repair, with encoded video/audio packets and decoded audio unchanged. Owner media is excluded from the 524-file exact app export. Native Windows and a real corrected YouTube upload remain unverified.
 The final source export matches the committed app and tested frontend, with six declared BAT CRLF
 exports. The builder verifies every outer ZIP member byte-for-byte and both archive CRCs. Final pinning retains
-all thirteen previous exact managed identities and adds the new revision (fourteen total). Earlier
+all fourteen previous exact managed identities and adds the new revision (fifteen total). Earlier
 Windows runtime-selection/environment-preservation, audio and consistent TikTok-icon fixes remain included.
 This continuation does not redeploy the public website. Native Windows execution remains unverified.
 
