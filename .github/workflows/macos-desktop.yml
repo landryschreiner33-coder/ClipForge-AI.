@@ -25,6 +25,10 @@ jobs:
       - name: Archive development app for review (not a notarized release)
         run: |
           ditto -c -k --keepParent "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry.app" "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry-Development.zip"
+          python3 -m venv "$RUNNER_TEMP/package-venv"
+          "$RUNNER_TEMP/package-venv/bin/pip" install 'dmgbuild==1.6.7'
+          "$RUNNER_TEMP/package-venv/bin/python" macos/package_desktop.py --app "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry.app" --output "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry-Development.dmg"
+          cp "$RUNNER_TEMP/clipfoundry-desktop/installer-background.png" "$RUNNER_TEMP/clipfoundry-desktop/evidence/installer-background.png"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,6 +40,7 @@ jobs:
           name: ClipFoundry-Development-NOT-NOTARIZED
           path: |
             ${{ runner.temp }}/clipfoundry-desktop/ClipFoundry-Development.zip
+            ${{ runner.temp }}/clipfoundry-desktop/ClipFoundry-Development.dmg
             ${{ runner.temp }}/clipfoundry-desktop/ClipFoundry-Corresponding-Source.tar.gz
           compression-level: 0
           retention-days: 7

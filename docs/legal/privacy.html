@@ -64,6 +64,12 @@
   (<code>Videos\ClipFoundry</code>). Existing folders are preserved when submitted mode is selected.
 </p>
 <p>
+  On macOS, the packaged app keeps its data in <code>~/Library/Application Support/ClipFoundry/data</code>.
+  Replacing the application does not delete that data. The native Mac window also keeps its interface preferences
+  and cache in macOS-managed local WebKit storage, separately from your regular browser. Account sign-in opens
+  in your default browser. These local stores are not sent to us.
+</p>
+<p>
   ClipFoundry doesn't use cookies. The Follow system, Full or Reduced animation preference stays in your browser's
   local storage on this computer and is not sent to a platform. Clearing browser storage removes it; your operating
   system's motion preference still applies when Follow system is selected. This preference does not change video

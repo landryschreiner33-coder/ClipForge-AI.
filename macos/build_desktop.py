@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,26 @@ def make_icon(contents: Path, work: Path):
     shutil.copy2(source, contents / 'Resources/app-icon.png')
 
 
+def resolve_library(dependency: str, original: Path, executable: Path) -> Path:
+    def expand(path: str) -> Path:
+        return Path(path.replace('@loader_path', str(original.parent)).replace('@executable_path', str(executable.parent)))
+    if dependency.startswith('@rpath/'):
+        commands = output('otool', '-l', original)
+        roots = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset', commands)
+        candidates = [expand(root) / dependency.removeprefix('@rpath/') for root in roots]
+        # Homebrew libraries may inherit the same-formula loader's rpath. Keep
+        # resolution constrained to the original library directory in that case.
+        candidates.append(original.parent / dependency.removeprefix('@rpath/'))
+        matches = {candidate.resolve() for candidate in candidates if candidate.is_file()}
+        if len(matches) != 1:
+            raise ValueError(f'Unresolved or ambiguous media dependency: {dependency}')
+        return matches.pop()
+    result = expand(dependency).resolve()
+    if not result.is_file():
+        raise ValueError(f'Missing media dependency: {dependency}')
+    return result
+
+
 def media(contents: Path, work: Path):
     """Build redistributable GPL ffmpeg, then relocate only its runtime dylibs."""
     source_meta = json.loads((ROOT / 'macos/desktop/media-source.json').read_text())
@@ -106,12 +127,7 @@ def media(contents: Path, work: Path):
             dependency = line.strip().split(' (', 1)[0]
             if dependency.startswith(('/usr/lib/', '/System/')):
                 continue
-            if not dependency.startswith('/'):
-                # Built FFmpeg and Homebrew bottles must use resolvable absolute links.
-                if dependency == '@rpath/' + original.name:
-                    continue  # this dylib's own install ID
-                raise ValueError(f'Unresolved media dependency: {dependency}')
-            real = Path(dependency).resolve()
+            real = resolve_library(dependency, original, prefix / 'bin/ffmpeg')
             if real == original.resolve():
                 continue
             if '/Cellar/' not in str(real):
@@ -150,6 +166,11 @@ def media(contents: Path, work: Path):
 <fontconfig><dir>/System/Library/Fonts</dir><dir>/Library/Fonts</dir><dir prefix="xdg">fonts</dir>
 <cachedir prefix="xdg">fontconfig</cachedir></fontconfig>
 ''')
+    # Relocation invalidates existing Mach-O signatures. Re-sign before executing
+    # on ARM64, then sign every bundle component again in the final app pass.
+    for path in [*libraries.iterdir(), *helpers.iterdir()]:
+        if macho(path):
+            run('codesign', '--force', '--sign', '-', path, stderr=subprocess.DEVNULL)
     config_text = output(helpers / 'ffmpeg', '-buildconf', stderr=subprocess.STDOUT)
     if '--enable-nonfree' in config_text:
         raise ValueError('Non-redistributable FFmpeg is not allowed in the app')
