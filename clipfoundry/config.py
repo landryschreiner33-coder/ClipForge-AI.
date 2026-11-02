@@ -107,7 +107,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_overlay": True,
     "hook_seconds": 3.0,
     "normalize_audio": True,
-    "encoder": "auto",                # auto | nvenc | x264
+    "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",
     "max_fps": 30,

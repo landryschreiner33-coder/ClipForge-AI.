@@ -1,2 +1,3 @@
 -r requirements.txt
 pytest>=8
+cryptography>=44,<49  # exercise the Mac encryption format on every development platform

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import time
 
 from .. import config, db
@@ -89,6 +90,14 @@ def gpu(settings: dict) -> dict:
         st = gpu_mod.manager.status(settings)
     except Exception as exc:  # noqa: BLE001 - a broken driver must not break the health page
         return _c("gpu", "GPU (CUDA)", "unknown", f"The GPU could not be read: {exc}"[:200], GPU_FIX)
+    if sys.platform == "darwin" and (st.get("whisper") or {}).get("device") == "cpu":
+        from ..pipeline.transcribe import whisper_installed
+
+        if not whisper_installed() or st.get("problem"):
+            return _c("gpu", "Mac transcription", "error", st.get("problem") or "Speech engine is unavailable.",
+                      "Reopen the Mac setup package to repair its Python dependencies.")
+        return _c("gpu", "Mac transcription", "healthy", "Local CPU transcription is ready; NVIDIA CUDA is not "
+                  "required on this Mac. Apple video encoding is checked separately in Settings.", name="Mac CPU")
     if not st["available"]:
         return _c("gpu", "GPU (CUDA)", "error" if not settings.get("autopilot_allow_cpu_fallback") else "degraded",
                   st.get("problem") or "No NVIDIA GPU was found.", st.get("fix") or GPU_FIX, name="")

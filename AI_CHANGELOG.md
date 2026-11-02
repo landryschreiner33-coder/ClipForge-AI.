@@ -7,6 +7,39 @@ read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is 
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
 
+## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
+
+The owner explicitly requests a public download website and the full ClipFoundry workflow on an M5 Max.
+Work continues from 88386d6; the prior Claude changes and independent raw AAC clock correction remain intact.
+The new source branch is `codex/macos-download-site`. Website source is separately maintained at
+`/workspace/sites/clipfoundry-downloads`, Sites project `appgprj_6ae8b76d68108191bc36af565f138bed`.
+Its requested audience is public; the existing GitHub Pages/TikTok verification site is unchanged.
+
+`macos/` builds a readable unsigned ZIP with a verified native ARM64 Python 3.12 runtime. First setup installs
+Mac dependencies and obtains pinned FFmpeg/ffprobe directly from upstream, checking compressed and extracted
+hashes. Code/environments are per-release; data stays in `~/Library/Application Support/ClipFoundry/data`.
+Old releases/data are retained. Another running installation is not killed. First-run imports and a synthetic
+H.264/AAC render with the production raw-clock check must pass before setup is marked complete.
+
+New Mac credentials use AES-GCM and a per-profile login Keychain key, with no plaintext fallback. CPU Whisper
+is a supported native path (no Metal ASR claim). Auto encoding checks VideoToolbox before choosing it, with
+x264 fallback. Mac Autopilot uses a process-bound caffeinate request; the office no longer treats the absence
+of an NVIDIA GPU as a Mac failure. YouTube/TikTok permission, review, limit and uncertain-upload behavior is unchanged.
+
+**Current verification checkpoint:** 15 focused platform/setup tests passed; frontend built successfully;
+ARM64-only Python wheels resolved for the full dependency set; bundled Python and both video binaries have
+ARM64 Mach-O headers; browser checks passed at 1440, 390 and 320 pixels with working keyboard-accessible
+setup tabs and no page errors/overflow. Full fast and real-media suites are running after a workspace
+interruption. An initial slow run also exposed missing espeak on PATH; the existing verified local test tool
+was restored before the complete rerun. Native CI is configured on the public repository's free standard
+macOS runner, using only synthetic credentials/media and an ephemeral profile. Results are not yet claimed.
+
+**Limits / finish:** verify native CI and complete suite results, publish a checksum-verified Mac artifact,
+update website download/release metadata, then deploy the public Site. macOS version and Apple Developer
+membership remain unconfirmed. No M5 Max owner-machine testing, Apple signing/notarization, real social upload,
+existing-upload repair, paid enrollment or security-policy change has been performed. Windows stays on the
+verified fc7b199 delivery ZIP until a separate Windows release is needed. Never include owner media in downloads.
+
 ## Confirmed upload audio timing defect — 2026-10-29 (America/Chicago)
 
 The owner has now supplied both matching versions: the local 1080x1920 render and Google's processed

@@ -420,8 +420,11 @@
 <ul>
   <li>On Windows, sign-in tokens, API keys and client secrets are encrypted with Windows' own data protection (DPAPI),
     so only your Windows account on that computer can read them. If Windows can't encrypt one, ClipFoundry stores it
-    without encryption and notes that in its log. On other systems they are stored without encryption in
-    ClipFoundry's database, which it makes readable only by your user account.</li>
+    without encryption and notes that in its log. On macOS, newly saved secrets are encrypted with AES-GCM using
+    a per-profile key in your login Keychain; saving fails if Keychain protection is unavailable. Older unencrypted
+    Mac entries remain readable until saved again. Copying a Windows or Mac database alone does not transfer its
+    protected sign-ins; reconnect those accounts on the new computer. On Linux, secrets are stored without
+    encryption in ClipFoundry's database, which it makes readable only by your user account.</li>
   <li>ClipFoundry's screens open in your web browser, and by default only your own computer can reach them (the
     address <code>127.0.0.1</code>). If you choose to open them to your home network, anyone on that network can use
     them, so do that only on a network you trust. Connecting accounts, approving posts and publishing a clip yourself

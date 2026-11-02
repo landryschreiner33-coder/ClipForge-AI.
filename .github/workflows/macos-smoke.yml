@@ -1,0 +1,22 @@
+name: Apple silicon package smoke test
+on:
+  push:
+    branches: [codex/macos-download-site]
+    paths:
+      - 'clipfoundry/**'
+      - 'frontend/dist/**'
+      - 'macos/**'
+      - 'requirements*.txt'
+      - '.github/workflows/macos-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    if: github.event.repository.private == false
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native ARM64 setup, Keychain, audio clock and app startup
+        run: python3 macos/ci_bootstrap.py

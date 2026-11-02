@@ -19,7 +19,7 @@ from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
 from .pipeline import cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
-from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available
+from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, videotoolbox_available
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import routes as publish_routes
@@ -120,6 +120,7 @@ def health() -> dict:
         "ffmpeg": ffmpeg,
         "ffprobe": ffprobe,
         "nvenc": nvenc_available() if ffmpeg else False,
+        "videotoolbox": videotoolbox_available() if ffmpeg else False,
         "cuda": status["devices"] > 0,
         "gpu": {"name": plan["gpu"], "vram_mb": plan["vram_mb"], "libs_ok": status["libs_ok"],
                 "libraries": status["libraries"]},

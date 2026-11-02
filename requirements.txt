@@ -12,3 +12,7 @@ tzdata>=2024.1             # time zones for the scheduler (Windows has no built-
 # Optional features (safe to remove if you never use them)
 yt-dlp>=2024.1.1           # "From URL" import of public videos (no DRM/login bypass)
 anthropic>=1.0             # optional paid Claude API scoring; off by default
+
+# macOS account encryption also works when using the developer start.sh path.
+keyring>=25.6,<27; sys_platform == "darwin"
+cryptography>=44,<49; sys_platform == "darwin"

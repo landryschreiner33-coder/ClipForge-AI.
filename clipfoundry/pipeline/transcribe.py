@@ -8,7 +8,9 @@ from __future__ import annotations
 import gc
 import html
 import os
+import platform
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -65,6 +67,11 @@ def whisper_plan(settings: dict, status: dict | None = None, device: str | None 
         device = "cpu"
         problem, fix = status.get("problem", ""), status.get("fix", "")
         reason = problem or "no NVIDIA CUDA GPU detected"
+        if sys.platform == "darwin" and platform.machine().lower() == "arm64":
+            reason = "Native Apple silicon CPU; this speech engine does not use Metal"
+            # CUDA is not an Apple-silicon prerequisite. Preserve genuine missing-engine diagnostics.
+            if status.get("ctranslate2"):
+                problem = fix = ""
     supported = set(status.get("compute_types") or []) if device == "cuda" else set(cuda.cpu_compute_types())
     compute, note = _pick_compute(device, settings.get("whisper_compute_type", "auto") or "auto", supported,
                                   int(gpu.get("vram_mb") or 0))

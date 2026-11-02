@@ -161,6 +161,7 @@ export interface Health {
   ffmpeg: string | null;
   ffprobe: string | null;
   nvenc: boolean;
+  videotoolbox?: boolean;
   cuda: boolean;
   whisper_installed: boolean;
   gpu: { name: string; vram_mb: number; libs_ok: boolean | null; libraries: { name: string; what: string; ok: boolean; path: string }[] };

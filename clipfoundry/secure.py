@@ -4,8 +4,8 @@ ClipFoundry never asks for, sees or stores a Google or TikTok password: you sign
 and ClipFoundry receives an access token (and a refresh token) through OAuth.
 
 On Windows those tokens are encrypted with DPAPI (CryptProtectData, current-user scope), so only your Windows account
-on this PC can decrypt them; a copy of the database on another PC or account is useless. On Linux and macOS they are
-stored base64-encoded (not encrypted) in the database, which ClipFoundry keeps readable by your user account only.
+on this PC can decrypt them; a copy of the database on another PC or account is useless. On macOS, new secrets are
+encrypted with a key in the login Keychain. Linux uses owner-readable, base64-encoded (not encrypted) storage.
 """
 from __future__ import annotations
 
@@ -64,6 +64,14 @@ def seal(text: str) -> str:
     """Protect a secret for storage (empty stays empty)."""
     if not text:
         return ""
+    if sys.platform == "darwin":
+        try:
+            from . import macos_secrets
+
+            return macos_secrets.seal(text)
+        except Exception as exc:
+            raise SecretError("macOS Keychain could not protect this connection. Unlock your login Keychain "
+                              "and allow ClipFoundry's Python to use it, then try connecting again.") from exc
     if sys.platform == "win32":
         try:
             return DPAPI + base64.b64encode(_dpapi(text.encode("utf-8"), True)).decode("ascii")
@@ -76,6 +84,16 @@ def unseal(stored: str) -> str:
     """Recover a secret stored with `seal`. Values saved before sealing existed are returned as-is."""
     if not stored:
         return ""
+    if stored.startswith("keychain:"):
+        if sys.platform != "darwin" or not stored.startswith("keychain:v1:"):
+            raise SecretError("This connection needs its original Mac Keychain. Reconnect the account here.")
+        try:
+            from . import macos_secrets
+
+            return macos_secrets.unseal(stored)
+        except Exception as exc:
+            raise SecretError("macOS could not unlock this saved connection. Unlock your login Keychain, "
+                              "or reconnect this account if the profile came from another Mac.") from exc
     if stored.startswith(DPAPI):
         if sys.platform != "win32":
             raise SecretError("This secret was encrypted by Windows for another PC or account.")
@@ -90,6 +108,8 @@ def unseal(stored: str) -> str:
 
 
 def protection() -> str:
+    if sys.platform == "darwin":
+        return "encrypted with a key stored in your macOS login Keychain"
     return ("encrypted with Windows DPAPI (only your Windows account on this PC can read them)"
             if sys.platform == "win32" else "stored in the local database, readable only by your user account")
 

@@ -507,7 +507,11 @@ def pc_note(settings: dict) -> str:
     start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
     start, end = int(9 if start is None else start), int(21 if end is None else end)
     hours = "at any hour" if (start, end) == (0, 24) else f"between {hour(start)} and {hour(end)}"
-    return PC_NOTE.format(sleep=SLEEP[now], hours=hours)
+    note = PC_NOTE.format(sleep=SLEEP[now], hours=hours)
+    if awake.keeper._platform == "darwin":
+        note = note.replace("Windows", "macOS").replace("PC", "Mac").replace(
+            "black ClipFoundry window", "ClipFoundry Terminal window")
+    return note
 
 
 def keep_awake(settings: dict) -> str:
@@ -520,6 +524,11 @@ def needs_sleep_fix(settings: dict) -> dict | None:
     the live state, so it goes away by itself when a retry works or Autopilot or the setting is turned off."""
     if keep_awake(settings) != "failed":
         return None
+    if awake.keeper._platform == "darwin":
+        return {"key": "keep_awake", "type": "sleep", "title": "Your Mac may sleep and pause Autopilot",
+                "detail": "macOS did not maintain ClipFoundry's request to prevent idle sleep.",
+                "fix": "Keep the Mac powered and its lid open. Check System Settings → Battery or Energy "
+                       "and prevent automatic sleep while using ClipFoundry. The app retries the request."}
     return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
             "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
                       "Autopilot finds, clips and posts nothing.",

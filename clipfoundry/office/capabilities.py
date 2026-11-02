@@ -34,7 +34,7 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "discovery": (IMPLEMENTED, "Popular and searched videos through the YouTube Data API (your connected "
                                    "channel or an API key)."),
         "metadata": (IMPLEMENTED, "Title, channel, duration, views, likes and comments as YouTube reports them."),
-        "transcript": (LOCAL, "Made on this PC with Whisper on your GPU; YouTube captions are not downloaded."),
+        "transcript": (LOCAL, "Made locally with Whisper on your supported GPU or CPU; YouTube captions are not downloaded."),
         "media": (IMPLEMENTED, "A pasted link or a found video is downloaded only where access is allowed; your "
                                "connection to YouTube does not grant downloads."),
         "upload": (IMPLEMENTED, "Resumable upload through the YouTube Data API."),

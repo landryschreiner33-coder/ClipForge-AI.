@@ -33,6 +33,11 @@ can still require review. These changes affect new renders, not files already up
 > 64-bit 3.12 alongside your existing Python and reopen. The app opens at <http://127.0.0.1:8765>.
 > [Installation and dependency troubleshooting](INSTALL.md).
 
+**Apple-silicon Mac preview:** the [Mac setup guide](macos/README.md) covers the native ARM64 package for
+macOS 14+, including M5 Max. It includes a private Python runtime and downloads verified video tools on first
+launch. Full workflow support uses CPU speech recognition and tested-available Apple VideoToolbox encoding;
+there is no Metal speech engine. The setup is unsigned and awaits physical Mac verification.
+
 For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
 [Processing measurements and server advice](docs/PERFORMANCE.md).
 [Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).

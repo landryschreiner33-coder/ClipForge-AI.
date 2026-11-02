@@ -15,6 +15,17 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Public download website and Mac continuation (2026-11-02):** The owner requests a new public hosted download
+website and the full workflow on an Apple-silicon M5 Max. Public website publication is explicitly authorized.
+The original GitHub Pages/TikTok verification site and canonical robot icon remain intact. `macos/` contains a
+readable unsigned source launcher, native ARM64 Python package builder, and first-run diagnostics. Mac data stays
+in `~/Library/Application Support/ClipFoundry/data`, separate from immutable release code/environments. Preserve
+prior data/releases and don't kill other installations. New Mac credentials use AES-GCM with a Keychain-held
+key; failure must not fall back to plaintext. Native CPU faster-whisper is supported; do not promise Metal ASR.
+Use VideoToolbox only after a real hardware probe. No native M5 execution, signing or notarization is claimed.
+The owner's macOS version and Apple Developer membership remain unconfirmed. This grants no real video upload,
+paid enrollment, credential migration, or system security changes. Keep the prior raw AAC clock repair and checks.
+
 ClipFoundry (repo name ClipForge-AI) is a **local-first, single-user desktop tool**. It turns long videos into
 captioned 9:16 short clips for TikTok, YouTube Shorts and Reels. It is not a SaaS: it has no accounts, no cloud
 rendering, and a local SQLite database and files. The owner runs it on a **Windows PC with an NVIDIA RTX 3050**.

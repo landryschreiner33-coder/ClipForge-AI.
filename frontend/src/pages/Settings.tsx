@@ -616,9 +616,12 @@ function AdvancedTab({ c, health, st }: {
 
       <SettingsPanel id="adv-render" title="Rendering, AI scoring and system">
         <SettingRow k="encoder" label="Video encoder"
-          hint={health ? (health.nvenc ? "NVENC is available" : "NVENC is not available on this PC") : undefined} group>
+          hint={health ? (health.platform === "darwin"
+            ? (health.videotoolbox ? "Apple hardware encoding is available" : "Auto uses x264 on this Mac")
+            : (health.nvenc ? "NVENC is available" : "Auto uses x264 on this computer")) : undefined} group>
           <Seg k="encoder" c={c}
             options={[{ value: "auto", label: "Auto" }, { value: "nvenc", label: "NVIDIA NVENC" },
+              ...(health?.platform === "darwin" ? [{ value: "videotoolbox", label: "Apple hardware" }] : []),
               { value: "x264", label: "x264 (CPU)" }]} />
         </SettingRow>
         <SettingRow k="crf" label="Quality (CRF)" hint="Lower = better quality and bigger files (10 to 35)"
