@@ -2,9 +2,9 @@
 
 ## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
 
-Final Terminal-close regression: a real isolated POSIX watchdog test reproduced SIGHUP leaving its app process
-outside normal cleanup. SIGHUP now follows the same owned-child shutdown path as Control+C. The native CI also
-runs the real-process launcher suite. New full-suite/native verification is pending for this final correction.
+Final Terminal-close correction: a real isolated POSIX watchdog test reproduced SIGHUP bypassing owned-app
+cleanup. SIGHUP now follows the same shutdown path as Control+C. All 17 real-process launcher tests also passed
+on native macOS ARM64, including Terminal-close cleanup. The final full suites passed against this correction.
 
 The owner explicitly requests a public download website and the full ClipFoundry workflow on an M5 Max.
 Source branch: `codex/macos-download-site`, continued from 88386d6 with all prior Claude changes and the raw AAC
@@ -24,13 +24,13 @@ is a supported native path (no Metal ASR claim). Auto encoding checks VideoToolb
 x264 fallback. Mac Autopilot uses a process-bound caffeinate request; the office no longer treats the absence
 of an NVIDIA GPU as a Mac failure. YouTube/TikTok permission, review, limit and uncertain-upload behavior is unchanged.
 
-**Verified:** complete fast suite **1,539 passed, 19 deselected in 516.14 s**; complete real-media/restart suite
-**19 passed, 1,539 deselected in 832.93 s**. No final failures or skips. Both ran on fresh public Ubuntu 24.04
-CI runners against 4da88981f22a7bc57e59118c7094289aaca14e5c. The native macOS 14 ARM64 job built the actual
+**Verified:** complete fast suite **1,540 passed, 19 deselected in 528.40 s**; complete real-media/restart suite
+**19 passed, 1,540 deselected in 1012.69 s**. No final failures or skips. Both ran on fresh public Ubuntu 24.04
+CI runners against 18aacfe6cc6e893a9c5acdc15693775400a334ad. The native macOS 14 ARM64 job built the actual
 package, installed its bundled runtime/dependencies, passed the production AAC timing check, performed a real
 Keychain encryption round trip, acquired/released caffeinate, and served the HTTP API/bundled UI. Its virtual
 runner did not expose VideoToolbox, so software fallback was exercised. CI evidence:
-https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41489132548 . Release documentation added
+https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41492774348 . Release documentation added
 after this run changes no tested application code. Frontend build passed. Website browser checks passed at
 1440, 390 and 320 pixels with working keyboard setup tabs, no page errors and no horizontal overflow.
 
