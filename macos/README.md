@@ -35,6 +35,11 @@ No global Python, Homebrew, administrator access, login item, or system power/se
 can request protection from idle sleep while Autopilot runs; closing the lid, choosing Sleep, or turning the Mac
 off still stops work. Whisper's model downloads on first transcription; that can add time to your first video.
 
+The packaged runtime, dependency installation, synthetic audio-clock check, Keychain encryption, sleep request
+and HTTP app startup passed on GitHub's native Apple-silicon macOS 14 runner. That virtual runner did not expose
+VideoToolbox hardware encoding; Auto correctly used software encoding. Physical M5 Max and real account uploads
+still need verification on the owner's Mac.
+
 ## Build provenance
 
 `manifest.json` in the download records the full application commit and SHA-256 for the app, Python archive and
