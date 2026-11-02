@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 from contextlib import asynccontextmanager
@@ -107,6 +108,12 @@ def _clean_options(raw: dict) -> dict:
 
 
 # ------------------------------------------------------------------ system
+@app.get("/api/desktop-status")
+def desktop_status() -> dict:
+    """Cheap native-window readiness probe; the launch nonce is not an API credential."""
+    return {"version": __version__, "session": os.environ.get("CLIPFOUNDRY_DESKTOP_SESSION", "")}
+
+
 @app.get("/api/health")
 def health() -> dict:
     settings = db.get_settings()

@@ -1,0 +1,59 @@
+name: Native Mac desktop app
+on:
+  push:
+    branches: [codex/macos-native-app]
+    paths: ['clipfoundry/**', 'macos/**', 'tests/**', 'frontend/dist/**', 'requirements*.txt', '.github/workflows/macos-desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native window and build complete Apple-silicon app
+        run: |
+          brew install x264 libass pkg-config
+          python3 macos/build_desktop.py --work "$RUNNER_TEMP/clipfoundry-desktop"
+      - name: Test actual bundled tools, Keychain, WebView and process cleanup
+        run: python3 macos/desktop_smoke.py --app "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry.app" --evidence "$RUNNER_TEMP/clipfoundry-desktop/evidence"
+      - name: Archive development app for review (not a notarized release)
+        run: |
+          ditto -c -k --keepParent "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry.app" "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry-Development.zip"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-desktop-evidence
+          path: ${{ runner.temp }}/clipfoundry-desktop/evidence
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipFoundry-Development-NOT-NOTARIZED
+          path: |
+            ${{ runner.temp }}/clipfoundry-desktop/ClipFoundry-Development.zip
+            ${{ runner.temp }}/clipfoundry-desktop/ClipFoundry-Corresponding-Source.tar.gz
+          compression-level: 0
+          retention-days: 7
+  regression:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        marker: ['not slow', 'slow']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg espeak-ng
+          python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -m '${{ matrix.marker }}' -q

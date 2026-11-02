@@ -1,5 +1,20 @@
 # AI changelog
 
+## Native Mac app construction — 2026-11-02
+
+The owner requests a professional local .app with a Dock icon and no Terminal setup. Work now continues on
+`codex/macos-native-app`, from the final published website/source ZIP checkpoint. Added a Swift/AppKit WKWebView
+window, bundled-runtime builder, owned backend launcher, parent-death cleanup and isolated readiness nonce.
+Existing ~/Library/Application Support/ClipFoundry/data and Keychain identities stay unchanged. External OAuth
+uses the system browser; native file/export panels retain the full studio UI. The media builder compiles pinned
+FFmpeg 9.0.2 with x264/libass and redistributes its exact dependency sources/licenses (no nonfree FFmpeg binary).
+
+Local verification: 25 desktop/real-process watchdog tests passed; git diff --check passed. Native CI and full
+regression are pending. Development app is ad-hoc signed ONLY for CI. No Developer ID credentials or Apple
+membership confirmation are available; no notarization, warning-free delivery or owner-machine execution is
+claimed. The existing public website/download remain unchanged until a verified distributable is ready.
+
+
 Development checkpoints made by AI assistants, newest first. Each one says what changed, why, what was actually run
 and what was not. The same checkpoints, in machine-readable form, are in `.clipfoundry/ai-change-log.jsonl` (shown
 read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is not repeated here: it is recorded in
