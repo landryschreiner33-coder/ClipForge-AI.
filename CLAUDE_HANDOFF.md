@@ -3,10 +3,11 @@
 ## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
 
 The owner explicitly requests a public download website and the full ClipFoundry workflow on an M5 Max.
-Work continues from 88386d6; the prior Claude changes and independent raw AAC clock correction remain intact.
-The new source branch is `codex/macos-download-site`. Website source is separately maintained at
-`/workspace/sites/clipfoundry-downloads`, Sites project `appgprj_6ae8b76d68108191bc36af565f138bed`.
-Its requested audience is public; the existing GitHub Pages/TikTok verification site is unchanged.
+Source branch: `codex/macos-download-site`, continued from 88386d6 with all prior Claude changes and the raw AAC
+clock correction retained. Download-site source lives separately at `/workspace/sites/clipfoundry-downloads`;
+Sites identity: `appgprj_6ae8b76d68108191bc36af565f138bed`, explicitly public. Its reserved address is
+https://clipfoundry-studio.landryschreiner33.chatgpt.site . Publication/delivery records accompany the Mac ZIP.
+The existing GitHub Pages/TikTok verification site, icon, Windows ZIP and blocked historical EXE are unchanged.
 
 `macos/` builds a readable unsigned ZIP with a verified native ARM64 Python 3.12 runtime. First setup installs
 Mac dependencies and obtains pinned FFmpeg/ffprobe directly from upstream, checking compressed and extracted
@@ -19,19 +20,28 @@ is a supported native path (no Metal ASR claim). Auto encoding checks VideoToolb
 x264 fallback. Mac Autopilot uses a process-bound caffeinate request; the office no longer treats the absence
 of an NVIDIA GPU as a Mac failure. YouTube/TikTok permission, review, limit and uncertain-upload behavior is unchanged.
 
-**Current verification checkpoint:** 15 focused platform/setup tests passed; frontend built successfully;
-ARM64-only Python wheels resolved for the full dependency set; bundled Python and both video binaries have
-ARM64 Mach-O headers; browser checks passed at 1440, 390 and 320 pixels with working keyboard-accessible
-setup tabs and no page errors/overflow. Full fast and real-media suites are running after a workspace
-interruption. An initial slow run also exposed missing espeak on PATH; the existing verified local test tool
-was restored before the complete rerun. Native CI is configured on the public repository's free standard
-macOS runner, using only synthetic credentials/media and an ephemeral profile. Results are not yet claimed.
+**Verified:** complete fast suite **1,539 passed, 19 deselected in 516.14 s**; complete real-media/restart suite
+**19 passed, 1,539 deselected in 832.93 s**. No final failures or skips. Both ran on fresh public Ubuntu 24.04
+CI runners against 4da88981f22a7bc57e59118c7094289aaca14e5c. The native macOS 14 ARM64 job built the actual
+package, installed its bundled runtime/dependencies, passed the production AAC timing check, performed a real
+Keychain encryption round trip, acquired/released caffeinate, and served the HTTP API/bundled UI. Its virtual
+runner did not expose VideoToolbox, so software fallback was exercised. CI evidence:
+https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41489132548 . Release documentation added
+after this run changes no tested application code. Frontend build passed. Website browser checks passed at
+1440, 390 and 320 pixels with working keyboard setup tabs, no page errors and no horizontal overflow.
 
-**Limits / finish:** verify native CI and complete suite results, publish a checksum-verified Mac artifact,
-update website download/release metadata, then deploy the public Site. macOS version and Apple Developer
-membership remain unconfirmed. No M5 Max owner-machine testing, Apple signing/notarization, real social upload,
-existing-upload repair, paid enrollment or security-policy change has been performed. Windows stays on the
-verified fc7b199 delivery ZIP until a separate Windows release is needed. Never include owner media in downloads.
+An earlier local full-suite run was interrupted by the resumed workspace; an initial slow run lacked the
+speech-fixture tool on PATH. The tool was restored, and the slower local reruns were deliberately stopped after
+fresh CI took over. Partial local results are not counted as passes. Native CI also independently passed on
+7e30061. Mac archive contents and executable launcher modes are checked; no owner media, secrets, data folders,
+virtual environments or design/test fixtures are bundled.
+
+**Limits:** macOS version and Apple Developer membership remain unconfirmed. No physical M5 Max test,
+Finder/quarantine interaction, Apple signing/notarization, real social upload, existing-upload repair, paid
+enrollment or security-policy change was performed. Speech models download on first transcription; no Metal
+speech acceleration is present. Reconnect Windows-protected accounts on Mac; existing profiles are not silently
+migrated. Keep Terminal and the Mac awake. The stable Windows download remains at delivery fc7b199.
+See `macos/README.md` and `docs/MACOS_RELEASE_VERIFICATION.md` for setup and verification details.
 
 ## Confirmed upload audio timing defect — 2026-10-29 (America/Chicago)
 
