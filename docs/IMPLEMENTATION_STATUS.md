@@ -1,5 +1,26 @@
 # Implementation status
 
+## Native Mac app verification in progress — 2026-11-02
+
+Continue on `codex/macos-native-app`, implementation commit `e5197f84196ab5fb34f40146d50e034a3254ca8c`.
+The owner wants a normal local .app with an icon and no Gatekeeper override. Swift/AppKit window compilation
+passed on macOS 15 ARM64. Native packaging exposed an @rpath dependency in Brotli and a source-mirror download
+that failed its hash; the builder now resolves/relocates those libraries and uses Homebrew's verified source
+fetcher (including pinned Git sources), never ignoring a checksum. A branded Retina DMG, secure ephemeral-CI
+signing keychain, Apple notarization/stapling checks and release gates are implemented. Signed release code has
+not run because no Apple signing credentials or membership confirmation are available.
+
+Verified locally: 33 focused lifecycle/release-gate tests passed; the production renderer produced a 1080x1920
+captioned synthetic clip with stable opening audio and valid raw AAC timing. Native WebKit popup/export and
+clean/force-quit checks plus complete fast/slow suites are running at
+https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41542754495 . Do not call these pending tests
+passed. Earlier two development CI attempts exposed the packaging failures above; neither is a release.
+
+Read `macos/DESKTOP.md` for build, data, signing and release instructions. The public website/source ZIP remain
+unchanged until a genuinely notarized DMG exists. No security settings were weakened, no enrollment/payment
+was made, and no owner media/accounts were used in testing. Preserve all prior Brain, audio and upload fixes.
+
+
 ## Public website and final downloads published — 2026-11-02 (America/Chicago)
 
 Public website: https://clipfoundry-studio.landryschreiner33.chatgpt.site . Sites version 1, deployment
