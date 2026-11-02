@@ -45,6 +45,10 @@ def main():
                CLIPFOUNDRY_FFMPEG=str(app / "tools/ffmpeg/bin"))
     subprocess.run([str(app / ".venv/bin/python"), "macos/native_smoke.py"],
                    cwd=app, env=env, check=True, timeout=120)
+    subprocess.run([str(app / ".venv/bin/python"), "-m", "pip", "install", "pytest>=8"], check=True, timeout=120)
+    subprocess.run([str(app / ".venv/bin/python"), "-m", "pytest",
+                    str(root / "tests/test_unattended_launcher.py"), "-q"],
+                   cwd=root, env=env, check=True, timeout=120)
     print("Native Apple-silicon package setup and app smoke tests passed.")
 
 

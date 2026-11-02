@@ -9,6 +9,10 @@ Commit ids are snapshots of a branch at the time of writing; fetch before relyin
 
 ## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
 
+Final Terminal-close regression: a real isolated POSIX watchdog test reproduced SIGHUP leaving its app process
+outside normal cleanup. SIGHUP now follows the same owned-child shutdown path as Control+C. The native CI also
+runs the real-process launcher suite. New full-suite/native verification is pending for this final correction.
+
 The owner explicitly requests a public download website and the full ClipFoundry workflow on an M5 Max.
 Source branch: `codex/macos-download-site`, continued from 88386d6 with all prior Claude changes and the raw AAC
 clock correction retained. Download-site source lives separately at `/workspace/sites/clipfoundry-downloads`;

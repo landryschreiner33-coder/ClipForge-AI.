@@ -42,4 +42,3 @@ enrollment or security-policy change was performed. Speech models download on fi
 speech acceleration is present. Reconnect Windows-protected accounts on Mac; existing profiles are not silently
 migrated. Keep Terminal and the Mac awake. The stable Windows download remains at delivery fc7b199.
 See `macos/README.md` and `docs/MACOS_RELEASE_VERIFICATION.md` for setup and verification details.
-
