@@ -1,5 +1,25 @@
 # AI handoff
 
+## Public website and final downloads published — 2026-11-02 (America/Chicago)
+
+Public website: https://clipfoundry-studio.landryschreiner33.chatgpt.site . Sites version 1, deployment
+`appgdep_6ae90bd92960819190941651776a171b`, returned **succeeded**. Site source commit:
+`8844f76843b02bcf6752cbebc1e2c73380fdb8d2` in the separate Sites source repository.
+
+Final Mac ZIP: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/0bfaba410a6d6a93717efeb012671a39bc66df9e/ClipFoundry-Mac-Apple-Silicon.zip
+
+SHA-256: `c192292bc6cd438b64876c6e4713d8982dcd2da46a942b67ea8a1bd6c382fb60`; 28,699,559 bytes.
+Packaged source `fd0d764b746f7f55f2df1dd19e660f3ac9fd036a` differs from tested
+`18aacfe6cc6e893a9c5acdc15693775400a334ad` only in verification documentation/logs. The public download
+was fetched and hash-checked; its app contains the final SIGHUP shutdown correction and raw AAC timing guard.
+The existing Windows download at `fc7b1991e07dc9e58afc7fe74328a0874bf24e57` remains unchanged and verified.
+No merge, real video upload, owner-machine install or paid service enrollment was performed.
+
+The next assistant should preserve this Site identity/audience, update immutable release links and checksums
+together, and continue from the app branch `codex/macos-download-site` and delivery branch
+`codex/macos-download-delivery`. Do not claim signing/notarization or physical M5 Max testing. macOS version
+and Apple Developer membership remain unconfirmed. This documentation-only commit needs no new installer.
+
 ## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
 
 Final Terminal-close correction: a real isolated POSIX watchdog test reproduced SIGHUP bypassing owned-app
