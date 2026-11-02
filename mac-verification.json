@@ -1,0 +1,43 @@
+{
+  "source_code_commit": "4da88981f22a7bc57e59118c7094289aaca14e5c",
+  "native_macos": {
+    "passed": true,
+    "runner": "macos-14-arm64",
+    "checks": [
+      "Packaged ARM64 Python and dependency setup",
+      "Synthetic H.264/AAC render and stored-packet clock",
+      "Actual login Keychain encryption round trip",
+      "caffeinate acquire/release",
+      "HTTP app health and bundled frontend"
+    ],
+    "videotoolbox_available_on_runner": false,
+    "workflow_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41489132548"
+  },
+  "fast_tests": {
+    "passed": 1539,
+    "deselected": 19,
+    "seconds": 516.14
+  },
+  "real_media_tests": {
+    "passed": 19,
+    "deselected": 1539,
+    "seconds": 832.93
+  },
+  "website": {
+    "widths": [
+      1440,
+      390,
+      320
+    ],
+    "page_errors": 0,
+    "horizontal_overflow": false,
+    "setup_tabs_and_keyboard": "passed"
+  },
+  "not_verified": [
+    "Physical M5 Max",
+    "Finder quarantine/opening prompts",
+    "Apple signing and notarization",
+    "Real YouTube or TikTok account uploads"
+  ],
+  "packaged_source_commit": "47e04c3776731680e6c680c27318b70f2a70d33e"
+}

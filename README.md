@@ -1,5 +1,27 @@
 # ClipFoundry: readable Windows setup
 
+## Apple-silicon Mac preview (November 2, 2026)
+
+Download **ClipFoundry-Mac-Apple-Silicon.zip**, extract the entire ZIP, then open **Open-ClipFoundry.command**.
+This unsigned setup targets macOS 14+ on native Apple silicon, including M5 Max. It includes private ARM64
+Python and downloads verified FFmpeg/ffprobe directly from upstream on first launch. Keep Terminal open.
+Data is separate from release code at `~/Library/Application Support/ClipFoundry/data`; updates preserve it.
+
+The complete workflow is included. Speech recognition runs on native CPU; Apple video encoding is selected
+only when a hardware probe succeeds. New account secrets use login Keychain-backed encryption. Reconnect
+Windows-protected accounts on the Mac. No administrator, Homebrew, system Python or security-policy change
+is required. This is not an Apple-notarized app; use normal per-app opening guidance if macOS presents a warning.
+
+**Verification:** 1,539 fast tests and 19 real-media/restart tests passed. Native macOS 14 ARM64 CI installed the
+actual packaged runtime and dependencies, checked H.264/AAC encoding and raw audio timing, used the real
+Keychain, acquired/released the sleep request, and served the app API/UI. Physical M5 Max, Finder quarantine
+prompts, and real account uploads remain unverified. `mac-release.json` records the source commit and ZIP
+checksum; `mac-verification.json` links the CI evidence. Both downloads preserve the earlier audio fix.
+
+The Windows ZIP below is unchanged. The historical blocked EXE is unchanged and is not recommended.
+
+## Windows setup
+
 Download **ClipFoundry-Source-Setup.zip**, close the previous ClipFoundry/setup windows, right-click the ZIP
 and choose **Extract All**. Open the extracted folder and double-click **Open-ClipFoundry.cmd**. Keep its
 console open while setup finishes and the app runs. Use the same CMD file for later sessions.
