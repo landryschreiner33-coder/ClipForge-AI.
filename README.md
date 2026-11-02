@@ -12,9 +12,10 @@ only when a hardware probe succeeds. New account secrets use login Keychain-back
 Windows-protected accounts on the Mac. No administrator, Homebrew, system Python or security-policy change
 is required. This is not an Apple-notarized app; use normal per-app opening guidance if macOS presents a warning.
 
-**Verification:** 1,539 fast tests and 19 real-media/restart tests passed. Native macOS 14 ARM64 CI installed the
+**Verification:** 1,540 fast tests and 19 real-media/restart tests passed. Native macOS 14 ARM64 CI installed the
 actual packaged runtime and dependencies, checked H.264/AAC encoding and raw audio timing, used the real
-Keychain, acquired/released the sleep request, and served the app API/UI. Physical M5 Max, Finder quarantine
+Keychain, acquired/released the sleep request, and served the app API/UI. All 17 native launcher tests also passed,
+including cleanup after closing Terminal. Physical M5 Max, Finder quarantine
 prompts, and real account uploads remain unverified. `mac-release.json` records the source commit and ZIP
 checksum; `mac-verification.json` links the CI evidence. Both downloads preserve the earlier audio fix.
 
