@@ -15,10 +15,13 @@ def package(app: Path, output: Path):
 
     output.parent.mkdir(parents=True, exist_ok=True)
     artwork = output.parent / 'installer-background.png'
+    retina = output.parent / 'installer-background@2x.png'
     source = Path(__file__).parent / 'desktop/InstallerArtwork.swift'
     binary = output.parent / 'draw-installer'
     subprocess.run(['swiftc', str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary), str(artwork)], check=True)
+    subprocess.run([str(binary), str(retina)], check=True)
+    # dmgbuild combines matching 1x/@2x images into a Retina-aware TIFF.
+    subprocess.run(['sips', '-z', '440', '700', str(retina), '--out', str(artwork)], check=True)
     dmgbuild.build_dmg(str(output), 'ClipFoundry', settings={
         'files': [str(app)], 'symlinks': {'Applications': '/Applications'},
         'badge_icon': str(app / 'Contents/Resources/ClipFoundry.icns'),

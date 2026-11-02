@@ -39,7 +39,7 @@ def fetch(meta: dict, target: Path):
         shutil.copyfileobj(response, dest)
     if hashlib.sha256(target.read_bytes()).hexdigest() != meta['sha256']:
         target.unlink()
-        raise ValueError('Downloaded dependency checksum mismatch')
+        raise ValueError(f'Downloaded dependency checksum mismatch: {target.name}')
 
 
 def macho(path: Path):
@@ -150,7 +150,22 @@ def media(contents: Path, work: Path):
     for formula in formulae:
         name = formula['name']
         stable = formula['urls']['stable']
-        fetch({'url': stable['url'], 'sha256': stable['checksum']}, sources / (name + '-source.tar'))
+        print(f'Preserving verified corresponding source for {name}…', flush=True)
+        # Homebrew understands mirror redirects, Git source revisions and source
+        # archives. A bare urllib fetch can receive a mirror's HTML page instead.
+        run('brew', 'fetch', '--build-from-source', '--retry', name)
+        cached = Path(output('brew', '--cache', '--build-from-source', name))
+        if cached.is_dir():
+            revision = output('git', 'rev-parse', 'HEAD', cwd=cached)
+            expected = stable.get('revision')
+            if expected and revision != expected:
+                raise ValueError(f'Source revision mismatch for {name}')
+            run('git', 'archive', '--format=tar.gz', '-o', sources / (name + '-source.tar.gz'), 'HEAD', cwd=cached)
+            (sources / (name + '-revision.txt')).write_text(revision + '\n')
+        else:
+            if stable.get('checksum') and hashlib.sha256(cached.read_bytes()).hexdigest() != stable['checksum']:
+                raise ValueError(f'Source checksum mismatch for {name}')
+            shutil.copy2(cached, sources / (name + '-source.tar'))
         cellar = Path(output('brew', '--prefix', name)).resolve()
         formula_file = cellar / '.brew' / (name + '.rb')
         shutil.copy2(formula_file, sources / (name + '.rb'))
@@ -189,6 +204,8 @@ def sign_development(app: Path):
 def build(work: Path, *, compile_only: bool = False):
     if sys.platform != 'darwin' or output('uname', '-m') != 'arm64':
         raise RuntimeError('Build on a native Apple-silicon Mac')
+    if output('git', 'status', '--porcelain', cwd=ROOT):
+        raise RuntimeError('Commit the complete source tree before building a distributable app')
     work.mkdir(parents=True, exist_ok=True)
     app = work / 'ClipFoundry.app'
     if app.exists():
@@ -222,7 +239,7 @@ def build(work: Path, *, compile_only: bool = False):
     run(python, '-m', 'pip', 'check')
     app_source = contents / 'Resources/app'
     app_source.mkdir()
-    tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'docs/legal'], cwd=ROOT)
+    tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'macos/desktop_media_smoke.py', 'docs/legal'], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(tracked)) as tar:
         tar.extractall(app_source, filter='data')
     shutil.copy2(ROOT / 'macos/desktop_runtime.py', contents / 'Resources/desktop_runtime.py')

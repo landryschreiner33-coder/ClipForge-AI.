@@ -30,7 +30,7 @@ def main(app: Path, evidence: Path):
         env = dict(os.environ, CLIPFOUNDRY_DATA=tmp + '/diagnostics', CLIPFOUNDRY_WORKERS='off',
                    PYTHONDONTWRITEBYTECODE='1', CLIPFOUNDRY_FFMPEG=str(contents / 'Helpers'),
                    FONTCONFIG_FILE=str(contents / 'Resources/media/fonts.conf'))
-        for script in ('diagnose.py', 'native_smoke.py'):
+        for script in ('diagnose.py', 'desktop_media_smoke.py', 'native_smoke.py'):
             subprocess.run([str(python), str(source / 'macos' / script)], cwd=source, env=env, check=True, timeout=150)
         executable = str(contents / 'MacOS/ClipFoundry')
         port = free_port()
@@ -40,6 +40,7 @@ def main(app: Path, evidence: Path):
             subprocess.run([executable, '--smoke-test'], env=env, stdout=logs, stderr=subprocess.STDOUT,
                            check=True, timeout=180)
         assert (evidence / 'webview-passed.txt').is_file(), 'Native window failed; see native-window.log'
+        assert (evidence / 'native-export.txt').read_text() == 'clipfoundry-synthetic-export', 'Native export failed'
         assert not is_listening(port), 'Quit left a listening backend'
         print('Native window loaded full UI and Quit cleaned its owned backend.', flush=True)
         # Force Quit is separate from clean Quit: the Python parent guard must notice.

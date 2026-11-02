@@ -18,6 +18,8 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     var failure = false
     var popups: [WKWebView] = []
     var downloads: [WKDownload] = []
+    var smokeNavigationChecked = false
+    var smokeExternalURLs: [String] = []
     var smoke = CommandLine.arguments.contains("--smoke-test")
     var port: Int { smoke ? (ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_TEST_PORT"].flatMap(Int.init) ?? 8765) : 8765 }
     var local: URL { URL(string: "http://127.0.0.1:\(port)")! }
@@ -179,12 +181,23 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     }
 
     func isLocal(_ url: URL) -> Bool { url.scheme == "http" && url.host == "127.0.0.1" && url.port == port && url.user == nil && url.password == nil }
-    func openExternal(_ url: URL) { if ["https", "mailto"].contains(url.scheme ?? "") { NSWorkspace.shared.open(url) } }
+    func openExternal(_ url: URL) {
+        if ["https", "http", "mailto"].contains(url.scheme ?? "") {
+            if smoke { smokeExternalURLs.append(url.absoluteString) }
+            else { NSWorkspace.shared.open(url) }
+        }
+    }
 
     func webView(_ view: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         if url.absoluteString == "about:blank" { decisionHandler(.allow); return }
         if action.shouldPerformDownload { decisionHandler(isLocal(url) || url.scheme == "blob" ? .download : .cancel); return }
+        if isLocal(url) && (action.targetFrame == nil || view !== web) {
+            openExternal(url)
+            popups.removeAll { $0 === view }
+            decisionHandler(.cancel)
+            return
+        }
         if isLocal(url) || url.scheme == "blob" { decisionHandler(.allow) }
         else {
             // Hidden OAuth popup navigates from about:blank after the local API returns.
@@ -206,20 +219,42 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         guard view === web, ready else { return }
         cover.isHidden = true
         window.subtitle = "Running locally on your Mac"
-        if smoke {
+        if smoke && !smokeNavigationChecked {
+            smokeNavigationChecked = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                 self.web.evaluateJavaScript("document.body.innerText") { value, error in
                     guard error == nil, let text = value as? String, text.contains("ClipFoundry") else { self.showError("Native WebView did not load the studio."); return }
-                    if let folder = ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_EVIDENCE"],
-                       let bitmap = self.window.contentView?.bitmapImageRepForCachingDisplay(in: self.window.contentView!.bounds) {
-                        self.window.contentView!.cacheDisplay(in: self.window.contentView!.bounds, to: bitmap)
-                        try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("native-studio.png"))
-                        try? "Native WebView loaded; closing owned backend.\n".write(toFile: folder + "/webview-passed.txt", atomically: true, encoding: .utf8)
-                    }
-                    print("NATIVE_WEBVIEW_PASSED")
-                    NSApp.terminate(nil)
+                    self.smokeInteractions()
                 }
             }
+        }
+    }
+    func smokeInteractions() {
+        // Real WebKit popup/Blob paths, using no platform account or external network.
+        let script = """
+        (() => {
+            const popup = window.open('about:blank', '_blank');
+            if (popup) popup.location.href = 'https://example.com/clipfoundry-oauth-test';
+            const legal = document.createElement('a'); legal.href='/legal/privacy'; legal.target='_blank'; document.body.append(legal); legal.click(); legal.remove();
+            const link = document.createElement('a'); link.href=URL.createObjectURL(new Blob(['clipfoundry-synthetic-export'], {type:'text/plain'})); link.download='native-export.txt'; document.body.append(link); link.click(); link.remove();
+            return true;
+        })()
+        """
+        web.evaluateJavaScript(script) { _, error in
+            if error != nil { self.showError("Native file/link checks could not run.") }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard self.smokeExternalURLs.contains("https://example.com/clipfoundry-oauth-test"),
+                  self.smokeExternalURLs.contains(self.local.absoluteString + "/legal/privacy"),
+                  self.web.url.map(self.isLocal) == true else { self.showError("External account/help links did not leave the studio correctly."); return }
+            if let folder = ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_EVIDENCE"],
+               let bitmap = self.window.contentView?.bitmapImageRepForCachingDisplay(in: self.window.contentView!.bounds) {
+                self.window.contentView!.cacheDisplay(in: self.window.contentView!.bounds, to: bitmap)
+                try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("native-studio.png"))
+                try? "Native WebView loaded; closing owned backend.\n".write(toFile: folder + "/webview-passed.txt", atomically: true, encoding: .utf8)
+            }
+            print("NATIVE_WEBVIEW_PASSED")
+            NSApp.terminate(nil)
         }
     }
     func webView(_ view: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -246,6 +281,10 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     func webView(_ view: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { download.delegate = self; downloads.append(download) }
     func webView(_ view: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { download.delegate = self; downloads.append(download) }
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        if smoke, let folder = ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_EVIDENCE"] {
+            completionHandler(URL(fileURLWithPath: folder).appendingPathComponent("native-export.txt"))
+            return
+        }
         let panel = NSSavePanel(); panel.nameFieldStringValue = URL(fileURLWithPath: suggestedFilename).lastPathComponent
         panel.beginSheetModal(for: window) { completionHandler($0 == .OK ? panel.url : nil) }
     }
@@ -288,6 +327,9 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
             editItem.submenu!.addItem(withTitle: title, action: Selector(selector), keyEquivalent: key)
         }
         let studio = NSMenuItem(); studio.title = "Studio"; studio.submenu = NSMenu(title: "Studio"); menu.addItem(studio)
+        studio.submenu!.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        studio.submenu!.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        studio.submenu!.addItem(.separator())
         studio.submenu!.addItem(withTitle: "Open in Browser", action: #selector(openBrowser), keyEquivalent: "").target = self
         studio.submenu!.addItem(withTitle: "View Local Logs", action: #selector(openLogs), keyEquivalent: "").target = self
         studio.submenu!.addItem(withTitle: "ClipFoundry Help", action: #selector(help), keyEquivalent: "").target = self
