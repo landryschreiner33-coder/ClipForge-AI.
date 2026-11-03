@@ -20,7 +20,9 @@ for the tested commit and evidence. The native Swift/AppKit `.app` bundles Pytho
 canonical icon and existing profile/Keychain data, and has a branded drag-to-Applications DMG. macOS 15+ on Apple
 silicon is required. Native CI passed on macOS 15 ARM64; physical M5 execution is unverified. Development artifacts
 are ad-hoc signed only. No Developer ID/notarization credentials or membership confirmation are available.
-Do not replace the public download or claim the Gatekeeper warning fixed before the signed release gates pass.
+The owner now chooses personal use without Apple membership (2026-11-03). Deliver the tested DMG as a clearly
+labelled unsigned personal preview on the existing download site. Do not imply Developer ID signing,
+notarization or removal of the per-app opening warning. Keep the separate signed-release gates intact.
 See `macos/DESKTOP.md`; preserve earlier audio, Brain, publishing and data guarantees.
 
 **Public download website and Mac continuation (2026-11-02):** The owner requests a new public hosted download

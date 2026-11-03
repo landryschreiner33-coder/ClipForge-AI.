@@ -1,5 +1,19 @@
 # Implementation status
 
+## Personal Mac DMG delivery — 2026-11-03 (in progress)
+
+The owner confirmed they are using ClipFoundry personally without Apple Developer membership and reported
+that the website still downloads the old source ZIP. This supersedes waiting for signing before offering the
+native app: deliver the unchanged tested DMG as an explicitly unsigned personal preview, with Apple's per-app
+opening steps and no claim that Gatekeeper warnings are removed. Preserve the existing public Site identity.
+
+`.github/workflows/macos-personal-preview.yml` publishes only the pinned successful native artifact from
+`bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`, run 41656652146. It checks artifact SHA-256, mounts/verifies the DMG,
+checks the app source identity/signature/icon, and verifies every uploaded release asset digest before publishing
+a prerelease. This does not run or alter the separate Developer ID/notarized release process. No application
+code changes or media re-encoding are included. The 1,575 tests and native checks remain those of the exact
+packaged commit. Delivery and website verification will be recorded once complete.
+
 ## Native Mac app verified; Apple signing pending — 2026-11-03
 
 Continue on `codex/macos-native-app`. The tested implementation is
