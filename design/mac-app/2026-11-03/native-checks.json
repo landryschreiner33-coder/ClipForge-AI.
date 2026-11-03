@@ -1,0 +1,7 @@
+{
+  "webview": true,
+  "quit_cleanup": true,
+  "force_quit_cleanup": true,
+  "bundle_unchanged": true,
+  "notarized": false
+}

@@ -15,6 +15,14 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Native Mac app continuation (2026-11-03):** Current work is on `codex/macos-native-app`; see the newest handoff
+for the tested commit and evidence. The native Swift/AppKit `.app` bundles Python and video tools, keeps the
+canonical icon and existing profile/Keychain data, and has a branded drag-to-Applications DMG. macOS 15+ on Apple
+silicon is required. Native CI passed on macOS 15 ARM64; physical M5 execution is unverified. Development artifacts
+are ad-hoc signed only. No Developer ID/notarization credentials or membership confirmation are available.
+Do not replace the public download or claim the Gatekeeper warning fixed before the signed release gates pass.
+See `macos/DESKTOP.md`; preserve earlier audio, Brain, publishing and data guarantees.
+
 **Public download website and Mac continuation (2026-11-02):** The owner requests a new public hosted download
 website and the full workflow on an Apple-silicon M5 Max. Public website publication is explicitly authorized.
 The original GitHub Pages/TikTok verification site and canonical robot icon remain intact. `macos/` contains a

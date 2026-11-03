@@ -1,5 +1,45 @@
 # Implementation status
 
+## Native Mac app verified; Apple signing pending — 2026-11-03
+
+Continue on `codex/macos-native-app`. The tested implementation is
+`bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`. A complete native Apple-silicon `.app` and branded
+Retina drag-to-Applications DMG now build successfully, with the canonical robot icon, Swift/AppKit window,
+native file/export panels and bundled Python/FFmpeg. No first-launch pip, Terminal or global Python is needed.
+The existing Brain, clipping, framing, captions and publishing code/data remain intact. macOS 15+ is required.
+
+**Verification:** [CI run 41656652146](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41656652146)
+passed the native macOS 15 ARM64 job and the complete fast suite: **1,556 passed, 19 deselected in 531.55 s**.
+The complete real-media/restart suite also passed: **19 passed, 1,556 deselected in 950.85 s**. No final failures or skips.
+Native checks used isolated profiles and synthetic media: the real WebKit window, simulated OAuth/help links,
+Blob export, unsaved-edit event guards, normal Quit and Force Quit cleanup, unchanged signed bundle, Keychain,
+caffeinate, captioned 1080x1920 rendering with stable opening audio/valid raw AAC clocks, and actual AV1 decode.
+The runner's VideoToolbox probe succeeded. The DMG passed `hdiutil verify`. No physical M5 or real social upload
+was tested. Local focused lifecycle/release checks passed 33 tests. No frontend changes required a rebuild.
+
+The final correction keeps the complete Python runtime under Resources, reserves Frameworks for real dylibs,
+and signs the main executable with its enclosing bundle last. The FFmpeg build includes dav1d for AV1 input.
+Native Quit preserves existing unsaved-edit checks. A test-only Linux process-disappearance race was corrected
+without changing the app's watchdog. Previous packaging failures and the earlier one-test failure are superseded
+by this exact-commit run, not counted as passes.
+
+Actual screenshots, hashes and test provenance: [design/mac-app/2026-11-03](../design/mac-app/2026-11-03/README.md).
+The development artifact is named **ClipFoundry-Development-NOT-NOTARIZED**, ID `13240393392`, and expires after
+seven days. Its ZIP SHA-256 is `49bc9aeffcd8cfa183ee6e3ccdddfb843dfd86e9084570514be35cc37ff39709`.
+This is ad-hoc signed development evidence, **not a warning-free public release**.
+
+**Remaining blocker:** the owner has not confirmed active Apple Developer Program membership, and no Developer
+ID/notarization credentials are available. Check Membership details at https://developer.apple.com/account/ .
+Use the secure signing setup in `macos/DESKTOP.md`; never request passwords or private keys in chat. The signed
+release workflow must consume a successful exact-commit development artifact and pass Apple notarization,
+stapling, Gatekeeper assessment and signed native smoke checks before publication. It has not been run.
+The release workflow may need to be made available on the default branch before manual dispatch; do not merge
+without authorization. If the artifact expires, rebuild the recorded source before signing.
+
+The public Site identity/address and its current source ZIP are unchanged. Only update its download/hash once
+an actually signed and notarized DMG exists. No Gatekeeper bypass, paid enrollment, owner-data modification,
+real upload, owner-machine install, branch merge or public release was performed in this checkpoint.
+
 ## Native Mac app verification in progress — 2026-11-02
 
 Continue on `codex/macos-native-app`, implementation commit `e5197f84196ab5fb34f40146d50e034a3254ca8c`.
