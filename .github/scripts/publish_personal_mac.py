@@ -94,20 +94,26 @@ def main():
             f"DMG SHA-256: `{manifest['sha256']}`\n\n"
             "Exact corresponding source and dependency notices accompany this download.\n"
         )
-        existing = subprocess.run(["gh", "release", "view", TAG, "--json", "isDraft"],
-                                  capture_output=True, text=True)
-        if existing.returncode:
+        # GitHub's tag endpoint does not resolve an unpublished draft. Find it
+        # through the authenticated collection so interrupted runs reuse it.
+        matches = [item for item in api("releases?per_page=100") if item["tag_name"] == TAG]
+        assert len(matches) <= 1, "Ambiguous preview release"
+        if not matches:
             run("gh", "release", "create", TAG, "--target", COMMIT, "--draft", "--prerelease",
                 "--title", "ClipFoundry for Mac — personal preview", "--notes-file", str(notes),
                 str(dmg), str(sources), str(metadata))
+            matches = [item for item in api("releases?per_page=100") if item["tag_name"] == TAG]
+        assert len(matches) == 1, "Expected one preview draft"
         # A retry may finish an interrupted draft, but never replaces published bytes.
-        release = api(f"releases/tags/{TAG}")
+        release = api(f"releases/{matches[0]['id']}")
         assets = {asset["name"]: asset for asset in release["assets"]}
         for path in (dmg, sources, metadata):
             assert path.name in assets, "Incomplete draft: finish its missing assets before publication"
             assert assets[path.name]["digest"] == "sha256:" + sha(path), "Release asset mismatch"
         if release["draft"]:
-            run("gh", "release", "edit", TAG, "--draft=false", "--latest=false")
+            run("gh", "api", "--method", "PATCH", f"repos/{REPO}/releases/{release['id']}",
+                "-F", "draft=false", "-F", "prerelease=true", "-f", "make_latest=false",
+                stdout=subprocess.DEVNULL)
         print(json.dumps(manifest, indent=2))
 
 
