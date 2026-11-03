@@ -15,6 +15,11 @@ def main():
     from clipfoundry.pipeline.common import JobContext
     from clipfoundry.pipeline.ffmpeg_utils import ffmpeg_bin, probe
 
+    decoders = subprocess.check_output([ffmpeg_bin(), '-hide_banner', '-decoders'], stderr=subprocess.STDOUT).decode()
+    assert 'libdav1d' in decoders, 'AV1 inputs need the bundled software decoder'
+    av1 = Path(__file__).parent / 'desktop/av1-smoke.ivf'
+    subprocess.run([ffmpeg_bin(), '-hide_banner', '-loglevel', 'error', '-c:v', 'libdav1d', '-i', str(av1),
+                    '-f', 'null', '-'], check=True, timeout=15)
     with tempfile.TemporaryDirectory(prefix='clipfoundry native render ') as tmp:
         folder = Path(tmp)
         os.environ['CLIPFOUNDRY_DATA'] = str(folder / 'profile')

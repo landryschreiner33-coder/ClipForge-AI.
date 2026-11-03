@@ -38,7 +38,7 @@ JavaScript bridge, and only the owned loopback origin can navigate the studio wi
 On an Apple-silicon Mac with Xcode command-line tools:
 
 ```sh
-brew install x264 libass pkg-config
+brew install x264 libass dav1d pkg-config
 python3 macos/build_desktop.py --work /tmp/clipfoundry-native-build
 python3 macos/desktop_smoke.py --app /tmp/clipfoundry-native-build/ClipFoundry.app --evidence /tmp/clipfoundry-native-evidence
 ```

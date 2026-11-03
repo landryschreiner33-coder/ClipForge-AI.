@@ -205,7 +205,7 @@ def _alive(pid: int) -> bool:
         try:
             if Path(f"/proc/{pid}/stat").read_text().split(")", 1)[1].split()[0] == "Z":
                 return False
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return False
     try:
         os.kill(pid, 0)

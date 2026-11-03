@@ -14,6 +14,7 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     var pipe: Pipe?
     var pending = Data()
     var quitting = false
+    var quitPending = false
     var ready = false
     var failure = false
     var popups: [WKWebView] = []
@@ -43,6 +44,7 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         window.backgroundColor = NSColor(calibratedRed: 0.043, green: 0.059, blue: 0.114, alpha: 1)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = smoke
         web = WKWebView(frame: window.contentView!.bounds, configuration: configuration)
         web.autoresizingMask = [.width, .height]
         web.navigationDelegate = self
@@ -115,7 +117,7 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         status.stringValue = "Opening your Brain, clips and workspace…"
         let root = Bundle.main.bundleURL.appendingPathComponent("Contents")
         let task = Process()
-        task.executableURL = root.appendingPathComponent("Frameworks/Python/bin/python3.12")
+        task.executableURL = root.appendingPathComponent("Resources/Python/bin/python3.12")
         task.arguments = ["-I", "-B", root.appendingPathComponent("Resources/desktop_runtime.py").path,
                           "--parent", String(ProcessInfo.processInfo.processIdentifier), "--session", UUID().uuidString,
                           "--port", String(port), "--base", base.path]
@@ -233,6 +235,9 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         // Real WebKit popup/Blob paths, using no platform account or external network.
         let script = """
         (() => {
+            const guard = event => event.preventDefault(); window.addEventListener('beforeunload', guard);
+            const leave = new Event('beforeunload', {cancelable:true}); window.dispatchEvent(leave); window.removeEventListener('beforeunload', guard);
+            if (!leave.defaultPrevented) throw new Error('Unsaved-change guard failed');
             const popup = window.open('about:blank', '_blank');
             if (popup) popup.location.href = 'https://example.com/clipfoundry-oauth-test';
             const legal = document.createElement('a'); legal.href='/legal/privacy'; legal.target='_blank'; document.body.append(legal); legal.click(); legal.remove();
@@ -247,14 +252,17 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
             guard self.smokeExternalURLs.contains("https://example.com/clipfoundry-oauth-test"),
                   self.smokeExternalURLs.contains(self.local.absoluteString + "/legal/privacy"),
                   self.web.url.map(self.isLocal) == true else { self.showError("External account/help links did not leave the studio correctly."); return }
-            if let folder = ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_EVIDENCE"],
-               let bitmap = self.window.contentView?.bitmapImageRepForCachingDisplay(in: self.window.contentView!.bounds) {
-                self.window.contentView!.cacheDisplay(in: self.window.contentView!.bounds, to: bitmap)
-                try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("native-studio.png"))
-                try? "Native WebView loaded; closing owned backend.\n".write(toFile: folder + "/webview-passed.txt", atomically: true, encoding: .utf8)
+            self.web.takeSnapshot(with: nil) { image, error in
+                guard error == nil, let image = image, let data = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: data), let png = bitmap.representation(using: .png, properties: [:]),
+                      let folder = ProcessInfo.processInfo.environment["CLIPFOUNDRY_DESKTOP_EVIDENCE"] else { self.showError("Could not capture native window evidence."); return }
+                do {
+                    try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("native-studio.png"))
+                    try "Native WebView, account/help links, export and unsaved-change event passed.\n".write(toFile: folder + "/webview-passed.txt", atomically: true, encoding: .utf8)
+                } catch { self.showError("Could not save native window evidence."); return }
+                print("NATIVE_WEBVIEW_PASSED")
+                NSApp.terminate(nil)
             }
-            print("NATIVE_WEBVIEW_PASSED")
-            NSApp.terminate(nil)
         }
     }
     func webView(_ view: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -297,11 +305,34 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let task = process, task.isRunning else { return .terminateNow }
+        guard process?.isRunning == true else { return .terminateNow }
+        if quitPending { return .terminateLater }
+        quitPending = true
+        if ready && !smoke {
+            // Reuse the web editor's existing beforeunload guard, including video
+            // imports in progress. No frontend bridge or duplicate dirty state.
+            web.evaluateJavaScript("(() => { const e = new Event('beforeunload', {cancelable:true}); window.dispatchEvent(e); return e.defaultPrevented; })()") { value, _ in
+                if value as? Bool == true {
+                    self.window.makeKeyAndOrderFront(nil)
+                    let alert = NSAlert()
+                    alert.messageText = "Quit without saving?"
+                    alert.informativeText = "You have unsaved changes or an import in progress. Keep editing to finish before quitting."
+                    alert.addButton(withTitle: "Keep Editing")
+                    alert.addButton(withTitle: "Quit Without Saving")
+                    alert.beginSheetModal(for: self.window) { response in
+                        if response == .alertSecondButtonReturn { self.stopForQuit() }
+                        else { self.quitPending = false; NSApp.reply(toApplicationShouldTerminate: false) }
+                    }
+                } else { self.stopForQuit() }
+            }
+        } else { stopForQuit() }
+        return .terminateLater
+    }
+    func stopForQuit() {
         quitting = true
         window.subtitle = "Finishing local shutdown…"
-        task.terminate() // Existing watchdog drains/stops only its own worker group.
-        return .terminateLater
+        if let task = process, task.isRunning { task.terminate() } // Watchdog stops only its own worker group.
+        else { NSApp.reply(toApplicationShouldTerminate: true) }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { window.makeKeyAndOrderFront(nil); return true }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

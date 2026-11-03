@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile native window and build complete Apple-silicon app
         run: |
-          brew install x264 libass pkg-config
+          brew install x264 libass dav1d pkg-config
           python3 macos/build_desktop.py --work "$RUNNER_TEMP/clipfoundry-desktop"
       - name: Test actual bundled tools, Keychain, WebView and process cleanup
         run: python3 macos/desktop_smoke.py --app "$RUNNER_TEMP/clipfoundry-desktop/ClipFoundry.app" --evidence "$RUNNER_TEMP/clipfoundry-desktop/evidence"

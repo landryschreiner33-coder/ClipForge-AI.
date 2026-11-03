@@ -24,7 +24,7 @@ def is_listening(port):
 def main(app: Path, evidence: Path):
     evidence.mkdir(parents=True, exist_ok=True)
     contents = app / 'Contents'
-    python = contents / 'Frameworks/Python/bin/python3.12'
+    python = contents / 'Resources/Python/bin/python3.12'
     source = contents / 'Resources/app'
     with tempfile.TemporaryDirectory(prefix='clipfoundry-desktop-test-') as tmp:
         env = dict(os.environ, CLIPFOUNDRY_DATA=tmp + '/diagnostics', CLIPFOUNDRY_WORKERS='off',

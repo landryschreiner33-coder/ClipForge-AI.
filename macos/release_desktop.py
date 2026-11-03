@@ -45,10 +45,10 @@ def release(app: Path, sources: Path, work: Path, identity: str, profile: str, c
     (signed / 'Contents/Resources/build.json').write_text(json.dumps(manifest, indent=2))
     entitlements = Path(__file__).parent / 'desktop/python-entitlements.plist'
     for path in sorted(signed.rglob('*'), key=lambda p: len(p.parts), reverse=True):
-        if not macho(path):
+        if not macho(path) or path == signed / 'Contents/MacOS/ClipFoundry':
             continue
         args = ['codesign', '--force', '--sign', identity, '--timestamp', '--options', 'runtime']
-        if path == signed / 'Contents/Frameworks/Python/bin/python3.12':
+        if path == signed / 'Contents/Resources/Python/bin/python3.12':
             args += ['--entitlements', str(entitlements)]
         run(*args, path)
     run('codesign', '--force', '--sign', identity, '--timestamp', '--options', 'runtime', signed)

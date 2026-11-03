@@ -1,0 +1,3 @@
+av1-smoke.ivf is a synthetic five-frame 160x96 green video, generated for ClipFoundry's native decoder test.
+No source footage, account data or third-party images are included. Generated with PyAV's libsvtav1 encoder,
+yuv420p, 10 fps, preset 13, CRF 45. Green channel values: 80, 105, 130, 155, 180; red/blue zero.

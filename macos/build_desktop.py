@@ -96,8 +96,8 @@ def media(contents: Path, work: Path):
     prefix = work / 'media-install'
     env = dict(os.environ)
     brew = Path(output('brew', '--prefix'))
-    env['PKG_CONFIG_PATH'] = ':'.join(str(brew / 'opt' / p / 'lib/pkgconfig') for p in ('x264', 'libass', 'freetype', 'harfbuzz', 'fribidi', 'fontconfig'))
-    configure = ['./configure', f'--prefix={prefix}', '--enable-gpl', '--enable-libx264', '--enable-libass',
+    env['PKG_CONFIG_PATH'] = ':'.join(str(brew / 'opt' / p / 'lib/pkgconfig') for p in ('x264', 'libass', 'dav1d', 'freetype', 'harfbuzz', 'fribidi', 'fontconfig'))
+    configure = ['./configure', f'--prefix={prefix}', '--enable-gpl', '--enable-libx264', '--enable-libass', '--enable-libdav1d',
                  '--disable-autodetect', '--enable-securetransport', '--enable-videotoolbox', '--enable-audiotoolbox',
                  '--enable-zlib', '--enable-bzlib', '--disable-shared', '--enable-static', '--disable-doc',
                  '--disable-ffplay', '--disable-debug', '--extra-ldflags=-Wl,-headerpad_max_install_names']
@@ -106,7 +106,7 @@ def media(contents: Path, work: Path):
     run('make', 'install', cwd=source, stdout=subprocess.DEVNULL)
     (sources / 'build-config.json').write_text(json.dumps({'ffmpeg': source_meta, 'configure': configure}, indent=2))
     helpers = contents / 'Helpers'
-    libraries = contents / 'Frameworks/Media'
+    libraries = contents / 'Frameworks'
     helpers.mkdir(exist_ok=True)
     libraries.mkdir(parents=True, exist_ok=True)
     notices = contents / 'Resources/ThirdParty/Media'
@@ -195,8 +195,8 @@ def media(contents: Path, work: Path):
 def sign_development(app: Path):
     # Native CI only. Ad-hoc signing is NOT a substitute for Developer ID/notarization.
     for path in sorted(app.rglob('*'), key=lambda p: len(p.parts), reverse=True):
-        if macho(path):
-            run('codesign', '--force', '--sign', '-', path, stderr=subprocess.DEVNULL)
+        if macho(path) and path != app / 'Contents/MacOS/ClipFoundry':
+            run('codesign', '--force', '--sign', '-', path)
     run('codesign', '--force', '--sign', '-', app)
     run('codesign', '--verify', '--deep', '--strict', app)
 
@@ -232,14 +232,17 @@ def build(work: Path, *, compile_only: bool = False):
     fetch(sources['python'], archive)
     with tarfile.open(archive) as tar:
         tar.extractall(work / 'runtime', filter='data')
-    shutil.move(work / 'runtime/python', contents / 'Frameworks/Python')
-    python = contents / 'Frameworks/Python/bin/python3.12'
+    # A full Python tree is not a macOS framework bundle. Keep it in Resources,
+    # sign every Mach-O explicitly, then seal it with the outer app. Frameworks
+    # contains only real dylibs, not unrecognized nested directory bundles.
+    shutil.move(work / 'runtime/python', contents / 'Resources/Python')
+    python = contents / 'Resources/Python/bin/python3.12'
     run(python, '-m', 'pip', 'install', '--only-binary=:all:', '--no-compile', '--report', work / 'python-install.json',
         '-r', ROOT / 'requirements-macos.txt')
     run(python, '-m', 'pip', 'check')
     app_source = contents / 'Resources/app'
     app_source.mkdir()
-    tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'macos/desktop_media_smoke.py', 'docs/legal'], cwd=ROOT)
+    tracked = subprocess.check_output(['git', 'archive', 'HEAD', 'clipfoundry', 'frontend/dist', 'macos/diagnose.py', 'macos/native_smoke.py', 'macos/desktop_media_smoke.py', 'macos/desktop/av1-smoke.ivf', 'docs/legal'], cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(tracked)) as tar:
         tar.extractall(app_source, filter='data')
     shutil.copy2(ROOT / 'macos/desktop_runtime.py', contents / 'Resources/desktop_runtime.py')
