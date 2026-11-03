@@ -15,6 +15,12 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Cloud migration planning (2026-11-03):** The owner requests server execution and login for themselves first,
+a later public release, more than five hours of source video daily, at the lowest possible cost. See
+`docs/CLOUD_PLAN.md` on `codex/cloud-plan`. No cloud feature or service has been deployed. Keep the working
+local app, private data and publishing guarantees intact. Start with a free pilot only if capacity is available;
+measure throughput before selecting paid resources. Never treat a login page as multi-user data isolation.
+
 **Native Mac app continuation (2026-11-03):** Current work is on `codex/macos-native-app`; see the newest handoff
 for the tested commit and evidence. The native Swift/AppKit `.app` bundles Python and video tools, keeps the
 canonical icon and existing profile/Keychain data, and has a branded drag-to-Applications DMG. macOS 15+ on Apple

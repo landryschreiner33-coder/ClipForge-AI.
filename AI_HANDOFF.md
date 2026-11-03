@@ -1,5 +1,27 @@
 # AI handoff
 
+## Cloud migration scope and cost plan — 2026-11-03 (America/Chicago)
+
+Current planning branch: `codex/cloud-plan`, based on the verified native-app/delivery branch at `9e0aaee`.
+The owner confirms the Mac app now opens; its port conflict was a separate Python HTTP file server, not an
+app defect. The new request is cloud execution with login, owner-only initially, later public release,
+more than five source-video hours daily, at the lowest possible cost. The second major change is unspecified.
+
+[Cloud migration plan](docs/CLOUD_PLAN.md) records the code audit, $0 infrastructure pilot proposal, migration,
+benchmark, authorization/storage changes and separate public-signup requirements. Proposed providers are
+Oracle Always Free A1 (current docs: 2 OCPUs/12 GB RAM allowance, 200 GB total block storage) and free Supabase
+Auth with owner-only Google login. Availability/throughput are unverified. No paid GPU/server is selected.
+
+No application code or deployed website changed. No accounts, resources, credentials, login or cloud server
+were created. This is a plan, not an implemented cloud feature. Existing loopback guards, local data stores
+and Mac credentials cannot simply be exposed on the internet; follow the plan before enabling cloud access.
+The owner must complete provider registration/card verification directly. No paid provisioning is authorized.
+Any paid recommendation must follow an actual workload estimate and an explicit owner budget decision.
+
+Verification: inspected current authentication, OAuth, secrets, data and job paths; checked official provider
+allowances/pricing and billing documentation; documentation whitespace check passed. No functional tests were
+run because this checkpoint changes only planning documents. Preserve the working Mac app and published DMG.
+
 ## Personal Mac app download published — 2026-11-03 (America/Chicago)
 
 The owner chose personal use without Apple Developer membership and reported that the website still offered
