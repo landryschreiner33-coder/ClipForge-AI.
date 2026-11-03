@@ -19,7 +19,7 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 for the tested commit and evidence. The native Swift/AppKit `.app` bundles Python and video tools, keeps the
 canonical icon and existing profile/Keychain data, and has a branded drag-to-Applications DMG. macOS 15+ on Apple
 silicon is required. Native CI passed on macOS 15 ARM64; physical M5 execution is unverified. Development artifacts
-are ad-hoc signed only. No Developer ID/notarization credentials or membership confirmation are available.
+are ad-hoc signed only. No Developer ID/notarization credentials are available; the owner has chosen personal use without membership.
 The owner now chooses personal use without Apple membership (2026-11-03). Deliver the tested DMG as a clearly
 labelled unsigned personal preview on the existing download site. Do not imply Developer ID signing,
 notarization or removal of the per-app opening warning. Keep the separate signed-release gates intact.

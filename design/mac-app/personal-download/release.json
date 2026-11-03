@@ -1,0 +1,18 @@
+{
+  "file": "ClipFoundry-Mac-Apple-Silicon.dmg",
+  "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg",
+  "sha256": "4fa4d423159c29d40f70632ae414c1fa047c7f72542e702f07f2e8ad0bb52d7d",
+  "bytes": 191813213,
+  "source_commit": "bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3",
+  "minimum_macos": "15",
+  "architecture": "arm64",
+  "release_kind": "personal-preview",
+  "developer_id_signed": false,
+  "notarized": false,
+  "signing": "ad-hoc development signature only; macOS per-app approval may be required",
+  "tested_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41656652146",
+  "artifact_sha256": "49bc9aeffcd8cfa183ee6e3ccdddfb843dfd86e9084570514be35cc37ff39709",
+  "sources_file": "ClipFoundry-Corresponding-Source.tar.gz",
+  "sources_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Corresponding-Source.tar.gz",
+  "sources_sha256": "b118edd0ca298bcbb8b7946505af9e0d5fda35f534e190c4ef84429435ebdc35"
+}

@@ -1,5 +1,41 @@
 # AI handoff
 
+## Personal Mac app download published — 2026-11-03 (America/Chicago)
+
+The owner chose personal use without Apple Developer membership and reported that the website still offered
+the old ZIP. That supersedes the earlier wait-for-signing delivery restriction. The existing public website
+now offers the tested native `.dmg`, explicitly labelled **unsigned personal preview** with Apple's one-time
+per-app opening instructions. No Developer ID signing, notarization or removal of that warning is claimed.
+
+Website: https://clipfoundry-studio.landryschreiner33.chatgpt.site
+Site version 2, deployment `appgdep_6aea47758b188191a727141520a951e8`, returned **succeeded**.
+Site source: `e8df8d718de6a6b42d9118e44375176874d6d85b`; same project and public audience retained.
+
+Mac DMG: https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg
+SHA-256: `4fa4d423159c29d40f70632ae414c1fa047c7f72542e702f07f2e8ad0bb52d7d`; 191,813,213 bytes.
+This is the unchanged native app/DMG tested at `bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`:
+1,556 fast tests, 19 real-media/restart tests, and the native Mac checks passed. macOS 15+ / Apple silicon.
+The release includes exact corresponding source and `mac-personal-preview.json`. It is a prerelease and does
+not replace the separate Developer ID/notarized release process. No real uploads or physical M5 test occurred.
+
+Delivery workflow: https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41661606857
+It verified the pinned artifact hash, mounted/verified the DMG, checked the bundled app signature/icon/source
+identity and verified every release-asset digest before publication. The first attempt left a complete draft
+because GitHub cannot resolve unpublished drafts through its tag endpoint; the corrected workflow reused that
+same draft by ID and published successfully. No duplicate release or changed application bytes were created.
+The public DMG was downloaded back and its full byte count/SHA-256 matched. Site release metadata now points
+to that asset and its matching verification record. Windows download and checksum are unchanged.
+
+Website browser checks: 1440, 390 and 320 px, zero page errors or horizontal overflow, mouse/keyboard setup tabs
+passed, direct DMG anchor also works without JavaScript. The site's privacy policy retains its Sites hosting
+disclosure and adds native local WebKit storage. Existing Mac data/Keychain identities are unchanged. Quit an
+old launcher before opening the new app; drag into Applications, then open normally. macOS may require
+Privacy & Security → Open Anyway once. No security setting was disabled, and no owner machine was accessed.
+
+Source continuation stays on `codex/macos-native-app`. This checkpoint changes only delivery, website copy,
+metadata and evidence; the existing app tests were reused for the unchanged packaged bytes. Do not rebuild or
+merge solely to change the download. Keep the public link/checksum pair and truthful unsigned labelling intact.
+
 ## Personal Mac DMG delivery — 2026-11-03 (in progress)
 
 The owner confirmed they are using ClipFoundry personally without Apple Developer membership and reported
