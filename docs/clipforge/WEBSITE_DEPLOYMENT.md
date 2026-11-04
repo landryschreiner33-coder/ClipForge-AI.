@@ -50,3 +50,11 @@ Republish the previous saved version **2** with the same Site ID and audience:
 Previous source: `e8df8d718de6a6b42d9118e44375176874d6d85b`;
 previous deployment: `appgdep_6aea47758b188191a727141520a951e8`.
 Do not create another Site, replace its identity, remove the existing downloads or enable public studio signup.
+
+## Shared download page on GitHub Pages — November 4, 2026 (Claude Code)
+
+The owner asked for a website that both Claude and ChatGPT can update. It is the `download/` folder of the
+`gh-pages` branch: https://landryschreiner33-coder.github.io/ClipForge-AI./download/ . Any assistant with push access
+publishes it with a normal commit. `download/releases.json` holds the downloads, `download/build.py` writes and
+checks the page, and `download/UPDATING.md` describes the procedure. The existing root pages of `gh-pages` are
+unchanged. The Sites page above is a separate site; its workspace can link to the GitHub Pages download page.
