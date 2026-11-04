@@ -53,6 +53,8 @@ Status is never colour alone: badges carry a word and an icon.
 
 Follow system (default), Full or Reduced. Reduced removes decorative motion and keeps state changes as instant
 cross-fades. Decorative animation never sits on an essential editing control.
+The choice is saved for each browser (the existing Animations setting, `frontend/src/motion.tsx`), never synced from
+the account, so one device's accessibility setting is never overridden by another's.
 
 ## Components
 

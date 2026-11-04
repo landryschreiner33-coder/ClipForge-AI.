@@ -3,7 +3,7 @@ import { BY_ID } from "./office/cast";
 import { studio } from "./studio";
 
 /**
- * Appearance (theme, accent, density, motion) saved to the account and applied to <html> at once: the change shows
+ * Appearance (theme, accent, density) saved to the account and applied to <html> at once: the change shows
  * immediately and is saved in the background; a failed save says so and offers Retry. Robot display names are
  * applied to the cast registry, so every label, tooltip and card uses them while every ID stays the same.
  */
@@ -32,8 +32,8 @@ function apply(a: Appearance) {
   root.dataset.theme = dark ? "dark" : "light";
   root.dataset.accent = a.accent;
   root.dataset.density = a.density;
-  const reduced = a.motion === "reduced" || (a.motion === "system" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  root.dataset.motion = reduced ? "reduced" : "full";
+  // Motion is not applied here: the per-browser Animations choice (motion.tsx) is its one owner, so a saved account
+  // value can never override what this browser chose (accessibility needs differ between devices).
 }
 
 function readLocal(): Appearance {
@@ -73,14 +73,9 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const rm = window.matchMedia("(prefers-reduced-motion: reduce)");
     const again = () => setAppearance((a) => ({ ...a }));
     mq.addEventListener("change", again);
-    rm.addEventListener("change", again);
-    return () => {
-      mq.removeEventListener("change", again);
-      rm.removeEventListener("change", again);
-    };
+    return () => mq.removeEventListener("change", again);
   }, []);
 
   const refreshNames = useCallback(async () => {

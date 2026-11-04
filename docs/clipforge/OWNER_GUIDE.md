@@ -40,5 +40,5 @@ account; *Disconnect* stops posts to that account and leaves the others alone.
 to 32 characters) and *Save*; *Reset name* brings the original back. A name never changes what a robot does.
 
 ## Look
-**Settings → Appearance**: theme (follow system, light, dark), accent colour, spacing and motion, and the layout of
-each screen on this device. *Reset layout* touches layouts only.
+**Settings → Appearance**: theme (follow system, light, dark), accent colour and spacing follow your account; motion
+and the layout of each screen are kept for this device. *Reset layout* touches layouts only.

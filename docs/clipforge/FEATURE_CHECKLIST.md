@@ -43,7 +43,7 @@ real account, server, footage or speech model is listed under "Not verified".
 | 32 | Full-video publishing decision | **Partial** | Download works | — | Needs a 16:9 quality-gate policy and a separate consent screen |
 | 33 | Skill library (import, preview, enable, export, delete, schema, example) | Implemented | `studio/skills.py`, `components/StylesSkills.tsx`, `SKILL_SCHEMA.md` | `test_studio_guidance.py` (CF-08) | — |
 | 34 | Redesigned shell and screens | Implemented | `App.tsx`, `theme.css`, new pages; existing pages restyled through the tokens | Screenshots, recorded flow | Older inner pages (Missions, post review) keep their structure |
-| 35 | Light/dark/system, accents, density, motion, synced | Implemented | `prefs.tsx`, `/api/preferences/appearance` | `test_studio_prefs.py` | — |
+| 35 | Light/dark/system, accents, density, motion, synced | Implemented | `prefs.tsx`, `/api/preferences/appearance`; motion stays the existing per-browser Animations choice (`motion.tsx`), so a saved account value never overrides a device's accessibility setting | `test_studio_prefs.py`, `e2e/sandbox/motion.spec.ts` | Motion is deliberately not synced between devices |
 | 36 | Saved layouts per device, reset | **Partial** | Saved per device class; editor in Settings; applied on the full-video Review screen | `test_studio_prefs.py` | Create and Office screens do not read their saved layout yet |
 | 37 | Robot names (save, reset, Unicode, text only, role kept) | Implemented | `studio/prefs.py`, Team page, cast registry | `test_studio_prefs.py` (CF-13) | — |
 | 38 | Office and robots kept | Implemented | Unchanged map/robots; dark stage in the new palette; robot team on Home | Before/after screenshots | — |

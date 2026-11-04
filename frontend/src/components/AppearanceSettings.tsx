@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorText } from "../api";
+import { useMotion } from "../motion";
 import { deviceClass, useAppearance } from "../prefs";
 import { studio } from "../studio";
 import { Icon, Segmented, toast } from "./ui";
@@ -24,6 +25,7 @@ export function useLayout(screen: string): { panels: Panel[]; visible: (id: stri
 
 export default function AppearanceSettings() {
   const { appearance, set, state, retry } = useAppearance();
+  const motion = useMotion();
   const device = deviceClass();
   const [layout, setLayout] = useState<Layout | null>(null);
   const [revision, setRevision] = useState(0);
@@ -57,8 +59,9 @@ export default function AppearanceSettings() {
             <Segmented label="Spacing" value={appearance.density} onChange={(v) => set({ density: v as typeof appearance.density })}
               options={[{ value: "comfortable", label: "Comfortable" }, { value: "compact", label: "Compact" }]} /></div>
           <div className="field"><span>Motion</span>
-            <Segmented label="Motion" value={appearance.motion} onChange={(v) => set({ motion: v as typeof appearance.motion })}
-              options={[{ value: "system", label: "Follow system" }, { value: "full", label: "Full" }, { value: "reduced", label: "Reduced" }]} /></div>
+            <Segmented label="Motion" value={motion.animationMode} onChange={(v) => motion.setAnimationMode(v)}
+              options={[{ value: "system", label: "Follow system" }, { value: "full", label: "Full" }, { value: "reduced", label: "Reduced" }]} />
+            <span className="small muted">Saved for this browser only, like Animations in Defaults.</span></div>
           <fieldset className="field"><legend>Accent colour</legend>
             <div className="row-actions" style={{ justifyContent: "flex-start" }}>
               {ACCENTS.map(([id, hex]) => (
