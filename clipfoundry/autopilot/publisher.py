@@ -75,8 +75,9 @@ def already_published(item: dict) -> str:
 # ------------------------------------------------------------------ recovering an interrupted upload
 def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) -> dict | None:
     """Look among recent channel uploads after an expired session; recovery verifies submitted metadata."""
-    token = youtube.Token(db.get_settings())
-    acc = db.get_account("youtube") or {}
+    # The uploads of the account this publication was bound to, never of whichever account is the default now.
+    acc = (db.get_connection(pub.get("connection_id") or "") or db.get_account("youtube") or {})
+    token = youtube.Token(db.get_settings(), acc.get("id") or None)
     youtube._quota("channels.list", "publish")  # noqa: SLF001
     with client(30) as c:
         r = c.get(f"{youtube.API_URL}/channels", params={"part": "contentDetails", "id": acc.get("account_id", "")},
@@ -122,7 +123,7 @@ def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) ->
 
 
 def _record_found_youtube(pub: dict, found: dict, message: str) -> bool:
-    status = youtube.video_status(youtube.Token(db.get_settings()), found["id"])
+    status = youtube.video_status(youtube.Token(db.get_settings(), pub.get("connection_id") or None), found["id"])
     if not status.get("exists"):
         return False
     privacy = status.get("privacy") or ""
@@ -176,8 +177,8 @@ def recover(pub: dict) -> str:
             pass
         return "resume"
     if pub.get("remote_id"):
-        outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(tiktok.Token(db.get_settings()),  # noqa: SLF001
-                                                                         pub["remote_id"]),
+        token = tiktok.Token(db.get_settings(), pub.get("connection_id") or None)
+        outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),  # noqa: SLF001
                                                (pub.get("info") or {}).get("username", ""))
         if outcome:
             db.update_publication(pub["id"], **outcome)

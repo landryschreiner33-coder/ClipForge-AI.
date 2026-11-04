@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, StrictBool
 
 from .. import config, db, learning, secure
-from . import audience, jobs, stats, tiktok, tiktok_setup, youtube
+from . import audience, connection_routes, jobs, stats, tiktok, tiktok_setup, youtube
 from .common import (PublishError, app_request, callback_page, challenge_hex, challenge_s256, finish_login,
                      local_only, redirect_uri, start_login)
 
@@ -76,12 +76,14 @@ def youtube_callback(state: str = "", code: str = "", error: str = "") -> str:
                              "Click Connect YouTube again and allow access.")
     try:
         login = finish_login("youtube", state)
-        acc = youtube.exchange_code(db.get_settings(), code, login.verifier, login.redirect_uri)
+        acc = youtube.exchange_code(db.get_settings(), code, login.verifier, login.redirect_uri,
+                                    workspace_id=login.workspace_id,
+                                    expected_connection=login.connection_id if login.operation == "reconnect" else "")
     except PublishError as exc:
         return callback_page(False, "YouTube was not connected", str(exc), exc.fix)
-    return callback_page(True, "YouTube connected", f"ClipFoundry can now upload to the channel "
+    return callback_page(True, "YouTube connected", f"ClipForge can now upload to the channel "
                                                     f"“{acc.get('display_name', '')}”. Your password was never "
-                                                    "shared with ClipFoundry.")
+                                                    "shared with ClipForge.")
 
 
 @router.post("/api/publish/youtube/disconnect", dependencies=[Depends(app_request)])
@@ -143,11 +145,13 @@ def tiktok_callback(state: str = "", code: str = "", error: str = "", error_desc
                              "them in your TikTok developer app against Settings → Publishing → TikTok.")
     try:
         login = finish_login("tiktok", state)
-        acc = tiktok.exchange_code(db.get_settings(), code, login.verifier, login.redirect_uri)
+        acc = tiktok.exchange_code(db.get_settings(), code, login.verifier, login.redirect_uri,
+                                   workspace_id=login.workspace_id,
+                                   expected_connection=login.connection_id if login.operation == "reconnect" else "")
     except PublishError as exc:
         return callback_page(False, "TikTok was not connected", str(exc), exc.fix)
-    return callback_page(True, "TikTok connected", f"ClipFoundry can now upload to “{acc.get('display_name', '')}”. "
-                                                   "Your password was never shared with ClipFoundry.")
+    return callback_page(True, "TikTok connected", f"ClipForge can now upload to “{acc.get('display_name', '')}”. "
+                                                   "Your password was never shared with ClipForge.")
 
 
 @router.post("/api/publish/tiktok/disconnect", dependencies=[Depends(app_request)])
@@ -157,9 +161,11 @@ def tiktok_disconnect(request: Request) -> dict:
 
 
 @router.get("/api/publish/tiktok/creator", dependencies=[Depends(local_only)])
-def tiktok_creator() -> dict:
-    """Nickname, privacy options and interaction settings for the publish screen (read fresh every time)."""
-    return tiktok.creator_info(tiktok.Token(db.get_settings()))
+def tiktok_creator(connection_id: str = "") -> dict:
+    """Nickname, privacy options and interaction settings for the publish screen (read fresh every time), for the
+    chosen TikTok account (default: the default account)."""
+    acc = connection_routes.require_connection("tiktok", connection_id)
+    return tiktok.creator_info(tiktok.Token(db.get_settings(), acc["id"]))
 
 
 # ------------------------------------------------------------------ publishing
@@ -170,6 +176,7 @@ class PublishBody(BaseModel):
     privacy: str = ""              # YouTube: public/unlisted/private. TikTok: one of creator_info's options
     made_for_kids: StrictBool | None = None
     mode: str = "direct"           # TikTok: direct (Direct Post) or inbox (draft in the TikTok app)
+    connection_id: str = ""        # the exact account to upload to ("" = the platform's default account)
     allow_comment: bool = False
     allow_duet: bool = False
     allow_stitch: bool = False
@@ -203,14 +210,18 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
     if not clip:
         raise HTTPException(404, "Clip not found")
     video_path, version = _video_for(clip)
-    publications = db.list_publications(clip_id, platform)
+    destination = connection_routes.require_connection(platform, body.connection_id)
+    # Each destination account is its own publication: an upload to one account never blocks, completes or repeats
+    # an upload to another. Older rows without a binding count for the account they were made for.
+    publications = [p for p in db.list_publications(clip_id, platform)
+                    if (p.get("connection_id") or destination["id"]) == destination["id"]]
     if any(jobs.unknown_outcome(p) for p in publications):
         raise HTTPException(409, "An earlier upload's outcome is unknown. Check it in YouTube Studio and use "
                                  "Refresh status before starting another upload.")
     if any(p["status"] in jobs.ACTIVE for p in publications):
-        raise HTTPException(409, "This clip is already being uploaded to this platform.")
+        raise HTTPException(409, "This clip is already being uploaded to this account.")
     settings = db.get_settings()
-    current_account = (db.get_account(platform) or {}).get("account_id") or ""
+    current_account = destination["external_id"]
     if body.expected_account_id and body.expected_account_id != current_account:
         raise HTTPException(409, "Another account is connected now. Review the destination and publish again")
     if settings.get("autopilot_publishing_paused"):
@@ -218,11 +229,9 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
                            "Resume publishing in the Office (bottom bar), then publish again.", "paused")
     from ..pipeline import artifact
 
-    options: dict = {"approved_account": current_account}
+    options: dict = {"approved_account": current_account, "approved_connection": destination["id"]}
     options["approved_video_sha256"] = artifact.sha256_file(video_path)
     if platform == "youtube":
-        if not (db.get_account("youtube") or {}).get("has_tokens"):
-            raise PublishError("YouTube is not connected.", "Click Connect YouTube first.", "not_connected")
         if body.made_for_kids is None:
             raise PublishError("Say whether this video is made for kids.",
                                "YouTube requires this answer (COPPA). Choose Yes or No on the publish screen.")
@@ -232,9 +241,7 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         options["made_for_kids"] = body.made_for_kids
     mode = "direct"
     if platform == "tiktok":
-        acc = db.get_account("tiktok") or {}
-        if not acc.get("has_tokens"):
-            raise PublishError("TikTok is not connected.", "Click Connect TikTok first.", "not_connected")
+        acc = destination
         mode = body.mode if body.mode in ("direct", "inbox") else "direct"
         needed = "video.publish" if mode == "direct" else "video.upload"
         if needed not in (acc.get("scopes") or []):
@@ -246,7 +253,7 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         options["duration"] = float((version or clip).get("duration") or 0)
         if not body.disclose:
             options["brand_organic"] = options["brand_content"] = False
-        info = tiktok.creator_info(tiktok.Token(settings)) if mode == "direct" else None
+        info = tiktok.creator_info(tiktok.Token(settings, destination["id"])) if mode == "direct" else None
         tiktok.validate(body.description, body.privacy, options, mode, settings, info, options["duration"])
         stamp = audience.check("tiktok", body.privacy, settings, mode=mode, creator=info)
     # Check required credit in the actual confirmed text, not the clip's selected generated metadata.
@@ -260,7 +267,7 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         title=body.title.strip(), description=body.description.strip(), tags=body.tags,
         requested_privacy=body.privacy, video_path=video_path, version_id=(version or {}).get("id", ""),
         options=options, features=jobs.feature_snapshot(clip, version), audience=stamp,
-        delivery={"transfer": "not_started"})
+        delivery={"transfer": "not_started"}, connection_id=destination["id"])
     jobs.worker.submit(pub["id"])
     return pub
 

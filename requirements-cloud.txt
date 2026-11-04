@@ -1,0 +1,4 @@
+# ClipForge cloud mode (owner sign-in and encrypted secret storage) on Linux, x86_64 or ARM64.
+-r requirements.txt
+PyJWT[crypto]>=2.9,<3      # OpenID Connect ID-token signature/claims verification
+cryptography>=44,<49       # AES-256-GCM sealing of saved tokens with the separately stored key

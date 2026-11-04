@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +23,8 @@ from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, videotoolbox_available
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
+from .publish import connection_routes
+from .studio import routes as studio_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
@@ -30,18 +32,37 @@ from .autopilot import brain_routes, knowledge_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
 from .office import routes as office_routes
+from .cloud import auth_routes, ownership, principal
+from .cloud import settings as cloud_settings
+from .cloud.middleware import CloudGuard
+
+
+def _cloud_startup() -> None:
+    """Cloud mode refuses to start while any protection is missing: no unauthenticated or unencrypted fallback."""
+    if not cloud_settings.enabled():
+        return
+    cloud_settings.reset()
+    problems = cloud_settings.problems()
+    if problems:
+        raise RuntimeError("ClipForge cloud mode cannot start safely:\n- " + "\n- ".join(problems))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     with disconnect_cleanup():
+        _cloud_startup()
         db.init()
+        if cloud_settings.enabled():
+            from .cloud import identity
+
+            identity.ensure_primary_workspace()
         _youtube_retention()
         worker.resume(db.interrupted_work())
         worker.start()
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
-        phone.manager.restore()
+        if not cloud_settings.enabled():  # the phone listener is a desktop feature; cloud has its own sign-in
+            phone.manager.restore()
         try:
             yield
         finally:
@@ -60,8 +81,14 @@ def _youtube_retention() -> None:
         logging.getLogger(__name__).exception("YouTube data clean-up at start failed")
 
 
-app = FastAPI(title="ClipFoundry", version=__version__, lifespan=lifespan)
+# Every route checks that the objects named in its address belong to the requesting workspace (cloud/ownership.py).
+app = FastAPI(title=config.APP_NAME, version=__version__, lifespan=lifespan,
+              dependencies=[Depends(ownership.check)])
+app.add_middleware(CloudGuard)  # cloud mode only: host check, sign-in, CSRF, rate limits, security headers
+app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
+app.include_router(connection_routes.router)
+app.include_router(studio_routes.router)
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
@@ -171,9 +198,15 @@ def ai_check() -> dict:
     return llm.check_provider(db.get_settings())
 
 
+def _my_projects() -> list[dict]:
+    """The requesting workspace's projects (all of them on the desktop, which has one workspace)."""
+    mine = principal.workspace_id()
+    return [p for p in db.list_projects() if (p.get("workspace_id") or "local") == mine]
+
+
 @app.get("/api/stats")
 def stats() -> dict:
-    projects = db.list_projects()
+    projects = _my_projects()
     clips = sum(p.get("clip_count") or 0 for p in projects)
     return {"projects": len(projects), "clips": clips,
             "processing": sum(1 for p in projects if p["status"] in {"queued", "processing"}),
@@ -183,7 +216,7 @@ def stats() -> dict:
 # ------------------------------------------------------------------ projects
 @app.get("/api/projects")
 def list_projects() -> list[dict]:
-    return [_public_project(p) for p in db.list_projects()]
+    return [_public_project(p) for p in _my_projects()]
 
 
 @app.post("/api/projects")
@@ -198,7 +231,8 @@ async def create_project(file: UploadFile = File(...), options: str = Form("{}")
     except ValueError as exc:
         raise HTTPException(400, "Invalid options JSON") from exc
     name = Path(filename).stem[:120]
-    project = db.create_project(name, source_filename=filename, options=opts, status="uploading")
+    project = db.create_project(name, source_filename=filename, options=opts, status="uploading",
+                                workspace_id=principal.workspace_id())
     pdir = config.projects_dir() / project["id"]
     pdir.mkdir(parents=True, exist_ok=True)
     dest = pdir / f"source{ext}"
@@ -231,7 +265,15 @@ def create_from_url(body: UrlImport) -> dict:
         import yt_dlp  # noqa: F401
     except ImportError as exc:
         raise HTTPException(400, "URL import requires yt-dlp (pip install yt-dlp)") from exc
-    project = db.create_project(url[:120], source_url=url, options=_clean_options(body.options), status="queued")
+    if cloud_settings.enabled():
+        from . import netguard
+
+        try:  # a server must not fetch its own network or cloud metadata for anyone, owner included
+            netguard.check(url, allow_private=False)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    project = db.create_project(url[:120], source_url=url, options=_clean_options(body.options), status="queued",
+                                workspace_id=principal.workspace_id())
     pdir = config.projects_dir() / project["id"]
     pdir.mkdir(parents=True, exist_ok=True)
     db.update_project(project["id"], source_path=str(pdir / "source.mp4"))

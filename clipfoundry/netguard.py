@@ -65,7 +65,12 @@ def allowed(ip: Address, allow_private: bool) -> bool:
 
 
 def check(url: str, *, schemes: tuple[str, ...] = HTTP, allow_private: bool = False) -> list[Address]:
-    """The checked addresses of `url`'s host; raises UnsafeUrl when the URL may not be fetched."""
+    """The checked addresses of `url`'s host; raises UnsafeUrl when the URL may not be fetched.
+
+    In cloud mode `allow_private` is ignored: the desktop lets its owner reach their own network, but a server must
+    never be pointed at its loopback, private network or cloud metadata service, whoever typed the address."""
+    if os.environ.get("CLIPFOUNDRY_MODE", "").strip().lower() == "cloud":
+        allow_private = False
     parts = urlsplit(url.strip())
     scheme = parts.scheme.lower()
     if scheme not in schemes:

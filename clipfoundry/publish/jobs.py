@@ -110,14 +110,36 @@ def _progress_writer(pub_id: str) -> Callable[[float], None]:
     return write
 
 
+def connection_for(pub: dict) -> dict:
+    """The connection this publication uploads to. It never changes after creation: a different default account,
+    a new connection or a reconnect of another account cannot move it. A publication from before multiple accounts
+    with no binding is bound to the default only if that is still the account it was approved for."""
+    cid = pub.get("connection_id") or ""
+    label = {"youtube": "YouTube", "tiktok": "TikTok"}.get(pub["platform"], pub["platform"])
+    approved = (pub.get("options") or {}).get("approved_account") or ""
+    if not cid:
+        default = db.get_connection(db.default_connection_id(pub["platform"]))
+        if not default or (approved and default["external_id"] != approved):
+            raise PublishError(f"This upload is not bound to a connected {label} account.",
+                               "Reconnect the account it was approved for, or review the post again.", "reconnect")
+        cid = default["id"]
+        db.update_publication(pub["id"], connection_id=cid)
+    acc = db.get_connection(cid)
+    if not acc or acc["status"] == "disconnected" or not acc.get("has_tokens"):
+        name = (acc or {}).get("nickname") or (acc or {}).get("display_name") or "the chosen account"
+        raise PublishError(f"{label} account “{name}” is not connected.",
+                           f"Reconnect “{name}” in Accounts. Uploads to other accounts continue.", "reconnect")
+    if approved and approved != acc["external_id"]:
+        raise PublishError(f"Another {label} account is connected than the one this upload was approved for.",
+                           "Reconnect the original account, or review a new post for this account.", "reconnect")
+    return acc
+
+
 def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
-    token = youtube.Token(settings)
+    acc = connection_for(pub)
+    token = youtube.Token(settings, acc["id"])
     opts = pub.get("options") or {}
-    if opts.get("approved_account") and opts["approved_account"] != (db.get_account("youtube") or {}).get(
-            "account_id"):
-        raise PublishError("Another YouTube account is connected than the one this upload was approved for.",
-                           "Reconnect the original account, or review a new post for this account.", "reconnect")
     _check_manual_publication(pub, settings)
     info = pub.get("info") or {}
     stamp = pub.get("audience") or {}
@@ -207,12 +229,9 @@ def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
 
 def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
-    token = tiktok.Token(settings)
+    acc = connection_for(pub)
+    token = tiktok.Token(settings, acc["id"])
     opts = pub.get("options") or {}
-    if opts.get("approved_account") and opts["approved_account"] != (db.get_account("tiktok") or {}).get(
-            "account_id"):
-        raise PublishError("Another TikTok account is connected than the one this upload was approved for.",
-                           "Reconnect the original account, or review a new post for this account.", "reconnect")
     _check_manual_publication(pub, settings)
     mode = pub.get("mode") or "direct"
     username = ""
@@ -291,14 +310,18 @@ def _refresh_manual_unknown(pub: dict) -> dict:
     from ..autopilot.publisher import _youtube_upload_by_title
 
     approved_account = (pub.get("options") or {}).get("approved_account")
-    if not approved_account or approved_account != (db.get_account("youtube") or {}).get("account_id"):
+    try:
+        acc = connection_for(pub) if approved_account else None
+    except PublishError:
+        acc = None
+    if not acc:
         raise PublishError("Reconnect the original YouTube account before checking this upload's outcome.",
                            "The uncertain upload stays held; no video is uploaded to the current account.",
                            "reconnect")
     try:
         found = _youtube_upload_by_title(pub, require_exact_metadata=True)
         video_id = (found or {}).get("id") or ""
-        status = youtube.video_status(youtube.Token(db.get_settings()), video_id) if video_id else None
+        status = youtube.video_status(youtube.Token(db.get_settings(), acc["id"]), video_id) if video_id else None
     except (httpx.HTTPError, ValueError) as exc:
         raise PublishError("YouTube's upload outcome could not be checked.",
                            "Check the connection and use Refresh status again; no new upload is started.",
@@ -319,12 +342,18 @@ def _refresh_manual_unknown(pub: dict) -> dict:
 RUNNERS: dict[str, Callable[[dict, Callable[[], bool]], None]] = {"youtube": run_youtube, "tiktok": run_tiktok}
 
 
+def _status_connection(pub: dict) -> str | None:
+    """Status of an existing video is read with the account that uploaded it (None: the default, for rows from
+    before multiple accounts)."""
+    return pub.get("connection_id") or None
+
+
 def refresh(pub: dict) -> dict:
     """Ask the platform for the current state of an uploaded video."""
     if pub["platform"] == "youtube" and not pub.get("scheduled_id") and unknown_outcome(pub):
         return _refresh_manual_unknown(pub)
     if pub["platform"] == "youtube" and pub.get("remote_id"):
-        st = youtube.video_status(youtube.Token(db.get_settings()), pub["remote_id"])
+        st = youtube.video_status(youtube.Token(db.get_settings(), _status_connection(pub)), pub["remote_id"])
         info = {**(pub.get("info") or {}), **{k: v for k, v in st.items() if k != "exists"}, "checked_at": time.time()}
         if not st["exists"]:
             db.update_publication(pub["id"], info=info, message="This video no longer exists on YouTube.")
@@ -353,7 +382,7 @@ def refresh(pub: dict) -> dict:
                     f"YouTube reports {st['privacy'] or 'unknown'} visibility; Public was requested. Check Studio."
             db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg, delivery=delivery)
     if pub["platform"] == "tiktok" and pub.get("remote_id") and pub["status"] in ("processing", "action_needed"):
-        token = tiktok.Token(db.get_settings())
+        token = tiktok.Token(db.get_settings(), _status_connection(pub))
         outcome = _tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),
                                   (pub.get("info") or {}).get("username", ""))
         if outcome and not (pub["status"] == "action_needed" and outcome["status"] == "action_needed"):

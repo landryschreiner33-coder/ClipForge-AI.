@@ -1,5 +1,28 @@
 # AI handoff
 
+## ClipForge implementation — session start 2026-11-04 (Claude Code, cloud session)
+
+**Plain-English summary:** implementation of the ClipForge cloud studio prompt has started. Nothing in it
+was built before this session. This entry records the real starting point; later entries above it record
+each checkpoint as it is reached.
+
+- **Branch:** `claude/new-session-b9itcy` (the branch this session must push to). It sat at the old default
+  branch tip `8999e5f` and was fast-forwarded to `codex/cloud-plan` @ `6585c58` (the newest source line; it
+  contains `codex/macos-native-app` @ `9e0aaee` and every earlier Claude/Codex fix). No uncommitted changes existed.
+- **Newer fixes retained:** every remote branch was compared with `codex/cloud-plan`. The only branches with
+  commits it lacks are `codex/clipfoundry-one-click` and `codex/macos-download-delivery`, which hold
+  installer/ZIP delivery bundles, not app source (no `clipfoundry/` or `frontend/src` tree), plus older
+  superseded experiment branches (`claude/ecstatic-shannon-wb1zq1`, `claude/clipfoundry-office-audience`,
+  `codex/retro-robot-autopilot`, `codex/fix-autopilot-idle`) whose work landed through later merges.
+- **State at start:** ClipFoundry desktop app (local FastAPI + React + SQLite). Cloud mode, login, workspaces,
+  multiple social accounts, Full stories, full-video assembly, skills, ClipForge rename and redesign: planned only.
+- **FilmCraft experiment:** the pinned source (`storytold/filmcraft@57dc82e`) was cloned and its README/NOTICE
+  read. Building it (`cargo build -p filmcraft-cli`) was refused by this session's safety policy because it would
+  execute third-party build scripts downloaded from the internet. Blocked: the owner must approve building and
+  running upstream code (or run the harness on their own machine) before the integration can be evaluated.
+- **Baseline tests:** the fast suite is being run on the untouched starting commit in a separate worktree so the
+  result is not affected by new edits; the result is recorded in the next checkpoint entry.
+
 ## Opening handoff and bug-prevention requirement — 2026-11-03 (America/Chicago)
 
 The owner requests a handoff at the beginning of the Markdown prompt and asks to keep it “big free,” interpreted
