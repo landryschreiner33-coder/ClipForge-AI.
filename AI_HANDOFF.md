@@ -1,5 +1,37 @@
 # AI handoff
 
+## PR #16 merge review and website refresh — 2026-11-04 (Codex)
+
+The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
+Working checkout: `/workspace/clipforge-pr16`, branch `codex/review-clipforge-pr16`, based on Claude head `4e0da48`.
+Merged the newer `codex/cloud-plan` documentation into that head without dropping either set of handoff notes.
+
+Review fixes:
+- Hold automatic YouTube uploads over 15 minutes when the channel's long-upload eligibility is unknown. Keep the
+  full master available and explain the next step; add destination/boundary regression checks.
+- Include cloud requirements in development/test installs: the new OIDC test fixtures require PyJWT, which the
+  existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
+- Correct creation/render copy that incorrectly described local desktop processing as server processing.
+- Rebuild and retain the tracked frontend distribution.
+
+Verification so far: 1,628 fast tests passed; seven focused full-story tests passed; production frontend build
+passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` is being redesigned in
+`/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
+real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
+Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
+bytes and hashes remain unchanged because no new native release has been built. The source changes are not yet
+in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
+preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
+
+Outstanding before finishing this checkpoint: complete slow tests, push the reviewed PR head, merge with the exact
+head SHA, publish the website and record the returned deployment. Do not describe cloud hosting, public signup,
+per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
+`docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
+it is not a newly required owner approval for this session.
+
 ## ClipForge build checkpoint, phases 0–6 — 2026-11-04 (Claude Code, cloud session)
 
 **Plain-English summary:** ClipForge is built and tested here on synthetic media and fake platforms. The app is

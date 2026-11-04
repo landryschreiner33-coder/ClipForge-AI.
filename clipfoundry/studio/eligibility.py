@@ -33,8 +33,13 @@ def youtube(duration: float, width: int, height: int) -> dict:
         return {"state": "regular", "eligible": True, "label": "Regular YouTube video",
                 "text": f"{_fmt(duration)} is {why}: it uploads as a regular YouTube video, not a Short."}
     if duration <= YOUTUBE_MAX:
-        return {"state": "needs_verified", "eligible": True, "label": "Regular video (verified channel)",
-                "text": f"{_fmt(duration)} is longer than 15 minutes: YouTube accepts it only from a verified channel."}
+        # A connected account is not proof that YouTube has enabled long uploads. Keep the full master, but
+        # do not send it automatically when that capability has not been established for this destination.
+        return {"state": "needs_verified", "eligible": False, "label": "Check channel verification",
+                "text": f"{_fmt(duration)} is longer than 15 minutes. Automatic upload is on hold because "
+                        "ClipForge cannot confirm this channel's long-upload eligibility. Check the channel in "
+                        "YouTube Studio, then upload the full master there.",
+                "alternatives": ["Check channel verification in YouTube Studio", "Download the full master"]}
     return {"state": "too_long", "eligible": False, "label": "Too long for YouTube",
             "text": "Longer than YouTube's 12-hour maximum.", "alternatives": ALTERNATIVES[1:]}
 

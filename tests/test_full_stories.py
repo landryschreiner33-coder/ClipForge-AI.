@@ -83,7 +83,14 @@ def test_cf06_a_story_longer_than_an_account_limit_keeps_its_full_master():
     assert eligibility.tiktok(story, 600.0)["eligible"]
     assert eligibility.youtube(170.0, 1080, 1920)["state"] == "short"
     assert eligibility.youtube(170.0, 1920, 1080)["state"] == "regular"  # a landscape video is never a Short
-    assert eligibility.youtube(16 * 60, 1080, 1920)["state"] == "needs_verified"
+    long_video = eligibility.youtube(16 * 60, 1080, 1920)
+    assert long_video["state"] == "needs_verified" and not long_video["eligible"]
+    assert eligibility.youtube(15 * 60, 1080, 1920)["eligible"]
+    destinations = eligibility.for_output(16 * 60, 1080, 1920, [
+        {"id": "channel-a", "platform": "youtube", "display_name": "Channel A"},
+        {"id": "channel-b", "platform": "youtube", "display_name": "Channel B"},
+    ])
+    assert all(not d["eligible"] and d["state"] == "needs_verified" for d in destinations)
 
 
 # ------------------------------------------------------------------ review controls

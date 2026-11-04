@@ -73,7 +73,7 @@ export default function MakeClips() {
   return (
     <div className="page">
       <PageHead kind="Make" title="Make clips" crumbs={[{ label: "Home", href: "#/" }, { label: "Make clips" }]}
-        sub="Vertical 1080×1920 clips with captions, made on the server. You can close this page once the file has uploaded." />
+        sub="Make vertical 1080×1920 clips with captions. Keep ClipForge running while it processes your video." />
       <div className="studio-grid">
         <div className="stack-5">
           <section className="panel" aria-labelledby="mc-mode">

@@ -45,7 +45,7 @@ export default function VideoReview({ id }: { id: string }) {
         sub={plan ? `Version ${v.plan_revision} · ${fmtTime(v.duration)} · ${plan.output.aspect}` : v.message}
         actions={plan && <>
           <button type="button" className="btn btn-primary" disabled={busy || !!working && working.kind === "video_render"}
-            onClick={async () => { try { setV(await studio.renderVideo(v.id, v.plan_revision)); toast("Rendering on the server"); } catch (e) { toast(errorText(e), true); } }}>
+            onClick={async () => { try { setV(await studio.renderVideo(v.id, v.plan_revision)); toast("Render queued. Keep ClipForge running until it finishes."); } catch (e) { toast(errorText(e), true); } }}>
             <Icon name="play" />Render version {v.plan_revision}</button>
           {working && <button type="button" className="btn" onClick={async () => setV(await studio.cancelVideo(v.id))}><Icon name="stop" />Cancel</button>}
         </>} />
