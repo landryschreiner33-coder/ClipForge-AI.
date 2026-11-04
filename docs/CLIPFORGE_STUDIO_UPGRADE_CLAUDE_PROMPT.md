@@ -11,9 +11,9 @@ Keep reliability and bug prevention ahead of visual polish. Fix the failing base
 ### Verify the latest source before changing anything
 
 - Repository: https://github.com/landryschreiner33-coder/ClipForge-AI.
-- Existing PR: https://github.com/landryschreiner33-coder/ClipForge-AI./pull/16
-- PR head: `claude/new-session-b9itcy`; base: `codex/cloud-plan`. The repository's default branch may be older.
-- Last inspected review commit at the start of this handoff: `b158b6241c70156a39a96f6dba0a92894d93f7eb`. Discover later commits and read the newest handoff; do not reset to that SHA.
+- Previous PR: https://github.com/landryschreiner33-coder/ClipForge-AI./pull/16 — GitHub reports it merged on November 4, 2026, at 18:24 UTC, merge commit `883913c84e5cb621d70093b2692083962c1580c6`.
+- Start from the newest `codex/cloud-plan` and inspect follow-up branches. The old PR head is `claude/new-session-b9itcy`; the repository's default branch may be older.
+- This handoff and the later renderer repair are on `codex/review-clipforge-pr16`, including repair commit `fc0664c`. Compare and carry forward needed changes; they were created after PR #16's merge and must not be assumed present in the merged app or installers. Discover later commits and read the newest handoff; do not reset to an old SHA.
 - Previous review checkout: `/workspace/clipforge-pr16`. Treat that as a hint, not a required path.
 - Read `AGENTS.md`, `AI_HANDOFF.md`, the top of `AI_CHANGELOG.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/clipforge/FEATURE_CHECKLIST.md`, `docs/clipforge/OWNER_GUIDE.md` and `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
 - Inspect the actual branch, PR state, dirty files, migrations and built frontend. Preserve unrelated work and use an isolated worktree if appropriate.
@@ -27,7 +27,7 @@ Preserve the earlier AAC packet-timing repair, framing work, Brain precedence/sn
 
 Recent merge-review fixes also hold automatic YouTube uploads longer than 15 minutes when channel eligibility is unknown; include cloud dependencies in test installs; correct misleading server-processing copy in local mode; and prevent secondary workspaces from reading the owner's Brain or using shared processing services.
 
-The public website is already updated as version 3. **That does not mean the application is hosted in the cloud.** The existing downloadable Mac/Windows packages predate PR #16. Do not mistake source implementation, a merge, packaging, website publication and cloud deployment for the same event.
+The Sites website was updated as version 3. Claude subsequently added the shared GitHub Pages download site and its manifest lists November 4 Mac/Windows packages from source `06f459eb185b87ac344ad14e8dbd3f8e03be58d1`. That manifest was inspected, but those newer packages were not downloaded or retested in this handoff session. Read and verify current metadata before making release claims. **Neither static website means the application is hosted in the cloud.** Do not mistake source implementation, a merge, packaging, website publication and cloud deployment for the same event.
 
 ### Baseline failures: inspect the latest follow-up before proceeding
 
@@ -358,13 +358,15 @@ Earlier uploads had scrambled audio, a quiet section and then normal sound, even
 
 ## 13. Website and real release downloads
 
-After implementation and verification, update the existing website yourself using available authorized tools:
+After implementation and verification, update the shared public download website yourself:
 
-**https://clipfoundry-studio.landryschreiner33.chatgpt.site**
+**https://landryschreiner33-coder.github.io/ClipForge-AI./download/**
 
-Site ID: `appgprj_6ae8b76d68108191bc36af565f138bed`.
+This is `download/` on the repository's `gh-pages` branch. Read that branch's `download/UPDATING.md`. Both assistants can update it with repository access; use a separate checkout/worktree and ordinary non-force pushes. Keep release metadata in `download/releases.json`; run `python3 download/build.py`, `--check` and `--verify` as documented. Preserve the root legal pages, canonical icon and platform verification files. Apply the user's dark-only design even if older instructions mention testing light mode.
 
-- Read the latest website checkout/publication record; retain this Site, address and public audience.
+The existing Sites address, **https://clipfoundry-studio.landryschreiner33.chatgpt.site**, is separate (Site ID `appgprj_6ae8b76d68108191bc36af565f138bed`). If the Sites tools/workspace are available, synchronize its presentation and link to the verified shared download page. If unavailable, finish GitHub Pages and explicitly report Sites as unchanged; do not claim to have published it or create a replacement Site.
+
+- Read the latest website checkouts/publication records; retain both addresses and their public audiences.
 - Improve the design to match the final dark ClipForge studio. Use sanitized current screenshots and short recordings of working flows.
 - Explain the two creation outcomes, Full stories within Make clips, complete editor, example-video analysis, supporting-media search, Brain, robot team and multiple accounts. Remove automatic source-video-discovery marketing. Show these features as available only when actually implemented and packaged.
 - Keep mobile navigation, accessible controls, FAQ, setup help, support and privacy/terms polished.

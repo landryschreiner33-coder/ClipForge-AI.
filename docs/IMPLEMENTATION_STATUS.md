@@ -16,7 +16,10 @@ transcript by approximate container duration, which varies with encoder padding;
 source asset. No assertion was removed. The complete focused full-video test then **passed (85.12 seconds)**,
 including mixed media, preview/final render, edits, restore, cancellation, captions and stored AAC clock checks.
 
-**PR #16 is not merged.** Two failures from the broader media run remain unresolved:
+**Repository sync correction:** GitHub reports PR #16 was merged separately at 18:24 UTC on November 4,
+merge commit `883913c84e5cb621d70093b2692083962c1580c6`. The renderer repair and this handoff were created later
+on `codex/review-clipforge-pr16`; do not assume they are included in that merge or its packages. Two failures
+from this broader media run remain unresolved:
 - `test_worker_host_runs_complete_loop_and_repeats_after_restart[public]`: later source classified weak;
   expected second post did not arrive.
 - `test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`: live transcription timeout;
@@ -27,8 +30,12 @@ The full slow suite has not been rerun after the focused renderer repair. Eviden
 `/workspace/work/clipfoundry/pr16-slow-complete.log`, `pr16-video-ffmpeg-error.log`, `pr16-video-fixed-final.log`.
 
 The public website version 3 is live at https://clipfoundry-studio.landryschreiner33.chatgpt.site.
-Existing installers are unchanged and predate this source work. No application cloud deployment, real account
-upload, real AI/media-provider connection or native hardware validation was performed.
+The Sites downloads were unchanged by this review. New remote work added the shared download page at
+https://landryschreiner33-coder.github.io/ClipForge-AI./download/ and lists November 4 packages from source
+`06f459eb185b87ac344ad14e8dbd3f8e03be58d1`; their manifest was inspected, but those newer binaries were not
+retested here. The latest prompt targets that shared site and optionally synchronizes Sites. No application
+cloud deployment, real account upload, real AI/media-provider connection or native hardware validation was
+performed in this review. Preserve the remote Mac release workflow changes pulled during final sync.
 
 ## PR #16 merge review and website refresh — 2026-11-04 (Codex)
 
@@ -63,7 +70,8 @@ preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript downlo
 Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
 full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
 Outstanding before merging: resolve the remaining media failures, complete the relevant verification and merge only the tested
-head SHA. The requested updated Claude prompt is delivered; PR #16 remains unmerged. Do not describe cloud hosting, public signup,
+head SHA. The requested updated Claude prompt is delivered. This review did not merge PR #16; a final sync discovered
+it was merged separately while this review was running. See the latest checkpoint for the follow-up branch. Do not describe cloud hosting, public signup,
 per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
 `docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
 it is not a newly required owner approval for this session.
