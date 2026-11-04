@@ -1,12 +1,12 @@
 {
-  "source_commit": "c7d502f83e25c6adcb59c01094082d2fea76e7cc",
-  "app_archive_sha256": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
-  "zip_bytes": 46661054,
-  "zip_sha256": "064d7bc7473a2546d6f168cd7d8e09816b1489d82c8b3f130a9fa76304d683a4",
+  "source_commit": "c8178434832c6a78ec73c7567d530bf7b653fedf",
+  "app_archive_sha256": "8f9e8773d52937c2ef71f078a61200e11dbae9e5b63cdca0f2ccf1c87ff0d174",
+  "zip_bytes": 46661120,
+  "zip_sha256": "3e5b3c36fc07552a65a133752f9fe048e7029eadbe3ff83f423e6d93d9855dbf",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "b56134c66d803d169425d91017e2ff85812f53f1509719601e3e87a100b7b108",
-    "setup.py": "fead4c1f4058270acdfcdbef4e3ea0351d7e55d2d01b0ec3645e5ccb0b594eb2",
-    "app.zip": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
+    "setup.py": "24077e2947367f2a43650c4f8edc4f616808e910541e6e836bee6842cfb33315",
+    "app.zip": "8f9e8773d52937c2ef71f078a61200e11dbae9e5b63cdca0f2ccf1c87ff0d174",
     "README.txt": "606564a0edc89989e2e83043fde6eeb375b81e36a0f2f43eae7ea80ad9abf69e"
   },
   "app_files": 675,
@@ -36,6 +36,7 @@
       "deselected": 1630
     },
     "tested_commit": "a96781be95eca5ff9a4904e9db5d1d89401f3055",
-    "note": "the source commit differs from the tested commit only in AGENTS.md and docs/clipforge/WEBSITE_DEPLOYMENT.md"
+    "github_regression": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41886951001 (fast and slow passed on c7d502f)",
+    "note": "the source commit differs from the tested commit only in two documentation files and the Mac smoke test's name check"
   }
 }

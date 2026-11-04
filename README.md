@@ -7,8 +7,8 @@ Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge wind
 keeps its ClipFoundry name so an existing setup and its data are found and kept. It needs 64-bit Python 3.12 (or
 3.11) from python.org; see the details below, which still apply.
 
-It installs ClipForge from source commit `c7d502f83e25c6adcb59c01094082d2fea76e7cc` (the main branch after PR #16
-and PR #17). The 77 setup tests passed, and every file in the app was compared with that commit. The app's tests ran
+It installs ClipForge from source commit `c8178434832c6a78ec73c7567d530bf7b653fedf` (the main branch after PR #16
+and PR #17, plus the Mac smoke-test name fix). The 77 setup tests passed, and every file in the app was compared with that commit. The app's tests ran
 on `a96781b`, which differs only in two documentation files: 1,630 fast and 21 real-media checks passed. See
 `verification-windows.json`. This environment did not test native Windows, Windows security acceptance or real
 uploads.
