@@ -15,6 +15,14 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
+owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
+There are two creation entries: Make clips (Highlights / Full stories) and Make a YouTube video. Each full story
+becomes a complete vertical TikTok/YouTube clip, subject to actual destination eligibility. Also required:
+multiple connected social accounts, redesigned navigation/screens and saved custom robot display names.
+Preserve existing data/profile/internal IDs, exact account-bound publication and real robot roles/handoffs.
+The earlier three-choice layout and source-aspect-ratio story default are superseded by this correction.
+
 **Cloud studio expansion planning (2026-11-03):** The owner has specified full YouTube-video assembly from
 uploaded clips, complete-story batch clipping, account access across devices, declarative skill imports,
 simpler guided creation and saved themes/layouts. This checkpoint delivers a plan and Claude Code prompt only:

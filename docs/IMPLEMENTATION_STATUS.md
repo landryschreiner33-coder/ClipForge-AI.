@@ -1,5 +1,26 @@
 # Implementation status
 
+## ClipForge prompt revision: Clips modes, multiple accounts and redesigned UI — 2026-11-03 (America/Chicago)
+
+The owner's latest correction is authoritative: Full stories is inside **Make clips**, alongside Highlights.
+Each story in a long source becomes a complete vertical TikTok/YouTube clip, with safe captions and dynamic
+framing. Preserve over-limit story masters and show destination eligibility; never silently split/truncate.
+The other main creation choice remains **Make a YouTube video** from uploaded clips.
+
+The owner also requests multiple connected YouTube/TikTok accounts, the visible name **ClipForge**, a redesigned
+interface organized around these workflows, and editable robot names. The canonical complete Markdown prompt
+is [CLIPFORGE_CLAUDE_PROMPT.md](CLIPFORGE_CLAUDE_PROMPT.md). The earlier prompt path redirects readers to it.
+[STUDIO_EXPANSION_PLAN.md](STUDIO_EXPANSION_PLAN.md) and the cloud plan now reflect these requirements.
+
+The prompt includes stable workspace/connection/robot IDs, separate account-bound publications and quota scopes,
+profile-preserving branding migration, consistent icon identity, responsive navigation and display-name tests.
+Cloud, Brain, skills, full-video editing, prior AAC/audio fixes and publishing guarantees remain in scope.
+This checkpoint writes the requested plan/prompt only; no feature, product rename, website or installer changed.
+
+Verification: documentation scope/conflict checks, relative links, source references, sequential prompt sections,
+JSONL syntax and git diff --check. No functional app tests were run because no application code changed.
+FilmCraft remains an unbenchmarked integration candidate; cloud capacity/accounts and real uploads unverified.
+
 ## Cloud studio expansion plan and Claude implementation prompt — 2026-11-03 (America/Chicago)
 
 The owner has now specified the second major change: full YouTube-video assembly from supplied clips,

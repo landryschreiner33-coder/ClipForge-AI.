@@ -1,4 +1,4 @@
-# ClipFoundry cloud migration plan
+# ClipForge cloud migration plan
 
 Planning checkpoint: November 3, 2026 (America/Chicago). No cloud service has been provisioned and no paid
 resource is authorized. The working Mac app and public download website remain unchanged.
@@ -11,7 +11,9 @@ resource is authorized. The working Mac app and public download website remain u
 - Minimize cost. Target a $0 infrastructure pilot; do not equate this with proven free production capacity.
 - The second major change is now specified: full-video assembly, complete-story exports, importable skills,
   simple guided creation and account-synced themes/layouts. See [the expansion plan](STUDIO_EXPANSION_PLAN.md)
-  and [the Claude Code implementation prompt](CLAUDE_STUDIO_BUILD_PROMPT.md). This checkpoint remains planning
+  and [the Claude Code implementation prompt](CLIPFORGE_CLAUDE_PROMPT.md). The owner now specifies the name
+  ClipForge, Full stories inside Clips with vertical TikTok/YouTube output, multiple connected social accounts,
+  redesigned navigation/screens and custom robot names. This checkpoint remains planning
   only; no new workflow or cloud feature has been implemented.
 
 ## Recommended first deployment
