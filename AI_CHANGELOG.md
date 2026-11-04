@@ -1,5 +1,71 @@
 # AI changelog
 
+## PR #16 merge review and website refresh — 2026-11-04 (Codex)
+
+The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
+Working checkout: `/workspace/clipforge-pr16`, branch `codex/review-clipforge-pr16`, based on Claude head `4e0da48`.
+Merged the newer `codex/cloud-plan` documentation into that head without dropping either set of handoff notes.
+
+Review fixes:
+- Hold automatic YouTube uploads over 15 minutes when the channel's long-upload eligibility is unknown. Keep the
+  full master available and explain the next step; add destination/boundary regression checks.
+- Include cloud requirements in development/test installs: the new OIDC test fixtures require PyJWT, which the
+  existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
+- Correct creation/render copy that incorrectly described local desktop processing as server processing.
+- Rebuild and retain the tracked frontend distribution.
+- Close secondary-workspace access to shared Brain guidance and media-processing writes until those services
+  are truly workspace-scoped. A regression reproduced private owner note metadata in the old guidance response;
+  the same request is now refused. The primary owner workflow remains available.
+
+Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
+`/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
+real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
+Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
+bytes and hashes remain unchanged because no new native release has been built. The source changes are not yet
+in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
+preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
+
+Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
+full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
+head SHA. Do not describe cloud hosting, public signup,
+per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
+`docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
+it is not a newly required owner approval for this session.
+
+## ClipForge studio, phases 0–6 — 2026-11-04 (Claude Code)
+
+Built the ClipForge prompt (`docs/CLIPFORGE_CLAUDE_PROMPT.md`) on `claude/new-session-b9itcy` (draft PR #16).
+
+What was built:
+- **Cloud mode:** owner-only OIDC sign-in, server sessions, CSRF/host/origin guards, strict CSP, workspace ownership on
+  every ID, AES-256-GCM secrets.
+- **Accounts:** multiple YouTube/TikTok connections, migrated without changing tokens.
+- **Server plumbing:** resumable private uploads; durable studio jobs; backup/restore/retention CLI.
+- **Guidance:** precedence with frozen snapshots and "Used from your Brain"; saved styles and declarative skills.
+- **Full stories:** complete stories as 9:16 clips, with destination eligibility (never truncated).
+- **Full YouTube video:** assembly on a versioned FFmpeg engine with revisions.
+- **Interface:** the new ClipForge shell; theme/layout prefs; robot display names; the visible rename.
+
+The office map and robots are unchanged. Desktop data, Keychain/DPAPI names, settings keys, the publish header and
+old addresses are kept.
+
+Final regression fixes:
+- Link/transcript import is reachable at `#/create/link`.
+- Make clips previews guidance with a GET.
+- Startup robot-name loading no longer redraws the page and discards a just-chosen file.
+- Remaining Clips/Queue labels now say Projects/Publishing.
+- Motion stays the per-browser Animations choice.
+- The sidebar is narrower below 1366 px, so the office map keeps its minimum width.
+- Browser specs follow the new navigation.
+
+Tests: see `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 test log). Not verified: real sign-in, deployment, uploads,
+transcodes, native Windows/Mac hardware, throughput. FilmCraft stays Blocked (build not permitted here). No real
+posts, no deployment, no owner media.
 ## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
 
 The owner asks to tell Claude to update the website and improve its appearance. Section 17 of

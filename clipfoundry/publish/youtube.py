@@ -1,13 +1,13 @@
 """YouTube Shorts through the official YouTube Data API v3.
 
 Sign-in uses Google's OAuth 2.0 flow for desktop apps (loopback redirect to http://127.0.0.1 with PKCE), with your
-own Google Cloud project's "Desktop app" client. ClipFoundry receives tokens, never your Google password.
+own Google Cloud project's "Desktop app" client. ClipForge receives tokens, never your Google password.
 
 Uploads use the resumable upload protocol (videos.insert, uploadType=resumable) in 8 MiB chunks, resuming after
 network errors. YouTube classifies vertical videos of up to three minutes as Shorts automatically.
 
 YouTube's current videos.insert documentation allows uploads from unverified projects without a Private-only
-restriction. ClipFoundry still requires explicit audience and publishing permission, and reports the visibility
+restriction. ClipForge still requires explicit audience and publishing permission, and reports the visibility
 YouTube actually returns. Compliance audits are relevant to quota extensions, not a Public-upload switch.
 """
 from __future__ import annotations
@@ -21,8 +21,8 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import (SHORT_WAIT, Cancelled, PublishError, client, network_errors, retry_after, save_tokens,
-                     sleep_exactly, with_retry_after)
+from .common import (SHORT_WAIT, Cancelled, ConnectionToken, PublishError, client, network_errors, retry_after,
+                     save_tokens, sleep_exactly, with_retry_after)
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -42,7 +42,7 @@ AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
 
 UNVERIFIED_NOTE = (
     "An unverified YouTube API project can request Public uploads under YouTube's current API documentation. "
-    "Confirm Public audience and automatic publishing separately; ClipFoundry reports the visibility YouTube "
+    "Confirm Public audience and automatic publishing separately; ClipForge reports the visibility YouTube "
     "actually returns. A compliance audit may be needed to request additional quota."
 )
 SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
@@ -74,7 +74,7 @@ def _token_request(data: dict) -> dict:
     if r.status_code != 200:
         err = body.get("error", "")
         if err == "invalid_grant":
-            raise PublishError("Google no longer accepts ClipFoundry's access to your YouTube channel (it was revoked, "
+            raise PublishError("Google no longer accepts ClipForge's access to your YouTube channel (it was revoked, "
                                "expired, or the password was changed).", f"{RECONNECT_FIX} {TESTING_NOTE}",
                                "reconnect")
         if err in ("invalid_client", "unauthorized_client"):
@@ -84,8 +84,13 @@ def _token_request(data: dict) -> dict:
     return body
 
 
-def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str) -> dict:
-    """Finish the sign-in: store the tokens and the channel. Returns the account row."""
+def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str, *, workspace_id: str = "local",
+                  expected_connection: str = "") -> dict:
+    """Finish the sign-in: confirm the channel the token really belongs to, then store it as that channel's
+    connection (a reconnect of the same channel updates it; another channel is added beside the others).
+
+    `expected_connection`: Reconnect of one connection. Signing in to a different channel then is refused instead of
+    silently changing where that connection uploads."""
     tok = _token_request({"code": code, "client_id": settings["youtube_client_id"],
                           "client_secret": settings["youtube_client_secret"], "redirect_uri": redirect_uri,
                           "grant_type": "authorization_code", "code_verifier": verifier})
@@ -94,41 +99,40 @@ def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str) -
         raise PublishError("The permission to upload videos was not granted.",
                            "Connect again and tick 'Manage your YouTube videos' on Google's permission screen.")
     ch = channel(tok["access_token"])
-    db.save_account("youtube", tokens=save_tokens("youtube", tok), account_id=ch["id"], display_name=ch["title"],
-                    avatar_url=ch.get("thumbnail", ""), scopes=sorted(granted), info={"needs_reconnect": False})
-    return db.get_account("youtube") or {}
+    if expected_connection:
+        expected = db.get_connection(expected_connection) or {}
+        if expected.get("external_id") != ch["id"]:
+            raise PublishError(f"You signed in to the channel “{ch['title']}”, not “{expected.get('display_name', '')}”.",
+                               "Click Reconnect again and choose the same channel, or use Add YouTube account for a "
+                               "different channel.", "wrong_account")
+    existing = next((c for c in db.list_connections(workspace_id, "youtube") if c["external_id"] == ch["id"]), None)
+    old = db.connection_tokens(existing["id"]) if existing else {}
+    acc, _ = db.upsert_connection("youtube", ch["id"], save_tokens("youtube", tok, old=old or {}),
+                                  workspace_id=workspace_id, display_name=ch["title"],
+                                  avatar_url=ch.get("thumbnail", ""), scopes=sorted(granted),
+                                  info={"needs_reconnect": False})
+    return acc
 
 
-class Token:
-    """A valid access token for the connected channel, refreshed when it is about to expire."""
+class Token(ConnectionToken):
+    """A valid access token for one YouTube connection (default: the default channel)."""
 
-    def __init__(self, settings: dict):
-        self.settings = settings
+    platform = "youtube"
+    label = "YouTube"
+    reconnect_fix = RECONNECT_FIX
 
-    def get(self, force: bool = False) -> str:
-        tokens = db.account_tokens("youtube")
-        if not tokens:
-            raise PublishError("YouTube is not connected.", RECONNECT_FIX, "not_connected")
-        if not force and tokens["expires_at"] - 90 > time.time():
-            return tokens["access_token"]
-        if not tokens.get("refresh_token"):
-            raise PublishError("The YouTube connection has expired.", RECONNECT_FIX, "reconnect")
-        try:
-            tok = _token_request({"client_id": self.settings["youtube_client_id"],
-                                  "client_secret": self.settings["youtube_client_secret"],
-                                  "refresh_token": tokens["refresh_token"], "grant_type": "refresh_token"})
-        except PublishError as exc:
-            if exc.code == "reconnect":
-                db.save_account("youtube", info={"needs_reconnect": True})
-            raise
-        db.save_account("youtube", tokens=save_tokens("youtube", tok))
-        return tok["access_token"]
+    def _refresh(self, tokens: dict) -> dict:
+        return _token_request({"client_id": self.settings["youtube_client_id"],
+                               "client_secret": self.settings["youtube_client_secret"],
+                               "refresh_token": tokens["refresh_token"], "grant_type": "refresh_token"})
 
 
 @network_errors("YouTube")
-def disconnect(settings: dict) -> None:
-    """Revoke ClipFoundry's access at Google (best effort) and forget the tokens."""
-    tokens = db.account_tokens("youtube") or {}
+def disconnect(settings: dict, connection_id: str | None = None) -> None:
+    """Revoke ClipForge's access for one connection at Google (best effort) and forget its tokens. Other channels
+    stay connected."""
+    cid = connection_id or db.default_connection_id("youtube")
+    tokens = (db.connection_tokens(cid) or {}) if cid else {}
     token = tokens.get("refresh_token") or tokens.get("access_token")
     if token:
         try:
@@ -136,7 +140,8 @@ def disconnect(settings: dict) -> None:
                 c.post(REVOKE_URL, data={"token": token})
         except httpx.HTTPError:
             pass  # the local tokens are deleted either way
-    db.delete_account("youtube")
+    if cid:
+        db.disconnect_connection(cid)
 
 
 def _json(r: httpx.Response) -> dict:
@@ -173,7 +178,7 @@ def api_error(r: httpx.Response, method: str = "") -> PublishError:
         "uploadLimitExceeded": ("Your channel reached YouTube's upload limit for now.", "Try again in 24 hours."),
         "youtubeSignupRequired": ("This Google account has no YouTube channel yet.",
                                   "Create a channel on youtube.com, then connect again."),
-        "insufficientPermissions": ("ClipFoundry is not allowed to do this on your channel.", RECONNECT_FIX),
+        "insufficientPermissions": ("ClipForge is not allowed to do this on your channel.", RECONNECT_FIX),
         "forbidden": ("YouTube refused the request for this channel.", RECONNECT_FIX),
         "invalidTitle": ("YouTube rejected the title.", "Use 1-100 characters without < or >."),
         "invalidDescription": ("YouTube rejected the description.", "Use at most 5000 bytes without < or >."),
@@ -218,6 +223,10 @@ def channel(access_token: str) -> dict:
     if not items:
         raise PublishError("This Google account has no YouTube channel yet.",
                            "Create a channel on youtube.com, then connect again.", "no_channel")
+    if len(items) > 1:  # never guess which channel uploads would go to
+        raise PublishError("Google returned more than one channel for this sign-in.",
+                           "Connect again and pick exactly one channel (or Brand Account) on Google's chooser.",
+                           "ambiguous_channel")
     sn = items[0].get("snippet") or {}
     return {"id": items[0]["id"], "title": sn.get("title", ""),
             "thumbnail": ((sn.get("thumbnails") or {}).get("default") or {}).get("url", "")}
@@ -273,7 +282,7 @@ OUTCOME_UNKNOWN_FIX = ("Open YouTube Studio → Content. If the video is there, 
 
 def _outcome_unknown() -> PublishError:
     return PublishError("All of the video may already have reached YouTube, but YouTube no longer knows the upload "
-                        "session, so ClipFoundry cannot tell whether the video was created. It is not uploaded again "
+                        "session, so ClipForge cannot tell whether the video was created. It is not uploaded again "
                         "automatically, to avoid a duplicate.", OUTCOME_UNKNOWN_FIX, OUTCOME_UNKNOWN)
 
 

@@ -212,7 +212,7 @@ def audience_reminders(settings: dict) -> None:
                 audience.LOCAL_ONLY:
             name = "YouTube" if p == "youtube" else "TikTok"
             state.action(f"audience_setup:{p}", "audience", f"Choose who watches your {name} clips",
-                         f"Clips stay ready on this PC until you say who may watch them on {name}. ClipFoundry posts "
+                         f"Clips stay ready on this PC until you say who may watch them on {name}. ClipForge posts "
                          "only to the audience you confirm. Public posting needs an explicit Public choice.",
                          f"Settings → Integrations → {name} → Who watches.")
         else:
@@ -663,8 +663,8 @@ def approval_problem(item: dict, quick: bool = False) -> str:
     if appr.get("by") == "automatic" and rights.review_before_publish() and publication_unstarted(item):
         return "review before publishing is on; approve this post yourself"
     if appr.get("scheme") != APPROVAL_SCHEME:
-        return ("approved before ClipFoundry checked who may watch it" if appr.get("scheme") == 2 else
-                "approved before ClipFoundry checked the exact video file")
+        return ("approved before ClipForge checked who may watch it" if appr.get("scheme") == 2 else
+                "approved before ClipForge checked the exact video file")
     now_account = autopublish.account_id(item["platform"])
     if appr.get("account") and now_account and appr["account"] != now_account:
         return "another account is connected now than the one it was approved for"
@@ -1115,7 +1115,7 @@ def process_due(settings: dict, now: float) -> dict:
             if item["planned_at"] < now - 60 * OVERDUE_MINUTES:
                 # e.g. the computer was off at its time: find a new slot instead of posting several at once
                 db.update("scheduled_publications", item["id"], planned_at=None,
-                          audit=_audit(item, "overdue", "Its time passed while ClipFoundry was not running; a new "
+                          audit=_audit(item, "overdue", "Its time passed while ClipForge was not running; a new "
                                                         "time will be chosen (still approved)"))
                 moved += 1
                 continue

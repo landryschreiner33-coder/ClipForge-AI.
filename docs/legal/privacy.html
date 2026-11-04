@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy Policy · ClipFoundry</title>
+<title>Privacy Policy · ClipForge</title>
 <meta name="description" content="How the ClipFoundry desktop app and this website handle your information.">
 <link rel="icon" type="image/png" sizes="1024x1024" href="app-icon.png?v=b4dae127e333">
 <link rel="shortcut icon" href="favicon.ico?v=b4dae127e333">
@@ -274,6 +274,24 @@
   Autopilot is on and its work is not stopped. Until then, that information stays on your computer.
 </p>
 
+<h3 id="clipforge">ClipForge studio and cloud mode (added 2026-11-04)</h3>
+<p>
+  ClipForge (the new name of ClipFoundry) also stores, in the same data folder: uploaded files and their SHA-256
+  fingerprints, unfinished uploads (deleted after 3 days if not finished), full-video projects and every saved
+  version of their edit plans, story boundaries you adjusted, saved styles (editing choices only: never your files,
+  must-keep moments, destinations or consent), imported skill files exactly as you uploaded them, the record of which
+  style, skill or Brain note decided each choice of a project, display preferences (theme, layout) and the names you
+  gave the robots. Several YouTube channels and TikTok accounts can be connected at once; each keeps its own
+  encrypted sign-in, and each post records the exact account it went to.
+</p>
+<p>
+  If you run ClipForge in <b>cloud mode</b> on your own server, that data is stored on that server instead of your
+  computer. Signing in uses your sign-in provider (for example Google): the server receives your account's stable ID,
+  name and email address to recognise you, keeps only a fingerprint of your session cookie, and refuses every account
+  that is not configured as the owner. Sessions end after 12 hours, after 4 idle hours, or when you sign out. Secrets
+  are encrypted on the server with a key kept outside the data folder. Nothing is sent to any other new service.
+</p>
+
 <h2>3. When information leaves your computer</h2>
 <p>
   ClipFoundry sends information only to the services below, only for the features that need them, and straight from
@@ -429,7 +447,7 @@
     without encryption and notes that in its log. On macOS, newly saved secrets are encrypted with AES-GCM using
     a per-profile key in your login Keychain; saving fails if Keychain protection is unavailable. Older unencrypted
     Mac entries remain readable until saved again. Copying a Windows or Mac database alone does not transfer its
-    protected sign-ins; reconnect those accounts on the new computer. On Linux, secrets are stored without
+    protected sign-ins; reconnect those accounts on the new computer. In cloud mode (and on Linux when a key file is configured) secrets are encrypted with AES-256-GCM using a separately stored key, and nothing is saved when the key is missing. Otherwise, on Linux, secrets are stored without
     encryption in ClipFoundry's database, which it makes readable only by your user account.</li>
   <li>ClipFoundry's screens open in your web browser, and by default only your own computer can reach them (the
     address <code>127.0.0.1</code>). If you choose to open them to your home network, anyone on that network can use

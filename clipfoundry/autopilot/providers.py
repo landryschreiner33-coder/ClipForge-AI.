@@ -45,10 +45,10 @@ from ..publish.common import PublishError, client, retry_after, wait_text, with_
 from . import quota, state, trends
 
 UNAVAILABLE = {
-    "google_trends": ("Google Trends", "The official Google Trends API is an application-gated alpha; ClipFoundry "
+    "google_trends": ("Google Trends", "The official Google Trends API is an application-gated alpha; ClipForge "
                                        "does not scrape Google Trends."),
     "tiktok_trends": ("TikTok trends", "TikTok offers no trend or discovery API to general developers (its Research "
-                                       "API is limited to approved academic research); ClipFoundry does not scrape "
+                                       "API is limited to approved academic research); ClipForge does not scrape "
                                        "TikTok. With a Tavily key, web search finds public TikTok links (without "
                                        "live statistics)."),
 }
@@ -172,7 +172,7 @@ def youtube_discovery_error(response: httpx.Response, *, api_key: bool, method: 
             exc = youtube.api_error(clean, method)
         else:
             exc = PublishError(f"YouTube discovery answered HTTP {response.status_code}.",
-                               "ClipFoundry will try again automatically. Check the connection if this continues.",
+                               "ClipForge will try again automatically. Check the connection if this continues.",
                                "response")
     return with_retry_after(exc, response, "YouTube")
 
@@ -701,7 +701,7 @@ COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 COMMONS = "Wikimedia Commons"
 COMMONS_FILE_HOSTS = ("upload.wikimedia.org",)
 # Wikimedia asks every API client for a descriptive User-Agent with a way to reach its author
-USER_AGENT = "ClipFoundry/1.0 (local desktop clipping app; https://github.com/landryschreiner33-coder/ClipForge-AI)"
+USER_AGENT = "ClipForge/1.0 (local desktop clipping app; https://github.com/landryschreiner33-coder/ClipForge-AI)"
 LIBRARY_TOPICS_PER_SCAN = 2
 LICENSE_KEYS = ("provider", "license", "license_name", "license_url", "attribution_required", "artist", "credit",
                 "restrictions", "page_url", "copyrighted", "reported_by", "observed_at")

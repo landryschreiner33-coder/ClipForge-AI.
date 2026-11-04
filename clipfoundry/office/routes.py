@@ -1,5 +1,5 @@
 """REST endpoints for the office: the cast, one snapshot, the event feed after a cursor, reports, decisions, health,
-one room's details, and the bottom-bar controls. Reads are local-only; controls only work from ClipFoundry's page."""
+one room's details, and the bottom-bar controls. Reads are local-only; controls only work from ClipForge's page."""
 from __future__ import annotations
 
 from typing import Literal

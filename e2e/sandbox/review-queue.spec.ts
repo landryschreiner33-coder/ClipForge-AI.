@@ -60,7 +60,7 @@ async function controlled(page: Page, initialStatus: any, post = item(), autoPub
       status.home.posting = { finished: 1, checked: 1, sampled: false, platforms: [{
         platform: "youtube", code: "review", title: "Prepared posts need your review",
         detail: "Check reuse, the video, text and audience in Queue. No clip uploads before your approval.",
-        link: "#/queue/review", automatic: false,
+        link: "#/publishing/review", automatic: false,
         counts: { preparing: 0, checking: 0, failed_check: 0, local_only: 0, ready: 0, scheduled: 0,
           planned_for_review: 1, review: 1 },
       }] };
@@ -112,7 +112,7 @@ test("review mode replaces standing automatic approval with a simple review path
 test("a missing-permission draft appears in the schedule with its time and review status", async ({ page, request }) => {
   const status = await (await request.get("/api/autopilot/status")).json();
   const { writes, errors } = await controlled(page, status);
-  await page.goto("/#/queue/scheduled");
+  await page.goto("/#/publishing/scheduled");
   const row = page.locator('.post-row[data-id="controlled-review-post"]');
   await expect(row).toBeVisible();
   await expect(row.getByText("Needs your review", { exact: true })).toBeVisible();
@@ -243,7 +243,7 @@ test("submitted-video authorization never claims an individual finished-post rev
   await page.goto("/#/missions");
   await expect(page.getByText("Authorized for this video", { exact: true })).toBeVisible();
   await expect(page.getByText("Approved by you", { exact: true })).toHaveCount(0);
-  await page.goto("/#/queue/scheduled");
+  await page.goto("/#/publishing/scheduled");
   const row = page.locator('.post-row[data-id="controlled-review-post"]');
   await expect(row.getByText("Authorized for this video", { exact: true })).toBeVisible();
   await expect(row).toContainText("Reuse basis recorded with submitted video");

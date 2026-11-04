@@ -63,10 +63,10 @@ export const submissions = {
           else reject(new ApiError(typeof body.detail === "string" ? body.detail : "The video could not be added.",
             body.fix || "", body.code || ""));
         } catch {
-          reject(new Error("The video could not be added. Check that ClipFoundry is still open."));
+          reject(new Error("The video could not be added. Check that ClipForge is still open."));
         }
       };
-      xhr.onerror = () => reject(new Error("Could not reach ClipFoundry. Keep the app open and try again."));
+      xhr.onerror = () => reject(new Error("Could not reach ClipForge. Keep the app open and try again."));
       xhr.send(form);
     }),
 };

@@ -20,7 +20,7 @@ LABEL = {"healthy": "Healthy", "degraded": "Degraded", "error": "Error", "unknow
 HEARTBEAT_STALE = 180.0        # a worker host that has not reported for this long is not running
 QUEUE_STUCK = 15 * 60.0        # due work nobody started for this long
 SEARCH_LATE = 2.0              # a search more than this many polling periods late: nothing is starting it
-GPU_FIX = "Run gpu-check.bat in the ClipFoundry folder; it says what to fix."
+GPU_FIX = "Run gpu-check.bat in the ClipForge folder; it says what to fix."
 # GpuBusy (gpu.py) is recorded as the last GPU error too, but it means another program held the GPU, not a failure
 GPU_BUSY = ("The GPU stayed busy", "MB of GPU memory was free")
 
@@ -48,17 +48,17 @@ def scheduler(settings: dict) -> dict:
     on = bool(settings.get("autopilot_enabled"))
     if os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() == "off" and not last:
         return _c("scheduler", "Background work", "unknown", "Background workers are turned off in this process.",
-                  "Start ClipFoundry normally (start.bat) to run them.")
+                  "Start ClipForge normally (start.bat) to run them.")
     if not last:
         return _c("scheduler", "Background work", "unknown" if not on else "error",
                   "The background workers have not reported yet." if not on else
                   "Autopilot is on, but the background workers never reported.",
-                  "Close ClipFoundry and run start.bat again." if on else "")
+                  "Close ClipForge and run start.bat again." if on else "")
     age = time.time() - last
     if age > HEARTBEAT_STALE:
         return _c("scheduler", "Background work", "error" if on else "degraded",
                   f"The background workers last reported {int(age // 60)} min ago.",
-                  "Close ClipFoundry and run start.bat again. If the PC slept, it continues after waking.",
+                  "Close ClipForge and run start.bat again. If the PC slept, it continues after waking.",
                   last_heartbeat=last)
     return _c("scheduler", "Background work", "healthy", "The background workers are running.", last_heartbeat=last)
 
@@ -156,8 +156,8 @@ def database() -> dict:
     except Exception as exc:  # noqa: BLE001
         # No regular backups are made (only a one-time copy before one update), so none is promised here.
         return _c("database", "Database", "error", f"The database could not be read: {exc}"[:200],
-                  "Close ClipFoundry and start it again. If it still fails, keep a copy before trying anything else: "
-                  f"with ClipFoundry closed, copy the whole data folder ({config.data_dir()}) somewhere safe.")
+                  "Close ClipForge and start it again. If it still fails, keep a copy before trying anything else: "
+                  f"with ClipForge closed, copy the whole data folder ({config.data_dir()}) somewhere safe.")
     return _c("database", "Database", "healthy", f"Readable ({size / 1e6:.0f} MB).")
 
 

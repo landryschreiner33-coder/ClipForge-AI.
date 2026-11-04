@@ -1,5 +1,124 @@
 # AI handoff
 
+## PR #16 merge review and website refresh — 2026-11-04 (Codex)
+
+The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
+Working checkout: `/workspace/clipforge-pr16`, branch `codex/review-clipforge-pr16`, based on Claude head `4e0da48`.
+Merged the newer `codex/cloud-plan` documentation into that head without dropping either set of handoff notes.
+
+Review fixes:
+- Hold automatic YouTube uploads over 15 minutes when the channel's long-upload eligibility is unknown. Keep the
+  full master available and explain the next step; add destination/boundary regression checks.
+- Include cloud requirements in development/test installs: the new OIDC test fixtures require PyJWT, which the
+  existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
+- Correct creation/render copy that incorrectly described local desktop processing as server processing.
+- Rebuild and retain the tracked frontend distribution.
+- Close secondary-workspace access to shared Brain guidance and media-processing writes until those services
+  are truly workspace-scoped. A regression reproduced private owner note metadata in the old guidance response;
+  the same request is now refused. The primary owner workflow remains available.
+
+Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
+`/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
+real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
+Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
+bytes and hashes remain unchanged because no new native release has been built. The source changes are not yet
+in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
+preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
+
+Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
+full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
+head SHA. Do not describe cloud hosting, public signup,
+per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
+`docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
+it is not a newly required owner approval for this session.
+
+## ClipForge build checkpoint, phases 0–6 — 2026-11-04 (Claude Code, cloud session)
+
+**Plain-English summary:** ClipForge is built and tested here on synthetic media and fake platforms. The app is
+now called ClipForge. Home offers two choices, **Make clips** (Highlights or Full stories) and **Make a YouTube
+video**. You can connect several YouTube and TikTok accounts, save styles, import editing skills, rename robots,
+choose a theme, and run an owner-only, sign-in-protected server mode. The robot office and its robots are
+unchanged, shown on the new dark stage and as a robot team on Home. Nothing was deployed, nothing was published,
+and no real account or owner media was used.
+
+- **Branch:** `claude/new-session-b9itcy`, draft PR #16 (not merged). Commits: `0f341c2` (phases 0–1),
+  `c4bc2fc` (2–3), `b313647` (4), then this checkpoint (5–6).
+- **What exists, by phase:**
+  - Cloud mode with fail-closed startup: `clipfoundry/cloud/`, plus `deploy/`.
+  - Sign-in: Google/OIDC, PKCE + nonce + state bound to the browser.
+  - Sessions and guards: server sessions, CSRF, host/origin checks, rate limits and a strict CSP.
+  - Encrypted secrets: AES-256-GCM, with the key file kept outside the data folder.
+  - Workspace ownership is checked on every ID in an address.
+  - Multiple social connections, migrated from the single account with tokens copied byte for byte
+    (`social_connections`).
+  - Resumable private uploads: `studio/uploads.py`.
+  - Durable studio jobs with leases: `studio/jobs.py`.
+  - Backup, restore and retention from the CLI.
+  - Guidance precedence with frozen snapshots and "Used from your Brain": `studio/guidance.py`.
+  - Styles and declarative skills: `studio/styles.py`, `studio/skills.py`, `docs/clipforge/SKILL_SCHEMA.md`.
+  - Full stories: `pipeline/stories.py`, `studio/story_review.py`, with eligibility in `studio/eligibility.py`.
+  - Full-video assembly on a versioned FFmpeg engine, with revisions: `studio/engine.py`, `studio/video_flow.py`.
+  - New shell and pages: Home, Make clips, Make a YouTube video, Projects, Brain, Publishing, Accounts, Office,
+    Settings → Appearance.
+  - Theme, accent, density, motion and per-device layouts, synced through `/api/preferences`.
+  - Robot display names.
+  - The ClipForge rename. Data folder, database, Keychain/DPAPI names, settings keys, the `X-ClipFoundry` header and
+    old addresses are kept.
+- **Final fixes in this checkpoint:**
+  - The earlier link/transcript Add video page is reachable again at `#/create/link`, linked from Make clips.
+  - Old Clips/Queue labels and links now say Projects/Publishing.
+  - Make clips previews its guidance with a GET (a POST was flagged by the read-only browser checks).
+  - Loading robot names at start no longer redraws the page. That redraw threw away a file chosen in the first moment.
+  - After Start Autopilot, setup opens the Office.
+  - Motion stays the per-browser Animations choice; an account value no longer overrides it after a reload.
+  - The sidebar is narrower below 1366 px, so the full office map keeps readable labels at 1280×720.
+- **Status of each requirement:** `docs/clipforge/FEATURE_CHECKLIST.md` (42 requirements, CF-01–CF-17).
+  - Partial: per-account spacing, full multi-user isolation (public sign-up stays off), full-video publishing,
+    retention screen, saved layouts on Create/Office, one-click "make parts", per-job CPU/disk quotas.
+  - Blocked: the FilmCraft build (this session's policy refused running third-party build scripts), model-based
+    story analysis (no model configured), capacity benchmark (no server or footage).
+- **Owner guide:** `docs/clipforge/OWNER_GUIDE.md`. Prepared website text (not published):
+  `docs/clipforge/WEBSITE_COPY.md`.
+- **Tests run here** (details in the 2026-11-04 rows of the `docs/IMPLEMENTATION_STATUS.md` test log):
+  - Final fast suite: 1,628 passed. Final slow suite: 21 passed.
+  - Sandbox browser specs: 95 of 100 passed. The three failures caused by this work are fixed and passed on rerun.
+  - Read-only browser suite: 50 passed.
+  - Every remaining browser failure (7 read-only, 2 sandbox) fails identically on the starting commit `6585c58`.
+    These are stale assertions from earlier changes, left for a separate fix.
+- **Not verified:** real Google sign-in, a real server deployment, real YouTube/TikTok uploads or transcodes, real
+  camera footage with moving subjects, native Windows/RTX 3050 or Mac hardware, throughput per source hour, and the
+  office under the cloud CSP in a real browser session.
+- **Next action for the owner:** review draft PR #16. To try cloud mode, create a VM and an OIDC client, then follow
+  `deploy/README.md`. To evaluate FilmCraft, approve building it (or run `scripts/filmcraft_experiment.py` locally).
+  Run the owner-machine checklist at the end of `docs/IMPLEMENTATION_STATUS.md`.
+
+## ClipForge implementation — session start 2026-11-04 (Claude Code, cloud session)
+
+**Plain-English summary:** implementation of the ClipForge cloud studio prompt has started. Nothing in it
+was built before this session. This entry records the real starting point; later entries above it record
+each checkpoint as it is reached.
+
+- **Branch:** `claude/new-session-b9itcy` (the branch this session must push to). It sat at the old default
+  branch tip `8999e5f` and was fast-forwarded to `codex/cloud-plan` @ `6585c58` (the newest source line; it
+  contains `codex/macos-native-app` @ `9e0aaee` and every earlier Claude/Codex fix). No uncommitted changes existed.
+- **Newer fixes retained:** every remote branch was compared with `codex/cloud-plan`. The only branches with
+  commits it lacks are `codex/clipfoundry-one-click` and `codex/macos-download-delivery`, which hold
+  installer/ZIP delivery bundles, not app source (no `clipfoundry/` or `frontend/src` tree), plus older
+  superseded experiment branches (`claude/ecstatic-shannon-wb1zq1`, `claude/clipfoundry-office-audience`,
+  `codex/retro-robot-autopilot`, `codex/fix-autopilot-idle`) whose work landed through later merges.
+- **State at start:** ClipFoundry desktop app (local FastAPI + React + SQLite). Cloud mode, login, workspaces,
+  multiple social accounts, Full stories, full-video assembly, skills, ClipForge rename and redesign: planned only.
+- **FilmCraft experiment:** the pinned source (`storytold/filmcraft@57dc82e`) was cloned and its README/NOTICE
+  read. Building it (`cargo build -p filmcraft-cli`) was refused by this session's safety policy because it would
+  execute third-party build scripts downloaded from the internet. Blocked: the owner must approve building and
+  running upstream code (or run the harness on their own machine) before the integration can be evaluated.
+- **Baseline tests:** the fast suite is being run on the untouched starting commit in a separate worktree so the
+  result is not affected by new edits; the result is recorded in the next checkpoint entry.
 ## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
 
 The owner asks to tell Claude to update the website and improve its appearance. Section 17 of

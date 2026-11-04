@@ -81,7 +81,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
       </button>
     </>}>
       <p className="small">
-        ClipFoundry will upload eligible finished clips to YouTube as <b>{publicPosts ? "Public" : "Private"}</b>
+        ClipForge will upload eligible finished clips to YouTube as <b>{publicPosts ? "Public" : "Private"}</b>
         {" "}videos without asking about each one. {publicPosts ? "Anyone may watch, share or find new public posts."
           : "You share private videos with invited viewers in YouTube Studio yourself."}
         {" "}Existing posts and previously planned private uploads keep their audience.
@@ -103,7 +103,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           {publicPosts ? "Public: anyone can watch, including people who do not follow your channel."
             : audience?.youtube.intent === "OWNER_ONLY" ? "Private: only you (staging)."
               : "Private: only the people you invite in YouTube Studio (Content → the video → Visibility → "
-                + "Private → Share privately). ClipFoundry cannot invite viewers."}
+                + "Private → Share privately). ClipForge cannot invite viewers."}
         </dd>
         <dt id={`${id}-kids`}>Made for kids</dt>
         <dd>
@@ -142,7 +142,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
         <input type="checkbox" checked={agreed} disabled={!view || !audience || !!loadError}
           onChange={(e) => setAgreed(e.target.checked)} />
         <span>
-          I authorize ClipFoundry to upload eligible clips to {view?.channel || "this connected YouTube channel"}
+          I authorize ClipForge to upload eligible clips to {view?.channel || "this connected YouTube channel"}
           {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} with the choices above,
           without asking me each time. {publicPosts ? "Previously planned private uploads keep their audience. "
             : audience?.youtube.intent === "SELECTED_AUDIENCE" ? "I share private videos myself. " : ""}
@@ -179,7 +179,7 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
       <div className="autopub-line">
         <div className="row wrap">
           <Pill tone="info" icon="check">Prepare & schedule for review</Pill>
-          <a className="textlink small" href="#/queue/review">Review prepared posts</a>
+          <a className="textlink small" href="#/publishing/review">Review prepared posts</a>
         </div>
         <p className="small muted">Autopilot plans posts without uploading them. Check reuse, the video, its text
           and audience, then approve each post. Approved posts can upload at their planned time.</p>

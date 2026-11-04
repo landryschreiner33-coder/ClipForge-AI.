@@ -49,6 +49,11 @@ class Worker:
         self.q.put(("version", version_id, None))
         self.start()
 
+    def submit_studio(self, job_id: str) -> None:
+        """A durable studio job (studio/jobs.py); it runs in this same thread, so heavy work stays one at a time."""
+        self.q.put(("studio", job_id, None))
+        self.start()
+
     def cancel(self, key: str) -> None:
         self.cancelled.add(key)
 
@@ -114,6 +119,10 @@ class Worker:
                     self._run_render(key)
                 elif kind == "version":
                     self._run_version(key)
+                elif kind == "studio":
+                    from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - registers the handlers
+
+                    studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die
                 log.exception("job crashed")
             finally:
@@ -125,6 +134,10 @@ class Worker:
             db.update_project(key, status="cancelled", message="Cancelled")
         elif kind == "version":
             db.update_version(key, status="error", error="Cancelled")
+        elif kind == "studio":
+            from .studio import jobs as studio_jobs
+
+            studio_jobs.cancel(key)
         else:
             db.update_clip(key, status="error", error="Cancelled")
 
@@ -147,6 +160,10 @@ class Worker:
             ready = sum(1 for c in clips if c["status"] == "ready")
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
             info = (db.get_project(project_id) or {}).get("info") or {}
+            if (db.get_project(project_id) or {}).get("clip_mode") == "full_stories":
+                held = int((info.get("stories") or {}).get("held") or 0)
+                msg = (f"{ready} story clip{'s' if ready != 1 else ''} ready" if clips else
+                       "No complete story found yet") + (f"; {held} waiting for your check" if held else "")
             info.pop("resume_count", None)
             db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg, info=info)
         except Cancelled:
@@ -169,6 +186,14 @@ class Worker:
             if info.pop("manual_render_pending", False):
                 db.update_clip(clip_id, render_info=info)
             self.cancelled.discard(clip_id)
+        # The first render of a story clip made under a "Make & upload clips" request may upload; a later re-render
+        # (new bytes) never does on its own: it needs its own Publish.
+        analysis = dict(clip.get("analysis") or {})
+        if analysis.pop("autopublish_first_render", False) and clip.get("status") == "ready":
+            db.update_clip(clip_id, analysis=analysis)
+            from .studio import autopublish
+
+            autopublish.after_render(clip_id)
 
     def _run_version(self, version_id: str) -> None:
         ctx = JobContext(None, lambda: version_id in self.cancelled)

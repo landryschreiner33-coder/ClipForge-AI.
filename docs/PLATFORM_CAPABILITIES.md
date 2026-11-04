@@ -146,3 +146,15 @@ saw.
 The in-app capability matrix (Settings → Integrations, `clipfoundry/office/capabilities.py`) and
 [OFFICE.md](OFFICE.md#what-each-integration-can-do) list, per platform, what this version implements, what needs the
 platform's approval and what the platform does not offer.
+
+## Length limits and multiple accounts (checked 2026-11-04)
+
+- YouTube: a square or vertical video of at most 3 minutes is a Short; longer or landscape videos upload as regular
+  videos, up to 15 minutes unless the channel is verified (then up to 12 hours). Sources: YouTube Help "Understand
+  three-minute YouTube Shorts" (answer 15424877) and "Upload videos longer than 15 minutes" (answer 71673).
+- TikTok: each creator's limit comes from `creator_info.max_video_post_duration_sec` (Content Posting API "Query
+  Creator Info"); every creator can post at least 3 minutes, some 5 or 10. ClipForge checks it before each post.
+- ClipForge never truncates, speeds up or splits a story to fit; it keeps the full master and says which accounts can
+  take it (`clipfoundry/studio/eligibility.py`).
+- Several channels/accounts may be connected at once. They share the Google Cloud project's daily quota; connecting
+  more accounts does not raise any platform limit.

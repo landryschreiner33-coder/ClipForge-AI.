@@ -1,3 +1,4 @@
+import AppearanceSettings from "../components/AppearanceSettings";
 import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
@@ -44,6 +45,27 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
+  if (tab === "appearance") {
+    return (
+      <div className="page">
+        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks on your devices. Saved to your account." />
+        <LinkTabs label="Settings sections" current="appearance" tabs={SETTINGS_TABS} />
+        <AppearanceSettings />
+      </div>
+    );
+  }
+  return <SettingsForm tab={tab} />;
+}
+
+const SETTINGS_TABS = [
+  { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
+  { id: "accounts", href: "#/settings", label: "Connections setup" },
+  { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
+  { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
+  { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
+];
+
+function SettingsForm({ tab }: { tab?: string }) {
   const t: SettingsTab = tab === "defaults" || tab === "integrations" || tab === "advanced" ? tab : "accounts";
   const { st } = useStatus();
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -179,7 +201,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
     <div className="page narrow">
       <PageHead title="Settings"
         sub={<>
-          Stored on this computer, in ClipFoundry's data folder
+          Stored on this computer, in ClipForge's data folder
           {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
         </>} />
       {expired.length > 0 && t !== "accounts" && (
@@ -197,12 +219,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
         </Banner>
       )}
       <div onClickCapture={tabClick}>
-        <LinkTabs label="Settings sections" current={t} tabs={[
-          { id: "accounts", href: "#/settings", label: "Accounts" },
-          { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
-          { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
-          { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
-        ]} />
+        <LinkTabs label="Settings sections" current={t} tabs={SETTINGS_TABS} />
       </div>
       {notes.length > 0 && (
         <Banner tone="warn" title="Some values were adjusted when saving">
@@ -291,8 +308,8 @@ function AccountsTab({ c, accounts, setAccounts, changed, saveKeys }: {
   return (
     <>
       <p className="small muted">
-        Connect the platforms you want to post to. You sign in on Google's or TikTok's own page; ClipFoundry never sees
-        your password. <b>Connecting an account doesn't let ClipFoundry post by itself.</b>
+        Connect the platforms you want to post to. You sign in on Google's or TikTok's own page; ClipForge never sees
+        your password. <b>Connecting an account doesn't let ClipForge post by itself.</b>
       </p>
       {(["youtube", "tiktok"] as const).map((p) => (
         <AccountPanel key={p} platform={p} c={c} account={accounts?.[p]} setAccounts={setAccounts}
@@ -342,7 +359,7 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
       </div>
       {account?.needs_reconnect && (
         <p className="small">
-          {name} stopped accepting ClipFoundry's sign-in. Sign in again to keep posting. Planned posts wait until then.
+          {name} stopped accepting ClipForge's sign-in. Sign in again to keep posting. Planned posts wait until then.
         </p>
       )}
       {account?.restriction && account.configured && (
@@ -369,7 +386,7 @@ function AccountPanel({ platform, c, account, setAccounts, changed, saveKeys }: 
         summary={`Your ${name} app codes${account?.configured ? "" : " (needed once)"}`}>
         <div className="stack-3">
           <p className="small muted">
-            {name} only lets apps like ClipFoundry post through your own free developer app. Paste its two codes once.
+            {name} only lets apps like ClipForge post through your own free developer app. Paste its two codes once.
           </p>
           <div className="field">
             <label htmlFor={fieldId(idKey)}>{yt ? "OAuth client ID" : "Client key"}</label>
@@ -593,7 +610,7 @@ function AdvancedTab({ c, health, st }: {
       <AutopilotSettings s={s} set={set} errors={errors} saved={c.saved} />
 
       <SettingsPanel id="adv-brain" title="Brain (learning)"
-        intro={<>How carefully ClipFoundry learns from your viewers' results. These are lower limits: it never learns
+        intro={<>How carefully ClipForge learns from your viewers' results. These are lower limits: it never learns
           from fewer than 30 clips or changes a value by more than 10% at once. Pause, reset and roll back are in the
           Office's <a className="textlink" href="#/">Brain Room</a>.</>}>
         <SettingRow k="brain_min_clips" label="Clips before any change" errors={errors}

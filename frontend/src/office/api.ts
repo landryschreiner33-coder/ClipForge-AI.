@@ -103,7 +103,7 @@ export interface Health {
 
 export const NOT_UPDATING = "Unknown — not updating";
 /**
- * Health as a page that stopped hearing from ClipFoundry must show it: every reading Unknown, never the last green,
+ * Health as a page that stopped hearing from ClipForge must show it: every reading Unknown, never the last green,
  * with the last known reading kept in words (System Guardian rule: no stale green shown as current).
  */
 export function staleHealth(h: Health, since: number | null): Health {
@@ -112,8 +112,8 @@ export function staleHealth(h: Health, since: number | null): Health {
     ...h,
     status: "unknown",
     label: NOT_UPDATING,
-    headline: `ClipFoundry is not answering, so these readings may be out of date${at ? ` (last answer ${at})` : ""}.`,
-    action: "Check that the black ClipFoundry window is still open. The page catches up when it answers again.",
+    headline: `ClipForge is not answering, so these readings may be out of date${at ? ` (last answer ${at})` : ""}.`,
+    action: "Check that the black ClipForge window is still open. The page catches up when it answers again.",
     checks: h.checks.map((c) => ({
       ...c, status: "unknown", status_label: NOT_UPDATING,
       reason: `Last known: ${c.status_label}. ${c.reason}`,

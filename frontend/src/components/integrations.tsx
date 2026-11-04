@@ -237,9 +237,9 @@ function AudienceRow({ p, d, steps, onSaved }: {
     : intent === "owner_only"
     ? `Only I can see these ${name} uploads. Nobody else watches them, so they teach the Brain nothing.`
     : p === "youtube"
-      ? "ClipFoundry uploads as Private and cannot invite anyone. I share each video with my viewers in YouTube "
+      ? "ClipForge uploads as Private and cannot invite anyone. I share each video with my viewers in YouTube "
         + "Studio myself."
-      : `ClipFoundry posts for ${group === "friends" ? "my friends (followers I follow back)" : "my followers"}. My `
+      : `ClipForge posts for ${group === "friends" ? "my friends (followers I follow back)" : "my followers"}. My `
         + "TikTok account is private, so only people I approved follow me.";
   const id = `aud-${p}`;
   return (
@@ -455,7 +455,7 @@ function NvidiaPanel({ c, dirty, unsaved, card, onChange, reload }: {
   const cost = v ? (v.usage.cost_known ? `$${(v.usage.cost_usd ?? 0).toFixed(4)}` : "unknown (no price set)") : "";
   return (
     <SettingsPanel id="int-nvidia" title="NVIDIA AI (optional)"
-      intro={<>Off by default and never required: ClipFoundry's own analysis on this PC always works. When on, it can
+      intro={<>Off by default and never required: ClipForge's own analysis on this PC always works. When on, it can
         re-score the strongest clip candidates for work you start yourself. {card &&
           <Pill tone={STATUS_TONE[card.status] || "neutral"}>{card.status_label}</Pill>}</>}>
       {v?.circuit.open && (
@@ -605,7 +605,7 @@ export function DevLogPanel() {
   useEffect(() => { office.devlog(100).then(setRows).catch((e) => setError(errorText(e))); }, []);
   return (
     <SettingsPanel id="adv-devlog" title="Dev Log"
-      intro={<>Read-only history of changes made by AI assistants to this copy of ClipFoundry, from
+      intro={<>Read-only history of changes made by AI assistants to this copy of ClipForge, from
         <code> .clipfoundry/ai-change-log.jsonl</code>. The longer notes are in AI_CHANGELOG.md and AI_HANDOFF.md in
         the app folder.</>}>
       {error && <p className="small error-text">{error}</p>}

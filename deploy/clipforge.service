@@ -1,0 +1,30 @@
+[Unit]
+Description=ClipForge studio (cloud mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=clipforge
+Group=clipforge
+EnvironmentFile=/etc/clipforge/clipforge.env
+WorkingDirectory=/opt/clipforge
+ExecStart=/opt/clipforge/.venv/bin/python -m clipfoundry --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=5
+# One heavy job at a time on a small CPU server; transcription and encoding threads are bounded.
+Environment=OMP_NUM_THREADS=2
+Nice=5
+# Hardening: no new privileges, private /tmp, read-only system, writes only to the data folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/clipforge
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=10G
+
+[Install]
+WantedBy=multi-user.target

@@ -134,7 +134,7 @@ async ({ page }) => {
     post("private", { privacy: "private", audience_label: "Only me" }),
     post("kids", { options: { made_for_kids: true } }), post("missing", { options: {} }),
   ] });
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await page.getByRole("checkbox", { name: "Select visible YouTube posts", exact: true }).check();
   await page.getByRole("button", { name: /^Approve selected/ }).click();
   const dialog = page.getByRole("dialog");

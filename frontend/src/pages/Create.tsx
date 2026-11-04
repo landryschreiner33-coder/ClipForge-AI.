@@ -31,7 +31,7 @@ function Setting({ label, hint, id, children }: { label: string; hint?: string; 
 }
 
 /**
- * Add video: a file from this computer (or a link), copied into ClipFoundry with real upload progress. The options
+ * Add video: a file from this computer (or a link), copied into ClipForge with real upload progress. The options
  * start from the saved defaults and only apply to this video; Settings stay as they are.
  */
 export default function Create() {
@@ -85,7 +85,7 @@ export default function Create() {
     if (!f) return;
     const ext = `.${(f.name.split(".").pop() || "").toLowerCase()}`;
     if (!ACCEPT.includes(ext)) {
-      toast(`“${f.name}” isn't a video ClipFoundry can use. Use MP4, MOV, MKV, WEBM or M4V.`, true);
+      toast(`“${f.name}” isn't a video ClipForge can use. Use MP4, MOV, MKV, WEBM or M4V.`, true);
       return;
     }
     setProblem("");
@@ -119,10 +119,10 @@ export default function Create() {
       if (file) {
         setProgress(0);
         project = await uploadVideo(file, options(), transcript, setProgress);
-        toast("Video copied. ClipFoundry is making clips.");
+        toast("Video copied. ClipForge is making clips.");
       } else {
         project = await api.importUrl(url.trim(), options());
-        toast("ClipFoundry is getting the video from the link.");
+        toast("ClipForge is getting the video from the link.");
       }
       navigate(`project/${project.id}`);
     } catch (e) {
@@ -135,8 +135,8 @@ export default function Create() {
   const pct = progress === null ? 0 : Math.round(progress * 100);
   return (
     <div className="page narrow">
-      <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Add video" }]} title="Add video"
-        sub={"Choose a long video on this computer. ClipFoundry copies it into its data folder, finds the best "
+      <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Add video" }]} title="Add video"
+        sub={"Choose a long video on this computer. ClipForge copies it into its data folder, finds the best "
           + "moments and makes captioned vertical clips."} />
 
       {problem && (
@@ -153,9 +153,9 @@ export default function Create() {
             <span className="small muted">{fmtSize(file.size)}</span>
             {progress !== null && (
               <>
-                <ProgressBar value={progress} label="Copying the video into ClipFoundry" />
+                <ProgressBar value={progress} label="Copying the video into ClipForge" />
                 <span className="small">
-                  {pct < 100 ? `Copying into ClipFoundry: ${pct}%` : "Copied. ClipFoundry is finishing up…"}
+                  {pct < 100 ? `Copying into ClipForge: ${pct}%` : "Copied. ClipForge is finishing up…"}
                 </span>
               </>
             )}
@@ -204,7 +204,7 @@ export default function Create() {
             </p>
           )}
           <p className="hint" id={`${ids}-url-hint`}>
-            For publicly reachable videos you have the rights to use (it uses yt-dlp). ClipFoundry doesn't get around
+            For publicly reachable videos you have the rights to use (it uses yt-dlp). ClipForge doesn't get around
             DRM, paywalls, logins or other access controls, and some sites don't allow downloads at all.
           </p>
         </div>
@@ -281,9 +281,9 @@ export default function Create() {
 
       <div className="row wrap" style={{ justifyContent: "flex-end" }}>
         <span className="small muted next-line">
-          {file ? "Next: ClipFoundry copies the video, transcribes it on this computer and shows the clips on the "
+          {file ? "Next: ClipForge copies the video, transcribes it on this computer and shows the clips on the "
             + "video's page."
-            : fromLink ? "Next: ClipFoundry downloads the video from the link and shows its progress on the "
+            : fromLink ? "Next: ClipForge downloads the video from the link and shows its progress on the "
               + "video's page."
               : "Choose a video, or open “Import from a link instead”."}
         </span>

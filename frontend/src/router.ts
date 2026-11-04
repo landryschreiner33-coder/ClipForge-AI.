@@ -1,35 +1,39 @@
 import { useEffect, useState } from "react";
 
 /**
- * Addresses (design/ui-redesign/ROUTE_MAP.md, renamed for the robot office: docs/OFFICE.md). Old addresses keep working: they are replaced in place
+ * Addresses (docs/clipforge/ROUTE_MAP.md). Old addresses keep working: they are replaced in place
  * (history.replaceState), so they open the new page and Back never bounces on them.
  */
 const POSTS = "(review|scheduled|published|history|problems|results)";
 const MISSIONS = "(activity|sources|system|jobs|learning)";
 const ALIASES: [RegExp, string][] = [
-  // the five places since the robot office: Office, Missions, Clips, Queue, Settings
-  [/^(home|office)$/, ""],
-  [/^office\/(?!team$).*$/, ""],
-  [/^(projects|library)(\/.*)?$/, "clips"],
-  [/^clips\/(?!feedback$).*$/, "clips"],
-  [/^publish-center\/problems$/, "queue/problems"],
-  [/^publish-center\/published$/, "queue/published"],
-  [/^publish-center\/history$/, "queue/history"],
-  [/^publish-center(\/.*)?$/, "queue/review"],
-  [new RegExp(`^posts/${POSTS}$`), "queue/$1"],
-  [/^posts(\/.*)?$/, "queue/review"],
-  [new RegExp(`^queue(?!/${POSTS}$).*$`), "queue/review"],
+  // ClipForge places (docs/clipforge/ROUTE_MAP.md): Home, Projects, Brain, Publishing, Accounts, Office, Settings.
+  [/^home$/, ""],
+  [/^office\/(?!team$).*$/, "office"],
+  [/^clips\/feedback$/, "projects/feedback"],
+  [/^(clips|library)(\/.*)?$/, "projects"],
+  [/^projects\/(?!feedback$).+$/, "projects"],
+  [/^publish-center\/problems$/, "publishing/problems"],
+  [/^publish-center\/published$/, "publishing/published"],
+  [/^publish-center\/history$/, "publishing/history"],
+  [/^publish-center(\/.*)?$/, "publishing/review"],
+  [new RegExp(`^(posts|queue)/${POSTS}$`), "publishing/$2"],
+  [/^(posts|queue)(\/.*)?$/, "publishing/review"],
+  [new RegExp(`^publishing(?!/${POSTS}$).*$`), "publishing/review"],
   [/^autopilot\/overview$/, "missions/system"],
   [new RegExp(`^autopilot/${MISSIONS}$`), "missions/$1"],
   [/^autopilot(\/.*)?$/, "missions"],
   [new RegExp(`^missions/(?!${MISSIONS}$).*$`), "missions"],
-  [/^settings\/(?!(defaults|integrations|advanced)$).*$/, "settings"],
+  [/^create$/, "create/clips"],
+  [/^create\/(?!(clips|video|link)$).*$/, "create/clips"],
+  [/^settings\/accounts$/, "accounts"],
+  [/^settings\/(?!(appearance|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
   [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];
-const PAGES = ["", "office", "missions", "clips", "queue", "create", "project", "clip", "publish", "post", "setup",
-  "settings", "brain", "dev"];
-const NEEDS_ID = ["project", "clip", "publish", "post"];
+const PAGES = ["", "office", "missions", "projects", "publishing", "create", "project", "clip", "publish", "post", "setup",
+  "settings", "brain", "dev", "accounts", "video"];
+const NEEDS_ID = ["project", "clip", "publish", "post", "video"];
 
 export type Route = {
   /** The path after "#/", without a trailing slash ("posts/review"). */

@@ -111,13 +111,13 @@ test("queue preview stays in place and visible selection excludes TikTok and lat
   const status = await (await request.get("/api/autopilot/status")).json();
   const state = await controlled(page, status, [post("one"), post("two"), post("tiktok", { platform: "tiktok",
     privacy: "", options: { mode: "manual" } }) as FakePost]);
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await page.getByRole("button", { name: "Preview video: Story one", exact: true }).click();
   const first = page.locator('.post-row[data-id="one"]');
   await expect(first.locator("video")).toBeVisible();
   await expect(first.locator("video")).toHaveAttribute("controls", "");
   await expect(first).toContainText("Complete description for Story one");
-  expect(new URL(page.url()).hash).toBe("#/queue/review");
+  expect(new URL(page.url()).hash).toBe("#/publishing/review");
   expect(state.writes).toEqual([]);
   await page.getByRole("checkbox", { name: "Select visible YouTube posts", exact: true }).check();
   await expect(select(page, "Story one")).toBeChecked();
@@ -141,7 +141,7 @@ test("one basis and common kids choice approve only the selected unchanged publi
   const state = await controlled(page, status, [post("public", { options: {} }), post("private", { privacy: "private",
     audience: { intent: "OWNER_ONLY", visibility: "private", group: "owner", group_version: 5 },
     audience_label: "Only me" })]);
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await page.getByRole("checkbox", { name: "Select visible YouTube posts", exact: true }).check();
   await bulkOpen(page).click();
   const dialog = bulkDialog(page);
@@ -176,7 +176,7 @@ test("one basis and common kids choice approve only the selected unchanged publi
 test("past-due plans warn about dispatch and custom basis still needs the combined consent", async ({ page, request }) => {
   const status = await (await request.get("/api/autopilot/status")).json();
   const state = await controlled(page, status, [post("past", { planned_at: now() - 60 })]);
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await select(page, "Story past").check();
   await bulkOpen(page).click();
   const dialog = bulkDialog(page);
@@ -201,7 +201,7 @@ test("partial approval preserves skipped posts for a fresh review", async ({ pag
   const state = await controlled(page, status, [post("good"), post("changed")]);
   state.nextResults = [{ id: "good", status: "approved", reason: "" }, { id: "changed", status: "skipped",
     reason: "The video changed. Open a fresh preview and review it again." }];
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await page.getByRole("checkbox", { name: "Select visible YouTube posts", exact: true }).check();
   await bulkOpen(page).click();
   await bulkDialog(page).getByRole("radio", { name: "My original content", exact: true }).check();
@@ -221,7 +221,7 @@ test("an expired or changed preview cannot be approved again without a new previ
   const status = await (await request.get("/api/autopilot/status")).json();
   const state = await controlled(page, status, [post("stale")]);
   state.nextApproval = { status: 409, body: { detail: "Preview expired. Refresh the preview and review it again." } };
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await select(page, "Story stale").check();
   await bulkOpen(page).click();
   await bulkDialog(page).getByRole("radio", { name: "My original content", exact: true }).check();
@@ -241,7 +241,7 @@ test("mobile keyboard selection is bounded to fifty and stays inside the viewpor
   const status = await (await request.get("/api/autopilot/status")).json();
   const state = await controlled(page, status, Array.from({ length: 52 }, (_, i) => post(`bounded-${i + 1}`)));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   const all = page.getByRole("checkbox", { name: "Select visible YouTube posts", exact: true });
   await all.focus();
   await page.keyboard.press("Space");
@@ -296,7 +296,7 @@ test("quick approval of a covered post needs one consent and keeps review on the
     rights_label: "Creator agreement" }, reuse_review: { required: false, confirmed: false, basis: "",
     status: "LICENSED", explanation: "Recorded permission covers this use." } });
   const state = await controlled(page, status, [covered]);
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await page.locator('.post-row[data-id="covered"]').getByRole("button", { name: "Quick approve", exact: true }).click();
   await expect(bulkDialog(page).getByRole("heading", { name: "Review 1 YouTube posts", exact: true })).toBeVisible();
   await expect(bulkDialog(page).getByRole("radio")).toHaveCount(0);
@@ -304,7 +304,7 @@ test("quick approval of a covered post needs one consent and keeps review on the
   await batchAgree(page).check();
   await batchApprove(page).click();
   await expect(bulkDialog(page)).toHaveCount(0);
-  expect(new URL(page.url()).hash).toBe("#/queue/review");
+  expect(new URL(page.url()).hash).toBe("#/publishing/review");
   expect(state.writes).toEqual([
     { path: "/api/autopilot/scheduled/bulk-preview", body: { ids: ["covered"] } },
     { path: "/api/autopilot/scheduled/bulk-approve", body: { token: "controlled-preview-1", confirm: true,

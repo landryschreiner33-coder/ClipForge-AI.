@@ -30,28 +30,28 @@ OTHER_VIDEOS = ("Autopilot goes on with other videos. If you have your own copy 
 # cookies, location tricks or DRM removal.
 ACCESS = {
     "login_required": ("Sign-in required", "The website only shares this video with signed-in viewers or paying "
-                       "members. ClipFoundry never signs in or uses your browser's cookies.", OTHER_VIDEOS),
+                       "members. ClipForge never signs in or uses your browser's cookies.", OTHER_VIDEOS),
     "private": ("Private video", "This video is private: only people its owner chose can watch it.", OTHER_VIDEOS),
     "access_denied": ("Access denied", "The website refused to share this video's file.", OTHER_VIDEOS),
     "geo_blocked": ("Not available in your country", "The website does not show this video in your country.",
                     OTHER_VIDEOS),
-    "protected": ("Copy-protected", "This video is copy-protected (DRM or an encrypted stream). ClipFoundry never "
+    "protected": ("Copy-protected", "This video is copy-protected (DRM or an encrypted stream). ClipForge never "
                   "gets around a protection.", OTHER_VIDEOS),
     "not_found": ("Not found", "This video was removed or made unavailable, or the link is wrong.",
                   "Autopilot goes on with other videos. If you added the link yourself, check that it still works."),
-    "unsupported_site": ("Unsupported website", "ClipFoundry has no supported way to get videos from this website "
+    "unsupported_site": ("Unsupported website", "ClipForge has no supported way to get videos from this website "
                          "or player.", "Use a direct link to the video file, or add your own copy in Clips → Add "
                          "video. Autopilot goes on with other videos."),
-    "rate_limited": ("Asked to slow down", "The website asked ClipFoundry to slow down (too many requests).",
-                     "ClipFoundry tries again after the wait the website asked for and goes on with other videos "
+    "rate_limited": ("Asked to slow down", "The website asked ClipForge to slow down (too many requests).",
+                     "ClipForge tries again after the wait the website asked for and goes on with other videos "
                      "meanwhile."),
     "network": ("Network problem", "The website did not answer properly (a network problem or a server error).",
-                "ClipFoundry tries again automatically. If this keeps happening, check this PC's internet "
+                "ClipForge tries again automatically. If this keeps happening, check this PC's internet "
                 "connection."),
     "too_large": ("Over the limits", "The video is larger or longer than Autopilot's limits.",
                   "Raise the limits in Settings → Autopilot, or add a shorter video."),
     "disk_space": ("Disk almost full", "There is not enough free disk space for this download.",
-                   "Free up space on the drive of the data folder; ClipFoundry tries again by itself."),
+                   "Free up space on the drive of the data folder; ClipForge tries again by itself."),
     "playlist": ("Not one video", "The link leads to a playlist or channel, not to one video.",
                  "Use a link to one video."),
     "extraction_failed": ("No video found", "No downloadable video was found on this page.", OTHER_VIDEOS),

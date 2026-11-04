@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-APP_NAME = "ClipFoundry"
+APP_NAME = "ClipForge"
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = PACKAGE_DIR.parent

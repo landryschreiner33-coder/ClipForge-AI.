@@ -145,29 +145,44 @@ class PendingLogin:
     verifier: str
     redirect_uri: str
     created: float = field(default_factory=time.time)
+    operation: str = "add"          # add | reconnect
+    connection_id: str = ""         # the connection a reconnect must keep
+    workspace_id: str = "local"
+    session_id: str = ""            # cloud mode: the signed-in session that started this attempt
 
 
 _pending: dict[str, PendingLogin] = {}
 _lock = threading.Lock()
 
 
-def start_login(platform: str, redirect_uri: str) -> tuple[str, str]:
-    """Returns (state, verifier). The state ties the provider's redirect back to this login attempt."""
+def start_login(platform: str, redirect_uri: str, operation: str = "add", connection_id: str = "") -> tuple[str, str]:
+    """Returns (state, verifier). The state ties the provider's redirect back to this login attempt, and the attempt
+    to the session, workspace, operation and connection it was started for."""
+    from ..cloud import principal
+
+    who = principal.current()
     state = secrets.token_urlsafe(24)
     verifier = code_verifier()
     with _lock:
         now = time.time()
         for k in [k for k, v in _pending.items() if now - v.created > LOGIN_TIMEOUT]:
             del _pending[k]
-        _pending[state] = PendingLogin(platform, verifier, redirect_uri)
+        _pending[state] = PendingLogin(platform, verifier, redirect_uri, operation=operation,
+                                       connection_id=connection_id, workspace_id=who.workspace_id,
+                                       session_id=who.session_id)
     return state, verifier
 
 
 def finish_login(platform: str, state: str) -> PendingLogin:
+    from ..cloud import principal
+
     with _lock:
         login = _pending.pop(state or "", None)
     if not login or login.platform != platform or time.time() - login.created > LOGIN_TIMEOUT:
-        raise PublishError("This sign-in link is not valid any more.", "Click Connect again in ClipFoundry.")
+        raise PublishError("This sign-in link is not valid any more.", "Click Connect again in ClipForge.")
+    who = principal.current()
+    if not secrets.compare_digest(login.session_id, who.session_id) or login.workspace_id != who.workspace_id:
+        raise PublishError("This sign-in was started in another session.", "Click Connect again in ClipForge.")
     return login
 
 
@@ -176,34 +191,57 @@ LOOPBACK_CLIENTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
 
 
+def _cloud() -> bool:
+    from ..cloud import settings as cloud_settings
+
+    return cloud_settings.enabled()
+
+
 def local_only(request: Request) -> None:
-    """Accounts and publishing are only reachable from this computer, even if the app is shared on the network."""
+    """Accounts and publishing are only reachable from this computer, even if the app is shared on the network.
+
+    In cloud mode the request guard (cloud/middleware.py) has already required the owner's session (and, for
+    changes, the CSRF token); account and publishing endpoints are further limited to the primary workspace."""
+    if _cloud():
+        from ..cloud import principal
+
+        if not principal.current().primary:
+            raise HTTPException(403, "Publishing is available only in the primary workspace.")
+        return
     client_host = request.client.host if request.client else ""
     host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
     if client_host not in LOOPBACK_CLIENTS or host not in LOOPBACK_HOSTS:
         raise HTTPException(403, "Publishing and account connections only work in the browser on the computer that "
-                                 "runs ClipFoundry (http://127.0.0.1).")
+                                 "runs ClipForge (http://127.0.0.1).")
 
 
 def app_request(request: Request) -> None:
-    """State-changing publish actions must come from ClipFoundry's own page (a custom header other sites cannot set
+    """State-changing publish actions must come from ClipForge's own page (a custom header other sites cannot set
     without a CORS preflight, which this server never grants)."""
     local_only(request)
     if request.headers.get("x-clipfoundry") != "1":
-        raise HTTPException(403, "This action can only be started from the ClipFoundry page.")
+        raise HTTPException(403, "This action can only be started from the ClipForge page.")
 
 
 def redirect_uri(request: Request, platform: str) -> str:
+    """Where the provider returns after Connect. Cloud mode uses the configured HTTPS origin, never a request header."""
+    if _cloud():
+        from ..cloud import settings as cloud_settings
+
+        return f"{cloud_settings.current().origin}/api/oauth/{platform}/callback"
     port = request.url.port or 80
     return f"http://127.0.0.1:{port}/api/oauth/{platform}/callback"
 
 
 # ------------------------------------------------------------------ tokens
-def save_tokens(platform: str, token_response: dict, extra: dict | None = None) -> dict:
+def save_tokens(platform: str, token_response: dict, extra: dict | None = None, old: dict | None = None) -> dict:
+    """The tokens to store after a token response. `old` is the same connection's previous tokens (kept refresh
+    token and its expiry); without it, the platform's default connection is used, as before multiple accounts."""
     now = time.time()
     tokens = {"access_token": token_response["access_token"],
               "expires_at": now + float(token_response.get("expires_in") or 3600)}
-    old = db.account_tokens(platform) or {}
+    if old is None:
+        old = db.account_tokens(platform) or {}
     tokens["refresh_token"] = token_response.get("refresh_token") or old.get("refresh_token", "")
     if token_response.get("refresh_expires_in"):
         tokens["refresh_expires_at"] = now + float(token_response["refresh_expires_in"])
@@ -218,11 +256,82 @@ def callback_page(ok: bool, heading: str, message: str, fix: str = "") -> str:
     color = "#34d399" if ok else "#f87171"
     close = "<script>setTimeout(function(){window.close()},2500)</script>" if ok else ""
     fix_html = f"<p><b>What to do:</b> {html.escape(fix)}</p>" if fix else ""
-    return (f"<!doctype html><html><head><meta charset='utf-8'><title>ClipFoundry</title>"
+    return (f"<!doctype html><html><head><meta charset='utf-8'><title>ClipForge</title>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'></head>"
             "<body style='font-family:Segoe UI,system-ui,sans-serif;background:#0a0a0f;color:#f2f2f7;display:flex;"
             "align-items:center;justify-content:center;height:100vh;margin:0'>"
             "<div style='max-width:520px;padding:32px;border:1px solid #2a2a3a;border-radius:16px;background:#15151e'>"
             f"<h2 style='margin-top:0;color:{color}'>{html.escape(heading)}</h2><p>{html.escape(message)}</p>"
-            f"{fix_html}<p style='color:#7d7d93'>You can close this tab and return to ClipFoundry.</p></div>"
+            f"{fix_html}<p style='color:#7d7d93'>You can close this tab and return to ClipForge.</p></div>"
             f"{close}</body></html>")
+
+
+_refresh_locks: dict[str, "FileLock"] = {}
+_refresh_guard = threading.Lock()
+
+
+def refresh_lock(connection_id: str):
+    """One lock per connection, shared by every thread and process (the app and the Autopilot worker): two
+    refreshes of the same account never race (TikTok rotates refresh tokens), and accounts never wait on each other."""
+    from ..locks import FileLock
+
+    with _refresh_guard:
+        lock = _refresh_locks.get(connection_id)
+        if lock is None:
+            safe = "".join(ch for ch in connection_id if ch.isalnum() or ch in "-_")[:80]
+            lock = _refresh_locks[connection_id] = FileLock(f"token-refresh-{safe}")
+        return lock
+
+
+class ConnectionToken:
+    """A valid access token for one connection, refreshed under that connection's lock when about to expire.
+
+    `connection_id=None` means the platform's default connection (older single-account callers). The ID is fixed
+    when the object is made, so a later change of the default never moves an upload that already started."""
+
+    platform = ""
+    label = ""
+    reconnect_fix = ""
+
+    def __init__(self, settings: dict, connection_id: str | None = None):
+        self.settings = settings
+        self.connection_id = connection_id or db.default_connection_id(self.platform)
+
+    def _refresh(self, tokens: dict) -> dict:  # pragma: no cover - each platform implements it
+        raise NotImplementedError
+
+    def _expired(self, tokens: dict) -> bool:
+        return not tokens.get("refresh_token")
+
+    def _valid(self, tokens: dict) -> bool:
+        return tokens["expires_at"] - 90 > time.time()
+
+    def get(self, force: bool = False) -> str:
+        first = db.connection_tokens(self.connection_id) if self.connection_id else None
+        if not first:
+            raise PublishError(f"{self.label} is not connected.", self.reconnect_fix, "not_connected")
+        if not force and self._valid(first):
+            return first["access_token"]
+        lock = refresh_lock(self.connection_id)
+        if not lock.acquire(timeout=120):
+            raise PublishError(f"{self.label} is busy renewing this account's sign-in.", "Try again in a minute.",
+                               "network")
+        try:
+            tokens = db.connection_tokens(self.connection_id) or {}
+            if not tokens:
+                raise PublishError(f"{self.label} is not connected.", self.reconnect_fix, "not_connected")
+            renewed = tokens.get("access_token") != first.get("access_token")
+            if (renewed or not force) and self._valid(tokens):
+                return tokens["access_token"]  # another thread or process renewed it while this one waited
+            if self._expired(tokens):
+                raise PublishError(f"The {self.label} connection has expired.", self.reconnect_fix, "reconnect")
+            try:
+                tok = self._refresh(tokens)
+            except PublishError as exc:
+                if exc.code == "reconnect":
+                    db.update_connection(self.connection_id, status="needs_reconnect", info={"needs_reconnect": True})
+                raise
+            db.update_connection(self.connection_id, tokens=save_tokens(self.platform, tok, old=tokens))
+            return tok["access_token"]
+        finally:
+            lock.release()

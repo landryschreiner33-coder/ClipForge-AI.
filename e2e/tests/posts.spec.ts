@@ -1,6 +1,6 @@
 import { expect, getJson, test } from "../fixtures";
 
-// Looks at the Queue (posts) and the post pages only. Approve, Publish now, Cancel post, Save, I shared it and the
+// Looks at Publishing (posts) and the post pages only. Approve, Publish now, Cancel post, Save, I shared it and the
 // resolve and link buttons are never pressed; a dialog that is opened is closed with its cancel button or Escape.
 // Writes are blocked anyway.
 
@@ -37,11 +37,11 @@ const EMPTY: Record<string, string> = {
 
 test("every tab lists the posts it should", async ({ page, request }) => {
   for (const v of Object.keys(VIEW)) {
-    await page.goto(`/#/queue/${v}`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Queue");
+    await page.goto(`/#/publishing/${v}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Publishing");
     const current = v === "history" ? "Published" : { review: "Needs review", scheduled: "Scheduled",
       published: "Published", problems: "Problems" }[v]!;
-    await expect(page.getByRole("navigation", { name: "Queue sections" }).locator("[aria-current=page]"))
+    await expect(page.getByRole("navigation", { name: "Publishing sections" }).locator("[aria-current=page]"))
       .toContainText(current);
     await expect(async () => {
       const { items } = await allPosts(request);
@@ -53,8 +53,8 @@ test("every tab lists the posts it should", async ({ page, request }) => {
 });
 
 test("the tab counts match the posts that wait for you", async ({ page, request }) => {
-  await page.goto("/#/queue/review");
-  const tabs = page.getByRole("navigation", { name: "Queue sections" });
+  await page.goto("/#/publishing/review");
+  const tabs = page.getByRole("navigation", { name: "Publishing sections" });
   await expect(async () => {
     const { items } = await allPosts(request);
     for (const [name, v] of [["Needs review", "review"], ["Problems", "problems"]] as const) {
@@ -68,17 +68,18 @@ test("the tab counts match the posts that wait for you", async ({ page, request 
 
 test("the time zone is stated once, under the title", async ({ page, request }) => {
   const { timezone } = await allPosts(request);
-  await page.goto("/#/queue/review");
+  await page.goto("/#/publishing/review");
   await expect(page.locator(".page-head p")).toContainText(timezone);
 });
 
-test("old Publish Center and Posts addresses open the Queue", async ({ page }) => {
-  for (const [from, to] of [["publish-center", "queue/review"], ["publish-center/problems", "queue/problems"],
-    ["publish-center/history", "queue/history"], ["posts/no-such-tab", "queue/review"], ["posts/scheduled",
-      "queue/scheduled"], ["queue/no-such-tab", "queue/review"]]) {
+test("old Publish Center, Posts and Queue addresses open Publishing", async ({ page }) => {
+  for (const [from, to] of [["publish-center", "publishing/review"], ["publish-center/problems", "publishing/problems"],
+    ["publish-center/history", "publishing/history"], ["posts/no-such-tab", "publishing/review"], ["posts/scheduled",
+      "publishing/scheduled"], ["queue/no-such-tab", "publishing/review"], ["queue/scheduled", "publishing/scheduled"],
+    ["publishing/no-such-tab", "publishing/review"]]) {
     await page.goto(`/#/${from}`);
     await expect(page).toHaveURL(new RegExp(`#/${to}$`));
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Queue");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Publishing");
   }
 });
 
@@ -91,7 +92,7 @@ test("each post's row and page show the same status, and Publish now only on an 
   const sample = items.filter((p, i) => items.slice(0, i).filter((x) => x.status === p.status).length < 2);
   for (const p of sample) {
     const view = Object.keys(VIEW).find((v) => VIEW[v](p))!;
-    await page.goto(`/#/queue/${view}`);
+    await page.goto(`/#/publishing/${view}`);
     const word = (await page.locator(`.post-row[data-id="${p.id}"] .post-meta .pill`).innerText()).trim();
     await page.goto(`/#/post/${p.id}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -117,7 +118,7 @@ test("Cancel this post asks first and says what happens", async ({ page, request
   const { items } = await allPosts(request);
   const p = items.find((x) => ["awaiting_approval", "approved"].includes(x.status));
   test.skip(!p, "no planned post to look at");
-  await page.goto(`/#/queue/${VIEW.review(p!) ? "review" : "scheduled"}`);
+  await page.goto(`/#/publishing/${VIEW.review(p!) ? "review" : "scheduled"}`);
   await page.locator(`.post-row[data-id="${p!.id}"]`).getByRole("button", { name: /^More for this/ }).click();
   await page.getByRole("menuitem", { name: "Cancel this post…" }).click();
   const dialog = page.getByRole("dialog");
@@ -129,7 +130,7 @@ test("Cancel this post asks first and says what happens", async ({ page, request
 
 test("Results show real numbers, or a dash with the reason", async ({ page, request }) => {
   const perf = await getJson(request, "/api/performance");
-  await page.goto("/#/queue/results");
+  await page.goto("/#/publishing/results");
   await expect(page.getByRole("heading", { name: "Results", level: 2 })).toBeVisible();
   if (perf.published === 0) {
     await expect(page.getByText("Nothing published yet.")).toBeVisible();
@@ -144,5 +145,5 @@ test("Results show real numbers, or a dash with the reason", async ({ page, requ
 test("an unknown post says so", async ({ page }) => {
   await page.goto("/#/post/no-such-post");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Post not found");
-  await expect(page.getByRole("link", { name: "Open the Queue" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Publishing" })).toBeVisible();
 });

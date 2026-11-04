@@ -410,7 +410,7 @@ def test_approvals_from_before_the_content_hash_are_asked_again(env):
     for i in (yt, tt):
         cur = db.fetch("scheduled_publications", i["id"])
         assert not scheduler.approval_valid(cur)
-        assert scheduler.approval_problem(cur) == "approved before ClipFoundry checked the exact video file"
+        assert scheduler.approval_problem(cur) == "approved before ClipForge checked the exact video file"
     consent_youtube(env)
     scheduler.process_due(db.get_settings(), now)  # due: both go back to approval
     assert {db.fetch("scheduled_publications", i["id"])["status"] for i in (yt, tt)} == {"awaiting_approval"}

@@ -1,7 +1,7 @@
 """TikTok through the official Content Posting API (and Login Kit for desktop).
 
 Sign-in: TikTok's OAuth page with PKCE (TikTok's desktop flow hex-encodes the SHA-256 challenge) and a redirect to
-http://127.0.0.1:<port>/api/oauth/tiktok/callback, which must be registered in your TikTok developer app. ClipFoundry
+http://127.0.0.1:<port>/api/oauth/tiktok/callback, which must be registered in your TikTok developer app. ClipForge
 receives tokens, never your TikTok password.
 
 Two official ways to post:
@@ -11,9 +11,9 @@ Two official ways to post:
 * Upload to inbox (scope video.upload): the video lands in your TikTok inbox as a draft; you finish and post it in the
   TikTok app. It needs no Direct Post audit, but TikTok must still approve the app for this scope in its app review
   (which turns down apps for private or personal use), and at most 5 drafts may wait at a time. Without an approved
-  app, ClipFoundry prepares a ready-to-post package that you post yourself.
+  app, ClipForge prepares a ready-to-post package that you post yourself.
 
-ClipFoundry follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
+ClipForge follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
 before each post and never pre-selects one, leaves comments/duet/stitch off unless you turn them on (and greys them
 out when your account disables them), offers the commercial content disclosure, and shows the Music Usage
 Confirmation. No scraping and no unofficial automation.
@@ -28,8 +28,8 @@ from urllib.parse import urlencode
 import httpx
 
 from .. import db
-from .common import (SHORT_WAIT, Cancelled, PublishError, client, network_errors, retry_after, save_tokens,
-                     sleep_exactly, with_retry_after)
+from .common import (SHORT_WAIT, Cancelled, ConnectionToken, PublishError, client, network_errors, retry_after,
+                     save_tokens, sleep_exactly, with_retry_after)
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 API_URL = "https://open.tiktokapis.com/v2"
@@ -99,7 +99,7 @@ def _token_request(settings: dict, data: dict) -> dict:
         if isinstance(err, dict):
             err = err.get("code", "")
         if err == "invalid_grant":
-            raise PublishError("TikTok no longer accepts ClipFoundry's access to your account (it expired or was "
+            raise PublishError("TikTok no longer accepts ClipForge's access to your account (it expired or was "
                                "revoked).", RECONNECT_FIX, "reconnect")
         if err in ("invalid_client", "unauthorized_client"):
             raise PublishError("TikTok rejected the client key or secret.", SETUP_FIX, "setup")
@@ -108,45 +108,53 @@ def _token_request(settings: dict, data: dict) -> dict:
     return body
 
 
-def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str) -> dict:
+def exchange_code(settings: dict, code: str, verifier: str, redirect_uri: str, *, workspace_id: str = "local",
+                  expected_connection: str = "") -> dict:
+    """Finish the sign-in and store the token as the connection of the account TikTok names (open_id). A reconnect
+    of the same account updates it; signing in to another account during Reconnect is refused."""
     tok = _token_request(settings, {"code": code, "grant_type": "authorization_code", "redirect_uri": redirect_uri,
                                     "code_verifier": verifier})
     granted = sorted(s for s in (tok.get("scope") or "").replace(" ", "").split(",") if s)
     if "video.upload" not in granted and "video.publish" not in granted:
         raise PublishError("The permission to upload videos was not granted.",
-                           "Connect again and allow ClipFoundry to upload videos on TikTok's permission screen.")
+                           "Connect again and allow ClipForge to upload videos on TikTok's permission screen.")
+    open_id = tok.get("open_id", "")
+    if not open_id:
+        raise PublishError("TikTok did not say which account signed in.", "Click Connect TikTok again.")
     user = user_info(tok["access_token"])
-    db.save_account("tiktok", tokens=save_tokens("tiktok", tok), account_id=tok.get("open_id", ""),
-                    display_name=user.get("display_name", ""), avatar_url=user.get("avatar_url", ""),
-                    scopes=granted, info={"needs_reconnect": False})
-    return db.get_account("tiktok") or {}
+    if expected_connection:
+        expected = db.get_connection(expected_connection) or {}
+        if expected.get("external_id") != open_id:
+            raise PublishError(f"You signed in to “{user.get('display_name', 'another account')}”, not "
+                               f"“{expected.get('display_name', '')}”.",
+                               "Click Reconnect again with the same account, or use Add TikTok account.",
+                               "wrong_account")
+    existing = next((c for c in db.list_connections(workspace_id, "tiktok") if c["external_id"] == open_id), None)
+    old = db.connection_tokens(existing["id"]) if existing else {}
+    acc, _ = db.upsert_connection("tiktok", open_id, save_tokens("tiktok", tok, old=old or {}),
+                                  workspace_id=workspace_id, display_name=user.get("display_name", ""),
+                                  avatar_url=user.get("avatar_url", ""), scopes=granted,
+                                  info={"needs_reconnect": False})
+    return acc
 
 
-class Token:
-    def __init__(self, settings: dict):
-        self.settings = settings
+class Token(ConnectionToken):
+    platform = "tiktok"
+    label = "TikTok"
+    reconnect_fix = RECONNECT_FIX
 
-    def get(self, force: bool = False) -> str:
-        tokens = db.account_tokens("tiktok")
-        if not tokens:
-            raise PublishError("TikTok is not connected.", RECONNECT_FIX, "not_connected")
-        if not force and tokens["expires_at"] - 90 > time.time():
-            return tokens["access_token"]
-        if not tokens.get("refresh_token") or tokens.get("refresh_expires_at", time.time() + 1) < time.time():
-            raise PublishError("The TikTok connection has expired.", RECONNECT_FIX, "reconnect")
-        try:
-            tok = _token_request(self.settings, {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
-        except PublishError as exc:
-            if exc.code == "reconnect":
-                db.save_account("tiktok", info={"needs_reconnect": True})
-            raise
-        db.save_account("tiktok", tokens=save_tokens("tiktok", tok))
-        return tok["access_token"]
+    def _expired(self, tokens: dict) -> bool:
+        return not tokens.get("refresh_token") or tokens.get("refresh_expires_at", time.time() + 1) < time.time()
+
+    def _refresh(self, tokens: dict) -> dict:
+        return _token_request(self.settings, {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
 
 
 @network_errors("TikTok")
-def disconnect(settings: dict) -> None:
-    tokens = db.account_tokens("tiktok") or {}
+def disconnect(settings: dict, connection_id: str | None = None) -> None:
+    """Revoke and forget one TikTok connection; other accounts stay connected."""
+    cid = connection_id or db.default_connection_id("tiktok")
+    tokens = (db.connection_tokens(cid) or {}) if cid else {}
     if tokens.get("access_token") and configured(settings):
         try:
             with client(15) as c:
@@ -155,7 +163,8 @@ def disconnect(settings: dict) -> None:
                                                         "token": tokens["access_token"]})
         except httpx.HTTPError:
             pass
-    db.delete_account("tiktok")
+    if cid:
+        db.disconnect_connection(cid)
 
 
 # ------------------------------------------------------------------ API errors
@@ -175,7 +184,7 @@ ERRORS = {
                                            "Check your account status in the TikTok app."),
     "privacy_level_option_mismatch": ("TikTok does not offer the chosen privacy option for this account.",
                                       "Pick one of the options shown on the publish screen."),
-    "scope_not_authorized": ("ClipFoundry was not given this TikTok permission.",
+    "scope_not_authorized": ("ClipForge was not given this TikTok permission.",
                              "Make sure the Content Posting API is added to your TikTok app, then connect again."),
     "access_token_invalid": ("TikTok did not accept the access token.", RECONNECT_FIX),
     "rate_limit_exceeded": ("TikTok is rate limiting requests right now.", "Wait a minute and try again."),
@@ -185,7 +194,7 @@ ERRORS = {
     "picture_size_check_failed": ("TikTok rejected the video size.", "Re-render the clip."),
     "video_pull_failed": ("TikTok could not receive the video.", "Publish again."),
     "publish_cancelled": ("The post was cancelled on TikTok.", ""),
-    "auth_removed": ("ClipFoundry's access was removed in TikTok.", RECONNECT_FIX),
+    "auth_removed": ("ClipForge's access was removed in TikTok.", RECONNECT_FIX),
     "user_banned_from_posting": ("TikTok currently does not allow this account to post.",
                                  "Check your account status in the TikTok app."),
     "internal": ("TikTok had an internal error.", "Try again in a few minutes."),
@@ -302,7 +311,7 @@ def _never_public(privacy: str, settings: dict | None = None, stamp: dict | None
             settings.get("audience_tiktok_confirmed_at") or (stamp or {}).get("intent") == "PUBLIC"):
         from .audience import PUBLIC_OFF_FIX, AudienceBlocked
 
-        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipFoundry posts only for your approved "
+        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipForge posts only for your approved "
                               "followers or friends.", PUBLIC_OFF_FIX)
 
 

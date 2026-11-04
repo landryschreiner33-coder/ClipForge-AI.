@@ -122,7 +122,7 @@ export function newOkReason(p: Post): { word: string; detail: string } | null {
         "the clip, render it again if needed, then approve the post again.",
     };
   }
-  if (/before ClipFoundry checked the exact video file/i.test(why)) return OLD_SCHEME;
+  if (/before Clip(?:Foundry|Forge) checked the exact video file/i.test(why)) return OLD_SCHEME;
   if (/automatic.publishing/i.test(why)) {
     return {
       word: "Needs your OK: automatic publishing changed",
@@ -153,7 +153,7 @@ const OLD_AUTHORIZATION = {
 };
 const OLD_SCHEME = {
   word: "Needs a new OK: approved before exact-file checks",
-  detail: "You approved it with an older version of ClipFoundry, which didn't record the exact video file. Approve " +
+  detail: "You approved it with an older version of ClipForge, which didn't record the exact video file. Approve " +
     "it again so your OK covers this exact file.",
 };
 
@@ -297,7 +297,7 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         </dl>
         <div className="consequence">
           <span>
-            The upload starts as soon as you confirm. ClipFoundry can't take it back afterwards; you would remove it on
+            The upload starts as soon as you confirm. ClipForge can't take it back afterwards; you would remove it on
             {" "}{name}.
           </span>
         </div>
@@ -314,7 +314,7 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         onClose={onClose}
         onSubmit={(url) => ap.resolve(p.id, true, url).then(done("Marked as published. It won't be uploaded again."))}>
         <p className="small muted">
-          ClipFoundry records your confirmation and keeps it from uploading again. Platform results are collected
+          ClipForge records your confirmation and keeps it from uploading again. Platform results are collected
           when the account and API allow it; a link alone does not prove public visibility.
         </p>
       </TextPromptDialog>

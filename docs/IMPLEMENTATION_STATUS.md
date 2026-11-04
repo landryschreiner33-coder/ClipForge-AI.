@@ -1,5 +1,42 @@
 # Implementation status
 
+## PR #16 merge review and website refresh — 2026-11-04 (Codex)
+
+The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
+Working checkout: `/workspace/clipforge-pr16`, branch `codex/review-clipforge-pr16`, based on Claude head `4e0da48`.
+Merged the newer `codex/cloud-plan` documentation into that head without dropping either set of handoff notes.
+
+Review fixes:
+- Hold automatic YouTube uploads over 15 minutes when the channel's long-upload eligibility is unknown. Keep the
+  full master available and explain the next step; add destination/boundary regression checks.
+- Include cloud requirements in development/test installs: the new OIDC test fixtures require PyJWT, which the
+  existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
+- Correct creation/render copy that incorrectly described local desktop processing as server processing.
+- Rebuild and retain the tracked frontend distribution.
+- Close secondary-workspace access to shared Brain guidance and media-processing writes until those services
+  are truly workspace-scoped. A regression reproduced private owner note metadata in the old guidance response;
+  the same request is now refused. The primary owner workflow remains available.
+
+Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
+`/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
+real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
+Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
+bytes and hashes remain unchanged because no new native release has been built. The source changes are not yet
+in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
+preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
+
+Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
+full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
+head SHA. Do not describe cloud hosting, public signup,
+per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
+`docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
+it is not a newly required owner approval for this session.
+
 ## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
 
 The owner asks to tell Claude to update the website and improve its appearance. Section 17 of
@@ -1574,6 +1611,19 @@ plannable.
     approvals, Brain guards, health and Test connection, score confidence, media-access reasons, robots.
 
 ## Test log
+
+| ClipForge build (2026-11-04, Claude Code, cloud container, no GPU) | Result |
+| --- | --- |
+| Baseline `pytest -m "not slow"` on the untouched start `6585c58` | 1,556 passed, 19 deselected |
+| Fast suite after phases 2–4 (snapshot copy) | 1,623 passed, 20 deselected |
+| Fast suite after the visible rename (snapshot copy) | 1,618 passed, 7 failed: all seven asserted the old "ClipFoundry" wording of authorized renamed messages; updated to "ClipForge", and those five files then passed (78 passed) |
+| New suites: cloud auth, multiple accounts, uploads, backup, Full stories, guidance, prefs, studio jobs, rename | all pass (incl. the new GET guidance-preview test) |
+| Slow media: `tests/test_studio_render.py`, `tests/test_studio_video.py` (real FFmpeg, eSpeak speech, fake platforms) | pass; raw AAC timing validated on story clips and full-video renders |
+| Read-only browser suite `e2e/tests` against a throwaway sandbox app | 50 passed, 7 failed, 9 skipped. The same 7 fail on the starting commit (baseline run: 47 passed, 9 failed): stale assertions from earlier changes (overview headings, daily cap 0, "Who watches", removed Reduce animations box, phone settings), not this build |
+| Sandbox browser specs `npm run test:sandbox` (fake Google/TikTok, temp data) | 95 passed, 5 failed. Fixed: two motion specs (account motion overrode the browser's Animations choice) and the office map at 1280×720 (678 px < 680 px with the new sidebar); rerun of `motion.spec.ts` + `robot-office.spec.ts`: 7 passed. The other two (`beginner-flow`: expects unpermitted public videos never planned, superseded by the 2026-10-14 review mode; `zero-touch-loop`: a source passes analyzing before the poll sees it) fail identically on the starting commit |
+| Frontend `npm run build` | TypeScript and Vite pass; committed `dist/` rebuilt |
+| Final `pytest -m slow` on the finished tree (real FFmpeg/eSpeak, synthetic media, fake platforms) | 21 passed, 1,628 deselected (1,230 s) |
+| Final `pytest -m "not slow"` on a snapshot of the finished tree | 1,628 passed, 21 deselected (840 s) |
 
 | Public internet import check (2026-10-03) | Result |
 | --- | --- |

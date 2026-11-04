@@ -51,7 +51,7 @@ def test_a_failed_cuda_run_is_an_error_until_the_gpu_works_again(data, monkeypat
             raise RuntimeError("CUDA failed with error cublas64_12.dll is not found")
     reading = health.gpu({})
     assert reading["status"] == "error" and "cublas64_12.dll" in reading["reason"]
-    assert "gpu-check.bat" in reading["action"] and "ClipFoundry folder" in reading["action"]
+    assert "gpu-check.bat" in reading["action"] and "ClipForge folder" in reading["action"]
     # a later transcription that really ran on the GPU clears it
     gpu.manager.record_transcription({"device": "cuda", "requested_device": "cuda", "compute_type": "float16"}, "x")
     assert health.gpu({})["status"] == "healthy"
@@ -101,7 +101,7 @@ def test_the_database_advice_promises_no_backup_folder(data, monkeypatch):
     reading = health.database()
     assert reading["status"] == "error" and "malformed" in reading["reason"]
     assert "backups" not in reading["action"]
-    assert "copy the whole data folder" in reading["action"] and "ClipFoundry closed" in reading["action"]
+    assert "copy the whole data folder" in reading["action"] and "ClipForge closed" in reading["action"]
     assert str(data) in reading["action"]
 
 

@@ -121,9 +121,9 @@ export default function PublishPage({ id }: { id: string }) {
   if (loadError) {
     return (
       <div className="page">
-        <PageHead title="Prepare post" crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Prepare post" }]} />
+        <PageHead title="Prepare post" crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Prepare post" }]} />
         <EmptyState icon="alert" title="This clip could not be opened"
-          actions={<a className="btn" href="#/clips">Open Library</a>}>{loadError}</EmptyState>
+          actions={<a className="btn" href="#/projects">Open Projects</a>}>{loadError}</EmptyState>
       </div>
     );
   }
@@ -144,13 +144,13 @@ export default function PublishPage({ id }: { id: string }) {
     <div className="page">
       <PageHead title="Prepare post"
         crumbs={[
-          { label: "Clips", href: "#/clips" },
+          { label: "Projects", href: "#/projects" },
           { label: <span className="clamp-1 crumb-title">{project.name}</span>, href: `#/project/${project.id}` },
           { label: <span className="clamp-1 crumb-title">{clip.title}</span>, href: `#/clip/${clip.id}` },
           { label: "Prepare post" },
         ]}
         sub={<>Post this clip yourself, now. Nothing goes out until you press a platform's button and confirm. Posts
-          Autopilot planned are in <a className="textlink" href="#/queue/review">Posts</a>.</>}
+          Autopilot planned are in <a className="textlink" href="#/publishing/review">Publishing</a>.</>}
         actions={<>
           <a className="btn" href={`#/clip/${clip.id}`}><Icon name="edit" />Edit clip</a>
           <button type="button" className="btn" disabled={!ready || exporting} onClick={exportClip}>
@@ -425,7 +425,7 @@ function YouTubePanel({ audience, account, setAccounts, meta, duration, ready, b
               {privacy === "public" ? "This requests a Public upload now: anyone may watch or share it if YouTube "
                 + "allows public API uploads for your project." : "This uploads it as Private; you choose any viewers "
                   + "in YouTube Studio yourself."}
-              {" "}ClipFoundry cannot take an upload back; you would delete it in YouTube Studio.
+              {" "}ClipForge cannot take an upload back; you would delete it in YouTube Studio.
               It uses part of your project's daily YouTube upload allowance.
             </span>
           </div>
@@ -664,7 +664,7 @@ function TikTokPanel({
           </dl>
           <div className="consequence">
             <span>
-              {direct ? "This posts the video on your TikTok profile now. ClipFoundry can't take it back; you would "
+              {direct ? "This posts the video on your TikTok profile now. ClipForge can't take it back; you would "
                 + "delete it in the TikTok app. It may take a few minutes to appear."
                 : "This sends the video to your TikTok inbox as a draft now. Nobody else can see it until you post "
                   + `it in the TikTok app for ${who}. This is a manual step, not automatic publishing.`}

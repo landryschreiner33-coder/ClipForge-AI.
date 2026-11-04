@@ -15,6 +15,7 @@ import {
 } from "../components/ui";
 import { ESTIMATE_NOTE, QualitySummary, ViralPanel } from "../components/viral";
 import { navigate } from "../router";
+import StoryReview from "../components/StoryReview";
 import "./library.css";
 
 // The five real steps of making clips, and the backend stage names that belong to each.
@@ -72,20 +73,20 @@ export default function ProjectView({ id }: { id: string }) {
       toast(n ? `${plural(n, "clip")} ${n === 1 ? "is" : "are"} ready from “${p.name}”`
         : `No moment of “${p.name}” passed the quality bar`);
     }
-    if (p.status === "error") toast(`ClipFoundry couldn't make clips from “${p.name}”`, true);
+    if (p.status === "error") toast(`ClipForge couldn't make clips from “${p.name}”`, true);
   }, [p]);
 
   if (!p) {
     if (!error) return <LoadingPage label="Loading the video" />;
     return (
       <div className="page">
-        <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Video" }]} kind="Source video"
+        <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Video" }]} kind="Source video"
           title="This video isn't in your library" />
         <EmptyState icon="film" title="Nothing to show" actions={<>
-          <a className="btn" href="#/clips"><Icon name="library" />Open the Library</a>
+          <a className="btn" href="#/projects"><Icon name="library" />Open Projects</a>
           <button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>
         </>}>
-          <p>ClipFoundry answered: {error}. It may have been deleted.</p>
+          <p>ClipForge answered: {error}. It may have been deleted.</p>
         </EmptyState>
       </div>
     );
@@ -130,7 +131,7 @@ export default function ProjectView({ id }: { id: string }) {
 
   return (
     <div className="page source-video-page">
-      <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: p.name }]} kind="Source video" title={p.name}
+      <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: p.name }]} kind="Source video" title={p.name}
         sub={facts}
         actions={<>
           <ProjectStatus p={p} clipCount={clips.length} />
@@ -141,13 +142,14 @@ export default function ProjectView({ id }: { id: string }) {
           )}
           <MoreMenu label="More for this video" items={menu} />
         </>} />
+      {(p as Project & { clip_mode?: string }).clip_mode === "full_stories" && <StoryReview projectId={p.id} version={p.updated_at} onChange={refresh} />}
 
       {p.status === "error" && (
-        <Banner tone="bad" title="ClipFoundry couldn't make clips from this video." actions={<>
+        <Banner tone="bad" title="ClipForge couldn't make clips from this video." actions={<>
           <button type="button" className="btn btn-small" onClick={() => setDialog("remake")}>
             <Icon name="refresh" />Try again…
           </button>
-          <a className="btn btn-small" href="#/create">Add a different video</a>
+          <a className="btn btn-small" href="#/create/clips">Add a different video</a>
         </>}>
           <span className="break">{p.error || "No reason was recorded."}</span>
           <br /><b>What to do:</b> press Try again. A transcript that was already made is reused.
@@ -243,7 +245,7 @@ export default function ProjectView({ id }: { id: string }) {
             <Icon name="refresh" />Make clips again…
           </button>}>
           <p>
-            ClipFoundry doesn't pad the results with weak clips. Try a different clip length with “Make clips again”, or
+            ClipForge doesn't pad the results with weak clips. Try a different clip length with “Make clips again”, or
             lower the minimum Viral Potential in <a className="textlink" href="#/settings/advanced">Settings</a> to
             see weaker moments too.
           </p>
@@ -257,7 +259,7 @@ export default function ProjectView({ id }: { id: string }) {
       )}
       {dialog === "delete" && (
         <DeleteProjectDialog p={p} clipCount={clips.length} onClose={() => setDialog(null)}
-          onDeleted={() => navigate("clips")} />
+          onDeleted={() => navigate("projects")} />
       )}
     </div>
   );
@@ -267,7 +269,7 @@ export default function ProjectView({ id }: { id: string }) {
 function Working({ p }: { p: Project }) {
   const step = p.status === "processing" ? STAGE_STEP[p.stage || "queued"] ?? -1 : -1;
   const pct = Math.round((p.progress || 0) * 100);
-  const label = p.status === "uploading" ? "Copying into ClipFoundry"
+  const label = p.status === "uploading" ? "Copying into ClipForge"
     : p.status === "processing" ? p.message || "Making clips" : p.message || "Waiting to start";
   return (
     <div className="stack">
@@ -285,7 +287,7 @@ function Working({ p }: { p: Project }) {
         <>
           <ProgressBar value={p.progress} label="Progress of this video" />
           <span className="tiny faint">
-            {pct}% of all steps, as ClipFoundry reports it. No time estimate is available.
+            {pct}% of all steps, as ClipForge reports it. No time estimate is available.
           </span>
         </>
       ) : (
@@ -349,7 +351,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
                 {PLATFORM[x.platform] || x.platform}: {postWord(x)}
               </a>
             ))}
-            {posts.length > 2 && <a className="textlink" href="#/queue/review">{posts.length - 2} more</a>}
+            {posts.length > 2 && <a className="textlink" href="#/publishing/review">{posts.length - 2} more</a>}
           </span>
         ) : <span className="tiny faint">No posts yet</span>)}
         <div className="ccard-actions">
@@ -370,7 +372,7 @@ function ClipCard({ c, posts, onPreview, onToggle, onExport }: {
   );
 }
 
-/** The rendered clip with everything ClipFoundry knows about it (scores are estimates). */
+/** The rendered clip with everything ClipForge knows about it (scores are estimates). */
 function PreviewDialog({ c, onClose }: { c: Clip; onClose: () => void }) {
   const hid = useId();
   const start = c.edit?.start ?? c.start;

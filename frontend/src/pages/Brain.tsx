@@ -11,6 +11,7 @@ import {
   Workspace,
 } from "../brain";
 import { Banner, Dialog, EmptyState, Icon, LinkTabs, PageHead, toast } from "../components/ui";
+import { SkillsTab, StylesTab } from "../components/StylesSkills";
 import { brainApi } from "../office/api";
 import BrainGraph from "./BrainGraph";
 import { BrainNode, buildBrainGraph, filterBrainGraph, GraphCategory } from "./brainGraphModel";
@@ -67,7 +68,30 @@ const savedView = (tab: string) => {
   }
 };
 
+const BRAIN_TABS = [
+  { id: "styles", href: "#/brain/styles", label: "Styles" },
+  { id: "knowledge", href: "#/brain", label: "Notes" },
+  { id: "examples", href: "#/brain/examples", label: "Examples" },
+  { id: "skills", href: "#/brain/skills", label: "Skills" },
+  { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
+  { id: "results", href: "#/brain/results", label: "Performance history" },
+];
+
+/** Brain: Styles, Notes, Examples and Skills (the graph is an optional view inside Notes). */
 export default function Brain({ tab = "knowledge" }: { tab?: string }) {
+  if (tab === "styles" || tab === "skills") {
+    return (
+      <div className="page">
+        <PageHead kind="Brain" title="Brain" sub="What ClipForge remembers about how you like your videos edited." />
+        <LinkTabs label="Brain sections" current={tab} tabs={BRAIN_TABS} />
+        {tab === "styles" ? <StylesTab /> : <SkillsTab />}
+      </div>
+    );
+  }
+  return <BrainNotes tab={tab} />;
+}
+
+function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [rows, setRows] = useState<Knowledge[]>([]);
   const [query, setQuery] = useState("");
@@ -217,12 +241,7 @@ export default function Brain({ tab = "knowledge" }: { tab?: string }) {
       <LinkTabs
         label="Brain sections"
         current={active}
-        tabs={[
-          { id: "knowledge", href: "#/brain", label: "Knowledge" },
-          { id: "examples", href: "#/brain/examples", label: "Examples" },
-          { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
-          { id: "results", href: "#/brain/results", label: "Performance history" },
-        ]}
+        tabs={BRAIN_TABS}
       />
       {problem && (
         <Banner tone="bad" title="Could not complete this action">
@@ -1066,7 +1085,7 @@ function PerformanceHistory({ workspace }: { workspace: Workspace }) {
         <section className="card brain-history-list">
           <div className="brain-toolbar">
             <h2>Real results</h2>
-            <a className="btn btn-small" href="#/clips/feedback">
+            <a className="btn btn-small" href="#/projects/feedback">
               Add feedback / import
             </a>
           </div>

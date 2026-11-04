@@ -1,7 +1,7 @@
 """YouTube Data API quota manager.
 
 Google gives every Cloud project a daily quota that resets at midnight Pacific Time. Since June 1, 2026 it has three
-buckets: `videos.insert` calls (uploads), `search.list` calls, and units for every other method. ClipFoundry
+buckets: `videos.insert` calls (uploads), `search.list` calls, and units for every other method. ClipForge
 
 * counts every call it makes, by method and purpose (publish, account, stats, discovery),
 * enforces the budgets configured in Settings (set them to your project's real quota),
@@ -250,5 +250,5 @@ def status(settings: dict, now: float | None = None) -> dict:
             "planned_uploads": uploads_planned, "discovery_slowdown": None if factor == float("inf") else factor,
             "discovery_paused": factor == float("inf"), "warnings": warnings,
             "cache": state.get(f"quota:counters:{day}", {}) or {},
-            "note": "Counted by ClipFoundry from the calls it made. Set the budgets to your Google Cloud project's "
+            "note": "Counted by ClipForge from the calls it made. Set the budgets to your Google Cloud project's "
                     "real quota (Google Cloud console → APIs & Services → YouTube Data API v3 → Quotas)."}

@@ -32,7 +32,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           hint={"On: ordinary posts wait for your review and approval; standing automatic-publishing permission "
             + "is suspended. A new video you explicitly submit with Make & upload uses only its own authorization."} {...row}>
           <Switch k="autopilot_review_before_publish" c={c} />
-          <a className="textlink small" href="#/queue/review">Review prepared posts</a>
+          <a className="textlink small" href="#/publishing/review">Review prepared posts</a>
           <span className="tiny muted">Turning this off lets eligible YouTube posts use an existing
             automatic-publishing permission again. Clips without recorded coverage still need your review.</span>
         </SettingRow>

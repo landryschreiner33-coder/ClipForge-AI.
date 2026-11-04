@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Icon, PageHead } from "../components/ui";
+import { errorText } from "../api";
+import { Icon, PageHead, toast } from "../components/ui";
+import { useAppearance } from "../prefs";
+import { studio } from "../studio";
 import { BY_ID, CAST, CORE, DEPARTMENTS, Dir, validateCast } from "../office/cast";
 import Portrait from "../office/Portrait";
 import { FRAMES, Pose } from "../office/sprites";
@@ -11,8 +14,8 @@ export default function Team() {
   const groups = Object.entries(DEPARTMENTS).map(([id, d]) => ({ id, ...d, members: CAST.filter((c) => c.dept === id) }));
   return (
     <div className="page team-page">
-      <PageHead kind="Office" title="Team" crumbs={[{ label: "Office", href: "#/" }, { label: "Team" }]}
-        sub="Each robot stands for one real part of the work. A robot moves only when that work really happens."
+      <PageHead kind="Office" title="Team" crumbs={[{ label: "Office", href: "#/office" }, { label: "Team" }]}
+        sub="Each robot stands for one real part of the work. A robot moves only when that work really happens. Rename any robot; its job stays the same."
         actions={<div className="seg" role="group" aria-label="Facing">
           {(["down", "left", "up", "right"] as Dir[]).map((d) => (
             <button key={d} type="button" className={dir === d ? "on" : ""} aria-pressed={dir === d} onClick={() => setDir(d)}>
@@ -45,12 +48,47 @@ export default function Team() {
 function RobotCard({ id, dir }: { id: string; dir: Dir }) {
   const c = BY_ID[id];
   const manager = c.manager ? BY_ID[c.manager] : null;
+  const { refreshNames } = useAppearance();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(c.name);
+  const [error, setError] = useState("");
+  const save = async (reset = false) => {
+    setError("");
+    const text = draft.trim();
+    if (!reset && !text) {
+      setError("Type a name, or use Reset name.");
+      return;
+    }
+    if (!reset && [...text].length > 32) {
+      setError("Use at most 32 characters.");
+      return;
+    }
+    try {
+      if (reset) await studio.resetRobot(id);
+      else await studio.renameRobot(id, text);
+      await refreshNames();
+      setEditing(false);
+      toast(reset ? `Name reset to ${BY_ID[id].name}` : `Renamed to ${text}`);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
   return (
     <article className="team-card">
       <Portrait id={id} dir={dir} scale={2} label={`${c.name}, ${c.title}`} />
       <div>
         <b>{c.name}</b>
         <span className="muted small block">{c.title}{c.rank === "manager" ? " · Manager" : c.rank === "director" ? " · Director" : ""}</span>
+        {editing ? (
+          <form className="robot-name-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+            <label className="sr-only" htmlFor={`name-${id}`}>New name for {c.title}</label>
+            <input id={`name-${id}`} value={draft} maxLength={64} onChange={(e) => setDraft(e.target.value)} autoFocus aria-describedby={error ? `err-${id}` : undefined} />
+            <button type="submit" className="btn btn-small btn-primary">Save</button>
+            <button type="button" className="btn btn-small" onClick={() => void save(true)}>Reset name</button>
+            <button type="button" className="btn btn-small btn-quiet" onClick={() => setEditing(false)}>Cancel</button>
+            {error && <span id={`err-${id}`} className="error-text small block">{error}</span>}
+          </form>
+        ) : <button type="button" className="link-btn small" onClick={() => { setDraft(c.name); setEditing(true); }}>Rename</button>}
         <p className="small">{c.job}</p>
         <p className="tiny muted">{manager ? `Reports to ${manager.name}` : "Reports to you"}</p>
       </div>

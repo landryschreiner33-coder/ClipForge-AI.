@@ -94,7 +94,7 @@ def view(settings: dict) -> dict:
                           "viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
                           "this PC. Check NVIDIA's current terms for retention and training before you turn it on."),
             "development_note": ("Development mode uses NVIDIA's hosted catalog, which NVIDIA describes as "
-                                 "development and prototyping access. ClipFoundry uses it only for work you start "
+                                 "development and prototyping access. ClipForge uses it only for work you start "
                                  "yourself; Autopilot keeps using local analysis.")}
 
 

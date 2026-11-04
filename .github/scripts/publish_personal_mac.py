@@ -1,19 +1,23 @@
-"""Deliver the tested personal preview; never imply Developer ID/notarization."""
+"""Deliver a tested personal Mac preview; never imply Developer ID/notarization.
+
+Publishes exactly the DMG that a successful "Native Mac desktop app" run (macos-desktop.yml) built, smoke-tested
+and regression-tested. The run is given by the person who starts the workflow (input `tested_run`); its commit,
+artifact and digest are read from GitHub and checked, never typed in. A retry finishes an interrupted draft but never
+replaces bytes that were already published.
+"""
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 import zipfile
 
 REPO = "landryschreiner33-coder/ClipForge-AI."
-RUN = 41656652146
-COMMIT = "bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3"
-ARTIFACT = 13240393392
-ARCHIVE_SHA256 = "49bc9aeffcd8cfa183ee6e3ccdddfb843dfd86e9084570514be35cc37ff39709"
-TAG = "macos-personal-2026-11-03-bc3ce2c"
+ARTIFACT_NAME = "ClipFoundry-Development-NOT-NOTARIZED"  # the build workflow's artifact (internal name kept)
+DMG_NAME = "ClipForge-Mac-Apple-Silicon.dmg"
 
 
 def run(*args, **kwargs):
@@ -32,79 +36,92 @@ def sha(path):
 def main():
     if os.environ.get("GH_REPO") != REPO:
         raise RuntimeError("Unexpected repository")
-    tested = api(f"actions/runs/{RUN}")
-    assert tested["conclusion"] == "success" and tested["head_sha"] == COMMIT
-    assert tested["path"] == ".github/workflows/macos-desktop.yml"
+    run_id = os.environ.get("TESTED_RUN", "")
+    tag = os.environ.get("TAG", "")
+    if not re.fullmatch(r"[0-9]{6,20}", run_id):
+        raise RuntimeError("tested_run must be the numeric ID of a Native Mac desktop app run")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,60}", tag):
+        raise RuntimeError("tag must be lower-case letters, digits, dots and dashes")
+
+    tested = api(f"actions/runs/{run_id}")
+    assert tested["path"] == ".github/workflows/macos-desktop.yml", "Not a Native Mac desktop app run"
+    assert tested["status"] == "completed" and tested["conclusion"] == "success", "That run did not pass"
     assert tested["head_repository"]["full_name"] == REPO
     assert tested["event"] in ("push", "workflow_dispatch")
-    artifact = api(f"actions/artifacts/{ARTIFACT}")
-    assert not artifact["expired"] and artifact["workflow_run"]["id"] == RUN
-    assert artifact["digest"] == "sha256:" + ARCHIVE_SHA256
+    commit = tested["head_sha"]
+    jobs = api(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+    assert jobs and all(job["conclusion"] == "success" for job in jobs), "Every build and regression job must pass"
+    artifacts = [a for a in api(f"actions/runs/{run_id}/artifacts?per_page=100")["artifacts"]
+                 if a["name"] == ARTIFACT_NAME]
+    assert len(artifacts) == 1 and not artifacts[0]["expired"], "The tested DMG artifact is missing or expired"
+    artifact = artifacts[0]
+    archive_sha256 = (artifact.get("digest") or "").removeprefix("sha256:")
+    assert re.fullmatch(r"[0-9a-f]{64}", archive_sha256), "The artifact has no recorded digest"
 
-    with tempfile.TemporaryDirectory(prefix="clipfoundry-personal-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="clipforge-personal-") as temporary:
         work = Path(temporary)
         archive = work / "tested.zip"
         with archive.open("wb") as target:
-            run("gh", "api", f"repos/{REPO}/actions/artifacts/{ARTIFACT}/zip", stdout=target)
-        assert sha(archive) == ARCHIVE_SHA256, "Tested artifact bytes changed"
+            run("gh", "api", f"repos/{REPO}/actions/artifacts/{artifact['id']}/zip", stdout=target)
+        assert sha(archive) == archive_sha256, "Tested artifact bytes changed"
         names = ("ClipFoundry-Development.dmg", "ClipFoundry-Corresponding-Source.tar.gz")
         with zipfile.ZipFile(archive) as bundle:
             for name in names:
                 assert bundle.namelist().count(name) == 1
                 bundle.extract(name, work)
-        dmg = work / "ClipFoundry-Mac-Apple-Silicon.dmg"
+        dmg = work / DMG_NAME
         shutil.move(work / names[0], dmg)
-        sources = work / names[1]
+        sources = work / "ClipForge-Corresponding-Source.tar.gz"
+        shutil.move(work / names[1], sources)
         run("hdiutil", "verify", str(dmg))
         mount = work / "mounted"
         mount.mkdir()
         run("hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", str(mount), str(dmg))
         try:
+            # The bundle keeps its ClipFoundry identity so the Keychain items and data folder stay the same.
             app = mount / "ClipFoundry.app"
             build = json.loads((app / "Contents/Resources/build.json").read_text())
-            assert build["source_commit"] == COMMIT and build["platform"] == "macos-arm64"
+            assert build["source_commit"] == commit and build["platform"] == "macos-arm64"
             assert (app / "Contents/Resources/ClipFoundry.icns").is_file()
             run("codesign", "--verify", "--deep", "--strict", str(app))
         finally:
             run("hdiutil", "detach", str(mount))
-        url = f"https://github.com/{REPO}/releases/download/{TAG}/"
+        url = f"https://github.com/{REPO}/releases/download/{tag}/"
         manifest = {
             "file": dmg.name, "url": url + dmg.name, "sha256": sha(dmg), "bytes": dmg.stat().st_size,
-            "source_commit": COMMIT, "minimum_macos": "15", "architecture": "arm64",
+            "source_commit": commit, "minimum_macos": "15", "architecture": "arm64",
             "release_kind": "personal-preview", "developer_id_signed": False, "notarized": False,
             "signing": "ad-hoc development signature only; macOS per-app approval may be required",
-            "tested_run": f"https://github.com/{REPO}/actions/runs/{RUN}",
-            "artifact_sha256": ARCHIVE_SHA256,
+            "tested_run": f"https://github.com/{REPO}/actions/runs/{run_id}",
+            "artifact_sha256": archive_sha256,
             "sources_file": sources.name, "sources_url": url + sources.name, "sources_sha256": sha(sources),
         }
         metadata = work / "mac-personal-preview.json"
         metadata.write_text(json.dumps(manifest, indent=2) + "\n")
         notes = work / "notes.md"
         notes.write_text(
-            "Native local ClipFoundry app for Apple silicon, macOS 15 or newer.\n\n"
-            "Download the DMG, drag ClipFoundry into Applications, and open it. Python and video tools are bundled. "
-            "Quit any older ClipFoundry launcher first. Existing local Brain, clips and settings are preserved.\n\n"
+            "ClipForge (formerly ClipFoundry) for Apple silicon, macOS 15 or newer: Make clips (Highlights or Full "
+            "stories), Make a YouTube video, saved styles and skills, several accounts and the robot office.\n\n"
+            "Download the DMG, drag the app into Applications, and open it. Python and video tools are bundled. "
+            "Quit any older ClipFoundry first. The app keeps its ClipFoundry name in Finder so your existing "
+            "Brain, clips, accounts and settings stay where they are.\n\n"
             "**Unsigned personal preview: not Developer ID signed or Apple-notarized.** macOS may require "
-            "System Settings → Privacy & Security → Open Anyway after the first launch attempt. "
-            "An Apple Developer membership is not required to run it yourself.\n\n"
-            "This is the unchanged DMG from the successful native app and 1,575-test run. "
-            "Physical M5 Max hardware and real social uploads were not tested.\n\n"
-            "Keep the app running and the Mac awake for scheduled work. Closing the window keeps it running; "
-            "Quit stops it. The speech model downloads when first needed.\n\n"
-            f"DMG SHA-256: `{manifest['sha256']}`\n\n"
+            "System Settings → Privacy & Security → Open Anyway after the first launch attempt.\n\n"
+            "This is the unchanged DMG from the successful native build, smoke test and regression run linked in "
+            "mac-personal-preview.json. Physical Mac hardware and real social uploads were not tested.\n\n"
+            f"Source commit: `{commit}`\n\nDMG SHA-256: `{manifest['sha256']}`\n\n"
             "Exact corresponding source and dependency notices accompany this download.\n"
         )
         # GitHub's tag endpoint does not resolve an unpublished draft. Find it
         # through the authenticated collection so interrupted runs reuse it.
-        matches = [item for item in api("releases?per_page=100") if item["tag_name"] == TAG]
+        matches = [item for item in api("releases?per_page=100") if item["tag_name"] == tag]
         assert len(matches) <= 1, "Ambiguous preview release"
         if not matches:
-            run("gh", "release", "create", TAG, "--target", COMMIT, "--draft", "--prerelease",
-                "--title", "ClipFoundry for Mac — personal preview", "--notes-file", str(notes),
+            run("gh", "release", "create", tag, "--target", commit, "--draft", "--prerelease",
+                "--title", "ClipForge for Mac — personal preview", "--notes-file", str(notes),
                 str(dmg), str(sources), str(metadata))
-            matches = [item for item in api("releases?per_page=100") if item["tag_name"] == TAG]
+            matches = [item for item in api("releases?per_page=100") if item["tag_name"] == tag]
         assert len(matches) == 1, "Expected one preview draft"
-        # A retry may finish an interrupted draft, but never replaces published bytes.
         release = api(f"releases/{matches[0]['id']}")
         assets = {asset["name"]: asset for asset in release["assets"]}
         for path in (dmg, sources, metadata):

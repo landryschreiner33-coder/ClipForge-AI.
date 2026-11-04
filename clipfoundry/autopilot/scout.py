@@ -153,7 +153,7 @@ def _search_error(name: str, exc: Exception, provider: str = "") -> dict:
     if asked is not None and provider:
         providers.defer(provider, float(asked))
     return _provider_status(name, "error", str(exc), problem=f"{name} did not work last time.",
-                            fix="ClipFoundry will try again automatically.")
+                            fix="ClipForge will try again automatically.")
 
 
 QUOTA_CODES = ("quotaExceeded", "dailyLimitExceeded")  # YouTube's daily allowance: it resets by itself
@@ -340,7 +340,7 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
         return []
     except (ValueError, TypeError) as exc:  # an answer in an unexpected shape: skip it this time
         statuses["library"] = _provider_status(name, "error", f"Unexpected answer: {exc}",
-                                               problem="Wikimedia Commons sent an answer ClipFoundry could not read.")
+                                               problem="Wikimedia Commons sent an answer ClipForge could not read.")
         return []
     except queue.Canceled:
         raise
@@ -575,7 +575,7 @@ def yield_multiplier(category: str, channel_id: str) -> tuple[float, int]:
 def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dict:
     """Source Score (0-100), the expected number of strong clips, and the reasons.
 
-    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipFoundry knows
+    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipForge knows
     little about stays near 50 instead of ranking high on one or two numbers. `components` stores the parts with
     data and an "evidence" entry (weight 0): coverage, confidence and the missing parts with their reason."""
     cps = int(settings.get("autopilot_clips_per_source") or 5)

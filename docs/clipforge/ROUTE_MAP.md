@@ -1,0 +1,50 @@
+# ClipForge route map
+
+The app keeps its hash router (`frontend/src/router.ts`). Old addresses are rewritten in place with
+`history.replaceState`, so bookmarks, notifications and Back keep working and never bounce. Deep links survive
+sign-in: the sign-in page returns to the address that was requested.
+
+## Logical screens
+
+| Screen | Address | Replaces / aliases | Contents |
+| --- | --- | --- | --- |
+| Sign in (cloud only) | shown in place of any address while signed out | — | ClipForge name and robot icon, Continue with Google, error and retry. No project data is requested before sign-in. |
+| Home | `#/` | `#/home` | Make clips, Make a YouTube video, recent projects, real running work, actionable problems. |
+| Make clips | `#/create/clips` | `#/create` (old Add video) | Highlights / Full stories selector, file or link, saved style, destinations, Make clips / Make & upload clips. |
+| Add from a link | `#/create/link` | — | The earlier Add video page: a public link, or a file with its own transcript; linked from Make clips. |
+| Make a YouTube video | `#/create/video` | — | Media bin, four-question brief, saved style, Remember this style, Build my video. |
+| Source project review | `#/project/:id` | (unchanged) | Large preview, outputs (highlights or story cards), transcript, Used from your Brain, downloads, publishing. |
+| Full-video review | `#/video/:id` | — | Preview, outline, sequence (trim/reorder/include), Used from your Brain, versions, render, download, publish. |
+| Projects | `#/projects` | `#/clips`, `#/library`, `#/projects/*` | One library with All / Clips / Full videos filters, search, status badges, thumbnails. |
+| Test feedback | `#/projects/feedback` | `#/clips/feedback` | Existing feedback page. |
+| Edit clip | `#/clip/:id` | (unchanged) | Existing clip editor. |
+| Prepare post | `#/publish/:id` | (unchanged) | Existing publish screen, now with an explicit account selector. |
+| Brain | `#/brain`, `#/brain/{styles,notes,examples,skills,graph,...}` | existing Brain tabs | Styles, Notes, Examples, Skills; Graph is an optional view. |
+| Publishing | `#/publishing/{review,scheduled,published,history,problems,results}` | `#/queue/*`, `#/posts/*`, `#/publish-center/*` | Queue/calendar with per-destination rows, exact account names and an account filter. |
+| Post review | `#/post/:id` | (unchanged) | Existing post page. |
+| Accounts | `#/accounts` | `#/settings/accounts` | Add YouTube account, Add TikTok account, connection cards, Reconnect, Disconnect. |
+| Office | `#/office` | old `#/` (Office), `#/office/*` | Real robot activity. |
+| Team | `#/office/team` | (unchanged) | Robot list with Rename / Reset name. |
+| Autopilot | `#/missions/*` | `#/autopilot/*` | Existing Missions pages, reached from Office and the top-bar Autopilot status. |
+| Settings | `#/settings`, `#/settings/{appearance,defaults,integrations,storage,advanced}` | existing Settings tabs | Appearance and layouts, default style, storage/retention, advanced. |
+| Setup | `#/setup/*` | (unchanged) | Existing first-run steps. |
+| Robot gallery | `#/dev/robots` | (unchanged) | Development view. |
+
+## Navigation
+
+Desktop (≥ 1024 px): a 232 px collapsible sidebar with Home, Projects, Brain, Publishing, Accounts, Office and
+Settings, plus a 64 px top bar with the page title, the Autopilot status, a theme switch and (in cloud mode) the
+signed-in owner and Sign out. Below 1024 px the sidebar becomes a drawer opened from the top bar. A persistent
+"Make" button stays in the top bar on every size, so the main task is always one tap away.
+
+## Backend routes added in this build
+
+| Area | Routes |
+| --- | --- |
+| Sign-in | `GET /api/auth/me`, `GET /api/auth/login`, `GET /api/auth/callback`, `POST /api/auth/logout`, `POST /api/auth/logout-all` |
+| Uploads and assets | `POST /api/uploads`, `GET/PUT /api/uploads/{id}`, `POST /api/uploads/{id}/complete`, `GET /api/assets/{id}`, `GET /api/assets/{id}/media`, `GET /api/assets/{id}/thumbnail` |
+| Studio projects | `POST /api/studio/clips`, `POST /api/studio/videos`, `GET /api/studio/projects`, `GET/PATCH /api/studio/videos/{id}`, `POST /api/studio/videos/{id}/{build,edits,render,cancel}`, `GET /api/studio/videos/{id}/media` |
+| Full stories | `GET /api/projects/{id}/stories`, `PATCH /api/stories/{id}`, `POST /api/projects/{id}/stories/{split,merge,create}` |
+| Styles and skills | `/api/studio/styles…`, `/api/studio/skills…` (import, preview, enable, export, delete) |
+| Connections | `GET /api/connections`, `POST /api/connections/{platform}/add`, `POST /api/connections/{id}/reconnect`, `POST /api/connections/{id}/disconnect`, `PATCH /api/connections/{id}` |
+| Preferences | `GET/PUT /api/preferences/appearance`, `GET/PUT /api/preferences/layout/{device}`, `GET/PUT/DELETE /api/robots/names/{role_id}` |

@@ -324,6 +324,14 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     if blueprint is not None:
         opts.update(blueprint_mod.render_options(blueprint))
         brain_used = list(blueprint.knowledge)
+    elif (project.get("guidance") or {}).get("schema"):
+        # A ClipForge project: its guidance was resolved once when it was made (project choice > style > skills >
+        # Brain notes > Settings) and frozen, so a retry or re-render reproduces the same choices.
+        from ..studio import guidance as guidance_mod
+
+        opts.update(guidance_mod.render_values(project["guidance"]))
+        opts.update({key: value for key, value in (clip.get("edit") or {}).items() if value is not None})
+        brain_used = guidance_mod.brain_influences(project["guidance"])
     else:
         from ..autopilot import brain, knowledge
 

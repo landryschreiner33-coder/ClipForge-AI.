@@ -114,7 +114,7 @@ def test(provider: str) -> dict:
         if provider == "tavily":
             wait = max(wait, float(state.get("web:wait_until", 0) or 0))
         if wait > now:
-            return _result(provider, False, "waiting", "This service asked ClipFoundry to wait.",
+            return _result(provider, False, "waiting", "This service asked ClipForge to wait.",
                            "Other searches and local folders can continue. Try this check after the wait.",
                            "provider_wait", wait)
         due = float(previous.get("at") or 0) + RECHECK_SECONDS

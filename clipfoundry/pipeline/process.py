@@ -298,15 +298,38 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
             db.update_clip(clip["id"], status="error", error=str(exc)[:500])
 
 
+def _after_render(p: Prepared, rows: list[dict]) -> None:
+    """A ClipForge "Make & upload clips" request: check each finished clip and upload the eligible ones to the
+    destinations chosen for this input (studio/autopublish.py). Projects without such a request are untouched."""
+    if not (p.project.get("destinations") or {}):
+        return
+    from ..studio import autopublish
+
+    for clip in rows:
+        autopublish.after_render(clip["id"])
+
+
 def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> None:
     """The whole pipeline for one project (manual projects and the CLI)."""
     p = prepare(project_id, ctx, gpu_policy)
     if not p:
         return
+    if (p.project.get("clip_mode") or "highlights") == "full_stories":
+        # Clips → Full stories: one complete clip per story instead of ranked highlights; the same renderer,
+        # captions, audio checks and publishing path follow.
+        from ..studio import story_review
+
+        rows = story_review.analyze(p, ctx)
+        render_clips(p, rows, ctx)
+        _after_render(p, rows)
+        p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
+        p.save_info()
+        return
     cands = candidate_pool(p, ctx)
     chosen = evaluate_select(p, cands, ctx)
     rows = create_clips(p, chosen, ctx)
     render_clips(p, rows, ctx)
+    _after_render(p, rows)
     p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
     p.save_info()
 

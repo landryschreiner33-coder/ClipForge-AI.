@@ -42,7 +42,7 @@ test("robots stand where their real work is, and follow it when it changes", asy
     state: "working", task: task("Rendering clip 2"),
   });
   Object.assign(role(feed, "check"), { state: "error", error: "ffmpeg is missing" });
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
   await expect(page.locator(".robot-hit")).toHaveCount(25);
   await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover");
@@ -81,7 +81,7 @@ test("a real report is carried to the manager; a decision gets COMMAND's reactio
     ...task("Rendering clip 2"), job_id: "job-1", kind: "package_clip", stage: "render",
     ref_type: "clip", ref_id: "c1",
   } });
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
   const now = Date.now() / 1000;
@@ -104,7 +104,7 @@ test("paused and stopped states rest the robots; a lost connection is said and m
   const feed = await controlled(page, request);
   feed.snap.run = { ...feed.snap.run, state: "paused", label: "Paused", actions: ["resume", "stop"] };
   for (const r of feed.snap.roles) r.state = "paused";
-  await page.goto("/#/");
+  await page.goto("/#/office");
   const bar = page.getByRole("region", { name: "Autopilot controls" });
   await expect(bar.locator("#office-run-state")).toHaveText("Paused");
   await expect(bar.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
@@ -124,7 +124,7 @@ test("Full overrides system motion; Reduced stills the map and all 25 fit deskto
   Object.assign(role(feed, "splice"), { state: "working", task: task("Rendering clip 2") });
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
   const canvas = page.locator(".office-world canvas");

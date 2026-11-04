@@ -695,11 +695,260 @@ CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every r
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(provider, day);
+
+-- ---------------------------------------------------------------- ClipForge: identity and workspaces (cloud/)
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,                      -- 'local' holds the desktop data; never derived from a request
+    name TEXT NOT NULL,
+    owner_key TEXT DEFAULT '',                -- issuer|subject of the configured owner (cloud), '' for desktop
+    settings TEXT DEFAULT '{}',
+    limits TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    issuer TEXT NOT NULL,
+    subject TEXT NOT NULL,                    -- the provider's stable subject: the identity that is authorized
+    email TEXT DEFAULT '',                    -- display only, never used to authorize
+    name TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    last_login_at REAL DEFAULT 0,
+    UNIQUE(issuer, subject)
+);
+CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT DEFAULT 'owner',
+    created_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,          -- SHA-256 of the cookie value; the value itself is never stored
+    csrf TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    revoked_at REAL DEFAULT 0,
+    user_agent TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+CREATE TABLE IF NOT EXISTS auth_logins (     -- sign-ins in progress, bound to the browser that started them
+    state_hash TEXT PRIMARY KEY,
+    binder_hash TEXT NOT NULL,
+    verifier TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    return_to TEXT DEFAULT '',
+    created_at REAL NOT NULL
+);
+-- ---------------------------------------------------------------- multiple publishing connections
+CREATE TABLE IF NOT EXISTS social_connections (
+    id TEXT PRIMARY KEY,                      -- stable; publications, approvals and uploads bind to it
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    platform TEXT NOT NULL,
+    external_id TEXT NOT NULL,                -- provider-confirmed channel / account ID
+    display_name TEXT DEFAULT '',
+    nickname TEXT DEFAULT '',                 -- the owner's own label
+    avatar_url TEXT DEFAULT '',
+    scopes TEXT DEFAULT '[]',
+    tokens TEXT DEFAULT '',                   -- sealed (secure.py)
+    info TEXT DEFAULT '{}',
+    is_default INTEGER DEFAULT 0,             -- the connection older single-account paths use
+    status TEXT DEFAULT 'connected',          -- connected | needs_reconnect | disconnected
+    connected_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, platform, external_id)
+);
+CREATE TABLE IF NOT EXISTS oauth_connects (  -- a Connect/Reconnect attempt, bound to its session and operation
+    state_hash TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    operation TEXT NOT NULL,                  -- add | reconnect
+    connection_id TEXT DEFAULT '',
+    workspace_id TEXT NOT NULL,
+    session_id TEXT DEFAULT '',
+    verifier TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+-- ---------------------------------------------------------------- uploads and immutable assets
+CREATE TABLE IF NOT EXISTS uploads (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    kind TEXT DEFAULT 'video',                -- video | audio | image
+    size INTEGER NOT NULL,
+    received INTEGER DEFAULT 0,
+    sha256 TEXT DEFAULT '',                   -- expected hash, when the browser computed one
+    status TEXT DEFAULT 'receiving',          -- receiving | complete | failed
+    error TEXT DEFAULT '',
+    asset_id TEXT DEFAULT '',
+    fingerprint TEXT DEFAULT '',              -- name|size|modified from the browser, to resume the same file
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uploads_workspace ON uploads(workspace_id, fingerprint);
+CREATE TABLE IF NOT EXISTS assets (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    filename TEXT DEFAULT '',
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,                       -- private storage, never under a static folder
+    proxy_path TEXT DEFAULT '',
+    thumb_path TEXT DEFAULT '',
+    probe TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, sha256)
+);
+-- ---------------------------------------------------------------- full-video projects and edit plans
+CREATE TABLE IF NOT EXISTS studio_projects (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    workflow TEXT DEFAULT 'full_video',
+    status TEXT DEFAULT 'draft',              -- draft | building | ready | rendering | needs_input | failed
+    message TEXT DEFAULT '',
+    asset_ids TEXT DEFAULT '[]',
+    brief TEXT DEFAULT '{}',
+    style_id TEXT DEFAULT '',
+    guidance TEXT DEFAULT '{}',               -- the resolved guidance snapshot the current plan used
+    plan_revision INTEGER DEFAULT 0,          -- the newest saved edit plan
+    rendered_revision INTEGER DEFAULT 0,      -- the newest plan revision with a checked artifact
+    destinations TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS edit_plans (      -- immutable revisions; a change saves a new one
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    plan TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    PRIMARY KEY (project_id, revision)
+);
+CREATE TABLE IF NOT EXISTS studio_artifacts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    kind TEXT DEFAULT 'final',                -- final | preview
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    info TEXT DEFAULT '{}',                   -- probe, time map, final transcript, engine, checks
+    created_at REAL NOT NULL,
+    UNIQUE (project_id, revision, kind)
+);
+CREATE TABLE IF NOT EXISTS studio_jobs (     -- durable studio work with leases (studio/jobs.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    revision INTEGER DEFAULT 0,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    status TEXT DEFAULT 'queued',             -- queued | running | done | failed | canceled
+    progress REAL DEFAULT 0,
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    lease_token TEXT DEFAULT '',
+    lease_until REAL DEFAULT 0,
+    attempts INTEGER DEFAULT 0,
+    result TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_studio_jobs_status ON studio_jobs(status, created_at);
+-- ---------------------------------------------------------------- Clips → Full stories
+CREATE TABLE IF NOT EXISTS story_proposals (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    start_ms INTEGER NOT NULL,                -- source time base: integer milliseconds
+    end_ms INTEGER NOT NULL,
+    kind TEXT DEFAULT 'story',                -- story | gap (intro, outro, ad, transition, unrelated)
+    title TEXT DEFAULT '',
+    opening TEXT DEFAULT '',
+    closing TEXT DEFAULT '',
+    completeness TEXT DEFAULT 'complete',     -- complete | uncertain | incomplete
+    confidence REAL DEFAULT 0,
+    reason TEXT DEFAULT '',
+    included INTEGER DEFAULT 1,
+    clip_id TEXT DEFAULT '',
+    boundary_revision INTEGER DEFAULT 0,      -- 0 = as proposed; incremented by every manual change
+    method TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_story_project ON story_proposals(project_id, position);
+-- ---------------------------------------------------------------- styles, skills, preferences, robot names
+CREATE TABLE IF NOT EXISTS styles (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    revision INTEGER DEFAULT 1,
+    modes TEXT DEFAULT '[]',
+    values_json TEXT DEFAULT '{}',            -- supported typed values (studio/capabilities.py)
+    source TEXT DEFAULT 'brief',              -- brief | manual | import
+    is_default INTEGER DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS style_revisions (
+    style_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    values_json TEXT DEFAULT '{}',
+    modes TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    PRIMARY KEY (style_id, revision)
+);
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    skill_key TEXT NOT NULL,                  -- the skill's own ID (from its file), unique per workspace
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    version TEXT DEFAULT '1',
+    revision INTEGER DEFAULT 1,
+    modes TEXT DEFAULT '[]',
+    topics TEXT DEFAULT '[]',
+    original TEXT NOT NULL,                   -- the imported text, kept verbatim and private
+    original_format TEXT DEFAULT 'markdown',
+    supported TEXT DEFAULT '{}',              -- parsed supported preferences
+    unsupported TEXT DEFAULT '[]',            -- instructions shown as not applied
+    blocked TEXT DEFAULT '[]',                -- instructions refused (code, secrets, accounts, publishing)
+    enabled INTEGER DEFAULT 0,
+    origin TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, skill_key)
+);
+CREATE TABLE IF NOT EXISTS preferences (
+    workspace_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    pref_key TEXT NOT NULL,                   -- appearance | layout:desktop | layout:tablet | layout:phone | ...
+    schema_version INTEGER NOT NULL,
+    value TEXT NOT NULL,
+    revision INTEGER DEFAULT 1,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, user_id, pref_key)
+);
+CREATE TABLE IF NOT EXISTS robot_names (
+    workspace_id TEXT NOT NULL,
+    role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
+    display_name TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, role_id)
+);
 """
 
 JSON_FIELDS = {
     "phone_devices": set(),
-    "projects": {"options", "info"},
+    "projects": {"options", "info", "guidance", "destinations"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},
     "publications": {"tags", "options", "info", "features", "audience", "delivery"},
@@ -739,19 +988,41 @@ JSON_FIELDS = {
     "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
+    "workspaces": {"settings", "limits"},
+    "users": set(),
+    "workspace_members": set(),
+    "auth_sessions": set(),
+    "auth_logins": set(),
+    "social_connections": {"scopes", "info"},
+    "oauth_connects": set(),
+    "uploads": set(),
+    "assets": {"probe"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations"},
+    "edit_plans": {"plan"},
+    "studio_artifacts": {"info"},
+    "studio_jobs": {"result"},
+    "story_proposals": set(),
+    "styles": {"modes", "values_json"},
+    "style_revisions": {"modes", "values_json"},
+    "skills": {"modes", "topics", "supported", "unsupported", "blocked"},
+    "preferences": {"value"},
+    "robot_names": set(),
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
 # are added with ALTER TABLE when missing (existing rows get the default).
 ADDED_COLUMNS = {
     "clips": {"analysis": "TEXT DEFAULT '{}'", "post": "TEXT DEFAULT '{}'", "active_version": "TEXT DEFAULT ''"},
-    "projects": {"origin": "TEXT DEFAULT 'manual'", "source_id": "TEXT DEFAULT ''"},
+    "projects": {"origin": "TEXT DEFAULT 'manual'", "source_id": "TEXT DEFAULT ''",
+                 # ClipForge: the owning workspace, Clips mode, the guidance snapshot used and the chosen destinations
+                 "workspace_id": "TEXT DEFAULT 'local'", "clip_mode": "TEXT DEFAULT 'highlights'",
+                 "asset_id": "TEXT DEFAULT ''", "guidance": "TEXT DEFAULT '{}'", "destinations": "TEXT DEFAULT '[]'"},
     # who may watch (publish/audience.py) and what actually happened, field by field: transfer, returned visibility,
     # audience setup (invitations, followers, manual post) and results; never one overloaded "success"
     "publications": {"scheduled_id": "TEXT DEFAULT ''", "audience": "TEXT DEFAULT '{}'",
-                     "delivery": "TEXT DEFAULT '{}'"},
+                     "delivery": "TEXT DEFAULT '{}'", "connection_id": "TEXT DEFAULT ''"},
     "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'",
-                               "reuse_confirmation": "TEXT DEFAULT '{}'"},
+                               "reuse_confirmation": "TEXT DEFAULT '{}'", "connection_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
@@ -762,6 +1033,12 @@ ADDED_COLUMNS = {
                 "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
                 "intake": "TEXT DEFAULT '{}'"},
 }
+
+
+# Every prefix secure.seal can produce. A value with one of these is already protected and must not be sealed again
+# (before 2026-11-04 a macOS Keychain value was wrapped again at every start, so the next read returned the inner
+# sealed text instead of the secret).
+SEALED_PREFIXES = (secure.DPAPI, secure.LOCAL, secure.AESGCM, "keychain:")
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -786,12 +1063,78 @@ def _migrate(conn: sqlite3.Connection) -> None:
             value = json.loads(row["value"])
         except ValueError:
             continue
-        if isinstance(value, str) and value and not value.startswith((secure.DPAPI, secure.LOCAL)):
+        if isinstance(value, str) and value and not value.startswith(SEALED_PREFIXES):
             conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.seal(value)), row["key"]))
     _migrate_audience(conn)
     _migrate_continuous_volume(conn)
     _migrate_submitted_input(conn)
     _migrate_post_spacing(conn)
+    _migrate_connections(conn)
+    _migrate_cloud_secrets(conn)
+
+
+CONNECTIONS_MIGRATION = "social_connections_migrated_v1"
+
+
+def legacy_connection_id(platform: str) -> str:
+    """The stable ID a migrated single account keeps, so re-running the migration never duplicates it."""
+    return f"conn-legacy-{platform}"
+
+
+def _migrate_connections(conn: sqlite3.Connection) -> None:
+    """Copy the old one-account-per-platform rows into social_connections, once.
+
+    Sealed tokens are copied byte for byte (no decrypt/re-encrypt), the account keeps its provider ID, and it becomes
+    the platform's default connection, so every existing approval (bound to that account ID) still matches. The old
+    `accounts` table is left as it was: a rollback copy that this version never writes again. Publications and
+    scheduled posts are bound to the migrated connection only where their recorded account matches it; anything
+    that cannot be matched keeps an empty connection_id and is held by the publisher with an explanation."""
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (CONNECTIONS_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    for row in conn.execute("SELECT * FROM accounts").fetchall():
+        platform = row["platform"]
+        cid = legacy_connection_id(platform)
+        external = row["account_id"] or f"legacy-{platform}"
+        status = "connected" if row["tokens"] else "disconnected"
+        conn.execute(
+            "INSERT OR IGNORE INTO social_connections (id, workspace_id, platform, external_id, display_name, "
+            "avatar_url, scopes, tokens, info, is_default, status, connected_at, updated_at) "
+            "VALUES (?, 'local', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+            (cid, platform, external, row["display_name"] or "", row["avatar_url"] or "", row["scopes"] or "[]",
+             row["tokens"] or "", row["info"] or "{}", status, row["connected_at"] or now, now))
+        for table in ("publications", "scheduled_publications"):
+            for pub in conn.execute(f"SELECT id, options FROM {table} WHERE platform = ? AND "
+                                    "COALESCE(connection_id, '') = ''", (platform,)).fetchall():
+                try:
+                    recorded = (json.loads(pub["options"] or "{}") or {}).get("approved_account", "")
+                except ValueError:
+                    recorded = ""
+                # Older rows recorded no account: they were made while this account was the only one possible.
+                if not recorded or recorded == row["account_id"]:
+                    conn.execute(f"UPDATE {table} SET connection_id = ? WHERE id = ?", (cid, pub["id"]))
+    conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?)",
+                 (CONNECTIONS_MIGRATION, json.dumps({"at": now, "version": 1}), now))
+
+
+def _migrate_cloud_secrets(conn: sqlite3.Connection) -> None:
+    """Cloud mode never reads base64 or plaintext secrets: values copied from a Linux desktop are re-sealed with
+    the deployment key once. Values only another computer can decrypt (DPAPI, Keychain) stay as they are; those
+    accounts show Reconnect."""
+    if not secure._cloud():  # noqa: SLF001 - the same switch secure.py itself uses
+        return
+    for row in conn.execute(f"SELECT key, value FROM settings WHERE key IN ({','.join('?' * len(config.SEALED_KEYS))})",
+                            sorted(config.SEALED_KEYS)).fetchall():
+        try:
+            value = json.loads(row["value"])
+        except ValueError:
+            continue
+        if isinstance(value, str) and value.startswith(secure.LOCAL):
+            conn.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(secure.upgrade(value)), row["key"]))
+    for row in conn.execute("SELECT id, tokens FROM social_connections WHERE tokens != ''").fetchall():
+        if not row["tokens"].startswith((secure.AESGCM, secure.DPAPI, "keychain:")):
+            conn.execute("UPDATE social_connections SET tokens = ? WHERE id = ?",
+                         (secure.upgrade(row["tokens"]), row["id"]))
 
 
 POST_SPACING_MIGRATION = "post_spacing_migrated_v1"
@@ -1217,49 +1560,160 @@ def delete_version(version_id: str) -> None:
         conn.execute("UPDATE clips SET active_version = '' WHERE active_version = ?", (version_id,))
 
 
-# ---------------------------------------------------------------- publishing accounts (OAuth)
-def get_account(platform: str) -> dict[str, Any] | None:
-    """Connected account without its tokens (use `account_tokens` for those)."""
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM accounts WHERE platform = ?", (platform,)).fetchone()
-    acc = _decode("accounts", row)
-    if acc:
-        acc["has_tokens"] = bool(acc.pop("tokens"))
+# ---------------------------------------------------------------- publishing connections (OAuth)
+# Several YouTube channels and TikTok accounts can be connected at once (social_connections). Every new code path
+# names a connection ID. The older single-account functions below (get_account, account_tokens, save_account,
+# delete_account) act on the platform's *default* connection of the primary workspace, which is what they meant
+# before; adding another account never changes that default.
+PRIMARY_WORKSPACE = "local"
+
+
+def _connection_view(row: sqlite3.Row | dict | None) -> dict[str, Any] | None:
+    acc = dict(row) if isinstance(row, dict) else _decode("social_connections", row)
+    if acc is None:
+        return None
+    acc["has_tokens"] = bool(acc.pop("tokens", ""))
+    acc["account_id"] = acc["external_id"]  # the field older callers read
+    acc["connection_id"] = acc["id"]
+    acc["is_default"] = bool(acc.get("is_default"))
     return acc
 
 
-def account_tokens(platform: str) -> dict[str, Any] | None:
+def list_connections(workspace_id: str = PRIMARY_WORKSPACE, platform: str | None = None,
+                     include_disconnected: bool = True) -> list[dict[str, Any]]:
+    where, args = ["workspace_id = ?"], [workspace_id]
+    if platform:
+        where.append("platform = ?")
+        args.append(platform)
+    if not include_disconnected:
+        where.append("status != 'disconnected'")
     with connect() as conn:
-        row = conn.execute("SELECT tokens FROM accounts WHERE platform = ?", (platform,)).fetchone()
+        rows = conn.execute(f"SELECT * FROM social_connections WHERE {' AND '.join(where)} "
+                            "ORDER BY platform, is_default DESC, connected_at", args).fetchall()
+    return [_connection_view(r) for r in rows]  # type: ignore[misc]
+
+
+def get_connection(connection_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM social_connections WHERE id = ?", (connection_id or "",)).fetchone()
+    return _connection_view(row)
+
+
+def default_connection_id(platform: str, workspace_id: str = PRIMARY_WORKSPACE) -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT id FROM social_connections WHERE workspace_id = ? AND platform = ? AND "
+                           "is_default = 1", (workspace_id, platform)).fetchone()
+    return row["id"] if row else ""
+
+
+def connection_tokens(connection_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute("SELECT tokens FROM social_connections WHERE id = ?", (connection_id or "",)).fetchone()
     if not row or not row["tokens"]:
         return None
     return json.loads(secure.unseal(row["tokens"]))
 
 
-def save_account(platform: str, tokens: dict[str, Any] | None = None, **fields: Any) -> None:
-    now = time.time()
+def update_connection(connection_id: str, tokens: dict[str, Any] | None = None, **fields: Any) -> None:
     if tokens is not None:
         fields["tokens"] = secure.seal(json.dumps(tokens))
-    enc = _encode("accounts", fields)
+    if "info" in fields:  # merge, so a flag such as needs_reconnect never erases other recorded facts
+        old = (get_connection(connection_id) or {}).get("info") or {}
+        fields["info"] = {**old, **(fields["info"] or {})}
+    _update("social_connections", connection_id, fields)
+
+
+def upsert_connection(platform: str, external_id: str, tokens: dict[str, Any], *, workspace_id: str = PRIMARY_WORKSPACE,
+                      **fields: Any) -> tuple[dict[str, Any], bool]:
+    """Save a provider-confirmed account. The same (workspace, platform, account) updates its one row, so a
+    reconnect never makes a duplicate; a new account is added beside the others and becomes the default only when
+    the platform has no default yet. Returns (connection, created)."""
+    if not external_id:
+        raise ValueError("A connection needs the provider-confirmed account ID")
+    now = time.time()
+    sealed = secure.seal(json.dumps(tokens))
+    enc = _encode("social_connections", fields)
     with connect() as conn:
-        exists = conn.execute("SELECT 1 FROM accounts WHERE platform = ?", (platform,)).fetchone()
-        if exists:
-            cols = ", ".join(f"{k} = ?" for k in [*enc, "updated_at"])
-            conn.execute(f"UPDATE accounts SET {cols} WHERE platform = ?", [*enc.values(), now, platform])
+        row = conn.execute("SELECT id FROM social_connections WHERE workspace_id = ? AND platform = ? AND "
+                           "external_id = ?", (workspace_id, platform, external_id)).fetchone()
+        if row:
+            cols = ", ".join(f"{k} = ?" for k in [*enc, "tokens", "status", "updated_at"])
+            conn.execute(f"UPDATE social_connections SET {cols} WHERE id = ?",
+                         [*enc.values(), sealed, "connected", now, row["id"]])
+            cid, created = row["id"], False
         else:
-            row = {"platform": platform, "connected_at": now, "updated_at": now, **enc}
-            conn.execute(f"INSERT INTO accounts ({', '.join(row)}) VALUES ({', '.join('?' for _ in row)})",
-                         list(row.values()))
+            has_default = conn.execute("SELECT 1 FROM social_connections WHERE workspace_id = ? AND platform = ? "
+                                       "AND is_default = 1", (workspace_id, platform)).fetchone()
+            cid = "conn-" + uuid.uuid4().hex[:16]
+            data = {"id": cid, "workspace_id": workspace_id, "platform": platform, "external_id": external_id,
+                    "tokens": sealed, "is_default": 0 if has_default else 1, "status": "connected",
+                    "connected_at": now, "updated_at": now, **enc}
+            conn.execute(f"INSERT INTO social_connections ({', '.join(data)}) VALUES ({', '.join('?' for _ in data)})",
+                         list(data.values()))
+            created = True
+    return get_connection(cid), created  # type: ignore[return-value]
+
+
+def set_default_connection(connection_id: str) -> None:
+    """Only the owner's explicit choice changes a platform's default (never adding or disconnecting an account)."""
+    acc = get_connection(connection_id)
+    if not acc:
+        raise KeyError(connection_id)
+    with connect() as conn:
+        conn.execute("UPDATE social_connections SET is_default = 0 WHERE workspace_id = ? AND platform = ?",
+                     (acc["workspace_id"], acc["platform"]))
+        conn.execute("UPDATE social_connections SET is_default = 1, updated_at = ? WHERE id = ?",
+                     (time.time(), connection_id))
+
+
+def disconnect_connection(connection_id: str) -> None:
+    """Forget one connection's tokens. The row stays so history keeps the account's name; other accounts and the
+    platform default are untouched (a disconnected default is reported, never silently replaced)."""
+    _update("social_connections", connection_id, {"tokens": "", "status": "disconnected"})
+
+
+def get_account(platform: str) -> dict[str, Any] | None:
+    """The platform's default connection without its tokens (None when it is disconnected or missing)."""
+    acc = get_connection(default_connection_id(platform))
+    if not acc or acc["status"] == "disconnected":
+        return None
+    return acc
+
+
+def account_tokens(platform: str) -> dict[str, Any] | None:
+    return connection_tokens(default_connection_id(platform))
+
+
+def save_account(platform: str, tokens: dict[str, Any] | None = None, **fields: Any) -> None:
+    """The single-account API kept for older code and test setups: update the default connection, creating it when
+    the platform has none. As before multiple accounts, an `account_id` replaces the identity of that one connection
+    (it meant "the connected account is now this one"). The connect flows use `upsert_connection` instead, which adds
+    a different account beside the others."""
+    cid = default_connection_id(platform)
+    if cid:
+        if fields.get("account_id"):
+            fields["external_id"] = fields["account_id"]
+        if tokens is not None or fields.get("account_id"):
+            fields.setdefault("status", "connected")
+        update_connection(cid, tokens=tokens, **{k: v for k, v in fields.items() if k != "account_id"})
+        return
+    external = fields.pop("account_id", "") or f"legacy-{platform}"
+    upsert_connection(platform, external, tokens or {}, **fields)
 
 
 def delete_account(platform: str) -> None:
-    with connect() as conn:
-        conn.execute("DELETE FROM accounts WHERE platform = ?", (platform,))
+    cid = default_connection_id(platform)
+    if cid:
+        disconnect_connection(cid)
 
 
 # ---------------------------------------------------------------- publications
 def create_publication(clip_id: str, platform: str, **fields: Any) -> dict[str, Any]:
+    """One destination publication. It is bound to one connection for its whole life: the named one, or the
+    platform's default connection at the moment it is created (Autopilot and older single-account paths)."""
     now = time.time()
+    if not fields.get("connection_id"):
+        fields["connection_id"] = default_connection_id(platform)
     row = _encode("publications", {"id": new_id(), "clip_id": clip_id, "platform": platform, "created_at": now,
                                    "updated_at": now, **fields})
     with connect() as conn:

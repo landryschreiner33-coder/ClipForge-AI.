@@ -15,6 +15,23 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Shared download website (2026-11-04):** The owner asked for a website that both Claude and ChatGPT/Codex can
+update. It is https://landryschreiner33-coder.github.io/ClipForge-AI./download/ , served by GitHub Pages from the
+`download/` folder of the `gh-pages` branch. Any assistant with repository push access updates it with an ordinary,
+never forced, commit to `gh-pages`. Download data lives only in `download/releases.json`; run
+`python3 download/build.py` and `--verify` before pushing. The procedure is in `download/UPDATING.md` on that branch.
+The root pages of `gh-pages` (legal pages, icon and the TikTok verification file) stay unchanged unless the owner
+asks. The ChatGPT Sites page at clipfoundry-studio.landryschreiner33.chatgpt.site is separate, and only its own
+workspace can publish it.
+
+**ClipForge build (2026-11-04):** The prompt's phases 0–6 are implemented on `claude/new-session-b9itcy` (reviewed
+PR #16; check GitHub for its merge state) with tests on synthetic media and fake platforms. Status per requirement (Implemented / Partial /
+Blocked): `docs/clipforge/FEATURE_CHECKLIST.md`; addresses: `docs/clipforge/ROUTE_MAP.md`; owner steps:
+`docs/clipforge/OWNER_GUIDE.md`. New code lives in `clipfoundry/cloud/` and `clipfoundry/studio/`. Cloud mode
+(`CLIPFOUNDRY_MODE=cloud`) is owner-only; public sign-up stays off. The public download/preview website was updated as version 3; see `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+The application cloud service is not deployed, and no real upload or sign-in was verified. Desktop installers still
+predate this source preview. The owner explicitly authorized merging PR #16 after review.
+
 **ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
 owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
 Its section 16 specifies screen/flow/data contracts, defaults and CF-01–CF-18 acceptance scenarios; read the
