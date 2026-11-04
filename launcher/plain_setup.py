@@ -22,11 +22,12 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 
-COMMIT = "c8178434832c6a78ec73c7567d530bf7b653fedf"
-ARCHIVE_HASH = "8f9e8773d52937c2ef71f078a61200e11dbae9e5b63cdca0f2ccf1c87ff0d174"
+COMMIT = "06f459eb185b87ac344ad14e8dbd3f8e03be58d1"
+ARCHIVE_HASH = "b008db0856fd59194b7f9115afca47a15bd5f63672854da21283bd9eb997f3d8"
 START_HASH = "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1"
 ARCHIVE_PREFIX = "ClipForge-AI.-" + COMMIT + "/"
 KNOWN_RELEASES = {
+    "06f459eb185b87ac344ad14e8dbd3f8e03be58d1": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
     "0c2729d0a1e148e22da5bcdbd6db4ccb490dafa7": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "11bdb43523f9b01e82590d2dd9e67473d323c88d": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "28aee85b4ef239584da296cec900bc3d8dde4399": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
