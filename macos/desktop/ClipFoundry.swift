@@ -224,8 +224,13 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
         if smoke && !smokeNavigationChecked {
             smokeNavigationChecked = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                self.web.evaluateJavaScript("document.body.innerText") { value, error in
-                    guard error == nil, let text = value as? String, text.contains("ClipForge") else { self.showError("Native WebView did not load the studio."); return }
+                // The page title carries the product name at every window width (a narrow window hides the
+                // sidebar that shows it), and a page heading proves the studio itself rendered.
+                let probe = "[document.title, document.querySelector('#main h1') ? 'studio' : 'empty', (document.body.innerText || '').slice(0, 160)].join(' | ')"
+                self.web.evaluateJavaScript(probe) { value, error in
+                    guard error == nil, let text = value as? String, text.contains("ClipForge"), text.contains(" | studio | ") else {
+                        self.showError("Native WebView did not load the studio: \((value as? String) ?? String(describing: error))"); return
+                    }
                     self.smokeInteractions()
                 }
             }
