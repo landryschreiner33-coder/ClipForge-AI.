@@ -17,8 +17,10 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 **ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
 owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
-Its section 16 specifies screen/flow/data contracts, defaults and CF-01–CF-17 acceptance scenarios; read the
+Its section 16 specifies screen/flow/data contracts, defaults and CF-01–CF-18 acceptance scenarios; read the
 complete prompt before implementation and distinguish planned requirements from implemented behavior.
+The 2026-11-04 website addition in section 17 requires redesigning the existing public Sites project/address,
+with truthful feature availability, verified downloads, real cloud CTA and responsive/live checks.
 There are two creation entries: Make clips (Highlights / Full stories) and Make a YouTube video. Each full story
 becomes a complete vertical TikTok/YouTube clip, subject to actual destination eligibility. Also required:
 multiple connected social accounts, redesigned navigation/screens and saved custom robot display names.

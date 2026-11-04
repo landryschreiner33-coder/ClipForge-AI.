@@ -1,5 +1,23 @@
 # AI changelog
 
+## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
+
+The owner asks to tell Claude to update the website and improve its appearance. Section 17 of
+[CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md) now makes the existing public website redesign a
+required deliverable: ClipForge branding, clear landing-page hierarchy, real previews, both creation workflows,
+verified Mac/Windows downloads, accurate feature/cloud availability, responsive/accessibility checks and
+publication/rollback evidence. Open Studio must lead to a real authenticated deployment; owner-only access
+and the unsigned Mac preview remain honestly described. CF-18 adds the website acceptance scenario.
+
+A separate read-only review verified the existing buildless site source and public project identity under
+/workspace/sites/clipfoundry-downloads. Keep that project/address, current release metadata/checksums and the
+separate GitHub Pages/TikTok verification site. No live site, installer or application code changed in this
+checkpoint; only the requested prompt/plan and handoff documents were edited.
+
+Verification: source/identity review, numbered sections and CF IDs, internal links, JSONL syntax, preservation
+of prior acceptance scenarios and git diff --check. No website/browser/application tests were run because no
+implementation changed. The future website work must supply those checks before being called complete.
+
 ## Opening handoff and bug-prevention requirement — 2026-11-03 (America/Chicago)
 
 The owner requests a handoff at the beginning of the Markdown prompt and asks to keep it “big free,” interpreted
