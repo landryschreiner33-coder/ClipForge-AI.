@@ -185,7 +185,7 @@ def _graph(plan: dict, assets: dict[str, dict], width: int, height: int, fps: in
         font = filter_path(_font(), work)
         video(f"[{idx}:v]drawtext=fontfile={font}:textfile=title.txt:fontcolor=white:fontsize="
                      f"{int(height * 0.07)}:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,setsar=1,settb=AVTB,"
-                     f"setpts=PTS-STARTPTS[v_title]")
+                     f"setpts=PTS-STARTPTS,fps={fps},settb=AVTB[v_title]")
         parts.append(f"aevalsrc=0:c=stereo:s=48000:d={secs:.3f},aformat=sample_fmts=fltp:sample_rates=48000:"
                      f"channel_layouts=stereo[a_title]")
         labels.append(("[v_title]", "[a_title]", int(title["ms"])))
@@ -206,7 +206,7 @@ def _graph(plan: dict, assets: dict[str, dict], width: int, height: int, fps: in
             video(f"[fgs{k}]scale={width}:{height}:force_original_aspect_ratio=decrease[fg{k}]")
             vchain = f"[bg{k}][fg{k}]overlay=(W-w)/2:(H-h)/2"
         video(f"{vchain},fps={fps},format=yuv420p,setsar=1,trim=duration={secs:.3f},settb=AVTB,"
-                     f"setpts=PTS-STARTPTS[v{k}]")
+                     f"setpts=PTS-STARTPTS,fps={fps},settb=AVTB[v{k}]")
         gain = float(c.get("gain_db") or 0)
         has_audio = a["kind"] == "video" and (a.get("probe") or {}).get("has_audio")
         if has_audio:
@@ -230,7 +230,10 @@ def _graph(plan: dict, assets: dict[str, dict], width: int, height: int, fps: in
         for k, (v, a, d) in enumerate(labels[1:], 1):
             offset_s = (offset - ms) / 1000
             vout, aout = (f"[vx{k}]", f"[ax{k}]") if k < len(labels) - 1 else ("[vj]", "[aj]")
-            video(f"{vprev}{v}xfade=transition={kind}:duration={ms / 1000:.3f}:offset={offset_s:.3f}{vout}")
+            # FFmpeg may clear the frame-rate metadata after timestamp edits or a preceding transition.
+            # Re-establish a real CFR stream and common time base before the next xfade consumes this output.
+            video(f"{vprev}{v}xfade=transition={kind}:duration={ms / 1000:.3f}:offset={offset_s:.3f},"
+                         f"fps={fps},settb=AVTB{vout}")
             parts.append(f"{aprev}{a}acrossfade=d={ms / 1000:.3f}:c1=tri:c2=tri{aout}")
             vprev, aprev, offset = vout, aout, offset - ms + d
     total = duration_ms(plan) / 1000

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -43,12 +44,16 @@ def env(monkeypatch, tmp_path):
     music = tmp_path / "music.m4a"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
                     "sine=frequency=220:sample_rate=48000:duration=60", "-c:a", "aac", str(music)], check=True)
-    by_duration = {}
+    scripts = {a.name: t1, c.name: t3}
 
     def fake_transcribe(wav, duration, *a, **k):  # the measured scripts stand in for a speech model offline
-        best = min((t1, t3), key=lambda script: abs(script["duration"] - duration))
-        if abs(best["duration"] - duration) < 0.2:
-            return best
+        from clipfoundry import db
+
+        # Encoders pad the container differently across FFmpeg versions. Match the source asset,
+        # not its rounded container duration, so the fixture still exercises the real edit requests.
+        source = next(row for row in db.select("assets") if Path(row["path"]).parent == Path(wav).parent)
+        if source["filename"] in scripts:
+            return scripts[source["filename"]]
         return {"language": "", "duration": duration, "source": "fixture", "segments": []}
 
     monkeypatch.setattr(transcribe, "transcribe", fake_transcribe)
@@ -57,8 +62,7 @@ def env(monkeypatch, tmp_path):
     from clipfoundry.api import app
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as api:
-        yield {"api": api, "files": {"a": a, "b": b, "c": c, "img": img, "music": music}, "t1": t1, "t3": t3,
-               "by_duration": by_duration}
+        yield {"api": api, "files": {"a": a, "b": b, "c": c, "img": img, "music": music}, "t1": t1, "t3": t3}
 
 
 def _upload(api, path) -> dict:
