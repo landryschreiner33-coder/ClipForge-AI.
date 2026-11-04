@@ -1557,6 +1557,19 @@ plannable.
 
 ## Test log
 
+| ClipForge build (2026-11-04, Claude Code, cloud container, no GPU) | Result |
+| --- | --- |
+| Baseline `pytest -m "not slow"` on the untouched start `6585c58` | 1,556 passed, 19 deselected |
+| Fast suite after phases 2–4 (snapshot copy) | 1,623 passed, 20 deselected |
+| Fast suite after the visible rename (snapshot copy) | 1,618 passed, 7 failed: all seven asserted the old "ClipFoundry" wording of authorized renamed messages; updated to "ClipForge", and those five files then passed (78 passed) |
+| New suites: cloud auth, multiple accounts, uploads, backup, Full stories, guidance, prefs, studio jobs, rename | all pass (incl. the new GET guidance-preview test) |
+| Slow media: `tests/test_studio_render.py`, `tests/test_studio_video.py` (real FFmpeg, eSpeak speech, fake platforms) | pass; raw AAC timing validated on story clips and full-video renders |
+| Read-only browser suite `e2e/tests` against a throwaway sandbox app | 50 passed, 7 failed, 9 skipped. The same 7 fail on the starting commit (baseline run: 47 passed, 9 failed): stale assertions from earlier changes (overview headings, daily cap 0, "Who watches", removed Reduce animations box, phone settings), not this build |
+| Sandbox browser specs `npm run test:sandbox` (fake Google/TikTok, temp data) | 95 passed, 5 failed. Fixed: two motion specs (account motion overrode the browser's Animations choice) and the office map at 1280×720 (678 px < 680 px with the new sidebar); rerun of `motion.spec.ts` + `robot-office.spec.ts`: 7 passed. The other two (`beginner-flow`: expects unpermitted public videos never planned, superseded by the 2026-10-14 review mode; `zero-touch-loop`: a source passes analyzing before the poll sees it) fail identically on the starting commit |
+| Frontend `npm run build` | TypeScript and Vite pass; committed `dist/` rebuilt |
+| Final `pytest -m slow` on the finished tree (real FFmpeg/eSpeak, synthetic media, fake platforms) | 21 passed, 1,628 deselected (1,230 s) |
+| Final `pytest -m "not slow"` on a snapshot of the finished tree | 1,628 passed, 21 deselected (840 s) |
+
 | Public internet import check (2026-10-03) | Result |
 | --- | --- |
 | Focused import checks | 12 passed, including real yt-dlp generic extraction and real recorded HLS imported through the guarded fake HTTP transport |

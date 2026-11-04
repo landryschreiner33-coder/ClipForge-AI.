@@ -38,6 +38,8 @@ and no real account or owner media was used.
   - Make clips previews its guidance with a GET (a POST was flagged by the read-only browser checks).
   - Loading robot names at start no longer redraws the page. That redraw threw away a file chosen in the first moment.
   - After Start Autopilot, setup opens the Office.
+  - Motion stays the per-browser Animations choice; an account value no longer overrides it after a reload.
+  - The sidebar is narrower below 1366 px, so the full office map keeps readable labels at 1280×720.
 - **Status of each requirement:** `docs/clipforge/FEATURE_CHECKLIST.md` (42 requirements, CF-01–CF-17).
   - Partial: per-account spacing, full multi-user isolation (public sign-up stays off), full-video publishing,
     retention screen, saved layouts on Create/Office, one-click "make parts", per-job CPU/disk quotas.
@@ -45,7 +47,12 @@ and no real account or owner media was used.
     story analysis (no model configured), capacity benchmark (no server or footage).
 - **Owner guide:** `docs/clipforge/OWNER_GUIDE.md`. Prepared website text (not published):
   `docs/clipforge/WEBSITE_COPY.md`.
-- **Tests run here:** see the test log in `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 rows).
+- **Tests run here** (details in the 2026-11-04 rows of the `docs/IMPLEMENTATION_STATUS.md` test log):
+  - Final fast suite: 1,628 passed. Final slow suite: 21 passed.
+  - Sandbox browser specs: 95 of 100 passed. The three failures caused by this work are fixed and passed on rerun.
+  - Read-only browser suite: 50 passed.
+  - Every remaining browser failure (7 read-only, 2 sandbox) fails identically on the starting commit `6585c58`.
+    These are stale assertions from earlier changes, left for a separate fix.
 - **Not verified:** real Google sign-in, a real server deployment, real YouTube/TikTok uploads or transcodes, real
   camera footage with moving subjects, native Windows/RTX 3050 or Mac hardware, throughput per source hour, and the
   office under the cloud CSP in a real browser session.

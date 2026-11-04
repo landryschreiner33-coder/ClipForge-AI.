@@ -22,6 +22,8 @@ Final regression fixes:
 - Make clips previews guidance with a GET.
 - Startup robot-name loading no longer redraws the page and discards a just-chosen file.
 - Remaining Clips/Queue labels now say Projects/Publishing.
+- Motion stays the per-browser Animations choice.
+- The sidebar is narrower below 1366 px, so the office map keeps its minimum width.
 - Browser specs follow the new navigation.
 
 Tests: see `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 test log). Not verified: real sign-in, deployment, uploads,
