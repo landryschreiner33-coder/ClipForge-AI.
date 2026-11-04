@@ -49,6 +49,11 @@ class Worker:
         self.q.put(("version", version_id, None))
         self.start()
 
+    def submit_studio(self, job_id: str) -> None:
+        """A durable studio job (studio/jobs.py); it runs in this same thread, so heavy work stays one at a time."""
+        self.q.put(("studio", job_id, None))
+        self.start()
+
     def cancel(self, key: str) -> None:
         self.cancelled.add(key)
 
@@ -114,6 +119,10 @@ class Worker:
                     self._run_render(key)
                 elif kind == "version":
                     self._run_version(key)
+                elif kind == "studio":
+                    from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - registers the handlers
+
+                    studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die
                 log.exception("job crashed")
             finally:
@@ -125,6 +134,10 @@ class Worker:
             db.update_project(key, status="cancelled", message="Cancelled")
         elif kind == "version":
             db.update_version(key, status="error", error="Cancelled")
+        elif kind == "studio":
+            from .studio import jobs as studio_jobs
+
+            studio_jobs.cancel(key)
         else:
             db.update_clip(key, status="error", error="Cancelled")
 

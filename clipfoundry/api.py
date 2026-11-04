@@ -58,6 +58,9 @@ async def lifespan(_: FastAPI):
         _youtube_retention()
         worker.resume(db.interrupted_work())
         worker.start()
+        from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - video_flow registers its job handlers
+
+        studio_jobs.recover()  # builds and renders that were waiting or running continue
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)

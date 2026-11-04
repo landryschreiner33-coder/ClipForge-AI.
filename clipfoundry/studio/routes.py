@@ -500,3 +500,121 @@ def library(kind: str = "", q: str = "") -> list[dict]:
     if q:
         out = [x for x in out if q.lower() in x["name"].lower()]
     return sorted(out, key=lambda x: -x["updated_at"])
+
+
+# ------------------------------------------------------------------ Make a YouTube video
+from . import video_flow  # noqa: E402
+from .jobs import cancel as cancel_job, enqueue  # noqa: E402
+
+
+class VideoRequest(BaseModel):
+    name: str = Field(default="My video", max_length=120)
+    asset_ids: list[str]
+    brief: dict = {}
+    style_id: str = "saved"
+    remember: dict = {}
+
+
+def _video(video_id: str) -> dict:
+    v = db.fetch("studio_projects", video_id)
+    if not v or v["workspace_id"] != principal.workspace_id():
+        raise HTTPException(404, "Video not found")
+    return v
+
+
+@router.post("/api/studio/videos")
+def make_video(body: VideoRequest) -> dict:
+    p = principal.current()
+    try:
+        v = video_flow.create(p.workspace_id, p.user_id, name=body.name, asset_ids=body.asset_ids, brief=body.brief,
+                              style_id=body.style_id, remember=body.remember)
+    except (video_flow.VideoError, styles.StyleError) as exc:
+        raise _bad(exc) from exc
+    return video_flow.view(v)
+
+
+@router.get("/api/studio/videos/{video_id}")
+def get_video(video_id: str) -> dict:
+    return video_flow.view(_video(video_id))
+
+
+class VideoEdit(BaseModel):
+    base_revision: int
+    edit: dict
+
+
+@router.post("/api/studio/videos/{video_id}/edits")
+def edit_video(video_id: str, body: VideoEdit) -> dict:
+    _video(video_id)
+    try:
+        out = video_flow.edit(video_id, body.base_revision, body.edit)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+class RevisionBody(BaseModel):
+    revision: int
+
+
+@router.post("/api/studio/videos/{video_id}/restore")
+def restore_revision(video_id: str, body: RevisionBody) -> dict:
+    """Reopen an earlier version exactly, as a new revision (nothing in between is lost)."""
+    v = _video(video_id)
+    try:
+        plan = video_flow.plan_at(video_id, body.revision)
+        rev = video_flow.save_revision(video_id, plan, f"Back to version {body.revision}", v["plan_revision"])
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    enqueue(v["workspace_id"], "video_preview", video_id, rev)
+    return video_flow.view(_video(video_id))
+
+
+@router.post("/api/studio/videos/{video_id}/render")
+def render_video(video_id: str, body: RevisionBody) -> dict:
+    v = _video(video_id)
+    try:
+        video_flow.plan_at(video_id, body.revision)
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    job = enqueue(v["workspace_id"], "video_render", video_id, body.revision)
+    return {"job": job["id"], **video_flow.view(_video(video_id))}
+
+
+@router.post("/api/studio/videos/{video_id}/cancel")
+def cancel_video(video_id: str) -> dict:
+    v = _video(video_id)
+    n = sum(cancel_job(j["id"]) for j in db.select("studio_jobs", "target_id = ? AND status IN ('queued','running')",
+                                                     (video_id,)))
+    if n and v["status"] == "rendering":
+        db.update("studio_projects", video_id, status="ready", message="Render canceled; the plan is unchanged")
+    return {"canceled": n, **video_flow.view(_video(video_id))}
+
+
+@router.get("/api/studio/videos/{video_id}/media")
+def video_media(video_id: str, kind: str = "preview", revision: int = 0, download: int = 0) -> FileResponse:
+    v = _video(video_id)
+    rows = db.select("studio_artifacts", "project_id = ? AND kind = ?" + (" AND revision = ?" if revision else ""),
+                     (video_id, kind, revision) if revision else (video_id, kind), "revision DESC", 1)
+    if not rows:
+        raise HTTPException(404, "Not rendered yet")
+    name = f"{v['name'][:60]} v{rows[0]['revision']}.mp4" if download else None
+    return FileResponse(rows[0]["path"], media_type="video/mp4", filename=name)
+
+
+@router.get("/api/studio/videos/{video_id}/export")
+def video_export(video_id: str, revision: int = 0) -> JSONResponse:
+    """The edit plan of one version (ClipForge's own interchange format) with its time map."""
+    v = _video(video_id)
+    rev = revision or v["plan_revision"]
+    try:
+        plan = video_flow.plan_at(video_id, rev)
+    except video_flow.VideoError as exc:
+        raise _bad(exc, 404) from exc
+    from . import engine as engine_mod
+
+    return JSONResponse({"format": "clipforge.edit-plan/v1", "revision": rev, "plan": plan,
+                         "timeline": engine_mod.timeline(plan)}, headers={
+        "Content-Disposition": f'attachment; filename="{video_id}-v{rev}.plan.json"'})

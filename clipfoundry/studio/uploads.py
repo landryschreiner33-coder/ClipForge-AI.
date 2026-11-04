@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -160,6 +161,25 @@ def put_chunk(upload_id: str, offset: int, data: bytes) -> dict:
         return view(get(upload_id))
 
 
+def probe_audio(path: Path) -> dict:
+    """Duration and format of an audio-only file (the video probe requires a picture)."""
+    import json
+    import subprocess
+
+    from ..pipeline.ffmpeg_utils import ffprobe_bin
+
+    r = subprocess.run([ffprobe_bin(), "-v", "error", "-show_entries",
+                        "format=duration:stream=codec_type,sample_rate,channels", "-of", "json", str(path)],
+                       capture_output=True, text=True, timeout=60)
+    data = json.loads(r.stdout or "{}") if r.returncode == 0 else {}
+    audio = [st for st in data.get("streams") or [] if st.get("codec_type") == "audio"]
+    if not audio:
+        raise FFmpegError("The file has no audio stream.")
+    return {"duration": float((data.get("format") or {}).get("duration") or 0), "has_audio": True,
+            "has_video": False, "sample_rate": int(audio[0].get("sample_rate") or 0),
+            "channels": int(audio[0].get("channels") or 0)}
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -200,8 +220,8 @@ def complete(upload_id: str) -> dict:
         info: dict = {}
         thumb = ""
         try:
-            info = probe(dest)
-        except (FFmpegError, OSError, ValueError) as exc:
+            info = probe_audio(dest) if row["kind"] == "audio" else probe(dest)
+        except (FFmpegError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
             if row["kind"] != "image":
                 shutil.rmtree(folder, ignore_errors=True)
                 db.update("uploads", upload_id, status="failed", error=f"Not a readable {row['kind']} file.")
