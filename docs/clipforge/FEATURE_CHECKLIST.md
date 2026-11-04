@@ -17,7 +17,7 @@ real account, server, footage or speech model is listed under "Not verified".
 | 6 | Sessions: logout, sign out everywhere, idle/absolute expiry, removed owner | Implemented | `cloud/identity.py` | `test_cloud_auth.py` | — |
 | 7 | Hosts, CSRF, origin, rate limits, security headers, strict CSP | Implemented | `cloud/middleware.py`; PixiJS eval-free import | `test_cloud_auth.py` | Office rendering under the CSP was not loaded in a browser in cloud mode |
 | 8 | Workspace ownership on APIs, media, ranges, thumbnails, exports | Implemented | `cloud/ownership.py` (app-wide dependency), workspace columns | `test_cloud_auth.py::test_a_second_identity_sees_none_of_the_owners_data`, `test_studio_uploads.py` | — |
-| 9 | Full multi-user isolation (Autopilot, Brain notes, global settings, publishing per workspace) | **Partial** | Secondary workspaces are refused these single-workspace areas (403) | `test_cloud_auth.py` | Needed before public sign-up, which stays off |
+| 9 | Full multi-user isolation (Autopilot, Brain notes, global settings, publishing per workspace) | **Partial** | Secondary workspaces are refused these single-workspace areas and shared guidance/processing routes (403) | `test_cloud_auth.py` | Needed before public sign-up, which stays off |
 | 10 | Encrypted Linux secret storage, no base64/plaintext in cloud | Implemented | `secure.py` AES-256-GCM, key file outside data | `test_cloud_auth.py` (tamper, wrong key, refuse base64, one-time upgrade) | — |
 | 11 | Bug fix: Keychain values re-sealed at every start | Implemented | `db.SEALED_PREFIXES` | `test_cloud_auth.py::test_already_sealed_settings_are_never_sealed_again` | Not reproduced on a real Mac |
 | 12 | URL ingestion hardening in cloud | Implemented | `netguard.check` ignores private allowance in cloud; link import checked | `test_cloud_auth.py` | No OS-level sandbox for media subprocesses (protocol whitelist only) |
@@ -85,3 +85,7 @@ real account, server, footage or speech model is listed under "Not verified".
 - The native installers are unchanged and do not include this PR. Owner-only cloud code is not a live hosted service.
 - The earlier FilmCraft build refusal is a historical session limitation; no new approval requirement was inferred
   from it during this merge review. The FFmpeg implementation remains the available engine.
+
+- Isolation review: a secondary workspace could read owner Brain note metadata via guidance previews. The
+  regression reproduced it; guidance and processing routes now remain primary-owner-only until their shared
+  services are migrated. All 70 targeted cloud/studio/account checks passed after the fix.

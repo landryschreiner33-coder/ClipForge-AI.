@@ -283,8 +283,9 @@ def test_a_second_identity_sees_none_of_the_owners_data(cloud, tmp_path):
             r = b.get(path, headers={"Range": "bytes=0-10"})
             assert r.status_code == 404, path
             assert "owner-secret-project" not in r.text
-        assert b.delete(f"/api/projects/{pid}").status_code == 404
-        assert b.patch(f"/api/clips/{cid}", json={"title": "taken"}).status_code == 404
+        # Shared processing writes are owner-only before object lookup; other foreign objects stay 404.
+        assert b.delete(f"/api/projects/{pid}").status_code == 403
+        assert b.patch(f"/api/clips/{cid}", json={"title": "taken"}).status_code == 403
         # single-workspace areas (Autopilot, Brain notes, settings, accounts, publishing) are closed to it
         for path in ("/api/autopilot/status", "/api/settings", "/api/publish/accounts", "/api/knowledge",
                      "/api/office/snapshot", f"/api/clips/{theirs['clip']['id']}/publications"):
@@ -292,6 +293,34 @@ def test_a_second_identity_sees_none_of_the_owners_data(cloud, tmp_path):
         # and the owner cannot reach the second workspace's objects either
         assert a.get(f"/api/projects/{theirs['project']['id']}").status_code == 404
         assert [p["id"] for p in a.get("/api/projects").json()] == [pid]
+
+
+def test_secondary_workspace_cannot_consult_shared_brain_or_start_shared_processing(cloud):
+    with _client() as owner, _client() as second:
+        sign_in(owner, cloud, OWNER)
+        sign_in(second, cloud, SECOND)
+        saved = owner.post("/api/brain/knowledge", headers={"X-ClipFoundry": "1"}, json={
+            "kind": "instruction", "title": "Owner private caption guidance", "content": "",
+            "preferences": {"caption_position": "middle"}})
+        assert saved.status_code == 200
+        mine = owner.get("/api/studio/guidance/preview", params={"mode": "highlights"})
+        assert mine.status_code == 200 and "Owner private caption guidance" in mine.text
+        for method, path in (
+            ("GET", "/api/studio/guidance/preview?mode=highlights"),
+            ("POST", "/api/studio/guidance/preview"),
+            ("POST", "/api/studio/clips"),
+            ("POST", "/api/studio/videos"),
+            ("POST", "/api/projects"),
+            ("POST", "/api/projects/any/retry"),
+            ("PATCH", "/api/clips/any"),
+            ("POST", "/api/stories/any/render"),
+        ):
+            response = second.request(method, path, json={} if method != "GET" else None)
+            assert response.status_code == 403, (method, path, response.text)
+            assert "Owner private caption guidance" not in response.text
+        # Workspace-scoped storage and preferences remain available; processing stays owner-only for now.
+        assert second.get("/api/studio/styles").status_code == 200
+        assert second.get("/api/preferences/appearance").status_code == 200
 
 
 # ------------------------------------------------------------------ encrypted secrets

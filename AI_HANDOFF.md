@@ -13,12 +13,15 @@ Review fixes:
   existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
 - Correct creation/render copy that incorrectly described local desktop processing as server processing.
 - Rebuild and retain the tracked frontend distribution.
+- Close secondary-workspace access to shared Brain guidance and media-processing writes until those services
+  are truly workspace-scoped. A regression reproduced private owner note metadata in the old guidance response;
+  the same request is now refused. The primary owner workflow remains available.
 
-Verification so far: 1,628 fast tests passed; seven focused full-story tests passed; production frontend build
-passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
 existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
 
-The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` is being redesigned in
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
 `/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
 real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
 Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
@@ -26,8 +29,10 @@ bytes and hashes remain unchanged because no new native release has been built. 
 in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
 preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
 
-Outstanding before finishing this checkpoint: complete slow tests, push the reviewed PR head, merge with the exact
-head SHA, publish the website and record the returned deployment. Do not describe cloud hosting, public signup,
+Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
+full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
+head SHA. Do not describe cloud hosting, public signup,
 per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
 `docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
 it is not a newly required owner approval for this session.

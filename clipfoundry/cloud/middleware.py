@@ -36,10 +36,14 @@ PUBLIC_API = {"/api/auth/login", "/api/auth/callback", "/api/auth/me"}
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 # What a secondary workspace may reach: its own projects, media, studio work, styles, skills, preferences, robot
 # names and connections. Ownership of each referenced object is checked again in the route dependency (api.py).
+# Guidance and processing still consult the primary owner's Brain/settings, even when their output rows have
+# workspace IDs. Keep those paths owner-only until the underlying knowledge and worker services are scoped too.
 SECONDARY_ALLOWED = re.compile(
     r"^/api/(auth/|uploads(/|$)|assets/|studio/|projects(/|$)|clips/[^/]+(/(video|thumbnail|words|versions))?$|"
     r"versions/[^/]+/(video|thumbnail)$|stories/|preferences/|robots/names|connections(/|$)|stats$|health$)")
-SECONDARY_BLOCKED = re.compile(r"/publish|/publications|/post-package")
+SECONDARY_BLOCKED = re.compile(
+    r"/publish|/publications|/post-package|/guidance(?:/|$)|^/api/studio/(?:clips|videos)(?:/|$)")
+SECONDARY_SHARED_WRITES = re.compile(r"^/api/(?:projects|clips|versions|stories)(?:/|$)")
 
 CSP = ("default-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob:; "
        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; worker-src 'self' blob:; "
@@ -167,7 +171,8 @@ class CloudGuard:
                 if not token or not hmac.compare_digest(token, who.csrf):
                     return await _send_json(send, 403, {"detail": "This request did not come from the ClipForge "
                                                                   "page. Reload the page and try again."})
-            if not who.primary and (not SECONDARY_ALLOWED.search(path) or SECONDARY_BLOCKED.search(path)):
+            if not who.primary and (not SECONDARY_ALLOWED.search(path) or SECONDARY_BLOCKED.search(path)
+                                    or (method in MUTATING and SECONDARY_SHARED_WRITES.search(path))):
                 return await _send_json(send, 403, {"detail": "This part of ClipForge is available only in the "
                                                               "primary workspace during the private release."})
 
