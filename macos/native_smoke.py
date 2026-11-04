@@ -49,7 +49,7 @@ try:
     assert health["platform"] == "darwin" and health["ffmpeg"] and health["ffprobe"]
     print(json.dumps({key: health.get(key) for key in ["platform", "ffmpeg", "ffprobe", "videotoolbox"]}))
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3) as response:
-        assert b"ClipFoundry" in response.read()
+        assert b"ClipForge" in response.read()  # the studio page carries the product name (ClipFoundry until 2026-11)
     print("Native HTTP API and bundled frontend passed.", flush=True)
 finally:
     proc.terminate()
