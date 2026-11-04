@@ -5,7 +5,9 @@ Status: requirements, researched recommendation and implementation plan only. No
 implemented by this checkpoint. The working desktop app and public download website stay available.
 
 The full implementation brief is [CLIPFORGE_CLAUDE_PROMPT.md](CLIPFORGE_CLAUDE_PROMPT.md).
-Read it together with [CLOUD_PLAN.md](CLOUD_PLAN.md) and the newest repository handoff.
+Read it together with [CLOUD_PLAN.md](CLOUD_PLAN.md) and the newest repository handoff. Its section 16 now
+specifies exact screens/buttons, saved fields/defaults, account/asset/publication relationships, job behavior,
+visual tokens, a labeled three-story fixture, 17 pass/fail scenarios and required delivery evidence.
 
 ## The product
 

@@ -1,5 +1,25 @@
 # AI handoff
 
+## Detailed ClipForge build contract added to Claude prompt — 2026-11-03 (America/Chicago)
+
+The owner requests a much more specific Markdown prompt and a simple explanation afterward. The canonical
+[CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md) now contains section 16: exact screen responsibilities,
+Clips/full-video journeys, question fields/defaults, Brain snapshots, skill behavior, stable data relationships,
+job/failure handling, visual defaults, robot-name validation and 17 concrete acceptance scenarios (CF-01–CF-17).
+A labeled 12-minute/three-story fixture includes a chunk boundary inside one story. The prompt requires actual
+media/provenance/account-isolation evidence; UI placeholders or mocked semantic results cannot prove completion.
+
+Existing authorized YouTube clip creation does not gain a new mandatory per-clip review step. Full stories
+remains inside Clips with full narrative preservation, vertical framing and accurate destination eligibility.
+The prompt preserves previous cloud/login, multiple accounts, ClipForge rename, UI, Brain, skills, editing,
+robot naming, AAC/audio and publishing requirements. The full-video brief explicitly distinguishes reusable
+style preferences from project-specific ranges, private paths and publication consent.
+
+This checkpoint changes planning documents only, not application behavior, website, installers or cloud
+services. Checks: requested scope and superseded-default checks, internal links, sequential sections,
+CF scenario IDs/fixture continuity, source references, JSONL syntax and git diff --check. No functional app
+suite was run; the new contract is not implementation or real-platform verification.
+
 ## ClipForge prompt revision: Clips modes, multiple accounts and redesigned UI — 2026-11-03 (America/Chicago)
 
 The owner's latest correction is authoritative: Full stories is inside **Make clips**, alongside Highlights.

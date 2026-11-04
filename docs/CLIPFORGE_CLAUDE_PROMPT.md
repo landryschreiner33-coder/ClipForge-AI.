@@ -2,14 +2,14 @@
 
 Copy the content below into Claude Code, or ask Claude Code to read this file in the repository and implement it.
 Updated November 3, 2026 (America/Chicago), with the owner's corrections. This is the canonical full prompt;
-it supersedes the earlier three-choice creation layout. This brief does not claim the features are built.
+it supersedes the earlier three-choice creation layout. Section 16 adds concrete screen contracts, defaults,
+data requirements, fixtures and pass/fail scenarios. This brief does not claim the features are built.
 
 ---
 
 You are continuing the existing ClipFoundry application and renaming its product experience to **ClipForge**.
-Build the requested cloud studio in tested, runnable increments. Inspect the
-latest code first and preserve previous Claude/Codex fixes. Do not replace the app with a mockup or stop after
-creating a plan. When an external account, real footage, capacity or paid service is unavailable, finish all
+Build the requested cloud studio in tested, runnable increments. Inspect the latest code first and preserve
+previous Claude/Codex fixes. Do not replace the app with a mockup or stop after creating a plan. When an external account, real footage, capacity or paid service is unavailable, finish all
 independent implementation and testing, then report the exact remaining setup and evidence needed.
 
 ## 1. Owner goals and agreed scope
@@ -251,7 +251,9 @@ It uses complete-story detection instead of highlight scoring. It must not compr
   do not silently discard them or promise perfect semantic detection.
 - Separate introductions, ads, transitions and unrelated material. Do not force every second into a story.
 - Show chronological cards with source start/end, duration, grounded title and completeness/confidence.
-  Allow split, merge, trim, reorder, include/exclude, preview and one batch-create action.
+  Allow split, merge, trim, reorder, include/exclude, preview and one batch-create action. These controls must
+  not add a mandatory manual step for every confident, eligible clip already covered by an explicit YouTube
+  creation/upload request; uncertain boundaries or unsupported destinations need a clear separate status.
 - Support multi-minute stories without forcing 15–60-second clips. Keep independent duration/format/quality
   policies per output mode; do not weaken existing Shorts checks globally.
 - Default both Clips modes to a 9:16, 1080×1920 vertical composition suitable for TikTok and YouTube, with
@@ -463,3 +465,250 @@ only when a product choice truly cannot be inferred, account setup is required, 
 publication need authorization not already granted in the session. Do all preparatory work first so any
 approval concerns a concrete result.
 Do not merge, spend money, delete owner data, publish real posts or enable public signup by implication.
+
+## 16. Concrete implementation and acceptance contract
+
+Treat the following as the implementation defaults and acceptance requirements, not optional inspiration.
+Preserve existing explicit owner choices during migration. You may adjust an internal name or equivalent
+technical design after inspecting the code, but document the reason and keep the same observable behavior.
+These defaults are product decisions for this build, not claims about current platform limits or hosting prices.
+
+### 16.1 Exact screen responsibilities
+
+| Screen | Required content and actions | Must not happen |
+| --- | --- | --- |
+| Sign in | ClipForge name/icon, Continue with Google, sign-in error/retry, authorized-owner access | Private project names/media exposed before authorization; public signup enabled |
+| Home | Make clips, Make a YouTube video, recent projects, real active jobs, actionable problems | A third top-level Full stories creation button; fake progress or empty bot activity presented as work |
+| Make clips | Highlights / Full stories selector, file/link input, saved style, chosen destinations, creation action | Repeating the full-video questionnaire for a simple clip; a file upload silently authorizing publishing |
+| Make a YouTube video | Multi-file media bin, four-question brief, saved style, Build my video | A professional timeline shown before a beginner can upload and describe their video |
+| Project review | Large preview, outputs/sequence, transcript, Used from your Brain, simple edits, download/publish | Hiding which saved guidance applied; marking a preview-only change as a finished render |
+| Projects | One library with Clips / Full videos filters, thumbnails, source/project names, status, search | Separate disconnected libraries for Highlights and Full stories |
+| Brain | Styles, Notes, Examples, Skills; searchable list/editor; optional Graph view | A graph as the only way to add/edit a preference; permission forms becoming knowledge |
+| Publishing | Queue/calendar, per-destination rows, account filter, scheduled time/timezone, real status/retry | A platform icon used instead of an exact channel/account identity |
+| Accounts | Add YouTube account, Add TikTok account, connection cards, Reconnect, Disconnect | Connecting account B replaces account A |
+| Office | Real department/robot activity, Team list, robot card with Rename and Reset name | Custom names changing roles, manager routing or worker behavior |
+| Settings | Appearance/layouts, default style, storage/retention, advanced configuration | Credentials displayed in plain text; resetting layout deletes project edits |
+
+Preserve the current router where practical. Map these logical screens to actual routes in a checked-in route
+map, including aliases for old links. Browser Back, reload, deep links, unsaved edits and sign-in returns must
+work. Do not invent a second navigation system inside the embedded editor.
+
+### 16.2 Exact Clips journey
+
+1. Choose Make clips. The two mode options are Highlights and Full stories, with one-sentence descriptions:
+   “Pick the strongest short moments” and “Make one complete clip for each story.” Default a new profile to
+   Highlights; remember a user's later explicit mode selection without changing existing projects.
+2. Add a file or supported recorded-video link. Show source name, probed duration and upload/import status.
+   For uploads show bytes received; resume a failed transfer without creating duplicate source/project rows.
+3. Choose My saved style, another named style, or Settings defaults. Keep framing/captions under optional
+   Customize controls. For Clips the default output is 9:16, 1080×1920; apply supported Brain choices and
+   explicit per-project overrides. Full stories has no mandatory target clip length.
+4. Choose Make clips only or Make & upload clips. For the latter, show selected verified YouTube destinations,
+   audience, applicable kids choice and the existing source-specific reuse assertion/confirmation once.
+   Reuse an already-valid source assertion rather than asking again for every generated clip. Display what
+   can upload automatically and which TikTok destinations still require review; do not imply TikTok auto-consent.
+5. Process on the server, save the plan and guidance snapshot, render and check each output. The owner can leave
+   after the input finishes uploading. Preserve cancel/pause behavior and show real failure reasons.
+6. Show one output card per highlight/story, with duration, preview, completeness where relevant and destination
+   eligibility. Offer Download, Edit, and the applicable publishing action. Confident, checked outputs already
+   covered by the explicit YouTube request can proceed without a newly introduced per-clip approval ceremony.
+   Hold uncertain story boundaries for adjustment; do not present them as confidently complete.
+
+Full stories must preserve narrative material. Default to a continuous source interval for each story, keeping
+its opening, context, reveal and ending. Do not remove internal sentences as “low virality” or speed up speech
+to meet duration targets. User-requested cuts remain editable revisions with an updated time map and checks.
+Any safe trimming of boundary silence must not clip speech. Mark intro/outro/ads outside stories separately.
+
+### 16.3 Exact full-video journey and creative brief
+
+Start with a media bin. Accept supported video files and optional supplied audio/images; show upload status,
+file name, thumbnail, duration and drag-to-reorder. Unsupported files get individual actionable errors while
+valid files remain. Do not assume every file has audio, every video shares a frame rate, or file order is the
+final story order. Source files remain immutable; edits reference them.
+
+Use these four grouped questions, prefilled from the chosen style, with optional advanced fields:
+
+| Question | Data to save | New-profile default |
+| --- | --- | --- |
+| What are we making, and who is it for? | Video type, intended audience, short goal | General YouTube video; optional goal text |
+| How long and what shape? | Target duration or automatic, aspect ratio | Use your judgment; 16:9 |
+| What should it feel like? | Calm/storytelling, balanced or energetic; captions; supplied music choice | Balanced; captions from Settings; no added music unless selected |
+| What must stay or go? | Must-keep assets/ranges/topics, avoid/remove requests | Nothing excluded or required beyond keeping coherent meaning |
+
+Show Remember this style beside the brief, not hidden in Settings. Enable it for a new full-video brief with a
+clear explanation and allow turning it off before submission; respect a previously saved opt-out. The user may
+name the style or accept a generated editable name. Remember editing choices, not this project's private source
+paths, unique must-keep timecodes, platform consent or credentials. Keep project-specific constraints in the
+project. Save a revision rather than silently overwriting a style used by older projects.
+
+Build my video creates a saved outline and a rough-cut sequence, then a preview. Show the outline, Used from
+your Brain, simple trim/reorder/include controls and an Advanced editor action using the tested editor adapter.
+Allow “Shorten the introduction,” “Keep this section” and “Remove this clip” where the underlying operation is
+supported. Convert requests to a proposed validated edit, explain an unsupported request and keep the old version
+until the replacement saves. Never simulate success when the timeline did not change.
+
+Save/reopen must reproduce source order, trims, captions, framing, gains, transitions and supplied music.
+Changing an edit creates a new revision; the previous finished artifact stays visible until the new render
+passes checks. Download and Publish refer to a clearly identified finished version. Full-video publishing uses
+its own explicit request, not an unrelated short-clip grant. Show the account and actual output before consent.
+
+### 16.4 Brain and skills must have a testable effect
+
+Persist both the source guidance and the resolved values used for a job. Required records include guidance
+entry/revision IDs, scope, supported fields, effective values, overridden values/reasons and the project/plan
+revision. Show examples such as “Lower captions — from My story style” or “Energetic pacing — overridden by
+this project's Calm choice.” Do not claim every note influenced every output.
+
+Changes to Brain entries affect new plans. Existing queued/rendered/approved projects keep their saved guidance
+snapshot unless the owner chooses Apply latest style and creates a new plan/render revision. Resume/retry of the
+same revision must not quietly pull new notes and produce different approved bytes.
+
+Provide one bundled editable example skill and one documented import schema. Use a schema version, skill ID,
+name, version, applicable workflow/mode, original instructions and parsed supported preferences. Import into a
+preview showing recognized fields and unsupported text; explicit enable makes supported guidance available
+without a second approval queue. Allow project-specific enable/disable and export of the same versioned format.
+
+Implement a declared capability registry so the parser, editor and renderer agree on supported fields. A skill
+can influence only implemented editing choices; it cannot change publication consent, secrets, quotas or worker
+privileges. Unknown fields remain visibly unsupported and do not disappear on export. A helpful name or an
+uploaded Markdown file alone does not count as a working skill.
+
+Required behavioral test: save a relevant supported lower-caption preference, create a new plan, verify its
+resolved field and actual caption placement, then override placement in the project and verify the override.
+Repeat after restarting the service. A renamed note or increased read count is not acceptable evidence.
+
+### 16.5 Data and API contracts to carry through the existing code
+
+Adapt existing models rather than creating a parallel app. Document migrations and map legacy rows to stable
+identities. These are required relationships/fields, not a mandate to add one table for every row below:
+
+| Concept | Required identity and data |
+| --- | --- |
+| Workspace | Stable ID, authorized owner identity, settings/limits; never derived from an untrusted request path |
+| Social connection | Stable ID, workspace ID, platform, provider-confirmed account/channel ID, encrypted credential reference, scope/health; unique external identity per platform/workspace |
+| Asset | ID, workspace/project ownership, content SHA-256, private storage reference, probe metadata, proxy-to-original mapping |
+| Project | ID, workspace, workflow clips/full_video, clip mode highlights/full_stories where applicable, input asset IDs, brief/style snapshot, revision |
+| Story proposal | Stable ID, source asset, start/end in an explicit timebase, completeness/confidence/reason, included flag, manual-boundary revision |
+| Edit plan | Project revision, source time ranges, output settings, supported edits, framing/captions/audio parameters, guidance snapshot, engine capability/version |
+| Artifact | Immutable ID, project/plan revision, exact media hash, time map/final transcript, codec/duration/dimensions, quality report for those bytes |
+| Destination publication | Artifact and connection IDs, explicit audience/options/text, schedule/timezone, consent binding, idempotency key, upload session, outcome/reconciliation state |
+| Skill/style | Workspace-scoped ID, schema/content revision, supported guidance, origin, enabled state and applicable modes |
+| Appearance/robots | Workspace/user preference ownership, schema version, device-class layout, stable robot role ID to display-name mapping |
+
+API mutations require authenticated ownership and validated typed inputs. Do not trust workspace IDs merely
+because the browser sent them. Media reads, event streams and background-job claims use the same ownership
+rules. Use revision/ETag-style checks for concurrent edits and return a resolvable conflict instead of last-write
+loss. Use request idempotency for submission/publish actions, while allowing an explicitly new project later.
+
+An editor/worker receives asset references restricted to its job, validated plan revision, requested output
+settings and scoped output locations. It never receives social tokens or arbitrary server paths. Returned media
+must be probed, hashed and checked; claimed success from an engine is not sufficient. Include engine/version in
+cache identity. Preserve metadata and timeline conversion errors rather than dropping them silently.
+
+On legacy-account migration, do not change existing signed/hashed approvals merely to fit the new schema.
+Resolve historical account references through a verified mapping; if binding cannot be preserved, hold only
+the affected unstarted work with an explanation. Never rewrite an active/uncertain upload's destination.
+
+### 16.6 Job states and actionable failures
+
+Keep one durable source of truth for state. Reuse existing internal enums where suitable and document their UI
+mapping. The user must be able to distinguish receiving the file, waiting for a worker, analyzing, planning,
+rendering, checking, ready, needing input, canceled and failed. Publishing separately distinguishes review,
+scheduled, transferring, platform processing, confirmed result, waiting for the platform and outcome unknown.
+An input-upload percentage is not render progress, and accepted bytes are not proof platform processing finished.
+
+Examples of correct messages/actions:
+
+- Interrupted input: “Upload interrupted. Resume upload.” Keep received chunks within the configured retention.
+- Rejected account token: name that account and offer Reconnect; other eligible destinations may continue.
+- Story exceeds a destination limit: name the account/limit and offer the full master plus supported alternatives.
+- Model unavailable: offer configured alternatives or manual editing; never say semantic story analysis succeeded.
+- Storage full: stop admitting work, preserve existing media/jobs, show usage and safe cleanup options.
+- Unknown upload result: retain the existing session and expose reconciliation; never automatically start over.
+
+Retry buttons resume a supported stage safely. An expired lease must not let two workers commit two successful
+artifacts/publications for the same job revision. Cancellation stops future work and cleans only job-owned
+scratch files; it must not erase original footage or past published history.
+
+### 16.7 Concrete visual defaults and robot naming
+
+Use the current robot identity in a cleaner studio shell. Starting design tokens: dark background #0B0D14,
+surface #151A25, primary text #F5F6FA, muted text #A8B2C5, violet accent #9A7CFF and success teal #46D6C4.
+Create a separate coherent light palette; default theme follows the system. Check actual rendered contrast
+(minimum 4.5:1 for ordinary text), including selected, disabled and error states. Do not use color alone for status.
+Use a readable system/locally bundled sans-serif font, 16px base body text, an 8px spacing system and restrained
+borders/shadows. Pixel art belongs primarily in the office; essential controls and labels stay easy to read.
+
+Desktop starts with a roughly 232px collapsible sidebar and 64px top bar, with flexible content and a large
+preview. Small screens use a navigation drawer, stacked cards and persistent access to the main task action.
+Test 1440px, 1024px, 768px and 390px widths, plus 320px overflow. Touch actions should have at least 44×44px targets.
+The editor may offer a simplified mobile view instead of shrinking all desktop panels into unreadable columns.
+
+Provide theme/system choice, accent palette, comfortable/compact density, follow-system/reduced motion and
+saved layouts. Keep separate desktop and small-screen layout records. Reset layout changes only layout settings,
+not style guidance, current edits or robot names. Store preferences server-side with optimistic local feedback
+and a visible save failure/retry if persistence fails.
+
+For robot names, use a single-line field allowing 1–32 Unicode code points after trimming. Reject blank names
+with an inline explanation; Reset name explicitly restores the default. Render as text, never HTML. Duplicates
+are allowed with roles still visible. Example: rename the Editor robot to Nova; the UI shows “Nova · Editor”
+while all backend events/handoffs retain the original robot ID. All existing robots, including managers, remain
+available; do not replace the office with renamed generic progress cards.
+
+### 16.8 Required end-to-end acceptance scenarios
+
+Build reproducible fixtures/harnesses and record actual results. Fixture times and mocked platform limits below
+are test inputs, not claims about real YouTube/TikTok limits. Use fake accounts/providers for mutations.
+
+| ID | Scenario | Pass condition |
+| --- | --- | --- |
+| CF-01 | Owner signs in on desktop and phone; another synthetic identity requests its project/media | Owner sees the same project; other identity receives no project/media/private metadata |
+| CF-02 | Close the browser after upload; restart a worker during processing | Durable job resumes without duplicate completion; owner returns to the saved result |
+| CF-03 | In Clips, switch Highlights to Full stories | Same intake/library/queue; full-story cards preserve narrative rather than a teaser duration target |
+| CF-04 | A labeled 12-minute recording has three stories and intro/outro gaps | Exactly three complete included story outputs; gaps separately identified; all three vertical |
+| CF-05 | One story crosses an analysis chunk boundary | One continuous story proposal/output, not duplicate fragments or a missing ending |
+| CF-06 | Mock one destination limit below a complete story's duration | Full master preserved, accurate destination restriction, no silent split/speed-up/truncation |
+| CF-07 | Save lower-caption guidance; create; override; restart and resume | Actual plan/output follows the saved snapshot and explicit override; provenance is correct |
+| CF-08 | Import an editing skill with a valid preference and a shell/secrets instruction | Valid preference can apply; dangerous instruction never executes; unsupported content is visible |
+| CF-09 | Assemble three mixed-rate videos plus a supplied image/music file; trim/reorder; save/reopen | Preview and server export match the saved plan, captions and audio; unsupported edits reported |
+| CF-10 | One clip targets YouTube A and B; A succeeds, B waits/fails; retry B | A uploads once, B uses B's credentials/session, statuses stay independent, waits honored |
+| CF-11 | Add/reconnect/disconnect two YouTube and two TikTok connections; exercise shared quota | No connection replacement or token crossover; both shared and account-specific limits hold |
+| CF-12 | Re-render an approved output or change its selected destination | Old consent/checks cannot authorize new bytes/destination; active uncertain session stays intact |
+| CF-13 | Rename Editor to Nova, reload/open phone, then reset | Name syncs; real role/handoff IDs unchanged; reset restores only the default display name |
+| CF-14 | Theme/layout changes on desktop and phone, keyboard use and reset | Preferences persist; mobile remains usable; no hidden essential panels, lost edits or overflow |
+| CF-15 | Open a migrated existing installation with the ClipForge label | Same project/media/Brain/account/history counts and original media hashes; no blank new profile |
+| CF-16 | Render and transfer mixed-rate media with opening speech and later quiet passages | Raw AAC clocks valid; decoded speech continuous; no introduced opening glitch/dropout or gain pumping |
+| CF-17 | Crash near upload acknowledgement, then restart scheduler | Same session reconciled; no duplicate post; exact account/audience and file binding remain intact |
+
+For CF-04 use annotated intervals: intro 00:00–00:15, story A 00:15–03:10, gap 03:10–03:25,
+story B 03:25–07:05, gap 07:05–07:20, story C 07:20–11:40, outro 11:40–12:00. Put a chunk boundary at 06:00
+inside story B. Include distinguishable opening/closing sentences and actual speech/audio in the rendering
+fixture. Check those sentences survive in order and every story appears once. Allow only measured boundary
+silence padding; do not declare success from the number of cards alone. Add one ambiguous/incomplete-story
+fixture that is visibly flagged instead of mislabeled complete. Separately test real semantic analysis with
+labeled authorized material when a configured model is available; mocked segmentation is not that evidence.
+
+### 16.9 Required delivery artifacts and completion rule
+
+Create a feature checklist linking each requirement/CF scenario to actual implementation, test and evidence.
+For every requirement use Implemented, Partial or Blocked; include a concrete reason and next action for the
+last two. Do not call a feature complete because its form, API stub or screenshot exists.
+
+Deliver: the updated code and migrations; pinned editor integration/capability report and notices; route map
+and design tokens; runnable owner-only deployment configuration with a secret-free example environment file;
+backup/restore/cutover steps; regression results; screen recordings/screenshots; a benchmark harness/report;
+and a short owner guide covering login, creation modes, Brain/skills, account selection and robot names.
+Provide exact build/run commands and the tested commit. Prepare the next version of website copy to describe
+only verified capabilities; keep the working download until its replacement is tested.
+
+The performance report must measure a representative aggregate batch of more than five source hours, full
+output rendering and cleanup on the proposed server, not just ASR on a short clip. Record model/settings,
+source and output hours, stage wall times, failures/retries, peak RAM/disk, transfer and retained storage.
+If it cannot finish a day's workload within a day with headroom, mark capacity insufficient and propose the
+lowest-cost measured change. If no host is available, deliver the harness and mark capacity unverified.
+The owner must approve any exact paid configuration before provisioning; do not promise unlimited free capacity.
+
+Completion means the required user journeys work with real saved state and validated media, the meaningful
+automated tests pass, migration preserves existing data, and any untested provider/hardware behavior is stated
+plainly. Continue useful independent work when provider setup is missing; never fabricate deployment URLs,
+account connections, real-platform approval, video uploads or test results.
