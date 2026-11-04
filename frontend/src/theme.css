@@ -105,6 +105,9 @@ h1 { font-size: var(--fs-title); line-height: 1.2; }
 .make-menu [role="menuitem"]:hover, .make-menu [role="menuitem"]:focus-visible { background: var(--raised); }
 .make-menu [role="menuitem"] span { color: var(--text-3); font-size: var(--fs-small); }
 
+/* A narrower sidebar on smaller desktops leaves the full office map wide enough for readable robot labels. */
+@media (max-width: 1365px) { :root { --sidebar: 208px; } }
+
 @media (max-width: 1023px) {
   .cf-shell { grid-template-columns: minmax(0, 1fr); }
   .cf-side { display: none; }
