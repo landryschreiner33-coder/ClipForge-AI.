@@ -68,7 +68,7 @@ def after_render(clip_id: str) -> None:
             fit = eligibility.youtube(float(clip.get("duration") or 0), int(info.get("width") or 1080),
                                       int(info.get("height") or 1920))
             if not fit["eligible"]:
-                _record(clip, cid, "too_long", fit["text"])
+                _record(clip, cid, "held" if fit["state"] == "needs_verified" else "too_long", fit["text"])
                 continue
             if report.get("status") != "passed":
                 _record(clip, cid, "held", "Did not pass the final check: " + "; ".join(report.get("blockers")

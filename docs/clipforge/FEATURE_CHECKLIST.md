@@ -1,6 +1,6 @@
 # ClipForge feature checklist
 
-Status as of 2026-11-04, branch `claude/new-session-b9itcy` (draft PR #16). **Implemented** means the code exists and an
+Status as of 2026-11-04, reviewed branch `claude/new-session-b9itcy` (PR #16; see GitHub for merge state). **Implemented** means the code exists and an
 automated test or a recorded check exercises it here. Fake Google/TikTok servers, a fake OpenID provider and
 synthetic media were used throughout; nothing real was signed in to, uploaded or deployed. Anything that needs a
 real account, server, footage or speech model is listed under "Not verified".
@@ -73,3 +73,15 @@ real account, server, footage or speech model is listed under "Not verified".
 | CF-15 | Implemented | `test_clipforge_rename.py`, `test_multi_accounts.py` |
 | CF-16 | Implemented (synthetic media) | Existing slow audio regressions, engine/story render AAC checks |
 | CF-17 | Implemented (existing) | `test_public_publishing.py` unknown-outcome and reconciliation tests |
+
+## Codex merge review and website publication (November 4, 2026)
+
+- YouTube eligibility: outputs longer than 15 minutes are held when channel verification cannot be established;
+  the master remains downloadable. Boundary and multiple-destination checks cover the hold.
+- Test installs now include cloud requirements, including PyJWT for the fake OpenID provider.
+- Creation/render copy no longer mislabels desktop processing as remote server processing.
+- CF-18 website: implemented and published as version 3; five viewport sizes and interactive controls checked.
+  Exact source/deployment IDs, release limitations and rollback: [WEBSITE_DEPLOYMENT.md](WEBSITE_DEPLOYMENT.md).
+- The native installers are unchanged and do not include this PR. Owner-only cloud code is not a live hosted service.
+- The earlier FilmCraft build refusal is a historical session limitation; no new approval requirement was inferred
+  from it during this merge review. The FFmpeg implementation remains the available engine.

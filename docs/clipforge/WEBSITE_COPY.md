@@ -1,8 +1,9 @@
-# Download website copy (prepared, not published)
+# Download website copy (published preview)
 
-For review before the download site (https://clipfoundry-studio.landryschreiner33.chatgpt.site) is changed. It
-describes only what is implemented and tested in this build. Keep the current download link and checksum until a
-new build has been released and verified.
+The existing download site (https://clipfoundry-studio.landryschreiner33.chatgpt.site) was redesigned and published
+as version 3 on November 4, 2026. Exact publication evidence: WEBSITE_DEPLOYMENT.md. It distinguishes this source
+preview from the older desktop installers and the not-yet-deployed cloud service. Keep the current verified
+download links and checksums until a new native build has been released and verified.
 
 **ClipForge** (formerly ClipFoundry) turns long videos into captioned vertical clips, and your clips into an edited
 YouTube video.

@@ -12,6 +12,35 @@ from story_fixtures import cut_off_and_ambiguous, three_stories, timed
 TOLERANCE = 1.0  # seconds of measured silence padding allowed around a labelled boundary
 
 
+def test_long_story_waits_for_channel_verification_before_any_upload(monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import gate
+    from clipfoundry.publish import routes
+    from clipfoundry.studio import autopublish
+
+    clip = {"id": "long-story", "project_id": "p", "status": "ready", "duration": 16 * 60,
+            "analysis": {}, "render_info": {"width": 1080, "height": 1920}}
+    request = {"auto": ["a", "b"], "accounts": {"a": "channel-a", "b": "channel-b"}}
+    monkeypatch.setattr(db, "get_clip", lambda _: clip)
+    monkeypatch.setattr(db, "get_project", lambda _: {"workspace_id": "local", "destinations": request})
+    monkeypatch.setattr(db, "get_settings", lambda: {})
+    monkeypatch.setattr(db, "get_connection", lambda cid: {
+        "id": cid, "platform": "youtube", "status": "connected", "external_id": "channel-" + cid})
+    monkeypatch.setattr(db, "list_publications", lambda *args: [])
+    monkeypatch.setattr(db, "update_clip", lambda _, **values: clip.update(values))
+    monkeypatch.setattr(gate, "run", lambda *args: {"status": "passed"})
+    uploaded = []
+    monkeypatch.setattr(routes, "publish", lambda *args: uploaded.append(args))
+
+    autopublish.after_render(clip["id"])
+
+    assert uploaded == []
+    results = clip["analysis"]["destinations"]
+    assert {d["connection_id"] for d in results} == {"a", "b"}
+    assert all(d["state"] == "held" and "cannot confirm" in d["text"] for d in results)
+    assert clip["status"] == "ready"  # keep the complete master available
+
+
 def _propose(transcript, duration):
     from clipfoundry.pipeline import stories, transcribe
     from clipfoundry.pipeline.text_utils import build_sentences
