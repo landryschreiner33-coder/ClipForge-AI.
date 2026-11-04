@@ -225,7 +225,7 @@ final class Studio: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigat
             smokeNavigationChecked = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                 self.web.evaluateJavaScript("document.body.innerText") { value, error in
-                    guard error == nil, let text = value as? String, text.contains("ClipFoundry") else { self.showError("Native WebView did not load the studio."); return }
+                    guard error == nil, let text = value as? String, text.contains("ClipForge") else { self.showError("Native WebView did not load the studio."); return }
                     self.smokeInteractions()
                 }
             }
