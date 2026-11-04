@@ -1,5 +1,45 @@
 # AI handoff
 
+## ClipForge merged and released for Windows and Mac — 2026-11-04 (Claude Code)
+
+The owner asked to merge the changes, publish Windows and Mac downloads, and build a website that both Claude and
+ChatGPT can update.
+
+- **Merged:** PR #16 into `codex/cloud-plan` (`883913c`). PR #17 brought that into the default branch
+  `claude/wonderful-ritchie-909tq3` (`c7d502f`). PR #18 fixed the Mac smoke checks for the new name (`0036e68`).
+  Codex's automatic review of PR #17 and PR #18 reported no findings.
+- **Mac build fixes:** the native smoke checks looked for "ClipFoundry" on the studio page. The second check read the
+  page's visible text, which in a window narrower than 1024 px has no sidebar and so no product name. Now the page
+  title must contain "ClipForge" and the studio's page heading must exist. These checks run only in automated smoke
+  mode. The bundle ID, Keychain service and data folder still say ClipFoundry, and the Finder name stays ClipFoundry.
+- **Release source:** both downloads are built from `06f459e`.
+  - GitHub run 41899130825 passed the native Mac build, window, quit and force-quit checks, and the fast and slow
+    pytest suites.
+  - Locally, `a96781b` passed 1,630 fast and 21 slow tests; it differs from `06f459e` only in docs and the two smoke
+    checks.
+- **Windows download:** `ClipForge-Windows-Setup.zip` on branch `claude/clipforge-downloads` at `29c4a63`.
+  46,661,349 bytes, SHA-256 `c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19`.
+  - 77 launcher tests passed. All 675 app files match the commit, except six `.bat` files that differ only by the
+    declared CRLF export. The managed-profile release history is kept.
+  - Not run on native Windows, and Windows security acceptance was not tested.
+- **Mac download:** release `clipforge-mac-2026-11-04-06f459e`, `ClipForge-Mac-Apple-Silicon.dmg`. 192,010,395 bytes,
+  SHA-256 `1da040a23a88f73b9a800aeaa4f1d761808ba18363fc28c45241aaee5850b000`.
+  - It is the unchanged tested artifact (artifact digest `9865d719…`), published by the input-driven
+    `macos-personal-preview.yml`.
+  - Unsigned personal preview: not Developer ID signed or notarized. Not run on a physical Mac.
+- **Shared website:** https://landryschreiner33-coder.github.io/ClipForge-AI./download/ , from the `download/` folder of
+  `gh-pages` (`414ef86`). Any assistant with push access updates it with an ordinary commit.
+  - Data lives in `download/releases.json`. `python3 download/build.py --verify` downloads and hashes every listed file;
+    all four matched.
+  - The live page was checked at 1440 and 390 px, with no errors or sideways scrolling.
+  - The root legal pages and the TikTok verification file are unchanged.
+  - Procedure: `download/UPDATING.md`.
+- **ChatGPT Sites page:** clipfoundry-studio.landryschreiner33.chatgpt.site still links the older ClipFoundry downloads.
+  Only its own workspace (Codex) can publish it. Codex can point its buttons at the GitHub Pages page or at the two
+  URLs above.
+- **Not verified:** native Windows or RTX 3050 execution, physical Mac execution, real sign-in or uploads, and Windows
+  Defender or Apple acceptance.
+
 ## PR #16 merge review and website refresh — 2026-11-04 (Codex)
 
 The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.

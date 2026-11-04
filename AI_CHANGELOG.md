@@ -1,5 +1,21 @@
 # AI changelog
 
+## ClipForge merged and released for Windows and Mac — 2026-11-04 (Claude Code)
+
+- Merged PR #16, #17 and #18 into the default branch.
+- Fixed the Mac smoke checks for the ClipForge name; they now pass at any window width.
+- Published the Windows setup ZIP and the Mac DMG, both built from `06f459e`.
+- Added the shared GitHub Pages download page at `/download/`. It is data-driven from `releases.json` and checked by
+  `build.py --verify`.
+
+Tests:
+- Fast 1,630 and slow 21 passed locally.
+- GitHub run 41899130825 passed the native Mac build and smoke checks plus fast and slow pytest.
+- 77 Windows launcher tests passed, and every payload file was compared with the commit.
+- All four listed downloads were re-downloaded and matched.
+
+Not verified: native Windows, a physical Mac, real accounts, and Defender or Apple acceptance.
+
 ## PR #16 merge review and website refresh — 2026-11-04 (Codex)
 
 The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.

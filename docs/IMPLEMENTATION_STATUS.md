@@ -1612,6 +1612,13 @@ plannable.
 
 ## Test log
 
+| ClipForge release (2026-11-04) | Result |
+| --- | --- |
+| GitHub run 41899130825 on `06f459e`: native Mac build, window, quit/force-quit; pytest fast and slow | all passed |
+| Earlier Mac runs 41886951001 and 41896229211 | failed at stale "ClipFoundry" smoke checks; fixed in PR #18 |
+| Windows launcher tests (pin, build, setup) on `06f459e` | 77 passed; all 675 app files equal the commit (six `.bat` CRLF exports) |
+| `download/build.py --verify` on the live release data | all four listed downloads match size and SHA-256 |
+
 | ClipForge build (2026-11-04, Claude Code, cloud container, no GPU) | Result |
 | --- | --- |
 | Baseline `pytest -m "not slow"` on the untouched start `6585c58` | 1,556 passed, 19 deselected |

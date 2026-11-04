@@ -58,3 +58,14 @@ The owner asked for a website that both Claude and ChatGPT can update. It is the
 publishes it with a normal commit. `download/releases.json` holds the downloads, `download/build.py` writes and
 checks the page, and `download/UPDATING.md` describes the procedure. The existing root pages of `gh-pages` are
 unchanged. The Sites page above is a separate site; its workspace can link to the GitHub Pages download page.
+
+### First publication of the shared download page — November 4, 2026
+
+`gh-pages` commit `414ef86` added `download/`. It lists ClipForge 2026.11.04, both built from `06f459e`:
+- Windows: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/29c4a634a7fb8dae7686c24759b61b74a05620a6/ClipForge-Windows-Setup.zip
+  (46,661,349 bytes, SHA-256 `c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19`).
+- Mac: https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-04-06f459e/ClipForge-Mac-Apple-Silicon.dmg
+  (192,010,395 bytes, SHA-256 `1da040a23a88f73b9a800aeaa4f1d761808ba18363fc28c45241aaee5850b000`).
+
+The previous ClipFoundry downloads are listed as older versions. To make the Sites page offer the same files, its
+workspace replaces its two download links with these, or links to https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .

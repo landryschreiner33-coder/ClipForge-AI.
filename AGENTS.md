@@ -24,13 +24,15 @@ The root pages of `gh-pages` (legal pages, icon and the TikTok verification file
 asks. The ChatGPT Sites page at clipfoundry-studio.landryschreiner33.chatgpt.site is separate, and only its own
 workspace can publish it.
 
-**ClipForge build (2026-11-04):** The prompt's phases 0–6 are implemented on `claude/new-session-b9itcy` (reviewed
-PR #16; check GitHub for its merge state) with tests on synthetic media and fake platforms. Status per requirement (Implemented / Partial /
+**ClipForge build (2026-11-04):** The prompt's phases 0–6 are merged into the default branch (PR #16 into
+`codex/cloud-plan`, PR #17 and the Mac smoke-test fix PR #18 into `claude/wonderful-ritchie-909tq3`), tested on synthetic
+media and fake platforms. Status per requirement (Implemented / Partial /
 Blocked): `docs/clipforge/FEATURE_CHECKLIST.md`; addresses: `docs/clipforge/ROUTE_MAP.md`; owner steps:
 `docs/clipforge/OWNER_GUIDE.md`. New code lives in `clipfoundry/cloud/` and `clipfoundry/studio/`. Cloud mode
 (`CLIPFOUNDRY_MODE=cloud`) is owner-only; public sign-up stays off. The public download/preview website was updated as version 3; see `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
-The application cloud service is not deployed, and no real upload or sign-in was verified. Desktop installers still
-predate this source preview. The owner explicitly authorized merging PR #16 after review.
+The application cloud service is not deployed, and no real upload or sign-in was verified. ClipForge desktop
+downloads built from `06f459e` are published (Windows setup ZIP on branch `claude/clipforge-downloads`, Mac DMG release
+`clipforge-mac-2026-11-04-06f459e`) and listed on the shared download page above.
 
 **ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
 owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
