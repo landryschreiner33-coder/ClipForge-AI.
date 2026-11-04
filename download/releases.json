@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "current": {
+    "name": "ClipForge",
+    "version": "2026.11.04",
+    "date": "2026-11-04",
+    "source_commit": "06f459eb185b87ac344ad14e8dbd3f8e03be58d1",
+    "files": {
+      "windows": {
+        "file": "ClipForge-Windows-Setup.zip",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/29c4a634a7fb8dae7686c24759b61b74a05620a6/ClipForge-Windows-Setup.zip",
+        "bytes": 46661349,
+        "sha256": "c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19",
+        "kind": "ZIP",
+        "requires": "Windows 10 or 11, 64-bit, with Python 3.12",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./blob/29c4a634a7fb8dae7686c24759b61b74a05620a6/verification-windows.json",
+        "tested_label": "Setup verification"
+      },
+      "mac": {
+        "file": "ClipForge-Mac-Apple-Silicon.dmg",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-04-06f459e/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 192010395,
+        "sha256": "1da040a23a88f73b9a800aeaa4f1d761808ba18363fc28c45241aaee5850b000",
+        "kind": "DMG",
+        "requires": "Apple silicon, macOS 15 or newer",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41899130825",
+        "tested_label": "Mac build and test run"
+      }
+    }
+  },
+  "previous": [
+    {
+      "name": "ClipFoundry",
+      "version": "Mac personal preview",
+      "date": "2026-11-03",
+      "source_commit": "bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3",
+      "files": {
+        "mac": {
+          "file": "ClipFoundry-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg",
+          "bytes": 191813213,
+          "sha256": "4fa4d423159c29d40f70632ae414c1fa047c7f72542e702f07f2e8ad0bb52d7d",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer"
+        }
+      }
+    },
+    {
+      "name": "ClipFoundry",
+      "version": "Windows audio-timing update",
+      "date": "2026-10-29",
+      "source_commit": "88386d6cd4f4ede321d6f4d2fca406de67eba1cc",
+      "files": {
+        "windows": {
+          "file": "ClipFoundry-Source-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/fc7b1991e07dc9e58afc7fe74328a0874bf24e57/ClipFoundry-Source-Setup.zip",
+          "bytes": 42209821,
+          "sha256": "267f1dc686d1584fa86d91c4f56bf4e8db7399ea1954bbe876f3698ded55bddc",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12"
+        }
+      }
+    }
+  ]
+}
