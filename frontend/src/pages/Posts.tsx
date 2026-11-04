@@ -20,7 +20,7 @@ const INTRO: Record<string, string> = {
   published: "Each post shows its planned audience and what the platform confirmed. An upload or your own "
     + "confirmation does not prove public visibility or that anyone watched it.",
   history: "Published, canceled and replaced posts.",
-  problems: "Posts that could not go out, or where ClipFoundry needs you to check something. Nothing here is tried " +
+  problems: "Posts that could not go out, or where ClipForge needs you to check something. Nothing here is tried " +
     "again behind your back.",
 };
 const EMPTY: Record<string, [string, string]> = {
@@ -62,7 +62,12 @@ export default function Posts({ view }: { view?: string }) {
   const [dialog, setDialog] = useState<{ action: PostAction; post: Post } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkIds, setBulkIds] = useState<string[] | null>(null);
-  const items = data?.items || [];
+  const [acct, setAcct] = useState("");
+  const all = data?.items || [];
+  type WithAccount = { account?: { connection_id: string; name: string } };
+  const accounts = Array.from(new Map(all.map((p) => (p as WithAccount).account).filter((a) => a?.connection_id)
+    .map((a) => [a!.connection_id, a!])).values());
+  const items = acct ? all.filter((p) => (p as WithAccount).account?.connection_id === acct) : all;
   const tz = data?.timezone || st?.timezone;
   const selectable = items.filter((p) => VIEW_OF.review(p) && p.platform === "youtube");
   const selectableKey = selectable.map((p) => p.id).join("|");
@@ -78,13 +83,13 @@ export default function Posts({ view }: { view?: string }) {
   const count = (k: string) => items.filter(VIEW_OF[k]).length;
   const faint = (n: number) => (n ? <span className="faint tiny">{n}</span> : null);
   const tabs = [
-    { id: "review", href: "#/queue/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
-    { id: "scheduled", href: "#/queue/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
-    { id: "published", href: "#/queue/published", label: <>Published {faint(count("published"))}</> },
+    { id: "review", href: "#/publishing/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
+    { id: "scheduled", href: "#/publishing/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
+    { id: "published", href: "#/publishing/published", label: <>Published {faint(count("published"))}</> },
     {
-      id: "problems", href: "#/queue/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
+      id: "problems", href: "#/publishing/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
     },
-    { id: "results", href: "#/queue/results", label: "Results" },
+    { id: "results", href: "#/publishing/results", label: "Results" },
   ];
   const replace = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
@@ -93,11 +98,18 @@ export default function Posts({ view }: { view?: string }) {
 
   return (
     <div className="page posts-page">
-      <PageHead title="Queue"
+      <PageHead title="Publishing"
         sub={<>
-          Every planned and published post. One clip can have a YouTube post and a TikTok post. {zoneLine(tz)}
-        </>} />
-      <LinkTabs label="Queue sections" tabs={tabs} current={v === "history" ? "published" : v} />
+          Every planned and published post, each with the exact account it goes to. {zoneLine(tz)}
+        </>}
+        actions={accounts.length > 1 && (
+          <label className="field"><span className="sr-only">Show posts for</span>
+            <select value={acct} onChange={(e) => setAcct(e.target.value)} aria-label="Show posts for">
+              <option value="">All accounts</option>
+              {accounts.map((a) => <option key={a.connection_id} value={a.connection_id}>{a.name || a.connection_id}</option>)}
+            </select></label>
+        )} />
+      <LinkTabs label="Publishing sections" tabs={tabs} current={v === "history" ? "published" : v} />
       <div className="post-ledger-heading">
         <div className="stack">
           <span className="kind-label">Posting desk</span>
@@ -171,7 +183,7 @@ function PostList({ view, items, autoPublish, capped, setupStarted, tz, selected
       {(view === "published" || history) && (
         <label className="choice">
           <input type="checkbox" checked={history} onChange={(e) => {
-            window.location.hash = e.target.checked ? "#/queue/history" : "#/queue/published";
+            window.location.hash = e.target.checked ? "#/publishing/history" : "#/publishing/published";
           }} />
           <span className="small">Also show canceled and replaced posts</span>
         </label>
@@ -256,7 +268,7 @@ function PostRow({ p, tz, reviewing, selected, selectionFull, onSelect, onApprov
   const { st } = useStatus();
   const s = postStatus(p);
   const name = PLATFORM_LABEL[p.platform] || p.platform;
-  const account = st?.platforms?.[p.platform]?.name;
+  const account = (p as typeof p & { account?: { name: string } }).account?.name || st?.platforms?.[p.platform]?.name;
   const href = `#/post/${p.id}`;
   const title = p.title || p.clip.title || "Untitled post";
   const editable = ["awaiting_approval", "approved", "failed"].includes(p.status);

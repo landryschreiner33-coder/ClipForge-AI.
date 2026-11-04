@@ -212,15 +212,15 @@ def local_only(request: Request) -> None:
     host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
     if client_host not in LOOPBACK_CLIENTS or host not in LOOPBACK_HOSTS:
         raise HTTPException(403, "Publishing and account connections only work in the browser on the computer that "
-                                 "runs ClipFoundry (http://127.0.0.1).")
+                                 "runs ClipForge (http://127.0.0.1).")
 
 
 def app_request(request: Request) -> None:
-    """State-changing publish actions must come from ClipFoundry's own page (a custom header other sites cannot set
+    """State-changing publish actions must come from ClipForge's own page (a custom header other sites cannot set
     without a CORS preflight, which this server never grants)."""
     local_only(request)
     if request.headers.get("x-clipfoundry") != "1":
-        raise HTTPException(403, "This action can only be started from the ClipFoundry page.")
+        raise HTTPException(403, "This action can only be started from the ClipForge page.")
 
 
 def redirect_uri(request: Request, platform: str) -> str:
@@ -256,13 +256,13 @@ def callback_page(ok: bool, heading: str, message: str, fix: str = "") -> str:
     color = "#34d399" if ok else "#f87171"
     close = "<script>setTimeout(function(){window.close()},2500)</script>" if ok else ""
     fix_html = f"<p><b>What to do:</b> {html.escape(fix)}</p>" if fix else ""
-    return (f"<!doctype html><html><head><meta charset='utf-8'><title>ClipFoundry</title>"
+    return (f"<!doctype html><html><head><meta charset='utf-8'><title>ClipForge</title>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'></head>"
             "<body style='font-family:Segoe UI,system-ui,sans-serif;background:#0a0a0f;color:#f2f2f7;display:flex;"
             "align-items:center;justify-content:center;height:100vh;margin:0'>"
             "<div style='max-width:520px;padding:32px;border:1px solid #2a2a3a;border-radius:16px;background:#15151e'>"
             f"<h2 style='margin-top:0;color:{color}'>{html.escape(heading)}</h2><p>{html.escape(message)}</p>"
-            f"{fix_html}<p style='color:#7d7d93'>You can close this tab and return to ClipFoundry.</p></div>"
+            f"{fix_html}<p style='color:#7d7d93'>You can close this tab and return to ClipForge.</p></div>"
             f"{close}</body></html>")
 
 

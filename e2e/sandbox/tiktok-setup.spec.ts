@@ -71,7 +71,7 @@ async ({ page }) => {
   await expect(helper.getByText("3. My setup checklist (1/1)", { exact: true })).toBeVisible();
   await expect(helper.getByText(/ClipFoundry cannot verify app review or audit status/)).toBeVisible();
   expect(writes).toEqual([]);
-  await helper.getByRole("button", { name: "Use these permissions in ClipFoundry", exact: true }).click();
+  await helper.getByRole("button", { name: "Use these permissions in ClipForge", exact: true }).click();
   await expect(page.getByText(/Unsaved changes/)).toBeVisible();
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await expect(page.getByText("Controlled preview; nothing was saved or connected.", { exact: true })).toBeVisible();

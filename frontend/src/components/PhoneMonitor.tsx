@@ -87,7 +87,7 @@ export function PhoneMonitorPanel() {
             <p className="small muted">
               {view.mode === "tailscale" ? "Keep Tailscale connected on your PC and phone, using the same account."
                 : "Use the same trusted Wi-Fi network as this PC. Wi-Fi mode uses unencrypted HTTP."}
-              {" "}Keep ClipFoundry open and the PC awake.
+              {" "}Keep ClipForge open and the PC awake.
             </p>
             <div className="row wrap">
               <button type="button" className="btn btn-small" onClick={copy}>Copy phone address</button>
@@ -150,7 +150,7 @@ export function PhoneMonitorPanel() {
             connect accounts and approve posts on this PC. Pairing lasts up to 90 days; Unpair all phones removes
             access immediately.</p>
           <p className="small">If the address will not open, check that Tailscale is connected on both devices,
-            or that both use the same Wi-Fi. Windows may ask you to allow ClipFoundry/Python on private networks.
+            or that both use the same Wi-Fi. Windows may ask you to allow ClipForge/Python on private networks.
             There is no need to forward a router port or expose the desktop app.</p>
           <p className="small">In your phone's browser you can bookmark the address or add a Home Screen shortcut.
             Refreshing this dashboard never starts work or uploads a video.</p>

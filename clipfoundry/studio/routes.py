@@ -163,6 +163,24 @@ def guidance_preview(body: GuidanceRequest) -> dict:
     return _snapshot(body)
 
 
+@router.get("/api/studio/guidance/preview")
+def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}", skills_on: str = "",
+                          skills_off: str = "", title: str = "") -> dict:
+    """The same preview as a plain read: opening Make clips must not send a request that could change anything
+    (the read-only browser checks against the owner's real app block every non-GET)."""
+    import json
+
+    try:
+        parsed = json.loads(choices or "{}")
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise HTTPException(422, "The choices must be a JSON object.")
+    ids = lambda v: [x for x in v.split(",") if x][:50]  # noqa: E731
+    return _snapshot(GuidanceRequest(mode=mode, style_id=style_id, choices=parsed, skills_on=ids(skills_on),
+                                     skills_off=ids(skills_off), title=title[:300]))
+
+
 # ------------------------------------------------------------------ Make clips
 class ClipsRequest(BaseModel):
     asset_id: str

@@ -1,13 +1,13 @@
 """YouTube Shorts through the official YouTube Data API v3.
 
 Sign-in uses Google's OAuth 2.0 flow for desktop apps (loopback redirect to http://127.0.0.1 with PKCE), with your
-own Google Cloud project's "Desktop app" client. ClipFoundry receives tokens, never your Google password.
+own Google Cloud project's "Desktop app" client. ClipForge receives tokens, never your Google password.
 
 Uploads use the resumable upload protocol (videos.insert, uploadType=resumable) in 8 MiB chunks, resuming after
 network errors. YouTube classifies vertical videos of up to three minutes as Shorts automatically.
 
 YouTube's current videos.insert documentation allows uploads from unverified projects without a Private-only
-restriction. ClipFoundry still requires explicit audience and publishing permission, and reports the visibility
+restriction. ClipForge still requires explicit audience and publishing permission, and reports the visibility
 YouTube actually returns. Compliance audits are relevant to quota extensions, not a Public-upload switch.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ AUDIT_URL = "https://support.google.com/youtube/contact/yt_api_form"
 
 UNVERIFIED_NOTE = (
     "An unverified YouTube API project can request Public uploads under YouTube's current API documentation. "
-    "Confirm Public audience and automatic publishing separately; ClipFoundry reports the visibility YouTube "
+    "Confirm Public audience and automatic publishing separately; ClipForge reports the visibility YouTube "
     "actually returns. A compliance audit may be needed to request additional quota."
 )
 SETUP_FIX = ("Settings → Publishing → YouTube: create a Google Cloud project, enable the YouTube Data API v3, set up "
@@ -74,7 +74,7 @@ def _token_request(data: dict) -> dict:
     if r.status_code != 200:
         err = body.get("error", "")
         if err == "invalid_grant":
-            raise PublishError("Google no longer accepts ClipFoundry's access to your YouTube channel (it was revoked, "
+            raise PublishError("Google no longer accepts ClipForge's access to your YouTube channel (it was revoked, "
                                "expired, or the password was changed).", f"{RECONNECT_FIX} {TESTING_NOTE}",
                                "reconnect")
         if err in ("invalid_client", "unauthorized_client"):
@@ -178,7 +178,7 @@ def api_error(r: httpx.Response, method: str = "") -> PublishError:
         "uploadLimitExceeded": ("Your channel reached YouTube's upload limit for now.", "Try again in 24 hours."),
         "youtubeSignupRequired": ("This Google account has no YouTube channel yet.",
                                   "Create a channel on youtube.com, then connect again."),
-        "insufficientPermissions": ("ClipFoundry is not allowed to do this on your channel.", RECONNECT_FIX),
+        "insufficientPermissions": ("ClipForge is not allowed to do this on your channel.", RECONNECT_FIX),
         "forbidden": ("YouTube refused the request for this channel.", RECONNECT_FIX),
         "invalidTitle": ("YouTube rejected the title.", "Use 1-100 characters without < or >."),
         "invalidDescription": ("YouTube rejected the description.", "Use at most 5000 bytes without < or >."),
@@ -282,7 +282,7 @@ OUTCOME_UNKNOWN_FIX = ("Open YouTube Studio → Content. If the video is there, 
 
 def _outcome_unknown() -> PublishError:
     return PublishError("All of the video may already have reached YouTube, but YouTube no longer knows the upload "
-                        "session, so ClipFoundry cannot tell whether the video was created. It is not uploaded again "
+                        "session, so ClipForge cannot tell whether the video was created. It is not uploaded again "
                         "automatically, to avoid a duplicate.", OUTCOME_UNKNOWN_FIX, OUTCOME_UNKNOWN)
 
 

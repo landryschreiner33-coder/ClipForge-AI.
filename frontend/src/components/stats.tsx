@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { api, errorText, PerfSnapshot, Publication } from "../api";
 import { Icon, toast } from "./ui";
 
-const NOT_REPORTED = "Not reported by the platform (ClipFoundry never estimates a missing number)";
+const NOT_REPORTED = "Not reported by the platform (ClipForge never estimates a missing number)";
 
 export const fmtNum = (n: number | null | undefined) =>
   n === null || n === undefined ? "—"

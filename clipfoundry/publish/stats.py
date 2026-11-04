@@ -74,7 +74,7 @@ def _tiktok(pub: dict) -> tuple[dict, str, list[str], dict]:
                             "inbox drafts have none; after posting from the TikTok app, link the post with its URL."], {}
     acc = db.get_connection(pub.get("connection_id") or "") or db.get_account("tiktok") or {}
     if "video.list" not in (acc.get("scopes") or []):
-        return {}, source, ["ClipFoundry was not given TikTok's video.list permission. Turn on 'Video statistics' in "
+        return {}, source, ["ClipForge was not given TikTok's video.list permission. Turn on 'Video statistics' in "
                             "Settings → Publishing → TikTok and connect again."], {}
     videos = tiktok.video_statistics(tiktok.Token(db.get_settings(), acc.get("id") or None), ids)
     v = videos.get(ids[0])

@@ -112,7 +112,7 @@ export default function Setup({ step }: { step?: string }) {
         toast("Setup finished. Add a video whenever you like.");
       }
       await remember(how);
-      navigate("");
+      navigate(how === "autopilot" ? "office" : "");  // Autopilot's work shows in the robot office
     } catch (e) {
       toast(errorText(e), true);
       setBusy(false);
@@ -124,7 +124,7 @@ export default function Setup({ step }: { step?: string }) {
     body = (
       <section className="panel" aria-labelledby="st1">
         <h2 id="st1">Where are your videos?</h2>
-        <p className="muted">Use videos you made, or videos you have permission to use. ClipFoundry never posts other
+        <p className="muted">Use videos you made, or videos you have permission to use. ClipForge never posts other
           people's videos without an agreement or a free license.</p>
         <div className="cols-2">
           <div className="choice-card stack-3" style={{ display: "grid", alignContent: "start", cursor: "auto" }}>
@@ -188,7 +188,7 @@ export default function Setup({ step }: { step?: string }) {
       <section className="panel" aria-labelledby="st3">
         <h2 id="st3">Post to YouTube and TikTok when you're ready</h2>
         <p className="muted">Optional. Without accounts you can still make clips and export them. Connecting an account
-          does <b>not</b> let ClipFoundry post by itself: every post needs your OK, and YouTube can post automatically
+          does <b>not</b> let ClipForge post by itself: every post needs your OK, and YouTube can post automatically
           only if you turn that on separately. TikTok always asks.</p>
         <div className="rows">
           {PLATFORMS.map((p) => {
@@ -239,7 +239,7 @@ export default function Setup({ step }: { step?: string }) {
 
   return (
     <div className="page narrow">
-      <PageHead title="Set up ClipFoundry" sub="Three short steps. You can skip anything and come back later." />
+      <PageHead title="Set up ClipForge" sub="Three short steps. You can skip anything and come back later." />
       {started && (
         <Banner tone="info" title={`Autopilot is already set up${st.enabled ? " and on" : ""}`}>
           You can change these choices any time; Autopilot keeps working the way it is until you finish.

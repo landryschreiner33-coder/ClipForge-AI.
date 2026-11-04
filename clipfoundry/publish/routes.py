@@ -115,7 +115,7 @@ def tiktok_setup_export(request: Request, body: tiktok_setup.SetupDraft) -> Resp
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return Response(data, media_type="application/zip",
-                    headers={"Content-Disposition": 'attachment; filename="ClipFoundry-TikTok-form.zip"'})
+                    headers={"Content-Disposition": 'attachment; filename="ClipForge-TikTok-form.zip"'})
 
 
 @router.get("/api/publish/tiktok/setup/icon/{theme}", dependencies=[Depends(local_only)])
@@ -123,7 +123,7 @@ def tiktok_setup_icon(theme: str) -> FileResponse:
     if theme not in ("dark", "light"):
         raise HTTPException(404, "Unknown icon")
     return FileResponse(config.ROOT_DIR / "design" / "tiktok" / f"app-icon-{theme}.png",
-                        media_type="image/png", filename=f"ClipFoundry-icon-{theme}.png")
+                        media_type="image/png", filename=f"ClipForge-icon-{theme}.png")
 
 
 @router.post("/api/publish/tiktok/connect", dependencies=[Depends(app_request)])
@@ -245,7 +245,7 @@ def publish(clip_id: str, platform: str, body: PublishBody) -> dict:
         mode = body.mode if body.mode in ("direct", "inbox") else "direct"
         needed = "video.publish" if mode == "direct" else "video.upload"
         if needed not in (acc.get("scopes") or []):
-            raise PublishError(f"ClipFoundry does not have TikTok's {needed} permission.",
+            raise PublishError(f"ClipForge does not have TikTok's {needed} permission.",
                                "Use the other posting option, or add the Content Posting API to your TikTok app and "
                                "connect again.", "scope")
         options.update({k: getattr(body, k) for k in ("allow_comment", "allow_duet", "allow_stitch", "disclose",

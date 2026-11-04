@@ -33,7 +33,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
-  useLeaveGuard(busy ? { what: "a video still being copied into ClipFoundry" } : null);
+  useLeaveGuard(busy ? { what: "a video still being copied into ClipForge" } : null);
 
   useEffect(() => {
     setAgreed(false);
@@ -77,8 +77,8 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       const item = { ...result.item, submission: result.item.submission || result.submission };
       setData([item, ...(data || []).filter(row => row.id !== item.id)]);
       setNotice(result.already_added ? "This video was already added. Its existing progress is shown below."
-        : autoUpload ? "Added. ClipFoundry will make clips and upload those that pass the final checks."
-          : "Added. ClipFoundry will make clips on this PC without uploading them.");
+        : autoUpload ? "Added. ClipForge will make clips and upload those that pass the final checks."
+          : "Added. ClipForge will make clips on this PC without uploading them.");
       if (!result.already_added) {
         setUrl("");
         setFile(null);
@@ -120,7 +120,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
       </div>
       <a className="textlink small" href="#/brain"><Icon name="spark" />Edit Brain guidance</a>
     </div>
-    <p className="muted small">Paste one video link or choose a file. ClipFoundry finds strong moments, uses relevant
+    <p className="muted small">Paste one video link or choose a file. ClipForge finds strong moments, uses relevant
       supported Brain notes and example preferences, makes vertical clips, checks the finished audio and video, then uploads to YouTube
       when you choose it below. Settings fill any gaps in Brain guidance. No search API key is needed.</p>
     <form className="stack-4" onSubmit={submit}>
@@ -226,13 +226,13 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
         <button type="button" className="textlink" onClick={reloadSetup}>Try again</button></Banner>}
       {stopped && <Banner tone="warn" title="Jobs are stopped">Resume jobs above before adding a video.</Banner>}
       {progress !== null && <div className="stack" role="status">
-        <ProgressBar value={progress} label="Copying video into ClipFoundry" />
+        <ProgressBar value={progress} label="Copying video into ClipForge" />
         <span className="small muted">{progress < 1 ? `Copying video: ${Math.round(progress * 100)}%`
           : "Copied. Preparing the video…"}</span>
       </div>}
       <div className="row wrap submitted-actions">
-        <span className="hint grow">Adding a video starts processing. Keep ClipFoundry open and the PC awake while it works. Weak or failed clips stay
-          off YouTube. <a className="textlink" href="#/create">Open the manual editor workflow</a></span>
+        <span className="hint grow">Adding a video starts processing. Keep ClipForge open and the PC awake while it works. Weak or failed clips stay
+          off YouTube. <a className="textlink" href="#/create/link">Open the manual editor workflow</a></span>
         <button type="submit" className="btn btn-primary" disabled={!ready || busy}>
           {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name={autoUpload ? "upload" : "scissors"} />}
           {busy ? "Adding video…" : autoUpload ? "Make & upload clips" : "Make clips on this PC"}
@@ -243,7 +243,7 @@ export default function SubmittedVideos({ timezone, stopped, refreshStatus }: {
     </form>
     <hr className="divider" />
     <div className="panel-head"><h3 id={`${id}-videos`}>Submitted videos</h3>
-      <a className="textlink small" href="#/queue/scheduled">See uploads<Icon name="chev" className="sm" /></a></div>
+      <a className="textlink small" href="#/publishing/scheduled">See uploads<Icon name="chev" className="sm" /></a></div>
     {error && <p className="small muted" role="status">Could not refresh progress. Last known results are shown.
       <button type="button" className="textlink" onClick={refresh}>Try again</button></p>}
     {data === null ? <Skel className="skel-block" /> : !data.length ? <p className="small muted">
@@ -283,7 +283,7 @@ function SubmittedRow({ item, timezone, disabled, act }: {
     </div>
     <div className="row wrap">
       {item.project_id && <a className="btn btn-small" href={`#/project/${item.project_id}`}>View clips</a>}
-      {source.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/queue/problems">Review upload issue</a>}
+      {source.auto_upload && p?.posts_failed > 0 && <a className="btn btn-small" href="#/publishing/problems">Review upload issue</a>}
       {item.can_retry && <button type="button" className="btn btn-small" disabled={disabled} onClick={() => act("retry")}>Retry video</button>}
       {item.can_cancel && <button type="button" className="btn btn-small btn-quiet" disabled={disabled}
         onClick={() => act("cancel")}>Cancel video</button>}

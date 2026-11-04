@@ -247,7 +247,7 @@ def run(host: str, port: int, open_browser: bool = False) -> int:
             old_signals[signum] = signal.signal(signum, lambda *_: stop.set())
         env = {**os.environ, "CLIPFOUNDRY_DATA": str(profile), "CLIPFOUNDRY_PORT": str(port), "PYTHONUNBUFFERED": "1"}
         command = [sys.executable, "-m", "clipfoundry", "--host", host, "--port", str(port), "--unattended-child"]
-        print(f"ClipFoundry unattended mode; logs: {profile / 'logs' / 'unattended.log'}\n"
+        print(f"ClipForge unattended mode; logs: {profile / 'logs' / 'unattended.log'}\n"
               "Leave this window open. Ctrl+C stops the app and its workers.", flush=True)
         if open_browser:
             import webbrowser

@@ -83,7 +83,7 @@ export default function Office() {
       <StudioHeading connected={!feed.lost && !feed.error && feed.lastOk !== null} count={snap.roles.length} />
       {feed.lost && (
         <Banner tone="warn" icon="offline" title="The office is not updating">
-          What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipFoundry answers again.
+          What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipForge answers again.
         </Banner>
       )}
       <div className={`office-body${sel ? "" : " overview"}`}>

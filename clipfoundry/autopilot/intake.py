@@ -220,7 +220,7 @@ def identify(source: dict, settings: dict) -> dict:
             if response.status_code == 429 or response.status_code >= 500:
                 raise queue.Retry("The video server is temporarily unavailable.")
             if response.status_code != 200:
-                raise queue.Fail("Video found, but ClipFoundry cannot access the video file.")
+                raise queue.Fail("Video found, but ClipForge cannot access the video file.")
             content = response.headers.get("content-type", "").lower().split(";", 1)[0]
             if content in ("application/vnd.apple.mpegurl", "application/x-mpegurl", "application/dash+xml"):
                 return {"kind": "live", "live_status": "live"}
@@ -275,7 +275,7 @@ def identify_link(job: Job) -> dict:
         found = access.resolve(source, settings)
         db.update("sources", source["id"], access=access.record(source, found))
         if not found["ok"]:
-            raise queue.Fail("Video found, but ClipFoundry cannot access the video file. " + found["detail"])
+            raise queue.Fail("Video found, but ClipForge cannot access the video file. " + found["detail"])
         live = source["kind"] == "live" and source["live_status"] != "ended"
         kind, prefix = ("live_capture", "live") if live else ("hunt_source", "hunt")
         project = db.get_project(source.get("project_id") or "")

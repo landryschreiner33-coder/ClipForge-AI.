@@ -86,7 +86,7 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
         throw new Error(typeof result.detail === "string" ? result.detail : "The form pack could not be downloaded.");
       }
       const url = URL.createObjectURL(await response.blob()), a = document.createElement("a");
-      a.href = url; a.download = "ClipFoundry-TikTok-form.zip"; a.click();
+      a.href = url; a.download = "ClipForge-TikTok-form.zip"; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast("Form pack downloaded. Review it before using TikTok's portal.");
     } catch (e) { toast(errorText(e), true); }
@@ -116,7 +116,7 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
       </div>
       <div className="tk-eligibility" role="note">
         <Icon name="alert" /><div><b>Approval is TikTok's decision.</b>
-          <p>TikTok's production rules reject personal or private utility tools. ClipFoundry is a personal desktop
+          <p>TikTok's production rules reject personal or private utility tools. ClipForge is a personal desktop
             app, so this form cannot guarantee a connection or Public posting. You can always export clips and
             post them yourself.</p>
         </div>
@@ -124,7 +124,7 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
       <fieldset className="tk-mode-picker">
         <legend>1. Choose what your connection should do</legend>
         {([ ["inbox", "Send to my TikTok inbox", "Fewest posting permissions. Finish the post in TikTok."],
-          ["direct", "Direct Post only", "Needs an eligible app. Approve each post in ClipFoundry."],
+          ["direct", "Direct Post only", "Needs an eligible app. Approve each post in ClipForge."],
           ["both", "Direct Post and inbox", "Request both only if you will demonstrate and use both."] ] as const)
           .map(([mode, title, detail]) => <label key={mode} className={draft.mode === mode ? "selected" : ""}>
             <input type="radio" name={`${uid}-mode`} checked={draft.mode === mode}
@@ -142,7 +142,7 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
           <span className="small strong">Add these products: {packet.products.join(" · ")}</span>
           <code className="break">{packet.scopes.join(", ")}</code>
           <button type="button" className="btn btn-small" disabled={updating} onClick={apply}>
-            Use these permissions in ClipFoundry
+            Use these permissions in ClipForge
           </button>
           <p className="tiny muted">These are form choices. Save them and reconnect to request them; a previous
             TikTok connection keeps its existing granted permissions until you reconnect.</p>
@@ -158,13 +158,13 @@ export function TikTokSetup({ account, preferences, onPreferences }: {
         <p className="tiny muted">This HTTP address is correct for Desktop sign-in on this computer. It includes
           your current port. Register it exactly in Login Kit Desktop; it is separate from the public website.</p>
         <div className="tk-icons">
-          <img src={packet.icon.url || packet.icon.dark_url} alt="ClipFoundry robot app icon on a dark background" />
+          <img src={packet.icon.url || packet.icon.dark_url} alt="ClipForge robot app icon on a dark background" />
           <div><span className="small strong">Your app icon · 1024 × 1024 PNG</span>
             <div className="row wrap">
               <a className="btn btn-small" href={packet.icon.url || packet.icon.dark_url}
-                download="ClipFoundry-app-icon.png">Download app icon</a></div>
+                download="ClipForge-app-icon.png">Download app icon</a></div>
             <p className="tiny muted">Upload this same icon in TikTok Basic information. The included website,
-              browser tab and ClipFoundry app use this exact image. The PNG is below 5 MB.</p>
+              browser tab and ClipForge app use this exact image. The PNG is below 5 MB.</p>
           </div>
         </div>
         <Disclosure plain summary="Public website, Terms and Privacy fields">

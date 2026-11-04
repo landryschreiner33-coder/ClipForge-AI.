@@ -1,5 +1,58 @@
 # AI handoff
 
+## ClipForge build checkpoint, phases 0–6 — 2026-11-04 (Claude Code, cloud session)
+
+**Plain-English summary:** ClipForge is built and tested here on synthetic media and fake platforms. The app is
+now called ClipForge. Home offers two choices, **Make clips** (Highlights or Full stories) and **Make a YouTube
+video**. You can connect several YouTube and TikTok accounts, save styles, import editing skills, rename robots,
+choose a theme, and run an owner-only, sign-in-protected server mode. The robot office and its robots are
+unchanged, shown on the new dark stage and as a robot team on Home. Nothing was deployed, nothing was published,
+and no real account or owner media was used.
+
+- **Branch:** `claude/new-session-b9itcy`, draft PR #16 (not merged). Commits: `0f341c2` (phases 0–1),
+  `c4bc2fc` (2–3), `b313647` (4), then this checkpoint (5–6).
+- **What exists, by phase:**
+  - Cloud mode with fail-closed startup: `clipfoundry/cloud/`, plus `deploy/`.
+  - Sign-in: Google/OIDC, PKCE + nonce + state bound to the browser.
+  - Sessions and guards: server sessions, CSRF, host/origin checks, rate limits and a strict CSP.
+  - Encrypted secrets: AES-256-GCM, with the key file kept outside the data folder.
+  - Workspace ownership is checked on every ID in an address.
+  - Multiple social connections, migrated from the single account with tokens copied byte for byte
+    (`social_connections`).
+  - Resumable private uploads: `studio/uploads.py`.
+  - Durable studio jobs with leases: `studio/jobs.py`.
+  - Backup, restore and retention from the CLI.
+  - Guidance precedence with frozen snapshots and "Used from your Brain": `studio/guidance.py`.
+  - Styles and declarative skills: `studio/styles.py`, `studio/skills.py`, `docs/clipforge/SKILL_SCHEMA.md`.
+  - Full stories: `pipeline/stories.py`, `studio/story_review.py`, with eligibility in `studio/eligibility.py`.
+  - Full-video assembly on a versioned FFmpeg engine, with revisions: `studio/engine.py`, `studio/video_flow.py`.
+  - New shell and pages: Home, Make clips, Make a YouTube video, Projects, Brain, Publishing, Accounts, Office,
+    Settings → Appearance.
+  - Theme, accent, density, motion and per-device layouts, synced through `/api/preferences`.
+  - Robot display names.
+  - The ClipForge rename. Data folder, database, Keychain/DPAPI names, settings keys, the `X-ClipFoundry` header and
+    old addresses are kept.
+- **Final fixes in this checkpoint:**
+  - The earlier link/transcript Add video page is reachable again at `#/create/link`, linked from Make clips.
+  - Old Clips/Queue labels and links now say Projects/Publishing.
+  - Make clips previews its guidance with a GET (a POST was flagged by the read-only browser checks).
+  - Loading robot names at start no longer redraws the page. That redraw threw away a file chosen in the first moment.
+  - After Start Autopilot, setup opens the Office.
+- **Status of each requirement:** `docs/clipforge/FEATURE_CHECKLIST.md` (42 requirements, CF-01–CF-17).
+  - Partial: per-account spacing, full multi-user isolation (public sign-up stays off), full-video publishing,
+    retention screen, saved layouts on Create/Office, one-click "make parts", per-job CPU/disk quotas.
+  - Blocked: the FilmCraft build (this session's policy refused running third-party build scripts), model-based
+    story analysis (no model configured), capacity benchmark (no server or footage).
+- **Owner guide:** `docs/clipforge/OWNER_GUIDE.md`. Prepared website text (not published):
+  `docs/clipforge/WEBSITE_COPY.md`.
+- **Tests run here:** see the test log in `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 rows).
+- **Not verified:** real Google sign-in, a real server deployment, real YouTube/TikTok uploads or transcodes, real
+  camera footage with moving subjects, native Windows/RTX 3050 or Mac hardware, throughput per source hour, and the
+  office under the cloud CSP in a real browser session.
+- **Next action for the owner:** review draft PR #16. To try cloud mode, create a VM and an OIDC client, then follow
+  `deploy/README.md`. To evaluate FilmCraft, approve building it (or run `scripts/filmcraft_experiment.py` locally).
+  Run the owner-machine checklist at the end of `docs/IMPLEMENTATION_STATUS.md`.
+
 ## ClipForge implementation — session start 2026-11-04 (Claude Code, cloud session)
 
 **Plain-English summary:** implementation of the ClipForge cloud studio prompt has started. Nothing in it

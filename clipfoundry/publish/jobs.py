@@ -181,7 +181,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     elif locked_private:
         message = ("Uploaded to YouTube, but YouTube reports Private instead of the requested Public visibility. "
                    "Check this video's visibility and your channel's restrictions in YouTube Studio. "
-                   "ClipFoundry has not made it public.")
+                   "ClipForge has not made it public.")
     elif stamp.get("intent") == audience.PUBLIC:
         message = "Uploaded to YouTube as Public (YouTube confirmed)." if privacy == "public" else \
             "Uploaded to YouTube; Public was requested, but YouTube did not report visibility. Check it in Studio."
@@ -290,7 +290,7 @@ def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
                           message="Upload outcome unknown: YouTube may already have the video. Another upload "
                                   "is held to avoid a duplicate.",
                           fix=fix + "Open YouTube Studio → Content and use Refresh status to find the existing upload. "
-                              "ClipFoundry will not upload this clip again while the outcome is unknown.",
+                              "ClipForge will not upload this clip again while the outcome is unknown.",
                           info={**info, "outcome_unknown": True,
                                 "code": youtube.OUTCOME_UNKNOWN, "studio_url": "https://studio.youtube.com/"},
                           delivery={**(pub.get("delivery") or {}), "transfer": "outcome_unknown"})
@@ -370,7 +370,7 @@ def refresh(pub: dict) -> dict:
             if requested == "private" and st["privacy"] != "private" and governed:
                 audience.incident("youtube", f"YouTube reports video {pub['remote_id']} as {st['privacy']}, not "
                                              "Private.", pub["remote_id"])
-                msg = (f"YouTube reports this video as {st['privacy'].capitalize()}, not Private. ClipFoundry stopped "
+                msg = (f"YouTube reports this video as {st['privacy'].capitalize()}, not Private. ClipForge stopped "
                        "uploading to YouTube until you check it in YouTube Studio.")
             if (pub.get("audience") or {}).get("intent") == audience.PUBLIC:
                 delivery["audience_setup"] = "public_api_verified" if st["privacy"] == "public" else \

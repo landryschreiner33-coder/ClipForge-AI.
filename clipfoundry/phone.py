@@ -120,9 +120,9 @@ def status_snapshot() -> dict:
                      "approve": "A post needs approval", "publish": "A post needs attention",
                      "gpu": "The GPU needs attention", "sleep": "PC sleep settings need attention",
                      "stopped": "Background work needs attention", "videos": "Videos need attention",
-                     "other": "ClipFoundry needs attention on your PC"}
+                     "other": "ClipForge needs attention on your PC"}
     needs = [{"kind": a["type"] if a.get("type") in action_titles else "other",
-              "title": action_titles.get(a.get("type"), "ClipFoundry needs attention on your PC")}
+              "title": action_titles.get(a.get("type"), "ClipForge needs attention on your PC")}
              for a in home.needs_you(settings, platforms, bool(host["alive"]))[:8]]
     posts = home.post_counts()
     if posts["review"] and not any(a["kind"] == "approve" for a in needs):
@@ -144,7 +144,7 @@ def status_snapshot() -> dict:
         "health": {k: checks[k] for k in ("status", "label", "checked_at")},
         "health_checks": [{k: c[k] for k in ("id", "label", "status", "checked_at")}
                           for c in checks["checks"]],
-        "needs_you": needs[:8], "desktop_note": "Use ClipFoundry on your PC to make changes.",
+        "needs_you": needs[:8], "desktop_note": "Use ClipForge on your PC to make changes.",
     }
 
 
@@ -212,7 +212,7 @@ class PhoneManager:
                 thread.join(timeout=2)
             if thread and thread.is_alive():
                 self._state = "failed"
-                self._error = "Phone access is still closing. Restart ClipFoundry before enabling it again."
+                self._error = "Phone access is still closing. Restart ClipForge before enabling it again."
                 return
             if listener:
                 listener.close()
@@ -224,7 +224,7 @@ class PhoneManager:
         import uvicorn
 
         if self._thread and self._thread.is_alive():
-            raise ValueError("Phone access is still closing. Restart ClipFoundry before enabling it again.")
+            raise ValueError("Phone access is still closing. Restart ClipForge before enabling it again.")
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             try:
@@ -248,7 +248,7 @@ class PhoneManager:
             while self._thread.is_alive() and not self._server.started and time.monotonic() < deadline:
                 time.sleep(0.02)
             if not self.running:
-                raise ValueError("Phone access could not start. Try another port or restart ClipFoundry.")
+                raise ValueError("Phone access could not start. Try another port or restart ClipForge.")
             self._state = "running"
             return port
         except BaseException:
@@ -275,7 +275,7 @@ class PhoneManager:
             address = private_address(address, mode)
             chosen = port if port is not None else 8766
             if not 1024 <= chosen <= 65535 or (port is not None and chosen == desktop_port):
-                raise ValueError("Choose a port from 1024 to 65535 that is different from ClipFoundry's desktop port.")
+                raise ValueError("Choose a port from 1024 to 65535 that is different from ClipForge's desktop port.")
             if chosen == desktop_port:
                 chosen = 8767 if desktop_port != 8767 else 8768
             self.stop()
@@ -292,7 +292,7 @@ class PhoneManager:
                 if chosen == desktop_port:
                     self.stop()
                     self._state = "failed"
-                    self._error = "Choose a phone port different from ClipFoundry's desktop port."
+                    self._error = "Choose a phone port different from ClipForge's desktop port."
                     return self.status()
                 db.save_settings({"phone_port": chosen})
             return self.status()
@@ -368,7 +368,7 @@ class PhoneManager:
         value = request.headers.get("authorization", "")
         token = value[7:] if value.startswith("Bearer ") else ""
         if not self.running or not db.get_settings()["phone_enabled"] or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
-            raise HTTPException(401, "Pair this phone with ClipFoundry on your PC.")
+            raise HTTPException(401, "Pair this phone with ClipForge on your PC.")
         digest = hashlib.sha256(token.encode("ascii")).hexdigest()
         if not db.scalar("SELECT COUNT(*) FROM phone_devices WHERE token_hash = ? AND expires_at > ?",
                          (digest, time.time())):
@@ -400,7 +400,7 @@ def create_companion_app(manager: PhoneManager) -> FastAPI:
         with disconnect_cleanup():
             yield
 
-    companion = FastAPI(title="ClipFoundry phone status", docs_url=None, redoc_url=None, openapi_url=None,
+    companion = FastAPI(title="ClipForge phone status", docs_url=None, redoc_url=None, openapi_url=None,
                         lifespan=lifespan)
 
     @companion.middleware("http")
@@ -436,7 +436,7 @@ def create_companion_app(manager: PhoneManager) -> FastAPI:
     def phone_file(request: Request):
         path = config.FRONTEND_DIST / "phone" / _PHONE_FILES[request.url.path]
         if not path.is_file():
-            raise HTTPException(404, "The phone page is missing. Update ClipFoundry on your PC.")
+            raise HTTPException(404, "The phone page is missing. Update ClipForge on your PC.")
         return FileResponse(path)
 
     return companion

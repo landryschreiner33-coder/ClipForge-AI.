@@ -95,6 +95,14 @@ def main() -> None:
     said: dict[str, str] = {}  # project folder → what its video says (the stand-in's videos say different things)
 
     def synthetic_transcript(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
+        # CLIPFOUNDRY_SANDBOX_SCRIPTS: a folder of measured scripts (tests/story_fixtures.speech_recording); a file
+        # whose length matches one of them gets that script instead of the stand-in talk (Full stories demos).
+        import json as _json
+
+        for script in sorted(Path(os.environ.get("CLIPFOUNDRY_SANDBOX_SCRIPTS", "/nonexistent")).glob("*.json")):
+            data = _json.loads(script.read_text())
+            if abs(float(data.get("duration", 0)) - duration) < 0.3:
+                return data
         text = (said.get(str(Path(wav).parent), SPEECH) * 8).split()
         words = [w for w in words_from(" ".join(text), step=0.36, length=0.28) if w["end"] < duration - 0.5]
         return {"segments": [{"start": words[0]["start"], "end": words[-1]["end"], "words": words,

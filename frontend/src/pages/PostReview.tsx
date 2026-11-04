@@ -70,7 +70,7 @@ export default function PostReview({ id }: { id: string }) {
     if (error) {
       return (
         <div className="page">
-          <PageHead title="Post" crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post" }]} />
+          <PageHead title="Post" crumbs={[{ label: "Publishing", href: "#/publishing/review" }, { label: "Post" }]} />
           <EmptyState icon="alert" title="This post could not be loaded"
             actions={<button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>}>
             {error}
@@ -84,9 +84,9 @@ export default function PostReview({ id }: { id: string }) {
     return (
       <div className="page">
         <PageHead title="Post not found"
-          crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post not found" }]} />
+          crumbs={[{ label: "Publishing", href: "#/publishing/review" }, { label: "Post not found" }]} />
         <EmptyState icon="posts" title="There is no post at this address"
-          actions={<a className="btn" href="#/queue/review">Open the Queue</a>}>
+          actions={<a className="btn" href="#/publishing/review">Open Publishing</a>}>
           It may have been removed with its clip.
         </EmptyState>
       </div>
@@ -257,7 +257,7 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     <div className="page">
       <PageHead kind={`${name} post`} title={needsOk ? `Review for ${name}` : title}
         crumbs={[
-          { label: `Queue: ${VIEW_NAME[view]}`, href: `#/queue/${view}` },
+          { label: `Publishing: ${VIEW_NAME[view]}`, href: `#/publishing/${view}` },
           { label: <span className="clamp-1 crumb-title">{title}</span> },
         ]}
         sub={<span className="row wrap" style={{ gap: 8 }}><Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
@@ -497,7 +497,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
             <b>Publish now instead?</b>
             <span>
               “Publish now” uploads it right away instead of {atLabel(p.planned_at, tz)}. The upload can't be taken back
-              from ClipFoundry; you would remove it on {name}.
+              from ClipForge; you would remove it on {name}.
             </span>
           </div>
           <div className="row wrap">
@@ -511,7 +511,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
     case "publishing":
       return (
         <Banner tone="info" icon="upload" title="Uploading now">
-          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipFoundry
+          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipForge
           once it started; wait for it to finish.
         </Banner>
       );
@@ -539,9 +539,9 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
           </>}>
           <span className="stack" style={{ gap: 4 }}>
             {p.status_note && <span>{p.status_note}</span>}
-            <span>ClipFoundry won't upload it again by itself, so the video can never be posted twice.</span>
+            <span>ClipForge won't upload it again by itself, so the video can never be posted twice.</span>
             {fix(p.fix || `Check ${p.platform === "youtube" ? "YouTube Studio" : "your TikTok profile"}, then tell `
-              + "ClipFoundry what you found.")}
+              + "ClipForge what you found.")}
           </span>
         </Banner>
       );
@@ -585,7 +585,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
             </>}>
             <span className="stack" style={{ gap: 4 }}>
               <span>{p.status_note || p.publication?.message}</span>
-              <span>After you posted it, paste its link so ClipFoundry can read its real numbers.</span>
+              <span>After you posted it, paste its link so ClipForge can read its real numbers.</span>
             </span>
           </Banner>
         );
@@ -628,7 +628,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
 
 /** TikTok has no route for your followers from this app (only audited apps may post for them), so the clip is a
  * ready-to-post package: the video, its caption and who to post it for. You post it in the TikTok app, then paste
- * its link (or say you posted it). Nothing is uploaded by ClipFoundry. */
+ * its link (or say you posted it). Nothing is uploaded by ClipForge. */
 function PostItYourself({ p, videoUrl, onAction, onChanged }: {
   p: Post; videoUrl?: string; onAction: (a: PostAction) => void; onChanged: (p: Post) => void;
 }) {
@@ -663,7 +663,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
     <section className="panel stack-4 post-yourself" aria-labelledby="py-h">
       <h2 id="py-h" style={{ fontSize: "var(--fs-h3)" }}>Ready for you to post on TikTok</h2>
       <p className="small">
-        This is a manual posting package; ClipFoundry has not uploaded it. Direct Post for viewers needs TikTok’s
+        This is a manual posting package; ClipForge has not uploaded it. Direct Post for viewers needs TikTok’s
         app approval and your consent to each post. Download it, post it in TikTok yourself and record the result here.
       </p>
       <ol className="small stack" style={{ gap: 6, paddingLeft: 20 }}>
@@ -688,7 +688,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
           Under <b>Who can watch this video</b> choose <b>{who}</b>.
           {publicPost ? " Anyone may watch, share or find this post." : " Keep this post’s planned audience."} Then post.
         </li>
-        <li>Back here, paste the post's link (Share → Copy link) so ClipFoundry can read its numbers.</li>
+        <li>Back here, paste the post's link (Share → Copy link) so ClipForge can read its numbers.</li>
       </ol>
       <div className="row wrap">
         <button type="button" className="btn btn-primary btn-small" onClick={() => onAction("link")}>
@@ -699,7 +699,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
         </button>
       </div>
       <p className="tiny muted">
-        Without a link ClipFoundry cannot read its numbers: add what your viewers said in Clips → Test feedback.
+        Without a link ClipForge cannot read its numbers: add what your viewers said in Clips → Test feedback.
         Only post clips you may reuse.
       </p>
     </section>
@@ -765,7 +765,7 @@ function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => voi
           actions={<button type="button" className="btn btn-small" disabled={sharing} onClick={shared}>
             <Icon name="check" />I shared it</button>}>
           It is Private on YouTube, so nobody but you can watch it yet. In YouTube Studio choose Visibility → Private
-          → Share privately, add your viewers' email addresses and save. ClipFoundry cannot check this; your word is
+          → Share privately, add your viewers' email addresses and save. ClipForge cannot check this; your word is
           recorded as yours.
         </Banner>
       )}

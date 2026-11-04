@@ -52,20 +52,20 @@ REVIEW_NOT_POSTED = ("Its clips can be prepared for local review. Before anythin
                      "the individual post in Queue. This does not grant permission for other videos.")
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
-PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
+PC_NOTE = ("Keep this PC on and leave the black ClipForge window open: Autopilot only works while ClipForge runs. "
            "{sleep} Posts go out {hours}. Uploads need the PC running; videos already published remain on the platform.")
 SLEEP = {  # by the real state of the keep-awake request (awake.KeepAwake.status), never by the setting alone
-    "on": "ClipFoundry is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
-    "pending": "ClipFoundry is asking Windows to keep this PC from going to sleep.",
-    "failed": "Windows did not let ClipFoundry keep this PC awake, so turn off sleep yourself (see Needs you).",
-    "off": "While Autopilot is on, ClipFoundry keeps this PC from going to sleep.",
+    "on": "ClipForge is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
+    "pending": "ClipForge is asking Windows to keep this PC from going to sleep.",
+    "failed": "Windows did not let ClipForge keep this PC awake, so turn off sleep yourself (see Needs you).",
+    "off": "While Autopilot is on, ClipForge keeps this PC from going to sleep.",
     "setting_off": ("Keep the PC awake is off in Settings, so turn off sleep in the PC's power settings, or Autopilot "
                     "stops when the PC sleeps."),
     "unsupported": "Turn off sleep in the PC's power settings, or Autopilot stops when the PC sleeps.",
 }
 SLEEP_FIX = ("Open Windows Settings, then System, then Power & sleep (Windows 10) or Power & battery (Windows 11), "
              "and set the sleep time for \"When plugged in\" to Never. Keep the PC plugged in and a laptop's lid open. "
-             "ClipFoundry tries again every minute; this message goes away once it works.")
+             "ClipForge tries again every minute; this message goes away once it works.")
 USABLE = ("eligible", "queued", "ingesting", "analyzing")  # a found video Autopilot may use and has not finished
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
@@ -232,9 +232,9 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
     items: list[dict] = []
     if workers_stopped(settings, workers_alive):
         items.append({"key": "workers_stopped", "type": "stopped", "title": "Autopilot's background work has stopped",
-                      "detail": "ClipFoundry is open, but the part that finds, clips and posts videos is not running, "
+                      "detail": "ClipForge is open, but the part that finds, clips and posts videos is not running, "
                                 "so nothing happens.",
-                      "fix": "Close the black ClipFoundry window, then start ClipFoundry again with start.bat. If "
+                      "fix": "Close the black ClipForge window, then start ClipForge again with start.bat. If "
                              "this keeps happening, see Autopilot → Advanced → System.",
                       "link": "#/autopilot/system"})
     for p, name in NAME.items():
@@ -245,7 +245,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                                 "('awaiting_approval', 'approved', 'publishing', 'action_needed')", (p,)) or 0)
         if acc.get("connected") and acc.get("needs_reconnect"):
             items.append({"key": f"account:{p}", "type": "account", "platform": p, "title": f"Reconnect {name}",
-                          "detail": f"{name} stopped accepting ClipFoundry's sign-in, so Autopilot cannot post there. "
+                          "detail": f"{name} stopped accepting ClipForge's sign-in, so Autopilot cannot post there. "
                                     "Sign in again to continue."})
         elif not acc.get("connected") and planned:
             verb = "Reconnect" if _was_connected(p) else "Connect"
@@ -273,7 +273,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             if not settings.get("rights_ask_per_video") or not src or src["status"] != "needs_rights" \
                     or src.get("user_added"):
                 continue
-            items.append({"key": key, "type": "rights", "title": "ClipFoundry found a strong trending video",
+            items.append({"key": key, "type": "rights", "title": "ClipForge found a strong trending video",
                           "question": "Can you use this content?", "detail": RIGHTS_NOTE, "source": _source_view(src)})
         elif kind == "source_file":
             src = db.fetch("sources", a["ref_id"]) if a["ref_id"] else None
@@ -281,7 +281,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                 continue
             hosted = rights.is_platform_url(src.get("url") or "")
             items.append({"key": key, "type": "file", "title": f"Add the video file for “{src['title'][:80]}”",
-                          "detail": ("ClipFoundry does not download videos from YouTube or other platforms by itself "
+                          "detail": ("ClipForge does not download videos from YouTube or other platforms by itself "
                                      "(their terms). Choose the original file on this computer; for your own "
                                      "videos, YouTube Studio → Download gives you one.") if hosted else a["detail"],
                           "source": _source_view(src)})
@@ -455,7 +455,7 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
     if found:
         return ""
     if not config.discovery_enabled(settings):
-        return "Add a video link or file in Missions. ClipFoundry uses Brain guidance to create your clips."
+        return "Add a video link or file in Missions. ClipForge uses Brain guidance to create your clips."
     if not discover:
         return "Connect YouTube to start finding content."
     if not settings.get("autopilot_enabled"):
@@ -475,7 +475,7 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
                     "Automatic search continues; you can also add your own recording or a public video link. "
                     "Clips are prepared for local review and wait for your approval in Queue before uploading.")
         if settings.get("autopilot_public_videos"):
-            return ("No accessible strong videos yet. ClipFoundry is still looking. "
+            return ("No accessible strong videos yet. ClipForge is still looking. "
                     "Activity shows why each video was skipped. You can also paste a public video link.")
         return (f"Nothing it may use yet: the {skipped} video{'s' if skipped != 1 else ''} it found belong to other "
                 "people (not covered by an agreement or license) or cannot be downloaded. Put your own videos in your "
@@ -486,7 +486,7 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return (f"No stronger videos added this time. {int(short.get('filtered') or 0)} weaker or unsuitable finds "
                 f"were ignored; {int(short.get('held') or 0)} are waiting for a later search. "
                 "Your videos and links are still checked normally.")
-    return "No strong opportunities yet. ClipFoundry is still looking."
+    return "No strong opportunities yet. ClipForge is still looking."
 
 
 def auto_publish(settings: dict) -> dict:
@@ -510,7 +510,7 @@ def pc_note(settings: dict) -> str:
     note = PC_NOTE.format(sleep=SLEEP[now], hours=hours)
     if awake.keeper._platform == "darwin":
         note = note.replace("Windows", "macOS").replace("PC", "Mac").replace(
-            "black ClipFoundry window", "ClipFoundry Terminal window")
+            "black ClipForge window", "ClipForge Terminal window")
     return note
 
 
@@ -526,11 +526,11 @@ def needs_sleep_fix(settings: dict) -> dict | None:
         return None
     if awake.keeper._platform == "darwin":
         return {"key": "keep_awake", "type": "sleep", "title": "Your Mac may sleep and pause Autopilot",
-                "detail": "macOS did not maintain ClipFoundry's request to prevent idle sleep.",
+                "detail": "macOS did not maintain ClipForge's request to prevent idle sleep.",
                 "fix": "Keep the Mac powered and its lid open. Check System Settings → Battery or Energy "
-                       "and prevent automatic sleep while using ClipFoundry. The app retries the request."}
+                       "and prevent automatic sleep while using ClipForge. The app retries the request."}
     return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
-            "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
+            "detail": "ClipForge asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
                       "Autopilot finds, clips and posts nothing.",
             "fix": SLEEP_FIX}
 

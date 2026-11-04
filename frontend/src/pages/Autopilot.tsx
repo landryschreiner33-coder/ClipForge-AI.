@@ -79,8 +79,8 @@ function StoppedBanner({ refresh }: { refresh: () => void }) {
 type FactValue = [Tone, IconName, string, string];
 
 /** This PC: the real keep-awake state (PR #6), never the setting alone. "Kept awake" only when Windows agreed. */
-const noAnswer = (since: string) => since ? `No answer from ClipFoundry since ${since}.`
-  : "No answer from ClipFoundry.";
+const noAnswer = (since: string) => since ? `No answer from ClipForge since ${since}.`
+  : "No answer from ClipForge.";
 
 function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue {
   if (lost) return ["neutral", "offline", "Unknown", noAnswer(since)];
@@ -90,10 +90,10 @@ function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue
       return ["good", "check", "Kept awake", "Windows agreed to keep this PC from sleeping while Autopilot is on. "
         + "A laptop still sleeps if you close its lid."];
     case "pending":
-      return ["neutral", "clock", "Asking Windows", "ClipFoundry is asking Windows to keep this PC awake. This is not "
+      return ["neutral", "clock", "Asking Windows", "ClipForge is asking Windows to keep this PC awake. This is not "
         + "confirmed yet."];
     case "failed":
-      return ["bad", "alert", "Windows said no", "Windows did not let ClipFoundry keep this PC awake. Turn off sleep "
+      return ["bad", "alert", "Windows said no", "Windows did not let ClipForge keep this PC awake. Turn off sleep "
         + "yourself: see Needs you."];
     case "unsupported":
       return ["neutral", "moon", "Not available on this computer", "Turn off sleep in the PC's power settings, or "
@@ -196,7 +196,7 @@ function Overview({ st, lost, since, refresh, setData }: {
           <div className="panel-head"><h2 id="ap-posting-path">Why clips are waiting to post</h2>
             <span className="small muted">{lost ? "Unknown" : `${h.posting.finished} finished automatic clips`}</span>
           </div>
-          {lost ? <p className="muted">Posting status is unknown until ClipFoundry answers again.</p>
+          {lost ? <p className="muted">Posting status is unknown until ClipForge answers again.</p>
             : <div className="stack-4">{h.posting.platforms.map((p) => (
               <div key={p.platform} className="stack">
                 <div className="row wrap"><PlatformName platform={p.platform} />
@@ -255,7 +255,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         <div className="panel-head">
           <h2 id="ap-needs">Needs you{!lost && h.needs_you.length ? ` (${h.needs_you.length})` : ""}</h2>
         </div>
-        {lost ? <p className="muted">Unknown: ClipFoundry hasn't answered{since ? ` since ${since}` : ""}.</p>
+        {lost ? <p className="muted">Unknown: ClipForge hasn't answered{since ? ` since ${since}` : ""}.</p>
           : <NeedsYouList items={h.needs_you} platforms={st.platforms} refresh={refresh} />}
       </section>
 
@@ -263,7 +263,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         {/* align-content: start keeps the two parts together when the column next to it is taller */}
         <section className="panel" aria-labelledby="ap-now" style={{ alignContent: "start" }}>
           <h2 id="ap-now">Working on</h2>
-          {lost ? <p className="muted">Unknown: ClipFoundry hasn't answered{since ? ` since ${since}` : ""}.</p>
+          {lost ? <p className="muted">Unknown: ClipForge hasn't answered{since ? ` since ${since}` : ""}.</p>
             : <WorkingOn st={st} searchEvery={searchEvery} />}
           <hr className="divider" />
           {!submittedOnly ? <div className="stack my-videos">
@@ -284,13 +284,13 @@ function Overview({ st, lost, since, refresh, setData }: {
             <h3>You choose the videos</h3>
             <p>Automatic searching and watched-folder intake are off in this mode. Add each video above;
               no YouTube or Tavily search key is needed.</p>
-            <a className="textlink" href="#/clips">View your source videos and clips<Icon name="chev" className="sm" /></a>
+            <a className="textlink" href="#/projects">View your source videos and clips<Icon name="chev" className="sm" /></a>
           </div>}
         </section>
         <section className="panel" aria-labelledby="ap-up">
           <div className="panel-head">
             <h2 id="ap-up">Coming up</h2>
-            <a className="btn btn-quiet btn-small" href="#/queue/scheduled">All posts</a>
+            <a className="btn btn-quiet btn-small" href="#/publishing/scheduled">All posts</a>
           </div>
           {h.upcoming.length ? (
             <>
@@ -469,7 +469,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
       <section className="panel" aria-labelledby="found">
         <div className="panel-head">
           <h2 id="found">What Autopilot found</h2>
-          <span className="tiny faint">Scores are ClipFoundry's estimates, not platform numbers.</span>
+          <span className="tiny faint">Scores are ClipForge's estimates, not platform numbers.</span>
         </div>
         {h.opportunities.length ? (
           <div className="rows">
@@ -477,7 +477,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
               const [tone, icon] = STAGE_LOOK(o.stage);
               return (
                 <div key={o.id} className="row wrap opportunity" style={{ padding: "12px 0" }}>
-                  <span className="score" title="How strong the opportunity looks: ClipFoundry's estimate">
+                  <span className="score" title="How strong the opportunity looks: ClipForge's estimate">
                     <b>{o.score}</b>estimate</span>
                   <span className="grow stack" style={{ gap: 0, flexBasis: 220 }}>
                     {o.url ? <a className="post-title break" href={o.url} target="_blank" rel="noreferrer">{o.title}
@@ -536,7 +536,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
             reload();
             refresh();
           }}>
-          <p className="small muted">“{adding.title}”. ClipFoundry does not download videos from YouTube or other
+          <p className="small muted">“{adding.title}”. ClipForge does not download videos from YouTube or other
             platforms by itself (their terms). Choose the original file on this computer; for your own videos, YouTube
             Studio → Download gives you one.</p>
         </TextPromptDialog>

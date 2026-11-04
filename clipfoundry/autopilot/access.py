@@ -1,7 +1,7 @@
 """Getting a source's video file, decided separately from the right to reuse it (rights.py).
 
 A license or an agreement says what you may do with a video; it does not say how you may obtain the file. A connected
-YouTube account or a public link is not permission to download. ClipFoundry gets a file automatically only in these
+YouTube account or a public link is not permission to download. ClipForge gets a file automatically only in these
 ways:
 
 * local           a file on this computer (your recordings, a watch folder, a file you added)

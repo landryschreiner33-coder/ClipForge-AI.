@@ -1,7 +1,7 @@
 """TikTok through the official Content Posting API (and Login Kit for desktop).
 
 Sign-in: TikTok's OAuth page with PKCE (TikTok's desktop flow hex-encodes the SHA-256 challenge) and a redirect to
-http://127.0.0.1:<port>/api/oauth/tiktok/callback, which must be registered in your TikTok developer app. ClipFoundry
+http://127.0.0.1:<port>/api/oauth/tiktok/callback, which must be registered in your TikTok developer app. ClipForge
 receives tokens, never your TikTok password.
 
 Two official ways to post:
@@ -11,9 +11,9 @@ Two official ways to post:
 * Upload to inbox (scope video.upload): the video lands in your TikTok inbox as a draft; you finish and post it in the
   TikTok app. It needs no Direct Post audit, but TikTok must still approve the app for this scope in its app review
   (which turns down apps for private or personal use), and at most 5 drafts may wait at a time. Without an approved
-  app, ClipFoundry prepares a ready-to-post package that you post yourself.
+  app, ClipForge prepares a ready-to-post package that you post yourself.
 
-ClipFoundry follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
+ClipForge follows TikTok's Content Sharing Guidelines: it shows the creator's nickname, reads the privacy options
 before each post and never pre-selects one, leaves comments/duet/stitch off unless you turn them on (and greys them
 out when your account disables them), offers the commercial content disclosure, and shows the Music Usage
 Confirmation. No scraping and no unofficial automation.
@@ -99,7 +99,7 @@ def _token_request(settings: dict, data: dict) -> dict:
         if isinstance(err, dict):
             err = err.get("code", "")
         if err == "invalid_grant":
-            raise PublishError("TikTok no longer accepts ClipFoundry's access to your account (it expired or was "
+            raise PublishError("TikTok no longer accepts ClipForge's access to your account (it expired or was "
                                "revoked).", RECONNECT_FIX, "reconnect")
         if err in ("invalid_client", "unauthorized_client"):
             raise PublishError("TikTok rejected the client key or secret.", SETUP_FIX, "setup")
@@ -184,7 +184,7 @@ ERRORS = {
                                            "Check your account status in the TikTok app."),
     "privacy_level_option_mismatch": ("TikTok does not offer the chosen privacy option for this account.",
                                       "Pick one of the options shown on the publish screen."),
-    "scope_not_authorized": ("ClipFoundry was not given this TikTok permission.",
+    "scope_not_authorized": ("ClipForge was not given this TikTok permission.",
                              "Make sure the Content Posting API is added to your TikTok app, then connect again."),
     "access_token_invalid": ("TikTok did not accept the access token.", RECONNECT_FIX),
     "rate_limit_exceeded": ("TikTok is rate limiting requests right now.", "Wait a minute and try again."),
@@ -194,7 +194,7 @@ ERRORS = {
     "picture_size_check_failed": ("TikTok rejected the video size.", "Re-render the clip."),
     "video_pull_failed": ("TikTok could not receive the video.", "Publish again."),
     "publish_cancelled": ("The post was cancelled on TikTok.", ""),
-    "auth_removed": ("ClipFoundry's access was removed in TikTok.", RECONNECT_FIX),
+    "auth_removed": ("ClipForge's access was removed in TikTok.", RECONNECT_FIX),
     "user_banned_from_posting": ("TikTok currently does not allow this account to post.",
                                  "Check your account status in the TikTok app."),
     "internal": ("TikTok had an internal error.", "Try again in a few minutes."),
@@ -311,7 +311,7 @@ def _never_public(privacy: str, settings: dict | None = None, stamp: dict | None
             settings.get("audience_tiktok_confirmed_at") or (stamp or {}).get("intent") == "PUBLIC"):
         from .audience import PUBLIC_OFF_FIX, AudienceBlocked
 
-        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipFoundry posts only for your approved "
+        raise AudienceBlocked("Posting to everyone on TikTok is turned off: ClipForge posts only for your approved "
                               "followers or friends.", PUBLIC_OFF_FIX)
 
 

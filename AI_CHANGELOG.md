@@ -1,5 +1,33 @@
 # AI changelog
 
+## ClipForge studio, phases 0–6 — 2026-11-04 (Claude Code)
+
+Built the ClipForge prompt (`docs/CLIPFORGE_CLAUDE_PROMPT.md`) on `claude/new-session-b9itcy` (draft PR #16).
+
+What was built:
+- **Cloud mode:** owner-only OIDC sign-in, server sessions, CSRF/host/origin guards, strict CSP, workspace ownership on
+  every ID, AES-256-GCM secrets.
+- **Accounts:** multiple YouTube/TikTok connections, migrated without changing tokens.
+- **Server plumbing:** resumable private uploads; durable studio jobs; backup/restore/retention CLI.
+- **Guidance:** precedence with frozen snapshots and "Used from your Brain"; saved styles and declarative skills.
+- **Full stories:** complete stories as 9:16 clips, with destination eligibility (never truncated).
+- **Full YouTube video:** assembly on a versioned FFmpeg engine with revisions.
+- **Interface:** the new ClipForge shell; theme/layout prefs; robot display names; the visible rename.
+
+The office map and robots are unchanged. Desktop data, Keychain/DPAPI names, settings keys, the publish header and
+old addresses are kept.
+
+Final regression fixes:
+- Link/transcript import is reachable at `#/create/link`.
+- Make clips previews guidance with a GET.
+- Startup robot-name loading no longer redraws the page and discards a just-chosen file.
+- Remaining Clips/Queue labels now say Projects/Publishing.
+- Browser specs follow the new navigation.
+
+Tests: see `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 test log). Not verified: real sign-in, deployment, uploads,
+transcodes, native Windows/Mac hardware, throughput. FilmCraft stays Blocked (build not permitted here). No real
+posts, no deployment, no owner media.
+
 ## Opening handoff and bug-prevention requirement — 2026-11-03 (America/Chicago)
 
 The owner requests a handoff at the beginning of the Markdown prompt and asks to keep it “big free,” interpreted

@@ -53,7 +53,7 @@ export default function Library() {
             actions={<button type="button" className="btn btn-small" onClick={refresh}>
               <Icon name="refresh" />Try again
             </button>}>
-            {error}. Check that the black ClipFoundry window is still open.
+            {error}. Check that the black ClipForge window is still open.
           </Banner>
         ) : (
           <div className="grid-cards" aria-busy="true">
@@ -134,7 +134,7 @@ function LibraryCard({ p, onChanged, onDelete }: { p: LibProject; onChanged: () 
         {busy && (
           <span className="overlay">
             <Icon name={p.status === "uploading" ? "upload" : "refresh"} />
-            <span>{p.status === "uploading" ? "Copying into ClipFoundry" : p.message || "Waiting to start"}</span>
+            <span>{p.status === "uploading" ? "Copying into ClipForge" : p.message || "Waiting to start"}</span>
           </span>
         )}
       </Thumb>

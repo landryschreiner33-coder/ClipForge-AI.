@@ -219,7 +219,7 @@ test("the add dialogs on Permissions & sources open and close without a change",
   for (const way of ["A link", "A file", "A folder to watch", "Upload a video"]) {
     await expect(ways.getByRole("radio", { name: way, exact: true })).toBeVisible();
   }
-  await expect(dialog.getByRole("group", { name: "Can ClipFoundry use it?" }).getByRole("radio")).toHaveCount(3);
+  await expect(dialog.getByRole("group", { name: "Can ClipForge use it?" }).getByRole("radio")).toHaveCount(3);
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 });
@@ -240,10 +240,10 @@ test("System shows today's numbers and every status panel", async ({ page, reque
   await expect(page.getByText("FFmpeg is required.")).toHaveCount(health.ffmpeg ? 0 : 1);
 });
 
-test("Open the Queue goes to the scheduled posts", async ({ page }) => {
+test("Open Publishing goes to the scheduled posts", async ({ page }) => {
   await page.goto("/#/missions/system");
-  await page.getByRole("link", { name: "Open the Queue" }).click();
-  await expect(page).toHaveURL(/#\/queue\/scheduled$/);
+  await page.getByRole("link", { name: "Open Publishing" }).click();
+  await expect(page).toHaveURL(/#\/publishing\/scheduled$/);
 });
 
 test("a section opens directly, the old Overview address goes to System, an unknown one to the overview",

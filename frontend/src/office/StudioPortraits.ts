@@ -3,6 +3,8 @@
  * so opening Team or the developer gallery never creates a WebGL context for each portrait.
  */
 import type { Application } from "pixi.js";
+// Eval-free shader setup: the cloud Content-Security-Policy forbids eval (docs/clipforge/DESIGN_SPEC.md).
+import "pixi.js/unsafe-eval";
 import { BY_ID } from "./cast";
 import type { Dir } from "./cast";
 import type { Pose } from "./sprites";

@@ -1,4 +1,4 @@
-"""The Brain (CORE in the office): what ClipFoundry remembers about real results, and the one strategy it may change.
+"""The Brain (CORE in the office): what ClipForge remembers about real results, and the one strategy it may change.
 
 Evidence comes from three places and keeps its provenance apart:
 
@@ -401,7 +401,7 @@ def _rows(text: str, provenance: str, platform: str, observed_at: float | None, 
                 found[field] = head
     ignored = [h for h in heads if h not in found.values()]
     if "clip_id" not in found and "video_id" not in found:
-        raise Invalid("The file needs a clip_id column (from ClipFoundry) or a video ID column (Content)")
+        raise Invalid("The file needs a clip_id column (from ClipForge) or a video ID column (Content)")
     pubs = {p.get("remote_id"): p for p in db.list_publications() if p.get("remote_id")}
     out = []
     for n, rec in enumerate(reader, start=2):
@@ -415,7 +415,7 @@ def _rows(text: str, provenance: str, platform: str, observed_at: float | None, 
             pub = pubs.get(get("video_id")) if get("video_id") else None
             clip_id = get("clip_id") or (pub or {}).get("clip_id") or ""
             if not clip_id:
-                raise Invalid(f"video {get('video_id')} is not one of your ClipFoundry posts")
+                raise Invalid(f"video {get('video_id')} is not one of your ClipForge posts")
             row_platform = (get("platform") or (pub or {}).get("platform") or platform).lower()
             if provenance != "tester_feedback" and row_platform not in ("youtube", "tiktok"):
                 raise Invalid("no platform (add a platform column or choose YouTube or TikTok for the file)")

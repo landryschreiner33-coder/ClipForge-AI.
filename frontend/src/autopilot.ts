@@ -1,6 +1,6 @@
 import { req, PlatformAccount } from "./api";
 
-/** A metric as a platform reported it (observed), derived by ClipFoundry (estimated), or not reported. */
+/** A metric as a platform reported it (observed), derived by ClipForge (estimated), or not reported. */
 export interface Metric {
   value: number | null;
   status: "observed" | "estimated" | "unavailable";

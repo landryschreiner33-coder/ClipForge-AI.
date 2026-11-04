@@ -56,7 +56,7 @@ def text_for(platform: str, cfg: dict, channel: str = "") -> str:
     who = ("Public videos that anyone can watch" if public else "Private videos")
     meaning = ("Public posting is authorized only for new posts planned for the public. Existing posts and "
                "previously planned Private uploads keep their visibility. " if public else
-               "Nobody else can watch them until I share them privately in YouTube Studio; ClipFoundry never makes "
+               "Nobody else can watch them until I share them privately in YouTube Studio; ClipForge never makes "
                "them public or unlisted under this permission. ")
     amount = ("Upload eligible clips without an app daily cap" if int(cfg['daily_limit']) == 0 else
               f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day")

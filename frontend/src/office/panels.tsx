@@ -130,7 +130,7 @@ export function OverviewPanel({ snap, skew, events, onRobot, onRoom, setupNeeded
         <div className="op-callout">
           <b>Finish setting up</b>
           <p className="small">Choose where your videos come from and how posts go out.</p>
-          <a className="btn btn-primary btn-small" href="#/setup/videos">Set up ClipFoundry</a>
+          <a className="btn btn-primary btn-small" href="#/setup/videos">Set up ClipForge</a>
         </div>
       )}
       {needs.length > 0 && (
@@ -490,7 +490,7 @@ function RoomBody({ d, snap, stale, lastOk }: {
                 <a className="tiny" href={`#/post/${p.id}`}>Open</a></li>
             ))}</ul>
           ) : <p className="muted small">Nothing is planned.</p>}
-          <a className="small" href="#/queue/review">Open the queue</a>
+          <a className="small" href="#/publishing/review">Open Publishing</a>
         </Section>
       </>);
     case "dock": {
@@ -615,7 +615,7 @@ function BrainBody({ summary }: { summary: BrainSummary | undefined }) {
       ) : <p className="muted small">None. Autopilot uses your own settings.</p>}
     </Section>
     <div className="row wrap">
-      <a className="btn btn-small" href="#/clips/feedback"><Icon name="plus" />Add test feedback</a>
+      <a className="btn btn-small" href="#/projects/feedback"><Icon name="plus" />Add test feedback</a>
       <button type="button" className="btn btn-small" onClick={pause}><Icon name={s.state === "paused" ? "play" : "pause"} />{s.state === "paused" ? "Resume Brain" : "Pause Brain"}</button>
       <button type="button" className="btn btn-small btn-quiet" onClick={() => setConfirm("reset")}>Reset learning</button>
     </div>

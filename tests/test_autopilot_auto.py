@@ -160,7 +160,7 @@ def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     lib.add("talk-person.webm", "Space parade with people", "cc-by-4.0", "CC BY 4.0", restrictions="personality")
     lib.add("tiny.webm", "Space short clip", "cc0", "CC0", length=30)
     run("trend_scan")
-    assert all("ClipFoundry" in ua for ua in lib.user_agents)  # Wikimedia's User-Agent policy
+    assert all("ClipForge" in ua for ua in lib.user_agents)  # Wikimedia's User-Agent policy
     assert state.get("providers")["library"]["status"] == "ok"
     run("source_scout")
     src = {s["title"]: s for s in db.select("sources", "platform = 'commons'")}

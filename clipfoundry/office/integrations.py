@@ -39,7 +39,7 @@ def search_test(provider: Literal["youtube", "tavily"]) -> dict:
 
 
 def _test(platform: str) -> dict:
-    """Test connection (only from ClipFoundry's page on this PC): one read on the platform with the connected
+    """Test connection (only from ClipForge's page on this PC): one read on the platform with the connected
     account. It never uploads, posts or changes anything there, and it costs no money."""
     if not (db.get_account(platform) or {}).get("has_tokens"):
         raise HTTPException(409, f"Connect {'YouTube' if platform == 'youtube' else 'TikTok'} first.")

@@ -521,7 +521,7 @@ def test_the_pc_is_kept_awake_while_autopilot_is_on(client, windows):
     sup._keep_awake()  # Autopilot off: nothing asked
     assert k32.calls == [] and not keeper.holding
     assert home_now(client)["keep_awake"] == "off"
-    assert "While Autopilot is on, ClipFoundry keeps this PC from going to sleep" in home_now(client)["pc_note"]
+    assert "While Autopilot is on, ClipForge keeps this PC from going to sleep" in home_now(client)["pc_note"]
     client.post("/api/autopilot/start", headers=H)
     home = home_now(client)  # on, but not asked yet: the page does not claim it worked
     assert home["keep_awake"] == "pending" and "is asking Windows" in home["pc_note"] and not sleep_items(home)
@@ -557,7 +557,7 @@ def test_a_refused_keep_awake_request_is_shown_with_what_to_do_until_a_retry_wor
     assert len(k32.calls) == 1 and not keeper.holding and keeper.error
     home = home_now(client)
     assert home["keep_awake"] == "failed"
-    assert "did not let ClipFoundry keep this PC awake" in home["pc_note"]
+    assert "did not let ClipForge keep this PC awake" in home["pc_note"]
     assert "keeping this PC from going" not in home["pc_note"]
     [item] = sleep_items(home)
     assert item["title"] == "Your PC may go to sleep and stop Autopilot"

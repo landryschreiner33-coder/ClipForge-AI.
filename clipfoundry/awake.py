@@ -1,9 +1,9 @@
 """Keeping the PC awake while Autopilot works.
 
 Windows puts an idle PC to sleep after a while (often 15 to 30 minutes), and a sleeping PC finds, clips and posts
-nothing, so a night of Autopilot used to end soon after the user walked away. While Autopilot is on, ClipFoundry asks
+nothing, so a night of Autopilot used to end soon after the user walked away. While Autopilot is on, ClipForge asks
 Windows to keep the system running (the screen may still turn off). It is the documented SetThreadExecutionState
-request: it lasts only while ClipFoundry runs and ends by itself when ClipFoundry closes or crashes. It cannot stop a
+request: it lasts only while ClipForge runs and ends by itself when ClipForge closes or crashes. It cannot stop a
 laptop from sleeping when its lid is closed, or the PC from sleeping when someone chooses Sleep.
 
 macOS uses a child caffeinate process scoped to this process's lifetime. Linux is unchanged.

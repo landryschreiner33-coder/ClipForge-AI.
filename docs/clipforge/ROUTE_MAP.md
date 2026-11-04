@@ -11,6 +11,7 @@ sign-in: the sign-in page returns to the address that was requested.
 | Sign in (cloud only) | shown in place of any address while signed out | — | ClipForge name and robot icon, Continue with Google, error and retry. No project data is requested before sign-in. |
 | Home | `#/` | `#/home` | Make clips, Make a YouTube video, recent projects, real running work, actionable problems. |
 | Make clips | `#/create/clips` | `#/create` (old Add video) | Highlights / Full stories selector, file or link, saved style, destinations, Make clips / Make & upload clips. |
+| Add from a link | `#/create/link` | — | The earlier Add video page: a public link, or a file with its own transcript; linked from Make clips. |
 | Make a YouTube video | `#/create/video` | — | Media bin, four-question brief, saved style, Remember this style, Build my video. |
 | Source project review | `#/project/:id` | (unchanged) | Large preview, outputs (highlights or story cards), transcript, Used from your Brain, downloads, publishing. |
 | Full-video review | `#/video/:id` | — | Preview, outline, sequence (trim/reorder/include), Used from your Brain, versions, render, download, publish. |

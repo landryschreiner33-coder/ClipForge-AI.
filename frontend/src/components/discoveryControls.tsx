@@ -72,7 +72,7 @@ export default function DiscoveryControls({ st, refresh }: { st: AutopilotStatus
     </div><Icon name="spark" /></div>
     {st.settings.autopilot_input_mode === "submitted" && <div className="note stack small">
       <b>Automatic discovery is off</b>
-      <p>ClipFoundry now processes videos you add in Missions. No search key is needed. These choices stay saved
+      <p>ClipForge now processes videos you add in Missions. No search key is needed. These choices stay saved
         for optional discovery; saving them does not turn searches on.</p>
       <a className="textlink" href="#/settings/advanced">Change Video intake in Advanced settings</a>
     </div>}

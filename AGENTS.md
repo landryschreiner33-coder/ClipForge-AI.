@@ -15,6 +15,13 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**ClipForge build (2026-11-04):** The prompt's phases 0–6 are implemented on `claude/new-session-b9itcy` (draft
+PR #16, unmerged) with tests on synthetic media and fake platforms. Status per requirement (Implemented / Partial /
+Blocked): `docs/clipforge/FEATURE_CHECKLIST.md`; addresses: `docs/clipforge/ROUTE_MAP.md`; owner steps:
+`docs/clipforge/OWNER_GUIDE.md`. New code lives in `clipfoundry/cloud/` and `clipfoundry/studio/`. Cloud mode
+(`CLIPFOUNDRY_MODE=cloud`) is owner-only; public sign-up stays off. Nothing is deployed, and no real upload or sign-in
+was verified.
+
 **ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
 owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
 Its section 16 specifies screen/flow/data contracts, defaults and CF-01–CF-17 acceptance scenarios; read the

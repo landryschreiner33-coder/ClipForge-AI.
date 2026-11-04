@@ -1,7 +1,7 @@
 """Secrets at rest: OAuth tokens and API client secrets for publishing.
 
-ClipFoundry never asks for, sees or stores a Google or TikTok password: you sign in on Google's or TikTok's own page
-and ClipFoundry receives an access token (and a refresh token) through OAuth.
+ClipForge never asks for, sees or stores a Google or TikTok password: you sign in on Google's or TikTok's own page
+and ClipForge receives an access token (and a refresh token) through OAuth.
 
 On Windows those tokens are encrypted with DPAPI (CryptProtectData, current-user scope), so only your Windows account
 on this PC can decrypt them; a copy of the database on another PC or account is useless. On macOS, new secrets are
@@ -163,7 +163,7 @@ def seal(text: str) -> str:
             return macos_secrets.seal(text)
         except Exception as exc:
             raise SecretError("macOS Keychain could not protect this connection. Unlock your login Keychain "
-                              "and allow ClipFoundry's Python to use it, then try connecting again.") from exc
+                              "and allow ClipForge's Python to use it, then try connecting again.") from exc
     if sys.platform == "win32":
         try:
             return DPAPI + base64.b64encode(_dpapi(text.encode("utf-8"), True)).decode("ascii")

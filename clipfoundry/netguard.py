@@ -1,7 +1,7 @@
-"""Checks before ClipFoundry fetches a URL it did not write itself.
+"""Checks before ClipForge fetches a URL it did not write itself.
 
 Autopilot fetches media and signals from URLs that come from data: a signal feed's rows, a discovered source, a
-redirect. Such a URL must not be able to make ClipFoundry reach into your own computer or network (a router's admin
+redirect. Such a URL must not be able to make ClipForge reach into your own computer or network (a router's admin
 page, another app's local API, a cloud metadata address) or read local files through ffmpeg. So:
 
 * Only the expected schemes are used (http/https for downloads; http/https/rtmp/rtmps/srt/rtsp for live capture).

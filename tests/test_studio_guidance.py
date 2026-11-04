@@ -174,3 +174,18 @@ def test_the_bundled_example_skill_parses_into_real_choices(api):
     skill = _skill(api, ex["filename"], ex["text"])
     assert skill["supported"]["caption_position"] == "bottom" and skill["supported"]["transition"] == "dissolve"
     assert skill["blocked"] == []
+
+
+def test_the_preview_is_also_a_plain_read(api):
+    """Opening Make clips previews guidance with a GET, so nothing that could change data is sent (the read-only
+    browser checks against the owner's app block every other method)."""
+    import json
+
+    choices = {"caption_position": "top", "colour_grade": "teal"}
+    posted = api.post("/api/studio/guidance/preview", json={"mode": "highlights", "choices": choices}).json()
+    read = api.get("/api/studio/guidance/preview", params={"mode": "highlights", "choices": json.dumps(choices)})
+    assert read.status_code == 200
+    assert {**read.json(), "created_at": 0} == {**posted, "created_at": 0}  # the same decisions
+    assert _decision(read.json(), "caption_position")["from"]["level"] == "project"
+    assert api.get("/api/studio/guidance/preview", params={"mode": "highlights", "choices": "[1]"}).status_code == 422
+    assert api.get("/api/studio/guidance/preview", params={"mode": "nonsense"}).status_code == 422

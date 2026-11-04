@@ -23,13 +23,13 @@ SOURCES = {
     "App review": "https://developers.tiktok.com/doc/app-review-guidelines/",
     "Posting rules": "https://developers.tiktok.com/doc/content-sharing-guidelines/",
 }
-DESCRIPTION = ("ClipFoundry is a local-first, single-user desktop video editor. It turns long videos into "
+DESCRIPTION = ("ClipForge is a local-first, single-user desktop video editor. It turns long videos into "
                "captioned vertical clips on the owner's computer. For an eligible TikTok developer app, the "
                "owner signs in with TikTok, previews a clip, and explicitly chooses to send it to their TikTok "
                "inbox or approve a Direct Post. Reuse permission is checked before publishing. This is a "
                "personal desktop tool, not a public multi-user service.")
 LIMITATIONS = [
-    "TikTok's production review rejects private/personal utility tools. ClipFoundry currently fits that "
+    "TikTok's production review rejects private/personal utility tools. ClipForge currently fits that "
     "category; completing these fields does not make it eligible or guarantee approval.",
     "Sandbox is for target-user testing, not Public posts. An unaudited Direct Post requires a private TikTok "
     "account and Only me; up to five users can post in a 24-hour period.",
@@ -43,7 +43,7 @@ CHECKLIST = [
     {"id": "products", "label": "Added Login Kit, Content Posting API and only the permissions used below."},
     {"id": "redirect", "label": "Registered the exact local redirect address in Login Kit Desktop."},
     {"id": "target", "label": "Created a Sandbox, added my own target user and applied its changes."},
-    {"id": "credentials", "label": "Saved that Sandbox's client key and secret in ClipFoundry, then connected."},
+    {"id": "credentials", "label": "Saved that Sandbox's client key and secret in ClipForge, then connected."},
     {"id": "website", "label": "Published a real website with visible working Terms and Privacy links."},
     {"id": "ownership", "label": "Completed URL ownership verification in TikTok's portal."},
     {"id": "demo", "label": "Recorded the current sandbox flow showing every requested product and permission."},
@@ -123,13 +123,13 @@ def form_packet(settings: dict, redirect: str, draft: SetupDraft | None = None) 
                            "Personal-use eligibility is unresolved. No public-service, audit approval, live "
                            "website or successful real-account demo is claimed by this draft."])
     return {
-        "name": "ClipFoundry", "category": "Video / video editing (choose the closest option in the portal)",
+        "name": "ClipForge", "category": "Video / video editing (choose the closest option in the portal)",
         "description": DESCRIPTION, "platform": "Desktop", "redirect_uri": redirect,
         "mode": draft.mode, "read_stats": draft.read_stats, "preferences": prefs, "products": products,
         "scopes": scopes, "scope_notes": {s: SCOPE_NOTES[s] for s in scopes}, "urls": urls,
         "url_errors": errors, "url_check": "Format only; reachability, ownership and TikTok approval unverified.",
         "review_explanation": review, "checklist": checklist, "completed_count": len(done),
-        "portal_status": "Check TikTok's developer portal; ClipFoundry cannot verify app review or audit status.",
+        "portal_status": "Check TikTok's developer portal; ClipForge cannot verify app review or audit status.",
         "limits": LIMITATIONS, "sources": SOURCES,
         "icon": {"width": 1024, "height": 1024, "format": "PNG", "max_bytes": 5 * 1024 * 1024,
                  "url": "/api/publish/tiktok/setup/icon/dark",
@@ -137,7 +137,7 @@ def form_packet(settings: dict, redirect: str, draft: SetupDraft | None = None) 
                  "light_url": "/api/publish/tiktok/setup/icon/light"},
         "demo_steps": [
             "Use your own Sandbox target user and content you own or have permission to publish.",
-            "Show ClipFoundry opening, Connect TikTok, TikTok's consent screen and the returned account nickname.",
+            "Show ClipForge opening, Connect TikTok, TikTok's consent screen and the returned account nickname.",
             "Preview the exact clip, caption, manual privacy selection, interaction controls and disclosures.",
             "Show the requested inbox or Direct Post flow and its real result; do not present a controlled preview "
             "or fake-platform test as a real integration demo.",
@@ -152,7 +152,7 @@ def export_packet(packet: dict) -> bytes:
     if invalid:
         raise ValueError("Fix these public HTTPS addresses before downloading: " + ", ".join(invalid) +
                          ". Leave them blank if the pages are not published yet.")
-    text = ["ClipFoundry — TikTok app form draft", "", packet["portal_status"], "", *packet["limits"], ""]
+    text = ["ClipForge — TikTok app form draft", "", packet["portal_status"], "", *packet["limits"], ""]
     for name in ("name", "category", "platform", "description", "redirect_uri", "review_explanation"):
         text.extend([f"{name.replace('_', ' ').title()}:", str(packet[name]), ""])
     text.extend(["Products: " + ", ".join(packet["products"]), "Scopes: " + ", ".join(packet["scopes"]), ""])
@@ -177,6 +177,6 @@ def export_packet(packet: dict) -> bytes:
                    "official website, active visible policy links and verified URL ownership. Hosting these "
                    "files alone does not guarantee eligibility or approval. Publish all included files together; "
                    "keep app-icon.png unchanged so TikTok Basic information, the website logo and browser tab "
-                   "show the same icon. Never expose ClipFoundry's local "
+                   "show the same icon. Never expose ClipForge's local "
                    "API, credentials or your data folder as the public website.\n")
     return data.getvalue()

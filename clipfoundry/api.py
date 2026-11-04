@@ -676,4 +676,4 @@ def spa(full_path: str):
     index = config.FRONTEND_DIST / "index.html"
     if index.exists():
         return FileResponse(index)
-    return JSONResponse({"message": "ClipFoundry API is running. Build the UI with `npm run build` in frontend/."})
+    return JSONResponse({"message": "ClipForge API is running. Build the UI with `npm run build` in frontend/."})

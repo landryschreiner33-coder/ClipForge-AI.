@@ -10,8 +10,8 @@ import { brainApi, BrainView, FeedbackClip, ImportIn, ImportResult, Observation 
  */
 export function ClipsTabs({ current }: { current: "clips" | "feedback" }) {
   return <LinkTabs label="Clips sections" current={current} tabs={[
-    { id: "clips", href: "#/clips", label: "Videos and clips" },
-    { id: "feedback", href: "#/clips/feedback", label: "Test feedback" },
+    { id: "clips", href: "#/projects", label: "Projects" },
+    { id: "feedback", href: "#/projects/feedback", label: "Test feedback" },
   ]} />;
 }
 
@@ -35,7 +35,7 @@ export default function Feedback() {
   }, []);
   return (
     <div className="page">
-      <PageHead title="Test feedback" sub="Tell ClipFoundry how your selected viewers reacted. It learns only from enough real results, and slowly." />
+      <PageHead title="Test feedback" sub="Tell ClipForge how your selected viewers reacted. It learns only from enough real results, and slowly." />
       <ClipsTabs current="feedback" />
       {err && <Banner tone="bad" title="Could not load">{err}</Banner>}
       {clips && info && (clips.length ? (

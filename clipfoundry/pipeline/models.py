@@ -5,9 +5,9 @@ faster-whisper normally downloads into the Hugging Face cache layout
     models/models--<org>--<repo>/snapshots/<40-character commit>/<file>
 
 huggingface_hub writes the downloaded blobs with Windows long-path syntax, but not that snapshot entry. When
-ClipFoundry lives in a deep folder (e.g. a ZIP extracted in Downloads), the entry for the longest file name,
+ClipForge lives in a deep folder (e.g. a ZIP extracted in Downloads), the entry for the longest file name,
 preprocessor_config.json, passes Windows' 260-character limit and the download dies with WinError 3, leaving a
-half-installed model. So ClipFoundry keeps every model in a short, flat folder
+half-installed model. So ClipForge keeps every model in a short, flat folder
 
     models/<name>/config.json, model.bin, preprocessor_config.json, tokenizer.json, vocabulary.*
 

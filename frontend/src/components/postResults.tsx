@@ -35,7 +35,7 @@ function Cell({ v, i, suffix = "" }: { v: number | null | undefined; i: Item; su
 
 /**
  * Posts → Results: real numbers read from YouTube and TikTok for your own posts. A number a platform doesn't report
- * is "—" with the reason; nothing is estimated. Viral Potential at posting is ClipFoundry's estimate, labeled as
+ * is "—" with the reason; nothing is estimated. Viral Potential at posting is ClipForge's estimate, labeled as
  * such.
  */
 export function PostResults({ posts }: { posts: Post[] }) {

@@ -143,7 +143,7 @@ export function VersionsCard({ clip, onChange, onPlay, playing }: {
             apply(await api.createVersions(clip.id));
             toast("Rendering the versions");
           }}>
-          <p className="muted small">ClipFoundry renders three alternatives next to the original:</p>
+          <p className="muted small">ClipForge renders three alternatives next to the original:</p>
           <ul className="steps-list">
             <li><b>Faster pacing:</b> tighter pauses, no filler words, 8% faster.</li>
             <li><b>Alternative hook:</b> another hook line, and a stronger first line if the clip has one.</li>

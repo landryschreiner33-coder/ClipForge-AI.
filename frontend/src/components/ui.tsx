@@ -77,7 +77,7 @@ export const useConnection = () => useContext(ConnectionContext);
 export type Tone = "good" | "warn" | "bad" | "info" | "neutral" | "accent";
 const TONE_ICON: Record<Tone, IconName> = { good: "check", warn: "alert", bad: "alert", info: "info", neutral: "info", accent: "spark" };
 
-/** A status: always an icon plus a word. While ClipFoundry is not answering, nothing reads as confirmed good. */
+/** A status: always an icon plus a word. While ClipForge is not answering, nothing reads as confirmed good. */
 export function Pill({ tone = "neutral", icon, children, className = "", title }: {
   tone?: Tone; icon?: IconName; children: ReactNode; className?: string; title?: string;
 }) {
@@ -133,7 +133,7 @@ export function Segmented<T extends string | number>({ value, options, onChange,
   );
 }
 
-/** Viral Potential: ClipFoundry's own estimate for ranking clips, never a prediction of views. */
+/** Viral Potential: ClipForge's own estimate for ranking clips, never a prediction of views. */
 export function ScoreBadge({ score, compact }: { score: number; compact?: boolean }) {
   return (
     <span className="score" title="Viral Potential: an estimate from the clip's transcript and audio, used to rank clips. Not a guarantee of views.">
