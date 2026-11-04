@@ -1,104 +1,41 @@
 {
-  "source_commit": "88386d6cd4f4ede321d6f4d2fca406de67eba1cc",
-  "app_archive_sha256": "0cc389b2933c1ba5459267e19c7baedef49967f9785e7121277767fedc77aeb8",
-  "zip_bytes": 42209821,
-  "zip_sha256": "267f1dc686d1584fa86d91c4f56bf4e8db7399ea1954bbe876f3698ded55bddc",
+  "source_commit": "c7d502f83e25c6adcb59c01094082d2fea76e7cc",
+  "app_archive_sha256": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
+  "zip_bytes": 46661054,
+  "zip_sha256": "064d7bc7473a2546d6f168cd7d8e09816b1489d82c8b3f130a9fa76304d683a4",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "b56134c66d803d169425d91017e2ff85812f53f1509719601e3e87a100b7b108",
-    "setup.py": "a6bb2daf5701761e754e9a1c1639216ba8fed6e0c43617a992fb97e14607307b",
-    "app.zip": "0cc389b2933c1ba5459267e19c7baedef49967f9785e7121277767fedc77aeb8",
+    "setup.py": "fead4c1f4058270acdfcdbef4e3ea0351d7e55d2d01b0ec3645e5ccb0b594eb2",
+    "app.zip": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
     "README.txt": "606564a0edc89989e2e83043fde6eeb375b81e36a0f2f43eae7ea80ad9abf69e"
   },
-  "app_files": 524,
+  "app_files": 675,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
-  "date": "2026-10-29",
-  "timezone": "America/Chicago",
-  "artifact_base": "138d22b8558ec547d08ef54515a89b819b814fe4",
+  "file": "ClipForge-Windows-Setup.zip",
+  "date": "2026-11-04",
+  "timezone": "UTC",
+  "product": "ClipForge",
+  "launcher_tests": {
+    "passed": 77,
+    "suites": [
+      "plain_setup_test",
+      "build_plain_zip_test",
+      "pin_bundle_test"
+    ]
+  },
+  "payload_review": "All 675 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "app_tests": {
     "fast": {
-      "passed": 1524,
-      "deselected": 19,
-      "seconds": 1777.86
+      "passed": 1630,
+      "deselected": 21
     },
     "slow": {
-      "passed": 19,
-      "deselected": 1524,
-      "seconds": 2168.08
+      "passed": 21,
+      "deselected": 1630
     },
-    "frozen_python_files": 204,
-    "frontend_unchanged_files": 17,
-    "source_base": "91399fe",
-    "gate_version": 3,
-    "new_timing_tests": 9,
-    "original_invalid_packets": 140,
-    "youtube_exact_silence_seconds": [
-      0.8360208333,
-      3.0606875
-    ],
-    "private_repaired_copy": {
-      "applicable": true,
-      "valid": true,
-      "packets": 1081,
-      "sample_rate": 48000,
-      "invalid_packets": 0,
-      "first_invalid_packet": null,
-      "largest_clock_error_s": 0.0,
-      "decoded_audio_identical": true,
-      "encoded_audio_packets_identical": true,
-      "encoded_video_packets_identical": true,
-      "real_youtube_upload_verified": false
-    },
-    "owner_supplied_media_analyzed": true,
-    "owner_profile_accessed": false,
-    "real_upload_performed": false
-  },
-  "payload_verification": {
-    "source_commit": "88386d6cd4f4ede321d6f4d2fca406de67eba1cc",
-    "app_files": 524,
-    "frontend_files": 17,
-    "archive_sha256": "0cc389b2933c1ba5459267e19c7baedef49967f9785e7121277767fedc77aeb8",
-    "archive_bytes": 42270909,
-    "start_bat_sha256": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
-    "git_blobs_verified": true,
-    "frontend_matches_tested_manifest": true,
-    "bat_crlf_files": [
-      "e2e/run-beginner-test.bat",
-      "e2e/run-tests.bat",
-      "gpu-check.bat",
-      "run-unattended.bat",
-      "start.bat",
-      "test-isolated.bat"
-    ],
-    "only_committed_source": true,
-    "no_custom_exe": true
-  },
-  "delivery_tests": {
-    "plain_setup": {
-      "passed": 52,
-      "seconds": 3.257
-    },
-    "pin_helper": {
-      "passed": 13,
-      "seconds": 1.089
-    },
-    "builder": {
-      "passed": 12,
-      "seconds": 0.02
-    }
-  },
-  "managed_release_history": {
-    "prior_exact_pins_retained": true,
-    "previous_revisions": 14,
-    "current_revisions": 15,
-    "python_powershell_history_agree": true
-  },
-  "historical_exe_sha256": "3fb98871f38dc9d0dffa126a16cfe9223e8cb5b6f3b8aebe4ba493f940e0cf26",
-  "blocked_exe_false_positive_established": false,
-  "owner_media_included": false,
-  "owner_profile_accessed": false,
-  "real_upload_performed": false,
-  "no_security_settings_change": true,
-  "audio_fix": "Rebuild final sample clock and check raw AAC packet timing without automatic repair; gate version 3 invalidates stale quality passes."
+    "tested_commit": "a96781be95eca5ff9a4904e9db5d1d89401f3055",
+    "note": "the source commit differs from the tested commit only in AGENTS.md and docs/clipforge/WEBSITE_DEPLOYMENT.md"
+  }
 }

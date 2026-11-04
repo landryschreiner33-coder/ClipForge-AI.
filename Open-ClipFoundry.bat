@@ -18,8 +18,8 @@ exit /b 1
 # CF_POWERSHELL_BEGIN
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$Commit = '88386d6cd4f4ede321d6f4d2fca406de67eba1cc'
-$ArchiveHash = '0cc389b2933c1ba5459267e19c7baedef49967f9785e7121277767fedc77aeb8'
+$Commit = 'c7d502f83e25c6adcb59c01094082d2fea76e7cc'
+$ArchiveHash = 'a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b'
 $StartHash = '26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1'
 $ArchiveUrl = "https://github.com/landryschreiner33-coder/ClipForge-AI./archive/$Commit.zip"
 $ArchivePrefix = "ClipForge-AI.-$Commit/"
@@ -36,6 +36,7 @@ $KnownReleases = @{
     '58770e2242c8a84a6b6394048abde55a5065dc23' = '26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1'
     '718358f30110ab871e21059177f83ccd9ea3d3a9' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
     '7201047b795085f0cb608ea643efadf90074290c' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
+    '88386d6cd4f4ede321d6f4d2fca406de67eba1cc' = '26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1'
     '987ebb288ae9097bedbd80d0adee2b3c05c4271f' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
     'ab666fd5f2c4ca9c84a4fe9a2e874bc852437231' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'
     'd0b7102e8273cee068531da554c8d83f3fa43f8f' = '40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c'

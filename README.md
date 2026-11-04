@@ -1,4 +1,23 @@
-# ClipFoundry: readable Windows setup
+# ClipForge downloads
+
+## Windows setup (ClipForge, November 4, 2026)
+
+Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
+**Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
+keeps its ClipFoundry name so an existing setup and its data are found and kept. It needs 64-bit Python 3.12 (or
+3.11) from python.org; see the details below, which still apply.
+
+It installs ClipForge from source commit `c7d502f83e25c6adcb59c01094082d2fea76e7cc` (the main branch after PR #16
+and PR #17). The 77 setup tests passed, and every file in the app was compared with that commit. The app's tests ran
+on `a96781b`, which differs only in two documentation files: 1,630 fast and 21 real-media checks passed. See
+`verification-windows.json`. This environment did not test native Windows, Windows security acceptance or real
+uploads.
+
+The Mac download is published as a GitHub release; the download page is
+https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+## Earlier ClipFoundry deliveries
+
 
 ## Apple-silicon Mac preview (November 2, 2026)
 

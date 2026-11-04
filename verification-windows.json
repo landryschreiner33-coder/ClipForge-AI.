@@ -1,0 +1,41 @@
+{
+  "source_commit": "c7d502f83e25c6adcb59c01094082d2fea76e7cc",
+  "app_archive_sha256": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
+  "zip_bytes": 46661054,
+  "zip_sha256": "064d7bc7473a2546d6f168cd7d8e09816b1489d82c8b3f130a9fa76304d683a4",
+  "members_sha256": {
+    "Open-ClipFoundry.cmd": "b56134c66d803d169425d91017e2ff85812f53f1509719601e3e87a100b7b108",
+    "setup.py": "fead4c1f4058270acdfcdbef4e3ea0351d7e55d2d01b0ec3645e5ccb0b594eb2",
+    "app.zip": "a77d20e4750e9de619870bf34a88b88b441d26e2f20e2800cd6813fa32cb183b",
+    "README.txt": "606564a0edc89989e2e83043fde6eeb375b81e36a0f2f43eae7ea80ad9abf69e"
+  },
+  "app_files": 675,
+  "no_custom_exe": true,
+  "defender_acceptance_verified": false,
+  "native_windows_verified": false,
+  "file": "ClipForge-Windows-Setup.zip",
+  "date": "2026-11-04",
+  "timezone": "UTC",
+  "product": "ClipForge",
+  "launcher_tests": {
+    "passed": 77,
+    "suites": [
+      "plain_setup_test",
+      "build_plain_zip_test",
+      "pin_bundle_test"
+    ]
+  },
+  "payload_review": "All 675 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "app_tests": {
+    "fast": {
+      "passed": 1630,
+      "deselected": 21
+    },
+    "slow": {
+      "passed": 21,
+      "deselected": 1630
+    },
+    "tested_commit": "a96781be95eca5ff9a4904e9db5d1d89401f3055",
+    "note": "the source commit differs from the tested commit only in AGENTS.md and docs/clipforge/WEBSITE_DEPLOYMENT.md"
+  }
+}
