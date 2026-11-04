@@ -1,5 +1,18 @@
 # Implementation status
 
+## Opening handoff and bug-prevention requirement — 2026-11-03 (America/Chicago)
+
+The owner requests a handoff at the beginning of the Markdown prompt and asks to keep it “big free,” interpreted
+as bug-free. [CLIPFORGE_CLAUDE_PROMPT.md](CLIPFORGE_CLAUDE_PROMPT.md) now opens with a continuation handoff,
+truthful current planning state, and instructions to maintain AI_HANDOFF.md at startup, checkpoints and exit.
+It requires root-cause fixes, regression checks, reproducible defect reporting, and no readiness claim while
+known core failures remain. Unverified external behavior must remain Partial/Blocked, not be described as
+literally free of all possible bugs. The detailed requirements and 17 acceptance scenarios are unchanged.
+
+Verification: an independent read-only prompt review found no conflict with continuing implementation;
+checked opening-handoff placement, preservation of the numbered implementation body, links, JSONL syntax
+and git diff --check. Documentation only; no application tests, deployment or real uploads were performed.
+
 ## Detailed ClipForge build contract added to Claude prompt — 2026-11-03 (America/Chicago)
 
 The owner requests a much more specific Markdown prompt and a simple explanation afterward. The canonical

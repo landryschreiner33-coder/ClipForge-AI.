@@ -1,4 +1,4 @@
-# Claude Code implementation prompt: ClipForge cloud studio
+# Claude Code handoff and implementation prompt: ClipForge cloud studio
 
 Copy the content below into Claude Code, or ask Claude Code to read this file in the repository and implement it.
 Updated November 3, 2026 (America/Chicago), with the owner's corrections. This is the canonical full prompt;
@@ -7,10 +7,48 @@ data requirements, fixtures and pass/fail scenarios. This brief does not claim t
 
 ---
 
+## Handoff — read this first
+
+You are taking over an existing project, not starting from scratch. This document is the complete handoff and
+implementation brief for the next Claude Code session. Preserve the latest Claude/Codex fixes and the owner's
+existing data. Continue from the actual current source after checking the repository, not from memory or an
+older downloaded copy.
+
+**Current handoff state:** the working product is still ClipFoundry. The ClipForge cloud studio, new creation
+workflows, multiple accounts and UI changes below are specified in planning documents; this prompt-writing
+checkpoint did not implement or deploy them. The planning branch is `codex/cloud-plan`. Read the latest source
+and handoff to identify any subsequent implementation before deciding what remains.
+
+**Start by creating or updating the implementation handoff.** Read `AGENTS.md`, `AI_HANDOFF.md`, the newest
+`AI_CHANGELOG.md` entry and this entire prompt. Inspect current changes, then record in `AI_HANDOFF.md`:
+
+- Actual branch/commit, uncommitted changes to preserve, and where the relevant implementation lives.
+- What is implemented, partial, planned or blocked, supported by the code and verification you inspected.
+- Current phase and the next concrete action, so a new session can continue without restarting the project.
+- Exact build/run/test commands and results for the current revision, separated from historical results.
+- Unresolved defects with reproduction steps and impact, plus failed/skipped checks and unverified behavior.
+- Data/migration/backup status, necessary provider setup and any remaining cost or publication authorization.
+
+Keep that handoff current after every meaningful checkpoint and before stopping or handing work to another
+session. Include a short plain-English progress summary. Never put tokens, passwords or private owner media
+in the handoff. Writing the handoff is the first step, not a substitute for implementing the authorized work.
+
+**Reliability requirement: aim for a bug-free experience.** Reproduce reported problems, fix their root causes,
+and preserve the existing audio, Brain, framing, account and publishing fixes. Test meaningful behavior after
+changes and run the required regression/acceptance checks before declaring a phase complete. Do not hide a bug
+by weakening a check, inventing success, ignoring an error or deleting a failing regression test.
+
+Do not call the product ready with known unresolved crashes, data loss, broken core workflows, wrong-account
+uploads, duplicate posts or failed required checks. Fix those issues first; when an external blocker prevents
+verification, mark the affected requirement Partial or Blocked and state the exact remaining action. Report
+other known defects and their impact honestly. Passing tests reduces risk; it is not proof that no possible
+bug exists. Never claim every bug is fixed or that a platform/hardware path was tested when it was not.
+
 You are continuing the existing ClipFoundry application and renaming its product experience to **ClipForge**.
 Build the requested cloud studio in tested, runnable increments. Inspect the latest code first and preserve
-previous Claude/Codex fixes. Do not replace the app with a mockup or stop after creating a plan. When an external account, real footage, capacity or paid service is unavailable, finish all
-independent implementation and testing, then report the exact remaining setup and evidence needed.
+previous Claude/Codex fixes. Do not replace the app with a mockup or stop after creating a plan. When an
+external account, real footage, capacity or paid service is unavailable, finish all independent implementation
+and testing, then report the exact remaining setup and evidence needed.
 
 ## 1. Owner goals and agreed scope
 
