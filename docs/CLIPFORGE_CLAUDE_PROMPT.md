@@ -1,7 +1,7 @@
 # Claude Code handoff and implementation prompt: ClipForge cloud studio
 
 Copy the content below into Claude Code, or ask Claude Code to read this file in the repository and implement it.
-Updated November 3, 2026 (America/Chicago), with the owner's corrections. This is the canonical full prompt;
+Updated November 4, 2026 (America/Chicago), with the owner's corrections. This is the canonical full prompt;
 it supersedes the earlier three-choice creation layout. Section 16 adds concrete screen contracts, defaults,
 data requirements, fixtures and pass/fail scenarios. This brief does not claim the features are built.
 
@@ -70,6 +70,9 @@ The owner wants:
 9. Rename the product from ClipFoundry to **ClipForge**, preserving existing projects, settings and credentials.
 10. Rearrange and redesign the interface around these workflows so it looks cohesive, attractive and professional.
 11. Let the owner give every robot a custom display name, saved across sessions and devices.
+12. Redesign and update the existing public website to match ClipForge, explain the new workflows clearly,
+    and provide polished, working downloads and cloud-studio access when available. This is a required
+    deliverable, not just a suggestion to change the name in the header. See section 17.
 
 Cloud is owner-only at first; public accounts come later. Expected demand exceeds five source-video hours
 per day. Cost should be as low as possible. No paid resource or subscription has been approved. A genuinely
@@ -485,7 +488,8 @@ Implement in this order, with a working checkpoint after each phase:
 3. Add Clips → Full stories: complete-story analysis, vertical composition, review and batch output with correct
    destination eligibility. Preserve Highlights as the other Clips mode.
 4. Full-video assembly, tested editor adapter, manual adjustments, preview and validated server render.
-5. Finish redesigned screens, theme/layout sync, robot naming, responsive views and multi-account publishing UX.
+5. Finish redesigned app screens, theme/layout sync, robot naming, responsive views, multi-account publishing
+   UX and the public website redesign in section 17. Verify actual site downloads and studio availability.
 6. Full regression pass, real capacity measurement when available, migration/cutover and deployment handoff.
 
 Back up and migrate a copy of desktop data; preserve bytes, hashes and history. Mac Keychain/Windows DPAPI
@@ -717,6 +721,7 @@ are test inputs, not claims about real YouTube/TikTok limits. Use fake accounts/
 | CF-15 | Open a migrated existing installation with the ClipForge label | Same project/media/Brain/account/history counts and original media hashes; no blank new profile |
 | CF-16 | Render and transfer mixed-rate media with opening speech and later quiet passages | Raw AAC clocks valid; decoded speech continuous; no introduced opening glitch/dropout or gain pumping |
 | CF-17 | Crash near upload acknowledgement, then restart scheduler | Same session reconciled; no duplicate post; exact account/audience and file binding remain intact |
+| CF-18 | Use redesigned website on desktop/mobile, keyboard and with JavaScript disabled for downloads | Existing public address/identity preserved, verified download assets and legal links work, responsive layout passes, studio CTA matches actual availability, no false feature/signing claims |
 
 For CF-04 use annotated intervals: intro 00:00–00:15, story A 00:15–03:10, gap 03:10–03:25,
 story B 03:25–07:05, gap 07:05–07:20, story C 07:20–11:40, outro 11:40–12:00. Put a chunk boundary at 06:00
@@ -736,8 +741,9 @@ Deliver: the updated code and migrations; pinned editor integration/capability r
 and design tokens; runnable owner-only deployment configuration with a secret-free example environment file;
 backup/restore/cutover steps; regression results; screen recordings/screenshots; a benchmark harness/report;
 and a short owner guide covering login, creation modes, Brain/skills, account selection and robot names.
-Provide exact build/run commands and the tested commit. Prepare the next version of website copy to describe
-only verified capabilities; keep the working download until its replacement is tested.
+Provide exact build/run commands and the tested commit. Deliver the redesigned website from section 17 with
+preview, tested links, responsive screenshots and deployment/rollback evidence when publication is available.
+Describe only verified capabilities as available; keep the working download until its replacement is tested.
 
 The performance report must measure a representative aggregate batch of more than five source hours, full
 output rendering and cleanup on the proposed server, not just ASR on a short clip. Record model/settings,
@@ -750,3 +756,115 @@ Completion means the required user journeys work with real saved state and valid
 automated tests pass, migration preserves existing data, and any untested provider/hardware behavior is stated
 plainly. Continue useful independent work when provider setup is missing; never fabricate deployment URLs,
 account connections, real-platform approval, video uploads or test results.
+
+## 17. Redesign and update the public ClipForge website
+
+The owner explicitly requests a better-looking website as part of this build. Implement the redesign, not only
+copy suggestions or a screenshot. Keep the website visually consistent with the redesigned app and useful to
+someone who has never heard of the product.
+
+### 17.1 Continue the actual existing site
+
+Current public address: https://clipfoundry-studio.landryschreiner33.chatgpt.site
+Existing Sites project: `appgprj_6ae8b76d68108191bc36af565f138bed` (public).
+The available site checkout is `/workspace/sites/clipfoundry-downloads`, separate from the application repo.
+Inspect current hosting/source metadata instead of assuming this absolute path exists in every new session.
+
+The last inspected site is buildless HTML/CSS/JavaScript in `dist/`: `index.html`, `styles.css`, `app.js`,
+`privacy.html`, `terms.html`, `releases.json` and `mac-verification.json`. `.openai/hosting.json` records its
+hosting identity. Check the newest deployed/source version before editing and retain working download metadata.
+
+Update this existing project and public address; do not create a second site or buy a domain. Preserve the
+separate original GitHub Pages/TikTok verification site, verification files and registered callback URLs.
+Use the connected hosting workflow and its current instructions when available. Keep a known-good site version
+for rollback. If hosting access is unavailable, complete the website files, local preview and QA, then name the
+exact publication blocker. Do not claim an undeployed preview is the live website.
+
+### 17.2 Page structure and exact purpose
+
+Build one focused landing/download page with these sections in this order:
+
+1. **Header:** canonical robot icon and ClipForge wordmark; links to How it works, Features, Downloads and FAQ.
+   Add Open Studio only when it points to the real, healthy authenticated cloud app. On phones use a working
+   menu with keyboard/focus handling rather than squeezing every link into one line.
+2. **Hero:** a concise headline such as “Your footage. Ready to share.” Explain the actual available product in
+   one short paragraph. Use a large real product preview and clear primary/secondary actions. Once the cloud
+   app is verified, Open Studio is primary and Download desktop is secondary. Before that, downloads are primary
+   and cloud access is clearly described as upcoming; do not ship an empty login page or dead Open Studio link.
+3. **Two creation workflows:** show Make clips and Make a YouTube video. Within the Clips card, explain Highlights
+   and Full stories. Example: “One long recording. A complete vertical clip for each story.” Keep availability
+   labels accurate; a planned mode cannot be marketed as usable in the currently offered desktop download.
+4. **How it works:** Upload footage → Choose your style → Review, export or publish. Explain that server work
+   continues after input upload only when the cloud version is actually available. Keep this section brief.
+5. **Useful features:** Brain styles/skills, supported connected accounts, framing/captions, the robot office
+   and customization. Show real, controlled screenshots or short user-started demonstrations of implemented
+   features. Label illustrative samples and upcoming features; never use private owner media or fake results.
+6. **Downloads:** distinct Mac and Windows cards with format, supported architecture/OS, current version/date,
+   download link, setup steps, checksum/verification details and release notes. Buttons must identify the actual
+   file type, such as “Download for Mac (.dmg)” and “Download for Windows (.zip).” Do not guess the visitor's OS
+   and hide the other supported option. Keep direct downloads usable without JavaScript.
+7. **FAQ:** explain cloud versus desktop, where files/Brain data live, account connection, full stories versus
+   short highlights, actual publication/review behavior, setup and any real cost/preview limitations.
+8. **Footer:** ClipForge brand, working privacy/terms/help/contact links and genuine project/version information.
+   Keep existing factual contact information; do not invent testimonials, user counts, awards or endorsements.
+
+The site is public, but the initial cloud studio is owner-only. Open Studio may lead to the authorized login
+screen; it must not imply anyone can create an account while registration is disabled. Public visitors can
+still use the supported desktop download. Do not add fake pricing tiers or a signup form with nowhere to go.
+
+### 17.3 Visual quality and performance
+
+Use the app's shared color/type/spacing language from section 16.7: clean surfaces, intentional hierarchy,
+generous spacing, readable copy, restrained accent color and a professional robot identity. Give real product
+screenshots room to explain the experience. On desktop, use a balanced hero and clear sections; on mobile,
+stack content naturally and keep the main action easy to reach. Avoid a wall of identical feature cards.
+
+Use subtle hover/focus effects and short transitions only where useful. Respect reduced motion. Do not autoplay
+sound, require a heavy 3D scene to read the page or make text inaccessible without animation. Optimize image
+sizes/formats, reserve image dimensions to prevent jumping, lazy-load below-the-fold media and avoid unnecessary
+libraries. Keep the simple existing static structure unless a measured need justifies more complexity.
+
+Use semantic headings, descriptive link labels, visible keyboard focus, accessible contrast, readable body text
+and large touch targets. Set accurate page title/description, favicon and share-preview metadata with ClipForge
+branding. Do not embed keys, private API responses or owner-session data in static files, screenshots or HTML.
+
+### 17.4 Preserve honest, working downloads and review identity
+
+Inspect current `releases.json` and verification records. Keep immutable working artifact URLs and filenames
+until a tested replacement exists. A visual rename does not rename an old uploaded release file or establish
+that an older binary contains the new cloud/full-video features. Distinguish the current desktop preview from
+newly available cloud capabilities and keep versions/feature labels consistent.
+
+The previously verified Mac download is a native Apple-silicon DMG for macOS 15+ offered as an unsigned personal
+preview; verify the current release before describing it. Do not remove its opening guidance or claim Apple
+notarization/signing unless a replacement actually has that evidence. Preserve the current Windows package and
+its verification status. Check Mac/Windows links, file type, metadata and full checksums for any changed asset;
+update the visible download, version and verification record together. Never point users back to a stale package
+just because its name matches the new branding.
+
+Use the same canonical robot icon in the app, landing page, browser favicon and platform-review materials.
+Update privacy/terms to match actual cloud hosting, storage, identity, retention and provider use as those
+features ship. Preserve truthful current desktop disclosures. Keep TikTok verification files and registered
+public-policy URLs reachable. Account-console brand changes requiring owner access remain an explicit checklist.
+
+### 17.5 Verification and delivery
+
+Pass CF-18 with evidence from the real rendered website:
+
+- Check desktop 1440px, tablet 768px, phone 390px and narrow 320px: no horizontal overflow, overlapping content,
+  hidden downloads or unusable navigation; retain readable type and useful image crops.
+- Test every navigation, FAQ, setup-tab, help/legal and download action, including keyboard-only use and visible
+  focus. Test reduced motion and direct download anchors with JavaScript disabled.
+- Verify actual download destinations, expected artifact type and release metadata. A 200 response alone is
+  not proof the link is the installer; reject HTML/error/login pages masquerading as binary downloads.
+- Check available/unavailable cloud states: Open Studio leads to the configured real HTTPS login only after
+  health/auth checks pass; logged-out users cannot see private projects. Owner-only access remains truthful.
+- Check browser-console errors, broken images, failed requests and layout shifts; fix reproducible issues.
+  Record basic page-load evidence and address obvious asset bloat rather than invent a performance score.
+- Save before/after screenshots and a brief walkthrough. Identify the website source revision separately from
+  the app revision, deployed site version/address, verified downloads and rollback version.
+
+Prepare and verify the update before publishing through the existing authorized site workflow. After
+publication, check the live address and links again. If publication cannot be performed, deliver the tested
+preview and files, with a clear “not deployed” status and exact next step. Preserve the other implementation,
+handoff, data, audio, publishing and cost requirements throughout this website work.

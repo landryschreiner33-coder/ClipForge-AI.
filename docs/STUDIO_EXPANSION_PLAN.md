@@ -7,7 +7,7 @@ implemented by this checkpoint. The working desktop app and public download webs
 The full implementation brief is [CLIPFORGE_CLAUDE_PROMPT.md](CLIPFORGE_CLAUDE_PROMPT.md).
 Read it together with [CLOUD_PLAN.md](CLOUD_PLAN.md) and the newest repository handoff. Its section 16 now
 specifies exact screens/buttons, saved fields/defaults, account/asset/publication relationships, job behavior,
-visual tokens, a labeled three-story fixture, 17 pass/fail scenarios and required delivery evidence.
+visual tokens, a labeled three-story fixture, 18 pass/fail scenarios and required delivery evidence.
 
 ## The product
 
@@ -146,6 +146,15 @@ workspace against stable robot/role IDs and show the role beside the name, e.g. 
 across devices, appear consistently in activity/accessible labels, and cannot change worker identity, manager
 relationships, permissions or handoffs. Keep historical event identities and real work states intact.
 
+## Public website redesign
+
+The owner also requires the existing public download website to be redesigned for ClipForge, not just renamed.
+The prompt's section 17 specifies the existing Sites identity/source, landing-page sections, two creation
+workflows, responsive visuals, real product previews, verified Mac/Windows downloads, honest availability,
+legal/review links and live-deployment checks. Open Studio appears only for an actual verified cloud app;
+public visitors must not be promised accounts while the studio remains owner-only. Preserve working download
+artifacts and unsigned Mac guidance until a verified replacement exists. CF-18 covers website acceptance.
+
 ## Build order and completion evidence
 
 | Phase | Deliverable | Evidence needed to finish |
@@ -155,7 +164,7 @@ relationships, permissions or handoffs. Keep historical event identities and rea
 | 2. ClipForge creation and Brain | Renamed/redesigned shell with two creation choices, project brief, saved styles and skills | Existing profiles/routes preserved; a saved preference changes an actual plan and survives restart |
 | 3. Clips: Full stories | Complete-story segmentation and vertical batch output inside Clips | Complete stories, safe captions/moving framing, chunk-boundary handling and honest destination eligibility |
 | 4. Full-video editing | Multi-file rough cut, manual changes, preview, captions/audio, final render through tested adapter | Save/reopen parity; mixed-format media; correct preview/export; fresh quality/hash checks |
-| 5. Personalization and devices | Redesigned screens, theme/layout sync, robot naming and multi-account publishing UX | Mac/PC/tablet/phone checks; saved names do not change jobs; clear destinations and accessible panels |
+| 5. Personalization, website and devices | Redesigned app/site, theme/layout sync, robot naming and publishing UX | Cross-device checks, CF-18 website/download tests, real destinations and stable robot roles |
 | 6. Unattended operation and cutover | Measured workload, queued publishing, migration and rollback | More-than-five-hour representative daily batch, bounded disk/cost, no duplicate posts after failures |
 
 Keep each phase runnable and ship a complete tested path through it. Security and workspace ownership belong
