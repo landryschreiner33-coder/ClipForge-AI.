@@ -188,6 +188,9 @@ class CompleteLoopFixture:
                           "rights_allow_remote_download": True,
                           "autopilot_clips_per_source": 1, "autopilot_sources_per_day": 1,
                           "autopilot_daily_target": 4, "autopilot_min_quality": 40,
+                          # This compressed loop tests real rendering/restart, not a 30-minute wall-clock wait.
+                          # Durable production pacing is checked independently in test_review_creation_fixes.
+                          "autopilot_min_gap_minutes": 0,
                           "autopilot_active_start": 0, "autopilot_active_end": 24,
                           "autopilot_upload_lead_minutes": 720,
                           "autopilot_tiktok": False, "autopilot_youtube": True,
@@ -210,8 +213,14 @@ class CompleteLoopFixture:
 
     def repeat(self) -> None:
         """The upstream platform exposes another video; ordinary periodic discovery must pick it up."""
+        from clipfoundry import db
+
         self.add_catalog(SECOND, "Podcast honest stage story with a broken laptop", self.second)
         self.google.popular = [SECOND]
+        # The fixture compresses the normal discovery period to 30 seconds. Advance only the age of the
+        # platform's cached video lists as well, so a normal refresh can see its newly available recording.
+        # Media, final reports, approvals, quota counters and remote wait deadlines remain untouched.
+        db.execute("UPDATE api_cache SET expires_at = 0 WHERE method IN ('search.list', 'playlistItems.list')")
         self.elapse_period("trend_scan")
 
     def upcoming_stream(self) -> str:

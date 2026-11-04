@@ -1,10 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { ap } from "../autopilot";
 import { ConnectAction, connectedOk, OpenVideosFolder, PLATFORMS } from "../components/apShared";
+import { AutoPublishLine } from "../components/autoPublish";
+import { AudiencePanel } from "../components/integrations";
 import { DEFAULT_TOPICS, splitTopics, TopicChoice } from "../components/topics";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, PlatformName, Pill, toast } from "../components/ui";
 import { plural } from "../format";
+import { audienceApi, AudienceView } from "../office/api";
 import { navigate } from "../router";
 import { useStatus } from "../status";
 
@@ -25,6 +28,38 @@ const draft: { how: How; topics: string | null } = { how: "", topics: null };
 
 /** Kept with the settings, so Home knows you chose to make clips yourself (and skips its welcome). */
 const remember = (how: How) => api.saveSettings({ setup_mode: how === "manual" ? "manual" : "" });
+
+/** Choosing an audience and granting automatic posting remain separate, explicit actions in the same step. */
+function PostingOptions({ platforms, refresh }: { platforms: ("youtube" | "tiktok")[]; refresh: () => void }) {
+  const [view, setView] = useState<AudienceView | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let current = true;
+    audienceApi.view().then((v) => {
+      if (current) { setView(v); setError(""); }
+    }).catch((e) => { if (current) setError(errorText(e)); });
+    return () => { current = false; };
+  }, [retry]);
+  const changed = (v: AudienceView) => { setView(v); refresh(); };
+  return <div className="stack-4">
+    {error && <Banner tone="bad" title="Publishing setup could not be read"
+      actions={<button type="button" className="btn btn-small" onClick={() => setRetry((x) => x + 1)}>
+        Try again
+      </button>}>{error}</Banner>}
+    {!view && !error && <p className="small muted" aria-busy="true">Reading who may watch your posts…</p>}
+    {view && <>
+      <AudiencePanel view={view} onSaved={changed} platforms={platforms} />
+      {platforms.includes("youtube") && <section aria-label="YouTube post review" className="stack-3">
+        <h3>Review clips before publishing</h3>
+        <p className="small muted">Choose who can watch, then review each prepared post in Queue. Check reuse and
+          approve its video, text and audience. TikTok is optional and never needed for YouTube posts.</p>
+        <AutoPublishLine platform="youtube" onChange={refresh}
+          key={`${view.youtube.intent}:${view.youtube.confirmed_at}:${view.youtube.group_version}`} />
+      </section>}
+    </>}
+  </div>;
+}
 
 export default function Setup({ step }: { step?: string }) {
   const { st, setData, refresh } = useStatus();
@@ -77,7 +112,7 @@ export default function Setup({ step }: { step?: string }) {
         toast("Setup finished. Add a video whenever you like.");
       }
       await remember(how);
-      navigate("");
+      navigate(how === "autopilot" ? "office" : "");  // Autopilot's work shows in the robot office
     } catch (e) {
       toast(errorText(e), true);
       setBusy(false);
@@ -89,7 +124,7 @@ export default function Setup({ step }: { step?: string }) {
     body = (
       <section className="panel" aria-labelledby="st1">
         <h2 id="st1">Where are your videos?</h2>
-        <p className="muted">Use videos you made, or videos you have permission to use. ClipFoundry never posts other
+        <p className="muted">Use videos you made, or videos you have permission to use. ClipForge never posts other
           people's videos without an agreement or a free license.</p>
         <div className="cols-2">
           <div className="choice-card stack-3" style={{ display: "grid", alignContent: "start", cursor: "auto" }}>
@@ -153,7 +188,7 @@ export default function Setup({ step }: { step?: string }) {
       <section className="panel" aria-labelledby="st3">
         <h2 id="st3">Post to YouTube and TikTok when you're ready</h2>
         <p className="muted">Optional. Without accounts you can still make clips and export them. Connecting an account
-          does <b>not</b> let ClipFoundry post by itself: every post needs your OK, and YouTube can post automatically
+          does <b>not</b> let ClipForge post by itself: every post needs your OK, and YouTube can post automatically
           only if you turn that on separately. TikTok always asks.</p>
         <div className="rows">
           {PLATFORMS.map((p) => {
@@ -176,10 +211,11 @@ export default function Setup({ step }: { step?: string }) {
         </div>
         <p className="small muted">The first time, each platform asks for the two codes of your own free developer app
           (about 10 minutes, steps included).</p>
-        {how === "autopilot" && (
-          <p className="small muted">Autopilot uses the accounts you connected. To let YouTube posts go out without
-            your review, turn on automatic publishing later on the Autopilot page: it asks exactly what you allow.</p>
-        )}
+        {how === "autopilot" && PLATFORMS.some((p) => connectedOk(st.platforms[p])) &&
+          <PostingOptions platforms={PLATFORMS.filter((p) => connectedOk(st.platforms[p]))} refresh={refresh} />}
+        {how === "autopilot" && <p className="small muted">You can start before finishing publishing setup.
+          Unconfirmed destinations keep clips on this PC; without automatic YouTube permission, planned posts wait
+          for your review in Queue.</p>}
         {!how && (
           <Banner tone="info" title="You haven't chosen how to work yet"
             actions={<a className="btn btn-small" href="#/setup/mode">Choose how to work</a>} />
@@ -203,7 +239,7 @@ export default function Setup({ step }: { step?: string }) {
 
   return (
     <div className="page narrow">
-      <PageHead title="Set up ClipFoundry" sub="Three short steps. You can skip anything and come back later." />
+      <PageHead title="Set up ClipForge" sub="Three short steps. You can skip anything and come back later." />
       {started && (
         <Banner tone="info" title={`Autopilot is already set up${st.enabled ? " and on" : ""}`}>
           You can change these choices any time; Autopilot keeps working the way it is until you finish.

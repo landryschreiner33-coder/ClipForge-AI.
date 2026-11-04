@@ -220,15 +220,15 @@ export default function ClipEditor({ id }: { id: string }) {
   if (loadError) {
     return (
       <div className="page">
-        <PageHead crumbs={[{ label: "Clips", href: "#/clips" }, { label: "Edit clip" }]} kind="Clip"
+        <PageHead crumbs={[{ label: "Projects", href: "#/projects" }, { label: "Edit clip" }]} kind="Clip"
           title="This clip isn't in your library" />
         <EmptyState icon="film" title="Nothing to edit" actions={<>
-          <a className="btn" href="#/clips"><Icon name="library" />Open the Library</a>
+          <a className="btn" href="#/projects"><Icon name="library" />Open Projects</a>
           <button type="button" className="btn" onClick={() => setAttempt((n) => n + 1)}>
             <Icon name="refresh" />Try again
           </button>
         </>}>
-          <p>ClipFoundry answered: {loadError}. The clip may have been deleted, or its video's clips made again.</p>
+          <p>ClipForge answered: {loadError}. The clip may have been deleted, or its video's clips made again.</p>
         </EmptyState>
       </div>
     );
@@ -428,6 +428,8 @@ export default function ClipEditor({ id }: { id: string }) {
   const currentHook = str("hook");
   const hookOptions = currentHook && !hookList.includes(currentHook) ? [...hookList, currentHook] : hookList;
   const ri = clip.render_info || {};
+  const brainLessons = (ri.brain_knowledge || clip.analysis?.brain_knowledge || []) as
+    { knowledge_id: string; revision: number; snapshot: { title: string } }[];
   const sizePct = Math.round(num("caption_size") * 100);
   const gain = num("gain_db");
 
@@ -444,7 +446,7 @@ export default function ClipEditor({ id }: { id: string }) {
           {trimChanged && <span className="faint"> (saved: {(savedEnd - savedStart).toFixed(1)} s)</span>}
         </p>
         <p className="hint">
-          ClipFoundry suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
+          ClipForge suggested {fmtPrecise(clip.start)} to {fmtPrecise(clip.end)}. Silence cleanup, filler cuts and
           pacing (in Audio) can make the video shorter than this.
         </p>
       </>
@@ -602,7 +604,7 @@ export default function ClipEditor({ id }: { id: string }) {
             aria-valuetext={`${gain > 0 ? "plus " : gain < 0 ? "minus " : ""}${Math.abs(gain)} decibels`}
             onChange={(e) => set({ gain_db: +e.target.value })} />
         </div>
-        <Check label="Normalize loudness to −14 LUFS (the social media standard)" on={bool("normalize_audio")}
+        <Check label="Normalize loudness (target −14 LUFS; preserve peaks)" on={bool("normalize_audio")}
           onChange={(v) => set({ normalize_audio: v })} />
         <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>
@@ -638,7 +640,7 @@ export default function ClipEditor({ id }: { id: string }) {
             onChange={(patch) => setPostDraft((x) => ({ ...x, ...patch }))} />
         ) : (
           <p className="muted small">
-            No post text yet. ClipFoundry can write a title, caption, hashtags, a short description, a call to action
+            No post text yet. ClipForge can write a title, caption, hashtags, a short description, a call to action
             and hook text from this clip's own words.
           </p>
         )}
@@ -658,7 +660,7 @@ export default function ClipEditor({ id }: { id: string }) {
     <div className="page clip-editor">
       <PageHead
         crumbs={[
-          { label: "Clips", href: "#/clips" }, { label: project.name, href: `#/project/${project.id}` },
+          { label: "Projects", href: "#/projects" }, { label: project.name, href: `#/project/${project.id}` },
           { label: "Edit clip" },
         ]}
         kind="Clip" title={clip.title}
@@ -682,10 +684,16 @@ export default function ClipEditor({ id }: { id: string }) {
           actions={<button type="button" className="btn btn-small" disabled={saving} onClick={renderOnly}>
             <Icon name="refresh" />Try again
           </button>}>
-          {clip.error && clip.error !== "Cancelled" && <p className="break">ClipFoundry reported: {clip.error}</p>}
+          {clip.error && clip.error !== "Cancelled" && <p className="break">ClipForge reported: {clip.error}</p>}
           {clip.has_video && <p>The video below is the last render that worked.</p>}
         </Banner>
       )}
+
+      {brainLessons.length > 0 && <p className="small muted" data-testid="clip-brain-guidance">
+        Brain guidance used for this clip: {brainLessons.map(item =>
+          `${item.snapshot.title} (revision ${item.revision})`).join("; ")}.
+        {" "}<a className="textlink" href="#/brain">Open Brain</a>
+      </p>}
 
       <div className="editor">
         <div className="stage-area">

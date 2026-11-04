@@ -1,6 +1,6 @@
 """Capability registry and integration cards (Settings → Integrations).
 
-Three things are kept apart for every platform or service: whether ClipFoundry implements a capability (a fact of
+Three things are kept apart for every platform or service: whether ClipForge implements a capability (a fact of
 this code), whether an account or key is connected (this PC's state), and whether the capability is available right
 now (connected + permitted + within limits). A connected account does not make every capability available, and an
 OAuth connection never grants media download or full analytics.
@@ -34,7 +34,7 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "discovery": (IMPLEMENTED, "Popular and searched videos through the YouTube Data API (your connected "
                                    "channel or an API key)."),
         "metadata": (IMPLEMENTED, "Title, channel, duration, views, likes and comments as YouTube reports them."),
-        "transcript": (LOCAL, "Made on this PC with Whisper on your GPU; YouTube captions are not downloaded."),
+        "transcript": (LOCAL, "Made locally with Whisper on your supported GPU or CPU; YouTube captions are not downloaded."),
         "media": (IMPLEMENTED, "A pasted link or a found video is downloaded only where access is allowed; your "
                                "connection to YouTube does not grant downloads."),
         "upload": (IMPLEMENTED, "Resumable upload through the YouTube Data API."),
@@ -58,7 +58,7 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
         "upload": (APPROVAL, "Direct Post to Everyone or followers needs TikTok's app audit, and its guidelines turn "
                              "away personal tools and apps that repost other platforms' videos, so expect a refusal. "
                              "Inbox drafts also need TikTok to approve the app (at most 5 waiting). Otherwise "
-                             "ClipFoundry prepares a ready-to-post package that you post in the TikTok app."),
+                             "ClipForge prepares a ready-to-post package that you post in the TikTok app."),
         "visibility": (APPROVAL, "Everyone when your audited app/account offers it, or followers/friends on a "
                                  "private account. Unaudited Direct Post is 'Only me' staging."),
         "consent": (IMPLEMENTED, "Your OK on every post (TikTok requires it)."),
@@ -92,7 +92,7 @@ REGISTRY: dict[str, dict[str, tuple[str, str]]] = {
                                            "can still be imported where the link importer supports it.")}
        for p, name in (("twitch", "Twitch"), ("kick", "Kick"), ("reddit", "Reddit"), ("x", "X"),
                        ("instagram", "Instagram"), ("podcasts", "podcast"))},
-    "google_trends": {"discovery": (UNSUPPORTED, "Google Trends has no supported public API; ClipFoundry does not "
+    "google_trends": {"discovery": (UNSUPPORTED, "Google Trends has no supported public API; ClipForge does not "
                                                  "scrape it. Trend signals come from the platforms' own numbers.")},
 }
 
@@ -120,7 +120,7 @@ def _platform_wait(platform: str, settings: dict) -> dict | None:
     name = "YouTube" if platform == "youtube" else "TikTok"
     until, note = scheduler.blocked_until(platform)
     if until:
-        return {"until": until, "detail": f"{(note or name + ' asked ClipFoundry to wait').rstrip('.')}. New uploads "
+        return {"until": until, "detail": f"{(note or name + ' asked ClipForge to wait').rstrip('.')}. New uploads "
                                           f"to {name} wait until then; everything else continues."}
     if platform != "youtube":
         return None
@@ -128,7 +128,7 @@ def _platform_wait(platform: str, settings: dict) -> dict | None:
     for bucket in ("uploads", "default"):
         b = q["buckets"][bucket]
         if b["exhausted"] or (bucket == "uploads" and b["budget"] and b["used"] >= b["budget"]):
-            why = "YouTube reported" if b["exhausted"] else "ClipFoundry counted"
+            why = "YouTube reported" if b["exhausted"] else "ClipForge counted"
             return {"until": q["resets_at"], "detail": f"{why} today's quota for {b['label'].lower()} as used up. "
                                                        "New uploads wait until it resets at midnight Pacific Time; "
                                                        "everything else continues."}
@@ -333,7 +333,7 @@ def cards(settings: dict | None = None) -> list[dict]:
     out.append(_card("web", "Web search (Tavily)", "connected" if key else "not_connected",
                      "Finds public video links, including TikTok." if key else
                      "Optional: add a Tavily key to find TikTok links and originals of popular clips.",
-                     action="" if key else "Add a key in Settings → Advanced", caps="web"))
+                     action="" if key else "Add a key in Settings → Integrations", caps="web"))
     out.append(_card("library", "Free-license library", "connected" if settings.get("library_discovery") else "off",
                      "Wikimedia Commons videos with free licenses.", caps="library"))
     # NVIDIA
@@ -348,11 +348,6 @@ def cards(settings: dict | None = None) -> list[dict]:
     else:
         st, detail = "connected", f"{v['model']} ({v['mode']})"
     out.append(_card("nvidia", "NVIDIA AI (optional)", st, detail, caps="nvidia", nvidia=v))
-    for cid, name in (("twitch", "Twitch"), ("kick", "Kick"), ("reddit", "Reddit"), ("x", "X"),
-                      ("instagram", "Instagram"), ("podcasts", "Podcasts"), ("google_trends", "Google Trends")):
-        state_ = REGISTRY[cid]["discovery"][0]
-        out.append(_card(cid, name, "unsupported" if state_ == UNSUPPORTED else "not_implemented",
-                         REGISTRY[cid]["discovery"][1]))
     return out
 
 

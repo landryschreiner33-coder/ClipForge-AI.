@@ -1,7 +1,7 @@
 """Getting a source's video file, decided separately from the right to reuse it (rights.py).
 
 A license or an agreement says what you may do with a video; it does not say how you may obtain the file. A connected
-YouTube account or a public link is not permission to download. ClipFoundry gets a file automatically only in these
+YouTube account or a public link is not permission to download. ClipForge gets a file automatically only in these
 ways:
 
 * local           a file on this computer (your recordings, a watch folder, a file you added)
@@ -104,6 +104,10 @@ def resolve(source: dict, settings: dict) -> dict:
             return _ok("library", "Wikimedia Commons serves its files for reuse", url=url)
         return _no("The link is not one of the library's own files")
     if rights.is_platform_url(url) and source.get("platform") != "stream":
+        from . import submissions
+
+        if submissions.for_source(source):
+            return _ok("platform", "This public video was explicitly supplied for processing; no login or DRM", url=url)
         if settings.get("rights_allow_remote_download") or settings.get("autopilot_public_videos"):
             return _ok("platform", "Public video extraction enabled in Settings; no login or DRM", url=url)
         where = PLATFORM_NAMES.get(source.get("platform") or "", "The platform")

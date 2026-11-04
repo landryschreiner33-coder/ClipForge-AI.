@@ -4,6 +4,7 @@ import { ActivityItem, ap, AutopilotStatus } from "../autopilot";
 import { PLATFORM_NAME } from "../components/accounts";
 import AdvancedView from "../components/apAdvanced";
 import LinkIntake from "../components/apLinkIntake";
+import SubmittedVideos from "../components/submittedVideos";
 import { ConnectAction, OpenVideosFolder, PLATFORMS, UpcomingRow } from "../components/apShared";
 import SourcesView from "../components/apSources";
 import { AutoPublishLine } from "../components/autoPublish";
@@ -32,8 +33,12 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Missions" sub="Finds videos you may use, makes clips, checks them and plans posts. Nothing is
-        posted without your OK, or the permission you gave for YouTube." />
+      <PageHead title="Missions" sub={st.settings.autopilot_input_mode === "submitted"
+        ? "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."
+        : st.settings.autopilot_review_before_publish !== false
+        ? "Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post."
+        : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
+          + "or the permission you gave for YouTube."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/missions", label: "Overview" },
@@ -74,8 +79,8 @@ function StoppedBanner({ refresh }: { refresh: () => void }) {
 type FactValue = [Tone, IconName, string, string];
 
 /** This PC: the real keep-awake state (PR #6), never the setting alone. "Kept awake" only when Windows agreed. */
-const noAnswer = (since: string) => since ? `No answer from ClipFoundry since ${since}.`
-  : "No answer from ClipFoundry.";
+const noAnswer = (since: string) => since ? `No answer from ClipForge since ${since}.`
+  : "No answer from ClipForge.";
 
 function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue {
   if (lost) return ["neutral", "offline", "Unknown", noAnswer(since)];
@@ -85,10 +90,10 @@ function sleepFact(st: AutopilotStatus, lost: boolean, since: string): FactValue
       return ["good", "check", "Kept awake", "Windows agreed to keep this PC from sleeping while Autopilot is on. "
         + "A laptop still sleeps if you close its lid."];
     case "pending":
-      return ["neutral", "clock", "Asking Windows", "ClipFoundry is asking Windows to keep this PC awake. This is not "
+      return ["neutral", "clock", "Asking Windows", "ClipForge is asking Windows to keep this PC awake. This is not "
         + "confirmed yet."];
     case "failed":
-      return ["bad", "alert", "Windows said no", "Windows did not let ClipFoundry keep this PC awake. Turn off sleep "
+      return ["bad", "alert", "Windows said no", "Windows did not let ClipForge keep this PC awake. Turn off sleep "
         + "yourself: see Needs you."];
     case "unsupported":
       return ["neutral", "moon", "Not available on this computer", "Turn off sleep in the PC's power settings, or "
@@ -109,13 +114,17 @@ function Overview({ st, lost, since, refresh, setData }: {
   const h = st.home;
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
-  if (!st.enabled && !h.setup.started) {
+  const submittedOnly = st.settings.autopilot_input_mode === "submitted";
+  if (!submittedOnly && !st.enabled && !h.setup.started) {
     return (
       <>
         <section className="panel" aria-labelledby="ap-off">
           <h2 id="ap-off">Autopilot is not set up</h2>
-          <p className="muted">Autopilot finds videos it may use and makes local clips from links you add. It keeps
-            looking and working by itself. Posting needs your OK or the permission you give for YouTube.</p>
+          <p className="muted">{st.settings.autopilot_review_before_publish !== false
+            ? "Autopilot finds accessible videos, makes clips and plans posts for your review. It keeps working "
+              + "by itself; nothing uploads until you check reuse and approve each post in Queue."
+            : "Autopilot finds videos it may use and makes local clips from links you add. It keeps looking and "
+              + "working by itself. Posting needs your OK or the permission you give for YouTube."}</p>
           <div className="row wrap">
             <a className="btn btn-primary" href="#/setup/mode">Set up Autopilot</a>
             <a className="btn" href="#/create">Make clips yourself instead</a>
@@ -157,10 +166,11 @@ function Overview({ st, lost, since, refresh, setData }: {
   const progress = lost ? "Unknown" : !on ? "Waiting" : w?.message || (w?.progress != null
     ? `${Math.round(w.progress * 100)}% of this step` : w ? w.step : "No video being processed right now");
   const next = lost ? "Unknown" : !on ? "Waiting until Autopilot resumes"
-    : h.next || "Checking for more videos";
+    : h.next || (submittedOnly ? "Waiting for a video from you" : "Checking for more videos");
 
   return (
     <>
+      {submittedOnly && <SubmittedVideos timezone={st.timezone} stopped={st.paused} refreshStatus={refresh} />}
       <section className="panel" aria-labelledby="ap-state">
         <div className="ap-status">
           <div className="grow stack">
@@ -177,9 +187,44 @@ function Overview({ st, lost, since, refresh, setData }: {
         </div>
       </section>
 
-      <div className="ap-control-room">
+      {!submittedOnly && <div className="ap-control-room">
         <LinkIntake enabled={st.enabled} stopped={st.paused} timezone={st.timezone} refreshStatus={refresh} />
-      </div>
+      </div>}
+
+      {h.posting && h.posting.platforms.length > 0 && (
+        <section className="panel" aria-labelledby="ap-posting-path">
+          <div className="panel-head"><h2 id="ap-posting-path">Why clips are waiting to post</h2>
+            <span className="small muted">{lost ? "Unknown" : `${h.posting.finished} finished automatic clips`}</span>
+          </div>
+          {lost ? <p className="muted">Posting status is unknown until ClipForge answers again.</p>
+            : <div className="stack-4">{h.posting.platforms.map((p) => (
+              <div key={p.platform} className="stack">
+                <div className="row wrap"><PlatformName platform={p.platform} />
+                  <Pill tone={p.code === "scheduled" ? "good" : "warn"}>{p.title}</Pill></div>
+                <p className="small muted">{p.detail}</p>
+                <div className="row wrap small muted" aria-label={`${PLATFORM_NAME[p.platform]} posting stages`}>
+                  <span>{p.counts.preparing} need post text</span><span>· {p.counts.checking} await checks</span>
+                  <span>· {p.counts.failed_check} failed checks</span><span>· {p.counts.local_only} local only</span>
+                  <span>· {p.counts.preparation_stopped ?? 0} preparation stopped</span>
+                  <span>· {p.counts.ready} ready to plan</span>
+                  <span>· {p.counts.planned_for_review ?? 0} planned for review</span>
+                  <span>· {p.counts.scheduled} approved & scheduled</span>
+                </div>
+                <a className="textlink small" href={p.link}>See the next step<Icon name="chev" className="sm" /></a>
+              </div>
+            ))}</div>}
+          {h.posting.sampled && <p className="small muted">Stages show the {h.posting.checked} newest finished clips;
+            the finished total includes all automatic clips.</p>}
+          {!lost && h.posting.source_guidance && <div className="note stack">
+            <h3>{h.posting.source_guidance.title}</h3>
+            <p className="small muted">{h.posting.source_guidance.detail}</p>
+            {h.posting.source_guidance.options.map((option) => <div key={option.title} className="stack">
+              <a className="textlink small" href={option.link}>{option.title}<Icon name="chev" className="sm" /></a>
+              <p className="small muted">{option.detail}</p>
+            </div>)}
+          </div>}
+        </section>
+      )}
 
       <section className="panel ap-facts-panel" aria-label="Autopilot progress">
         <div className="facts ap-summary">
@@ -190,7 +235,7 @@ function Overview({ st, lost, since, refresh, setData }: {
             value={lost ? "Unknown" : `${h.posts.ready ?? 0} ready · ${h.posts.scheduled
               ?? st.target.scheduled_posts} scheduled · ${h.posts.review} need your OK`} />
         </div>
-        {on && h.discovery.problems.length > 0 && (
+        {!submittedOnly && on && h.discovery.problems.length > 0 && (
           <div className="note search-problems" role="status">
             <Icon name="alert" />
             <div className="stack">
@@ -210,7 +255,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         <div className="panel-head">
           <h2 id="ap-needs">Needs you{!lost && h.needs_you.length ? ` (${h.needs_you.length})` : ""}</h2>
         </div>
-        {lost ? <p className="muted">Unknown: ClipFoundry hasn't answered{since ? ` since ${since}` : ""}.</p>
+        {lost ? <p className="muted">Unknown: ClipForge hasn't answered{since ? ` since ${since}` : ""}.</p>
           : <NeedsYouList items={h.needs_you} platforms={st.platforms} refresh={refresh} />}
       </section>
 
@@ -218,10 +263,10 @@ function Overview({ st, lost, since, refresh, setData }: {
         {/* align-content: start keeps the two parts together when the column next to it is taller */}
         <section className="panel" aria-labelledby="ap-now" style={{ alignContent: "start" }}>
           <h2 id="ap-now">Working on</h2>
-          {lost ? <p className="muted">Unknown: ClipFoundry hasn't answered{since ? ` since ${since}` : ""}.</p>
+          {lost ? <p className="muted">Unknown: ClipForge hasn't answered{since ? ` since ${since}` : ""}.</p>
             : <WorkingOn st={st} searchEvery={searchEvery} />}
           <hr className="divider" />
-          <div className="stack my-videos">
+          {!submittedOnly ? <div className="stack my-videos">
             <h3>Your videos</h3>
             <p className="small muted">Put videos you made here. Autopilot turns them into clips by itself.</p>
             <div className="row wrap">
@@ -235,12 +280,17 @@ function Overview({ st, lost, since, refresh, setData }: {
             <Disclosure plain summary="Show folder location">
               <code className="break my-videos-path">{folder.path}</code>
             </Disclosure>
-          </div>
+          </div> : <div className="stack small muted">
+            <h3>You choose the videos</h3>
+            <p>Automatic searching and watched-folder intake are off in this mode. Add each video above;
+              no YouTube or Tavily search key is needed.</p>
+            <a className="textlink" href="#/projects">View your source videos and clips<Icon name="chev" className="sm" /></a>
+          </div>}
         </section>
         <section className="panel" aria-labelledby="ap-up">
           <div className="panel-head">
             <h2 id="ap-up">Coming up</h2>
-            <a className="btn btn-quiet btn-small" href="#/queue/scheduled">All posts</a>
+            <a className="btn btn-quiet btn-small" href="#/publishing/scheduled">All posts</a>
           </div>
           {h.upcoming.length ? (
             <>
@@ -250,17 +300,25 @@ function Overview({ st, lost, since, refresh, setData }: {
           ) : <p className="muted small">No posts planned yet. Finished clips show up here with their posting time.</p>}
           <hr className="divider" />
           <h3>How posts go out</h3>
-          <AutoPublishLine onChange={refresh} />
-          <Accounts st={st} refresh={refresh} />
-          <p className="tiny faint">Connecting an account never lets ClipFoundry post by itself. Automatic publishing is
-            a separate permission that you turn on here, for YouTube only.</p>
+          {submittedOnly ? <>
+            <p className="small muted">“Make & upload clips” authorizes only the new video you submit, using the
+              shown YouTube account, visibility and kids answer. Its passing clips upload automatically.</p>
+            <p className="small muted">Existing clips and posts keep their own review requirements. “Make clips only”
+              keeps the new clips on this PC. TikTok still needs individual review.</p>
+            <a className="textlink small" href="#/settings">Manage connected accounts<Icon name="chev" className="sm" /></a>
+          </> : <>
+            <AutoPublishLine onChange={refresh} />
+            <Accounts st={st} refresh={refresh} />
+            <p className="tiny faint">Connecting an account does not approve posts. Review each prepared clip in Queue,
+              check that you can reuse it, then approve its exact video, text and audience.</p>
+          </>}
         </section>
       </div>
 
       <p className="small muted">
         {h.skipped_today ? `${plural(h.skipped_today, "video")} skipped in the last 24 hours (not covered, no `
           + "allowed way to get the file, too short or a repeat). " : ""}
-        <a className="textlink" href="#/missions/activity">See Activity</a> for what it did with each video it found.
+        <a className="textlink" href="#/missions/activity">See Activity</a> for what it did with each video.
       </p>
 
       <section className="panel tight" aria-labelledby="ap-stop">
@@ -268,8 +326,7 @@ function Overview({ st, lost, since, refresh, setData }: {
         <div className="estop">
           <div className="grow stack small muted">
             <span><b>Pause Autopilot</b> (at the top) stops new work: nothing new is found, clipped or posted, and
-              what's queued waits. Videos already uploaded stay as they are: YouTube videos are uploaded Private and
-              never set to go public later.</span>
+              what's queued waits. Videos already uploaded keep their visibility.</span>
             <span><b>Stop all jobs</b> is the emergency stop: queued work is canceled and running jobs stop at their
               next safe point, including videos and uploads you started yourself. Nothing starts again until you press
               Resume jobs.</span>
@@ -320,6 +377,9 @@ function WorkingOn({ st, searchEvery }: { st: AutopilotStatus; searchEvery: stri
     if (h.currently === "Background work has stopped") {
       return <p className="muted">Nothing: Autopilot's background work has stopped. See Needs you.</p>;
     }
+    if (st.settings.autopilot_input_mode === "submitted") return <p className="muted">
+      {h.currently === "Waiting for a video from you" || idle ? "No video is being processed right now. Add a video link or file above."
+        : h.currently}</p>;
     return idle
       ? <p className="muted">Nothing right now. It checks your videos folder {FOLDER_CHECK} and looks online
         {" "}{searchEvery}.</p>
@@ -409,7 +469,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
       <section className="panel" aria-labelledby="found">
         <div className="panel-head">
           <h2 id="found">What Autopilot found</h2>
-          <span className="tiny faint">Scores are ClipFoundry's estimates, not platform numbers.</span>
+          <span className="tiny faint">Scores are ClipForge's estimates, not platform numbers.</span>
         </div>
         {h.opportunities.length ? (
           <div className="rows">
@@ -417,7 +477,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
               const [tone, icon] = STAGE_LOOK(o.stage);
               return (
                 <div key={o.id} className="row wrap opportunity" style={{ padding: "12px 0" }}>
-                  <span className="score" title="How strong the opportunity looks: ClipFoundry's estimate">
+                  <span className="score" title="How strong the opportunity looks: ClipForge's estimate">
                     <b>{o.score}</b>estimate</span>
                   <span className="grow stack" style={{ gap: 0, flexBasis: 220 }}>
                     {o.url ? <a className="post-title break" href={o.url} target="_blank" rel="noreferrer">{o.title}
@@ -476,7 +536,7 @@ function ActivityView({ st, refresh }: { st: AutopilotStatus; refresh: () => voi
             reload();
             refresh();
           }}>
-          <p className="small muted">“{adding.title}”. ClipFoundry does not download videos from YouTube or other
+          <p className="small muted">“{adding.title}”. ClipForge does not download videos from YouTube or other
             platforms by itself (their terms). Choose the original file on this computer; for your own videos, YouTube
             Studio → Download gives you one.</p>
         </TextPromptDialog>

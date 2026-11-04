@@ -3,10 +3,11 @@ import { errorText } from "../api";
 import { at } from "../format";
 import {
   audienceApi, AudienceDestination, AudienceIntent, AudienceView, ConnectionCheck, DevLogEntry, INTENT_OF,
-  IntegrationCard, integrations, NvidiaResult, NvidiaView, office,
+  IntegrationCard, integrations, NvidiaResult, NvidiaView, office, SearchCheck, SearchConnection,
 } from "../office/api";
 import { FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput } from "./settingsFields";
 import { Banner, ConfirmDialog, Disclosure, Icon, Pill, toast, Tone } from "./ui";
+import { PhoneMonitorPanel } from "./PhoneMonitor";
 
 /**
  * Settings → Integrations: who watches (the explicit audience choice an upload needs), one card per connection
@@ -43,16 +44,19 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
   return (
     <>
       <p className="small muted">
-        What each connection can do on this PC. A connected account does not unlock everything: some parts need the
-        platform's own approval, and some are not offered at all. Nothing here posts anything.
+        Set up the connections supported by this app. Each card shows its current setup and the next step, if one
+        is needed. Platform posting permissions still apply. Nothing here posts a video.
       </p>
       {error && <Banner tone="bad" icon="alert" title="Integrations could not be loaded">{error}</Banner>}
+      <SearchConnections c={c} changed={changed} />
+      <PhoneMonitorPanel />
       {aud && <AudiencePanel view={aud} onSaved={(v) => { setAud(v); load(); }} />}
       <SettingsPanel id="int-cards" title="Connections"
         intro="Each card says what is connected, what is missing, and what each part can do in this version.">
         {cards ? (
           <div className="integration-cards">
-            {cards.filter((x) => x.id !== "nvidia").map((x) => <ConnectionCard key={x.id} card={x} onChange={load} />)}
+            {cards.filter((x) => x.id !== "nvidia" && !["not_implemented", "unsupported"].includes(x.status))
+              .map((x) => <ConnectionCard key={x.id} card={x} onChange={load} />)}
           </div>
         ) : !error && <p className="small muted">Reading the connections…</p>}
       </SettingsPanel>
@@ -62,16 +66,134 @@ export function IntegrationsTab({ c, changed, reload }: { c: FieldCtx; changed: 
   );
 }
 
+// Discovery keys are separate from the account authorization needed to upload a video.
+function SearchConnections({ c, changed }: { c: FieldCtx; changed: string[] }) {
+  return (
+    <SettingsPanel id="int-search" title="Search connections"
+      intro={<>Add an optional search key to find more relevant video links. Your folders and the free-license
+        library work without a key. Save changes below; saving a key does not test it or upload anything.</>}>
+      <SettingRow k="youtube_api_key" label="YouTube Data API key"
+        hint="Optional for public-video discovery. A connected YouTube account already supports search.">
+        <SecretField k="youtube_api_key" c={c} removable placeholder="AIza…" />
+        <span className="small muted">A key uses its Google project's allowance; it does not remove YouTube's
+          daily limits or authorize uploads. The default allowance includes 100 searches a day.</span>
+        <Disclosure summary="Get a YouTube search key">
+          <ol className="small">
+            <li>Choose your project in <a className="textlink"
+              href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank"
+              rel="noreferrer">Google Cloud and enable YouTube Data API v3</a>.</li>
+            <li>Open <a className="textlink" href="https://console.cloud.google.com/apis/credentials"
+              target="_blank" rel="noreferrer">Credentials</a>, create an API key, and restrict its API access to
+              YouTube Data API v3.</li>
+            <li>Paste the key here, then save your changes. Keep your YouTube account connected for uploading.</li>
+            <li>This is a desktop app. A key restricted to browser websites/referrers cannot authorize its requests.
+              Keep the API restriction set to YouTube Data API v3 and use application restrictions suited to your PC.</li>
+          </ol>
+          <a className="textlink small" href="https://developers.google.com/youtube/v3/getting-started"
+            target="_blank" rel="noreferrer">Official setup and current quota details</a>
+        </Disclosure>
+        <p className="tiny muted">If this optional key fails, Remove it and save to search with your connected
+          YouTube account instead. An API key is different from an OAuth client ID or client secret.</p>
+        <SearchConnectionCheck provider="youtube" dirty={changed.some((key) =>
+          ["youtube_api_key", "youtube_client_id", "youtube_client_secret"].includes(key))} />
+      </SettingRow>
+      <SettingRow k="tavily_api_key" label="Tavily web search key"
+        hint="Adds topic-based web search for public video links and the originals behind clips.">
+        <SecretField k="tavily_api_key" c={c} removable placeholder="tvly-…" />
+        <span className="small muted">The free plan includes 1,000 credits each month with no credit card.
+          This app uses basic searches, at one credit per request. Search results give links, not TikTok viewing
+          statistics or reuse permission.</span>
+        <ol className="small" style={{ margin: 0, paddingLeft: 20 }}>
+          <li><a className="textlink" href="https://app.tavily.com" target="_blank" rel="noreferrer">
+            Open Tavily and create a free account</a>.</li>
+          <li>Copy the API key from your dashboard, paste it here, then save your changes.</li>
+        </ol>
+        <a className="textlink small" href="https://docs.tavily.com/documentation/api-credits" target="_blank"
+          rel="noreferrer">Current Tavily free allowance and credit costs</a>
+        <SearchConnectionCheck provider="tavily" dirty={changed.includes("tavily_api_key")} />
+      </SettingRow>
+      <SettingRow k="tavily_free_credits" label="Included Tavily credits each month" errors={c.errors}
+        hint="Match your provider plan. The free plan includes 1,000; usage in other apps also counts there.">
+        <NumInput k="tavily_free_credits" c={c} />
+      </SettingRow>
+      <SettingRow k="discovery_monthly_budget_usd" label="Paid web-search limit each month" errors={c.errors}
+        hint="US dollars beyond the included credits. Keep this at 0 for free-only use in this app.">
+        <NumInput k="discovery_monthly_budget_usd" c={c} step={1} />
+        <button type="button" className="btn btn-small" style={{ justifySelf: "start" }}
+          onClick={() => c.set({ tavily_free_credits: 1000, discovery_monthly_budget_usd: 0 })}>
+          Use free Tavily plan limits
+        </button>
+        <span className="tiny muted">This is an app allowance, not a live provider balance. Check Tavily's dashboard
+          before enabling paid usage or sharing a key with another app.</span>
+      </SettingRow>
+      <SettingRow k="library_discovery" label="Free-license library"
+        hint="Search Wikimedia Commons for videos with recorded free licenses. No API key is needed.">
+        <Switch k="library_discovery" c={c} />
+      </SettingRow>
+      <p className="small muted" style={{ margin: 0 }}>Keys are stored sealed on this PC and saved keys stay hidden.
+        Enter keys here, never in chat. The next search uses your saved setup; Missions shows search waits and
+        problems. Your shortlist quality, review and publishing checks still apply.</p>
+      <a className="textlink small" href="#/missions/sources">Open discovery choices and recent search results</a>
+    </SettingsPanel>
+  );
+}
+
+function SearchConnectionCheck({ provider, dirty }: { provider: "youtube" | "tavily"; dirty: boolean }) {
+  const [connection, setConnection] = useState<SearchConnection | null>(null);
+  const [result, setResult] = useState<SearchCheck | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    let live = true;
+    integrations.searchStatus().then((data) => {
+      if (live) { setConnection(data[provider]); setResult(data[provider].last_check); }
+    }).catch((e) => { if (live) setProblem(errorText(e)); });
+    return () => { live = false; };
+  }, [provider]);
+  const test = async () => {
+    setBusy(true);
+    setProblem("");
+    try { setResult(await integrations.testSearch(provider)); }
+    catch (e) { setProblem(errorText(e)); }
+    finally { setBusy(false); }
+  };
+  const name = provider === "youtube" ? "YouTube" : "Tavily";
+  const stale = dirty || result?.current === false;
+  return <div className="stack" style={{ gap: 8 }}>
+    <div className="row wrap">
+      <button type="button" className="btn btn-small" disabled={busy || dirty || !connection?.configured}
+        onClick={() => void test()}>{busy ? "Checking…" : `Test saved ${name} connection`}</button>
+      <span className="tiny muted">{dirty ? "Save changes first; this checks the saved connection."
+        : provider === "youtube" ? "One general-quota read, with one retry if sign-in expires. No search or upload."
+          : "Checks the saved key through account usage, without running a search."}</span>
+    </div>
+    {connection?.configured && <p className="tiny muted">{provider === "youtube"
+      ? `Saved search method: ${connection.auth_mode === "api_key" ? "YouTube API key" : "connected YouTube account"}.`
+      : "Saved search method: Tavily API key."}</p>}
+    {!dirty && connection && !connection.configured && <p className="tiny muted">{provider === "youtube"
+      ? "Save a search API key or connect your YouTube account first." : "Save your Tavily API key first."}</p>}
+    {result && <Banner tone={stale ? "neutral" : result.ok ? "info" : result.status === "waiting" ? "warn" : "bad"}
+      title={stale ? "Previous connection result" : result.ok ? `${name} connection accepted` : `${name} needs attention`}>
+      {stale && <p>The saved connection has changed. Save and test again to check the new setup.</p>}
+      <p>{result.detail}</p>
+      {result.fix && <p>{result.fix}</p>}
+      {result.until && result.until * 1000 > Date.now() && <p>Try again after {at(result.until)}.</p>}
+    </Banner>}
+    {problem && <Banner tone="bad" title="Connection check could not finish">{problem}</Banner>}
+  </div>;
+}
+
 // ------------------------------------------------------------------ who watches
-function AudiencePanel({ view, onSaved }: { view: AudienceView; onSaved: (v: AudienceView) => void }) {
+export function AudiencePanel({ view, onSaved, platforms = ["youtube", "tiktok"] }: {
+  view: AudienceView; onSaved: (v: AudienceView) => void; platforms?: ("youtube" | "tiktok")[];
+}) {
   return (
     <SettingsPanel id="int-audience" title="Who watches"
       intro={<>Choose the audience for new posts, then set up automatic YouTube publishing in Accounts. Public posts
         may be watched by anyone. Existing posts and previously planned private uploads keep their audience.
         Accessible videos still need reuse permission and a passing final check before posting. {view.limits}</>}>
       <div className="stack-4">
-        <AudienceRow p="youtube" d={view.youtube} steps={view.youtube_steps} onSaved={onSaved} />
-        <AudienceRow p="tiktok" d={view.tiktok} steps={view.tiktok_steps} onSaved={onSaved} />
+        {platforms.map((p) => <AudienceRow key={p} p={p} d={view[p]} steps={view[`${p}_steps`]} onSaved={onSaved} />)}
       </div>
     </SettingsPanel>
   );
@@ -115,9 +237,9 @@ function AudienceRow({ p, d, steps, onSaved }: {
     : intent === "owner_only"
     ? `Only I can see these ${name} uploads. Nobody else watches them, so they teach the Brain nothing.`
     : p === "youtube"
-      ? "ClipFoundry uploads as Private and cannot invite anyone. I share each video with my viewers in YouTube "
+      ? "ClipForge uploads as Private and cannot invite anyone. I share each video with my viewers in YouTube "
         + "Studio myself."
-      : `ClipFoundry posts for ${group === "friends" ? "my friends (followers I follow back)" : "my followers"}. My `
+      : `ClipForge posts for ${group === "friends" ? "my friends (followers I follow back)" : "my followers"}. My `
         + "TikTok account is private, so only people I approved follow me.";
   const id = `aud-${p}`;
   return (
@@ -285,6 +407,7 @@ function actionLink(card: IntegrationCard): string {
   const a = card.action.toLowerCase();
   if (a.startsWith("confirm the audience")) return "#/settings/integrations";
   if (a.startsWith("connect")) return "#/settings";
+  if (a.includes("settings → integrations")) return "#/settings/integrations";
   if (a.includes("settings → advanced")) return "#/settings/advanced";
   return "";
 }
@@ -332,7 +455,7 @@ function NvidiaPanel({ c, dirty, unsaved, card, onChange, reload }: {
   const cost = v ? (v.usage.cost_known ? `$${(v.usage.cost_usd ?? 0).toFixed(4)}` : "unknown (no price set)") : "";
   return (
     <SettingsPanel id="int-nvidia" title="NVIDIA AI (optional)"
-      intro={<>Off by default and never required: ClipFoundry's own analysis on this PC always works. When on, it can
+      intro={<>Off by default and never required: ClipForge's own analysis on this PC always works. When on, it can
         re-score the strongest clip candidates for work you start yourself. {card &&
           <Pill tone={STATUS_TONE[card.status] || "neutral"}>{card.status_label}</Pill>}</>}>
       {v?.circuit.open && (
@@ -482,7 +605,7 @@ export function DevLogPanel() {
   useEffect(() => { office.devlog(100).then(setRows).catch((e) => setError(errorText(e))); }, []);
   return (
     <SettingsPanel id="adv-devlog" title="Dev Log"
-      intro={<>Read-only history of changes made by AI assistants to this copy of ClipFoundry, from
+      intro={<>Read-only history of changes made by AI assistants to this copy of ClipForge, from
         <code> .clipfoundry/ai-change-log.jsonl</code>. The longer notes are in AI_CHANGELOG.md and AI_HANDOFF.md in
         the app folder.</>}>
       {error && <p className="small error-text">{error}</p>}

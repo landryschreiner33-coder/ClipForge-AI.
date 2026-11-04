@@ -1,0 +1,10 @@
+# Caddy obtains and renews the HTTPS certificate automatically. ClipForge itself listens only on 127.0.0.1.
+studio.example.com {
+	encode zstd gzip
+	request_body {
+		max_size 20MB   # upload chunks are at most 16 MB; whole files never pass in one request
+	}
+	reverse_proxy 127.0.0.1:8765 {
+		flush_interval -1   # stream progress and media without buffering
+	}
+}

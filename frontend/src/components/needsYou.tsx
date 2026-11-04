@@ -20,8 +20,8 @@ export const needLook = (i: NeedsYouItem): [NeedTone, IconName] => LOOK[i.type] 
 
 /** The backend still names the older addresses; they redirect, but a link should say where it really goes. */
 const NEW_ADDRESS: [RegExp, string][] = [
-  [/^#\/publish-center\/problems$/, "#/queue/problems"],
-  [/^#\/publish-center.*$/, "#/queue/review"],
+  [/^#\/publish-center\/problems$/, "#/publishing/problems"],
+  [/^#\/publish-center.*$/, "#/publishing/review"],
 ];
 const address = (link?: string) => {
   if (!link) return "";
@@ -128,7 +128,7 @@ export function NeedActions({ item, platforms, refresh, primary, first }: {
             toast("File added: Autopilot will clip it");
             refresh();
           }}>
-          <p className="small muted">ClipFoundry does not download videos from YouTube or other platforms by itself
+          <p className="small muted">ClipForge does not download videos from YouTube or other platforms by itself
             (their terms). Choose the original file on this computer; for your own videos, YouTube Studio → Download
             gives you one.</p>
         </TextPromptDialog>

@@ -67,6 +67,7 @@ def test_a_search_limit_does_not_discard_the_chart_or_creator_uploads(google):
     from clipfoundry import db
     from clipfoundry.autopilot import rights, state
 
+    db.save_settings({"autopilot_discovery_uploadable_only": False})  # local discovery retains popular charts
     google.add_video("chartvideo1", "A popular interview")
     google.popular = ["chartvideo1"]
     rights.add_agreement("Creator", ["UCcreator0000000000000001"], "Written permission")
@@ -154,6 +155,7 @@ def test_partial_discovery_preserves_retry_after_and_does_not_send_more_requests
     from clipfoundry import db
     from clipfoundry.autopilot import providers, state
 
+    db.save_settings({"autopilot_discovery_uploadable_only": False})  # exercise the optional chart request
     google.add_video("chartvideo1", "Popular interview")
     google.popular = ["chartvideo1"]
     transport = httpx.HTTPTransport()
@@ -169,7 +171,8 @@ def test_partial_discovery_preserves_retry_after_and_does_not_send_more_requests
     monkeypatch.setattr(providers, "client", lambda timeout: httpx.Client(transport=httpx.MockTransport(respond)))
     before = time.time()
     run("trend_scan")
-    assert state.get("next:trend_scan") >= before + 600
+    assert providers.wait_until("youtube") >= before + 600
+    assert float(state.get("next:trend_scan", 0) or 0) < before + 600
     assert requests == ["/youtube/v3/videos", "/youtube/v3/search"]
     assert db.select("trend_signals", "external_id = 'chartvideo1'")
     transport.close()

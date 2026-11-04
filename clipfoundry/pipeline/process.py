@@ -31,7 +31,7 @@ def load_words(project: dict) -> list[dict]:
     return transcribe.flatten_words(data) if data else []
 
 
-def _options(project: dict, settings: dict) -> dict:
+def _options(project: dict, settings: dict, *, words: list[dict] | None = None) -> dict:
     opts = dict(settings)
     opts.update({k: v for k, v in (project.get("options") or {}).items() if v is not None})
     opts["origin"] = project.get("origin") or "manual"  # Autopilot work is unattended (pipeline/nvidia.py)
@@ -39,6 +39,14 @@ def _options(project: dict, settings: dict) -> dict:
     opts["max_duration"] = max(opts["min_duration"] + 5, float(opts.get("max_duration", 60)))
     opts["target_duration"] = min(opts["max_duration"], max(opts["min_duration"], float(opts.get("target_duration", 35))))
     opts["clip_count"] = int(opts.get("clip_count", 5))
+    from ..autopilot import brain, knowledge
+
+    opts["brain_base_target_duration"] = opts["target_duration"]
+    with brain.consultation("selection", settings, ref=("project", project.get("id") or "")):
+        opts, used = knowledge.selection_options({"title": project.get("name") or "",
+                                                 "caption_text": " ".join(w["w"] for w in (words or []))},
+                                                opts, settings)
+    opts["brain_duration_knowledge"] = [item for item in used if "target_duration" in item["decisions"]]
     return opts
 
 
@@ -76,7 +84,6 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
     if not project:
         return None
     settings = db.get_settings()
-    opts = _options(project, settings)
     pdir = project_dir(project)
     src = Path(project["source_path"])
     t_start = time.time()
@@ -147,7 +154,9 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
     if not env:
         env = loudness_envelope(wav)
         write_json(env_path, env)
-    return Prepared(project, settings, opts, pdir, meta, info, words, build_sentences(words), Loudness(env), t_start)
+    # Topic-scoped examples need the spoken subject before the candidate pool chooses its window lengths.
+    return Prepared(project, settings, _options(project, settings, words=words), pdir, meta, info, words,
+                    build_sentences(words), Loudness(env), t_start)
 
 
 def load_prepared(project_id: str) -> Prepared | None:
@@ -164,7 +173,8 @@ def load_prepared(project_id: str) -> Prepared | None:
     words = transcribe.flatten_words(transcript)
     info = project.get("info") or {}
     meta = {k: info.get(k, project.get(k)) for k in ("duration", "width", "height", "fps", "has_audio", "has_video")}
-    return Prepared(project, settings, _options(project, settings), pdir, meta, info, words, build_sentences(words),
+    return Prepared(project, settings, _options(project, settings, words=words), pdir, meta, info, words,
+                    build_sentences(words),
                     Loudness(env))
 
 
@@ -251,7 +261,9 @@ def create_clips(p: Prepared, chosen: list[dict], ctx: JobContext, replace_exist
             p.id, rank=rank, start=start, end=end, title=post["title"] or r["title"], hook=r["hook"],
             hooks_alt=r["hooks_alt"], caption_text=r["caption_text"], hashtags=post["hashtags"] or r["hashtags"],
             category=r["category"], score=r["score"], scores=r["scores"], score_source=r["score_source"],
-            reason=r["reason"], analysis=virality.summary(r["analysis"]), post=post, edit={}, status="queued",
+            reason=r["reason"], analysis={**virality.summary(r["analysis"]),
+                                        "brain_knowledge": list(r.get("brain_knowledge") or [])},
+            post=post, edit={}, status="queued",
             duration=round(end - start, 2), **stable,
         ))
     return rows
@@ -286,15 +298,38 @@ def render_clips(p: Prepared, clip_rows: list[dict], ctx: JobContext, lo: float 
             db.update_clip(clip["id"], status="error", error=str(exc)[:500])
 
 
+def _after_render(p: Prepared, rows: list[dict]) -> None:
+    """A ClipForge "Make & upload clips" request: check each finished clip and upload the eligible ones to the
+    destinations chosen for this input (studio/autopublish.py). Projects without such a request are untouched."""
+    if not (p.project.get("destinations") or {}):
+        return
+    from ..studio import autopublish
+
+    for clip in rows:
+        autopublish.after_render(clip["id"])
+
+
 def run_project(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) -> None:
     """The whole pipeline for one project (manual projects and the CLI)."""
     p = prepare(project_id, ctx, gpu_policy)
     if not p:
         return
+    if (p.project.get("clip_mode") or "highlights") == "full_stories":
+        # Clips → Full stories: one complete clip per story instead of ranked highlights; the same renderer,
+        # captions, audio checks and publishing path follow.
+        from ..studio import story_review
+
+        rows = story_review.analyze(p, ctx)
+        render_clips(p, rows, ctx)
+        _after_render(p, rows)
+        p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
+        p.save_info()
+        return
     cands = candidate_pool(p, ctx)
     chosen = evaluate_select(p, cands, ctx)
     rows = create_clips(p, chosen, ctx)
     render_clips(p, rows, ctx)
+    _after_render(p, rows)
     p.info["processing_seconds"] = round(time.time() - p.t_start, 1)
     p.save_info()
 

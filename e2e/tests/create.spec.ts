@@ -5,7 +5,7 @@ import { expect, getJson, test } from "../fixtures";
 // and the fixture would block the upload anyway.
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/#/create");
+  await page.goto("/#/create/link");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add video");
 });
 
@@ -28,7 +28,7 @@ test("Make clips stays disabled until a video is chosen", async ({ page }) => {
 test("a file that is not a video is refused", async ({ page }) => {
   const notes = { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a video") };
   await videoInput(page).setInputFiles(notes);
-  await expect(page.locator(".toast.bad")).toContainText("“notes.txt” isn't a video ClipFoundry can use.");
+  await expect(page.locator(".toast.bad")).toContainText("“notes.txt” isn't a video ClipForge can use.");
   await expect(page.locator(".drop")).toBeVisible();
   await expect(makeClips(page)).toBeDisabled();
 });

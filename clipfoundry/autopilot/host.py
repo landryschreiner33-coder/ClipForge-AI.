@@ -94,10 +94,11 @@ def _minutes(key: str, default: float) -> Callable[[dict], float]:
 PERIODIC: list[tuple[str, Callable[[dict], float], Callable[[dict], bool]]] = [
     ("maintenance", lambda s: 3600.0, lambda s: True),
     ("schedule_tick", lambda s: 60.0, lambda s: state.enabled(s)),
-    ("feed_scan", lambda s: 180.0, lambda s: state.enabled(s)),
-    ("trend_scan", _minutes("trend_poll_minutes", 60), lambda s: state.enabled(s)),
+    ("feed_scan", lambda s: 180.0, lambda s: state.enabled(s) and config.discovery_enabled(s)),
+    ("trend_scan", _minutes("trend_poll_minutes", 60), lambda s: state.enabled(s) and config.discovery_enabled(s)),
     ("learn", lambda s: 6 * 3600.0, lambda s: state.enabled(s) and bool(s.get("autopilot_learning"))),
-    ("live_watch", lambda s: 60.0, lambda s: state.enabled(s) and bool(s.get("autopilot_live_monitoring"))),
+    ("live_watch", lambda s: 60.0, lambda s: state.enabled(s) and config.discovery_enabled(s)
+     and bool(s.get("autopilot_live_monitoring"))),
 ]
 PERIOD_ADJUST: dict[str, Callable[[dict, float], float]] = {}  # e.g. the quota manager slows discovery down
 
@@ -149,7 +150,7 @@ class WorkerHost:
         if self.started:
             return True
         if not self.host_lock.acquire(timeout=wait_for_lock):
-            log.info("Another ClipFoundry worker host is running; not starting a second one")
+            log.info("Another ClipForge worker host is running; not starting a second one")
             return False
         self._stop.clear()
         self._threads = []
@@ -404,7 +405,7 @@ class WorkerHost:
                 if self.managed:
                     beat = state.get("app_heartbeat") or {}
                     if now - float(beat.get("at") or 0) > APP_HEARTBEAT_STALE:
-                        log.warning("ClipFoundry app stopped responding; stopping the worker process")
+                        log.warning("ClipForge app stopped responding; stopping the worker process")
                         threading.Thread(target=self.stop, daemon=True).start()
                         return
             except Exception:  # noqa: BLE001
@@ -505,7 +506,7 @@ class Supervisor:
             state.event("keep_awake", "Keeping this PC awake while Autopilot is on" if now else
                         "No longer keeping this PC awake (Autopilot or Keep the PC awake is off)")
         elif keeper.error and not refused:  # said once; the page shows it until a retry works
-            state.event("keep_awake", "Windows did not let ClipFoundry keep this PC awake. It tries again every "
+            state.event("keep_awake", "Windows did not let ClipForge keep this PC awake. It tries again every "
                         "minute; until then, turn off sleep in the PC's power settings.", level="warning")
 
     def _watch(self) -> None:
@@ -598,9 +599,9 @@ def run_worker_process(managed: bool = False) -> int:
         log_to_file(config.data_dir() / "logs")
     host = WorkerHost(managed=managed)
     if not host.start(wait_for_lock=30):
-        print("Another ClipFoundry worker host is already running.")
+        print("Another ClipForge worker host is already running.")
         return 1
-    print(f"ClipFoundry workers running (pid {os.getpid()}). Press Ctrl+C to stop.")
+    print(f"ClipForge workers running (pid {os.getpid()}). Press Ctrl+C to stop.")
     try:
         while host.started:
             time.sleep(1.0)

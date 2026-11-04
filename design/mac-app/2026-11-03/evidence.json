@@ -1,0 +1,28 @@
+{
+  "source_commit": "bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3",
+  "workflow_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41656652146",
+  "runner": "macos-15 ARM64",
+  "notarized": false,
+  "files": {
+    "native-studio.png": "85e652ac2cc8f27a45bf2be3339f49897677022ff38fb62aa3a17f7103ce0f22",
+    "installer-background.png": "4300e6d983e5540a83b8f5cf75b4c153d8bd01ede29cb7c571c8ea37b991add8",
+    "native-checks.json": "f26bf5950c74dea2e7087fae38e7d473abdf1d568fde918f00713bf2dd7d8a8b"
+  },
+  "artifact_id": 13240393392,
+  "artifact_name": "ClipFoundry-Development-NOT-NOTARIZED",
+  "artifact_sha256": "49bc9aeffcd8cfa183ee6e3ccdddfb843dfd86e9084570514be35cc37ff39709",
+  "artifact_retention_days": 7,
+  "regression": {
+    "fast": {
+      "passed": 1556,
+      "deselected": 19,
+      "seconds": 531.55
+    },
+    "slow": {
+      "passed": 19,
+      "deselected": 1556,
+      "seconds": 950.85
+    },
+    "conclusion": "success"
+  }
+}

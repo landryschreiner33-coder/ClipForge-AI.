@@ -31,7 +31,7 @@ NO_WINDOW = subprocess.CREATE_NO_WINDOW if WINDOWS else 0
 GPU_FIX = ("run start.bat again (it installs the GPU libraries automatically), or run: "
            r".venv\Scripts\python -m pip install -r requirements-gpu.txt" if WINDOWS else
            "run: .venv/bin/python -m pip install -r requirements-gpu.txt")
-DRIVER_FIX = "install the latest NVIDIA driver (Game Ready or Studio) and restart ClipFoundry"
+DRIVER_FIX = "install the latest NVIDIA driver (Game Ready or Studio) and restart ClipForge"
 
 # Names CTranslate2 passes to LoadLibrary/dlopen. The CUDA runtime itself is linked statically.
 _LIB_RE = re.compile(rb"libcu(?:blasLt|blas|dnn)[a-z_]*\.so\.\d+|cu(?:blasLt|blas|dnn)[a-z_]*64_\d+\.dll")

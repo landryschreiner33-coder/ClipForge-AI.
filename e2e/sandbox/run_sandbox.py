@@ -41,6 +41,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_SANDBOX_PORT", 8799)))
     parser.add_argument("--scenario", choices=("beginner", "zero-touch"), default="beginner")
+    parser.add_argument("--input-mode", choices=("submitted", "discovery"), default="submitted")
     args = parser.parse_args()
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         sys.exit("The sandbox needs ffmpeg and ffprobe on the PATH (winget install Gyan.FFmpeg).")
@@ -74,7 +75,8 @@ def main() -> None:
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret",
                       "trend_topics": "podcast, interview", "encoder": "x264", "x264_preset": "ultrafast",
-                      "library_discovery": False})  # offline: the free-license library is not searched
+                      "library_discovery": False,
+                      "autopilot_input_mode": args.input_mode})  # historical discovery suites opt in explicitly
 
     # The original file of a video (what "Add the file" asks for), a synthetic talk
     original = data / "sandbox" / "original.mp4"
@@ -93,6 +95,14 @@ def main() -> None:
     said: dict[str, str] = {}  # project folder → what its video says (the stand-in's videos say different things)
 
     def synthetic_transcript(wav, duration, settings, ctx, lo=0.0, hi=1.0, vad=True, allow_cpu_fallback=True):
+        # CLIPFOUNDRY_SANDBOX_SCRIPTS: a folder of measured scripts (tests/story_fixtures.speech_recording); a file
+        # whose length matches one of them gets that script instead of the stand-in talk (Full stories demos).
+        import json as _json
+
+        for script in sorted(Path(os.environ.get("CLIPFOUNDRY_SANDBOX_SCRIPTS", "/nonexistent")).glob("*.json")):
+            data = _json.loads(script.read_text())
+            if abs(float(data.get("duration", 0)) - duration) < 0.3:
+                return data
         text = (said.get(str(Path(wav).parent), SPEECH) * 8).split()
         words = [w for w in words_from(" ".join(text), step=0.36, length=0.28) if w["end"] < duration - 0.5]
         return {"segments": [{"start": words[0]["start"], "end": words[-1]["end"], "words": words,
@@ -134,6 +144,9 @@ def main() -> None:
     if args.scenario == "zero-touch":
         from zero_touch_support import CompleteLoopFixture
 
+        # This isolated scenario exercises the owner's explicit legacy automation permission. The ordinary
+        # beginner sandbox keeps the production review-first default for new interface tests.
+        db.save_settings({"autopilot_review_before_publish": False})
         google.catalog.clear()
         scenario = CompleteLoopFixture(data, google, setattr)
 

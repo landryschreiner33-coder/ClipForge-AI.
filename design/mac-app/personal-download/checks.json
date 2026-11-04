@@ -1,0 +1,26 @@
+{
+  "viewports": [
+    {
+      "width": 1440,
+      "overflow": false,
+      "page_errors": 0,
+      "setup_tabs": "passed",
+      "download": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg"
+    },
+    {
+      "width": 390,
+      "overflow": false,
+      "page_errors": 0,
+      "setup_tabs": "passed",
+      "download": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg"
+    },
+    {
+      "width": 320,
+      "overflow": false,
+      "page_errors": 0,
+      "setup_tabs": "passed",
+      "download": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg"
+    }
+  ],
+  "no_js_download": true
+}

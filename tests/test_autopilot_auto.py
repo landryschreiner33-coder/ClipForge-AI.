@@ -38,7 +38,8 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(providers, "TAVILY_URL", f"{web.url}/search")
     monkeypatch.setattr(providers, "COMMONS_API", f"{lib.url}/w/api.php")
     db.init()
-    db.save_settings({"autopilot_public_videos": False})  # exercise reuse-covered-only discovery
+    db.save_settings({"autopilot_public_videos": False, "autopilot_min_gap_minutes": 0,
+                      "autopilot_discovery_uploadable_only": False})  # exercise legacy local-search opt-in
     db.save_settings({"youtube_api_key": "test-api-key", "trend_topics": "podcast, space", "autopilot_enabled": True,
                       "youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret"})
@@ -58,6 +59,7 @@ def run(kind: str, payload: dict | None = None) -> dict:
 # ------------------------------------------------------------------ discovery
 def test_the_original_behind_a_popular_short_is_found(env):
     from clipfoundry import db
+    from clipfoundry.autopilot import state
 
     g = env["g"]
     g.add_video("short01aaaa", "Best podcast moment #shorts", "UCclips0000000001", views=2_000_000, duration="PT45S",
@@ -75,7 +77,8 @@ def test_the_original_behind_a_popular_short_is_found(env):
     assert views["value"] == 300_000 and views["source"] == "YouTube Data API" and views["at"]  # provenance kept
     run("source_scout")
     src = {s["external_id"]: s for s in db.select("sources")}
-    assert src["short01aaaa"]["status"] == "skipped" and "short" in src["short01aaaa"]["status_note"]
+    assert "short01aaaa" not in src
+    assert any("Too short" in reason for reason in state.get("discovery:shortlist")["reasons"])
     assert src["longvid0001"]["status"] in ("needs_rights", "needs_file", "eligible")  # a real candidate
 
 
@@ -144,7 +147,7 @@ def test_a_failing_provider_does_not_stop_discovery(env):
 
 def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     from clipfoundry import db
-    from clipfoundry.autopilot import access, rights, state
+    from clipfoundry.autopilot import access, rights, scout, state
 
     lib = env["lib"]
     monkeypatch.setattr(access, "LIBRARY_HOSTS", {"commons": ("127.0.0.1",)})  # the stand-in serves the files
@@ -157,7 +160,7 @@ def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     lib.add("talk-person.webm", "Space parade with people", "cc-by-4.0", "CC BY 4.0", restrictions="personality")
     lib.add("tiny.webm", "Space short clip", "cc0", "CC0", length=30)
     run("trend_scan")
-    assert all("ClipFoundry" in ua for ua in lib.user_agents)  # Wikimedia's User-Agent policy
+    assert all("ClipForge" in ua for ua in lib.user_agents)  # Wikimedia's User-Agent policy
     assert state.get("providers")["library"]["status"] == "ok"
     run("source_scout")
     src = {s["title"]: s for s in db.select("sources", "platform = 'commons'")}
@@ -165,9 +168,15 @@ def test_the_library_brings_only_licenses_that_allow_reuse(env, monkeypatch):
     assert cc["rights_status"] == rights.CC and cc["status"] in ("eligible", "queued")
     assert pd["rights_status"] == rights.PD and pd["status"] in ("eligible", "queued")
     for t in ("Space lecture share alike", "Space interview non commercial", "Space parade with people"):
-        assert src[t]["rights_status"] == rights.MANUAL and src[t]["status"] == "needs_rights", t
-    assert "share-alike" in src["Space lecture share alike"]["rights_basis"]
-    assert src["Space short clip"]["status"] == "skipped"
+        signal = db.select("trend_signals", "title = ?", (t,))[0]
+        evaluation = rights.evaluate(scout.source_from_signal(signal))
+        assert evaluation["status"] == rights.MANUAL and not evaluation["auto_allowed"], t
+        if t in src:
+            assert src[t]["rights_status"] == rights.MANUAL and src[t]["status"] == "needs_rights", t
+    share_alike = db.select("trend_signals", "title = 'Space lecture share alike'")[0]
+    assert "share-alike" in rights.evaluate(scout.source_from_signal(share_alike))["basis"]
+    assert "Space short clip" not in src
+    assert any("Too short" in reason for reason in state.get("discovery:shortlist")["reasons"])
     credit = rights.attribution(cc)
     assert "Ada Lovelace" in credit and "CC BY 4.0" in credit and "Wikimedia Commons" in credit
     assert rights.attribution(pd) == ""  # public domain without a required credit
@@ -477,7 +486,8 @@ def test_after_downtime_missed_posts_are_spread_out_not_dumped(env):
     from clipfoundry.autopilot import scheduler
 
     db.save_settings({"autopilot_youtube": True, "autopilot_tiktok": False, "autopilot_min_gap_minutes": 45,
-                      "autopilot_youtube_daily_limit": 15})
+                      "autopilot_youtube_daily_limit": 15, "autopilot_active_start": 9,
+                      "autopilot_active_end": 21})
     now = time.time()
     ids = []
     for k in range(4):
@@ -502,8 +512,8 @@ def test_posting_times_stay_inside_the_window_across_daylight_saving_changes(env
     from clipfoundry import db
     from clipfoundry.autopilot import scheduler
 
-    s = db.get_settings()
-    assert (s["autopilot_active_start"], s["autopilot_active_end"]) == (9, 21)  # 9 a.m. to 9 p.m. by default
+    s = {**db.get_settings(), "autopilot_active_start": 9, "autopilot_active_end": 21,
+         "autopilot_min_gap_minutes": 45}  # an explicit owner window still applies across DST
     slots = scheduler.grid(s, day, 4)
     local = [dt.datetime.fromtimestamp(t, CHI) for t in slots]
     assert len(slots) == 4 and all(x.date() == day and 9 <= x.hour < 21 for x in local)

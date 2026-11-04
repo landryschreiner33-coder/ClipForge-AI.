@@ -22,24 +22,26 @@ add("accounts", {
   youtube_project_verified: "YouTube audit (optional quota information)", tiktok_client_key: "TikTok client key",
   tiktok_client_secret: "TikTok client secret", tiktok_direct_post: "TikTok Direct Post permission",
   tiktok_read_stats: "TikTok statistics permission", tiktok_app_audited: "TikTok audit",
+  tiktok_inbox_upload: "TikTok inbox permission",
 });
 add("defaults", {
   clip_count: "Clips per video", min_duration: "Shortest clip", max_duration: "Longest clip",
   target_duration: "Ideal clip length", caption_style: "Caption style", caption_position: "Caption position",
   highlight_words: "Word highlight", tracking: "Framing", layout: "Layout", silence: "Silence cleanup",
   auto_zoom: "Auto-zoom", remove_fillers: "Cut filler words", caption_emphasis: "Emphasize key words",
-  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", autopilot_daily_target: "Daily target",
+  hook_overlay: "Hook on screen", normalize_audio: "Normalize loudness", autopilot_daily_target: "Daily clip cap",
   autopilot_active_start: "Posting hours (from)", autopilot_active_end: "Posting hours (to)", trend_topics: "Topics",
 });
 add("advanced", {
   whisper_model: "Whisper model", whisper_device: "Transcription device", whisper_compute_type: "Compute type",
   whisper_beam_size: "Beam size", language: "Language", autopilot_allow_cpu_fallback: "CPU transcription in Autopilot",
   gpu_min_free_vram_mb: "Free GPU memory needed", gpu_wait_minutes: "Wait for the GPU",
-  autopilot_timezone: "Time zone", autopilot_keep_awake: "Keep the PC awake",
+  autopilot_timezone: "Time zone", autopilot_keep_awake: "Keep the PC awake", autopilot_input_mode: "Video intake",
   autopilot_sources_per_day: "Sources per day", autopilot_clips_per_source: "Clips per source",
   autopilot_min_quality: "Minimum clip quality", autopilot_youtube: "Post to YouTube",
   autopilot_tiktok: "Post to TikTok",
   autopilot_auto_schedule: "Automatic scheduling", autopilot_dynamic_replacement: "Replace weaker planned posts",
+  autopilot_review_before_publish: "Prepare & schedule for review",
   autopilot_replacement_threshold: "Replacement margin", autopilot_replacement_cooldown_hours: "Replacement cooldown",
   autopilot_live_monitoring: "Live monitoring", autopilot_learning: "Learning", autopilot_process: "Worker process",
   autopilot_max_source_gb: "Largest source (GB)", autopilot_max_source_minutes: "Largest source (minutes)",
@@ -53,6 +55,9 @@ add("advanced", {
   discovery_require_topic_match: "Require a topic match", discovery_excluded_topics: "Topics to skip",
   discovery_audience_terms: "Audience context clues", discovery_min_source_score: "Minimum discovery estimate",
   discovery_require_complete_clips: "Require a complete story",
+  discovery_quality_first: "Quality before quantity", discovery_candidates_per_scan: "New finds per search",
+  autopilot_discovery_uploadable_only: "Find videos eligible for uploading",
+  discovery_queue_limit: "Unfinished search limit", discovery_creator_limit: "Finds from one creator",
   youtube_derived_metrics_approved: "Derived metrics approval", tavily_api_key: "Web search key",
   tavily_free_credits: "Web search credits", discovery_monthly_budget_usd: "Monthly cost limit",
   library_discovery: "Free-license library", rights_auto_licensed: "Licensed sources",
@@ -72,6 +77,9 @@ add("advanced", {
 });
 
 add("integrations", {
+  youtube_api_key: "YouTube Data API key", tavily_api_key: "Web search key",
+  tavily_free_credits: "Web search credits", discovery_monthly_budget_usd: "Monthly cost limit",
+  library_discovery: "Free-license library",
   nvidia_enabled: "Use NVIDIA AI", nvidia_api_key: "NVIDIA API key", nvidia_model: "NVIDIA model",
   nvidia_mode: "NVIDIA mode", nvidia_production_url: "NVIDIA endpoint", nvidia_daily_requests: "NVIDIA requests a day",
   nvidia_daily_tokens: "NVIDIA tokens a day", nvidia_max_input_tokens: "NVIDIA text per request",
@@ -83,13 +91,14 @@ add("integrations", {
 const RANGES: Record<string, [number, number]> = {
   clip_count: [1, 20], min_duration: [5, 180], max_duration: [5, 180], target_duration: [5, 180], crf: [10, 35],
   max_fps: [15, 60], min_score: [0, 100], ai_max_candidates: [1, 30], whisper_beam_size: [0, 10], hook_seconds: [0, 10],
-  autopilot_daily_target: [1, 100], autopilot_sources_per_day: [1, 30], autopilot_clips_per_source: [1, 10],
+  autopilot_daily_target: [0, 100], autopilot_sources_per_day: [0, 30], autopilot_clips_per_source: [1, 10],
   autopilot_min_quality: [0, 100], autopilot_replacement_threshold: [0, 500],
   autopilot_replacement_cooldown_hours: [0, 168], autopilot_active_start: [0, 23], autopilot_active_end: [1, 24],
   autopilot_min_gap_minutes: [0, 1440], autopilot_youtube_daily_limit: [0, 100], autopilot_tiktok_daily_limit: [0, 100],
   autopilot_upload_lead_minutes: [5, 720], autopilot_max_source_gb: [0.5, 200], autopilot_max_source_minutes: [5, 1440],
   trend_poll_minutes: [15, 1440], trend_max_age_hours: [6, 720], youtube_quota_default: [0, 10_000_000],
   discovery_min_source_score: [0, 100],
+  discovery_candidates_per_scan: [1, 30], discovery_queue_limit: [1, 100], discovery_creator_limit: [1, 30],
   youtube_quota_uploads: [0, 100_000], youtube_quota_search: [0, 100_000], youtube_discovery_share: [0, 90],
   youtube_search_discovery_share: [0, 100], gpu_min_free_vram_mb: [0, 48_000], gpu_wait_minutes: [1, 720],
   tavily_free_credits: [0, 1_000_000], discovery_monthly_budget_usd: [0, 1000],
@@ -107,6 +116,7 @@ const INTEGER = new Set([
   "youtube_search_discovery_share", "gpu_min_free_vram_mb", "gpu_wait_minutes", "tavily_free_credits",
   "nvidia_daily_requests", "nvidia_daily_tokens", "nvidia_max_input_tokens", "nvidia_max_output_tokens",
   "brain_min_clips", "brain_min_views", "brain_min_testers",
+  "discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit",
 ]);
 
 export function validTimeZone(tz: string): boolean {
@@ -121,6 +131,9 @@ export function validTimeZone(tz: string): boolean {
 /** Field errors that block saving, in plain words, keyed by setting. */
 export function validate(s: Settings): Record<string, string> {
   const e: Record<string, string> = {};
+  if ("autopilot_input_mode" in s && !["submitted", "discovery"].includes(s.autopilot_input_mode)) {
+    e.autopilot_input_mode = "Choose only videos you add, or automatic discovery.";
+  }
   for (const [k, [lo, hi]] of Object.entries(RANGES)) {
     if (!(k in s)) continue;
     const v = s[k];

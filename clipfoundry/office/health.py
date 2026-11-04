@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import time
 
 from .. import config, db
@@ -19,7 +20,7 @@ LABEL = {"healthy": "Healthy", "degraded": "Degraded", "error": "Error", "unknow
 HEARTBEAT_STALE = 180.0        # a worker host that has not reported for this long is not running
 QUEUE_STUCK = 15 * 60.0        # due work nobody started for this long
 SEARCH_LATE = 2.0              # a search more than this many polling periods late: nothing is starting it
-GPU_FIX = "Run gpu-check.bat in the ClipFoundry folder; it says what to fix."
+GPU_FIX = "Run gpu-check.bat in the ClipForge folder; it says what to fix."
 # GpuBusy (gpu.py) is recorded as the last GPU error too, but it means another program held the GPU, not a failure
 GPU_BUSY = ("The GPU stayed busy", "MB of GPU memory was free")
 
@@ -47,17 +48,17 @@ def scheduler(settings: dict) -> dict:
     on = bool(settings.get("autopilot_enabled"))
     if os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() == "off" and not last:
         return _c("scheduler", "Background work", "unknown", "Background workers are turned off in this process.",
-                  "Start ClipFoundry normally (start.bat) to run them.")
+                  "Start ClipForge normally (start.bat) to run them.")
     if not last:
         return _c("scheduler", "Background work", "unknown" if not on else "error",
                   "The background workers have not reported yet." if not on else
                   "Autopilot is on, but the background workers never reported.",
-                  "Close ClipFoundry and run start.bat again." if on else "")
+                  "Close ClipForge and run start.bat again." if on else "")
     age = time.time() - last
     if age > HEARTBEAT_STALE:
         return _c("scheduler", "Background work", "error" if on else "degraded",
                   f"The background workers last reported {int(age // 60)} min ago.",
-                  "Close ClipFoundry and run start.bat again. If the PC slept, it continues after waking.",
+                  "Close ClipForge and run start.bat again. If the PC slept, it continues after waking.",
                   last_heartbeat=last)
     return _c("scheduler", "Background work", "healthy", "The background workers are running.", last_heartbeat=last)
 
@@ -89,6 +90,14 @@ def gpu(settings: dict) -> dict:
         st = gpu_mod.manager.status(settings)
     except Exception as exc:  # noqa: BLE001 - a broken driver must not break the health page
         return _c("gpu", "GPU (CUDA)", "unknown", f"The GPU could not be read: {exc}"[:200], GPU_FIX)
+    if sys.platform == "darwin" and (st.get("whisper") or {}).get("device") == "cpu":
+        from ..pipeline.transcribe import whisper_installed
+
+        if not whisper_installed() or st.get("problem"):
+            return _c("gpu", "Mac transcription", "error", st.get("problem") or "Speech engine is unavailable.",
+                      "Reopen the Mac setup package to repair its Python dependencies.")
+        return _c("gpu", "Mac transcription", "healthy", "Local CPU transcription is ready; NVIDIA CUDA is not "
+                  "required on this Mac. Apple video encoding is checked separately in Settings.", name="Mac CPU")
     if not st["available"]:
         return _c("gpu", "GPU (CUDA)", "error" if not settings.get("autopilot_allow_cpu_fallback") else "degraded",
                   st.get("problem") or "No NVIDIA GPU was found.", st.get("fix") or GPU_FIX, name="")
@@ -147,8 +156,8 @@ def database() -> dict:
     except Exception as exc:  # noqa: BLE001
         # No regular backups are made (only a one-time copy before one update), so none is promised here.
         return _c("database", "Database", "error", f"The database could not be read: {exc}"[:200],
-                  "Close ClipFoundry and start it again. If it still fails, keep a copy before trying anything else: "
-                  f"with ClipFoundry closed, copy the whole data folder ({config.data_dir()}) somewhere safe.")
+                  "Close ClipForge and start it again. If it still fails, keep a copy before trying anything else: "
+                  f"with ClipForge closed, copy the whole data folder ({config.data_dir()}) somewhere safe.")
     return _c("database", "Database", "healthy", f"Readable ({size / 1e6:.0f} MB).")
 
 
@@ -234,31 +243,53 @@ def _places(settings: dict) -> list[str]:
 
 def discovery(settings: dict) -> dict:
     """Autopilot is on but nothing is happening: it has nowhere to look, or the regular search stopped starting."""
-    from ..autopilot import host, state
+    from ..autopilot import scout, state
 
     label = "Finding videos"
+    if not config.discovery_enabled(settings):
+        return _c("discovery", "Video input", "healthy", "Only videos you add in Missions are processed. "
+                  "Automatic searches and watched folders are off.", info=True, status_label="Submitted videos")
     if not settings.get("autopilot_enabled") or state.paused():
         return _c("discovery", label, "unknown", "Autopilot is off, so it is not looking for videos.",
                   "Press Start when you want it to look.", status_label="Off", info=True)
-    places = _places(settings)  # imports scout, which registers the quota's slowdown in PERIOD_ADJUST
+    places = _places(settings)
     if not places:
         return _c("discovery", label, "error", "Autopilot is on, but it has nowhere to look for videos.",
                   "Put a video in your videos folder (Videos\\ClipFoundry), connect YouTube in Settings → "
                   "Integrations, or turn on the free-license library in Settings → Autopilot.")
     now = time.time()
     where = "Looks in " + ", ".join(places) + "."
+    statuses = state.get("providers", {}) or {}
+    account = db.get_account("youtube") or {}
+    configured = [("youtube", "YouTube search", settings.get("youtube_api_key") or account.get("has_tokens")),
+                  ("web_search", "web search", settings.get("tavily_api_key")),
+                  ("library", "the free video library", settings.get("library_discovery"))]
+    failed = [(key, name) for key, name, enabled in configured
+              if enabled and isinstance(statuses.get(key), dict) and statuses[key].get("status") == "error"]
+
+    def search_reading(reason: str, **data: object) -> dict:
+        if not failed:
+            return _c("discovery", label, "healthy", reason, **data)
+        names = ", ".join(name for _, name in failed)
+        fix = ("Open Settings → Integrations → Search connections and test the saved keys."
+               if any(key in ("youtube", "web_search") for key, _ in failed) else
+               "Check the internet connection and open Missions → Advanced → System for search details.")
+        # Search completion is not credential success. Keep the failed services visible while independent
+        # searches/folder checks proceed; never copy a raw provider response or request URL into health output.
+        return _c("discovery", label, "degraded", f"{names} did not work last time. {reason}",
+                  f"{fix} Other available searches and folder checks continue.", **data)
+
     period = 60.0 * float(settings.get("trend_poll_minutes") or 180)
-    slower = host.PERIOD_ADJUST.get("trend_scan")  # the quota manager stretches the period near its limit
-    if slower:
-        period = slower(settings, period)
+    # Health and phone reads may inspect the cadence, but only the worker host changes search deadlines.
+    period = scout.discovery_period(settings, period)
     for job in db.select("worker_jobs", "kind = 'trend_scan' AND status IN ('running', 'queued', 'retrying', "
                                         "'waiting')", (), "created_at DESC", 5):
         if job["status"] == "running":
-            return _c("discovery", label, "healthy", f"Searching for videos now. {where}")
+            return search_reading(f"Searching for videos now. {where}")
         wake = float(job.get("run_after") or 0)
         if wake > now:  # a platform asked to wait (Retry-After) or a retry backs off: not a fault
-            return _c("discovery", label, "healthy", f"The next search starts in {_span(wake - now)}: "
-                      f"{job.get('message') or 'a platform asked to wait'}"[:300], next_scan=wake)
+            return search_reading(f"The next search starts in {_span(wake - now)}: "
+                                  f"{job.get('message') or 'a platform asked to wait'}"[:300], next_scan=wake)
     last = float((state.get("trend:last_scan") or {}).get("at") or 0)
     turned_on = max([float(e["at"]) for k in ("autopilot_on", "resumed") for e in state.events(1, kind=k)] or [0.0])
     since = max(last, turned_on, float(state.get("setup:started", 0) or 0))
@@ -269,8 +300,8 @@ def discovery(settings: dict) -> dict:
                   + f"; it should run every {_span(period)}.",
                   "Check Background work above. If it is running, open Missions → Advanced → Jobs to see why the "
                   "search did not start.", last_scan=last or None)
-    return _c("discovery", label, "healthy", where + (f" Last search {_span(now - last)} ago." if last else
-                                                      " The first search starts soon."), last_scan=last or None)
+    return search_reading(where + (f" Last search {_span(now - last)} ago." if last else
+                                  " The first search starts soon."), last_scan=last or None)
 
 
 def check(settings: dict | None = None) -> dict:

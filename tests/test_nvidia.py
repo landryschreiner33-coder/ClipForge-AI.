@@ -251,8 +251,8 @@ def test_settings_page_endpoints(data, fake, monkeypatch):
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as c:
         cards = {k["id"]: k for k in c.get("/api/integrations").json()["cards"]}
-        assert cards["nvidia"]["status"] == "off" and cards["twitch"]["status"] == "not_implemented"
-        assert cards["google_trends"]["status"] == "unsupported"
+        assert cards["nvidia"]["status"] == "off" and "twitch" not in cards
+        assert "google_trends" not in cards
         c.put("/api/settings", json={"ai_provider": "nvidia", "nvidia_enabled": True, "nvidia_api_key": "nvapi-x",
                                      "nvidia_opt_in_at": 99})  # the agreement cannot be set by a settings save
         assert db.get_settings()["nvidia_opt_in_at"] == 0

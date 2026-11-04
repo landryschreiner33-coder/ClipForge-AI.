@@ -2,8 +2,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-// The whole beginner experience, in the throwaway sandbox (never your real ClipFoundry):
-// open ClipFoundry → Set up ClipFoundry → choose Autopilot and keep the suggested topics → connect accounts (test
+// The whole beginner experience, in the throwaway sandbox (never your real ClipForge):
+// open the Office → Set up ClipForge → choose Autopilot and keep the suggested topics → connect accounts (test
 // connections) → Start Autopilot → choose who watches (selected viewers, the one question asked) → no source
 // configuration (only your videos folder) → trend discovery starts →
 // sources are created internally → public videos are clipped on this PC (public video discovery, on by default),
@@ -21,17 +21,17 @@ const nothingTechnical = async (page: Page) => {
   for (const words of TECHNICAL) await expect(page.getByText(words, { exact: true })).toHaveCount(0);
 };
 
-test("Get started, choose Autopilot, connect accounts, Start Autopilot, and ClipFoundry does the rest",
+test("Get started, choose Autopilot, connect accounts, Start Autopilot, and ClipForge does the rest",
   async ({ page, request }) => {
-    // OPEN CLIPFOUNDRY: the Office says what to do first, with nothing technical on it
-    await page.goto("/#/");
+    // OPEN CLIPFORGE'S OFFICE: it says what to do first, with nothing technical on it
+    await page.goto("/#/office");
     const panel = page.getByRole("complementary", { name: "Details" });
     await expect(panel).toContainText("Finish setting up");
     await nothingTechnical(page);
     const screenshots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
     await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: path.join(screenshots, "first-run.png") });
-    await panel.getByRole("link", { name: "Set up ClipFoundry" }).click();
+    await panel.getByRole("link", { name: "Set up ClipForge" }).click();
 
     // STEP 1, YOUR VIDEOS: one video now, or your videos folder (not opened here: Start sets it up)
     await expect(page).toHaveURL(/#\/setup\/videos$/);
@@ -57,11 +57,11 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     }
     await expect(page.getByText(/^Connected: /)).toHaveCount(2);
     // Connecting does not allow posting by itself; the page says so before you start
-    await expect(page.getByText("does not let ClipFoundry post by itself", { exact: false })).toBeVisible();
+    await expect(page.getByText("does not let ClipForge post by itself", { exact: false })).toBeVisible();
 
     // START AUTOPILOT: one button, then the Office
     await page.getByRole("button", { name: "Start Autopilot" }).click();
-    await expect(page).toHaveURL(/#\/$/);
+    await expect(page).toHaveURL(/#\/office$/);
     await expect(page.locator("#top-state")).toHaveText("Autopilot: On");
     await expect(page.locator("#office-run-state")).toHaveText("Running");
 
@@ -150,7 +150,7 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     await expect(blocked).toContainText("could not be downloaded");
 
     // THE OFFICE SAYS THE SAME: Autopilot runs, without a normal question under Needs your action.
-    await page.goto("/#/");
+    await page.goto("/#/office");
     await expect(page.locator("#office-run-state")).toHaveText("Running");
     const needs = panel.locator(".op-needs");  // e.g. "Choose who watches": never a question about one video
     if (await needs.count()) await expect(needs).not.toContainText(/trending video|needs videos/);
@@ -173,7 +173,7 @@ test("Get started, choose Autopilot, connect accounts, Start Autopilot, and Clip
     await expect(page.locator(".agreements .agreement", { hasText: "The Podcast Channel" })).toHaveCount(1);
 
     // THE AGREEMENT DECIDES POSTING BY ITSELF: that creator's video is covered and its checked clips are planned
-    // (waiting for your OK: connecting accounts does not let ClipFoundry post by itself), with no per-video question
+    // (waiting for your OK: connecting accounts does not let ClipForge post by itself), with no per-video question
     await expect.poll(async () => (await found("pod1"))?.rights_status, { timeout: 60_000 }).toBe("ALLOWLISTED");
     const pod1 = await found("pod1");
     expect(["queued", "ingesting", "analyzing", "analyzed", "weak"]).toContain(pod1.status);

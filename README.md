@@ -14,20 +14,47 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 * Paid AI APIs are optional and off by default. Local mode needs no API key.
 * Personal tool, not a SaaS. Single user, local SQLite database, local files.
 
-> **New: Autopilot.** ClipFoundry can now run as a persistent, local-first content opportunity engine: it finds
-> trending opportunities, checks the rights of every source, clips and packages the best moments, schedules them in
-> your time zone and publishes the posts you approve, then learns from the real results. Targets (3 sources, up to 5
-> clips each, 15 posts a day) are never quotas. Setup is three steps: add your videos, choose how to work, set up
-> posting (connect YouTube and, optionally, TikTok), then **Start Autopilot**; it only asks you what really needs you.
-> See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
+> **Add your video; let ClipFoundry make the clips.** In **Missions**, paste a recorded-video link or choose a
+> file. **Make & upload clips** uses relevant supported Brain notes/example preferences plus Settings, finds strong
+> moments, renders vertical clips, checks the finished file and text, and uploads qualifying clips to your chosen
+> YouTube channel automatically. Confirm that input's reuse basis, audience and kids answer once. **Make clips only**
+> keeps the results on this PC. No search API key is needed. Automatic searching and watched-folder intake are off
+> by default. See **[docs/AUTOPILOT.md](docs/AUTOPILOT.md)**.
 
-> **Windows quick start:** install Python 3.11/3.12 and FFmpeg (`winget install Gyan.FFmpeg`), then double-click
-> **`start.bat`**. The app opens at <http://127.0.0.1:8765>. Full instructions are in [INSTALL.md](INSTALL.md).
+New posts are normally spaced **30 minutes apart**, including after restarts; change Minimum gap in Settings →
+Advanced → Autopilot posting. Daily totals remain uncapped by default. Auto framing can follow moving visual
+content when a face is unavailable. The clip editor lists the saved Brain lessons used for its selection/look.
+Queue carries an existing submitted video's reuse statement forward; final quality or changed upload choices
+can still require review. These changes affect new renders, not files already uploaded.
+
+> **Windows quick start:** install **Python 3.12 — Windows installer (64-bit)** (standard CPython 3.11 also
+> supported) and FFmpeg (`winget install Gyan.FFmpeg`), then open **`start.bat`**. It verifies the actual interpreter
+> and preserves an incompatible `.venv` before replacing it; your data stays intact. If Python setup fails, install
+> 64-bit 3.12 alongside your existing Python and reopen. The app opens at <http://127.0.0.1:8765>.
+> [Installation and dependency troubleshooting](INSTALL.md).
+
+**Apple-silicon Mac preview:** the [Mac setup guide](macos/README.md) covers the native ARM64 package for
+macOS 14+, including M5 Max. It includes a private Python runtime and downloads verified video tools on first
+launch. Full workflow support uses CPU speech recognition and tested-available Apple VideoToolbox encoding;
+there is no Metal speech engine. The setup is unsigned and awaits physical Mac verification.
 
 For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_TEST.md) and **test-isolated.bat**.
 [Processing measurements and server advice](docs/PERFORMANCE.md).
 [Lounge animations, new graphics tools and visual previews](design/robot-office/lounge/README.md).
 [Optional unattended launcher and Windows startup](docs/UNATTENDED.md).
+
+**Check from your phone:** Settings → Integrations → Check from your phone starts an optional read-only
+dashboard. Use Tailscale on the PC and phone for private access at home or away, or choose trusted home Wi-Fi.
+Open the displayed address and enter the PC's single-use pairing code. The dashboard shows actual work,
+posting counts, upcoming posts and system checks; settings and publishing controls stay on the PC.
+Keep ClipFoundry open and the PC awake. [Connection and pairing guide](docs/PHONE_DASHBOARD.md).
+
+**Finished clips but no uploads:** Missions shows each submitted video's actual creation/upload counts and
+any hold reason. For new inputs, **Make & upload clips** authorizes only qualifying clips from that input;
+connecting YouTube alone does not authorize an upload. Old review backlog stays unchanged. Weak clips, missing or
+changed files, account/audience changes, paused publishing and platform waits can still hold a post.
+[Unattended setup and troubleshooting](docs/UNATTENDED.md).
+[TikTok developer form and connection guide](docs/TIKTOK_APP_SETUP.md).
 
 ## Getting started (beginner steps)
 
@@ -35,13 +62,13 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
    <http://127.0.0.1:8765>. Keep the black `start.bat` window open; closing it closes ClipFoundry.
 2. **Check the graphics card once.** Double-click **`gpu-check.bat`** in the same folder. It should say the GPU (CUDA)
    was used. If it does not, see [INSTALL.md](INSTALL.md#nvidia-gpu-acceleration).
-3. **Set it up.** The app opens on the **Office**. Press **Set up ClipFoundry**: put your videos in the videos folder,
-   choose *Let Autopilot do it*, connect YouTube (and TikTok if you like), then press **Start Autopilot**.
+3. **Connect YouTube.** The app opens on **Office**. In **Settings → Integrations**, connect the intended
+   YouTube channel. The submitted-video workflow needs no search API key.
 4. **Say who watches.** Open **Settings → Integrations → Who watches**. Choose **Public audience** for new public uploads, tick the confirmation and press **Confirm who watches**.
    Existing posts and scheduled Private uploads keep their visibility. Selected viewers and local-only remain available:
-   * **YouTube:** connect your channel and enable automatic publishing with its new Public permission, daily limit
-     and posting window. New eligible clips
-     upload at their planned time. The app reads back actual visibility; a restricted Private result is a blocker.
+   * **YouTube:** each **Make & upload clips** request names the connected channel and this confirmed audience.
+     Qualifying clips upload at their planned time within your posting window and configured limits. The app reads
+     back actual visibility; a restricted Private result is a blocker.
      For selected viewers, uploads stay Private and you share them in YouTube Studio.
      The current API permits Public uploads from unverified projects; an API audit is for quota increases.
    * **TikTok:** Public Direct Post needs an eligible, approved app and your explicit choices and consent on each
@@ -49,14 +76,23 @@ For the PR #14 review ZIP, use [separate Windows test steps](docs/WINDOWS_PR14_T
      ClipFoundry prepares each one in **Queue → Problems → Ready for you to post on TikTok** (download the video, copy
      the caption, choose a privacy option TikTok offers, then paste its link). A private TikTok profile cannot offer
      **Everyone**; this app does not change your profile's privacy.
+   In **Settings → Accounts → TikTok**, open **Help me fill out the TikTok app form** for copyable app details,
+   icons, your actual local callback address and a form pack. Choose inbox, Direct Post or both; statistics are
+   optional. **Use these permissions in ClipFoundry**, save Settings and reconnect to request the chosen scopes.
+   The helper prepares a truthful personal-app draft; TikTok decides eligibility, app review and audit approval.
 5. **Watch the office.** All 25 robots keep their names and real state icons. Working robots sit at their desks;
    off-duty robots play arcade and board games, drink coffee, eat snacks and read in the lounge. They change
    activities without sharing a spot, and real work takes priority. Confirmed transitions can pass a document
    between robots. Use the room camera to inspect the animated Brain, café, game tables and dusk skyline.
    Choose **Follow system**, **Full** or **Reduced** animations; Full overrides the system’s reduced-motion preference. Click a robot or a room for details. The bar at the bottom has **Start**, **Pause**, **Resume**,
    **Stop all** and **Pause publishing** (clips are still made and checked, nothing is uploaded).
-6. **Check posts in Queue.** *Needs review* holds posts waiting for your OK (TikTok always needs it). Each post says
-   who it is for and what really happened.
+6. **Add a video in Missions.** Paste a publicly accessible recorded-video link or choose a file. Choose
+   **Make & upload clips**, answer whether its clips are made for kids, choose the basis covering its footage and
+   sound, and confirm once. Passing new clips from this video upload automatically to the displayed channel and
+   audience; this does not authorize older clips or any other input. **Make clips only** keeps results local.
+   Missions shows progress and **Cancel video** stops future work. **Queue** shows uploads and holds. Older posts
+   still waiting for review can be previewed there and approved individually or in selected YouTube groups up to
+   50. TikTok keeps individual review. Permission answers stay outside Brain knowledge.
 7. **Tell it what your viewers thought.** **Clips → Test feedback**: enter what a tester said about a clip, or copy
    the numbers from YouTube Studio or TikTok. The Brain changes its clip length only after enough results (at least
    30 clips from 5 videos), by at most 10% at a time, and you can roll a change back (click the Brain Room on the
@@ -67,9 +103,10 @@ Closing the `start.bat` window stops ClipFoundry and its background work; it con
 start. While Autopilot is on, ClipFoundry asks Windows not to sleep. If the PC sleeps or is shut down anyway, nothing
 runs meanwhile; at the next start interrupted steps run again and missed posts get a new time.
 
-For an unattended YouTube setup, choose **Public audience**, connect the intended channel and confirm its standing
-Public publishing permission. Set the posting window to **0–24** for all-day scheduling; keep a deliberate daily
-limit. Public posts need no YouTube Studio invitations. Existing Private posts keep their original audience.
+For unattended creation from a supplied video, connect the intended YouTube channel, confirm who watches, then
+use **Make & upload clips** for that video. Set the posting window to **0–24** for all-day scheduling if wanted;
+0 means no app daily cap, while positive limits and real platform allowances still apply. Public posts need no
+YouTube Studio invitations. Existing Private posts keep their original audience.
 If your Google OAuth app is External and in **Testing**, YouTube authorization can expire after seven days:
 set its publishing status to **Production**, then reconnect for a fresh grant. Personal use can be exempt from
 OAuth verification; Production is separate from a YouTube API quota audit and does not prevent revocation.
@@ -85,6 +122,94 @@ Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain chec
 
 **Back up and export.** To back up, close ClipFoundry and copy the `data` folder. To keep a clip outside the app, use
 **Export** on the clip, or **Download all (ZIP)** on the video's page in Clips.
+
+## Teach the Brain
+
+Open **Brain** for a graph of your saved notes, examples, topics and recorded clip decisions. **Add note** saves
+an idea or document; **Teach preference** gives explicit caption and pacing choices. Saved, enabled lessons are
+consulted automatically for new clips, with no separate Brain approval. Your Settings fill every missing choice.
+
+The local interpreter recognizes caption style/position/emphasis, continuous pacing or safe middle-sentence cuts,
+and priorities such as hooks, complete stories, standalone context and clear speech. Explicit dropdown choices
+win over interpretations of prose. The editor shows what it recognized. Good video examples contribute their
+measured duration as a gentle hint: one example supplies 25% of the target and Settings supply 75%, with your
+minimum/maximum length always respected. Appearance is not inferred from uploaded video pixels.
+
+Topic tags narrow which clips use a lesson; leave them blank for general guidance. Disabled lessons and Pause
+Brain stop new use. Saved revisions and actual decision changes remain inspectable; existing rendered clips and
+posting results are preserved. Raw notes and examples stay on this PC, and uploads do not fine-tune a model.
+The selected text AI receives only fixed recognized priority names alongside the existing transcript excerpt.
+
+Matching uses the source title and spoken words, and carries that context into planning and rendering. Descriptions
+such as “captions should be bold” and a good example's **Captions: bold** field are recognized. A bad example's
+described traits are not promoted as desirable; choose corrective editing preferences for it. The lesson editor
+shows the recognized effect and measured length. Reference-only notes remain searchable but do not change edits.
+Explicit changes made in the clip editor still override automatic guidance.
+
+## Audio, comments and optional discovery
+
+The default submitted-video workflow does not search, watch folders or require search keys. Optional discovery
+can be selected under **Settings → Advanced → Autopilot details → Video input**. The search guidance below applies
+only when that mode is enabled.
+
+If keys fail, open **Settings → Integrations → Search connections**, save and press **Test saved YouTube
+connection** or **Test saved Tavily connection**. Results distinguish credential/setup errors from service limits.
+A YouTube key differs from an OAuth client ID/secret; browser-referrer-restricted keys cannot authorize a desktop
+app. Remove the optional key and save to use the connected account instead. Tests run no search/upload: YouTube
+uses general-quota reads and Tavily reads account usage. Success does not prove remaining search credits or
+downloadable originals. Other providers and local folders continue when one service fails.
+
+Reuse answers stay with the submitted video/upload authorization or the exact reviewed posts. They do not become
+Brain lessons or teach future clips.
+Notes and examples you deliberately save in Brain remain separate.
+
+Newly processed clips preserve delayed audio starts and gaps, and use the same first audio track for transcription
+and rendering. Stereo downmix happens before normalization; final peak control also covers volume boosts. Existing
+renders and uploaded videos are kept. Previously distorted uploads need a newly checked render; source distortion
+already present in the original cannot be reconstructed by a limiter.
+
+YouTube review explains when comments will be off: Private videos and videos made for kids do not support comments.
+Choose the audience that actually matches the content. The app preserves real Yes/No answers and rejects malformed
+ones. Upload and Refresh show YouTube's returned audience evidence; other comment restrictions and channel defaults
+must be checked in YouTube Studio because the upload API has no enable-comments switch.
+
+Open **Settings → Integrations → Search connections** to add a YouTube Data API key or Tavily key. Tavily's free
+plan currently includes 1,000 monthly credits without a credit card; **Use free Tavily plan limits** selects that
+allowance and a $0 paid budget in this app. This is not a live account balance. YouTube keys use the project's
+quota and do not replace the connected upload account. The free-license library and local folders need no key.
+Discovery checks again within 15 minutes when its queue has room and the configured source allowance remains;
+busy queues retain the saved regular interval. One provider's wait does not stop independent providers. Platform
+quotas, exact retry waits, credit/cost caps and quality checks remain active.
+
+Live capture accepts compatible separate HLS audio/video renditions through the same guarded local relay. If an
+empty platform capture ends, it checks for a public recording with finite, restart-safe waits. A platform must
+actually make that recording available; private, protected or absent media is not bypassed. Saved partial captures
+keep their original timeline. See [the Claude handoff](CLAUDE_HANDOFF.md) for the exact fixes and verification limits.
+
+## Optional discovery: fewer, stronger videos
+
+This section applies after explicitly choosing discovery mode. Submitted mode waits for your supplied input.
+
+**Quality first** is on by default. Open **Missions → Permissions & sources → Quality before quantity** to adjust it.
+Broad online searches admit up to **3 strong candidates per pass**, keep at most **6 unfinished broad-search picks**
+(including those waiting for permission or a file), and select at most
+**1 candidate per known creator per pass**. The existing daily source limit also bounds broad processing attempts:
+**0 (no app cap) by default**, with any positive owner limit also counting weak or failed attempts. The app stops admitting more broad-search work after
+that budget instead of filling the clip target with more weak videos; it resets in your chosen time zone.
+Your saved limits remain in place. Manually added videos, your own folders and channels or feeds you chose keep
+their existing intake path and are not reduced by the broad-search shortlist caps.
+
+Picks still need a useful source estimate, topic relevance and diversity; transcript and final-file checks decide
+whether any usable clip exists. Held and filtered candidates have reasons in Missions → Activity. Scores are
+estimates, and a pass may produce fewer clips or none.
+
+YouTube search can use a connected account or your own free Data API key. Optional **Tavily** web search adds
+public links and context: its [free plan](https://docs.tavily.com/documentation/api-credits) includes
+**1,000 credits/month without a credit card**. Paste your own key
+under **Find better links with a free search key** and keep the paid monthly budget at **$0** to stop at the included
+allowance. A search
+key improves access to search results, not reuse rights or guaranteed clip quality. No API key is needed for local
+files; see [the discovery guide](docs/AUTOPILOT.md#hands-off-discovery-eligibility-and-files).
 
 ## Features
 
@@ -108,12 +233,12 @@ Windows/RTX 3050 operation, real accounts and an actual 24-hour soak remain chec
 | Prepare post | One page per clip (**Prepare post**): video preview, editable title, description/caption and hashtags (with the generated options one click away), YouTube made-for-kids and confirmed audience, TikTok’s offered privacy choices, interactions and disclosure, and explicit **Publish to YouTube now…**, **Post to TikTok now…** (or **Send to TikTok inbox…**) and **Export** buttons. Every publish needs a confirmation. Status, progress and links for each upload stay listed there (*Uploads you started here*). |
 | Performance | **Real numbers only.** For your uploads, ClipFoundry reads views, likes and comments (YouTube Data API), shares, watch time, average view duration and % viewed (YouTube Analytics API, when enabled) and views, likes, comments and shares (TikTok `video.query` for public posts). Each refresh stores a timestamped snapshot; a metric the platform does not report stays empty ("—") with the reason, never estimated. TikTok posts finished in the app can be linked by URL. **Queue → Results** shows totals with their coverage and, once 10+ uploads have view counts, how well Viral Potential ordered them. The data (scores at publish time next to real results) can be downloaded as CSV (**Download data (CSV)** under Queue → Results) or JSON as the basis for tuning the ranking later. |
 | Autopilot | Durable background workers (Trend Scout, Source Scout, Rights and Content Safety Gate, Live Monitor, Clip Hunter, Deep Clip Analyzer with diversity selection, Packaging AI, Final Quality Gate, Smart Scheduler, YouTube Quota Manager, Publisher, Learning Worker) on a SQLite job queue that survives restarts. One heavy GPU job at a time on the existing CUDA path. Visible Trend, Source, Clip, Diversity, Packaging, Expected Retention, Publish Opportunity and Final Opportunity scores. A simple **Overview** (**Start Autopilot** / **Pause Autopilot**, this PC and the GPU, **Needs you**, what it is working on, your videos folder, upcoming posts and how they go out), an **Activity** tab (top opportunities, and what it did with each video it found) and **Permissions & sources**, with a three-step first-time setup (add your videos, choose how to work, set up posting, then **Start Autopilot**); workers, GPU, quota, jobs and learning under **Advanced**; **Stop all jobs…** always at hand. Details: [docs/AUTOPILOT.md](docs/AUTOPILOT.md). |
-| Queue | Every planned and published post in one place (formerly Posts), with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (YouTube can use explicit standing permission; TikTok still needs per-post consent), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
+| Queue | Every planned and published post in one place (formerly Posts), with the tabs **Needs review**, **Scheduled**, **Published** (canceled and replaced posts too, as History), **Problems** and **Results**. Each post opens as its own page: **Approve for YouTube** / **Approve for TikTok** (new submitted YouTube clips can use their explicit input request; optional standing consent applies outside review mode; TikTok keeps per-post consent), edit the text, **Change the time…**, **Cancel this post…**, **Try again…**, **Publish now…**, open the clip, the source video and the post, with the reasons behind each slot and score and an audit trail. |
 | Rights | Every source has a status: Owned, Licensed, Creative Commons, Public domain, Allowlisted, Not covered or Blocked. Public accessible videos can be clipped locally; scheduling/publishing still requires recorded reuse eligibility. Discovery alone grants no rights. |
 | Places | **Office** (the robots and the controls), **Missions** (Autopilot), **Clips** (your source videos and their clips, and Test feedback), **Queue** (posts), **Brain** (knowledge, examples and decisions) and **Settings**, plus **Add video**. Everything (source video, transcript, candidates, clips, metadata) is stored locally. |
 | Robot office | 25 pixel robots (a Director, 8 managers, 16 workers) and an animated Brain Core. Robots sit at desks to work, rest in individual lounge seats and pass documents on confirmed job transitions. The room camera shows the details; states and tasks come from the job system. Brain standby is decorative and labeled separately from processing. Follow system / Full / Reduced is saved; Full overrides system reduced motion. A list view also shows their tasks. See [docs/OFFICE.md](docs/OFFICE.md). |
 | Who watches | Explicit Public, selected viewers, owner-only staging, or local-only. New Public YouTube automation needs fresh account/visibility-bound consent; TikTok Everyone needs an eligible audited app and per-post consent. Existing private posts keep their audience. Unlisted remains unsupported. Settings → Integrations. |
-| Brain | A visible workspace for searchable documents, instructions, skill guides, good/bad example clips, approved typed preferences, clip decision influence and performance history. Uploads do not fine-tune a model or execute code. Public and selected-viewer results stay in separate cohorts; bounded learning uses mature evidence and rollback. |
+| Brain | Memory graph and automatically used saved guidance. See [Teach the Brain](#teach-the-brain). |
 
 YouTube uses your own Google Cloud Desktop-app OAuth client with PKCE and a loopback redirect. The connected
 channel name is shown; uploads include title, description, tags and the made-for-kids answer. Tokens use Windows
@@ -284,8 +409,9 @@ for exercising the whole pipeline.
 ## Responsible use
 
 Only process videos you own or have permission to use. Finding a video (trending, public or downloadable) does not
-make it reusable. Automatically discovered sources need reuse rights before clipping. Links you paste into
-Autopilot may be clipped locally when the file can be obtained through supported access; this supplies no reuse or
+make it reusable. Broad discoveries follow your local-processing choice; publishing always needs reuse coverage.
+Links you paste into Autopilot may be clipped locally when the file can be obtained through supported access;
+this supplies no reuse or
 publishing permission. Explicitly blocked videos are never processed. The optional URL import uses yt-dlp for
 publicly accessible media only: ClipFoundry does not bypass DRM, paywalls, logins or other access controls, and it never
 passes cookies or credentials. For YouTube-hosted videos it is off in Autopilot unless you enable it for sources you

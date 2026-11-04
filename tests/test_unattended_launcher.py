@@ -205,7 +205,7 @@ def _alive(pid: int) -> bool:
         try:
             if Path(f"/proc/{pid}/stat").read_text().split(")", 1)[1].split()[0] == "Z":
                 return False
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return False
     try:
         os.kill(pid, 0)
@@ -266,7 +266,8 @@ def test_real_child_output_rotates_during_a_long_run(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal integration; requires a Windows host there")
-def test_real_watchdog_restarts_then_sigint_stops_all_owned_processes(tmp_path):
+@pytest.mark.parametrize("shutdown_signal", ["SIGINT", "SIGHUP"])
+def test_real_watchdog_restarts_then_signal_stops_all_owned_processes(tmp_path, shutdown_signal):
     records = tmp_path / "children.txt"
     source = ("import sys,subprocess,os,time,pathlib\n"
               "assert sys.stdin.readline() == 'start\\n'\n"
@@ -294,7 +295,7 @@ def test_real_watchdog_restarts_then_sigint_stops_all_owned_processes(tmp_path):
         _wait_for(lambda: records.exists() and len(records.read_text().splitlines()) >= 2)
         owned = [int(value) for value in records.read_text().split()]
         assert len(owned) == 4
-        proc.send_signal(signal.SIGINT)
+        proc.send_signal(getattr(signal, shutdown_signal))
         assert proc.wait(timeout=5) == 0
         for pid in owned:
             _wait_for(lambda pid=pid: not _alive(pid))

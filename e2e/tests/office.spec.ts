@@ -10,7 +10,7 @@ const STATE_WORDS: Record<string, string> = {
 };
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
 });
 

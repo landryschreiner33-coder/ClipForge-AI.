@@ -38,7 +38,8 @@ export default function Library() {
     <>
       <PageHead title="Clips"
         sub="Your source videos and the clips made from them. Everything is stored on this computer."
-        actions={<a className="btn btn-primary" href="#/create"><Icon name="plus" />Add video</a>} />
+        actions={<><a className="btn btn-primary" href="#/missions"><Icon name="upload" />Make & upload clips</a>
+          <a className="btn" href="#/create"><Icon name="plus" />Make clips manually</a></>} />
       <ClipsTabs current="clips" />
     </>
   );
@@ -52,7 +53,7 @@ export default function Library() {
             actions={<button type="button" className="btn btn-small" onClick={refresh}>
               <Icon name="refresh" />Try again
             </button>}>
-            {error}. Check that the black ClipFoundry window is still open.
+            {error}. Check that the black ClipForge window is still open.
           </Banner>
         ) : (
           <div className="grid-cards" aria-busy="true">
@@ -133,7 +134,7 @@ function LibraryCard({ p, onChanged, onDelete }: { p: LibProject; onChanged: () 
         {busy && (
           <span className="overlay">
             <Icon name={p.status === "uploading" ? "upload" : "refresh"} />
-            <span>{p.status === "uploading" ? "Copying into ClipFoundry" : p.message || "Waiting to start"}</span>
+            <span>{p.status === "uploading" ? "Copying into ClipForge" : p.message || "Waiting to start"}</span>
           </span>
         )}
       </Thumb>

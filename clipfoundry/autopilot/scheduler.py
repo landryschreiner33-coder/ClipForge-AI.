@@ -20,9 +20,12 @@ survives restarts.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
+import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from .. import db
 from ..pipeline import artifact, fingerprint
@@ -55,13 +58,14 @@ def _audit(item: dict, event: str, detail: str, **data: object) -> list[dict]:
 
 
 # ------------------------------------------------------------------ limits
-def daily_limit(settings: dict, platform: str) -> int:
-    """Posts per day on a platform: your setting, lowered by any limit the platform itself reported."""
+def daily_limit(settings: dict, platform: str) -> int | None:
+    """Effective daily cap; None means uncapped by the app. A platform's reported zero still stops posting."""
     configured = int(settings.get(f"autopilot_{platform}_daily_limit") or 0)
     rows = db.select("platform_limits", "platform = ? AND key = 'daily_posts'", (platform,))
     if rows and rows[0]["value"] is not None:
-        return min(configured, int(rows[0]["value"]))
-    return configured
+        observed = max(0, int(rows[0]["value"]))
+        return min(configured, observed) if configured > 0 else observed
+    return configured if configured > 0 else None
 
 
 def blocked_until(platform: str, now: float | None = None) -> tuple[float, str]:
@@ -91,12 +95,12 @@ def _label(ts: float, settings: dict) -> str:
 def grid(settings: dict, day: dt.date, per_day: int) -> list[float]:
     """Evenly spaced candidate times over the active hours of a local day (never closer than the minimum gap)."""
     zone = tz(settings)
-    start_h = int(settings.get("autopilot_active_start", 9))
-    end_h = int(settings.get("autopilot_active_end") or 23)
+    start_h = int(settings.get("autopilot_active_start", 0))
+    end_h = int(settings.get("autopilot_active_end", 24))
     if end_h <= start_h:
         end_h = start_h + 1
     minutes = (end_h - start_h) * 60
-    gap = float(settings.get("autopilot_min_gap_minutes") or 45)
+    gap = float(settings.get("autopilot_min_gap_minutes", 0))
     step = max(gap, minutes / max(1, per_day), 15.0)
     base = dt.datetime.combine(day, dt.time(start_h, 0), zone)
     out, k = [], 0
@@ -208,8 +212,8 @@ def audience_reminders(settings: dict) -> None:
                 audience.LOCAL_ONLY:
             name = "YouTube" if p == "youtube" else "TikTok"
             state.action(f"audience_setup:{p}", "audience", f"Choose who watches your {name} clips",
-                         f"Clips stay ready on this PC until you say who may watch them on {name}. ClipFoundry posts "
-                         "only to viewers you pick, never publicly.",
+                         f"Clips stay ready on this PC until you say who may watch them on {name}. ClipForge posts "
+                         "only to the audience you confirm. Public posting needs an explicit Public choice.",
                          f"Settings → Integrations → {name} → Who watches.")
         else:
             state.resolve(f"audience_setup:{p}")
@@ -224,6 +228,12 @@ def candidates(settings: dict, now: float) -> list[dict]:
     for clip in rows:
         project = db.get_project(clip["project_id"]) or {}
         source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
+        from . import submissions
+
+        submitted_platforms = submissions.target_platforms(source or {}, settings)
+        if settings.get("autopilot_input_mode", "submitted") == "submitted" and submitted_platforms is None:
+            continue  # input-only mode never admits an older discovered/backlog clip to a new posting plan
+        source_platforms = submitted_platforms if submitted_platforms is not None else platforms
         try:
             rights.gate(source, "schedule", settings)
         except rights.RightsBlocked:
@@ -234,11 +244,11 @@ def candidates(settings: dict, now: float) -> list[dict]:
                 continue
         sc = db.fetch("clip_scores", clip["id"], "clip_id") or {}
         retention, _ = learner.expected_retention(sc.get("retention"))
-        for platform in platforms:
+        for platform in source_platforms:
             if not settings.get("autopilot_allow_republish") and _published_or_active(clip["id"], platform):
                 continue
-            if not rights.platform_allowed(source, platform, settings)[0]:
-                continue  # e.g. an agreement that covers TikTok only
+            if not rights.scheduling_allowed(source, platform, settings)[0]:
+                continue  # review drafts may lack reuse coverage; explicit blocks still win
             meta = db.select("metadata_candidates", "clip_id = ? AND platform = ? AND selected = 1",
                              (clip["id"], platform))
             if not meta or not gate.schedulable(clip, platform, meta[0]["id"])[0]:
@@ -263,7 +273,7 @@ class Plan:
         self.now = now
         self.items = db.select("scheduled_publications", "status IN ('awaiting_approval', 'approved', 'publishing', "
                                                          "'reconciling', 'published') AND planned_at IS NOT NULL")
-        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
+        self.gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 30))
         self.held = 0  # replacements held back by the cooldown
 
     def occupies(self, item: dict) -> bool:
@@ -285,19 +295,25 @@ class Plan:
     def free(self, platform: str, t: float, clip_id: str) -> bool:
         day = local_day(self.settings, t)
         count, clips = self._counts(platform, day)
-        if count >= daily_limit(self.settings, platform):
+        limit = daily_limit(self.settings, platform)
+        if limit is not None and count >= limit:
             return False
-        if clip_id not in clips and len(clips) >= int(self.settings.get("autopilot_daily_target") or 15):
+        target = int(self.settings.get("autopilot_daily_target") or 0)
+        if target > 0 and clip_id not in clips and len(clips) >= target:
             return False
         return all(abs(it["planned_at"] - t) >= self.gap for it in self.items if it["platform"] == platform
                    and self.occupies(it))
 
     def best_slot(self, platform: str, clip_id: str, urgency: float, timing: Timing) -> tuple[float, dict] | None:
+        if int(self.settings.get(f"autopilot_{platform}_daily_limit") or 0) == 0 and \
+                int(self.settings.get("autopilot_daily_target") or 0) == 0:
+            return self.continuous_slot(platform, clip_id, timing)
         start = self.now + 60.0 * (LOCK_MINUTES + 5)
         blocked, _ = blocked_until(platform, self.now)
         start = max(start, blocked)
-        per_day = max(1, min(daily_limit(self.settings, platform), int(self.settings.get("autopilot_daily_target")
-                                                                         or 15)))
+        caps = [cap for cap in (daily_limit(self.settings, platform),
+                                int(self.settings.get("autopilot_daily_target") or 0)) if cap is not None and cap > 0]
+        per_day = min(caps) if caps else 1
         best = None
         today = _local(self.now, self.settings).date()
         for d in range(HORIZON_DAYS + 1):
@@ -311,6 +327,39 @@ class Plan:
                     best = (value, t, {"quality": round(q, 3), "note": note,
                                        "local": _local(t, self.settings).isoformat(timespec="minutes")})
         return (best[1], best[2]) if best else None
+
+    def continuous_slot(self, platform: str, clip_id: str, timing: Timing) -> tuple[float, dict] | None:
+        """Earliest permitted slot, without an artificial review delay or a finite daily posting grid.
+
+        Existing posts keep their times; optional spacing, owner hours and reported platform limits still bind.
+        Computing gaps from occupied slots also avoids a fixed grid that silently imposes its own daily cap.
+        """
+        blocked, _ = blocked_until(platform, self.now)
+        start = max(self.now, blocked)
+        today = _local(start, self.settings).date()
+        start_h = int(self.settings.get("autopilot_active_start", 0))
+        end_h = int(self.settings.get("autopilot_active_end", 24))
+        if end_h <= start_h:
+            return None
+        occupied = sorted(it["planned_at"] for it in self.items
+                          if it["platform"] == platform and self.occupies(it))
+        for offset in range(HORIZON_DAYS + 1):
+            day = today + dt.timedelta(days=offset)
+            base = dt.datetime.combine(day, dt.time(start_h), tz(self.settings)).timestamp()
+            end_day = day + dt.timedelta(days=1) if end_h == 24 else day
+            end = dt.datetime.combine(end_day, dt.time(end_h % 24), tz(self.settings)).timestamp()
+            when = max(start, base)
+            if self.gap:
+                for taken in occupied:
+                    if abs(taken - when) < self.gap:
+                        when = taken + self.gap
+            if when >= end or not self.free(platform, when, clip_id):
+                continue
+            quality, history = timing.quality(_local(when, self.settings))
+            return when, {"quality": round(quality, 3), "note": "Continuous posting: earliest available time; "
+                          + (history if timing.samples else "no posting history yet"),
+                          "local": _local(when, self.settings).isoformat(timespec="minutes")}
+        return None
 
     def add(self, item: dict) -> None:
         self.items.append(item)
@@ -331,8 +380,11 @@ def _meta_fields(c: dict, settings: dict) -> dict:
     stamp = {"intent": want, "platform": platform, "policy_version": audience.POLICY_VERSION, "group": dest["group"],
              "group_version": dest["group_version"], "visibility": audience.visibility(platform, want, settings)}
     if platform == "youtube":
+        from . import submissions
+
+        submitted_fields = submissions.post_fields(c.get("source") or {})
         return {"title": meta["title"], "description": meta["description"], "tags": meta["tags"] or [],
-                "privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp}
+                **(submitted_fields or {"privacy": stamp["visibility"], "options": {"made_for_kids": None}, "audience": stamp})}
     route = audience.tiktok_route(settings, db.get_account("tiktok"))
     return {"title": meta["title"], "description": meta["caption"], "tags": meta["hashtags"] or [], "privacy": "",
             "options": {"mode": route, "allow_comment": False, "allow_duet": False, "allow_stitch": False,
@@ -349,7 +401,8 @@ def create_item(c: dict, planned_at: float, slot: dict, settings: dict, now: flo
         "metadata_id": c["meta"]["id"], **_meta_fields(c, settings), "planned_at": planned_at,
         "timezone": settings.get("autopilot_timezone") or "America/Chicago", "slot": slot, "final_score": final,
         "scores": {**scores, "explanation": why}, "status": "awaiting_approval", "replaces": replaces,
-        "status_note": "Waiting for your approval",
+        "status_note": "Scheduled locally: review reuse permission and approve before publishing" if
+                       rights.review_before_publish(settings) else "Waiting for your approval",
         "audit": audit or [{"at": now, "event": "scheduled", "detail": f"Planned for {_label(planned_at, settings)} "
                                                                         f"({slot['note']}); Final Opportunity Score "
                                                                         f"{final:.0f}"}]})
@@ -442,7 +495,16 @@ def _replace(c: dict, weak: dict, score: float, threshold: float, settings: dict
     return new
 
 
+_planning_lock = threading.RLock()
+
+
 def plan_new(settings: dict, now: float) -> dict:
+    # The scheduler worker is unique across processes; also serialize local replan requests with its tick.
+    with _planning_lock:
+        return _plan_new(settings, now)
+
+
+def _plan_new(settings: dict, now: float) -> dict:
     plan = Plan(settings, now)
     timings = {p: Timing(p, settings) for p in PLATFORMS}
     created, replaced, no_slot = 0, 0, 0
@@ -502,6 +564,8 @@ def approval_basis(item: dict, quick: bool = False) -> dict | None:
     data = {k: item.get(k) for k in ("platform", "title", "description", "tags", "privacy", "options")}
     stamp = item.get("audience") or {}
     data["audience"] = {k: stamp.get(k) for k in ("intent", "policy_version", "group", "group_version")}
+    if item.get("reuse_confirmation"):
+        data["reuse_confirmation"] = item["reuse_confirmation"]
     return {**data, "video_sha256": sha, "version": version, "scheme": APPROVAL_SCHEME}
 
 
@@ -519,14 +583,88 @@ def approval_record(item: dict, **fields: object) -> dict | None:
             "video_sha256": basis["video_sha256"], "account": autopublish.account_id(item["platform"])}
 
 
+def publication_unstarted(item: dict) -> bool:
+    """Whether a local draft can return to review without disturbing an upload already in progress.
+
+    Missing publication records and running workers are not evidence of an unstarted transfer. Preserve those
+    records for the publisher's own recovery checks, including sessions whose last platform reply was lost.
+    """
+    from ..publish import jobs as publish_jobs
+
+    if queue.jobs(("running",), worker="publisher", ref=("scheduled", item["id"]), limit=1):
+        return False
+    pub_id = item.get("publication_id") or ""
+    if not pub_id:
+        return True
+    pub = db.get_publication(pub_id)
+    if not pub or pub.get("status") in ("done", "processing", "action_needed"):
+        return False
+    return not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub)
+
+
+def hold_automatic_approvals(settings: dict) -> int:
+    """Review mode suspends old unstarted automatic approvals while keeping the exact local draft and identity."""
+    if not rights.review_before_publish(settings):
+        return 0
+    from ..publish import jobs as publish_jobs
+
+    held = 0
+    for item in db.select("scheduled_publications", "status IN ('approved', 'publishing', 'failed', 'action_needed')"):
+        if (item.get("approval") or {}).get("by") != "automatic":
+            continue
+        canceled = []
+        now = _now()
+        with db.connect() as conn:
+            # Claiming a publish job also writes SQLite. Hold its pending job and approval in one transaction
+            # so a worker cannot claim between the unstarted check and returning this draft to review.
+            conn.execute("BEGIN IMMEDIATE")
+            current = db._decode("scheduled_publications", conn.execute(
+                "SELECT * FROM scheduled_publications WHERE id = ?", (item["id"],)).fetchone())
+            if not current or current["status"] not in ("approved", "publishing", "failed", "action_needed") or (
+                current.get("approval") or {}).get("by") != "automatic":
+                continue
+            if conn.execute("SELECT 1 FROM worker_jobs WHERE worker = 'publisher' AND ref_type = 'scheduled' "
+                            "AND ref_id = ? AND status = 'running' LIMIT 1", (item["id"],)).fetchone():
+                continue
+            if current.get("publication_id"):
+                pub = db._decode("publications", conn.execute("SELECT * FROM publications WHERE id = ?",
+                                 (current["publication_id"],)).fetchone())
+                if not pub or pub["status"] in ("done", "processing", "action_needed") or \
+                        publish_jobs.transfer_started(pub) or publish_jobs.unknown_outcome(pub):
+                    continue
+            canceled = [row["id"] for row in conn.execute(
+                "SELECT id FROM worker_jobs WHERE worker = 'publisher' AND ref_type = 'scheduled' AND ref_id = ? "
+                "AND status IN ('queued', 'waiting', 'retrying')", (item["id"],)).fetchall()]
+            note = "Review before publishing: waiting for the owner's approval"
+            conn.execute("UPDATE worker_jobs SET status = 'canceled', message = ?, finished_at = ?, updated_at = ?, "
+                         "wait_reason = '' WHERE worker = 'publisher' AND ref_type = 'scheduled' AND ref_id = ? "
+                         "AND status IN ('queued', 'waiting', 'retrying')", (note, now, now, item["id"]))
+            audit = _audit(current, "review_required", "Review before publishing replaced automatic approval")
+            conn.execute("UPDATE scheduled_publications SET status = 'awaiting_approval', approval = '{}', "
+                         "status_note = ?, audit = ?, updated_at = ? WHERE id = ?",
+                         ("Scheduled locally: review reuse permission and approve before publishing",
+                          json.dumps(audit), now, item["id"]))
+        for job_id in canceled:
+            queue.log_line(job_id, "publisher", "info", "cancel_requested", note)
+        held += 1
+    return held
+
+
 def approval_problem(item: dict, quick: bool = False) -> str:
     """Why the stored approval does not cover what would be published now ("" when it does)."""
     appr = item.get("approval") or {}
     if not appr.get("hash"):
         return "not approved"
+    if appr.get("by") == "submission" and publication_unstarted(item):
+        from . import submissions
+
+        if not submissions.still_covers(item, quick=quick):
+            return "this input's make-and-upload request no longer covers the source or destination"
+    if appr.get("by") == "automatic" and rights.review_before_publish() and publication_unstarted(item):
+        return "review before publishing is on; approve this post yourself"
     if appr.get("scheme") != APPROVAL_SCHEME:
-        return ("approved before ClipFoundry checked who may watch it" if appr.get("scheme") == 2 else
-                "approved before ClipFoundry checked the exact video file")
+        return ("approved before ClipForge checked who may watch it" if appr.get("scheme") == 2 else
+                "approved before ClipForge checked the exact video file")
     now_account = autopublish.account_id(item["platform"])
     if appr.get("account") and now_account and appr["account"] != now_account:
         return "another account is connected now than the one it was approved for"
@@ -537,10 +675,14 @@ def approval_problem(item: dict, quick: bool = False) -> str:
                                                                                    audience.OWNER_ONLY)
         if int(stamp["group_version"]) != dest["group_version"] and not kept_private:
             return "who watches changed after approval"
-    current = approval_hash(item, quick)
-    if not current:
+    basis = approval_basis(item, quick)
+    if not basis:
         return "the video file is missing or cannot be read"
-    return "" if appr["hash"] == current else "the clip or its text changed after approval"
+    if appr["hash"] != artifact.sha256_json(basis):
+        return "the clip or its text changed after approval"
+    if item.get("reuse_confirmation") and publication_unstarted(item):
+        return rights.confirmation_problem(item, sha=basis["video_sha256"])
+    return ""
 
 
 def approval_valid(item: dict, quick: bool = False) -> bool:
@@ -560,7 +702,7 @@ def check_platform(item: dict, creator: dict | None = None) -> dict:
             raise PublishError("Say whether this video is made for kids.", "YouTube requires this answer (COPPA).")
         stamp = audience.check("youtube", item["privacy"], settings, stamp=item.get("audience") or None)
         youtube.video_body(item["title"], item["description"], item.get("tags") or [], item["privacy"],
-                           bool(opts["made_for_kids"]), settings.get("youtube_category_id") or "22",
+                           opts["made_for_kids"], settings.get("youtube_category_id") or "22",
                            audience_intent=stamp["intent"])
         return stamp
     clip = db.get_clip(item["clip_id"]) or {}
@@ -580,7 +722,13 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     """Approve a post under your automatic-publishing permission, if the platform allows it and the clip qualifies.
     It is recorded as approved automatically (with the permission), never as approved by you."""
     from ..publish.common import PublishError
+    from . import submissions
 
+    if submissions.for_source(db.fetch("sources", item.get("source_id") or "")):
+        return submissions.auto_approve(item, settings, now)
+
+    if rights.review_before_publish(settings):
+        return False
     consent = autopublish.active(item["platform"])
     if not consent or item["status"] != "awaiting_approval" or not item.get("planned_at"):
         return False
@@ -607,6 +755,10 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
     if report and report.get("artifact_sha256") != sha:  # same size and time, other bytes: check these ones
         gate.request(clip, sha=sha)
         report = None
+    if report and not gate.context_valid(report, clip, settings):
+        gate._request_terms_check(clip, priority=100)
+        _note(item, "Waiting for the final check of current reuse terms and source credit")
+        return False
     ok, why = autopublish.qualifies(report)
     if not ok:
         _note(item, f"Held for your review, not published automatically: {why}")
@@ -617,17 +769,24 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
         rights.gate(source, "schedule", settings)
     except rights.RightsBlocked:
         return False
+    from . import packaging
+
+    credit_problem = packaging.attribution_problem(item, item["platform"], rights.current_attribution(source, settings))
+    if credit_problem:
+        _note(item, "Held for your review: add the required source credit to this post's text before approving it")
+        return False
     day = local_day(settings, item["planned_at"])
     mine = [r for r in db.select("scheduled_publications", "platform = ? AND status IN ('approved', 'publishing', "
                                                            "'reconciling', 'published') AND planned_at IS NOT NULL",
                                  (item["platform"],))
             if (r.get("approval") or {}).get("by") == "automatic" and local_day(settings, r["planned_at"]) == day]
-    if len(mine) >= int(cfg.get("daily_limit") or 0):
+    cap = int(cfg.get("daily_limit") or 0)
+    if cap > 0 and len(mine) >= cap:
         _note(item, f"Held for your review: automatic publishing's limit of {cfg.get('daily_limit')} posts that day "
                     "is reached")
         return False
     updated = {**item,
-               "options": {**(item.get("options") or {}), "made_for_kids": bool(cfg.get("made_for_kids"))}}
+               "options": {**(item.get("options") or {}), "made_for_kids": cfg.get("made_for_kids")}}
     try:
         stamp = check_platform(updated)
     except PublishError as exc:
@@ -656,7 +815,8 @@ def auto_approve(item: dict, settings: dict, now: float) -> bool:
 def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
     """An approved replacement takes the slot of the weaker post it was proposed for (if that one has not started)."""
     weak = db.fetch("scheduled_publications", updated["replaces"])
-    if weak and weak["status"] in ("awaiting_approval", "approved") and weak["planned_at"] > now + 60 * LOCK_MINUTES:
+    if weak and weak["status"] in ("awaiting_approval", "approved") and weak.get("planned_at") is not None and \
+            weak["planned_at"] > now + 60 * LOCK_MINUTES:
         db.execute("UPDATE slot_replacements SET status = 'replaced', updated_at = ? WHERE replacement_id = ?",
                    (now, item_id))
         db.update("scheduled_publications", weak["id"], status="replaced", replaced_by=item_id,
@@ -669,7 +829,8 @@ def _take_slot(item_id: str, updated: dict, now: float, how: str) -> None:
                   status_note="The post it would have replaced already started; a new time will be chosen")
 
 
-def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
+def approve(item_id: str, fields: dict, creator: dict | None = None, *, reuse_confirmed: bool = False,
+            reuse_basis: str = "", review_guard: Callable[[dict, dict, dict], None] | None = None) -> dict:
     """The user's explicit approval of exactly this content, visibility and settings (validated first)."""
     item = db.fetch("scheduled_publications", item_id)
     if not item:
@@ -686,6 +847,34 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     updated["audience"] = dict(item.get("audience") or {}) if preserve else {"intent": kept} if kept else {}
     stamp = check_platform(updated, creator)
     updated["audience"] = {**(item.get("audience") or {}), **stamp}
+    settings = db.get_settings()
+    if reuse_confirmed:
+        updated["reuse_confirmation"] = rights.make_reuse_confirmation(updated, reuse_basis, settings)
+    elif not updated.get("reuse_confirmation") or (
+            updated["reuse_confirmation"].get("confirmed_from") == "source_submission" and
+            rights.confirmation_problem(updated, settings)):
+        from . import submissions
+
+        inherited = submissions.reuse_confirmation(updated, settings)
+        if inherited:
+            updated["reuse_confirmation"] = inherited
+    clip = db.get_clip(item["clip_id"]) or {}
+    project = db.get_project(clip.get("project_id") or "") or {}
+    source = db.fetch("sources", project.get("source_id") or item.get("source_id") or "") if (
+        project.get("source_id") or item.get("source_id")) else None
+    allowed, why = rights.publication_allowed(source, item["platform"], settings, publication=updated)
+    if not allowed:
+        raise ValueError(why)
+    reuse_review = rights.review_info(updated, settings)
+    if reuse_review["required"] and not reuse_review["confirmed"]:
+        raise ValueError(reuse_review["explanation"])
+    from . import packaging
+
+    credit_problem = packaging.attribution_problem(updated, item["platform"],
+                                                   rights.current_attribution(source, settings))
+    if credit_problem:
+        raise ValueError("Add the source credit required by the recorded reuse terms to this post's description "
+                         "before approving it.")
     rep = gate.report_for(db.get_clip(item["clip_id"]) or {})
     if rep and rep["status"] != "passed":  # not checked yet is fine: the publisher waits for the check
         raise ValueError("The clip's file did not pass the final quality check (" + "; ".join(rep["blockers"][:2])
@@ -695,12 +884,27 @@ def approve(item_id: str, fields: dict, creator: dict | None = None) -> dict:
     if not approval:
         raise ValueError("The clip's video file is missing or cannot be read. Render the clip again before approving "
                          "it.")
-    db.update("scheduled_publications", item_id, **{k: updated[k] for k in ("title", "description", "tags", "privacy",
-                                                                             "options", "audience")},
-              status="approved", approval=approval, last_error="", fix="",
-              status_note="Approved: it will be published at its time" if item["planned_at"] > now else
-              "Approved: publishing now",
-              audit=_audit(item, "approved", "Approved by you", privacy=updated["privacy"]))
+    changes = {**{k: updated[k] for k in ("title", "description", "tags", "privacy", "options", "audience",
+                                         "reuse_confirmation")},
+               "status": "approved", "approval": approval, "last_error": "", "fix": "",
+               "status_note": "Approved: it will be published at its time" if (item.get("planned_at") or 0) > now
+                              else "Approved: publishing now",
+               "audit": _audit(item, "approved", "Approved by you", privacy=updated["privacy"])}
+    if review_guard is None:
+        db.update("scheduled_publications", item_id, **changes)
+    else:
+        # Hashing is complete before taking the write lock. The batch preview guard binds those fresh bytes,
+        # terms and payload to a final current row while a publisher cannot claim or start this post.
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = db._decode("scheduled_publications", conn.execute(
+                "SELECT * FROM scheduled_publications WHERE id = ?", (item_id,)).fetchone())
+            if not current:
+                raise ValueError("The post was removed while approving it. Preview the selection again.")
+            review_guard(updated, approval, current)
+            encoded = db._encode("scheduled_publications", {**changes, "updated_at": time.time()})
+            conn.execute("UPDATE scheduled_publications SET " + ", ".join(f"{key} = ?" for key in encoded) +
+                         " WHERE id = ?", [*encoded.values(), item_id])
     if item.get("replaces"):
         _take_slot(item_id, updated, now, "you approved it")
     state.event("approved", f"{item['platform']}: “{updated['title'][:60]}” approved", ref_type="scheduled",
@@ -714,7 +918,7 @@ def edit(item_id: str, fields: dict) -> dict:
     if not item or item["status"] in ("publishing", "reconciling", "published"):
         raise ValueError("This post can no longer be edited")
     clean = {k: v for k, v in fields.items() if k in ("title", "description", "tags", "privacy", "options")}
-    changes = {**clean}
+    changes = {**clean, "reuse_confirmation": {}}
     if item["status"] == "approved":
         changes.update(status="awaiting_approval", approval={}, status_note="Edited: approve it again")
     db.update("scheduled_publications", item_id, **changes, audit=_audit(item, "edited", "Edited by you",
@@ -727,7 +931,7 @@ def reschedule(item_id: str, planned_at: float) -> dict:
     if not item or item["status"] not in ("awaiting_approval", "approved", "failed"):
         raise ValueError("This post can no longer be moved")
     settings = db.get_settings()
-    gap = 60.0 * float(settings.get("autopilot_min_gap_minutes") or 45)
+    gap = 60.0 * float(settings.get("autopilot_min_gap_minutes", 0))
     for other in db.select("scheduled_publications", "platform = ? AND id != ? AND status IN ('awaiting_approval', "
                                                      "'approved', 'publishing', 'reconciling', 'published')",
                            (item["platform"], item_id)):
@@ -772,6 +976,82 @@ def lead_seconds(item: dict, settings: dict) -> float:
     return 0.0
 
 
+def _spacing_key(item: dict) -> str:
+    account = (item.get("approval") or {}).get("account") or (
+        db.get_account(item["platform"]) or {}).get("account_id") or ""
+    return f"upload_spacing:{item['platform']}:{account}"
+
+
+def record_upload_finished(item: dict, now: float) -> None:
+    """A slow upload must not let its followers finish back-to-back when it finally completes."""
+    state.put(_spacing_key(item), {"at": now, "scheduled_id": item["id"]})
+
+
+def reserve_upload_spacing(item: dict, settings: dict, now: float, *, starting: bool = False) -> float:
+    """Atomically space new transfers by account, including already queued jobs and restarts.
+
+    Returning a delay consumes no attempt. The same logical post retains its reservation on retry, refreshing
+    its clock at the actual new transfer after a long platform wait. Active transfers bypass this in the caller.
+    A later explicit zero gap disables this optional pacing.
+    """
+    gap = max(0.0, float(settings.get("autopilot_min_gap_minutes", 30))) * 60
+    if not gap:
+        return 0.0
+    key = _spacing_key(item)
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value FROM autopilot_state WHERE key=?", (key,)).fetchone()
+        try:
+            previous = json.loads(row["value"]) if row else {}
+            last_at = float(previous.get("at") or 0)
+        except (TypeError, ValueError, AttributeError):
+            previous, last_at = {}, 0.0
+        if previous.get("scheduled_id") == item["id"]:
+            if starting:
+                conn.execute("UPDATE autopilot_state SET value=?,updated_at=? WHERE key=?",
+                             (json.dumps({"at": now, "scheduled_id": item["id"]}), now, key))
+            return 0.0
+        delay = max(0.0, last_at + gap - now) if row and math.isfinite(last_at) else 0.0
+        if delay:
+            return delay
+        conn.execute("INSERT INTO autopilot_state (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) "
+                     "DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                     (key, json.dumps({"at": now, "scheduled_id": item["id"]}), now))
+    return 0.0
+
+
+def space_pending_posts(settings: dict, now: float) -> int:
+    """Repair automatic pending collisions, without changing a manual time or a started/uncertain upload."""
+    if float(settings.get("autopilot_min_gap_minutes", 30)) <= 0:
+        return 0
+    plan = Plan(settings, now)
+    pending = [item for item in plan.items if item["status"] in ("awaiting_approval", "approved")
+               and not item.get("replaces") and publication_unstarted(item)
+               and (item["status"] != "approved" or not approval_problem(item, quick=True))
+               and not (item["status"] == "awaiting_approval" and item["planned_at"] < now)
+               and not any(event.get("event") == "rescheduled" and "by you" in event.get("detail", "")
+                           for event in item.get("audit") or [])]
+    selected = {item["id"] for item in pending}
+    plan.items = [item for item in plan.items if item["id"] not in selected]
+    changed = 0
+    for item in sorted(pending, key=lambda row: (row["planned_at"], row["id"])):
+        when = max(now, item["planned_at"])
+        if plan.free(item["platform"], item["planned_at"], item["clip_id"]):
+            plan.add(item)
+            continue
+        plan.now = when
+        slot = plan.best_slot(item["platform"], item["clip_id"], 0.0, Timing(item["platform"], settings))
+        if not slot:
+            plan.add(item)
+            continue
+        updated = {**item, "planned_at": slot[0], "slot": slot[1]}
+        db.update("scheduled_publications", item["id"], planned_at=slot[0], slot=slot[1],
+                  audit=_audit(item, "spacing", "Posting times spread out to respect your minimum gap"))
+        plan.add(updated)
+        changed += 1
+    return changed
+
+
 ORPHAN_AFTER = 120  # seconds a post may show "publishing" without a publish job before it is reconciled
 
 
@@ -812,16 +1092,30 @@ def reconcile_orphans(now: float) -> int:
 def process_due(settings: dict, now: float) -> dict:
     started, moved, retired = 0, 0, 0
     waiting = 0
+    held_for_review = hold_automatic_approvals(settings)
     reconciled = reconcile_orphans(now)
+    moved += space_pending_posts(settings, now)
     for item in db.select("scheduled_publications", "status IN ('approved', 'awaiting_approval') AND planned_at IS "
                                                     "NOT NULL", (), "planned_at"):
+        # Old volume holds and recovered slots may already be due. Checking only future times strands them when
+        # continuous mode chooses "now"; the same account/audience/file/rights/manual-edit checks still bind.
+        if item["status"] == "awaiting_approval" and auto_approve(item, settings, now):
+            item = db.fetch("scheduled_publications", item["id"]) or item
+            if item.get("planned_at") is None:
+                continue  # its replacement lost the slot; the ordinary rescheduling pass below chooses a new one
         if item["status"] == "approved":
             if item["planned_at"] - lead_seconds(item, settings) > now:
+                continue
+            if daily_limit(settings, item["platform"]) == 0:
+                # A reported zero can arrive after planning. Keep the approved snapshot/time while held;
+                # configured zero means uncapped, so only an actual platform allowance can reach this branch.
+                _note(item, f"{item['platform'].title()} reports no daily posting allowance. "
+                            "This approved post waits until the platform allowance is restored.")
                 continue
             if item["planned_at"] < now - 60 * OVERDUE_MINUTES:
                 # e.g. the computer was off at its time: find a new slot instead of posting several at once
                 db.update("scheduled_publications", item["id"], planned_at=None,
-                          audit=_audit(item, "overdue", "Its time passed while ClipFoundry was not running; a new "
+                          audit=_audit(item, "overdue", "Its time passed while ClipForge was not running; a new "
                                                         "time will be chosen (still approved)"))
                 moved += 1
                 continue
@@ -841,23 +1135,25 @@ def process_due(settings: dict, now: float) -> dict:
             if settings.get("autopilot_publishing_paused"):  # clips are still made; uploads wait for Resume
                 _note(item, "Publishing is paused: it goes out after you resume publishing")
                 continue
-            if not settings.get("autopilot_auto_publish"):
+            if not settings.get("autopilot_auto_publish") and (item.get("approval") or {}).get("by") != "submission":
                 state.action(f"publish:{item['id']}", "publish", f"Publish “{item['title'][:60]}” now?",
                              "Automatic publishing is off, so approved posts wait for you at their time.",
                              "Posts → open the post → Publish now.", ref_type="scheduled", ref_id=item["id"])
                 continue
             # The approved post decides, not an earlier upload job: one canceled before its upload started (the
             # post came back with a new time) runs again now. The publisher itself never uploads a video twice.
+            delay = reserve_upload_spacing(item, settings, now)
+            if delay:
+                _note(item, f"Waiting for the gap between uploads; next available {_label(now + delay, settings)}")
+                continue
             queue.enqueue("publish", {"scheduled_id": item["id"]}, idem_key=f"publish:{item['id']}",
                           ref=("scheduled", item["id"]), max_attempts=5, timeout_s=3 * 3600, revive_canceled=True)
             db.update("scheduled_publications", item["id"], status="publishing", status_note="Queued for upload",
                       audit=_audit(item, "publish_queued", "Due: queued for upload"))
             started += 1
-        elif item["planned_at"] > now and auto_approve(item, settings, now):
-            continue
         elif item["planned_at"] < now:
             waiting += 1
-            if now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
+            if not rights.review_before_publish(settings) and now - item["planned_at"] > 3600 * MISSED_GRACE_HOURS:
                 db.update("scheduled_publications", item["id"], status="canceled",
                           status_note="Not approved within 48 hours of its slot",
                           audit=_audit(item, "expired", "Missed its slot waiting for approval"))
@@ -879,22 +1175,29 @@ def process_due(settings: dict, now: float) -> dict:
             plan.add({**item, "planned_at": slot[0], "replaces": ""})
     pending = remind_approvals()
     return {"publishing": started, "missed": moved, "expired": retired, "overdue_unapproved": waiting,
-            "awaiting_approval": pending, "reconciled": reconciled}
+            "awaiting_approval": pending, "reconciled": reconciled, "returned_to_review": held_for_review}
 
 
 def remind_approvals() -> int:
     """The one "waiting for your OK" item on the Autopilot page, kept in step with the posts that wait for you."""
     by_platform = _awaiting_by_platform()
     # posts held back under automatic publishing are there for you to look at, not a problem that needs you
-    need = {p: n for p, n in by_platform.items() if not autopublish.active(p)}
+    # A stored permission can belong to a previous channel or audience. Its mere existence must never hide
+    # posts whose automatic approval is unavailable now.
+    settings = db.get_settings()
+    review = rights.review_before_publish(settings)
+    permission = autopublish.view(settings)
+    need = {p: n for p, n in by_platform.items() if not (permission.get(p) or {}).get("enabled")}
     if need:
         n = sum(need.values())
         only_tiktok = set(need) == {"tiktok"}
         state.action("approvals", "approve", f"{n} {'TikTok ' if only_tiktok else ''}post{'s' if n != 1 else ''} "
                                              "waiting for your OK",
-                     ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
-                     ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "") +
-                     "Approved posts go out at their time automatically.", "Open Posts, review and approve.")
+                     ("These are local schedule drafts. Check each clip, confirm its reuse permission when "
+                      "needed, then approve it. " if review else
+                      ("TikTok's rules require your OK on each post. " if "tiktok" in need else "") +
+                      ("Turn on automatic publishing for YouTube to skip this there. " if "youtube" in need else "")) +
+                     "Approved posts go out at their time automatically.", "Open Queue, review and approve.")
     else:
         state.resolve("approvals")
     return sum(by_platform.values())
@@ -906,8 +1209,29 @@ def schedule_tick(job: Job) -> dict:
     now = _now()
     audience_reminders(settings)
     due = process_due(settings, now)
-    planned = plan_new(settings, now) if settings.get("autopilot_auto_schedule") else {"created": 0}
+    # A previous analysis can finish its files before it reaches the packaging handoff. Recover those exact
+    # ready outputs without letting a damaged old record stop already-approved posts from going out.
+    from . import hunter
+    from . import submissions
+
+    recovered_inputs = submissions.recover_unstarted()
+
+    try:
+        recovered = hunter.recover_ready_clips(limit=24, cancelled=job.cancelled)
+    except queue.Canceled:
+        raise
+    except Exception:
+        recovered = 0
+        state.event("clip_handoff_recovery", "Finished clips could not be handed on this time; the next posting "
+                    "check tries again. Existing scheduled posts continue normally.", "warning")
+    # This input's explicit Make and upload request can schedule its own new clips while broad automatic
+    # scheduling is off. It never changes that setting or authorizes an older source.
+    planning = dict(settings)
+    if not settings.get("autopilot_auto_schedule"):
+        planning["autopilot_input_mode"] = "submitted"
+    planned = plan_new(planning, now)
     if planned.get("created"):
         due["awaiting_approval"] = remind_approvals()  # new posts that need your OK are listed right away
-    return {**due, **planned, "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
+    return {**due, **planned, "recovered_ready_clips": recovered, "recovered_submitted_inputs": recovered_inputs,
+            "message": f"{planned.get('created', 0)} scheduled, {planned.get('replaced', 0)} "
                                          f"replaced, {due['publishing']} publishing"}

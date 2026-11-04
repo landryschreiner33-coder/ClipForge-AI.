@@ -12,8 +12,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from .. import awake, db
-from . import autopublish, myvideos, queue, rights, state
+from .. import awake, config, db
+from . import autopublish, myvideos, queue, rights, state, trends
 
 NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -48,23 +48,24 @@ STAGE = {
 NOT_OPPORTUNITIES = ("skipped", "blocked", "needs_rights", "needs_file")  # listed in the activity log instead
 NOT_POSTED = ("Its clips stay on this PC and are never posted: nothing shows you may reuse this video. Record an "
               "agreement with the creator if they allow it.")
+REVIEW_NOT_POSTED = ("Its clips can be prepared for local review. Before anything uploads, check reuse and approve "
+                     "the individual post in Queue. This does not grant permission for other videos.")
 ACTIVITY = ("skipped", "blocked", "needs_rights", "needs_file", "weak", "failed", "queued", "ingesting", "analyzing",
             "analyzed", "exhausted")
-PC_NOTE = ("Keep this PC on and leave the black ClipFoundry window open: Autopilot only works while ClipFoundry runs. "
-           "{sleep} Posts go out between {start} and {end}. A YouTube post that is already uploaded still goes out if "
-           "the PC is off; TikTok posts need the PC on.")
+PC_NOTE = ("Keep this PC on and leave the black ClipForge window open: Autopilot only works while ClipForge runs. "
+           "{sleep} Posts go out {hours}. Uploads need the PC running; videos already published remain on the platform.")
 SLEEP = {  # by the real state of the keep-awake request (awake.KeepAwake.status), never by the setting alone
-    "on": "ClipFoundry is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
-    "pending": "ClipFoundry is asking Windows to keep this PC from going to sleep.",
-    "failed": "Windows did not let ClipFoundry keep this PC awake, so turn off sleep yourself (see Needs you).",
-    "off": "While Autopilot is on, ClipFoundry keeps this PC from going to sleep.",
+    "on": "ClipForge is keeping this PC from going to sleep (a laptop still sleeps if you close its lid).",
+    "pending": "ClipForge is asking Windows to keep this PC from going to sleep.",
+    "failed": "Windows did not let ClipForge keep this PC awake, so turn off sleep yourself (see Needs you).",
+    "off": "While Autopilot is on, ClipForge keeps this PC from going to sleep.",
     "setting_off": ("Keep the PC awake is off in Settings, so turn off sleep in the PC's power settings, or Autopilot "
                     "stops when the PC sleeps."),
     "unsupported": "Turn off sleep in the PC's power settings, or Autopilot stops when the PC sleeps.",
 }
 SLEEP_FIX = ("Open Windows Settings, then System, then Power & sleep (Windows 10) or Power & battery (Windows 11), "
              "and set the sleep time for \"When plugged in\" to Never. Keep the PC plugged in and a laptop's lid open. "
-             "ClipFoundry tries again every minute; this message goes away once it works.")
+             "ClipForge tries again every minute; this message goes away once it works.")
 USABLE = ("eligible", "queued", "ingesting", "analyzing")  # a found video Autopilot may use and has not finished
 UPCOMING = ("awaiting_approval", "approved", "publishing", "reconciling", "action_needed")
 RIGHTS_NOTE = ("Only say yes if the creator gave you permission, for example through a clipping program you joined. "
@@ -77,8 +78,8 @@ STOPPED_AFTER = 60.0  # seconds without an answer from the background work befor
 SEARCH_NAMES = {"youtube": "YouTube search", "web_search": "Web search", "library": "The free video library"}
 SEARCH_PROBLEMS = {  # a search that did not work last time, by its status: what happened and what to do
     "error": ("It did not work last time.", "It tries again at the next search."),
-    "quota": ("YouTube's daily limit for searches is used up.",
-              "YouTube searches start again after midnight Pacific time. Your videos folder is still checked."),
+    "quota": ("This online search is temporarily waiting.",
+              "Other searches and your videos folder keep being checked."),
     "budget": ("Web search reached this month's limit.",
                "It starts again next month. You can change the limit in Settings → Advanced."),
 }
@@ -116,6 +117,8 @@ def can_discover(settings: dict, platforms: dict) -> bool:
     """Include the free library and agreement folders, which do not require a connected account."""
     from . import scout
 
+    if not config.discovery_enabled(settings):
+        return False
     if settings.get("library_discovery", True) or settings.get("tavily_api_key"):
         return True
     yt = platforms.get("youtube") or {}
@@ -163,6 +166,8 @@ def currently(settings: dict, workers_alive: bool, discovery: dict | None = None
         return DOING["analyze_source"] if "analyzing" in busy else DOING["hunt_source"]
     if any(j["wait_reason"] in ("gpu", "gpu_failed") for j in queue.jobs(("waiting",), limit=50)):
         return "Waiting for the GPU"
+    if not config.discovery_enabled(settings):
+        return "Ready for a video link or file"
     discovery = discovery if discovery is not None else discovery_status()
     counts = discovery["counts"]
     if not any(counts.get(s) for s in USABLE):  # say why nothing is being clipped, not just "looking"
@@ -183,6 +188,9 @@ def discovery_status() -> dict:
     last = state.get("trend:last_scan") or {}
     with db.connect() as conn:
         counts = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) AS n FROM sources GROUP BY status")}
+    if not config.discovery_enabled(db.get_settings()):
+        # Keep old diagnostics for a later switch back, without presenting unused search keys as blockers.
+        return {"last_scan": None, "next_scan": None, "found": 0, "counts": counts, "problems": []}
     problems = []
     for key, p in (state.get("providers") or {}).items():
         status = p.get("status")
@@ -191,6 +199,17 @@ def discovery_status() -> dict:
         detail, fix = SEARCH_PROBLEMS[status]
         if status == "error":
             detail, fix = p.get("problem") or p.get("detail") or detail, p.get("fix") or fix
+        elif status == "quota":
+            if key == "youtube":
+                detail = p.get("problem") or "YouTube's daily discovery allowance is used up."
+                fix = p.get("fix") or ("YouTube searches start again after midnight Pacific time. "
+                                        "Other searches and your videos folder still work.")
+            elif key == "web_search":
+                detail = p.get("problem") or "Web search is temporarily waiting for Tavily."
+                fix = p.get("fix") or fix
+            elif key == "library":
+                detail = p.get("problem") or "The free video library is temporarily waiting for Wikimedia Commons."
+                fix = p.get("fix") or fix
         problems.append({"name": SEARCH_NAMES.get(key) or f"Checking “{p.get('name') or 'a folder'}”",
                          "detail": detail, "fix": fix})
     return {"last_scan": last.get("at"), "next_scan": state.get("next:trend_scan"),
@@ -213,9 +232,9 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
     items: list[dict] = []
     if workers_stopped(settings, workers_alive):
         items.append({"key": "workers_stopped", "type": "stopped", "title": "Autopilot's background work has stopped",
-                      "detail": "ClipFoundry is open, but the part that finds, clips and posts videos is not running, "
+                      "detail": "ClipForge is open, but the part that finds, clips and posts videos is not running, "
                                 "so nothing happens.",
-                      "fix": "Close the black ClipFoundry window, then start ClipFoundry again with start.bat. If "
+                      "fix": "Close the black ClipForge window, then start ClipForge again with start.bat. If "
                              "this keeps happening, see Autopilot → Advanced → System.",
                       "link": "#/autopilot/system"})
     for p, name in NAME.items():
@@ -226,7 +245,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                                 "('awaiting_approval', 'approved', 'publishing', 'action_needed')", (p,)) or 0)
         if acc.get("connected") and acc.get("needs_reconnect"):
             items.append({"key": f"account:{p}", "type": "account", "platform": p, "title": f"Reconnect {name}",
-                          "detail": f"{name} stopped accepting ClipFoundry's sign-in, so Autopilot cannot post there. "
+                          "detail": f"{name} stopped accepting ClipForge's sign-in, so Autopilot cannot post there. "
                                     "Sign in again to continue."})
         elif not acc.get("connected") and planned:
             verb = "Reconnect" if _was_connected(p) else "Connect"
@@ -234,8 +253,17 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                           "detail": f"{name} is not connected, so {planned} planned post{'s' if planned != 1 else ''} "
                                     f"cannot go out."})
     accounts = {i["platform"] for i in items if i["type"] == "account"}
+    from . import readiness
+
+    setup = readiness.setup_needs(settings, platforms)
+    items.extend(setup)
+    setup_keys = {i['key'] for i in setup}
     for a in state.open_actions():
         kind, key = a["kind"], a["key"]
+        if key == "youtube:discovery" and not config.discovery_enabled(settings):
+            continue
+        if key in setup_keys:
+            continue
         if kind in QUIET_KINDS or (key.startswith("connect:") and key.split(":", 1)[1] in accounts):
             continue
         if kind == "workers" and workers_alive:
@@ -245,7 +273,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
             if not settings.get("rights_ask_per_video") or not src or src["status"] != "needs_rights" \
                     or src.get("user_added"):
                 continue
-            items.append({"key": key, "type": "rights", "title": "ClipFoundry found a strong trending video",
+            items.append({"key": key, "type": "rights", "title": "ClipForge found a strong trending video",
                           "question": "Can you use this content?", "detail": RIGHTS_NOTE, "source": _source_view(src)})
         elif kind == "source_file":
             src = db.fetch("sources", a["ref_id"]) if a["ref_id"] else None
@@ -253,7 +281,7 @@ def needs_you(settings: dict, platforms: dict, workers_alive: bool = True) -> li
                 continue
             hosted = rights.is_platform_url(src.get("url") or "")
             items.append({"key": key, "type": "file", "title": f"Add the video file for “{src['title'][:80]}”",
-                          "detail": ("ClipFoundry does not download videos from YouTube or other platforms by itself "
+                          "detail": ("ClipForge does not download videos from YouTube or other platforms by itself "
                                      "(their terms). Choose the original file on this computer; for your own "
                                      "videos, YouTube Studio → Download gives you one.") if hosted else a["detail"],
                           "source": _source_view(src)})
@@ -286,7 +314,7 @@ def needs_videos(settings: dict) -> dict | None:
     """Autopilot is on and has looked, but has nothing it may clip: nothing it may use is waiting or being worked on,
     and it made no clip in the last day. Videos from other channels are skipped (the activity log says why), so
     this is said once, here, with the one thing that helps: your own videos in your videos folder."""
-    if not state.enabled(settings) or not state.get("trend:last_scan"):
+    if not config.discovery_enabled(settings) or not state.enabled(settings) or not state.get("trend:last_scan"):
         return None
     marks = ",".join("?" * len(USABLE))
     if db.scalar(f"SELECT COUNT(*) FROM sources WHERE status IN ({marks})", USABLE):
@@ -322,6 +350,7 @@ def needs_videos(settings: dict) -> dict | None:
 
 def opportunities(limit: int = 5) -> list[dict]:
     """The strongest things discovery found, with where each one stands."""
+    quality_mode = bool(db.get_settings().get("discovery_quality_first", True))
     sigs = db.select("trend_signals", "status = 'active'", (), "score DESC, last_checked DESC", 60)
     by_signal: dict[str, dict] = {}
     if sigs:
@@ -331,6 +360,8 @@ def opportunities(limit: int = 5) -> list[dict]:
     out = []
     for s in sigs:
         src = by_signal.get(s["id"])
+        if quality_mode and not src and trends.broad_discovery(s):
+            continue  # rejected/held search evidence is not an opportunity already admitted for clipping
         if src and src["status"] in NOT_OPPORTUNITIES:
             continue
         made = int((src or {}).get("clips_selected") or 0)
@@ -360,7 +391,9 @@ def upcoming(limit: int = 5) -> list[dict]:
         state_ = audience.delivery_state(r)
         out.append({"id": r["id"], "platform": r["platform"], "title": r.get("title") or "",
                     "planned_at": r.get("planned_at"), "status": r["status"],
-                    "auto": (r.get("approval") or {}).get("by") == "automatic", "on_platform": r["status"] == "published",
+                    "auto": (r.get("approval") or {}).get("by") == "automatic",
+                    "approval_by": (r.get("approval") or {}).get("by", ""),
+                    "on_platform": r["status"] == "published",
                     "delivery_state": state_, "delivery_label": audience.DELIVERY_LABELS.get(state_, "")})
     return out
 
@@ -386,6 +419,7 @@ def activity(limit: int = 40) -> list[dict]:
     one. Optional reading; nothing here waits for you."""
     marks = ",".join("?" * len(ACTIVITY))
     rows = db.select("sources", f"status IN ({marks})", ACTIVITY, "updated_at DESC", limit)
+    settings = db.get_settings()
     out = []
     for s in rows:
         made = int(s.get("clips_selected") or 0)
@@ -393,12 +427,25 @@ def activity(limit: int = 40) -> list[dict]:
         stage = STAGE.get(s["status"], "Skipped") if s["status"] != "skipped" else "Skipped"
         if made and s["status"] in ("analyzed", "weak", "exhausted"):
             stage = f"{made} clip{'s' if made != 1 else ''} made"  # a weak video still gave you these clips
-        covered = bool(rights.evaluate(s)["auto_allowed"])
+        evaluation = rights.evaluate(s, settings)
+        covered = bool(evaluation["auto_allowed"])
+        review = settings.get("autopilot_review_before_publish", True) and evaluation["status"] != rights.BLOCKED
+        posting = "" if covered or not used else REVIEW_NOT_POSTED if review else NOT_POSTED
+        from . import submissions
+
+        request = submissions.for_source(s)
+        if request:
+            if not (request.get("settings") or {}).get("auto_upload"):
+                posting = "You chose Make clips only. These clips stay on this PC without automatic uploads."
+            else:
+                hold = submissions.problem(s, settings, require_bound=False)
+                posting = ("Uploads held: " + hold if hold else
+                           "Qualifying YouTube clips upload automatically under this video's Make & upload request.")
         out.append({**_source_view(s), "status": s["status"], "used": used, "stage": stage,
                     "why": _why_not(s), "rights": rights.LABELS.get(s.get("rights_status") or "", ""),
                     "access": (s.get("access") or {}).get("label", ""), "at": s.get("updated_at"),
                     # clipping a public video (getting its file) is a separate question from posting it
-                    "posting": "" if covered or not used else NOT_POSTED,
+                    "posting": posting,
                     "can_add_file": s["status"] == "needs_file" and covered})
     return out
 
@@ -407,6 +454,8 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
     """What to say when there is nothing to show yet (never "no sources configured")."""
     if found:
         return ""
+    if not config.discovery_enabled(settings):
+        return "Add a video link or file in Missions. ClipForge uses Brain guidance to create your clips."
     if not discover:
         return "Connect YouTube to start finding content."
     if not settings.get("autopilot_enabled"):
@@ -415,13 +464,29 @@ def empty_message(settings: dict, discover: bool, found: list[dict]) -> str:
         return "Autopilot is looking for opportunities."
     skipped = skipped_count()
     if skipped:
+        from . import providers
+
+        if providers.reusable_discovery_only(settings):
+            return ("No strong videos with posting permission and usable originals yet. Automatic search checks your "
+                    "channel, recorded creator agreements and free-license media. Add your own recordings or a valid "
+                    "agreement under Permissions & sources; public videos without coverage stay local.")
+        if settings.get("autopilot_review_before_publish", True):
+            return ("No accessible strong videos yet. Activity shows why each video was skipped. "
+                    "Automatic search continues; you can also add your own recording or a public video link. "
+                    "Clips are prepared for local review and wait for your approval in Queue before uploading.")
         if settings.get("autopilot_public_videos"):
-            return ("No accessible strong videos yet. ClipFoundry is still looking. "
+            return ("No accessible strong videos yet. ClipForge is still looking. "
                     "Activity shows why each video was skipped. You can also paste a public video link.")
         return (f"Nothing it may use yet: the {skipped} video{'s' if skipped != 1 else ''} it found belong to other "
                 "people (not covered by an agreement or license) or cannot be downloaded. Put your own videos in your "
                 "videos folder. Activity shows why each was skipped.")
-    return "No strong opportunities yet. ClipFoundry is still looking."
+    short = state.get("discovery:shortlist") or {}
+    if settings.get("discovery_quality_first", True) and short.get("enabled") and \
+            (short.get("filtered") or short.get("held")):
+        return (f"No stronger videos added this time. {int(short.get('filtered') or 0)} weaker or unsuitable finds "
+                f"were ignored; {int(short.get('held') or 0)} are waiting for a later search. "
+                "Your videos and links are still checked normally.")
+    return "No strong opportunities yet. ClipForge is still looking."
 
 
 def auto_publish(settings: dict) -> dict:
@@ -440,8 +505,13 @@ def pc_note(settings: dict) -> str:
     if now == "off" and not settings.get("autopilot_keep_awake", True):
         now = "setting_off"
     start, end = settings.get("autopilot_active_start"), settings.get("autopilot_active_end")
-    return PC_NOTE.format(sleep=SLEEP[now], start=hour(int(9 if start is None else start)),
-                          end=hour(int(21 if end is None else end)))
+    start, end = int(9 if start is None else start), int(21 if end is None else end)
+    hours = "at any hour" if (start, end) == (0, 24) else f"between {hour(start)} and {hour(end)}"
+    note = PC_NOTE.format(sleep=SLEEP[now], hours=hours)
+    if awake.keeper._platform == "darwin":
+        note = note.replace("Windows", "macOS").replace("PC", "Mac").replace(
+            "black ClipForge window", "ClipForge Terminal window")
+    return note
 
 
 def keep_awake(settings: dict) -> str:
@@ -454,20 +524,28 @@ def needs_sleep_fix(settings: dict) -> dict | None:
     the live state, so it goes away by itself when a retry works or Autopilot or the setting is turned off."""
     if keep_awake(settings) != "failed":
         return None
+    if awake.keeper._platform == "darwin":
+        return {"key": "keep_awake", "type": "sleep", "title": "Your Mac may sleep and pause Autopilot",
+                "detail": "macOS did not maintain ClipForge's request to prevent idle sleep.",
+                "fix": "Keep the Mac powered and its lid open. Check System Settings → Battery or Energy "
+                       "and prevent automatic sleep while using ClipForge. The app retries the request."}
     return {"key": "keep_awake", "type": "sleep", "title": "Your PC may go to sleep and stop Autopilot",
-            "detail": "ClipFoundry asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
+            "detail": "ClipForge asked Windows to keep this PC awake, but Windows said no. While the PC sleeps, "
                       "Autopilot finds, clips and posts nothing.",
             "fix": SLEEP_FIX}
 
 
 def next_look(settings: dict) -> float | None:
     """When Autopilot next looks for new videos online (it checks your videos folder every few minutes)."""
-    if not state.enabled(settings):
+    if not config.discovery_enabled(settings) or not state.enabled(settings):
         return None
     due = float(state.get("next:trend_scan", 0) or 0)
     if due <= time.time():  # not planned yet (a look you started): the usual interval after the last look
+        from . import scout
+
         last = float((state.get("trend:last_scan") or {}).get("at") or 0)
-        due = last + 60.0 * float(settings.get("trend_poll_minutes") or 180) if last else 0.0
+        period = scout.discovery_period(settings, 60.0 * float(settings.get("trend_poll_minutes") or 180))
+        due = last + period if last else 0.0
     return due if due > time.time() else None
 
 
@@ -529,7 +607,9 @@ def post_counts() -> dict:
         rep = gate.report_for(clip)
         if rep and rep["status"] == "passed":
             ready += 1
-    return {"review": n(("awaiting_approval",)) + outdated,
+    planned_for_review = int(db.scalar("SELECT COUNT(*) FROM scheduled_publications WHERE status = "
+                                      "'awaiting_approval' AND planned_at IS NOT NULL") or 0)
+    return {"review": n(("awaiting_approval",)) + outdated, "planned_for_review": planned_for_review,
             "fix": n(("reconciling", "action_needed", "failed", "blocked")), "ready": ready,
             "scheduled": n(("approved", "publishing")) - outdated}
 
@@ -547,7 +627,7 @@ def next_step(settings: dict) -> str:
         return DOING.get(job["kind"], "Continue preparing videos")
     if any(j["kind"] == "live_capture" for j in pending):
         return "Listen for more good moments"
-    return "Check for more trending videos"
+    return "Check for more trending videos" if config.discovery_enabled(settings) else "Add another video link or file"
 
 
 def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
@@ -555,11 +635,14 @@ def view(settings: dict, platforms: dict, workers_alive: bool) -> dict:
     found = opportunities()
     discover = can_discover(settings, platforms)
     discovery = discovery_status()
+    from . import readiness
+
+    posting = readiness.view(settings, platforms, workers_alive)
     return {"setup": {"started": started_before(), "connected": connected(platforms), "can_discover": discover,
                       "topics": settings.get("trend_topics") or "", "mode": settings.get("setup_mode") or ""},
             "currently": currently(settings, workers_alive, discovery), "next_look": next_look(settings),
             "next": next_step(settings),
-            "discovery": discovery, "working": working(settings),
+            "discovery": discovery, "working": working(settings), "posting": posting,
             "needs_you": needs_you(settings, platforms, workers_alive),
             "opportunities": found, "upcoming": upcoming(), "empty": empty_message(settings, discover, found),
             "auto_publish": auto_publish(settings), "pc_note": pc_note(settings), "keep_awake": keep_awake(settings),

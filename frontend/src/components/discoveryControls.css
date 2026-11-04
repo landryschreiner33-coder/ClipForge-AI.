@@ -1,0 +1,19 @@
+.discovery-controls { border-color: rgba(55, 199, 177, .28); }
+.discovery-eyebrow { display: block; color: #64dac8; font-size: 11px; letter-spacing: .08em; margin-bottom: 5px; }
+.discovery-focus { display: flex; gap: 12px; align-items: flex-start; padding: 16px 0; }
+.discovery-focus input { margin-top: 5px; accent-color: var(--primary); }
+.discovery-focus small { display: block; margin-top: 5px; color: var(--text-3); max-width: 70ch; }
+.discovery-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; max-width: 740px; }
+.discovery-controls label > span { display: block; margin-bottom: 7px; }
+.discovery-controls label > small { display: block; color: var(--text-3); margin-top: 6px; font-size: 12px; }
+.discovery-choice-grid input { max-width: 160px; width: 100%; }
+.discovery-details { padding: 16px 0; border-top: 1px solid var(--border); margin-top: 16px; }
+.discovery-details summary { cursor: pointer; color: var(--text); margin-bottom: 12px; }
+.discovery-last { padding: 15px 18px; margin-top: 18px; background: rgba(55, 199, 177, .045); border-radius: 10px; }
+.discovery-last p { color: var(--text-3); margin: 8px 0; }
+.discovery-counts { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; margin-bottom: 12px; }
+.discovery-key { max-width: 780px; }
+.discovery-key p, .discovery-key ol { color: var(--text-3); font-size: 13px; line-height: 1.7; }
+.discovery-key input[type="password"] { width: 100%; max-width: 500px; }
+.discovery-save { margin-top: 16px; }
+@media (max-width: 620px) { .discovery-choice-grid { grid-template-columns: 1fr; gap: 14px; } }

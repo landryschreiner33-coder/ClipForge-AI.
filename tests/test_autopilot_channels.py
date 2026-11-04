@@ -243,6 +243,7 @@ def test_an_unreachable_platform_leaves_the_video_unconfirmed_and_asks_again_lat
 
 def test_a_feed_cannot_overwrite_what_youtube_reported(env):
     from clipfoundry import db
+    from clipfoundry.autopilot import state
 
     env["g"].add_video("kids00000001", "Cartoon hour", OTHER, duration="PT50M", made_for_kids=True)
     env["g"].popular = ["kids00000001"]
@@ -251,8 +252,8 @@ def test_a_feed_cannot_overwrite_what_youtube_reported(env):
     feed(env, [{"id": "kids00000001", "platform": "youtube", "channel_id": MINE, "url": ""}])
     sig = db.select("trend_signals", "external_id = 'kids00000001'")[0]
     assert sig["provider"].startswith("youtube_") and sig["channel_id"] == OTHER and sig["raw"]["made_for_kids"]
-    src = db.select("sources", "external_id = 'kids00000001'")[0]
-    assert src["status"] == "skipped"  # made for kids, as YouTube says
+    assert db.select("sources", "external_id = 'kids00000001'") == []
+    assert any("Made for kids" in reason for reason in state.get("discovery:shortlist")["reasons"])
 
 
 def test_links_are_read_strictly():

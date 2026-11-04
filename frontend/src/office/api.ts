@@ -5,6 +5,8 @@ export type RoleState = "idle" | "working" | "waiting" | "retrying" | "error" | 
 
 export interface OfficeTask {
   job_id: string;
+  /** Consultations are real local work, separate from a durable queue job. */
+  consultation_id?: string;
   kind: string;
   stage: string;
   status: string;
@@ -29,6 +31,8 @@ export interface RoleRow {
   queued: number;
   error: string;
   last: { summary: string; state: string; at: number } | null;
+  /** Why an actual role has no assigned work; this does not turn an idle peer into a worker. */
+  idle_reason?: string;
 }
 
 export interface OfficeReport {
@@ -99,7 +103,7 @@ export interface Health {
 
 export const NOT_UPDATING = "Unknown — not updating";
 /**
- * Health as a page that stopped hearing from ClipFoundry must show it: every reading Unknown, never the last green,
+ * Health as a page that stopped hearing from ClipForge must show it: every reading Unknown, never the last green,
  * with the last known reading kept in words (System Guardian rule: no stale green shown as current).
  */
 export function staleHealth(h: Health, since: number | null): Health {
@@ -108,8 +112,8 @@ export function staleHealth(h: Health, since: number | null): Health {
     ...h,
     status: "unknown",
     label: NOT_UPDATING,
-    headline: `ClipFoundry is not answering, so these readings may be out of date${at ? ` (last answer ${at})` : ""}.`,
-    action: "Check that the black ClipFoundry window is still open. The page catches up when it answers again.",
+    headline: `ClipForge is not answering, so these readings may be out of date${at ? ` (last answer ${at})` : ""}.`,
+    action: "Check that the black ClipForge window is still open. The page catches up when it answers again.",
     checks: h.checks.map((c) => ({
       ...c, status: "unknown", status_label: NOT_UPDATING,
       reason: `Last known: ${c.status_label}. ${c.reason}`,
@@ -137,6 +141,13 @@ export interface BrainSummary {
   baseline_target: number;
   min_clips: number;
   max_step: number;
+  activity?: {
+    state: "working" | "idle"; role: string; message: string; at: number | null;
+    consultation_id: string; purpose: "selection" | "ranking" | "blueprint" | "render" | "";
+    consulted: number; applied: number; ref_type: string; ref_id: string;
+    last: { type?: string; at?: number; message?: string; consulted?: number; applied?: number;
+      purpose?: string; [key: string]: unknown } | null;
+  };
 }
 
 export interface RunState {
@@ -345,9 +356,18 @@ export interface NvidiaView {
   development_note: string;
 }
 export interface NvidiaResult { ok: boolean; detail?: string; key_verified?: boolean; models?: string[]; code?: string }
+export interface SearchCheck {
+  provider: string; ok: boolean; status: string; detail: string; fix: string; code: string;
+  until: number | null; at: number; current?: boolean; auth_mode?: string;
+}
+export interface SearchConnection {
+  configured: boolean; auth_mode: "api_key" | "connected_account" | "not_configured"; last_check: SearchCheck | null;
+}
 
 const I = "/api/integrations";
 export const integrations = {
+  searchStatus: () => req<Record<"youtube" | "tavily", SearchConnection>>("GET", `${I}/search`),
+  testSearch: (provider: "youtube" | "tavily") => req<SearchCheck>("POST", `${I}/search/${provider}/test`),
   list: () => req<{ cards: IntegrationCard[]; registry: { capabilities: Record<string, string>;
     platforms: Record<string, Record<string, { state: string; detail: string }>> } }>("GET", I),
   nvidia: () => req<NvidiaView>("GET", `${I}/nvidia`),

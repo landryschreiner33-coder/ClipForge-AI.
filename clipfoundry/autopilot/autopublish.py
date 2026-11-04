@@ -56,19 +56,25 @@ def text_for(platform: str, cfg: dict, channel: str = "") -> str:
     who = ("Public videos that anyone can watch" if public else "Private videos")
     meaning = ("Public posting is authorized only for new posts planned for the public. Existing posts and "
                "previously planned Private uploads keep their visibility. " if public else
-               "Nobody else can watch them until I share them privately in YouTube Studio; ClipFoundry never makes "
+               "Nobody else can watch them until I share them privately in YouTube Studio; ClipForge never makes "
                "them public or unlisted under this permission. ")
-    return (f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day to {where} as "
-            f"{who}, marked {kids}, between {cfg['start_hour']}:00 and {cfg['end_hour']}:00 "
+    amount = ("Upload eligible clips without an app daily cap" if int(cfg['daily_limit']) == 0 else
+              f"Upload up to {cfg['daily_limit']} clip{'s' if cfg['daily_limit'] != 1 else ''} a day")
+    window = ("at any hour" if (cfg['start_hour'], cfg['end_hour']) == (0, 24) else
+              f"between {cfg['start_hour']}:00 and {cfg['end_hour']}:00")
+    return (f"{amount} to {where} as "
+            f"{who}, marked {kids}, {window} "
             f"({cfg['timezone']}), without asking me about each one. {meaning}Only clips that passed "
             "every automatic check (file, sound, captions, framing, text), from videos I own or that an agreement or "
-            "license covers. I can cancel any upcoming upload, and turn this off at any time.")
+            "license covers. Platform waits and API allowances still apply. I can cancel any upcoming upload, "
+            "and turn this off at any time.")
 
 
 def view(settings: dict) -> dict:
     from ..publish import audience
 
     out = {}
+    review = bool(settings.get("autopilot_review_before_publish", True))
     for platform in ("youtube", "tiktok"):
         c = active(platform)
         dest = audience.destination(platform, settings)
@@ -77,8 +83,12 @@ def view(settings: dict) -> dict:
         if platform == "youtube":
             if not account_id(platform) or not (db.get_account(platform) or {}).get("has_tokens"):
                 blocker = "Connect your YouTube channel first."
+            elif dest["intent"] == audience.LOCAL_ONLY:
+                blocker = "YouTube clips are kept on this PC. Choose who watches in Settings → Integrations first."
             elif not dest["confirmed"]:
                 blocker = "Confirm who watches in Settings → Integrations first."
+        if review:
+            blocker = "Review before publishing is on. Prepared posts wait for your approval in Queue."
         can_enable = platform in SUPPORTED and not blocker
         enabled = bool(c) and same_account(c) and consent_visibility(c) == visibility and not blocker
         if visibility == "public" and c:
@@ -91,6 +101,7 @@ def view(settings: dict) -> dict:
                          "blocker": blocker,
                          "account_id": account_id(platform), "audience_version": dest["group_version"],
                          "consent": ({k: c[k] for k in ("id", "settings", "text", "created_at")} if c else None)}
+    out["review_before_publish"] = review
     out["verified_project"] = bool(settings.get("youtube_project_verified"))
     return out
 
@@ -104,13 +115,16 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError("Read and confirm what automatic publishing will do")
     if visibility not in config.YOUTUBE_PRIVACY:
         raise ValueError("Choose Public or Private for automatic YouTube uploads")
-    if made_for_kids is None:
+    if type(made_for_kids) is not bool:
         raise ValueError("Say whether your videos are made for kids (YouTube requires this answer)")
-    if not 1 <= int(daily_limit) <= 15:
-        raise ValueError("The daily limit is 1 to 15 posts")
+    if not 0 <= int(daily_limit) <= 100:
+        raise ValueError("Use 0 for no app daily cap, or a daily limit from 1 to 100 posts")
     if not 0 <= int(start_hour) < int(end_hour) <= 24:
         raise ValueError("The posting window must start before it ends")
     settings = db.get_settings()
+    if settings.get("autopilot_review_before_publish", True):
+        raise ValueError("Review before publishing is on. Approve prepared posts in Queue, or change that setting "
+                         "before granting automatic publishing permission.")
     from ..publish import audience
 
     dest = audience.destination(platform, settings)
@@ -120,6 +134,10 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
         raise ValueError("Another YouTube channel is connected now. Review the channel and permission again")
     if expected_audience_version is not None and expected_audience_version != dest["group_version"]:
         raise ValueError("Who watches changed while this permission was open. Review it again")
+    if dest["intent"] == audience.LOCAL_ONLY:
+        raise ValueError("YouTube clips are kept on this PC. Choose who watches in Settings → Integrations first")
+    if not dest["confirmed"]:
+        raise ValueError("Confirm who watches in Settings → Integrations first")
     if visibility == "public":
         if dest["intent"] != audience.PUBLIC or not dest["confirmed"]:
             raise ValueError("Automatic uploads are Private only until you explicitly confirm Public audience "
@@ -127,7 +145,7 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
     elif dest["intent"] == audience.PUBLIC:
         raise ValueError("The permission's visibility must match Who watches. Choose Public, or confirm a Private "
                          "audience in Settings → Integrations")
-    cfg = {"visibility": visibility, "made_for_kids": bool(made_for_kids), "daily_limit": int(daily_limit),
+    cfg = {"visibility": visibility, "made_for_kids": made_for_kids, "daily_limit": int(daily_limit),
            "start_hour": int(start_hour), "end_hour": int(end_hour),
            "timezone": settings.get("autopilot_timezone") or "America/Chicago",
            "min_quality": float(settings.get("autopilot_min_quality") or 0), "text_version": TEXT_VERSION,
@@ -150,7 +168,7 @@ def enable(platform: str, visibility: str, made_for_kids: bool | None, daily_lim
 
 def disable(platform: str) -> int:
     """Revoke the permission; posts it approved that have not started uploading wait for your approval again."""
-    from .scheduler import _audit
+    from .scheduler import _audit, publication_unstarted
 
     now = time.time()
     revoked = 0
@@ -159,7 +177,7 @@ def disable(platform: str) -> int:
         revoked += 1
     back = 0
     for item in db.select("scheduled_publications", "platform = ? AND status = 'approved'", (platform,)):
-        if (item.get("approval") or {}).get("by") != "automatic":
+        if (item.get("approval") or {}).get("by") != "automatic" or not publication_unstarted(item):
             continue
         db.update("scheduled_publications", item["id"], status="awaiting_approval", approval={},
                   status_note="Automatic publishing was turned off: approve it yourself to publish it",
@@ -174,8 +192,14 @@ def disable(platform: str) -> int:
 def still_covers(item: dict) -> bool:
     """Is the permission that approved this post still in force?"""
     appr = item.get("approval") or {}
+    if appr.get("by") == "submission":
+        from . import submissions
+
+        return submissions.still_covers(item)
     if appr.get("by") != "automatic":
         return True
+    if db.get_settings().get("autopilot_review_before_publish", True):
+        return False
     c = active(item["platform"])
     if not c or c["id"] != appr.get("consent_id") or not same_account(c):
         return False

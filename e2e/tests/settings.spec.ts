@@ -11,7 +11,7 @@ const PROVIDER_KEYS: Record<string, string[]> = {
   ollama: ["ollama_url", "ollama_model"], openai_compatible: ["openai_url", "openai_model", "openai_api_key"],
   anthropic: ["anthropic_api_key", "anthropic_model"],
 };
-const TABS = [["Accounts", "#/settings"], ["Defaults", "#/settings/defaults"],
+const TABS = [["Connections setup", "#/settings"], ["Defaults", "#/settings/defaults"],
   ["Integrations", "#/settings/integrations"], ["Advanced", "#/settings/advanced"]];
 
 test.beforeEach(async ({ page }) => {
@@ -19,12 +19,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Settings");
 });
 
-test("Accounts comes first, with both platforms and how their posts get approved", async ({ page }) => {
+test("Connections setup shows both platforms and how their posts get approved", async ({ page }) => {
   const tabs = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(tabs.getByRole("link", { name: "Appearance", exact: true })).toHaveAttribute("href", "#/settings/appearance");
   for (const [name, href] of TABS) {
     await expect(tabs.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   }
-  await expect(tabs.locator("[aria-current=page]")).toHaveText("Accounts");
+  await expect(tabs.locator("[aria-current=page]")).toHaveText("Connections setup");
   for (const h of ["YouTube", "TikTok"]) {
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
@@ -103,7 +104,7 @@ test("Save stays off until something changes, switching tabs keeps the change, a
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(bar).toContainText("Unsaved changes: Hook on screen");
   // leaving the page asks; Stay keeps you here
-  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Clips" }).click();
+  await page.getByRole("navigation", { name: "Main" }).first().getByRole("link", { name: "Projects" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading")).toHaveText("Leave without saving?");
   await dialog.getByRole("button", { name: "Stay" }).click();
@@ -153,9 +154,10 @@ test("Integrations says who watches and what each connection can do", async ({ p
     const d = aud[p];
     await expect(row).toContainText(d.confirmed ? `${d.label} · confirmed` : d.intent === "LOCAL_ONLY"
       ? "Kept on this PC" : "Not confirmed");
-    // never public, unlisted or "Everyone": those are not offered
-    await expect(row.getByRole("radio")).toHaveCount(p === "tiktok" && d.intent === "SELECTED_AUDIENCE" ? 5 : 3);
-    await expect(row.getByText(/public|unlisted|everyone/i)).toHaveCount(0);
+    // Public is an explicit setup choice; granting automatic publishing remains a separate action.
+    await expect(row.getByRole("radio")).toHaveCount(p === "tiktok" && d.intent === "SELECTED_AUDIENCE" ? 6 : 4);
+    await expect(row.getByRole("radio", { name: /^Public audience/ })).toHaveCount(1);
+    await expect(row.getByText(/unlisted/i)).toHaveCount(0);
   }
   const cards = page.locator(".integration");
   await expect(cards).toHaveCount(int.cards.filter((c: any) => c.id !== "nvidia").length);

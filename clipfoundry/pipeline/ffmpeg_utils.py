@@ -280,8 +280,15 @@ def probe(path: str | Path, *, cancel: Callable[[], bool] | None = None) -> dict
 
 def extract_audio(src: Path, dst: Path, duration: float, progress=None, cancel=None) -> None:
     tmp = dst.with_suffix(".tmp.wav")
+    # WAV carries no timestamps. Preserve delayed starts and discontinuities as silence before Whisper sees
+    # samples, otherwise its word times are early compared with the original video. Use the same first track
+    # that probe and render select; FFmpeg's automatic choice may prefer a different, higher-channel track.
+    audio_filter = "aresample=16000:async=1:first_pts=0"
+    if duration > 0:
+        audio_filter += f",apad=whole_dur={duration:.6f},atrim=end={duration:.6f}"
     run(
-        ["-i", str(src), "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(tmp)],
+        ["-i", str(src), "-map", "0:a:0", "-vn", "-sn", "-dn", "-af", audio_filter,
+         "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(tmp)],
         duration=duration,
         progress=progress,
         cancel=cancel,
@@ -320,9 +327,38 @@ def nvenc_available() -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=4)
+def _videotoolbox_works(exe: str) -> bool:
+    try:
+        result = subprocess.run(
+            [exe, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2",
+             "-c:v", "h264_videotoolbox", "-allow_sw", "0", "-pix_fmt", "yuv420p", "-f", "null", "-"],
+            capture_output=True, timeout=30, creationflags=NO_WINDOW,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def videotoolbox_available() -> bool:
+    if sys.platform != "darwin":
+        return False
+    try:
+        return _videotoolbox_works(ffmpeg_bin())
+    except FFmpegError:
+        return False
+
+
 def video_encoder_args(settings: dict) -> tuple[list[str], str]:
     choice = settings.get("encoder", "auto")
     crf = int(settings.get("crf", 20))
+    if choice in {"auto", "videotoolbox"} and videotoolbox_available():
+        # VideoToolbox uses a quality scale, not x264 CRF. Keep a bounded monotonic quality mapping.
+        quality = max(40, min(90, 100 - 2 * crf))
+        return (["-c:v", "h264_videotoolbox", "-allow_sw", "0", "-q:v", str(quality),
+                 "-profile:v", "high", "-pix_fmt", "yuv420p"], "h264_videotoolbox")
+    if choice == "videotoolbox":
+        raise FFmpegError("Apple hardware video encoding is unavailable. Choose Auto or x264 in Settings.")
     if choice in {"auto", "nvenc"} and nvenc_available():
         return (["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", str(crf + 1), "-b:v", "0",
                  "-profile:v", "high", "-pix_fmt", "yuv420p"], "h264_nvenc")

@@ -1,0 +1,4 @@
+# Apple-silicon installation; CUDA dependencies are deliberately separate.
+-r requirements.txt
+keyring>=25.6,<27
+cryptography>=44,<49

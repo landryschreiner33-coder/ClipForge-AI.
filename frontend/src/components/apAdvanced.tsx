@@ -42,7 +42,7 @@ const PROVIDER: Record<string, [Tone, string]> = {
   error: ["bad", "Error"], quota: ["warn", "Quota used up"],
 };
 const ACTION_LINK: Record<string, string> = {
-  approve: "#/queue/review", publish: "#/queue/problems", rights: "#/missions/sources",
+  approve: "#/publishing/review", publish: "#/publishing/problems", rights: "#/missions/sources",
   source_file: "#/missions/sources", youtube: "#/settings", quota: "#/settings/advanced",
   gpu: "#/settings/advanced", workers: "#/missions/jobs",
 };
@@ -58,11 +58,12 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
       <section className="panel" style={TOP} aria-labelledby="sys-today">
         <div className="panel-head">
           <h2 id="sys-today">Today's numbers</h2>
-          <a className="btn btn-quiet btn-small" href="#/queue/scheduled">Open the Queue</a>
+          <a className="btn btn-quiet btn-small" href="#/publishing/scheduled">Open Publishing</a>
         </div>
         <dl className="kv daily">
-          <dt>Daily target</dt>
-          <dd><b className="tnum">{t.published}</b> of {t.daily} unique clips posted today. {t.note}</dd>
+          <dt>Daily clip cap</dt>
+          <dd><b className="tnum">{t.published}</b>{t.daily > 0 ? ` of ${t.daily}` : ""} unique clips posted today.
+            {t.daily === 0 ? " No app daily cap." : ""} {t.note}</dd>
           <dt>Platform posts today</dt>
           <dd>{t.published_posts} published, {t.scheduled_posts} scheduled ({PLATFORMS.map((p) => {
             const c = t.posts_by_platform?.[p];
@@ -71,7 +72,8 @@ function SystemView({ st, refresh }: { st: AutopilotStatus; refresh: () => void 
           <dt>Clips</dt>
           <dd>{t.processed} processed · {t.scheduled} scheduled today</dd>
           <dt>Source videos today</dt>
-          <dd>{st.sources_today.counted} of {st.sources_per_day} chosen</dd>
+          <dd>{st.sources_today.counted}{st.sources_per_day > 0 ? ` of ${st.sources_per_day}` : ""} chosen
+            {st.sources_per_day === 0 ? " · no app daily cap" : ""}</dd>
           <dt>Jobs in the queue</dt>
           <dd>{st.queue.size}</dd>
           <dt>Next post</dt>
@@ -232,7 +234,7 @@ function GpuPanel({ st }: { st: AutopilotStatus }) {
   );
 }
 
-/** What the old Dashboard's System card showed: the tools ClipFoundry found on this computer. */
+/** What the old Dashboard's System card showed: the tools ClipForge found on this computer. */
 function ComputerPanel() {
   const [h, setH] = useState<Health | null>(null);
   const [failed, setFailed] = useState(false);
@@ -242,7 +244,7 @@ function ComputerPanel() {
   return (
     <section className="panel" style={TOP} aria-labelledby="sys-pc">
       <h2 id="sys-pc">This computer</h2>
-      {!h ? (failed ? <p className="small muted">Unknown: ClipFoundry did not answer.</p>
+      {!h ? (failed ? <p className="small muted">Unknown: ClipForge did not answer.</p>
         : <Skel className="skel-block" style={{ height: 100 }} />) : (
         <>
           <dl className="kv">
@@ -296,7 +298,9 @@ function PlatformsPanel({ st }: { st: AutopilotStatus }) {
           );
         })}
       </div>
-      <p className="small muted">Every post needs your OK, or for YouTube the automatic-publishing permission.
+      <p className="small muted">{s.autopilot_review_before_publish !== false
+        ? "Review mode: every prepared post waits for you to check reuse and approve it in Queue."
+        : "Every post needs your OK, or for YouTube the automatic-publishing permission."}
         {s.autopilot_auto_publish ? " Approved posts are published at their time by themselves."
           : " Approved posts wait until you press Publish now."}</p>
     </section>
@@ -324,7 +328,7 @@ function QuotaPanel({ st }: { st: AutopilotStatus }) {
         </div>
       ))}
       {q.warnings.map((w, i) => <p key={i} className="small warn-text">{w}</p>)}
-      <p className="tiny faint">Counted by ClipFoundry. Discovery uses only its share and never the quota kept for
+      <p className="tiny faint">Counted by ClipForge. Discovery uses only its share and never the quota kept for
         publishing and statistics.</p>
     </section>
   );
@@ -336,7 +340,7 @@ function MetricCell({ m, label }: { m?: Metric; label: string }) {
   const text = v == null ? "—" : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M`
     : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : num(v);
   const why = `${label}: ${m.status === "observed" ? "as the platform reported it" : m.status === "estimated"
-    ? "calculated by ClipFoundry" : "not reported"}${m.note ? ` (${m.note})` : ""}`;
+    ? "calculated by ClipForge" : "not reported"}${m.note ? ` (${m.note})` : ""}`;
   return (
     <span className={`small ${v == null ? "metric-missing" : ""}`} title={why}>
       {text} <span className="faint">{label}</span>
@@ -393,7 +397,7 @@ function TrendsPanel({ trends, providers }: { trends: TrendSignal[]; providers: 
       ) : <p className="small muted">Nothing found yet. Connect YouTube (Settings → Accounts) or add a YouTube API key
         (Settings → Advanced).</p>}
       <p className="tiny faint">Numbers are as the platform reported them; “—” means not reported. Scores are
-        ClipFoundry's own estimates, not platform numbers.</p>
+        ClipForge's own estimates, not platform numbers.</p>
     </section>
   );
 }

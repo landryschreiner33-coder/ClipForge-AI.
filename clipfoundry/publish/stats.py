@@ -28,7 +28,7 @@ def _float(v: object) -> float | None:
 
 
 def _youtube(pub: dict) -> tuple[dict, str, list[str], dict]:
-    token = youtube.Token(db.get_settings())
+    token = youtube.Token(db.get_settings(), pub.get("connection_id") or None)  # the channel that uploaded it
     st = youtube.video_statistics(token, pub["remote_id"])
     if st is None:
         return {}, "YouTube Data API v3", ["The video no longer exists on YouTube (or is not visible to this "
@@ -72,10 +72,11 @@ def _tiktok(pub: dict) -> tuple[dict, str, list[str], dict]:
     if not ids:
         return {}, source, ["TikTok only reports statistics for posts with a public video ID. 'Only me' posts and "
                             "inbox drafts have none; after posting from the TikTok app, link the post with its URL."], {}
-    if "video.list" not in ((db.get_account("tiktok") or {}).get("scopes") or []):
-        return {}, source, ["ClipFoundry was not given TikTok's video.list permission. Turn on 'Video statistics' in "
+    acc = db.get_connection(pub.get("connection_id") or "") or db.get_account("tiktok") or {}
+    if "video.list" not in (acc.get("scopes") or []):
+        return {}, source, ["ClipForge was not given TikTok's video.list permission. Turn on 'Video statistics' in "
                             "Settings → Publishing → TikTok and connect again."], {}
-    videos = tiktok.video_statistics(tiktok.Token(db.get_settings()), ids)
+    videos = tiktok.video_statistics(tiktok.Token(db.get_settings(), acc.get("id") or None), ids)
     v = videos.get(ids[0])
     if not v:
         return {}, source, ["TikTok did not return this video for your account (deleted, private, or posted by "

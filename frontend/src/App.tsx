@@ -5,13 +5,21 @@ import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHo
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
+import { AppearanceProvider, useAppearance } from "./prefs";
+import { installRequestProtection, loadMe, Me, signOut, SIGNED_OUT } from "./session";
 import Office from "./pages/Office";
+import Home from "./pages/Home";
+import MakeClips from "./pages/MakeClips";
+import MakeVideo from "./pages/MakeVideo";
+import VideoReview from "./pages/VideoReview";
+import Projects from "./pages/Projects";
+import Accounts from "./pages/Accounts";
+import SignIn from "./pages/SignIn";
 import Team, { RobotGallery } from "./pages/Team";
 import Feedback from "./pages/Feedback";
 import Brain from "./pages/Brain";
 import Setup from "./pages/Setup";
 import Create from "./pages/Create";
-import Library from "./pages/Library";
 import ProjectView from "./pages/ProjectView";
 import ClipEditor from "./pages/ClipEditor";
 import PublishPage from "./pages/Publish";
@@ -22,48 +30,73 @@ import SettingsPage from "./pages/Settings";
 
 export { navigate };
 
-type NavKey = "office" | "missions" | "clips" | "queue" | "brain" | "settings";
+type NavKey = "home" | "projects" | "brain" | "publishing" | "accounts" | "office" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
-  "": "office", office: "office", setup: "office", dev: "office", missions: "missions", clips: "clips",
-  project: "clips", clip: "clips", publish: "clips", create: "clips", queue: "queue", post: "queue",
-  settings: "settings", brain: "brain",
+  "": "home", create: "home", projects: "projects", project: "projects", clip: "projects", publish: "projects",
+  video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
+  office: "office", missions: "office", setup: "office", dev: "office", settings: "settings",
 };
 const SECTION_TITLE: Record<string, string> = {
-  "": "", office: "Team", setup: "Set up", missions: "Missions", clips: "Clips", project: "Source video",
-  clip: "Edit clip", publish: "Prepare post", create: "Add video", queue: "Queue", post: "Post review",
-  settings: "Settings", brain: "Brain", dev: "Robot gallery",
+  "": "Home", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
+  video: "Full video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
+  office: "Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
 };
 
 function page(route: Route) {
   const [section, id] = route.parts;
   switch (section) {
-    case "office": return <Team />;
+    case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return <Create />;
-    case "clips": return id === "feedback" ? <Feedback /> : <Library />;
+    case "create": return id === "video" ? <MakeVideo /> : id === "link" ? <Create /> : <MakeClips />;
+    case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "project": return <ProjectView id={id} key={id} />;
     case "clip": return <ClipEditor id={id} key={id} />;
     case "publish": return <PublishPage id={id} key={id} />;
+    case "video": return <VideoReview id={id} key={id} />;
     case "missions": return <AutopilotPage tab={id} />;
-    case "queue": return <Posts view={id} />;
+    case "publishing": return <Posts view={id} />;
     case "post": return <PostReview id={id} key={id} />;
+    case "accounts": return <Accounts />;
     case "settings": return <SettingsPage tab={id} />;
     case "brain": return <Brain tab={id} />;
-    default: return <Office />;
+    default: return <Home />;
   }
 }
 
+installRequestProtection();
+
 export default function App() {
+  const [me, setMe] = useState<Me | null>(null);
+  const [ended, setEnded] = useState(false);
+  useEffect(() => {
+    void loadMe().then(setMe);
+    const out = () => setEnded(true);
+    window.addEventListener(SIGNED_OUT, out);
+    return () => window.removeEventListener(SIGNED_OUT, out);
+  }, []);
+  if (me === null) return null;  // nothing private is shown or requested before the session is known
+  if ((me.mode === "cloud" && !me.signed_in) || ended) return <SignIn ended={ended} />;
   return (
-    <MotionProvider>
-      <StatusProvider><Shell /></StatusProvider>
-    </MotionProvider>
+    <AppearanceProvider>
+      <MotionProvider>
+        <StatusProvider><Shell me={me} /></StatusProvider>
+      </MotionProvider>
+    </AppearanceProvider>
   );
 }
 
-function Shell() {
+function Shell({ me }: { me: Me }) {
   const route = useRoute();
+  const { namesVersion, appearance, set } = useAppearance();
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("clipforge.sidebar") === "collapsed";
+    } catch {
+      return false;
+    }
+  });
+  const [makeOpen, setMakeOpen] = useState(false);
   const { st, lost, lastOk, refresh } = useStatus();
   const [drawer, setDrawer] = useState(false);
   // Where the person wanted to go when the page had unsaved changes ("" is the Office); null while nobody is asked.
@@ -73,8 +106,8 @@ function Shell() {
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "office";
-  const wide = section === "";
+  const active = SECTION_NAV[section] || "home";
+  const wide = section === "office" && !route.parts[1];
 
   useEffect(() => {
     setLeaveAsker(setLeaving);
@@ -84,7 +117,8 @@ function Shell() {
   // After moving to another page: the tab title, the top of the page, and focus on its title for screen readers.
   useLayoutEffect(() => {
     const title = SECTION_TITLE[section];
-    document.title = title ? `${title} · ClipFoundry` : "ClipFoundry";
+    document.title = title ? `${title} · ClipForge` : "ClipForge";
+    setMakeOpen(false);
     setDrawer(false);
     const key = `${route.path}|${route.unknown ?? ""}`;
     const first = shown.current === null;
@@ -115,30 +149,42 @@ function Shell() {
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="dashboard" label="Office" on={active === "office"} />
-      <NavLink href="#/missions" icon="autopilot" label="Missions" on={active === "missions"} />
-      <NavLink href="#/clips" icon="film" label="Clips" on={active === "clips"} />
-      <NavLink href="#/queue/review" icon="posts" label="Queue" on={active === "queue"}
+      <NavLink href="#/" icon="home" label="Home" on={active === "home"} />
+      <NavLink href="#/projects" icon="film" label="Projects" on={active === "projects"} />
+      <NavLink href="#/brain/styles" icon="spark" label="Brain" on={active === "brain"} />
+      <NavLink href="#/publishing/review" icon="posts" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
-      <NavLink href="#/settings" icon="settings" label="Settings" on={active === "settings"} />
-      <NavLink href="#/brain" icon="spark" label="Brain" on={active === "brain"} />
+      <NavLink href="#/accounts" icon="user" label="Accounts" on={active === "accounts"} />
+      <NavLink href="#/office" icon="cpu" label="Office" on={active === "office"} />
+      <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} />
     </>
   );
   const foot = (
-    <div className="app-foot">
-      <span>Runs on this computer. Uploads go only to the audience you choose, through YouTube's and TikTok's official connections.</span>
+    <div className="side-foot">
+      <span>{me.mode === "cloud" ? "Your private ClipForge studio." : "Runs on this computer."} Uploads go only to the accounts and audience you choose.</span>
       <span className="legal-links">
         <a href="/legal/terms" target="_blank" rel="noreferrer">Terms</a> · <a href="/legal/privacy" target="_blank" rel="noreferrer">Privacy</a>
       </span>
     </div>
   );
   const brand = (
-    <a className="brand" href="#/" aria-label="ClipFoundry, Office">
+    <a className="brand" href="#/" aria-label="ClipForge, Home">
       <Logo />
-      <span className="brand-name" aria-hidden="true">Clip<span>Foundry</span></span>
+      <span className="brand-name" aria-hidden="true">ClipForge</span>
     </a>
   );
+  const toggleSide = () => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem("clipforge.sidebar", c ? "open" : "collapsed");
+      } catch {
+        /* per-browser convenience only */
+      }
+      return !c;
+    });
+  };
+  const dark = document.documentElement.dataset.theme === "dark";
 
   return (
     <ConnectionContext.Provider value={{ lost, lastOk }}>
@@ -146,40 +192,65 @@ function Shell() {
         e.preventDefault();
         main.current?.focus();
       }}>Skip to content</a>
-      <header className="topbar">
-        <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
-          <Icon name="menu" />Menu
-        </button>
-        {brand}
-        <nav className="nav top-nav" aria-label="Main">{nav}</nav>
-        <span className="spacer" />
-        <a href="#/" id="top-state" className={`pill ${state.tone}`} aria-label={`Autopilot: ${state.word}. Open the Office`}>
-          <Icon name="autopilot" />Autopilot: {state.word}
-        </a>
-      </header>
-      <main className={`main${wide ? " main-wide" : ""}`} id="main" ref={main} tabIndex={-1}>
-        <div className="banners">
-          {lost && (
-            <Banner tone="warn" icon="offline" title="ClipFoundry is not answering"
-              actions={<button type="button" className="btn btn-small" onClick={refresh}><Icon name="refresh" />Try again</button>}>
-              What you see is the last known state{lastOk ? `, from ${new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
-              Check that the black ClipFoundry window is still open on this PC.
-            </Banner>
-          )}
-          {st?.paused && section !== "missions" && section !== "" && (
-            <Banner tone="bad" icon="stop" title="All jobs are stopped" actions={<ResumeButton onDone={refresh} />}>
-              Nothing is made, checked or posted until you resume. Things you start yourself wait too.
-            </Banner>
-          )}
-          {route.unknown !== undefined && (
-            <Banner tone="info" title="That address does not exist">
-              There is no page at “#/{route.unknown}”, so the Office is shown instead.
-            </Banner>
-          )}
+      <div className={`cf-shell${collapsed ? " collapsed" : ""}`}>
+        <aside className="cf-side" aria-label="ClipForge">
+          {brand}
+          <nav className="nav" aria-label="Main">{nav}</nav>
+          <button type="button" className="btn btn-small btn-quiet" onClick={toggleSide} aria-pressed={collapsed}>
+            <Icon name="menu" /><span className="side-foot-label">{collapsed ? "" : "Collapse sidebar"}</span></button>
+          {foot}
+        </aside>
+        <div className="cf-body">
+          <header className="cf-top">
+            <button type="button" className="btn btn-small menu-btn" aria-haspopup="dialog" aria-expanded={drawer} onClick={() => setDrawer(true)}>
+              <Icon name="menu" />Menu
+            </button>
+            <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
+            <span className="spacer" />
+            <div className="make-menu">
+              <button type="button" className="btn btn-primary btn-small" aria-haspopup="menu" aria-expanded={makeOpen}
+                onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
+              {makeOpen && (
+                <div role="menu" aria-label="Make" onKeyDown={(e) => e.key === "Escape" && setMakeOpen(false)}>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
+                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
+                </div>
+              )}
+            </div>
+            <button type="button" className="btn btn-small btn-icon hide-xs" aria-label={dark ? "Use the light theme" : "Use the dark theme"}
+              onClick={() => set({ theme: dark ? "light" : "dark" })} title={`Theme: ${appearance.theme}`}><Icon name="moon" /></button>
+            <a href="#/missions" id="top-state" className={`pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
+              <Icon name="autopilot" />Autopilot: {state.word}
+            </a>
+            {me.mode === "cloud" && <>
+              <span className="who clamp-1" title={me.name}>{me.name}</span>
+              <button type="button" className="btn btn-small" onClick={() => void signOut()}>Sign out</button>
+            </>}
+          </header>
+          <main className={`main${wide ? " main-wide" : ""}`} id="main" ref={main} tabIndex={-1}>
+            <div className="banners">
+              {lost && (
+                <Banner tone="warn" icon="offline" title="ClipForge is not answering"
+                  actions={<button type="button" className="btn btn-small" onClick={refresh}><Icon name="refresh" />Try again</button>}>
+                  What you see is the last known state{lastOk ? `, from ${new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
+                  {me.mode === "cloud" ? " Check your internet connection." : " Check that the ClipForge window is still open on this computer."}
+                </Banner>
+              )}
+              {st?.paused && section !== "missions" && section !== "office" && (
+                <Banner tone="bad" icon="stop" title="All jobs are stopped" actions={<ResumeButton onDone={refresh} />}>
+                  Nothing is made, checked or posted until you resume. Things you start yourself wait too.
+                </Banner>
+              )}
+              {route.unknown !== undefined && (
+                <Banner tone="info" title="That address does not exist">
+                  There is no page at “#/{route.unknown}”, so Home is shown instead.
+                </Banner>
+              )}
+            </div>
+            <div key={namesVersion} style={{ display: "contents" }}>{page(route)}</div>
+          </main>
         </div>
-        {page(route)}
-        {!wide && foot}
-      </main>
+      </div>
       {drawer && (
         <Drawer onClose={() => setDrawer(false)}>
           <div className="drawer-head">
@@ -188,6 +259,7 @@ function Shell() {
           </div>
           <nav className="nav" aria-label="Main">{nav}</nav>
           <div className="nav-sep" />
+          {me.mode === "cloud" && <button type="button" className="btn" onClick={() => void signOut()}>Sign out</button>}
           {foot}
         </Drawer>
       )}

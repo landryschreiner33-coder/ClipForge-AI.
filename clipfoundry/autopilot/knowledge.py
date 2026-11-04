@@ -1,9 +1,8 @@
-"""Local, searchable teaching material and narrowly typed, explicitly approved clip preferences.
+"""Saved, enabled Brain guidance participates in new clips, with Settings filling unspecified choices.
 
-Uploaded prose is reference data: it is never executed, sent to a model, or parsed as commands. An owner may
-separately approve the supported preferences attached to an instruction or example. Those preferences affect
-new Autopilot blueprints; examples never enter the real-results learner. Every actual choice keeps a revision
-snapshot, so deleting or editing a reference cannot rewrite a clip's explanation.
+A local compiler recognizes supported editing preferences and ranking priorities. It never executes prose or
+sends uploaded notes/media to a model. Explicit controls win over prose. Examples remain separate from actual
+posting results. Revision snapshots preserve the explanation of an already planned clip.
 """
 from __future__ import annotations
 
@@ -12,6 +11,7 @@ import json
 import math
 import re
 import shutil
+import statistics
 import subprocess
 import time
 import zipfile
@@ -19,6 +19,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from .. import config, db
+from .knowledge_style import compile_note
 from ..pipeline.ffmpeg_utils import FFmpegError, NO_WINDOW, ffprobe_bin
 
 DOCUMENTS = (".txt", ".md", ".csv", ".json", ".docx")
@@ -75,8 +76,6 @@ def clean(data: dict) -> dict:
         raise Invalid("Label the example good or bad")
     if kind != "example" and (label or features):
         raise Invalid("Example labels and features belong to examples")
-    if kind == "reference" and preferences:
-        raise Invalid("References are searchable only. Choose instruction to approve clip preferences")
     enabled = data.get("enabled", True)
     if type(enabled) is not bool:
         raise Invalid("Enabled must be true or false")
@@ -89,8 +88,23 @@ def view(row: dict) -> dict:
     out["enabled"] = bool(row["enabled"])
     out["approved"] = bool(row.get("approved_at"))
     out["has_asset"] = bool(row.get("asset_path"))
-    out["state"] = "disabled" if not row["enabled"] else "reference" if row["kind"] == "reference" else \
-        "approved" if row.get("approved_at") else "needs_approval"
+    compiled = compile_note(row)
+    out["effective_preferences"] = compiled["preferences"]
+    out["priorities"] = compiled["priorities"]
+    out["example_duration"] = compiled["example_duration"]
+    usable = bool(compiled["preferences"] or compiled["priorities"] or compiled["example_duration"])
+    out["state"] = "disabled" if not row["enabled"] else "active" if usable else \
+        "saved_example" if row["kind"] == "example" else "reference"
+    out["use_note"] = ("Disabled: this lesson is not used for new clips." if not row["enabled"] else
+                       "Used automatically for matching new clips; Settings fill unspecified choices." if usable else
+                       "Saved as a searchable reference; no recognized editing guidance yet. Add a supported "
+                       "caption or pacing preference, or describe a hook, payoff or context goal for new clips.")
+    if row["enabled"] and row["kind"] == "example" and row.get("example_label") == "bad" and not usable:
+        out["use_note"] = ("Saved as a bad example. Its described traits are not copied. Choose a corrective "
+                           "caption or pacing preference below to change new clips.")
+    elif row["enabled"] and compiled["example_duration"] is not None:
+        out["use_note"] += (" Its measured length is blended with your target and stays within the minimum "
+                            "and maximum clip lengths in Settings.")
     return out
 
 
@@ -102,15 +116,21 @@ def get(knowledge_id: str) -> dict:
 
 
 def create(data: dict, **asset: object) -> dict:
-    # Approval cannot be supplied via import, upload, or JSON creation. It is a separate owner action.
+    # The owner activates supported guidance by saving it enabled. Legacy approval timestamps are historical only.
     return view(db.insert("brain_knowledge", {**clean(data), **asset}))
 
 
 def edit(knowledge_id: str, data: dict) -> dict:
     row = get(knowledge_id)
+    if "expected_revision" in data:
+        expected = data["expected_revision"]
+        if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+            raise Invalid("Expected revision must be a positive whole number")
+        if expected != row["revision"]:
+            raise Conflict("This knowledge changed. Reload and review the current revision before saving your changes")
     combined = {k: row[k] for k in ("kind", "title", "content", "tags", "features", "preferences", "example_label")}
     combined["enabled"] = bool(row["enabled"])
-    combined.update(data)
+    combined.update({key: value for key, value in data.items() if key != "expected_revision"})
     new = clean(combined)
     if all(new[k] == row[k] for k in new):
         return view(get(knowledge_id))
@@ -235,22 +255,46 @@ def asset_file(knowledge_id: str) -> tuple[Path, dict]:
     return path, row
 
 
-def choose(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]:
-    """Approved preferences only. Topic tags scope a rule; instructions win over examples, then newest approval.
-
-    Labels alone do not infer a rule from a video: a bad example uses the owner's corrective preferences.
-    The return records actual changes, rather than claiming every search result influenced the decision.
-    """
+def matching(clip: dict, settings: dict) -> list[tuple[dict, dict]]:
+    """Consult enabled knowledge at decision time; tags narrow its topic, not its activation."""
     if settings.get("brain_paused"):
-        return options, []
-    haystack = " ".join(str(clip.get(k) or "") for k in ("title", "hook", "caption_text", "category")).lower()
-    candidates = db.select("brain_knowledge", "enabled = 1 AND approved_at IS NOT NULL AND kind != 'reference'", (),
-                           "CASE kind WHEN 'instruction' THEN 0 ELSE 1 END, approved_at DESC, id")
+        return []
+    haystack = " ".join(str(clip.get(k) or "") for k in
+                        ("title", "hook", "caption_text", "category", "source_title")).lower()
+    rows = db.select("brain_knowledge", "enabled = 1", (),
+                     "CASE kind WHEN 'instruction' THEN 0 WHEN 'example' THEN 1 ELSE 2 END, updated_at DESC, id")
+    # Platform/workflow labels describe these clips, rather than topics someone must say out loud. A lesson
+    # tagged "TikTok, Shorts" must still apply to an interview; actual topic tags continue to narrow relevance.
+    general = {"tiktok", "youtube", "youtube shorts", "youtube-shorts", "shorts", "short-form", "short form",
+               "clips", "editing", "captions", "general", "global", "all topics", "across topics"}
+    matches = []
+    for row in rows:
+        topics = [tag for tag in row["tags"] if tag.lower().strip().lstrip("#") not in general]
+        if not topics or any(re.search(r"(?<!\w)" + re.escape(tag) + r"(?!\w)", haystack) for tag in topics):
+            matches.append((row, compile_note(row)))
+    from . import brain
+
+    brain.consulted(matches)
+    return matches
+
+
+def context(clip: dict, project: dict) -> dict:
+    """Keep the source title available after ranking replaces it with a short clip title."""
+    return {**clip, "source_title": project.get("name") or ""}
+
+
+def _influence(row: dict, decisions: dict) -> dict:
+    return {"knowledge_id": row["id"], "revision": row["revision"],
+            "snapshot": {k: row[k] for k in
+                         ("title", "kind", "example_label", "preferences", "features", "tags", "media")},
+            "decisions": decisions}
+
+
+def choose(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]:
+    """Apply saved supported guidance automatically, keeping Settings for every unspecified choice."""
     out, owners = dict(options), {}
-    for row in candidates:
-        if row["tags"] and not any(re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", haystack) for t in row["tags"]):
-            continue
-        for key, value in row["preferences"].items():
+    for row, compiled in matching(clip, settings):
+        for key, value in compiled["preferences"].items():
             if key not in owners:
                 owners[key] = row
                 out[key] = value
@@ -259,11 +303,40 @@ def choose(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]
         before = options.get(key, "safe_cuts" if key == "pacing" else None)
         if before == out[key]:
             continue
-        item = influenced.setdefault(row["id"], {"knowledge_id": row["id"], "revision": row["revision"],
-             "snapshot": {k: row[k] for k in ("title", "kind", "example_label", "preferences", "features", "tags")},
-             "decisions": {}})
+        item = influenced.setdefault(row["id"], _influence(row, {}))
         item["decisions"][key] = {"before": before, "after": out[key]}
-    return out, list(influenced.values())
+    used = list(influenced.values())
+    from . import brain
+
+    brain.applied(used)
+    return out, used
+
+
+def selection_options(clip: dict, options: dict, settings: dict) -> tuple[dict, list[dict]]:
+    """Known prose priorities affect local ranking. Good example lengths gently blend with the owner's target."""
+    out = dict(options)
+    rows = matching(clip, settings)
+    priorities = list(dict.fromkeys(key for _, compiled in rows for key in compiled["priorities"]))
+    out["brain_priorities"] = priorities
+    influences = [_influence(row, {"ranking_priorities": {"before": [], "after": compiled["priorities"]}})
+                  for row, compiled in rows if compiled["priorities"]]
+    examples = [(row, compiled["example_duration"]) for row, compiled in rows
+                if compiled["example_duration"] is not None]
+    if examples:
+        original = float(options.get("brain_base_target_duration", options.get("target_duration")) or 35)
+        minimum, maximum = float(options.get("min_duration") or 20), float(options.get("max_duration") or 60)
+        weight = min(0.6, len(examples) / (len(examples) + 3))
+        target = max(minimum, min(maximum, (1 - weight) * original + weight * statistics.median(
+            value for _, value in examples)))
+        out["target_duration"] = round(target, 2)
+        if out["target_duration"] != original:
+            influences += [_influence(row, {"target_duration": {"before": original, "after": out["target_duration"]}})
+                           for row, _ in examples]
+    out["brain_consulted"] = len(rows)
+    from . import brain
+
+    brain.applied(influences)
+    return out, influences
 
 
 def record(blueprint: dict) -> None:
@@ -292,4 +365,4 @@ def export() -> dict:
             "influences": influences(limit=None),
             "note": "All saved knowledge text, metadata, and influence records, separate from posting results. "
                     "Uploaded files are downloaded separately. "
-                    "Approval is local and cannot be restored by importing this JSON. No model fine-tuning."}
+                    "Enabled saved guidance is used automatically for future clips. No model fine-tuning."}

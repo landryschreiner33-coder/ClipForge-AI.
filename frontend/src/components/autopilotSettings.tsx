@@ -1,6 +1,6 @@
 import { Settings } from "../api";
 import {
-  Check, FieldCtx, NumInput, Seg, SecretField, SettingRow, SettingsPanel, Switch, TextInput,
+  Check, FieldCtx, NumInput, Seg, SecretField, Select, SettingRow, SettingsPanel, Switch, TextInput,
 } from "./settingsFields";
 
 /**
@@ -17,8 +17,25 @@ export function AutopilotSettings({ s, set, errors, saved }: {
   return (
     <>
       <SettingsPanel id="adv-ap" title="Autopilot details"
-        intro={<>A post goes out only when it is approved: by you in Posts or, for YouTube, by the automatic-publishing
-          permission on Settings, Accounts. <b>TikTok always needs your OK on each post.</b></>}>
+        intro={<>Add videos in Missions to make Brain-guided clips. “Make & upload clips” authorizes passing clips
+          from just that submitted video. Other posts keep their own review and publishing requirements.</>}>
+        <SettingRow k="autopilot_input_mode" label="Video intake"
+          hint="Only videos I add is the default. Automatic discovery also checks online searches and saved folders."
+          {...row}>
+          <Select k="autopilot_input_mode" c={c} options={[
+            { value: "submitted", label: "Only videos I add (link or file)" },
+            { value: "discovery", label: "Automatic discovery (optional)" },
+          ]} />
+          <span className="tiny muted">Changing intake never approves earlier clips or changes their audience.</span>
+        </SettingRow>
+        <SettingRow k="autopilot_review_before_publish" label="Prepare & schedule for review"
+          hint={"On: ordinary posts wait for your review and approval; standing automatic-publishing permission "
+            + "is suspended. A new video you explicitly submit with Make & upload uses only its own authorization."} {...row}>
+          <Switch k="autopilot_review_before_publish" c={c} />
+          <a className="textlink small" href="#/publishing/review">Review prepared posts</a>
+          <span className="tiny muted">Turning this off lets eligible YouTube posts use an existing
+            automatic-publishing permission again. Clips without recorded coverage still need your review.</span>
+        </SettingRow>
         <SettingRow k="autopilot_timezone" label="Time zone" hint="Posting hours and planned times use this zone"
           {...row}>
           <TextInput k="autopilot_timezone" c={c} width={280} placeholder="America/Chicago" />
@@ -28,7 +45,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           <Switch k="autopilot_keep_awake" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_sources_per_day" label="Sources per day"
-          hint="How many videos Autopilot takes on each day" {...row}>
+          hint="0 means no daily cap; the unfinished work queue stays small" {...row}>
           <NumInput k="autopilot_sources_per_day" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_clips_per_source" label="Clips per source"
@@ -78,8 +95,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
             options={[{ value: "separate", label: "Own process" }, { value: "in_app", label: "Inside the app" }]} />
         </SettingRow>
         <SettingRow label="Largest source"
-          hint={"Autopilot doesn't download bigger files or process longer videos (videos you add yourself have no "
-            + "limit)"}
+          hint="Limits for automatic discovery. Submitted links and files also have bounded file-size and duration checks."
           group>
           <div className="inline-fields small">
             <NumInput k="autopilot_max_source_gb" c={c} label="Largest source in GB" step={0.5} width={100} />
@@ -93,10 +109,11 @@ export function AutopilotSettings({ s, set, errors, saved }: {
 
       <SettingsPanel id="adv-posting" title="Autopilot posting">
         <SettingRow k="autopilot_min_gap_minutes" label="Minimum gap"
-          hint="Minutes between two posts on the same platform" {...row}>
+          hint="30 minutes by default, including after a restart. 0 disables spacing; platform waits still apply" {...row}>
           <NumInput k="autopilot_min_gap_minutes" c={c} />
         </SettingRow>
-        <SettingRow label="Posts a day per platform" hint="Your limit; a lower limit reported by a platform wins" group>
+        <SettingRow label="Posts a day per platform"
+          hint="0 means no app daily cap; platform limits and API allowances still apply" group>
           <div className="inline-fields small">
             <span>YouTube</span>
             <NumInput k="autopilot_youtube_daily_limit" c={c} label="YouTube posts a day" width={100} />
@@ -110,7 +127,7 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           <NumInput k="autopilot_upload_lead_minutes" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_auto_publish" label="Publish approved posts at their time" {...row}
-          hint="Off: approved posts wait at their time until you press Publish now in Posts">
+          hint="Only after your approval. Off: approved posts wait until you press Publish now in Queue">
           <Switch k="autopilot_auto_publish" c={c} />
         </SettingRow>
         <SettingRow k="autopilot_allow_republish" label="Allow republishing"
@@ -124,8 +141,25 @@ export function AutopilotSettings({ s, set, errors, saved }: {
       </SettingsPanel>
 
       <SettingsPanel id="adv-disc" title="Discovery and rights"
-        intro={"Discovery uses your interests and available evidence. Accessible public videos may be clipped on "
-          + "this PC; publishing still needs reuse permission. Blocked videos are skipped."}>
+        intro={s.autopilot_input_mode === "submitted"
+          ? "Automatic discovery is off. These saved options apply only if you choose Automatic discovery under Video intake above. No search key is needed for videos you add."
+          : "Optional discovery uses your interests and available evidence. Review mode can prepare accessible videos without a recorded agreement. You check reuse before approving each ordinary post. Blocked videos are skipped."}>
+        <SettingRow k="discovery_quality_first" label="Quality before quantity"
+          hint="Prefer strong usable videos and keep the unfinished work queue small, even with no daily cap"
+          {...row}><Switch k="discovery_quality_first" c={c} /></SettingRow>
+        <SettingRow label="Focused search limits" group
+          hint={"Waiting for permission or files does not block usable videos. "
+            + "Your chosen folders, channels and links remain available."}
+          >
+          <div className="inline-fields small">
+            <span>New finds per pass</span><NumInput k="discovery_candidates_per_scan" c={c} width={90} />
+            <span>Unfinished finds</span><NumInput k="discovery_queue_limit" c={c} width={90} />
+            <span>Per creator</span><NumInput k="discovery_creator_limit" c={c} width={90} />
+          </div>
+          <Errors keys={["discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit"]}
+            errors={errors} />
+          <a className="textlink small" href="#/missions/sources">Simple discovery controls and free search setup</a>
+        </SettingRow>
         <SettingRow label="Region and language" hint="Two-letter country and language codes (US and en by default)"
           group>
           <div className="inline-fields small">
@@ -168,7 +202,8 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           is checked when available; unknown language is confirmed from transcription. Clip quality is assessed
           after the video is read. Scores are estimates and do not predict virality.</p>
         <SettingRow k="trend_poll_minutes" label="Check trends every"
-          hint="Minutes (every 3 hours by default); slowed down automatically near the quota share" {...row}>
+          hint={"Regular interval in minutes. When the work queue has room, discovery checks again within 15 "
+            + "minutes; service limits and requested waits still apply"} {...row}>
           <NumInput k="trend_poll_minutes" c={c} />
         </SettingRow>
         <SettingRow k="trend_max_age_hours" label="Consider videos up to" hint="Hours old" {...row}>
@@ -194,6 +229,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           hint={"Optional: finds public TikTok links for your topics and the long YouTube videos behind popular "
             + "clips. It gives titles and links, not TikTok statistics"}>
           <SecretField k="tavily_api_key" c={c} removable placeholder="tvly-…" />
+          <span className="small muted">Optional free plan: 1,000 basic search credits each month, no credit card.
+            {" "}<a className="textlink" href="https://app.tavily.com" target="_blank" rel="noreferrer">
+              Get a free Tavily key</a>. Leave the monthly paid-search limit at $0 for free-only app usage.</span>
         </SettingRow>
         <SettingRow k="tavily_free_credits" label="Web search credits included"
           hint="Per month in your Tavily plan (the free plan: 1,000; one search = 1 credit)" {...row}>
@@ -212,9 +250,9 @@ export function AutopilotSettings({ s, set, errors, saved }: {
           {...row}>
           <Switch k="library_discovery" c={c} />
         </SettingRow>
-        <SettingRow label="Use automatically" group
-          hint={"Which kinds of permission let Autopilot clip and post without asking. Record agreements with "
-            + "creators in Autopilot, Sources"}>
+        <SettingRow label="Recorded reuse coverage" group
+          hint={"Which recorded permissions are accepted. Review mode still waits for your approval on every post. "
+            + "Record creator agreements under Missions, Permissions & sources"}>
           <div className="stack" style={{ gap: 0 }}>
             <Check k="rights_auto_licensed" c={c}>Licensed sources</Check>
             <Check k="rights_auto_allowlisted" c={c}>

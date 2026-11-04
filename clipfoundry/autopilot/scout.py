@@ -2,9 +2,10 @@
 
 Trend Scout collects signals from the legitimate providers (providers.py), keeps their history, and scores them
 (trends.py). Source Scout turns signals into candidate sources, runs the rights gate on each, estimates how many
-strong clips each one is likely to hold, ranks them, and sends the best eligible ones to the Clip Hunter, up to the
-number of sources per day. A source that turns out weak does not count: Source Scout picks another one instead of
-padding the day with weak clips.
+strong clips each one is likely to hold, ranks them, and sends the best eligible ones to the Clip Hunter. By default
+the small unfinished work queue refills continuously with no daily cap. Quality-first discovery admits only a few
+strong estimates and waits when unfinished search picks or an optional daily budget are full. Explicit
+input retains its replacement behavior, and opting out restores the earlier broad-search refill behavior.
 
 Nothing that is unclear blocks the day. A video no agreement, license or ownership covers, or whose file cannot be
 obtained in an allowed way (access.py), is skipped with its reason (the activity log shows it) and the next best
@@ -20,7 +21,7 @@ import math
 import time
 from zoneinfo import ZoneInfo
 
-from .. import db
+from .. import config, db, locks
 from ..pipeline import fingerprint
 from ..publish.common import PublishError
 from . import access, providers, quota, rights, state, trends, verify
@@ -146,13 +147,13 @@ def _provider_status(name: str, status: str, detail: str = "", count: int = 0, f
             "at": time.time()}
 
 
-def _search_error(name: str, exc: Exception) -> dict:
+def _search_error(name: str, exc: Exception, provider: str = "") -> dict:
     """Keep a temporary failure local to one search; later periodic scans always get a fresh attempt."""
     asked = getattr(exc, "retry_after", None)
-    if asked is not None:
-        state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), time.time() + float(asked)))
+    if asked is not None and provider:
+        providers.defer(provider, float(asked))
     return _provider_status(name, "error", str(exc), problem=f"{name} did not work last time.",
-                            fix="ClipFoundry will try again automatically.")
+                            fix="ClipForge will try again automatically.")
 
 
 QUOTA_CODES = ("quotaExceeded", "dailyLimitExceeded")  # YouTube's daily allowance: it resets by itself
@@ -193,6 +194,8 @@ def discovery_feeds(settings: dict) -> list[dict]:
 
 
 def collect_feeds(job: Job | None, statuses: dict) -> list[dict]:
+    if not config.discovery_enabled(db.get_settings()):
+        return []
     out: list[dict] = []
     for feed in discovery_feeds(db.get_settings()):
         scan = providers.FEED_SCANNERS.get(feed["kind"])
@@ -217,6 +220,8 @@ def collect_feeds(job: Job | None, statuses: dict) -> list[dict]:
 @handler("trend_scan")
 def trend_scan(job: Job) -> dict:
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"signals": 0, "message": "Automatic discovery is off. Add a video link or file in Missions."}
     now = time.time()
     statuses: dict = dict(state.get("providers", {}) or {})
     collected: list[dict] = []
@@ -247,7 +252,7 @@ def trend_scan(job: Job) -> dict:
             detail += f" · {first}"
             for exc in yt.errors:
                 if exc.retry_after is not None:
-                    state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
+                    providers.defer("youtube", exc.retry_after)
                 if exc.code in ("reconnect", "setup"):
                     state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                                  level="warning")
@@ -261,8 +266,8 @@ def trend_scan(job: Job) -> dict:
         yt = None
         statuses["youtube"] = _provider_status("YouTube Data API", "quota" if exc.code in QUOTA_CODES else "error",
                                                str(exc), fix=exc.fix)
-        if exc.retry_after is not None:  # YouTube asked to wait: the next scan is not sooner than that
-            state.put("next:trend_scan", max(float(state.get("next:trend_scan", 0) or 0), now + exc.retry_after))
+        if exc.retry_after is not None:  # Only this service waits; independent searches continue.
+            providers.defer("youtube", exc.retry_after)
         if exc.code in ("reconnect", "setup"):
             state.action("youtube:discovery", "youtube", "YouTube discovery stopped", str(exc), exc.fix,
                          level="warning")
@@ -270,7 +275,7 @@ def trend_scan(job: Job) -> dict:
         raise
     except Exception as exc:  # noqa: BLE001 - the free library and folders still work while YouTube is unavailable
         yt = None
-        statuses["youtube"] = _search_error("YouTube search", exc)
+        statuses["youtube"] = _search_error("YouTube search", exc, "youtube")
     state.put("trend:scans", int(state.get("trend:scans", 0) or 0) + 1)
     job.check()
     job.progress(0.3, "Searching the web for public TikTok links", stage="web")
@@ -313,7 +318,7 @@ def web_search(settings: dict, chosen: list[str], yt: providers.YouTubeDiscovery
     except queue.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - optional search must not prevent other discovery
-        statuses["web_search"] = _search_error("Web search", exc)
+        statuses["web_search"] = _search_error("Web search", exc, "web")
         return []
     use = providers.web_usage(settings)
     tiktok = [s for s in sigs if s["platform"] == "tiktok"]
@@ -335,12 +340,12 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
         return []
     except (ValueError, TypeError) as exc:  # an answer in an unexpected shape: skip it this time
         statuses["library"] = _provider_status(name, "error", f"Unexpected answer: {exc}",
-                                               problem="Wikimedia Commons sent an answer ClipFoundry could not read.")
+                                               problem="Wikimedia Commons sent an answer ClipForge could not read.")
         return []
     except queue.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - folders are still checked when the library is offline
-        statuses["library"] = _search_error("The free video library", exc)
+        statuses["library"] = _search_error("The free video library", exc, "library")
         return []
     statuses["library"] = _provider_status(name, "ok", f"{len(sigs)} videos with a license", len(sigs))
     return sigs
@@ -349,6 +354,8 @@ def library_search(settings: dict, chosen: list[str], statuses: dict, job: Job) 
 @handler("feed_scan")
 def feed_scan(job: Job) -> dict:
     """Frequent, free check of watch folders and stream/signal feeds (no API quota)."""
+    if not config.discovery_enabled(db.get_settings()):
+        return {"signals": 0, "new": 0, "message": "Folder and feed discovery is off. Add a video in Missions."}
     statuses: dict = dict(state.get("providers", {}) or {})
     now = time.time()
     reconcile_sources(now)
@@ -363,7 +370,8 @@ def feed_scan(job: Job) -> dict:
         rescore(db.get_settings(), now)
     # A known recording can stop growing, or a creator's missing original can arrive, without a new signal ID.
     # Check these on the free folder cadence instead of waiting for another (possibly quota-delayed) web scan.
-    if sigs or db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('eligible', 'needs_file')"):
+    if sigs or db.scalar("SELECT COUNT(*) FROM sources WHERE status IN ('eligible', 'needs_file')") or \
+            db.scalar("SELECT COUNT(*) FROM trend_signals WHERE status = 'active'"):
         queue.enqueue("source_scout", {"after": job.id}, idem_key=f"source_scout:{job.id}",
                       priority=job.row["priority"])
     return {"signals": len(sigs), "new": new, "message": f"{new} new item(s) in watch folders and feeds"}
@@ -399,7 +407,7 @@ def reconcile_sources(now: float | None = None) -> int:
 def refill(item: dict) -> dict | None:
     """A failed or weak video releases its turn immediately; select another without waiting for the next search.
     Explicit cancellation remains final for that video. The replacement is separate, ordinary discovery work."""
-    if not state.enabled():
+    if not state.enabled() or not config.discovery_enabled(db.get_settings()):
         return None
     key = item.get("ref_id") or item.get("id") or "recovery"
     return queue.enqueue("source_scout", {"reason": "replacement"},
@@ -407,11 +415,38 @@ def refill(item: dict) -> dict | None:
                          revive=False, message="Choosing another video")
 
 
+def _discovery_has_capacity(settings: dict) -> bool:
+    remaining = discovery_attempts_remaining(settings)
+    busy = int(db.scalar("SELECT COUNT(*) FROM sources WHERE user_added = 0 AND "
+                          "status IN ('queued', 'ingesting', 'analyzing')") or 0)
+    room = busy < int(settings.get("discovery_queue_limit") or 6)
+    return room and (remaining is None or remaining > 0)
+
+
+def discovery_period(settings: dict, period: float) -> float:
+    """Read the current search cadence without changing a deadline or applying migrations."""
+    return min(period, 900.0) if _discovery_has_capacity(settings) else period
+
+
 def _period(settings: dict, period: float) -> float:
-    factor = quota.discovery_period_factor(settings)
-    if factor == float("inf"):
-        return max(period, quota.next_reset() - time.time() + 60)
-    return period * factor
+    # Older builds used a YouTube-only wait as the deadline for every service. Preserve any possible remote
+    # request as a conservative YouTube cooldown, while allowing independent free searches to wake again.
+    if not state.get("discovery:independent_checks"):
+        due = float(state.get("next:trend_scan", 0) or 0)
+        youtube_status = (state.get("providers", {}) or {}).get("youtube", {}) or {}
+        if youtube_status.get("status") in ("error", "quota") and due > time.time():
+            providers.defer("youtube", due - time.time())
+        state.put("next:trend_scan", min(due, time.time() + 900))
+        state.put("discovery:independent_checks", True)
+    has_capacity = _discovery_has_capacity(settings)
+    adjusted = min(period, 900.0) if has_capacity else period
+    if has_capacity:
+        # Capacity can return after a busy pass scheduled the regular, much later deadline. Changing the
+        # interval alone leaves that old deadline in place; shorten it without postponing an earlier scan.
+        due = float(state.get("next:trend_scan", 0) or 0)
+        if due > time.time() + adjusted:
+            state.put("next:trend_scan", time.time() + adjusted)
+    return adjusted
 
 
 PERIOD_ADJUST["trend_scan"] = _period
@@ -540,7 +575,7 @@ def yield_multiplier(category: str, channel_id: str) -> tuple[float, int]:
 def score_source(src: dict, sig: dict | None, settings: dict, now: float) -> dict:
     """Source Score (0-100), the expected number of strong clips, and the reasons.
 
-    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipFoundry knows
+    Every part that applies counts; one without data counts as neutral (trends.combine), so a video ClipForge knows
     little about stays near 50 instead of ranking high on one or two numbers. `components` stores the parts with
     data and an "evidence" entry (weight 0): coverage, confidence and the missing parts with their reason."""
     cps = int(settings.get("autopilot_clips_per_source") or 5)
@@ -639,13 +674,195 @@ def _skip_discovery(src: dict, reason: str) -> None:
     db.update("sources", src["id"], status="skipped", status_note=reason, components=parts)
 
 
+def automatic_discovery(src: dict, sig: dict | None = None, settings: dict | None = None,
+                        all_rules: list[dict] | None = None) -> bool:
+    """Broad search picks only. Explicit links, local files, selected channels and recorded agreements keep intent."""
+    if src.get("user_added") or src.get("platform") == "local" or not src.get("signal_id"):
+        return False
+    sig = sig if sig is not None else db.fetch("trend_signals", src["signal_id"])
+    if sig and not trends.broad_discovery(sig):
+        return False
+    evaluation = rights.evaluate(src, settings, all_rules)
+    return evaluation["status"] != rights.OWNED and not (evaluation["rule_id"] and evaluation["auto_allowed"])
+
+
+def _preview_source(sig: dict) -> dict | None:
+    """Read-only admission estimate. The API's channel answer may inform rules without creating a source row."""
+    src = source_from_signal(sig)
+    if src and src.get("platform") == "youtube" and src.get("channel_id") and \
+            str(sig.get("provider") or "").startswith("youtube_") and \
+            (sig.get("raw") or {}).get("reported_by") == verify.YOUTUBE_DATA:
+        src["channel_check"] = verify.judge(src, sig["channel_id"], sig.get("channel_title") or "",
+                                            verify.YOUTUBE_DATA)
+    return src
+
+
+def _same_video(a: dict, b: dict) -> bool:
+    """The existing re-upload heuristic, also between candidates not yet saved as sources."""
+    if len(fingerprint.norm_title(a.get("title") or "").split()) < 3:
+        return False
+    if fingerprint.title_similarity(a.get("title") or "", b.get("title") or "") < 0.85:
+        return False
+    return not (a.get("duration") and b.get("duration") and abs(float(a["duration"]) - float(b["duration"])) > 5)
+
+
+def _automatic_today(settings: dict, now: float, all_rules: list[dict]) -> int:
+    """Count actual broad-search attempts, including weak/failed results, without exhausting owned folder intake."""
+    day = local_day(settings, now)
+    return sum(1 for src in db.select("sources", "selected_day = ?", (day,))
+               if automatic_discovery(src, settings=settings, all_rules=all_rules))
+
+
+def discovery_attempts_remaining(settings: dict, now: float | None = None,
+                                 all_rules: list[dict] | None = None) -> int | None:
+    """Today's broad-search allowance, or None when there is no app daily cap."""
+    budget = int(settings.get("autopilot_sources_per_day") or 0)
+    if budget == 0:
+        return None
+    return max(0, budget -
+               _automatic_today(settings, now or time.time(), rights.rules() if all_rules is None else all_rules))
+
+
+def _publishing_targets(settings: dict) -> set[str]:
+    """Prefer coverage for connected, enabled destinations, without claiming account/consent readiness.
+
+    Before any account is connected, reusable candidates still take precedence for the enabled destinations.
+    """
+    platforms = ("youtube", "tiktok")
+    connected = {platform for platform in platforms if (db.get_account(platform) or {}).get("has_tokens")}
+    return {platform for platform in (connected or set(platforms)) if settings.get(f"autopilot_{platform}")}
+
+
+def _discovery_path(src: dict, settings: dict, all_rules: list[dict], targets: set[str]) -> tuple[bool, bool]:
+    """A cheap local media/coverage estimate, never a scheduling grant or a remote download.
+
+    Saved rights/file holds remain visible, but do not permanently occupy the slots needed by reusable videos.
+    Access resolution checks existing policy and local paths; final processing/publishing rechecks remain binding.
+    """
+    evaluation = rights.evaluate(src, settings, all_rules)
+    allowed = set((evaluation.get("conditions") or {}).get("platforms") or [])
+    reusable = bool(targets and (evaluation["status"] != rights.BLOCKED
+                    if settings.get("autopilot_review_before_publish", True) else
+                    evaluation["auto_allowed"] and (not allowed or targets & allowed)))
+    try:
+        accessible = bool(access.resolve(src, settings)["ok"])
+    except queue.Canceled:
+        raise
+    except Exception:  # noqa: BLE001 - a malformed/missing original is scoped to its source
+        accessible = False
+    workable = bool(accessible and rights.local_allowed(src, evaluation, settings))
+    return reusable and accessible, workable
+
+
+def shortlist(signals: list[dict], settings: dict, now: float, all_rules: list[dict]) -> tuple[list[dict], dict]:
+    """Admit a few strong estimates before populating Sources. Held signals can compete on a later pass.
+
+    This does not delete, cancel, or rewind existing sources/jobs. Popularity is only one existing score component;
+    the source estimate retains neutral missing data and explains that transcript quality is not known yet.
+    """
+    summary = {"at": now, "enabled": bool(settings.get("discovery_quality_first", True)),
+               "checked": 0, "admitted": 0, "held": 0, "filtered": 0, "backlog": 0, "reasons": {}}
+    if not summary["enabled"]:
+        return signals, summary
+    existing = {(src["platform"], src["external_id"]): src for src in db.select("sources")}
+    unfinished = [src for src in existing.values()
+                  if src["status"] in ("discovered", "eligible", "needs_rights", "needs_file", *ACTIVE_SOURCE)
+                  and automatic_discovery(src, settings=settings, all_rules=all_rules)]
+    summary["backlog"] = len(unfinished)
+    targets = _publishing_targets(settings)
+    path_index = 0 if providers.reusable_discovery_only(settings) else 1
+    workable = sum(src["status"] in ACTIVE_SOURCE or _discovery_path(src, settings, all_rules, targets)[path_index]
+                   for src in unfinished)
+    summary["workable_backlog"] = workable
+    summary["parked_backlog"] = len(unfinished) - workable
+    remaining = discovery_attempts_remaining(settings, now, all_rules)
+    per_pass = int(settings.get("discovery_candidates_per_scan") or 3)
+    if remaining is not None:
+        per_pass = min(per_pass, remaining)
+    queue_limit = int(settings.get("discovery_queue_limit") or 6)
+    capacity = min(per_pass, max(0, queue_limit - len(unfinished)))
+    reusable_capacity = min(per_pass, max(0, queue_limit - workable))
+    kept, candidates = [], []
+
+    def reason(note: str, filtered: bool = False) -> None:
+        summary["filtered" if filtered else "held"] += 1
+        summary["reasons"][note] = summary["reasons"].get(note, 0) + 1
+
+    for sig in signals:
+        src = _preview_source(sig)
+        if not src:
+            continue
+        if (src["platform"], src["external_id"]) in existing or \
+                not automatic_discovery(src, sig, settings, all_rules):
+            kept.append(sig)
+            continue
+        summary["checked"] += 1
+        skip = skip_reason(src, sig, settings)
+        if skip:
+            reason(skip, True)
+            continue
+        if rights.evaluate(src, settings, all_rules)["status"] == rights.BLOCKED:
+            reason("Blocked by your saved permissions", True)
+            continue
+        if providers.reusable_discovery_only(settings) and \
+                not rights.discovery_publishable(src, settings, all_rules, targets):
+            reason("No recorded reuse permission for your upload destinations", True)
+            continue
+        estimate = score_source(src, sig, settings, now)
+        if estimate["score"] < float(settings.get("discovery_min_source_score", 50)):
+            reason("Below your minimum source estimate; waiting for stronger videos", True)
+            continue
+        if estimate["expected"] < 1:
+            reason("Unlikely to contain a strong clip", True)
+            continue
+        reusable, _workable = _discovery_path(src, settings, all_rules, targets)
+        candidates.append((sig, src, estimate, reusable))
+    candidates.sort(key=lambda item: (not item[3], -item[2]["score"], -item[2]["coverage"]))
+    chosen: list[dict] = []
+    creators: dict[str, int] = {}
+    topic_counts: dict[str, int] = {}
+    for sig, src, _estimate, reusable in candidates:
+        allowed_capacity = reusable_capacity if reusable else capacity
+        if len(chosen) >= allowed_capacity:
+            reason("Daily search budget reached; quality mode does not fill the clip target with extra videos"
+                   if remaining is not None and remaining <= 0 else
+                   "Waiting for unfinished search picks" if allowed_capacity <= 0 else
+                   "Outside this pass's strongest shortlist")
+            continue
+        if any(_same_video(src, other) for other in chosen):
+            reason("Likely duplicate of a stronger shortlisted video", True)
+            continue
+        creator = f"{src['platform']}:{src['channel_id']}" if src.get("channel_id") else ""
+        if creator and creators.get(creator, 0) >= int(settings.get("discovery_creator_limit") or 1):
+            reason("Keeping room for another creator")
+            continue
+        topic = str(sig.get("topic") or "").strip().casefold()
+        if topic and topic_counts.get(topic, 0) >= 2:
+            reason("Keeping room for another topic")
+            continue
+        kept.append(sig)
+        chosen.append(src)
+        if creator:
+            creators[creator] = creators.get(creator, 0) + 1
+        if topic:
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+    summary["admitted"] = len(chosen)
+    summary["daily_attempts_remaining"] = remaining
+    summary["message"] = (f"{len(chosen)} strong search pick(s) added; {summary['filtered']} filtered; "
+                          f"{summary['held']} held for a later pass. Source quality is an estimate until analysis.")
+    return kept, summary
+
+
 @handler("source_scout")
 def source_scout(job: Job) -> dict:
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"created": 0, "picked": [], "message": "Only videos you explicitly add are processed."}
     now = time.time()
     reconcile_sources(now)
     all_rules = rights.rules()
     signals = db.select("trend_signals", "status = 'active'", (), "score DESC")
+    signals, summary = shortlist(signals, settings, now, all_rules)
     created = 0
     pending: list[tuple[dict, dict]] = []
     for sig in signals:
@@ -673,12 +890,15 @@ def source_scout(job: Job) -> dict:
         sc = score_source(row, sig, settings, now)
         db.update("sources", row["id"], source_score=sc["score"], expected_clips=sc["expected"],
                   components=sc["components"])
-        if not row.get("user_added") and trends.broad_discovery(sig) and \
+        if automatic_discovery(row, sig, settings, all_rules) and \
                 sc["score"] < float(settings.get("discovery_min_source_score", 50)):
             _skip_discovery({**row, "components": sc["components"]},
                             f"Source estimate {sc['score']:.0f} is below your discovery minimum; no quota filler")
     job.check()
     picked = select_for_today(settings, now)
+    if summary["enabled"]:
+        summary["daily_attempts_remaining"] = discovery_attempts_remaining(settings, now, all_rules)
+    state.put("discovery:shortlist", summary)
     top = rights_questions(settings, now) if settings.get("rights_ask_per_video") else []
     for src in top:
         rights.request_confirmation(src)
@@ -686,7 +906,7 @@ def source_scout(job: Job) -> dict:
     for item in state.open_actions():  # a missing file is never asked about: the activity log offers "Add the file"
         if (item["key"].startswith("rights:") and item["key"] not in asked) or item["key"].startswith("file:"):
             state.resolve(item["key"])
-    return {"sources_new": created, "picked": [p["id"] for p in picked],
+    return {"sources_new": created, "picked": [p["id"] for p in picked], "shortlist": summary,
             "message": f"{created} new source(s); {len(picked)} sent to the Clip Hunter"}
 
 
@@ -695,12 +915,20 @@ def still_needed(settings: dict, now: float | None = None) -> int:
 
     Weak sources do not count toward the day, so a weak pick is replaced by the next best source. When the day's
     sources are done but the clip target was not reached, one more source is tried at a time, never lowering the
-    quality bar or permanently exhausting discovery after a series of weak results.
+    quality bar. A zero daily budget continuously refills a small queue across day boundaries. A positive configured
+    broad-search budget still binds; explicit sources retain their replacement behavior.
     """
-    per_day = int(settings.get("autopilot_sources_per_day") or 3)
+    per_day = int(settings.get("autopilot_sources_per_day") or 0)
+    if per_day == 0:
+        # Across local-day boundaries and restarts, an unfinished queue cannot grow without bound. Explicit
+        # links retain their individual intent; this capacity governs autonomous continuous production.
+        busy = int(db.scalar("SELECT COUNT(*) FROM sources WHERE user_added = 0 AND "
+                             "status IN ('queued', 'ingesting', 'analyzing')") or 0)
+        return max(0, int(settings.get("discovery_queue_limit") or 6) - busy)
     counts = today_counts(settings, now)
     needed = per_day - counts["counted"]
-    if needed <= 0 and counts["busy"] == 0 and counts["clips"] < int(settings.get("autopilot_daily_target") or 15):
+    target = int(settings.get("autopilot_daily_target") or 0)
+    if needed <= 0 and counts["busy"] == 0 and (target == 0 or counts["clips"] < target):
         needed = 1
     return max(0, needed)
 
@@ -727,6 +955,8 @@ def _usable_after_yes(src: dict, settings: dict) -> bool:
 
 def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
     """Send the best eligible sources to the Clip Hunter, up to what today's plan still needs (still_needed)."""
+    if not config.discovery_enabled(settings):
+        return []
     now = now or time.time()
     day = local_day(settings, now)
     needed = still_needed(settings, now)
@@ -735,6 +965,24 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
                      "user_added DESC, status = 'needs_file', source_score DESC")
     all_rules = rights.rules()
     automatic_picks = 0
+    quality_mode = bool(settings.get("discovery_quality_first", True))
+    broad_sources: dict[str, bool] = {}
+    if quality_mode:
+        targets = _publishing_targets(settings)
+        order: dict[str, tuple[int, int]] = {}
+        for index, src in enumerate(rows):
+            broad_sources[src["id"]] = automatic_discovery(src, settings=settings, all_rules=all_rules)
+            reusable = broad_sources[src["id"]] and _discovery_path(src, settings, all_rules, targets)[0]
+            group = 0 if src.get("user_added") else 1 if not broad_sources[src["id"]] else 2 if reusable else 3
+            order[src["id"]] = (group, index)
+        rows.sort(key=lambda src: order[src["id"]])
+    remaining = discovery_attempts_remaining(settings, now, all_rules)
+    per_pass = int(settings.get("discovery_candidates_per_scan") or 3)
+    broad_limit = min(per_pass, remaining) if quality_mode and remaining is not None else \
+        per_pass if quality_mode else needed
+    broad_picks = 0
+    creators: dict[str, int] = {}
+    topic_counts: dict[str, int] = {}
     for src in rows:
         if not src.get("user_added") and automatic_picks >= needed:
             continue
@@ -742,8 +990,24 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
             db.update("sources", src["id"], status="skipped", status_note="Unlikely to contain a strong clip")
             continue
         signal = db.fetch("trend_signals", src.get("signal_id") or "") if src.get("signal_id") else None
-        curated = bool(signal and not trends.broad_discovery(signal))
-        if not src.get("user_added") and src.get("signal_id") and src.get("platform") != "local" and not curated and \
+        broad = broad_sources[src["id"]] if quality_mode else automatic_discovery(src, signal, settings, all_rules)
+        if broad and providers.reusable_discovery_only(settings) and \
+                not rights.discovery_publishable(src, settings, all_rules):
+            _skip_discovery(src, "Local use only: no recorded reuse permission for your upload destinations")
+            continue  # preserve history/media and reconsider after permission or preferences change
+        creator = f"{src['platform']}:{src['channel_id']}" if src.get("channel_id") else ""
+        topic = str(src.get("topic") or "").strip().casefold()
+        if quality_mode and broad:
+            if broad_picks >= broad_limit:
+                continue  # an eligible source keeps its place for a later day; do not cancel/delete work
+            if creator and creators.get(creator, 0) >= int(settings.get("discovery_creator_limit") or 1):
+                continue
+            if topic and topic_counts.get(topic, 0) >= 2:
+                continue
+            if any(_same_video(src, other) for other in picked):
+                _skip_discovery(src, "Likely duplicate of a stronger selected video")
+                continue
+        if broad and \
                 float(src.get("source_score") or 0) < float(settings.get("discovery_min_source_score", 50)):
             _skip_discovery(src, "Below your discovery minimum; waiting for stronger videos")
             continue
@@ -766,11 +1030,20 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
                           access=access.record(src, found))
             continue
         state.resolve(f"file:{src['id']}")
-        db.update("sources", src["id"], status="queued", selected_day=day, status_note="Waiting for the Clip Hunter",
-                  access=access.record(src, found))
-        queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}", ref=("source", src["id"]),
-                      priority=queue.source_priority(src) if src.get("user_added") else 0, revive=False,
-                      max_attempts=3, timeout_s=6 * 3600)
+        with locks.named("discovery-selection"):
+            # Live and recorded work have different workers; share the final budget check/queue transition.
+            remaining = discovery_attempts_remaining(settings, now, all_rules)
+            if quality_mode and broad and remaining is not None and remaining <= 0:
+                continue
+            if not src.get("user_added") and int(settings.get("autopilot_sources_per_day") or 0) == 0 and \
+                    still_needed(settings, now) <= 0:
+                continue
+            db.update("sources", src["id"], status="queued", selected_day=day,
+                      status_note="Waiting for the Clip Hunter", access=access.record(src, found))
+            queue.enqueue("hunt_source", {"source_id": src["id"]}, idem_key=f"hunt:{src['id']}",
+                          ref=("source", src["id"]),
+                          priority=queue.source_priority(src) if src.get("user_added") else 0,
+                          revive=False, max_attempts=3, timeout_s=6 * 3600)
         sure = ((src.get("components") or {}).get("evidence") or {}).get("confidence")  # how far the score holds
         state.event("source_selected", f"Selected “{src['title'][:80]}” (Source Score {src['source_score']:.0f}"
                                        + (f", confidence {sure}" if sure else "") +
@@ -778,6 +1051,12 @@ def select_for_today(settings: dict, now: float | None = None) -> list[dict]:
                     ref_type="source", ref_id=src["id"])
         picked.append(src)
         automatic_picks += not src.get("user_added")
+        if broad:
+            broad_picks += 1
+            if creator:
+                creators[creator] = creators.get(creator, 0) + 1
+            if topic:
+                topic_counts[topic] = topic_counts.get(topic, 0) + 1
     return picked
 
 
@@ -804,7 +1083,8 @@ def rights_check(job: Job) -> dict:
     settings = db.get_settings()
     marks = ",".join("?" * len(REAPPLY))
     rows = db.select("sources", f"status IN ({marks})", REAPPLY)
-    verify.ensure(rows, settings)  # channels named by feeds that were never confirmed, or are due for another look
+    if config.discovery_enabled(settings):
+        verify.ensure(rows, settings)  # Optional discovery's unconfirmed or stale channel claims.
     changed = reapply(rows, settings)
     # A public video clipped before a rule covered (or blocked) it keeps its clips: its stored rights must follow
     # the rule, so the Queue and Activity say what the scheduler and publisher decide (they evaluate it afresh)
@@ -819,6 +1099,8 @@ def confirm_channels(job: Job | None = None) -> dict:
     could not be asked (offline, quota), and work queued before channels were confirmed. A video that is not
     confirmed loses its turn before any clipping; one already clipped is held back at scheduling and publishing."""
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"channels_checked": 0, "channels_changed": 0}
     now = time.time()
     rows = [r for r in db.select("sources", "channel_id != '' AND status NOT IN ('skipped', 'failed')")
             if verify.due(r, now)]
@@ -843,7 +1125,8 @@ def youtube_retention(job: Job | None = None, now: float | None = None) -> dict:
     stale = ("(updated_at < ? OR signal_id IN (SELECT id FROM trend_signals WHERE platform = 'youtube' AND "
              "last_checked < ?))")
     unused = db.execute(f"DELETE FROM sources WHERE platform = 'youtube' AND {stale} AND project_id = '' AND "
-                        "status NOT IN ('queued', 'ingesting', 'analyzing')", (cutoff, cutoff))
+                        "status NOT IN ('queued', 'ingesting', 'analyzing') AND NOT EXISTS "
+                        "(SELECT 1 FROM source_submissions WHERE source_id = sources.id)", (cutoff, cutoff))
     cleared = db.execute(f"UPDATE sources SET metrics = '{{}}', updated_at = ? WHERE platform = 'youtube' AND {stale} "
                          "AND metrics != '{}'", (now, cutoff, cutoff))
     old = [r["id"] for r in db.select("trend_signals", "platform = 'youtube' AND last_checked < ?", (cutoff,))]

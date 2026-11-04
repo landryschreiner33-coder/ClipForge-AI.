@@ -52,7 +52,7 @@ def later_plan(text="Science explains why sleep matters."):
     return clip, plan, saved
 
 
-def test_uploaded_instruction_requires_approval_then_changes_persisted_later_blueprint(client, data):
+def test_uploaded_instruction_automatically_changes_persisted_later_blueprint(client, data):
     from clipfoundry import db
     from clipfoundry.autopilot import knowledge
     from clipfoundry.pipeline import blueprint
@@ -62,10 +62,10 @@ def test_uploaded_instruction_requires_approval_then_changes_persisted_later_blu
                            data={"metadata": json.dumps(material())})
     assert response.status_code == 200
     row = response.json()
-    assert not row["approved"] and row["state"] == "needs_approval"
+    assert not row["approved"] and row["state"] == "active"
     assert "quiet" in client.get("/api/brain/knowledge?q=quiet").json()[0]["content"]
     first, before, _ = later_plan()
-    assert before.captions.style == "bold" and not knowledge.influences(first["id"])
+    assert before.captions.style == "minimal" and knowledge.influences(first["id"])
     assert client.post(f"/api/brain/knowledge/{row['id']}/approve", headers=H,
                        json={"revision": row["revision"]}).status_code == 200
     clip, plan, saved = later_plan()
@@ -73,7 +73,7 @@ def test_uploaded_instruction_requires_approval_then_changes_persisted_later_blu
     influence = client.get(f"/api/brain/knowledge/influences/{clip['id']}").json()[0]
     assert influence["decisions"] == {"caption_style": {"before": "bold", "after": "minimal"}}
     assert influence["snapshot"]["title"] == row["title"] and influence["revision"] == 1
-    assert "Approved instruction" in " ".join(plan.reasons)
+    assert "Saved instruction" in " ".join(plan.reasons)
     blueprint.save(plan, [])  # re-saving/rendering the plan does not create extra explanations
     assert len(knowledge.influences(clip["id"])) == 1
     db._ready.clear()  # another process/restart sees the durable DB and stored plan
@@ -133,7 +133,7 @@ def test_edit_disable_delete_and_stale_approval_preserve_explanation(data):
     assert edited["revision"] == 2 and not edited["approved"]
     with pytest.raises(knowledge.Invalid, match="changed"):
         knowledge.approve(row["id"], 1)
-    assert later_plan()[1].captions.style == "bold"
+    assert later_plan()[1].captions.style == "minimal"
     knowledge.approve(row["id"], 2)
     knowledge.edit(row["id"], {"enabled": False})
     assert later_plan()[1].captions.style == "bold"

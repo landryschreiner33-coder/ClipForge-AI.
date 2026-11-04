@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { plural, zoneLine } from "../format";
 import { useStatus } from "../status";
 import {
@@ -6,6 +6,7 @@ import {
   VIEW_OF,
 } from "../components/postShared";
 import { PostResults } from "../components/postResults";
+import { BulkApproval, PostInlinePreview } from "../components/BulkApproval";
 import {
   EmptyState, Icon, LinkTabs, MenuItem, MoreMenu, PageHead, Pill, PLATFORM_LABEL, PlatformName, Skel, Thumb, usePoll,
 } from "../components/ui";
@@ -14,17 +15,17 @@ import "./posts.css";
 const VIEWS = ["review", "scheduled", "published", "history", "problems", "results"];
 
 const INTRO: Record<string, string> = {
-  review: "Nothing is posted until it's approved. TikTok needs your OK on every post; YouTube does too unless you " +
-    "turned on automatic publishing.",
+  review: "Planning a time does not upload a clip. Check that you can reuse it, watch the video, read its text and "
+    + "approve its audience before publishing.",
   published: "Each post shows its planned audience and what the platform confirmed. An upload or your own "
     + "confirmation does not prove public visibility or that anyone watched it.",
   history: "Published, canceled and replaced posts.",
-  problems: "Posts that could not go out, or where ClipFoundry needs you to check something. Nothing here is tried " +
+  problems: "Posts that could not go out, or where ClipForge needs you to check something. Nothing here is tried " +
     "again behind your back.",
 };
 const EMPTY: Record<string, [string, string]> = {
   review: ["Nothing waits for your OK", "When Autopilot plans a post, it shows up here for your OK."],
-  scheduled: ["Nothing is scheduled", "Approved posts wait here for their time."],
+  scheduled: ["Nothing is scheduled", "Prepared posts appear here with a planned time, including drafts awaiting review."],
   published: ["Nothing uploaded yet", "Posts appear here after uploading or after you record a manual post."],
   history: ["No history yet", "Published, canceled and replaced posts appear here."],
   problems: ["No problems", "Every post went out, or is waiting for its time or your OK."],
@@ -52,25 +53,43 @@ const GROUPS: { id: string; label: string; test: (p: Post) => boolean }[] = [
 /**
  * Posts: every planned and published post (one clip on one platform). Needs review, Scheduled, Published (with the
  * canceled and replaced ones as History), Problems and Results. Each row has one action, which opens the post's page,
- * and a More menu. There is no bulk approval: each post gets its own look.
+ * and a More menu. A selected YouTube batch gets one exact-file review before approval.
  */
 export default function Posts({ view }: { view?: string }) {
   const v = VIEWS.includes(view || "") ? view! : "review";
   const { st } = useStatus();
   const { data, error, refresh, setData } = usePoll(loadPosts, [], 5000, () => true);
   const [dialog, setDialog] = useState<{ action: PostAction; post: Post } | null>(null);
-  const items = data?.items || [];
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkIds, setBulkIds] = useState<string[] | null>(null);
+  const [acct, setAcct] = useState("");
+  const all = data?.items || [];
+  type WithAccount = { account?: { connection_id: string; name: string } };
+  const accounts = Array.from(new Map(all.map((p) => (p as WithAccount).account).filter((a) => a?.connection_id)
+    .map((a) => [a!.connection_id, a!])).values());
+  const items = acct ? all.filter((p) => (p as WithAccount).account?.connection_id === acct) : all;
   const tz = data?.timezone || st?.timezone;
+  const selectable = items.filter((p) => VIEW_OF.review(p) && p.platform === "youtube");
+  const selectableKey = selectable.map((p) => p.id).join("|");
+  useEffect(() => {
+    if (!data) return;
+    const available = new Set(selectable.map((p) => p.id));
+    setSelected((current) => current.filter((id) => available.has(id)));
+  }, [selectableKey]); // New arrivals are not selected automatically.
+  useEffect(() => { setSelected([]); }, [v]);
+  const toggle = (id: string, checked: boolean) => setSelected((current) => checked
+    ? current.includes(id) || current.length >= 50 ? current : [...current, id]
+    : current.filter((entry) => entry !== id));
   const count = (k: string) => items.filter(VIEW_OF[k]).length;
   const faint = (n: number) => (n ? <span className="faint tiny">{n}</span> : null);
   const tabs = [
-    { id: "review", href: "#/queue/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
-    { id: "scheduled", href: "#/queue/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
-    { id: "published", href: "#/queue/published", label: <>Published {faint(count("published"))}</> },
+    { id: "review", href: "#/publishing/review", label: "Needs review", count: count("review"), countTone: "warn" as const },
+    { id: "scheduled", href: "#/publishing/scheduled", label: <>Scheduled {faint(count("scheduled"))}</> },
+    { id: "published", href: "#/publishing/published", label: <>Published {faint(count("published"))}</> },
     {
-      id: "problems", href: "#/queue/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
+      id: "problems", href: "#/publishing/problems", label: "Problems", count: count("problems"), countTone: "bad" as const,
     },
-    { id: "results", href: "#/queue/results", label: "Results" },
+    { id: "results", href: "#/publishing/results", label: "Results" },
   ];
   const replace = (p: Post) => {
     setData((d) => d && { ...d, items: d.items.map((x) => (x.id === p.id ? p : x)) });
@@ -79,11 +98,18 @@ export default function Posts({ view }: { view?: string }) {
 
   return (
     <div className="page posts-page">
-      <PageHead title="Queue"
+      <PageHead title="Publishing"
         sub={<>
-          Every planned and published post. One clip can have a YouTube post and a TikTok post. {zoneLine(tz)}
-        </>} />
-      <LinkTabs label="Queue sections" tabs={tabs} current={v === "history" ? "published" : v} />
+          Every planned and published post, each with the exact account it goes to. {zoneLine(tz)}
+        </>}
+        actions={accounts.length > 1 && (
+          <label className="field"><span className="sr-only">Show posts for</span>
+            <select value={acct} onChange={(e) => setAcct(e.target.value)} aria-label="Show posts for">
+              <option value="">All accounts</option>
+              {accounts.map((a) => <option key={a.connection_id} value={a.connection_id}>{a.name || a.connection_id}</option>)}
+            </select></label>
+        )} />
+      <LinkTabs label="Publishing sections" tabs={tabs} current={v === "history" ? "published" : v} />
       <div className="post-ledger-heading">
         <div className="stack">
           <span className="kind-label">Posting desk</span>
@@ -106,35 +132,58 @@ export default function Posts({ view }: { view?: string }) {
       ) : (
         <PostList view={v} items={items.filter(VIEW_OF[v])} autoPublish={data.autoPublish} capped={data.capped}
           setupStarted={st?.home.setup.started ?? true} tz={tz}
+          selected={selected} onSelect={toggle} onSelectVisible={(checked) => setSelected(checked
+            ? selectable.slice(0, 50).map((p) => p.id) : [])} onClear={() => setSelected([])}
+          onApprove={(ids) => setBulkIds([...ids])}
           onAction={(action, post) => setDialog({ action, post })} />
       )}
       {dialog && (
         <PostActionDialog action={dialog.action} post={dialog.post} tz={tz}
           account={st?.platforms?.[dialog.post.platform]?.name} onClose={() => setDialog(null)} onDone={replace} />
       )}
+      {bulkIds && <BulkApproval ids={bulkIds} autoPublish={!!data?.autoPublish} tz={tz}
+        onClose={() => setBulkIds(null)} onApproved={(ids) => {
+          setSelected((current) => current.filter((id) => !ids.includes(id))); refresh();
+        }} />}
     </div>
   );
 }
 
-function PostList({ view, items, autoPublish, capped, setupStarted, tz, onAction }: {
+function PostList({ view, items, autoPublish, capped, setupStarted, tz, selected, onSelect,
+  onSelectVisible, onClear, onApprove, onAction }: {
   view: string; items: Post[]; autoPublish: boolean; capped: boolean; setupStarted: boolean; tz?: string;
+  selected: string[]; onSelect: (id: string, checked: boolean) => void;
+  onSelectVisible: (checked: boolean) => void; onClear: () => void; onApprove: (ids: string[]) => void;
   onAction: (a: PostAction, p: Post) => void;
 }) {
   const history = view === "history";
   const intro = view === "scheduled"
-    ? autoPublish ? "Approved posts go out at their time by themselves. You can still change or cancel them until then."
-      : "Approved posts wait for you at their time: posting at the planned time is turned off (Settings, Advanced), " +
-        "so each one needs Publish now."
+    ? "Drafts marked “Needs your review” have a planned time but cannot upload. " + (autoPublish
+      ? "After you approve a post, it goes out at its time. You can change or cancel it until then."
+      : "After you approve, it waits for Publish now: posting at the planned time is turned off in Settings, Advanced.")
     : INTRO[view];
   const [emptyTitle, emptyText] = EMPTY[view];
-  const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} onAction={onAction} />;
+  const reviewing = view === "review";
+  const youtubeCount = items.filter((p) => p.platform === "youtube").length;
+  const row = (p: Post) => <PostRow key={p.id} p={p} tz={tz} reviewing={reviewing}
+    selected={selected.includes(p.id)} selectionFull={selected.length >= 50} onSelect={onSelect}
+    onApprove={onApprove} onAction={onAction} />;
   return (
     <>
       <p className="small muted post-list-intro">{intro}</p>
+      {reviewing && items.length > 0 && <div className="post-bulk-toolbar" aria-label="Batch approval">
+        <SelectVisible count={youtubeCount} selected={selected.length} onChange={onSelectVisible} />
+        <span className="small muted bulk-selection-count" role="status">{selected.length} selected{selected.length === 50 ? " · batch limit reached" : ""}</span>
+        {!!selected.length && <button type="button" className="btn btn-small btn-quiet" onClick={onClear}>Clear selection</button>}
+        <button type="button" className="btn btn-primary btn-small" disabled={!selected.length}
+          onClick={() => onApprove(selected)}><Icon name="check" />Approve selected{selected.length ? ` (${selected.length})` : ""}</button>
+        <p className="tiny muted">Preview clips here, then approve up to 50 YouTube posts together.
+          {youtubeCount > 50 ? " Select visible chooses the first 50." : ""} TikTok needs individual review.</p>
+      </div>}
       {(view === "published" || history) && (
         <label className="choice">
           <input type="checkbox" checked={history} onChange={(e) => {
-            window.location.hash = e.target.checked ? "#/queue/history" : "#/queue/published";
+            window.location.hash = e.target.checked ? "#/publishing/history" : "#/publishing/published";
           }} />
           <span className="small">Also show canceled and replaced posts</span>
         </label>
@@ -211,11 +260,15 @@ function agendaDays(items: Post[], tz?: string, newestFirst = false) {
   });
 }
 
-function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: PostAction, p: Post) => void }) {
+function PostRow({ p, tz, reviewing, selected, selectionFull, onSelect, onApprove, onAction }: {
+  p: Post; tz?: string; reviewing: boolean; selected: boolean; selectionFull: boolean;
+  onSelect: (id: string, checked: boolean) => void; onApprove: (ids: string[]) => void;
+  onAction: (a: PostAction, p: Post) => void;
+}) {
   const { st } = useStatus();
   const s = postStatus(p);
   const name = PLATFORM_LABEL[p.platform] || p.platform;
-  const account = st?.platforms?.[p.platform]?.name;
+  const account = (p as typeof p & { account?: { name: string } }).account?.name || st?.platforms?.[p.platform]?.name;
   const href = `#/post/${p.id}`;
   const title = p.title || p.clip.title || "Untitled post";
   const editable = ["awaiting_approval", "approved", "failed"].includes(p.status);
@@ -231,7 +284,12 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
       { label: "Cancel this post…", danger: true, icon: "x" as const, onSelect: () => onAction("cancel", p) }] : []),
   ];
   return (
-    <div className="post-row" data-id={p.id}>
+    <div className={`post-row ${reviewing ? "post-select-row" : ""} ${selected ? "post-selected" : ""}`} data-id={p.id}>
+      {reviewing && <label className="post-select" title={p.platform === "tiktok" ? "TikTok needs individual review" : undefined}>
+        <input type="checkbox" checked={selected} disabled={p.platform !== "youtube" || (!selected && selectionFull)}
+          aria-label={p.platform === "youtube" ? `Select YouTube post: ${title}` : `TikTok requires individual review: ${title}`}
+          onChange={(e) => onSelect(p.id, e.target.checked)} />
+      </label>}
       <a href={href} tabIndex={-1} aria-hidden="true">
         <Thumb src={p.clip.has_thumbnail ? p.clip.thumbnail_url : null} vertical />
       </a>
@@ -264,21 +322,34 @@ function PostRow({ p, tz, onAction }: { p: Post; tz?: string; onAction: (a: Post
         )}
         {/* An approved post's note ("Approved: it will be published…") is out of date once its OK no longer
             covers it. */}
-        {okOutdated(p) ? <span className="small">You approved it, but it changed since: it needs your OK again.</span>
+        {okOutdated(p) ? <span className="small">Its approval no longer covers the current post: it needs your OK again.</span>
           : p.status_note && <span className={`small ${s.tone === "bad" ? "" : "muted"}`}>{p.status_note}</span>}
         {(p.status === "awaiting_approval" || p.status === "approved") && (
           <span className="tiny faint">
             Permission to use: {p.source?.rights_label || p.source?.rights_status || "unknown"}
+            {p.reuse_review?.confirmed ? p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? " · Reuse basis recorded with submitted video" : " · Reuse confirmed by you for this post" : ""}
             {" "}· Final check: {checkSummary(p)}
           </span>
         )}
+        {reviewing && <PostInlinePreview p={p} />}
       </div>
       <div className="post-actions">
+        {reviewing && p.platform === "youtube" && <button type="button" className="btn btn-small"
+          onClick={() => onApprove([p.id])}>Quick approve</button>}
         <a className="btn btn-small" href={href}>{mainAction(p)}</a>
         <MoreMenu label={`More for this ${name} post: ${title}`} items={items} />
       </div>
     </div>
   );
+}
+
+function SelectVisible({ count, selected, onChange }: { count: number; selected: number; onChange: (checked: boolean) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const all = count > 0 && selected === Math.min(count, 50);
+  useEffect(() => { if (input.current) input.current.indeterminate = selected > 0 && !all; }, [selected, all]);
+  return <label className="choice small"><input ref={input} type="checkbox" checked={all} disabled={!count}
+    onChange={(e) => onChange(e.target.checked)} /><span>Select visible YouTube posts</span></label>;
 }
 
 function privacyLabel(privacy: string): string {

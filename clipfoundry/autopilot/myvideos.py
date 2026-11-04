@@ -2,7 +2,7 @@
 
 Videos from other channels are never used without an agreement or a license, so a fresh Autopilot with only a
 connected account often finds nothing it may clip. This folder gives it something to work on without any setup: it
-lives in your Videos folder (outside the ClipFoundry folder, so updating ClipFoundry never deletes it), it is watched
+lives in your Videos folder (outside the ClipForge folder, so updating ClipForge never deletes it), it is watched
 like any folder you add, and what you put there counts as your own content (Owned), as a video uploaded on the Create
 page does. The page says so: only put videos there that you made or may use.
 """
@@ -17,7 +17,7 @@ from .. import config, db
 from . import providers, rights, state
 
 NAME = "Your videos folder"
-BASIS = "Your ClipFoundry videos folder: videos you put there are your own, or ones you may use"
+BASIS = "Your ClipForge videos folder: videos you put there are your own, or ones you may use"
 FEED_KEY = "my_videos:feed"
 
 
@@ -44,6 +44,8 @@ def folder() -> Path:
 def ensure(explicit: bool = False) -> dict | None:
     """Create the folder and watch it. Idempotent. If you removed it under Advanced, it only comes back when you
     ask for it (`explicit`: OPEN MY VIDEOS FOLDER); if you turned it off there, it stays off."""
+    if not explicit and not config.discovery_enabled(db.get_settings()):
+        return None
     f = feed()
     if f is None and state.get(FEED_KEY) and not explicit:
         return None  # removed under Advanced: respected until you open the folder again
@@ -91,7 +93,8 @@ def unseen() -> int:
 
 def view() -> dict:
     f = feed()
-    return {"path": str(folder()), "watching": bool(f and f.get("enabled")), "videos": videos()}
+    return {"path": str(folder()), "watching": bool(f and f.get("enabled")
+                                                    and config.discovery_enabled(db.get_settings())), "videos": videos()}
 
 
 def open_in_explorer() -> dict:

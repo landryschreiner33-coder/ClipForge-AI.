@@ -42,7 +42,7 @@ test("one Start continues through real clips, checked uploads, results and a sec
     made_for_kids: false, daily_limit: 4, start_hour: 0, end_hour: 24, agreed: true });
   await page.getByRole("button", { name: "Start Autopilot" }).click();
   // Finish the setup handler's own navigation before choosing the main control page.
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(/#\/office$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Office");
   await expect(page.locator("#office-run-state")).toHaveText("Running");
 
@@ -153,7 +153,7 @@ test("one Start continues through real clips, checked uploads, results and a sec
     .find((i: any) => i.url.includes("loopstream1"))?.status, { timeout: 30_000 }).toBe("waiting_stream");
   await expect(page.locator(".ap-link-row", { hasText: "A live conversation about diets" }))
     .toContainText("Waiting for stream");
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await expect(page.locator('.robot-hit[data-state="waiting"]').first()).toBeVisible();
   await page.screenshot({ path: path.join(screenshots, "waiting.png") });
   const waitingStream = (await get(request, "/api/autopilot/links"))
@@ -184,7 +184,7 @@ test("one Start continues through real clips, checked uploads, results and a sec
   // Deliberately pausing is the sole final stop. It is a real saved setting, and the office reflects it.
   await page.getByRole("button", { name: "Pause Autopilot", exact: true }).click();
   await expect.poll(async () => (await get(request, "/api/autopilot/status")).enabled).toBe(false);
-  await page.goto("/#/");
+  await page.goto("/#/office");
   await expect(page.locator("#office-run-state")).toHaveText("Paused");
   await expect(page.locator('.robot-hit[data-state="working"]')).toHaveCount(0);
   await page.screenshot({ path: path.join(screenshots, "paused.png") });

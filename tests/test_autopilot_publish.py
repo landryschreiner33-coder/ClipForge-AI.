@@ -32,7 +32,7 @@ def env(monkeypatch, tmp_path):
     db.init()
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
-                      "autopilot_youtube": True, "autopilot_tiktok": True,
+                      "autopilot_youtube": True, "autopilot_tiktok": True, "autopilot_min_gap_minutes": 0,
                       # these tests are about uploads; an unaudited app's TikTok Direct Post is "Only me" staging
                       "audience_tiktok": "owner_only"})
     yield g, t, tmp_path
@@ -294,7 +294,7 @@ def test_interrupted_upload_resumes_without_a_duplicate(env, monkeypatch):
 
 def test_gates_before_every_upload(env):
     from clipfoundry import db
-    from clipfoundry.autopilot import queue, rights, scheduler
+    from clipfoundry.autopilot import queue, rights, scheduler, verify
 
     g, t, tmp = env
     item = make_item(tmp, approve={"options": {"made_for_kids": False}})
@@ -311,8 +311,14 @@ def test_gates_before_every_upload(env):
     with pytest.raises(queue.Fail):
         run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "awaiting_approval"
-    src = db.insert("sources", {"platform": "youtube", "external_id": "s1", "title": "s", "channel_id": "UCz"})
-    rights.add_rule("channel", "UCz", rights.ALLOWLISTED, "program")
+    src = db.insert("sources", {"platform": "youtube", "external_id": "gatesvideo1", "title": "s",
+                                "channel_id": "UCgates0000000001",
+                                "url": "https://www.youtube.com/watch?v=gatesvideo1"})
+    verify.from_signal(src, {"provider": "youtube_search", "external_id": src["external_id"],
+                             "channel_id": src["channel_id"],
+                             "raw": {"reported_by": verify.YOUTUBE_DATA, "observed_at": time.time()}})
+    rights.add_rule("channel", src["channel_id"], rights.ALLOWLISTED, "program")
+    assert verify.confirmed(src) and rights.evaluate(src)["auto_allowed"]
     clip = db.get_clip(item["clip_id"])
     db.update_project(clip["project_id"], source_id=src["id"])
     scheduler.approve(item["id"], {})
@@ -325,7 +331,7 @@ def test_gates_before_every_upload(env):
 
 def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     from clipfoundry import db
-    from clipfoundry.autopilot import queue
+    from clipfoundry.autopilot import gate, queue
     from clipfoundry.pipeline import artifact, quality
 
     g, t, tmp = env
@@ -340,7 +346,8 @@ def test_only_files_that_passed_the_final_quality_gate_are_uploaded(env):
     db.insert("quality_reports", {"clip_id": clip["id"], "artifact_path": path, "artifact_sha256":
                                   artifact.sha256_file(path), "file_stamp": quality.file_stamp(path),
                                   "gate_version": quality.GATE_VERSION,
-                                  "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"]})
+                                  "status": "failed", "blockers": ["Decodes completely: only 3.0 of 20.0 s decode"],
+                                  "coverage": {"rights_context": gate.rights_context(clip)}})
     with pytest.raises(queue.Fail, match="did not pass"):
         run_publish(item["id"])
     assert db.fetch("scheduled_publications", item["id"])["status"] == "blocked"
@@ -410,7 +417,7 @@ def test_publish_center_api(env):
         assert c.post(f"/api/autopilot/scheduled/{tt['id']}/cancel", headers=H).json()["status"] == "canceled"
         assert c.post(f"/api/autopilot/scheduled/{tt['id']}/retry", headers=H).json()["status"] == "approved"
         st = c.get("/api/autopilot/status").json()
-        assert st["target"]["daily"] == 15 and "workers" in st and "gpu" in st and st["platforms"]["youtube"]
+        assert st["target"]["daily"] == 0 and "workers" in st and "gpu" in st and st["platforms"]["youtube"]
         stop = c.post("/api/autopilot/stop-all", headers=H).json()
         assert stop["paused"] and queue.get(queue.jobs(worker="publisher")[0]["id"])["status"] == "canceled"
         assert c.post("/api/autopilot/enable", headers=H, json={"enabled": False}).json()["enabled"] is False

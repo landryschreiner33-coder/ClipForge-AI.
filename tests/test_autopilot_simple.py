@@ -25,7 +25,8 @@ def fakes(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
-    db.save_settings({"autopilot_public_videos": False})  # verify the existing restricted discovery flow
+    db.save_settings({"autopilot_public_videos": False,
+                      "autopilot_discovery_uploadable_only": False})  # verify legacy local-search opt-in
     for var in ("NO_PROXY", "no_proxy"):
         monkeypatch.setenv(var, "127.0.0.1,localhost")
     from clipfoundry.publish import tiktok, youtube
@@ -119,7 +120,7 @@ def test_a_fresh_user_connects_youtube_and_starts_without_adding_a_source(client
     for key in ("autopilot_sources_per_day", "autopilot_daily_target", "autopilot_clips_per_source",
                 "autopilot_dynamic_replacement", "autopilot_learning", "autopilot_live_monitoring",
                 "autopilot_auto_schedule", "autopilot_auto_publish", "trend_region", "trend_language"):
-        assert s[key] == {"autopilot_sources_per_day": 3, "autopilot_daily_target": 15, "autopilot_clips_per_source": 5,
+        assert s[key] == {"autopilot_sources_per_day": 0, "autopilot_daily_target": 0, "autopilot_clips_per_source": 5,
                           "trend_region": "US", "trend_language": "en"}.get(key, True), key
     kinds = {j["kind"] for j in queue.jobs(("queued",))}
     assert {"trend_scan", "feed_scan", "schedule_tick"} <= kinds  # discovery starts right away
@@ -145,11 +146,12 @@ def test_autopilot_discovers_and_creates_sources_by_itself(client, fakes):
     assert out["signals"] >= 3
     run("source_scout")
     sources = db.select("sources")
-    assert {s["external_id"] for s in sources} >= set(ids) and all(s["signal_id"] for s in sources)
+    assert 0 < len(sources) <= db.get_settings()["discovery_candidates_per_scan"]
+    assert {s["external_id"] for s in sources} <= set(ids) and all(s["signal_id"] for s in sources)
     home = client.get("/api/autopilot/status").json()["home"]
     # Other creators' videos without an agreement or license are skipped, not asked about: no questions, and the
     # activity log says why. Lack of a usable find is normal discovery work, never a Needs you interruption.
-    assert home["opportunities"] == [] and home["skipped_today"] >= 3
+    assert home["opportunities"] == [] and home["skipped_today"] == len(sources)
     assert home["needs_you"] == []
     assert "not covered by an agreement or license" in home["empty"]
     log = {a["id"]: a for a in client.get("/api/autopilot/activity").json()["items"]}
@@ -265,20 +267,23 @@ def test_you_are_asked_only_about_strong_videos_and_only_when_needed(client, fak
                 duration="P0D")  # a YouTube live stream: a yes could not be used without the download setting
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
-    client.put("/api/settings", json={"rights_ask_per_video": True})  # the questions are off by default
+    # This case opts into questions under a finite plan; continuous mode need not stop after three originals.
+    client.put("/api/settings", json={"rights_ask_per_video": True, "autopilot_sources_per_day": 3})
     run("trend_scan")
     run("source_scout")
     asked = [i for i in client.get("/api/autopilot/status").json()["home"]["needs_you"] if i["type"] == "rights"]
     unconfirmed = db.select("sources", "status = 'needs_rights'")
-    assert len(unconfirmed) >= 12 and len(asked) == scout.RIGHTS_QUESTIONS  # not a dozen questions
+    assert 0 < len(unconfirmed) <= db.get_settings()["discovery_candidates_per_scan"]
+    assert len(asked) <= scout.RIGHTS_QUESTIONS  # only the shortlist is worth asking about
     strongest = sorted((s for s in unconfirmed if s["kind"] != "live"), key=lambda s: -s["source_score"])
     strongest = strongest[:scout.RIGHTS_QUESTIONS]
     assert {i["source"]["id"] for i in asked} == {s["id"] for s in strongest}
     assert all(s["source_score"] >= scout.RIGHTS_MIN_SCORE for s in strongest)
-    tiny = next(s for s in db.select("sources") if s["external_id"] == "tiny")
-    live = next(s for s in db.select("sources") if s["external_id"] == "live1")
-    assert live["status"] == "needs_rights" and live["kind"] == "live"
-    assert not {tiny["id"], live["id"]} & {i["source"]["id"] for i in asked}
+    # Weak/old and unsuitable live searches need no source row or question. Their metadata remains inspectable.
+    assert not {"tiny", "live1"} & {s["external_id"] for s in db.select("sources")}
+    from clipfoundry.autopilot import state
+
+    assert state.get("discovery:shortlist")["held"] > 0
 
     # Once today's plan is covered by videos you may use, the open questions go away (nothing to decide today).
     for k in range(3):
@@ -300,14 +305,17 @@ def test_the_main_page_speaks_plainly_and_needs_no_configuration(client, fakes):
     home = st["home"]
     assert set(home) == {"setup", "currently", "next_look", "discovery", "working", "needs_you", "opportunities",
                          "upcoming", "empty", "auto_publish", "pc_note", "keep_awake", "skipped_today", "my_videos",
-                         "posts", "next"}
+                         "posts", "next", "posting"}
     assert "PC on" in home["pc_note"] and home["auto_publish"]["tiktok"]["supported"] is False
-    assert "between 9 AM and 9 PM" in home["pc_note"] and "window open" in home["pc_note"]
+    assert "at any hour" in home["pc_note"] and "window open" in home["pc_note"]
     assert home["my_videos"]["watching"] and home["my_videos"]["videos"] == 0
     run("trend_scan")
     run("source_scout")
     home = client.get("/api/autopilot/status").json()["home"]
-    text = words(home)
+    # Stage codes are machine-readable; the interface renders their title/detail, not those internal enum names.
+    visible = {**home, "posting": [{"title": p["title"], "detail": p["detail"]}
+                                  for p in home["posting"]["platforms"]]}
+    text = words(visible)
     assert text and not [w for w in JARGON if w.lower() in text.lower()], text
     assert home["currently"] in ("Looking for opportunities", "Starting", "Finding trending videos",
                                  "Choosing the best videos", "Planning posting times", "Checking your folders",
@@ -340,7 +348,8 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     connect(client, g, "youtube")
     client.post("/api/autopilot/start", headers=H)
     home = client.get("/api/autopilot/status").json()["home"]
-    assert home["working"] is None and home["posts"] == {"review": 0, "fix": 0, "ready": 0, "scheduled": 0}
+    assert home["working"] is None and home["posts"] == {
+        "review": 0, "planned_for_review": 0, "fix": 0, "ready": 0, "scheduled": 0}
 
     project = db.create_project("Morning show episode 12")
     src = db.insert("sources", {"id": db.new_id(), "platform": "local", "external_id": "ep12", "title": "Morning show",
@@ -361,7 +370,7 @@ def test_the_page_shows_the_video_being_worked_on_and_the_posts_waiting(client, 
     db.insert("scheduled_publications", {"id": db.new_id(), "clip_id": "c", "platform": "youtube", "status": "approved",
                                          "approval": {"hash": "old", "scheme": 1}})
     assert client.get("/api/autopilot/status").json()["home"]["posts"] == {
-        "review": 3, "fix": 4, "ready": 0, "scheduled": 0}
+        "review": 3, "planned_for_review": 0, "fix": 4, "ready": 0, "scheduled": 0}
 
     client.post("/api/autopilot/stop-all", headers=H)  # stopped: nothing is being worked on
     assert client.get("/api/autopilot/status").json()["home"]["working"] is None
@@ -512,7 +521,7 @@ def test_the_pc_is_kept_awake_while_autopilot_is_on(client, windows):
     sup._keep_awake()  # Autopilot off: nothing asked
     assert k32.calls == [] and not keeper.holding
     assert home_now(client)["keep_awake"] == "off"
-    assert "While Autopilot is on, ClipFoundry keeps this PC from going to sleep" in home_now(client)["pc_note"]
+    assert "While Autopilot is on, ClipForge keeps this PC from going to sleep" in home_now(client)["pc_note"]
     client.post("/api/autopilot/start", headers=H)
     home = home_now(client)  # on, but not asked yet: the page does not claim it worked
     assert home["keep_awake"] == "pending" and "is asking Windows" in home["pc_note"] and not sleep_items(home)
@@ -548,7 +557,7 @@ def test_a_refused_keep_awake_request_is_shown_with_what_to_do_until_a_retry_wor
     assert len(k32.calls) == 1 and not keeper.holding and keeper.error
     home = home_now(client)
     assert home["keep_awake"] == "failed"
-    assert "did not let ClipFoundry keep this PC awake" in home["pc_note"]
+    assert "did not let ClipForge keep this PC awake" in home["pc_note"]
     assert "keeping this PC from going" not in home["pc_note"]
     [item] = sleep_items(home)
     assert item["title"] == "Your PC may go to sleep and stop Autopilot"

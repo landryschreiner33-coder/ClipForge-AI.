@@ -16,9 +16,11 @@ export type Post = Omit<ScheduledItem, "approval" | "clip" | "publication"> & {
   publication: (NonNullable<ScheduledItem["publication"]> & { remote_id?: string }) | null;
 };
 type ListResponse = {
-  items: Post[]; view: string; timezone: string; auto_publish: boolean; counts: Record<string, number>;
+  items: Post[]; view: string; timezone: string; auto_publish: boolean; review_before_publish?: boolean;
+  counts: Record<string, number>;
 };
-export type PostList = { items: Post[]; timezone: string; autoPublish: boolean; capped: boolean };
+export type PostList = { items: Post[]; timezone: string; autoPublish: boolean; reviewBeforePublish: boolean;
+  capped: boolean };
 
 const LIMIT = 500;
 
@@ -33,19 +35,21 @@ export async function loadPosts(): Promise<PostList> {
   ]);
   const seen = new Set<string>();
   const items = [...active.items, ...done.items].filter((p) => !seen.has(p.id) && !!seen.add(p.id));
-  return { items, timezone: active.timezone, autoPublish: active.auto_publish, capped: done.items.length >= LIMIT };
+  return { items, timezone: active.timezone, autoPublish: active.auto_publish,
+    reviewBeforePublish: active.review_before_publish !== false, capped: done.items.length >= LIMIT };
 }
 
 /** One post (the post page), however old; the same shape as a list of one. A post that does not exist is a 404. */
 export async function loadPost(id: string): Promise<PostList> {
   try {
-    const r = await req<{ item: Post; timezone: string; auto_publish: boolean }>(
+    const r = await req<{ item: Post; timezone: string; auto_publish: boolean; review_before_publish?: boolean }>(
       "GET", `/api/autopilot/scheduled/${encodeURIComponent(id)}`);
-    return { items: [r.item], timezone: r.timezone, autoPublish: r.auto_publish, capped: false };
+    return { items: [r.item], timezone: r.timezone, autoPublish: r.auto_publish,
+      reviewBeforePublish: r.review_before_publish !== false, capped: false };
   } catch (e) {
     // A post that no longer exists (removed with its clip) gets its own page, not a loading error.
     if ((e as Error).message !== "Scheduled post not found") throw e;
-    return { items: [], timezone: "", autoPublish: false, capped: false };
+    return { items: [], timezone: "", autoPublish: false, reviewBeforePublish: true, capped: false };
   }
 }
 
@@ -64,7 +68,8 @@ export const okOutdated = (p: Post) => p.status === "approved" && !p.approval_va
 /** Which Posts tab a post belongs to. */
 export const VIEW_OF: Record<string, (p: Post) => boolean> = {
   review: (p) => p.status === "awaiting_approval" || okOutdated(p),
-  scheduled: (p) => (p.status === "approved" && !okOutdated(p)) || p.status === "publishing" || onPlatform(p),
+  scheduled: (p) => (p.status === "awaiting_approval" && !!p.planned_at)
+    || (p.status === "approved" && !okOutdated(p)) || p.status === "publishing" || onPlatform(p),
   published: (p) => p.status === "published" && !onPlatform(p),
   history: (p) => (p.status === "published" && !onPlatform(p)) || p.status === "canceled" || p.status === "replaced",
   problems: (p) => ["reconciling", "failed", "blocked", "action_needed"].includes(p.status),
@@ -117,7 +122,7 @@ export function newOkReason(p: Post): { word: string; detail: string } | null {
         "the clip, render it again if needed, then approve the post again.",
     };
   }
-  if (/before ClipFoundry checked the exact video file/i.test(why)) return OLD_SCHEME;
+  if (/before Clip(?:Foundry|Forge) checked the exact video file/i.test(why)) return OLD_SCHEME;
   if (/automatic.publishing/i.test(why)) {
     return {
       word: "Needs your OK: automatic publishing changed",
@@ -131,14 +136,14 @@ function changed(approvedSha: string, currentSha: string): { word: string; detai
   if (approvedSha && currentSha && approvedSha !== currentSha) {
     return {
       word: "Needs a new OK: the video changed",
-      detail: "The video changed after you approved it (the clip was made again), so it needs your OK again. Your " +
-        "earlier OK covered the old file only.",
+      detail: "The video changed after its authorization (the clip was made again), so it needs your OK again. The " +
+        "earlier authorization covered the old file only.",
     };
   }
   return {
     word: "Needs a new OK: it changed after your OK",
-    detail: "The video or its text changed after you approved it, or the video file can't be read right now. Your " +
-      "earlier OK covered what you saw then only, so it needs your OK again.",
+    detail: "The video or its text changed after its authorization, or the video file can't be read right now. The " +
+      "earlier authorization covered the previous post only, so it needs your OK again.",
   };
 }
 const OLD_AUTHORIZATION = {
@@ -148,7 +153,7 @@ const OLD_AUTHORIZATION = {
 };
 const OLD_SCHEME = {
   word: "Needs a new OK: approved before exact-file checks",
-  detail: "You approved it with an older version of ClipFoundry, which didn't record the exact video file. Approve " +
+  detail: "You approved it with an older version of ClipForge, which didn't record the exact video file. Approve " +
     "it again so your OK covers this exact file.",
 };
 
@@ -166,9 +171,10 @@ export function postStatus(p: Post): StatusWord {
   switch (p.status) {
     case "awaiting_approval":
       return again ? { tone: "warn", word: again.word, icon: "alert" }
-        : { tone: "warn", word: "Needs your OK", icon: "clock" };
+        : { tone: "warn", word: "Needs your review", icon: "clock" };
     case "approved":
       if (again) return { tone: "warn", word: again.word, icon: "alert" };
+      if (p.approval?.by === "submission") return { tone: "good", word: "Authorized for this video", icon: "shield" };
       return p.approval?.by === "automatic" ? { tone: "good", word: "Approved automatically", icon: "shield" }
         : { tone: "good", word: "Approved by you", icon: "check" };
     case "publishing": return { tone: "info", word: "Uploading now", icon: "upload" };
@@ -291,7 +297,7 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         </dl>
         <div className="consequence">
           <span>
-            The upload starts as soon as you confirm. ClipFoundry can't take it back afterwards; you would remove it on
+            The upload starts as soon as you confirm. ClipForge can't take it back afterwards; you would remove it on
             {" "}{name}.
           </span>
         </div>
@@ -308,7 +314,7 @@ export function PostActionDialog({ action, post: p, tz, account, onClose, onDone
         onClose={onClose}
         onSubmit={(url) => ap.resolve(p.id, true, url).then(done("Marked as published. It won't be uploaded again."))}>
         <p className="small muted">
-          ClipFoundry records your confirmation and keeps it from uploading again. Platform results are collected
+          ClipForge records your confirmation and keeps it from uploading again. Platform results are collected
           when the account and API allow it; a link alone does not prove public visibility.
         </p>
       </TextPromptDialog>

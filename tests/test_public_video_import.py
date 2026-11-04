@@ -136,6 +136,7 @@ def test_automatic_public_selection_grants_no_reuse_and_respects_opt_out_and_blo
     from clipfoundry import db
     from clipfoundry.autopilot import rights, scout
 
+    db.save_settings({"autopilot_discovery_uploadable_only": False})
     settings = db.get_settings()
     assert settings["autopilot_public_videos"] is True
     source = db.insert("sources", {"platform": "url", "external_id": "interview", "signal_id": "search",
@@ -151,7 +152,7 @@ def test_automatic_public_selection_grants_no_reuse_and_respects_opt_out_and_blo
         rights.gate(source, "publish", settings)
 
 
-def test_default_mode_queues_platform_video_without_manual_sources(public_site, monkeypatch):
+def test_optional_local_mode_queues_platform_video_without_manual_sources(public_site, monkeypatch):
     from fake_platforms import FakeGoogle
     from clipfoundry import db
     from clipfoundry.autopilot import host, queue, rights
@@ -168,7 +169,7 @@ def test_default_mode_queues_platform_video_without_manual_sources(public_site, 
     try:
         monkeypatch.setattr(youtube, "API_URL", fake.url + "/youtube/v3")
         db.save_settings({"youtube_api_key": fake.api_key, "autopilot_enabled": True,
-                          "library_discovery": False})
+                          "library_discovery": False, "autopilot_discovery_uploadable_only": False})
         fake.add_video("publicvideo1", "Podcast interview", channel="UCother0000000001", duration="PT30M")
         fake.popular = ["publicvideo1"]
         host.WorkerHost(periodic=False)
@@ -187,7 +188,8 @@ def test_default_mode_queues_platform_video_without_manual_sources(public_site, 
 def test_web_search_uses_existing_budget_and_returns_webpage_sources(public_site, monkeypatch):
     from clipfoundry.autopilot import providers, scout
 
-    ws = providers.WebSearch({"tavily_api_key": "fake", "autopilot_public_videos": True})
+    ws = providers.WebSearch({"tavily_api_key": "fake", "autopilot_public_videos": True,
+                             "autopilot_discovery_uploadable_only": False})
     searches = []
 
     def search(query, domains, max_results, time_range):

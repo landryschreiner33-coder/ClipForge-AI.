@@ -224,7 +224,7 @@ def incident(platform: str, detail: str, remote_id: str = "") -> None:
     state.put(f"audience_halt:{platform}", {"at": time.time(), "detail": detail, "remote_id": remote_id})
     name = _name(platform)
     state.action(f"audience:{platform}", "publish", f"Check who can see a {name} video",
-                 f"{detail} ClipFoundry stopped uploading to {name} until you check it. Changing the visibility now "
+                 f"{detail} ClipForge stopped uploading to {name} until you check it. Changing the visibility now "
                  "cannot take back copies someone already saw.",
                  f"Open the video in {name} and set it back to the audience you chose, then press “I checked it” "
                  "in Settings → Integrations.", level="error")

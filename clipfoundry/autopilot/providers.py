@@ -39,16 +39,16 @@ from typing import Iterable
 
 import httpx
 
-from .. import config, db, netguard
+from .. import config, db, locks, netguard
 from ..publish import youtube
-from ..publish.common import PublishError, client, retry_after, wait_text
+from ..publish.common import PublishError, client, retry_after, wait_text, with_retry_after
 from . import quota, state, trends
 
 UNAVAILABLE = {
-    "google_trends": ("Google Trends", "The official Google Trends API is an application-gated alpha; ClipFoundry "
+    "google_trends": ("Google Trends", "The official Google Trends API is an application-gated alpha; ClipForge "
                                        "does not scrape Google Trends."),
     "tiktok_trends": ("TikTok trends", "TikTok offers no trend or discovery API to general developers (its Research "
-                                       "API is limited to approved academic research); ClipFoundry does not scrape "
+                                       "API is limited to approved academic research); ClipForge does not scrape "
                                        "TikTok. With a Tavily key, web search finds public TikTok links (without "
                                        "live statistics)."),
 }
@@ -59,11 +59,29 @@ SHORT_SECONDS = 180  # a video this short is a clip; the long video it links to 
 YOUTUBE_LINK = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^\s#\"'<>]*&)?v=|live/|shorts/|embed/)|youtu\.be/)([\w-]{11})")
 
 
+def reusable_discovery_only(settings: dict) -> bool:
+    """Review queues may include unknown reuse terms; automatic publishing discovery still requires coverage."""
+    return bool(settings.get("autopilot_discovery_uploadable_only", True)
+                and not settings.get("autopilot_review_before_publish", True))
+
+
 class Unavailable(Exception):
-    def __init__(self, status: str, detail: str, fix: str = ""):
+    def __init__(self, status: str, detail: str, fix: str = "", retry_after: float | None = None):
         super().__init__(detail)
         self.status = status
         self.fix = fix
+        self.retry_after = retry_after
+
+
+def wait_until(provider: str) -> float:
+    return float(state.get(f"discovery:wait:{provider}", 0) or 0)
+
+
+def defer(provider: str, seconds: float) -> float:
+    """A service's requested wait survives restarts without stopping unrelated services."""
+    until = max(wait_until(provider), time.time() + max(0.0, seconds))
+    state.put(f"discovery:wait:{provider}", until)
+    return until
 
 
 def iso_duration(text: str | None) -> float | None:
@@ -94,41 +112,124 @@ def _int(v: object) -> int | None:
 
 
 # ------------------------------------------------------------------ YouTube (official Data API)
+SEARCH_CONNECTIONS_FIX = "Settings → Integrations → Search connections"
+
+
+def youtube_discovery_error(response: httpx.Response, *, api_key: bool, method: str = "videos.list") -> PublishError:
+    """Describe discovery failures without retaining a provider body that may repeat a credential.
+
+    Google may report API-key restrictions in either legacy errors[] or google.rpc.ErrorInfo details[].
+    An optional search key is distinct from the OAuth connection used for uploads.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    error = body.get("error") if isinstance(body, dict) else None
+    error = error if isinstance(error, dict) else {}
+    reasons = []
+    for key in ("errors", "details"):
+        items = error.get(key)
+        if isinstance(items, list):
+            reasons.extend(item["reason"] for item in items if isinstance(item, dict)
+                           and isinstance(item.get("reason"), str))
+    invalid = {"keyInvalid", "keyExpired", "API_KEY_INVALID", "API_KEY_EXPIRED", "API_KEY_NOT_FOUND"}
+    restricted = {"ipRefererBlocked", "API_KEY_HTTP_REFERRER_BLOCKED", "API_KEY_IP_ADDRESS_BLOCKED",
+                  "API_KEY_SERVICE_BLOCKED", "API_KEY_ANDROID_APP_BLOCKED", "API_KEY_IOS_APP_BLOCKED"}
+    disabled = {"accessNotConfigured", "SERVICE_DISABLED", "API_DISABLED"}
+    safe_shared = {"quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded",
+                   "youtubeSignupRequired", "insufficientPermissions", "forbidden"}
+    if api_key and (invalid.intersection(reasons) or response.status_code == 401):
+        exc = PublishError("YouTube did not accept the search API key (it may be invalid, expired or deleted).",
+                           f"{SEARCH_CONNECTIONS_FIX}: replace the YouTube Data API key. To search with your "
+                           "connected YouTube account instead, remove this optional key.", "api_key_invalid")
+    elif api_key and restricted.intersection(reasons):
+        exc = PublishError("The Google Cloud restrictions on the YouTube search API key do not allow this request.",
+                           "In Google Cloud Credentials, check this key's application restrictions and allow the "
+                           "YouTube Data API v3. Browser website/referrer restrictions do not work for a desktop "
+                           f"app. Replace or remove the optional key in {SEARCH_CONNECTIONS_FIX}.",
+                           "api_key_restricted")
+    elif disabled.intersection(reasons):
+        exc = PublishError("The YouTube Data API v3 is not enabled for this Google Cloud project.",
+                           "Google Cloud console → APIs & Services → Library → YouTube Data API v3 → Enable. "
+                           f"Then test again in {SEARCH_CONNECTIONS_FIX}.", "api_disabled")
+    elif api_key and response.status_code in (400, 403) and not \
+            {"quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"}.intersection(reasons) and \
+            "invalidPageToken" not in reasons:
+        exc = PublishError(f"YouTube rejected the search API key or its project setup (HTTP {response.status_code}).",
+                           f"{SEARCH_CONNECTIONS_FIX}: test this key, check its Google Cloud project and "
+                           "restrictions, or remove the optional key to search with your connected account.",
+                           "api_key_rejected")
+    else:
+        reason = next((value for value in reasons if value in safe_shared or value == "invalidPageToken"), "")
+        if reason == "invalidPageToken":
+            exc = PublishError("YouTube's saved search page has expired; the next search will start again.",
+                               "No action is needed.", reason)
+        elif reason or response.status_code in (401, 429):
+            # Keep the shared quota/reconnect policy, but never feed reflected request text into saved state.
+            clean = httpx.Response(response.status_code, headers=response.headers,
+                                   json={"error": {"errors": [{"reason": reason}]}})
+            exc = youtube.api_error(clean, method)
+        else:
+            exc = PublishError(f"YouTube discovery answered HTTP {response.status_code}.",
+                               "ClipForge will try again automatically. Check the connection if this continues.",
+                               "response")
+    return with_retry_after(exc, response, "YouTube")
+
+
 class YouTubeDiscovery:
     def __init__(self, settings: dict):
         self.settings = settings
-        self.key = settings.get("youtube_api_key") or ""
+        self.key = str(settings.get("youtube_api_key") or "").strip()
         self.token: youtube.Token | None = None
         if not self.key:
             if not (db.get_account("youtube") or {}).get("has_tokens") or not youtube.configured(settings):
                 raise Unavailable("not_configured", "YouTube discovery needs a YouTube Data API key or a connected "
                                                     "YouTube account.",
-                                  "Settings → Autopilot → Discovery: paste an API key from your Google Cloud project, "
-                                  "or connect YouTube in Settings → Publishing.")
+                                  f"{SEARCH_CONNECTIONS_FIX}: paste an API key from your Google Cloud project, "
+                                  "or connect YouTube in Settings → Integrations.")
             self.token = youtube.Token(settings)
         self.calls = 0
         self.cache_hits = 0
         self.denied: list[str] = []
         self.errors: list[PublishError] = []
+        self.search_offset = 0
 
-    def _get(self, method: str, path: str, params: dict, ttl: float) -> dict:
-        def fetch() -> dict:
-            quota.check(method, "discovery", self.settings)
+    @property
+    def auth_mode(self) -> str:
+        return "api_key" if self.key else "connected_account"
+
+    def _get(self, method: str, path: str, params: dict, ttl: float, *, use_cache: bool = True) -> dict:
+        def request() -> dict:
+            remaining = wait_until("youtube") - time.time()
+            if remaining > 0:
+                raise PublishError("YouTube asked discovery to wait before another request.",
+                                   "Other searches and folder checks continue.", "rate_limit", retry_after=remaining)
             query, headers = dict(params), {}
             if self.key:
                 query["key"] = self.key
-            else:
-                headers["Authorization"] = f"Bearer {self.token.get()}"  # type: ignore[union-attr]
-            try:
-                with client(30) as c:
-                    r = c.get(f"{youtube.API_URL}/{path}", params=query, headers=headers)
-            except httpx.HTTPError as exc:
-                raise PublishError(f"Could not reach YouTube ({type(exc).__name__}).",
-                                   "Check the internet connection.", "network") from exc
-            quota.record(method, "discovery")
-            self.calls += 1
+            for attempt in range(2):
+                quota.check(method, "discovery", self.settings)
+                if not self.key:
+                    headers["Authorization"] = f"Bearer {self.token.get(force=bool(attempt))}"  # type: ignore[union-attr]
+                try:
+                    with client(30) as c:
+                        r = c.get(f"{youtube.API_URL}/{path}", params=query, headers=headers)
+                except httpx.HTTPError as exc:
+                    raise PublishError(f"Could not reach YouTube ({type(exc).__name__}).",
+                                       "Check the internet connection.", "network") from exc
+                quota.record(method, "discovery")
+                self.calls += 1
+                if r.status_code == 401 and not self.key and attempt == 0 and retry_after(r) is None:
+                    # A server-invalidated token may still look unexpired locally. Refresh the same authorized
+                    # account once, counting both requests; never silently replace an optional API key.
+                    continue
+                break
             if r.status_code != 200:
-                raise youtube.api_error(r, method)
+                exc = youtube_discovery_error(r, api_key=bool(self.key), method=method)
+                if exc.retry_after is not None:
+                    defer("youtube", exc.retry_after)
+                raise exc
             try:
                 data = r.json()
                 if not isinstance(data, dict) or not isinstance(data.get("items", []), list):
@@ -138,8 +239,28 @@ class YouTubeDiscovery:
                 raise PublishError("YouTube returned an unreadable answer.", "It is tried again next scan.",
                                    "response") from exc
 
-        data, hit = quota.cached(["youtube", path, params], ttl, fetch, method)
+        def fetch() -> dict:
+            # A manual connection check and the worker may run in separate processes. Keep the allowance check,
+            # actual request/count and any returned service wait together; cached reads take no request lock.
+            with locks.named("youtube-discovery-request"):
+                return request()
+
+        data, hit = quota.cached(["youtube", path, params], ttl, fetch, method) if use_cache else (fetch(), False)
         self.cache_hits += int(hit)
+        return data
+
+    def check_connection(self) -> dict:
+        """One uncached, quota-counted check of the selected credential; never a search or an upload."""
+        data = self._get("videos.list", "videos", {"part": "id", "chart": "mostPopular", "maxResults": 1,
+                                                   "regionCode": self.settings.get("trend_region") or "US"},
+                         ttl=0, use_cache=False)
+        items = data.get("items")
+        if "error" in data or data.get("kind") != "youtube#videoListResponse" or not isinstance(items, list) or \
+                any(not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+                    for item in items):
+            raise PublishError("YouTube returned an unreadable connection-check response.",
+                               f"Test again in {SEARCH_CONNECTIONS_FIX}; no search results were imported.",
+                               "response")
         return data
 
     def most_popular(self, region: str, max_results: int = 50) -> list[dict]:
@@ -148,15 +269,44 @@ class YouTubeDiscovery:
         return data.get("items") or []
 
     def search(self, q: str, region: str, language: str, published_after: float | None, event_type: str = "",
-               max_results: int = 25) -> list[str]:
+               max_results: int = 25, *, creative_commons: bool = False) -> list[str]:
         params = {"part": "snippet", "type": "video", "q": q, "regionCode": region, "relevanceLanguage": language,
                   "order": "viewCount", "maxResults": max_results}
+        if creative_commons:
+            # The actual videos.list license is still evaluated later; a search filter never grants reuse.
+            params["videoLicense"] = "creativeCommon"
         if event_type:
             params["eventType"] = event_type
         elif published_after:
-            params["publishedAfter"] = dt.datetime.fromtimestamp(published_after, dt.timezone.utc).strftime(
+            # A moving second-by-second boundary defeated the thirty-minute response cache.
+            params["publishedAfter"] = dt.datetime.fromtimestamp(int(published_after // 1800) * 1800,
+                                                                 dt.timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
-        data = self._get("search.list", "search", params, ttl=1800)
+        cursor_key = "discovery:youtube_page:" + hashlib.sha256(json.dumps(
+            {k: v for k, v in params.items() if k != "publishedAfter"}, sort_keys=True).encode()).hexdigest()
+        cursor = state.get(cursor_key, {}) or {}
+        fresh = float(cursor.get("at") or 0) > time.time() - 6 * 3600
+        page = int(cursor.get("page") or 0) if fresh else 0
+        token = str(cursor.get("token") or "") if fresh else ""
+        if token and 0 < page < 5:
+            params["pageToken"] = token
+            if cursor.get("published_after") and "publishedAfter" in params:
+                # Page tokens belong to the exact original query, including its time boundary.
+                params["publishedAfter"] = cursor["published_after"]
+        else:
+            page = 0
+        self.search_offset = page * max_results
+        try:
+            data = self._get("search.list", "search", params, ttl=1800)
+        except PublishError as exc:
+            if exc.code == "invalidPageToken":
+                state.delete(cursor_key)  # a later ordinary scan restarts; never add an unbudgeted retry
+            raise
+        next_token = data.get("nextPageToken")
+        state.put(cursor_key, {"token": next_token if isinstance(next_token, str) and page < 4 else "",
+                               "page": page + 1 if isinstance(next_token, str) and next_token and page < 4 else 0,
+                               "published_after": params.get("publishedAfter", ""),
+                               "at": time.time()})
         return [((i.get("id") or {}).get("videoId")) for i in data.get("items") or [] if (i.get("id") or {}).get("videoId")]
 
     def videos(self, ids: list[str]) -> dict[str, dict]:
@@ -182,6 +332,9 @@ class YouTubeDiscovery:
 
     def discover(self, topics: list[str], channels: list[dict], include_live: bool, job=None) -> list[dict]:
         """One discovery pass. Stops using a bucket as soon as the quota manager refuses it."""
+        if float(state.get("discovery:youtube_paced_until", 0) or 0) > time.time():
+            self.denied.append("Spacing YouTube discovery checks to stay within its quota share")
+            return []
         region = self.settings.get("trend_region") or "US"
         lang = self.settings.get("trend_language") or "en"
         since = time.time() - 3600 * float(self.settings.get("trend_max_age_hours") or 72)
@@ -205,7 +358,16 @@ class YouTubeDiscovery:
                 failed_calls.add(fn.__name__)
                 return None
 
-        popular = attempt(self.most_popular, region)
+        # A connected channel or recorded creator agreement is useful even when a broad search exhausts quota.
+        for ch in channels:
+            if job:
+                job.check()
+            ids = attempt(self.channel_uploads, ch["channel_id"])
+            for rank, vid in enumerate(ids or [], 1):
+                curated.add(vid)
+                ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
+        uploadable_only = reusable_discovery_only(self.settings)
+        popular = [] if uploadable_only else attempt(self.most_popular, region)
         items: dict[str, dict] = {}
         for rank, item in enumerate(popular or [], 1):
             items[item["id"]] = item
@@ -213,21 +375,20 @@ class YouTubeDiscovery:
         for topic in topics:
             if job:
                 job.check()
-            ids = attempt(self.search, topic, region, lang, since)
+            self.search_offset = 0
+            ids = attempt(self.search, topic, region, lang, since, creative_commons=uploadable_only)
             if ids is None:
                 break  # the search bucket said no: no point trying the next topic
             for rank, vid in enumerate(ids, 1):
-                ranked.setdefault(vid, ("youtube_search", rank, len(ids), topic))
+                ranked.setdefault(vid, ("youtube_search", self.search_offset + rank,
+                                        self.search_offset + len(ids), topic))
         if include_live and topics:
             # A generic "live" search brings ambient loops and waiting rooms rather than the owner's interests.
-            ids = attempt(self.search, topics[0], region, lang, None, event_type="live")
+            self.search_offset = 0
+            ids = attempt(self.search, topics[0], region, lang, None, event_type="live",
+                          creative_commons=uploadable_only)
             for rank, vid in enumerate(ids or [], 1):
-                ranked[vid] = ("youtube_live", rank, len(ids or []), topics[0])
-        for ch in channels:
-            ids = attempt(self.channel_uploads, ch["channel_id"])
-            for rank, vid in enumerate(ids or [], 1):
-                curated.add(vid)
-                ranked.setdefault(vid, ("youtube_channel", rank, len(ids or []), ch.get("name") or ch["channel_id"]))
+                ranked[vid] = ("youtube_live", self.search_offset + rank, self.search_offset + len(ids or []), topics[0])
         missing = [v for v in ranked if v not in items]
         details = attempt(self.videos, missing) if missing else {}
         items.update(details or {})
@@ -240,6 +401,9 @@ class YouTubeDiscovery:
                                     found_from=found_from.get(vid, ""))
             sig["raw"]["curated_channel"] = vid in curated
             out.append(sig)
+        factor = quota.discovery_period_factor(self.settings)
+        if 1 < factor < float("inf"):
+            state.put("discovery:youtube_paced_until", time.time() + 900 * factor)
         return out
 
     def originals(self, items: dict[str, dict], ranked: dict, attempt) -> dict[str, str]:
@@ -364,16 +528,16 @@ class WebSearch:
 
     def __init__(self, settings: dict):
         self.settings = settings
-        self.key = settings.get("tavily_api_key") or ""
+        self.key = str(settings.get("tavily_api_key") or "").strip()
         if not self.key:
             raise Unavailable("not_configured", "Web search is off (no Tavily API key).",
-                              "Optional: Settings → Advanced → Discovery and rights, paste a Tavily API key "
+                              f"Optional: {SEARCH_CONNECTIONS_FIX}, paste a Tavily API key "
                               "(the free plan includes 1,000 searches a month).")
         self.calls = 0
         self.stopped = ""
 
     def search(self, query: str, domains: list[str], max_results: int = 10, time_range: str = "week") -> list[dict]:
-        until = float(state.get("web:wait_until", 0) or 0)
+        until = max(float(state.get("web:wait_until", 0) or 0), wait_until("web"))
         if until > time.time():  # Tavily asked to wait: nothing is sent before that time
             raise Unavailable("quota", "Tavily asked to wait before the next search.",
                               f"Web search starts again at {time.strftime('%H:%M', time.localtime(until))}.")
@@ -391,18 +555,20 @@ class WebSearch:
         except httpx.HTTPError as exc:
             raise Unavailable("error", f"Could not reach Tavily ({type(exc).__name__}).",
                               "Check the internet connection.") from exc
+        asked = retry_after(r)
+        if asked is not None and r.status_code != 200:
+            state.put("web:wait_until", defer("web", asked))
         if r.status_code in (401, 403):
             raise Unavailable("error", "Tavily did not accept the API key.",
-                              "Check the key in Settings → Advanced → Discovery and rights.")
-        if r.status_code == 429:
-            asked = retry_after(r)
-            if asked is not None:
-                state.put("web:wait_until", time.time() + asked)
-            raise Unavailable("quota", "Tavily is rate limiting requests right now.",
+                              f"{SEARCH_CONNECTIONS_FIX}: replace the Tavily API key and test again.",
+                              retry_after=asked)
+        if r.status_code == 429 or r.status_code >= 500 and asked is not None:
+            raise Unavailable("quota", "Tavily is temporarily busy or rate limiting requests.",
                               f"Tavily asked to wait {wait_text(asked)}; web search starts again then."
-                              if asked is not None else "It is tried again next scan.")
+                              if asked is not None else "It is tried again next scan.", retry_after=asked)
         if r.status_code != 200:
-            raise Unavailable("error", f"Tavily answered {r.status_code}.", "It is tried again next scan.")
+            raise Unavailable("error", f"Tavily answered {r.status_code}.", "It is tried again next scan.",
+                              retry_after=asked)
         state.put(f"cost:tavily:{use['month']}", use["used"] + 1)
         self.calls += 1
         try:
@@ -418,6 +584,8 @@ class WebSearch:
     def discover(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
         """Public TikTok links for the topics, then the long YouTube videos behind the strongest of them. Stops
         quietly when the allowance runs out (what was found so far is kept)."""
+        if reusable_discovery_only(self.settings):
+            return self.discover_reusable(topics, youtube_, job)
         now = time.time()
         out: list[dict] = []
         tiktok: list[tuple[float, dict]] = []
@@ -476,6 +644,39 @@ class WebSearch:
             self.stopped = str(exc)
         return out
 
+    def discover_reusable(self, topics: list[str], youtube_: YouTubeDiscovery | None, job=None) -> list[dict]:
+        """Use web search to find originals, then verify their actual platform metadata before admission.
+
+        A page calling itself Creative Commons proves nothing. The official license/channel answer and the
+        existing rights gate decide whether each result is usable. Do not spend web credits on unverifiable pages.
+        """
+        if youtube_ is None:
+            self.stopped = "Reusable web search waits for YouTube metadata; your folders and free library still work."
+            return []
+        out: list[dict] = []
+        try:
+            for topic in topics[:WEB_TOPICS_PER_SCAN]:
+                if job:
+                    job.check()
+                found = self.search(f"{topic} Creative Commons interview podcast", ["youtube.com"], 5, "month")
+                ids = list(dict.fromkeys(v for row in found for v in linked_videos(str(row.get("url") or ""))))
+                try:
+                    items = youtube_.videos(ids[:5]) if ids else {}
+                except quota.QuotaDenied as exc:
+                    self.stopped = str(exc)
+                    break
+                except PublishError as exc:
+                    # Do not issue more requests after a platform wait/error. A later normal scan retries.
+                    self.stopped = str(exc)
+                    break
+                for rank, item in enumerate(items.values(), 1):
+                    out.append(signal_from_video(item, "youtube_web_reusable", rank, len(items), topic))
+        except Unavailable as exc:
+            if not out:
+                raise
+            self.stopped = str(exc)
+        return out
+
 
 def tiktok_signal(result: dict, query: str, rank: int, size: int, now: float) -> dict | None:
     """A web search result that is a TikTok video page, as a signal. Titles and links only: TikTok's numbers are not
@@ -500,7 +701,7 @@ COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 COMMONS = "Wikimedia Commons"
 COMMONS_FILE_HOSTS = ("upload.wikimedia.org",)
 # Wikimedia asks every API client for a descriptive User-Agent with a way to reach its author
-USER_AGENT = "ClipFoundry/1.0 (local desktop clipping app; https://github.com/landryschreiner33-coder/ClipForge-AI)"
+USER_AGENT = "ClipForge/1.0 (local desktop clipping app; https://github.com/landryschreiner33-coder/ClipForge-AI)"
 LIBRARY_TOPICS_PER_SCAN = 2
 LICENSE_KEYS = ("provider", "license", "license_name", "license_url", "attribution_required", "artist", "credit",
                 "restrictions", "page_url", "copyrighted", "reported_by", "observed_at")
@@ -517,11 +718,22 @@ class Library:
         self.calls = 0
 
     def search(self, topic: str, limit: int = 10) -> list[dict]:
+        remaining = wait_until("library") - time.time()
+        if remaining > 0:
+            raise Unavailable("quota", "Wikimedia Commons asked discovery to wait before another request.",
+                              "Other searches and folder checks continue.", retry_after=remaining)
         params = {"action": "query", "format": "json", "formatversion": "2", "generator": "search",
                   "gsrsearch": f"{topic} filetype:video", "gsrnamespace": "6", "gsrlimit": str(limit),
                   "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata|metadata",
                   "iiextmetadatafilter": "License|LicenseShortName|LicenseUrl|AttributionRequired|Artist|Credit|"
                                          "Restrictions|DateTimeOriginal|ObjectName|Copyrighted"}
+        cursor_key = "discovery:commons_page:" + hashlib.sha256(topic.casefold().encode()).hexdigest()
+        cursor = state.get(cursor_key, {}) or {}
+        offset = int(cursor.get("offset") or 0) if float(cursor.get("at") or 0) > time.time() - 6 * 3600 else 0
+        if 0 < offset < limit * 5:
+            params["gsroffset"] = str(offset)
+        else:
+            offset = 0
         try:
             with client(30) as c:
                 r = c.get(COMMONS_API, params=params, headers={"User-Agent": USER_AGENT})
@@ -529,6 +741,12 @@ class Library:
             raise Unavailable("error", f"Could not reach Wikimedia Commons ({type(exc).__name__}).",
                               "Check the internet connection.") from exc
         if r.status_code != 200:
+            asked = retry_after(r)
+            if asked is not None:
+                defer("library", asked)
+            if r.status_code in (429, 503):
+                raise Unavailable("quota", f"Wikimedia Commons answered {r.status_code} and is temporarily busy.",
+                                  "Other searches and folder checks continue.", retry_after=asked)
             raise Unavailable("error", f"Wikimedia Commons answered {r.status_code}.", "It is tried again next scan.")
         self.calls += 1
         try:
@@ -541,14 +759,24 @@ class Library:
         if data.get("error"):
             error = data["error"]
             code = error.get("code", "unknown") if isinstance(error, dict) else "unknown"
+            asked = retry_after(r)
+            if asked is not None:
+                defer("library", asked)
             raise Unavailable("error", f"Wikimedia Commons could not search ({str(code)[:80]}).",
-                              "It is tried again next scan.")
+                              "It is tried again next scan.", retry_after=asked)
+        next_offset = (data.get("continue") or {}).get("gsroffset", 0)
+        try:
+            next_offset = int(next_offset)
+        except (ValueError, TypeError):
+            next_offset = 0
+        state.put(cursor_key, {"offset": next_offset if 0 < next_offset < limit * 5 else 0, "at": time.time()})
         pages = (data.get("query") or {}).get("pages") or []
         if isinstance(pages, dict):  # formatversion 1
             pages = list(pages.values())
         now = time.time()
         pages = sorted((p for p in pages if isinstance(p, dict)), key=lambda p: p.get("index", 0))
-        return [s for s in (library_signal(p, topic, k, len(pages), now) for k, p in enumerate(pages, 1)) if s]
+        return [s for s in (library_signal(p, topic, offset + k, offset + len(pages), now)
+                           for k, p in enumerate(pages, 1)) if s]
 
     def discover(self, topics: list[str], job=None) -> list[dict]:
         out: list[dict] = []

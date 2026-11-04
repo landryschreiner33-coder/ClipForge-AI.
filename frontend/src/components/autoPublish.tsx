@@ -3,6 +3,7 @@ import { errorText } from "../api";
 import { ap, AutoPublishView } from "../autopilot";
 import { audienceApi, AudienceView } from "../office/api";
 import { Banner, ConfirmDialog, Dialog, Disclosure, Pill, toast } from "./ui";
+import { YouTubeComments } from "./YouTubeComments";
 
 const hourWord = (h?: number) => (h === undefined ? "?" : h === 0 || h === 24 ? "midnight" : h === 12 ? "noon"
   : h < 12 ? `${h} a.m.` : `${h - 12} p.m.`);
@@ -17,9 +18,9 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const [audience, setAudience] = useState<AudienceView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [kids, setKids] = useState<boolean | null>(null);
-  const [limit, setLimit] = useState(3);
-  const [start, setStart] = useState(9);
-  const [end, setEnd] = useState(21);
+  const [limit, setLimit] = useState(0);
+  const [start, setStart] = useState(0);
+  const [end, setEnd] = useState(24);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -40,10 +41,11 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
   const blocker = view?.youtube.blocker || (!audienceReady ? "confirm who watches in Settings → Integrations"
     : "");
   const missing = [
+    view?.review_before_publish !== false && "turn off review mode in Settings, Advanced first",
     (!view || !audience || loadError) && "wait for the current account and audience to load",
     (view?.youtube.can_enable === false || !audienceReady) && blocker,
     kids === null && "answer “made for kids”",
-    !(limit >= 1) && "allow at least 1 a day",
+    !(Number.isInteger(limit) && limit >= 0 && limit <= 100) && "choose 0 for no daily cap, or 1 to 100",
     !(start < end) && "make the start hour earlier than the end hour",
     !agreed && "tick that you understand",
   ].filter(Boolean) as string[];
@@ -79,7 +81,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
       </button>
     </>}>
       <p className="small">
-        ClipFoundry will upload eligible finished clips to YouTube as <b>{publicPosts ? "Public" : "Private"}</b>
+        ClipForge will upload eligible finished clips to YouTube as <b>{publicPosts ? "Public" : "Private"}</b>
         {" "}videos without asking about each one. {publicPosts ? "Anyone may watch, share or find new public posts."
           : "You share private videos with invited viewers in YouTube Studio yourself."}
         {" "}Existing posts and previously planned private uploads keep their audience.
@@ -101,7 +103,7 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
           {publicPosts ? "Public: anyone can watch, including people who do not follow your channel."
             : audience?.youtube.intent === "OWNER_ONLY" ? "Private: only you (staging)."
               : "Private: only the people you invite in YouTube Studio (Content → the video → Visibility → "
-                + "Private → Share privately). ClipFoundry cannot invite viewers."}
+                + "Private → Share privately). ClipForge cannot invite viewers."}
         </dd>
         <dt id={`${id}-kids`}>Made for kids</dt>
         <dd>
@@ -117,14 +119,19 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
               <span>Yes</span>
             </label>
           </div>
+          <YouTubeComments privacy={visibility} kids={kids} />
         </dd>
         <dt>How many</dt>
-        <dd className="inline-fields">At most {hour("Posts a day at most", limit, setLimit, 1, 15)} a day</dd>
+        <dd className="inline-fields">
+          {hour("Posts a day at most", limit, setLimit, 0, 100)}
+          <span className="small muted">{limit === 0 ? "No app daily cap" : `At most ${limit} a day`}. 0 means unlimited.</span>
+        </dd>
         <dt>When</dt>
         <dd className="inline-fields">
           Between {hour("From hour", start, setStart, 0, 23)} and {hour("To hour", end, setEnd, 1, 24)}
           <span className="tiny faint">
-            ({hourWord(start)} to {hourWord(end)}, {view?.timezone || "America/Chicago"}), spread over the day
+            ({start === 0 && end === 24 ? "Any hour" : `${hourWord(start)} to ${hourWord(end)}`},
+            {" "}{view?.timezone || "America/Chicago"})
           </span>
         </dd>
       </dl>
@@ -135,8 +142,8 @@ export function AutoPublishDialog({ onClose, onDone }: { onClose: () => void; on
         <input type="checkbox" checked={agreed} disabled={!view || !audience || !!loadError}
           onChange={(e) => setAgreed(e.target.checked)} />
         <span>
-          I authorize ClipFoundry to upload eligible clips to {view?.channel || "this connected YouTube channel"}
-          {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} within these limits,
+          I authorize ClipForge to upload eligible clips to {view?.channel || "this connected YouTube channel"}
+          {" "}as {publicPosts ? "Public videos that anyone can watch" : "Private videos"} with the choices above,
           without asking me each time. {publicPosts ? "Previously planned private uploads keep their audience. "
             : audience?.youtube.intent === "SELECTED_AUDIENCE" ? "I share private videos myself. " : ""}
           I can cancel upcoming uploads or pause publishing at any time.
@@ -167,6 +174,19 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
   if (!view) return <span className="small muted" aria-busy="true">Loading…</span>;
   const yt = view.youtube;
   const cfg = yt.consent?.settings || ({} as Record<string, any>);
+  if (view.review_before_publish !== false) {
+    return (
+      <div className="autopub-line">
+        <div className="row wrap">
+          <Pill tone="info" icon="check">Prepare & schedule for review</Pill>
+          <a className="textlink small" href="#/publishing/review">Review prepared posts</a>
+        </div>
+        <p className="small muted">Autopilot plans posts without uploading them. Check reuse, the video, its text
+          and audience, then approve each post. Approved posts can upload at their planned time.</p>
+        <a className="textlink tiny" href="#/settings/advanced">Change review mode in Advanced settings</a>
+      </div>
+    );
+  }
   return (
     <div className="autopub-line">
       {platform !== "tiktok" && (
@@ -179,8 +199,9 @@ export function AutoPublishLine({ onChange, platform }: { onChange?: () => void;
               </Pill>
               <span className="small muted">
                 {cfg.visibility ? `${String(cfg.visibility)[0].toUpperCase()}${String(cfg.visibility).slice(1)}` : ""},
-                {" "}up to{" "}
-                {cfg.daily_limit} a day, {hourWord(cfg.start_hour)} to {hourWord(cfg.end_hour)}
+                {" "}{cfg.daily_limit === 0 ? "no app daily cap" : `up to ${cfg.daily_limit} a day`},
+                {" "}{cfg.start_hour === 0 && cfg.end_hour === 24 ? "any hour"
+                  : `${hourWord(cfg.start_hour)} to ${hourWord(cfg.end_hour)}`}
               </span>
               {view.channel && <span className="small muted">· {view.channel}</span>}
               <button type="button" className="btn btn-small" onClick={() => setAsking(true)}>Turn off…</button>

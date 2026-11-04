@@ -18,4 +18,5 @@ def passed_report(clip: dict, platforms: tuple[str, ...] = ("youtube", "tiktok")
     return db.insert("quality_reports", {
         "clip_id": clip["id"], "version_id": version, "artifact_path": path, "artifact_sha256": artifact.sha256_file(path),
         "file_stamp": quality.file_stamp(path), "gate_version": quality.GATE_VERSION, "status": "passed",
-        "metadata": metadata, "checks": [], "blockers": [], "warnings": [], "coverage": {"note": "test double"}})
+        "metadata": metadata, "checks": [], "blockers": [], "warnings": [],
+        "coverage": {"note": "test double", "rights_context": gate.rights_context(clip)}})

@@ -75,8 +75,9 @@ def already_published(item: dict) -> str:
 # ------------------------------------------------------------------ recovering an interrupted upload
 def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) -> dict | None:
     """Look among recent channel uploads after an expired session; recovery verifies submitted metadata."""
-    token = youtube.Token(db.get_settings())
-    acc = db.get_account("youtube") or {}
+    # The uploads of the account this publication was bound to, never of whichever account is the default now.
+    acc = (db.get_connection(pub.get("connection_id") or "") or db.get_account("youtube") or {})
+    token = youtube.Token(db.get_settings(), acc.get("id") or None)
     youtube._quota("channels.list", "publish")  # noqa: SLF001
     with client(30) as c:
         r = c.get(f"{youtube.API_URL}/channels", params={"part": "contentDetails", "id": acc.get("account_id", "")},
@@ -122,7 +123,7 @@ def _youtube_upload_by_title(pub: dict, require_exact_metadata: bool = False) ->
 
 
 def _record_found_youtube(pub: dict, found: dict, message: str) -> bool:
-    status = youtube.video_status(youtube.Token(db.get_settings()), found["id"])
+    status = youtube.video_status(youtube.Token(db.get_settings(), pub.get("connection_id") or None), found["id"])
     if not status.get("exists"):
         return False
     privacy = status.get("privacy") or ""
@@ -176,8 +177,8 @@ def recover(pub: dict) -> str:
             pass
         return "resume"
     if pub.get("remote_id"):
-        outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(tiktok.Token(db.get_settings()),  # noqa: SLF001
-                                                                         pub["remote_id"]),
+        token = tiktok.Token(db.get_settings(), pub.get("connection_id") or None)
+        outcome = publish_jobs._tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),  # noqa: SLF001
                                                (pub.get("info") or {}).get("username", ""))
         if outcome:
             db.update_publication(pub["id"], **outcome)
@@ -189,14 +190,24 @@ def recover(pub: dict) -> str:
 # ------------------------------------------------------------------ the job
 def _publication(item: dict, video: str, version: str, clip: dict) -> dict:
     pub = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
-    if pub:
-        return pub
     opts = dict(item.get("options") or {})
+    if item.get("reuse_confirmation"):
+        opts["reuse_confirmation"] = item["reuse_confirmation"]
     if item["platform"] == "tiktok":
         opts["duration"] = float(clip.get("duration") or 0)
     from ..publish.jobs import feature_snapshot
 
     version_row = db.get_version(version) if version else None
+    if pub:
+        if not publish_jobs.transfer_started(pub) and not publish_jobs.unknown_outcome(pub):
+            # A platform wait may leave a local row before any session or bytes exist. The owner can edit and
+            # approve its post during that wait; send that exact approved snapshot, retaining the upload identity.
+            db.update_publication(pub["id"], title=item["title"], description=item["description"],
+                                  tags=item.get("tags") or [], requested_privacy=item["privacy"], video_path=video,
+                                  version_id=version, options=opts, mode=opts.get("mode", "direct"),
+                                  features=feature_snapshot(clip, version_row), audience=item.get("audience") or {})
+            pub = db.get_publication(pub["id"]) or pub
+        return pub
     pub = db.create_publication(item["clip_id"], item["platform"], project_id=clip["project_id"],
                                 mode=opts.get("mode", "direct"), status="queued", message="Autopilot upload",
                                 title=item["title"], description=item["description"], tags=item.get("tags") or [],
@@ -274,6 +285,22 @@ def publish(job: Job) -> dict:
         return {"message": f"Nothing to do: the post is {item['status']}"}
     existing = db.get_publication(item.get("publication_id") or "") if item.get("publication_id") else None
     started = publish_jobs.transfer_started(existing)
+    uncertain = bool(existing and publish_jobs.unknown_outcome(existing))
+    if uncertain and item["platform"] == "youtube":
+        original_account = (item.get("approval") or {}).get("account") or (
+            existing.get("options") or {}).get("approved_account")
+        if original_account and original_account != autopublish.account_id("youtube"):
+            note = "Reconnect the original YouTube account to check the uncertain upload; no new upload is started."
+            _set(item, "reconciling", note, "outcome_account", last_error=note,
+                 fix="Reconnect the channel this post was approved for, then Refresh status.")
+            raise queue.Wait("not_connected", RECONNECT_WAIT, note)
+        # Unknown outcomes are read back before local policy/file changes can invalidate their identity.
+        return outcome_unknown(item, existing, youtube._outcome_unknown())
+    if rights.review_before_publish(settings) and (item.get("approval") or {}).get("by") == "automatic" and \
+            not started and not uncertain:
+        _set(item, "awaiting_approval", "Planned for your review: approve this post before it can upload.",
+             "review_required", approval={})
+        return {"message": "Waiting for your review and approval; nothing was uploaded"}
     if settings.get("autopilot_publishing_paused") and not started:  # an upload under way finishes
         db.update("scheduled_publications", item["id"], status_note="Publishing is paused: it waits for Resume")
         raise queue.Wait("publishing_paused", 300, "Publishing is paused")
@@ -282,20 +309,23 @@ def publish(job: Job) -> dict:
         _set(item, "failed", "The clip is missing or not rendered.", "failed")
         raise queue.Fail("The clip is missing or not rendered")
     project = db.get_project(clip["project_id"]) or {}
-    source = db.fetch("sources", project.get("source_id") or "") if project.get("source_id") else None
-    if source and verify.ensure([source], settings):  # a channel never confirmed (work from before the check)
+    source_id = project.get("source_id") or item.get("source_id") or ""
+    source = db.fetch("sources", source_id) if source_id else None
+    from . import submissions
+
+    if source and not submissions.for_source(source) and verify.ensure([source], settings):
         source = db.fetch("sources", source["id"]) or source
-    try:
-        rights.gate(source, "publish", settings)
-    except rights.RightsBlocked as exc:
-        _set(item, "blocked", str(exc), "blocked")
-        feed.decide("upload", "rejected", ("scheduled", item["id"]), f"Not posted: {exc}", job_id=job.id,
+    allowed, why = rights.publication_allowed(source, item["platform"], settings, publication=item)
+    if not allowed and not started and not uncertain:
+        explicit_block = rights._stopped(source) or bool(source and rights.evaluate(source, settings)["status"] ==
+                                                        rights.BLOCKED)
+        strict_hold = not rights.review_before_publish(settings) and not rights._confirmation_record(item)
+        status = "blocked" if explicit_block or strict_hold else "awaiting_approval"
+        _set(item, status, why, "blocked" if explicit_block else "reuse_review", approval={})
+        feed.decide("upload", "rejected" if explicit_block else "held", ("scheduled", item["id"]),
+                    f"Not posted: {why}", job_id=job.id,
                     reported_by="gavel", once=True, platform=item["platform"])
-        raise queue.Fail(str(exc), "Change the source's rights status in Autopilot → Sources.") from exc
-    allowed, why = rights.platform_allowed(source, item["platform"], settings)
-    if not allowed:
-        _set(item, "blocked", why, "blocked")
-        raise queue.Fail(why, "The agreement for this video does not cover this platform.")
+        raise queue.Fail(why, "Review reuse in Queue and approve this exact post, or unblock its source if appropriate.")
     problem = approval_problem({**item, "status": "approved"})
     if problem:
         if existing and not started:
@@ -344,7 +374,13 @@ def publish(job: Job) -> dict:
     if mode == "manual":  # nothing is uploaded: the owner posts the checked file in the TikTok app
         video, _version = active_version_path(clip)
         try:
-            gate.verify_file(clip, video)
+            gate.verify_file(clip, video, publication=item)
+        except gate.CreditRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
+        except gate.ReuseReviewRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "reuse_review", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
@@ -361,13 +397,31 @@ def publish(job: Job) -> dict:
     video, version = active_version_path(clip)
     if not started:  # an upload already under way is resumed, never re-judged halfway
         try:
-            gate.verify_file(clip, video)  # the exact bytes that would be uploaded passed the final quality gate
+            gate.verify_file(clip, video, publication=item)  # current bytes, reuse terms and actual post credit
         except queue.Wait as w:
             db.update("scheduled_publications", item["id"], status_note=w.message)
+            raise
+        except gate.CreditRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "credit_required", approval={}, last_error=str(exc), fix=exc.fix)
+            raise
+        except gate.ReuseReviewRequired as exc:
+            _set(item, "awaiting_approval", str(exc), "reuse_review", approval={}, last_error=str(exc), fix=exc.fix)
             raise
         except queue.Fail as exc:
             _set(item, "blocked", str(exc), "quality", last_error=str(exc), fix=exc.fix)
             raise
+    if not started and not uncertain:
+        from .scheduler import reserve_upload_spacing
+
+        delay = reserve_upload_spacing(item, settings, time.time(), starting=True)
+        if delay:
+            note = "Waiting for the minimum gap between uploads; your approval is saved."
+            manual_time = any(event.get("event") == "rescheduled" and "by you" in event.get("detail", "")
+                              for event in item.get("audit") or [])
+            changes = {} if manual_time else {"planned_at": max(item.get("planned_at") or 0,
+                                                               time.time() + delay)}
+            db.update("scheduled_publications", item["id"], status_note=note, **changes)
+            raise queue.Wait("upload_spacing", delay, note)
     pub = _publication(item, video, version, clip)
     _set(item, "publishing", "Uploading", "upload_started")
     try:
@@ -431,6 +485,10 @@ def finish(item: dict, pub: dict) -> dict:
     before anyone can watch (an upload alone never means viewers can watch)."""
     item = _item(item["id"]) or item
     if pub["status"] == "done":
+        if item["status"] != "published":
+            from .scheduler import record_upload_finished
+
+            record_upload_finished(item, time.time())
         note = pub.get("message") or "Uploaded"
         delivery = pub.get("delivery") or audience.delivery_after_upload(
             item["platform"], item.get("audience") or {}, pub.get("privacy") or "", "api")

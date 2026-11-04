@@ -47,7 +47,7 @@ def _fail(msg: str, fix: str = "") -> int:
 
 def run(media: str | None, seconds: float | None) -> int:
     settings = db.get_settings()
-    print("\n  ClipFoundry GPU check\n  ---------------------")
+    print("\n  ClipForge GPU check\n  ---------------------")
     st = cuda.probe(refresh=True)
     gpus = st["gpus"]
     names = ", ".join(f"{g['name']} ({g['vram_mb']} MB, driver {g['driver']})" for g in gpus)

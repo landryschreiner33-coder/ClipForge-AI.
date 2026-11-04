@@ -9,7 +9,7 @@ platform's own data has to confirm that this exact video belongs to that channel
 * TikTok    TikTok's oEmbed endpoint (its embed API) reports the video's author. The name inside a TikTok link is not
             trusted: TikTok finds a video by its number, whatever name the link shows.
 
-The link ClipFoundry would get the file from must lead to that same video, so a list cannot pair a real video with
+The link ClipForge would get the file from must lead to that same video, so a list cannot pair a real video with
 someone else's file. A confirmation only says who posted the video: the channel still has to match one of your
 rules or agreements, or be your connected channel, before Autopilot uses it (rights.py). A video that cannot be
 confirmed is skipped with the reason in the activity log and looked at again later; nobody is asked about it.
@@ -79,7 +79,7 @@ def why_not(source: dict) -> str:
     platform = source.get("platform") or ""
     name = PLATFORMS.get(platform)
     if not name:
-        return "ClipFoundry can only confirm YouTube and TikTok channels"
+        return "ClipForge can only confirm YouTube and TikTok channels"
     c = _check(source)
     if not _answers(c, source) or not c.get("state"):
         return f"{name} has not confirmed it yet"

@@ -1,7 +1,7 @@
-"""Checks before ClipFoundry fetches a URL it did not write itself.
+"""Checks before ClipForge fetches a URL it did not write itself.
 
 Autopilot fetches media and signals from URLs that come from data: a signal feed's rows, a discovered source, a
-redirect. Such a URL must not be able to make ClipFoundry reach into your own computer or network (a router's admin
+redirect. Such a URL must not be able to make ClipForge reach into your own computer or network (a router's admin
 page, another app's local API, a cloud metadata address) or read local files through ffmpeg. So:
 
 * Only the expected schemes are used (http/https for downloads; http/https/rtmp/rtmps/srt/rtsp for live capture).
@@ -65,7 +65,12 @@ def allowed(ip: Address, allow_private: bool) -> bool:
 
 
 def check(url: str, *, schemes: tuple[str, ...] = HTTP, allow_private: bool = False) -> list[Address]:
-    """The checked addresses of `url`'s host; raises UnsafeUrl when the URL may not be fetched."""
+    """The checked addresses of `url`'s host; raises UnsafeUrl when the URL may not be fetched.
+
+    In cloud mode `allow_private` is ignored: the desktop lets its owner reach their own network, but a server must
+    never be pointed at its loopback, private network or cloud metadata service, whoever typed the address."""
+    if os.environ.get("CLIPFOUNDRY_MODE", "").strip().lower() == "cloud":
+        allow_private = False
     parts = urlsplit(url.strip())
     scheme = parts.scheme.lower()
     if scheme not in schemes:

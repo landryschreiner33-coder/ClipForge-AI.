@@ -22,12 +22,15 @@ from pathlib import Path
 
 def _serve(host: str, port: int, open_browser: bool) -> None:
     import uvicorn
+    from .phone import manager as phone_manager
+
+    phone_manager.desktop_port = port
 
     url = f"http://{'127.0.0.1' if host in {'0.0.0.0', '::'} else host}:{port}"
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     _print_transcription_mode()
-    print(f"\n  ClipFoundry is running at {url}\n  Leave this window open: closing it stops ClipFoundry and Autopilot."
+    print(f"\n  ClipForge is running at {url}\n  Leave this window open: closing it stops ClipForge and Autopilot."
           "\n  Press Ctrl+C to stop.\n")
     uvicorn.run("clipfoundry.api:app", host=host, port=port, log_level="warning")
 
@@ -110,7 +113,7 @@ def setup_logging() -> None:
 
 def main() -> int:
     setup_logging()
-    parser = argparse.ArgumentParser(prog="clipfoundry", description="ClipFoundry local AI clipper")
+    parser = argparse.ArgumentParser(prog="clipfoundry", description="ClipForge local AI clipper")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CLIPFOUNDRY_PORT", 8765)))
     parser.add_argument("--open", action="store_true", help="open the browser")
@@ -133,6 +136,12 @@ def main() -> int:
     w.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)  # started by the app: exit with it
     perf = sub.add_parser("performance", help="report measured active stage times from recent jobs")
     perf.add_argument("--days", type=int, default=7, help="history window, 1-14 days")
+    b = sub.add_parser("backup", help="copy the data folder (consistent database copy + hashed manifest)")
+    b.add_argument("dest")
+    r = sub.add_parser("restore", help="verify a backup and copy it into an empty data folder")
+    r.add_argument("src")
+    r.add_argument("--into", default=None, help="target data folder (default: CLIPFOUNDRY_DATA)")
+    sub.add_parser("retention", help="list regenerable caches a cleanup would delete (deletes nothing)")
     args = parser.parse_args()
     if (args.unattended or args.unattended_child) and args.cmd:
         parser.error("unattended mode starts the app; it cannot be combined with a command")
@@ -152,6 +161,19 @@ def main() -> int:
 
         db.init()
         print(json.dumps(summary(args.days), indent=2))
+        return 0
+    if args.cmd in ("backup", "restore", "retention"):
+        import json
+        from . import backup, db
+
+        if args.cmd == "backup":
+            db.init()
+            print(json.dumps(backup.backup(args.dest)))
+        elif args.cmd == "restore":
+            print(json.dumps(backup.restore(args.src, into=args.into)))
+        else:
+            db.init()
+            print(json.dumps(backup.retention_preview(), indent=1))
         return 0
     if args.cmd == "workers":
         from .autopilot.host import run_worker_process

@@ -6,6 +6,8 @@ keep-segments so picture and sound stay in sync.
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 import subprocess
@@ -18,17 +20,17 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, captions, reframe
+from . import artifact, audio_timing, captions, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
-                           video_encoder_args)
+                           run_process, video_encoder_args)
 from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
 FILLER_WORD = re.compile(r"^(um+|uh+|erm+|hmm+|mm+|ah+)[,.!?]*$", re.I)
 SPEED_RANGE = (0.8, 1.25)
-PLAN_VERSION = 2  # bump when the framing analysis changes, so cached plans are recomputed
+PLAN_VERSION = 3  # moving-content fallback and recovery after prolonged face dropouts
 CAPTIONS_STEP = "Writing captions"  # progress messages that tell the office which part of the render runs
 FRAMES_STEP = "Rendering"
 
@@ -175,34 +177,86 @@ def _decode_size(w: int, h: int) -> tuple[int, int]:
     return max(2, dw), max(2, dh)
 
 
-def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict) -> str:
+def _audio_filter(segs: list[tuple[float, float]], start: float, opts: dict, *,
+                  normalization_gain_db: float | None = None, measure: bool = False,
+                  input_label: str = "1:a:0") -> str:
     rel = [(a - start, b - start) for a, b in segs]
-    parts = []
+    # Input seeking resets the shared source clock, but the first audio packet may still arrive late. Rebuild
+    # that clock before any trims: resetting PTS independently would move all speech earlier than the picture.
+    parts = [f"[{input_label}]aresample=48000:async=1:first_pts=0,apad=whole_dur={rel[-1][1]:.6f}[clock]"]
     fade = 0.01
     if len(rel) == 1:
         a, b = rel[0]
-        parts.append(f"[1:a]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
+        parts.append(f"[clock]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS[ac]")
     else:
         labels = "".join(f"[s{i}]" for i in range(len(rel)))
-        parts.append(f"[1:a]asplit={len(rel)}{labels}")
+        parts.append(f"[clock]asplit={len(rel)}{labels}")
         for i, (a, b) in enumerate(rel):
             d = b - a
             parts.append(f"[s{i}]atrim=start={a:.4f}:end={b:.4f},asetpts=PTS-STARTPTS,"
                          f"afade=t=in:st=0:d={fade},afade=t=out:st={max(0.0, d - fade):.4f}:d={fade}[c{i}]")
         parts.append("".join(f"[c{i}]" for i in range(len(rel))) + f"concat=n={len(rel)}:v=0:a=1[ac]")
     chain = "[ac]"
-    post = []
+    # Downmix before loudness/peak control so a multichannel mix cannot overload after being limited.
+    post = ["aformat=sample_fmts=dbl:sample_rates=48000:channel_layouts=stereo"]
     speed = float(opts.get("speed", 1.0) or 1.0)
     if abs(speed - 1.0) > 0.001:
         post.append(f"atempo={max(SPEED_RANGE[0], min(SPEED_RANGE[1], speed)):.4f}")  # faster, same pitch
+    if measure:
+        # Discard this output. Only the measurements of the exact edited timeline are used on the encode pass.
+        post.append("loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json")
+        parts.append(chain + ",".join(post) + "[a]")
+        return ";".join(parts)
     if opts.get("normalize_audio", True):
-        post.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+        if normalization_gain_db is None or not math.isfinite(normalization_gain_db):
+            raise ValueError("Audio normalization requires a measured, finite gain")
+        # One constant gain avoids single-pass loudnorm's excessive startup boost and slow volume pumping.
+        post.append(f"volume={normalization_gain_db:.6f}dB:precision=double")
     gain = float(opts.get("gain_db", 0) or 0)
     if abs(gain) > 0.01:
         post.append(f"volume={gain:.2f}dB")
-    post.append("aresample=48000")
+    # Gain follows normalization, so even normalized speech can otherwise hard-clip at the allowed +12 dB.
+    # Disable the limiter's default auto-level boost and compensate its lookahead to keep cuts/captions aligned.
+    post += ["aresample=48000", "alimiter=limit=0.841395:attack=5:release=50:level=disabled:latency=1",
+             "asettb=1/48000", "asetpts=N/SR/TB"]
+    # Rebuild the final clock from actual output samples, after every rate/cut/limiter operation. Source
+    # delays are already represented by samples above; filter buffering must not become MP4 timestamp gaps.
     parts.append(chain + ",".join(post) + "[a]")
     return ";".join(parts)
+
+
+def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: float, opts: dict,
+                   duration: float, ctx: JobContext) -> dict:
+    """Measure the kept/downmixed/speed-adjusted audio once, without storing samples or touching the GPU."""
+    base = {"version": 1, "normalization": "off", "normalization_gain_db": 0.0}
+    if not opts.get("normalize_audio", True):
+        return base
+    ctx.check()
+    ctx.progress(0.03, "Measuring audio")
+    graph = _audio_filter(segs, start, opts, measure=True, input_label="0:a:0")
+    result = run_process([ffmpeg_bin(), "-nostdin", "-hide_banner", "-nostats", "-loglevel", "info",
+                          *audio_in, "-filter_complex", graph, "-map", "[a]", "-f", "null", "-"],
+                         timeout=max(60.0, duration * 5), cancel=ctx.cancelled)
+    if result.returncode:
+        raise FFmpegError("Could not measure the clip's audio. Check the source and try rendering again.")
+    try:
+        # FFmpeg reports input measurements after processing the whole edited clip, including its last word.
+        blocks = re.findall(r'\{\s*"input_i"\s*:.*?\}', result.stderr.decode("utf-8", "replace"), re.S)
+        measured = json.loads(blocks[-1])
+        integrated, peak = float(measured["input_i"]), float(measured["input_tp"])
+        if math.isnan(integrated) or math.isnan(peak) or integrated == math.inf or peak == math.inf:
+            raise ValueError("invalid loudness")
+        if peak == -math.inf and integrated != -math.inf:
+            raise ValueError("invalid peak")
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise FFmpegError("Audio measurement was incomplete. Try rendering the clip again.") from exc
+    # Ungated/silent material has no usable integrated loudness; never amplify its background noise blindly.
+    gain = min(-14.0 - integrated, -1.5 - peak, 24.0) if math.isfinite(integrated) else 0.0
+    return {**base, "normalization": "measured_fixed_gain", "target_lufs": -14.0,
+            "integrated_lufs": integrated if math.isfinite(integrated) else None,
+            "true_peak_dbfs": peak if math.isfinite(peak) else None,
+            "normalization_gain_db": gain, "max_boost_db": 24.0,
+            "peak_limited": math.isfinite(integrated) and -1.5 - peak < -14.0 - integrated}
 
 
 def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> list[dict]:
@@ -266,8 +320,43 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     max_fps = float(settings.get("max_fps", 30))
     fps = src_fps if 10 <= src_fps <= max_fps + 0.5 else min(max_fps, 30.0)
     opts = effective_options(settings, project.get("options") or {}, clip.get("edit") or {})
+    brain_used = []
     if blueprint is not None:
         opts.update(blueprint_mod.render_options(blueprint))
+        brain_used = list(blueprint.knowledge)
+    elif (project.get("guidance") or {}).get("schema"):
+        # A ClipForge project: its guidance was resolved once when it was made (project choice > style > skills >
+        # Brain notes > Settings) and frozen, so a retry or re-render reproduces the same choices.
+        from ..studio import guidance as guidance_mod
+
+        opts.update(guidance_mod.render_values(project["guidance"]))
+        opts.update({key: value for key, value in (clip.get("edit") or {}).items() if value is not None})
+        brain_used = guidance_mod.brain_influences(project["guidance"])
+    else:
+        from ..autopilot import brain, knowledge
+
+        with brain.consultation("render", settings, ref=("clip", clip["id"])) as activity:
+            opts, brain_used = knowledge.choose(knowledge.context(clip, project), opts, settings)
+            # An explicit edit in the clip/version editor remains the owner's final choice for this render.
+            overrides = {key: value for key, value in (clip.get("edit") or {}).items() if value is not None}
+            opts.update(overrides)
+            brain_used = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
+                                                if key not in overrides and key != "pacing"}}
+                          for item in brain_used]
+            brain_used = [item for item in brain_used if item["decisions"]]
+            if activity is not None:
+                activity.use(brain_used, replace=True)
+        # Ranking-only notes (for example, standalone moments) select the range rather than a caption style.
+        # Preserve their original revision evidence on manual clips as well as on Autopilot blueprints.
+        selected = (clip.get("analysis") or {}).get("brain_knowledge") or []
+        combined = {}
+        for item in selected + brain_used:
+            key = (item["knowledge_id"], item["revision"])
+            if key not in combined:
+                combined[key] = {**item, "decisions": dict(item["decisions"])}
+            else:
+                combined[key]["decisions"].update(item["decisions"])
+        brain_used = list(combined.values())
 
     duration_src = float(project.get("duration") or 0)
     if blueprint is not None:
@@ -349,12 +438,15 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
     else:
         audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-    fc = vf + ";" + _audio_filter(segs, start, opts)
+    audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx)
+    fc = vf + ";" + _audio_filter(segs, start, opts,
+                                normalization_gain_db=audio_processing["normalization_gain_db"])
     tmp_out = out_dir / "render.tmp.mp4"
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
                "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000",
+               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
+               "-ac", "2", "-ar", "48000",
                # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
                # video pipe early when concatenated audio is buffered, dropping frames after a silence cut.
                "-movflags", "+faststart", "-t", f"{tl.duration:.6f}", tmp_out.name]
@@ -418,6 +510,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
             dec.wait()
     if rc != 0 or not tmp_out.exists():
         raise FFmpegError(f"Encoding failed: {_tail(log_path)}")
+    audio_processing["packet_timing"] = audio_timing.require_valid(tmp_out, ctx.cancelled)
     # Versioned names: on Windows a file that the browser is still streaming cannot be replaced.
     stamp = str(int(time.time() * 1000))
     out_path = out_dir / f"clip-{stamp}.mp4"
@@ -442,7 +535,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         "output_path": str(out_path),
         "thumb_path": str(thumb) if thumb.exists() else "",
         "duration": round(tl.duration, 2),
-        "render_info": {"mode": plan.mode, "faces": plan.faces_found, "cuts": len(plan.cuts), "encoder": encoder,
+        "render_info": {"brain_knowledge": brain_used, "mode": plan.mode, "faces": plan.faces_found,
+                        "audio_processing": audio_processing,
+                        "framing_evidence": dict(plan.info),
+                        "cuts": len(plan.cuts), "encoder": encoder,
                         "crop_w": round(cw_frac, 3), "layout": layout,
                         "fps": fps, "segments": len(segs),
                         "removed_s": round((end - start) - sum(b - a for a, b in segs), 2),

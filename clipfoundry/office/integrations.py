@@ -4,6 +4,7 @@ nothing, an explicit small test, and disconnect)."""
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,8 +24,22 @@ def cards() -> dict:
     return {"cards": capabilities.cards(), "registry": capabilities.matrix()}
 
 
+@router.get("/search", dependencies=READ)
+def search_status() -> dict:
+    from ..autopilot import search_connections
+
+    return search_connections.view()
+
+
+@router.post("/search/{provider}/test", dependencies=WRITE)
+def search_test(provider: Literal["youtube", "tavily"]) -> dict:
+    from ..autopilot import search_connections
+
+    return search_connections.test(provider)
+
+
 def _test(platform: str) -> dict:
-    """Test connection (only from ClipFoundry's page on this PC): one read on the platform with the connected
+    """Test connection (only from ClipForge's page on this PC): one read on the platform with the connected
     account. It never uploads, posts or changes anything there, and it costs no money."""
     if not (db.get_account(platform) or {}).get("has_tokens"):
         raise HTTPException(409, f"Connect {'YouTube' if platform == 'youtube' else 'TikTok'} first.")

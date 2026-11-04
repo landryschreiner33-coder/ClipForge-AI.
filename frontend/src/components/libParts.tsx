@@ -27,7 +27,7 @@ export const addedLine = (p: LibProject) => `${originLabel(p)} · ${when(p.creat
 export function ProjectStatus({ p, clipCount }: { p: Project; clipCount?: number }) {
   switch (p.status) {
     case "uploading":
-      return <Pill tone="info" icon="upload">Copying into ClipFoundry</Pill>;
+      return <Pill tone="info" icon="upload">Copying into ClipForge</Pill>;
     case "created":
     case "queued":
       return <Pill tone="neutral" icon="clock">Waiting to start</Pill>;
@@ -103,7 +103,7 @@ export function DeleteProjectDialog({ p, clipCount, onClose, onDeleted }: {
         onDeleted();
       }}>
       <p className="muted">
-        This deletes ClipFoundry's copy of the video, its transcript
+        This deletes ClipForge's copy of the video, its transcript
         {clipCount ? ` and its ${plural(clipCount, "clip")} with their versions` : ""} from this computer. It can't
         be undone.
       </p>
@@ -139,7 +139,7 @@ export function RemakeDialog({ p, clipCount, onClose, onDone }: {
         onDone();
       }}>
       <p className="muted small">
-        ClipFoundry looks for the best moments again. The transcript is reused, so this is much faster than the first
+        ClipForge looks for the best moments again. The transcript is reused, so this is much faster than the first
         time.
       </p>
       {clipCount > 0 && (

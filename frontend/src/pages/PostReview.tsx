@@ -9,6 +9,8 @@ import {
   PostActionDialog, postStatus, privacyLabel, TIKTOK_PRIVACY, timeLabel, VIEW_NAME, viewOf,
 } from "../components/postShared";
 import { PublicationStats } from "../components/stats";
+import { ReuseBasis, ReuseKind } from "../components/ReuseBasis";
+import { YouTubeComments, YouTubeCommentsResult } from "../components/YouTubeComments";
 import "./posts.css";
 import {
   Banner, ConfirmDialog, Disclosure, EmptyState, Icon, LoadingPage, PageHead, Pill, PLATFORM_LABEL, toast,
@@ -48,7 +50,8 @@ function formOf(p: Post): Form {
   };
 }
 const serverKey = (p: Post) =>
-  JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || ""]);
+  JSON.stringify([p.status, p.title, p.description, p.tags, p.privacy, p.options, p.approval?.hash || "",
+    p.reuse_review, p.source?.rights_status]);
 
 /**
  * One post, in full: the exact file that will be posted, its status (with the fix for a problem), what it needs
@@ -67,7 +70,7 @@ export default function PostReview({ id }: { id: string }) {
     if (error) {
       return (
         <div className="page">
-          <PageHead title="Post" crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post" }]} />
+          <PageHead title="Post" crumbs={[{ label: "Publishing", href: "#/publishing/review" }, { label: "Post" }]} />
           <EmptyState icon="alert" title="This post could not be loaded"
             actions={<button type="button" className="btn" onClick={refresh}><Icon name="refresh" />Try again</button>}>
             {error}
@@ -81,9 +84,9 @@ export default function PostReview({ id }: { id: string }) {
     return (
       <div className="page">
         <PageHead title="Post not found"
-          crumbs={[{ label: "Queue", href: "#/queue/review" }, { label: "Post not found" }]} />
+          crumbs={[{ label: "Publishing", href: "#/publishing/review" }, { label: "Post not found" }]} />
         <EmptyState icon="posts" title="There is no post at this address"
-          actions={<a className="btn" href="#/queue/review">Open the Queue</a>}>
+          actions={<a className="btn" href="#/publishing/review">Open Publishing</a>}>
           It may have been removed with its clip.
         </EmptyState>
       </div>
@@ -112,9 +115,16 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
   const [base, setBase] = useState<Form>(() => formOf(p));
   const [f, setF] = useState<Form>(base);
   const [agree, setAgree] = useState(false);
+  const [reuseKind, setReuseKind] = useState<ReuseKind>("");
+  const [reuseBasis, setReuseBasis] = useState("");
   const key = serverKey(p);
   const dirtyKeys = (Object.keys(LABELS) as (keyof Form)[]).filter((k) => f[k] !== base[k]);
   const dirty = editable && dirtyKeys.length > 0;
+  const sourceReuse = p.reuse_review?.confirmed && p.reuse_review.confirmed_from === "source_submission";
+  const changesSourceScope = dirtyKeys.some(key => key === "privacy" || key === "kids" || key === "mode");
+  const needsReuseCheck = p.reuse_review
+    ? p.reuse_review.required && (!p.reuse_review.confirmed || (dirty && (!sourceReuse || changesSourceScope)))
+    : !CLEARED_RIGHTS.includes(p.source?.rights_status || "");
   const lastKey = useRef(key);
   useEffect(() => {
     if (lastKey.current === key) return;
@@ -123,12 +133,16 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     setBase(next);
     if (!dirty) setF(next);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const set = (patch: Partial<Form>) => { setF((x) => ({ ...x, ...patch })); setAgree(false); };
+  const set = (patch: Partial<Form>) => {
+    setF((x) => ({ ...x, ...patch })); setAgree(false);
+  };
 
   const [dialog, setDialog] = useState<PostAction | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setAgree(false); }, [key, account?.account_id]);
+  useEffect(() => {
+    setAgree(false); setReuseKind(""); setReuseBasis("");
+  }, [key, account?.account_id, p.reuse_review?.confirmed, p.reuse_review?.status]);
 
   // TikTok's creator info is read fresh from TikTok before posting (its sharing guidelines).
   const [creator, setCreator] = useState<TikTokCreator | null>(null);
@@ -165,12 +179,13 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     return out as Post;
   };
 
-  const guard = useMemo(() => (dirty ? {
-    what: dirtyKeys.map((k) => LABELS[k]).join(", "),
-    save: dirtyKeys.every((k) => SAVED_BY_EDIT.includes(k)) && p.status !== "approved"
+  const reuseDirty = needsOk && needsReuseCheck && (!!reuseKind || !!reuseBasis.trim());
+  const guard = useMemo(() => (dirty || reuseDirty ? {
+    what: [...dirtyKeys.map((k) => LABELS[k]), ...(reuseDirty ? ["reuse review"] : [])].join(", "),
+    save: !reuseDirty && dirtyKeys.every((k) => SAVED_BY_EDIT.includes(k)) && p.status !== "approved"
       ? async () => { await saveText(); } : undefined,
-    discard: () => setF(base),
-  } : null), [dirty, dirtyKeys.join(), base, p.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    discard: () => { setF(base); setAgree(false); setReuseKind(""); setReuseBasis(""); },
+  } : null), [dirty, reuseDirty, dirtyKeys.join(), base, p.status]); // eslint-disable-line react-hooks/exhaustive-deps
   useLeaveGuard(guard);
 
   // What still stands between this post and your OK (the platform's rules and the final check).
@@ -194,7 +209,11 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
       && "branded content needs Friends or Everyone",
     tooLong && `trim the clip to ${creator!.max_duration} seconds`,
     p.quality?.status === "failed" && "fix what the final check found",
-    !agree && "tick that you watched the video and read its text",
+    p.source?.rights_status === "BLOCKED" && "remove this blocked source from the plan",
+    needsReuseCheck && (!reuseKind || (reuseKind === "custom" && !reuseBasis.trim()))
+      && "choose why you can reuse this clip",
+    !agree && (needsReuseCheck ? "confirm your video, text, audience and reuse review"
+      : "tick that you watched the video and read its text"),
   ].filter(Boolean) as string[];
 
   const approve = async () => {
@@ -206,6 +225,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
     try {
       const body: Record<string, unknown> = { title: yt ? f.title.trim() : p.title, description: f.text.trim(),
         expected_account_id: account?.account_id };
+      if (needsReuseCheck) Object.assign(body, { reuse_confirmed: agree, reuse_kind: reuseKind,
+        ...(reuseKind === "custom" ? { reuse_basis: reuseBasis.trim() } : {}) });
       if (yt) Object.assign(body, { tags: tagList(f.tags), privacy: f.privacy, made_for_kids: f.kids === "yes" });
       else Object.assign(body, {
         mode: f.mode, privacy: direct ? f.privacy : "", allow_comment: f.comment, allow_duet: f.duet,
@@ -215,7 +236,10 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
       setAgree(false);
       onChanged(out);
       toast(out.warnings?.length ? `Approved. Note: ${out.warnings[0]}`
-        : `Approved for ${name}. It goes out ${atLabel(out.planned_at, tz)}. Nothing was uploaded now.`);
+        : autoPublish ? `Approved for ${name}. ${out.planned_at && out.planned_at <= Date.now() / 1000
+          ? "Its planned time has arrived, so uploading can start on the next publishing check."
+          : `It can upload ${atLabel(out.planned_at, tz)}.`}`
+          : `Approved for ${name}. It waits for you to press Publish now.`);
     } catch (e) {
       toast(errorText(e), true);
     } finally {
@@ -225,13 +249,15 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
 
   const view = viewOf(p);
   const title = p.title || p.clip.title || "Untitled post";
+  const approvalTiming = p.planned_at && p.planned_at <= Date.now() / 1000
+    ? "on the next publishing check after you approve (its planned time has arrived)" : atLabel(p.planned_at, tz);
   const clipLink = p.clip.id
     ? <a className="textlink" href={`#/clip/${p.clip.id}`}>{p.clip.title || "the clip"}</a> : null;
   return (
     <div className="page">
       <PageHead kind={`${name} post`} title={needsOk ? `Review for ${name}` : title}
         crumbs={[
-          { label: `Queue: ${VIEW_NAME[view]}`, href: `#/queue/${view}` },
+          { label: `Publishing: ${VIEW_NAME[view]}`, href: `#/publishing/${view}` },
           { label: <span className="clamp-1 crumb-title">{title}</span> },
         ]}
         sub={<span className="row wrap" style={{ gap: 8 }}><Pill tone={s.tone} icon={s.icon}>{s.word}</Pill>
@@ -271,6 +297,17 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             </p>
           )}
           <Checks p={p} account={account} />
+          {needsOk && needsReuseCheck && (
+            <section className="panel stack-3" aria-labelledby="reuse-review-h">
+              <h2 id="reuse-review-h" style={{ fontSize: "var(--fs-h3)" }}>Check reuse before approving</h2>
+              <p className="small muted">There is no current reuse confirmation covering this post.
+                Your confirmation records your own review; it does not verify a license or change the source's
+                recorded permission.</p>
+              <ReuseBasis kind={reuseKind} basis={reuseBasis} onChange={(kind, basis) => {
+                setReuseKind(kind); setReuseBasis(basis); setAgree(false);
+              }} />
+            </section>
+          )}
           {editable ? (
             <TextPanel p={p} f={f} set={set} creator={creator} creatorError={creatorError} account={account} />
           ) : (
@@ -310,20 +347,22 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
           <div className="grow">
             <h2 id="ok-h" className="small strong">Your OK for {name}</h2>
             <span className="small muted">
-              {!yt && f.mode === "inbox"
-                ? `Approving sends this exact video with this text to your TikTok inbox ${atLabel(p.planned_at, tz)}, `
+              {!autoPublish
+                ? "Approving records your OK for this exact video, its text and audience. Nothing uploads from this approval."
+                : !yt && f.mode === "inbox"
+                ? `Approving sends this exact video with this text to your TikTok inbox ${approvalTiming}, `
                   + `without asking again. You finish it in the TikTok app for ${who}. Nothing is sent now.`
                 : !yt && f.mode === "manual"
                   ? `Approving makes this exact video and caption ready for you to post ${atLabel(p.planned_at, tz)}. `
                     + `Nothing is sent to TikTok: you post it in the TikTok app for ${who} and paste the link.`
                   : yt
                     ? `Approving uploads this exact video as ${privacyLabel(p.platform, f.privacy)} `
-                      + `${atLabel(p.planned_at, tz)} to ${account?.name || name}, without asking again. `
+                      + `${approvalTiming} to ${account?.name || name}, without asking again. `
                       + (f.privacy === "public" ? "Anyone can watch if YouTube confirms public visibility. "
                         : p.audience?.intent === "OWNER_ONLY" ? "It stays private for you. "
                           : "Then you share it with invited viewers in YouTube Studio yourself. ")
                       + "Nothing is uploaded now."
-                    : `Approving posts this exact video with this text ${atLabel(p.planned_at, tz)} to `
+                    : `Approving posts this exact video with this text ${approvalTiming} to `
                       + `${account?.name || name} for the audience you chose, without asking again. Nothing is `
                       + "posted now."}
               {" "}If the video or the text changes, it needs your OK again, and you can cancel it until it goes out.
@@ -334,13 +373,15 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
             <label className="choice">
               <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
               <span className="small">I watched this video, read its text and authorize this audience
-                {f.privacy === "public" || p.audience?.intent === "PUBLIC" ? ": Public (anyone can watch)." : "."}</span>
+                {f.privacy === "public" || p.audience?.intent === "PUBLIC" ? ": Public (anyone can watch)." : "."}
+                {needsReuseCheck ? " I checked I can reuse this clip on the basis selected above." : ""}</span>
             </label>
           </div>
           <div className="stack approve-side">
             <button type="button" className="btn btn-primary" aria-disabled={missing.length > 0 || busy}
               aria-describedby="ok-why" onClick={() => !busy && approve()}>
-              {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="check" />}Approve for {name}
+              {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="check" />}
+              {autoPublish && (yt || f.mode !== "manual") ? "Approve & schedule upload" : `Approve for ${name}`}
             </button>
             <span className="tiny muted" id="ok-why">
               {missing.length ? `To approve: ${missing.join(", ")}.` : "Ready to approve."}
@@ -373,7 +414,8 @@ function Review({ p, tz, autoPublish, account, onChanged }: {
         <ConfirmDialog title="Save the changes?" confirmLabel="Save and remove my OK" cancelLabel="Keep it as approved"
           onClose={() => setConfirmSave(false)} onConfirm={async () => { await saveText(); }}>
           <p className="muted">
-            You approved this {name} post as it was. Saving the changes removes your OK: it won't go out until you
+            {p.approval?.by === "submission" ? `This ${name} post was authorized by its submitted video's Make & upload request.`
+              : `You approved this ${name} post as it was.`} Saving the changes removes its approval: it won't go out until you
             approve it again.
           </p>
         </ConfirmDialog>
@@ -429,6 +471,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
       return p.status_note ? <p className="small muted">{p.status_note}</p> : null;
     case "approved": {
       const auto = p.approval?.by === "automatic";
+      const submitted = p.approval?.by === "submission";
       // "approved today, 9:14" reads better mid-sentence than "approved Today, 9:14".
       const approvedAt = p.approval?.at
         ? when(p.approval.at, tz).replace(/^(Today|Tomorrow|Yesterday)/, (m) => m.toLowerCase()) : "";
@@ -437,14 +480,16 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
       const overdue = !!p.planned_at && p.planned_at < Date.now() / 1000 - 15 * 60;
       return (
         <section className="panel" aria-labelledby="st-h">
-          <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{auto ? "Approved automatically" : "Approved by you"}</h2>
+          <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{submitted ? "Authorized for this submitted video"
+            : auto ? "Approved automatically" : "Approved by you"}</h2>
           <p className="small muted">
-            {auto ? `Your automatic-publishing permission for ${name} approved it, because every check passed. `
+            {submitted ? "Approved under this video's Make & upload request, after its exact finished file and post passed the checks. You did not review this clip individually."
+              : auto ? `Your automatic-publishing permission for ${name} approved it, because every check passed. `
               + "You did not review it."
               : `You approved this exact video and text${approvedAt ? ` ${approvedAt}` : ""}.`}{" "}
             {overdue ? `Its time, ${atLabel(p.planned_at, tz)}, passed while Autopilot wasn't running. It stays `
               + "approved and gets a new time the next time Autopilot runs."
-              : autoPublish ? `It goes out ${atLabel(p.planned_at, tz)} by itself.`
+              : autoPublish || submitted ? `It goes out ${atLabel(p.planned_at, tz)} by itself, unless publishing is paused.`
               : "Posting at the planned time is turned off (Settings, Advanced), so at its time it waits for you to "
                 + "press Publish now."}
           </p>
@@ -452,7 +497,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
             <b>Publish now instead?</b>
             <span>
               “Publish now” uploads it right away instead of {atLabel(p.planned_at, tz)}. The upload can't be taken back
-              from ClipFoundry; you would remove it on {name}.
+              from ClipForge; you would remove it on {name}.
             </span>
           </div>
           <div className="row wrap">
@@ -466,7 +511,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
     case "publishing":
       return (
         <Banner tone="info" icon="upload" title="Uploading now">
-          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipFoundry
+          {p.publication?.message || p.status_note || "The upload has started."} It can't be canceled from ClipForge
           once it started; wait for it to finish.
         </Banner>
       );
@@ -476,6 +521,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
           <Banner tone="info" icon="clock" title={postStatus(p).word}>
             It was accepted ahead of its planned time ({atLabel(p.planned_at, tz)}). Its recorded visibility is
             {" "}{privacyLabel(p.platform, p.publication?.privacy || p.privacy)}. {p.delivery_label} {p.status_note}
+            {p.platform === "youtube" && <YouTubeCommentsResult info={p.publication?.info} />}
           </Banner>
         );
       }
@@ -493,9 +539,9 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
           </>}>
           <span className="stack" style={{ gap: 4 }}>
             {p.status_note && <span>{p.status_note}</span>}
-            <span>ClipFoundry won't upload it again by itself, so the video can never be posted twice.</span>
+            <span>ClipForge won't upload it again by itself, so the video can never be posted twice.</span>
             {fix(p.fix || `Check ${p.platform === "youtube" ? "YouTube Studio" : "your TikTok profile"}, then tell `
-              + "ClipFoundry what you found.")}
+              + "ClipForge what you found.")}
           </span>
         </Banner>
       );
@@ -539,7 +585,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
             </>}>
             <span className="stack" style={{ gap: 4 }}>
               <span>{p.status_note || p.publication?.message}</span>
-              <span>After you posted it, paste its link so ClipFoundry can read its real numbers.</span>
+              <span>After you posted it, paste its link so ClipForge can read its real numbers.</span>
             </span>
           </Banner>
         );
@@ -582,7 +628,7 @@ function StatusBlock({ p, tz, autoPublish, accountOk, onAction, onChanged, video
 
 /** TikTok has no route for your followers from this app (only audited apps may post for them), so the clip is a
  * ready-to-post package: the video, its caption and who to post it for. You post it in the TikTok app, then paste
- * its link (or say you posted it). Nothing is uploaded by ClipFoundry. */
+ * its link (or say you posted it). Nothing is uploaded by ClipForge. */
 function PostItYourself({ p, videoUrl, onAction, onChanged }: {
   p: Post; videoUrl?: string; onAction: (a: PostAction) => void; onChanged: (p: Post) => void;
 }) {
@@ -617,7 +663,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
     <section className="panel stack-4 post-yourself" aria-labelledby="py-h">
       <h2 id="py-h" style={{ fontSize: "var(--fs-h3)" }}>Ready for you to post on TikTok</h2>
       <p className="small">
-        This is a manual posting package; ClipFoundry has not uploaded it. Direct Post for viewers needs TikTok’s
+        This is a manual posting package; ClipForge has not uploaded it. Direct Post for viewers needs TikTok’s
         app approval and your consent to each post. Download it, post it in TikTok yourself and record the result here.
       </p>
       <ol className="small stack" style={{ gap: 6, paddingLeft: 20 }}>
@@ -642,7 +688,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
           Under <b>Who can watch this video</b> choose <b>{who}</b>.
           {publicPost ? " Anyone may watch, share or find this post." : " Keep this post’s planned audience."} Then post.
         </li>
-        <li>Back here, paste the post's link (Share → Copy link) so ClipFoundry can read its numbers.</li>
+        <li>Back here, paste the post's link (Share → Copy link) so ClipForge can read its numbers.</li>
       </ol>
       <div className="row wrap">
         <button type="button" className="btn btn-primary btn-small" onClick={() => onAction("link")}>
@@ -653,7 +699,7 @@ function PostItYourself({ p, videoUrl, onAction, onChanged }: {
         </button>
       </div>
       <p className="tiny muted">
-        Without a link ClipFoundry cannot read its numbers: add what your viewers said in Clips → Test feedback.
+        Without a link ClipForge cannot read its numbers: add what your viewers said in Clips → Test feedback.
         Only post clips you may reuse.
       </p>
     </section>
@@ -713,12 +759,13 @@ function PublishedBlock({ p, onChanged }: { p: Post; onChanged: (p: Post) => voi
     <section className="panel" aria-labelledby="st-h">
       <h2 id="st-h" style={{ fontSize: "var(--fs-h3)" }}>{postStatus(p).word}</h2>
       {p.status_note && <p className="small muted">{p.status_note}</p>}
+      {p.platform === "youtube" && <YouTubeCommentsResult info={pub?.info || p.publication?.info} />}
       {p.delivery_state === "awaiting_invitations" && (
         <Banner tone="warn" icon="user" title="Share it with your invited viewers"
           actions={<button type="button" className="btn btn-small" disabled={sharing} onClick={shared}>
             <Icon name="check" />I shared it</button>}>
           It is Private on YouTube, so nobody but you can watch it yet. In YouTube Studio choose Visibility → Private
-          → Share privately, add your viewers' email addresses and save. ClipFoundry cannot check this; your word is
+          → Share privately, add your viewers' email addresses and save. ClipForge cannot check this; your word is
           recorded as yours.
         </Banner>
       )}
@@ -767,6 +814,16 @@ function Checks({ p, account }: { p: Post; account?: PlatformAccount }) {
           {p.source?.title && (
             <span className="small muted"> {p.source.title}{p.source.channel ? ` · ${p.source.channel}` : ""}</span>
           )}
+          {p.reuse_review?.explanation && <p className="small muted">{p.reuse_review.explanation}</p>}
+          {p.reuse_review?.confirmed && <div className="stack small" style={{ marginTop: 6 }}>
+            <b>{p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? "Reuse basis recorded with this submitted video" : "Reuse confirmed by you for this exact post"}</b>
+            <span>{p.reuse_review.basis}</span>
+            <span className="tiny muted">Owner assertion; the app has not independently verified a license.</span>
+            <span className="tiny muted">{p.reuse_review.confirmed_from === "source_submission" || p.approval?.by === "submission"
+              ? "Saved with this submitted video's authorization and resulting posts. It does not authorize other videos."
+              : "Saved with this post only."} It is not Brain knowledge or editing guidance.</span>
+          </div>}
         </dd>
         <dt>Final check</dt>
         <dd>
@@ -879,6 +936,7 @@ function TextPanel({ p, f, set, creator, creatorError, account }: {
                 <span>{l}</span>
               </label>
             ))}
+            <YouTubeComments privacy={f.privacy} kids={f.kids === "yes" ? true : f.kids === "no" ? false : null} />
           </fieldset>
         </>
       ) : (

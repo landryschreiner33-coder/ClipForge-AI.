@@ -1,14 +1,15 @@
-"""REST endpoints for Autopilot. State-changing calls only work from ClipFoundry's own page on this computer."""
+"""REST endpoints for Autopilot. State-changing calls only work from ClipForge's own page on this computer."""
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import time
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from .. import config, db, gpu
 from ..publish.common import app_request, local_only
@@ -18,6 +19,53 @@ from .host import MANUAL_PRIORITY, supervisor
 router = APIRouter(prefix="/api/autopilot")
 READ = [Depends(local_only)]
 WRITE = [Depends(app_request)]
+
+
+class SubmissionIn(BaseModel):
+    url: str = ""
+    auto_upload: StrictBool
+    account_id: str = ""
+    privacy: str = ""
+    made_for_kids: StrictBool | None = None
+    audience_version: StrictInt = 0
+    reuse_basis: str = ""
+    reuse_statement: str = ""
+    agreed: StrictBool = False
+
+
+@router.get("/submissions/setup", dependencies=READ)
+def submission_setup() -> dict:
+    from . import submissions
+
+    return submissions.setup()
+
+
+@router.get("/submissions", dependencies=READ)
+def submissions_list() -> list[dict]:
+    from . import submissions
+
+    return submissions.list_items()
+
+
+@router.post("/submissions/link", dependencies=WRITE)
+def submit_link(body: SubmissionIn) -> dict:
+    from . import submissions
+
+    try:
+        return submissions.add_link(body.url, body.model_dump())
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/submissions/file", dependencies=WRITE)
+def submit_file(file: UploadFile = File(...), options: str = Form("{}")) -> dict:
+    from . import submissions
+
+    try:
+        parsed = SubmissionIn.model_validate(json.loads(options))
+        return submissions.add_file(file.file, file.filename or "video.mp4", parsed.model_dump())
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _manual(kind: str, payload: dict | None = None, ref: tuple[str, str] = ("", "")) -> dict:
@@ -108,6 +156,9 @@ class SourceIn(BaseModel):
 def add_source(body: SourceIn) -> dict:
     """Add one source by hand (a local file or a URL you may use)."""
     import hashlib
+
+    if not config.discovery_enabled(db.get_settings()):
+        raise HTTPException(409, "Use Add video in Missions to submit a link or file and choose Make clips only or Make and upload.")
 
     if body.path:
         p = Path(body.path).expanduser()
@@ -316,10 +367,10 @@ def activity(limit: int = 60) -> dict:
 class AutoPublishIn(BaseModel):
     platform: str = "youtube"
     visibility: str = ""
-    made_for_kids: bool | None = None
-    daily_limit: int = 3
-    start_hour: int = 9
-    end_hour: int = 21
+    made_for_kids: StrictBool | None = None
+    daily_limit: int = 0
+    start_hour: int = 0
+    end_hour: int = 24
     agreed: bool = False
     expected_account_id: str = ""
     expected_audience_version: int | None = None
@@ -333,10 +384,11 @@ def auto_publish_view() -> dict:
     yt = _youtube_state(settings)
     return {**autopublish.view(settings), "channel": yt.get("name") or yt.get("account_id") or "",
             "timezone": settings.get("autopilot_timezone"),
-            "defaults": {"daily_limit": min(3, int(settings.get("autopilot_youtube_daily_limit") or 3)),
-                         "start_hour": 9, "end_hour": 21},
+            "defaults": {"daily_limit": int(settings.get("autopilot_youtube_daily_limit") or 0),
+                         "start_hour": int(settings.get("autopilot_active_start", 0)),
+                         "end_hour": int(settings.get("autopilot_active_end", 24))},
             "preview": autopublish.text_for("youtube", {"visibility": "VISIBILITY", "made_for_kids": False,
-                                                        "daily_limit": 3, "start_hour": 9, "end_hour": 21,
+                                                        "daily_limit": 0, "start_hour": 0, "end_hour": 24,
                                                         "timezone": settings.get("autopilot_timezone")})}
 
 
@@ -593,8 +645,9 @@ def status() -> dict:
     return {
         "enabled": bool(settings.get("autopilot_enabled")), "paused": state.paused(), "day": day,
         "timezone": settings.get("autopilot_timezone"),
-        "target": {"daily": int(settings.get("autopilot_daily_target") or 15), **counts, "processed": processed,
-                   "note": "A target, not a quota: quality, rights and platform limits come first. It counts unique "
+        "target": {"daily": int(settings.get("autopilot_daily_target") or 0), **counts, "processed": processed,
+                   "note": "Zero means no app daily cap. Quality, reuse permission and platform allowances still "
+                           "apply. It counts unique "
                            "clips; one clip on YouTube and TikTok is two platform posts."},
         "sources_today": today_counts(settings, now), "sources_per_day": settings.get("autopilot_sources_per_day"),
         "next": ({**nxt[0], "local": _local_time(nxt[0]["planned_at"], settings)} if nxt else None),
@@ -607,6 +660,7 @@ def status() -> dict:
         "actions": state.open_actions(), "events": state.events(25),
         "trends": db.select("trend_signals", "status = 'active'", (), "score DESC", 8),
         "providers": state.get("providers", {}) or {}, "web_search": providers.web_usage(settings),
+        "discovery_shortlist": state.get("discovery:shortlist") or None,
         "settings": {k: settings.get(k) for k in settings if k.startswith("autopilot_")},
         "home": home.view(settings, platforms, workers_now["host"]["alive"]),
     }
@@ -661,7 +715,14 @@ def _public_item(item: dict, settings: dict) -> dict:
     publishing_job = db.fetch("worker_jobs", f"publish:{item['id']}", "idem_key")
     if publishing_job and publishing_job["status"] == "retrying":
         delivery_state = "retrying"
-    return {**item, "local_time": _local_time(item.get("planned_at"), settings),
+    # The exact account this post goes to (or went to): its own binding, never just whichever account is the default.
+    cid = item.get("connection_id") or (pub or {}).get("connection_id") or db.default_connection_id(item["platform"])
+    acc = db.get_connection(cid) if cid else None
+    account = {"connection_id": cid, "name": (acc or {}).get("nickname") or (acc or {}).get("display_name") or "",
+               "account_id": (acc or {}).get("external_id") or "", "bound": bool(item.get("connection_id") or
+                                                                            (pub or {}).get("connection_id"))}
+    return {**item, "account": account, "local_time": _local_time(item.get("planned_at"), settings),
+            "reuse_review": rights.review_info(item, settings),
             "publishing_job": ({k: publishing_job.get(k) for k in
                                 ("status", "attempts", "max_attempts", "run_after", "message", "error", "fix",
                                  "wait_reason")} if publishing_job else None),
@@ -678,7 +739,11 @@ def _public_item(item: dict, settings: dict) -> dict:
                         "platform": source.get("platform"), "channel": source.get("channel_title"),
                         "rights_status": source.get("rights_status"),
                         "rights_label": rights.LABELS.get(source.get("rights_status") or "", "")} if source else
-                       {"title": project.get("name"), "rights_status": "OWNED", "rights_label": "Manual project"}),
+                       {"title": project.get("name"),
+                        "rights_status": rights.MANUAL if (item.get("source_id") or project.get("source_id")) else
+                                         rights.OWNED,
+                        "rights_label": "Source record missing" if (item.get("source_id") or
+                                                                     project.get("source_id")) else "Manual project"}),
             "trend": ({"topic": signal.get("topic"), "score": signal.get("score"), "mode": signal.get("score_mode")}
                       if signal else None),
             "clip_scores": db.fetch("clip_scores", item["clip_id"], "clip_id"),
@@ -719,7 +784,46 @@ def scheduled_list(view: str = "upcoming", limit: int = 200) -> dict:
     items = [_public_item(i, settings) for i in db.select("scheduled_publications", where, (), order, min(500, limit))]
     return {"items": items, "view": view, "timezone": settings.get("autopilot_timezone"),
             "auto_publish": bool(settings.get("autopilot_auto_publish")),
+            "review_before_publish": bool(settings.get("autopilot_review_before_publish", True)),
             "counts": {r["status"]: r["n"] for r in _count("scheduled_publications", "status")}}
+
+
+class BulkPreviewBody(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class BulkApproveBody(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    confirm: bool = False
+    reuse_confirmed: bool = False
+    reuse_kind: str = Field(default="custom", max_length=50)
+    reuse_basis: str = Field(default="", max_length=4000)
+    made_for_kids: StrictBool | None = None
+
+
+@router.post("/scheduled/bulk-preview", dependencies=WRITE)
+def bulk_preview(body: BulkPreviewBody) -> dict:
+    from . import bulk_review
+
+    try:
+        result = bulk_review.preview(body.ids)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    settings = db.get_settings()
+    for row in result["items"]:
+        if row["item"]:
+            row["item"] = _public_item(row["item"], settings)
+    return result
+
+
+@router.post("/scheduled/bulk-approve", dependencies=WRITE)
+def bulk_approve(body: BulkApproveBody) -> dict:
+    from . import bulk_review
+
+    try:
+        return bulk_review.approve(**body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 def _item_or_404(item_id: str) -> dict:
@@ -734,7 +838,8 @@ def scheduled_item(item_id: str) -> dict:
     """One post, as the list shows it (the post page: also an old post beyond the newest the lists return)."""
     settings = db.get_settings()
     return {"item": _public_item(_item_or_404(item_id), settings), "timezone": settings.get("autopilot_timezone"),
-            "auto_publish": bool(settings.get("autopilot_auto_publish"))}
+            "auto_publish": bool(settings.get("autopilot_auto_publish")),
+            "review_before_publish": bool(settings.get("autopilot_review_before_publish", True))}
 
 
 class ApproveBody(BaseModel):
@@ -742,7 +847,7 @@ class ApproveBody(BaseModel):
     description: str | None = None
     tags: list[str] | None = None
     privacy: str | None = None
-    made_for_kids: bool | None = None
+    made_for_kids: StrictBool | None = None
     mode: str | None = None
     allow_comment: bool = False
     allow_duet: bool = False
@@ -751,6 +856,9 @@ class ApproveBody(BaseModel):
     brand_organic: bool = False
     brand_content: bool = False
     confirm: bool = False
+    reuse_confirmed: bool = False
+    reuse_basis: str = Field(default="", max_length=4000)
+    reuse_kind: str | None = Field(default=None, max_length=50)
     expected_account_id: str = ""
 
 
@@ -777,7 +885,7 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     """Your explicit approval of this post, exactly as shown (required by YouTube and TikTok)."""
     from ..publish import tiktok
     from ..publish.common import PublishError
-    from . import packaging, scheduler
+    from . import bulk_review, packaging, scheduler
 
     if not body.confirm:
         raise PublishError("Approving needs your explicit confirmation.", "Review the post and press Approve.")
@@ -789,7 +897,9 @@ def approve_item(item_id: str, body: ApproveBody) -> dict:
     if item["platform"] == "tiktok" and (fields["options"].get("mode") or "direct") == "direct":
         creator = tiktok.creator_info(tiktok.Token(db.get_settings()))  # read fresh before every approval
     try:
-        out = scheduler.approve(item_id, fields, creator)
+        basis = bulk_review.resolve_reuse_basis(body.reuse_kind or "custom", body.reuse_basis)
+        out = scheduler.approve(item_id, fields, creator, reuse_confirmed=body.reuse_confirmed,
+                                reuse_basis=basis)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     clip = db.get_clip(item["clip_id"])
@@ -865,7 +975,8 @@ def retry_item(item_id: str) -> dict:
     item = _item_or_404(item_id)
     if item["status"] not in ("failed", "blocked", "action_needed", "canceled"):
         raise HTTPException(409, "Only failed, blocked or canceled posts can be retried")
-    valid = approval_valid({**item, "status": "approved"})
+    valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
+        rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
     db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
               planned_at=None, last_error="", fix="", publication_id="",
               status_note="Retrying: a new time will be chosen" if valid else "Approve it again to publish it",
@@ -1040,7 +1151,8 @@ def resolve_uncertain(item_id: str, body: ResolveBody) -> dict:
                   status_note="Published (confirmed by you)",
                   audit=_audit(item, "resolved", "You confirmed the upload is live", url=body.url.strip()))
     else:
-        valid = approval_valid({**item, "status": "approved"})
+        valid = approval_valid({**item, "status": "approved", "publication_id": ""}) and not (
+            rights.review_before_publish() and (item.get("approval") or {}).get("by") == "automatic")
         db.update("scheduled_publications", item_id, status="approved" if valid else "awaiting_approval",
                   planned_at=None, publication_id="", last_error="", fix="",
                   status_note="Not on the platform: it will be uploaded again at a new time" if valid else

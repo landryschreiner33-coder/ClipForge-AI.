@@ -176,7 +176,7 @@ def test_changing_the_test_group_needs_a_new_approval(env, api):
     item = db.fetch("scheduled_publications", item["id"])
     assert item["status"] == "awaiting_approval" and not g.videos
     old = {**approved, "approval": {**approved["approval"], "scheme": 2}}
-    assert scheduler.approval_problem(old) == "approved before ClipFoundry checked who may watch it"
+    assert scheduler.approval_problem(old) == "approved before ClipForge checked who may watch it"
 
 
 def test_automatic_publishing_is_private_only(env):

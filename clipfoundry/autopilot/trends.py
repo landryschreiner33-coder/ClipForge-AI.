@@ -4,7 +4,7 @@ The Trend Score values momentum over size: a recent video gaining views quickly 
 growing. Every metric carries its provenance:
 
 * observed     reported by the platform at a known time
-* estimated    derived by ClipFoundry (e.g. average views per hour since upload, when only one reading exists)
+* estimated    derived by ClipForge (e.g. average views per hour since upload, when only one reading exists)
 * unavailable  the platform does not report it (never filled in with a guess)
 
 YouTube's Developer Policies do not allow API data to be used to create derived metrics without Google's approval.
@@ -29,7 +29,7 @@ MOMENTUM, PLATFORM_ORDER = "momentum", "platform_order"
 DERIVED_NOTE = ("Ranked by YouTube's own order. YouTube's Developer Policies do not allow metrics derived from "
                 "YouTube API data without Google's approval; turn on 'Google approved derived metrics' in Settings "
                 "only if your project has it.")
-DERIVED_DISCLOSURE = "Scores are calculated by ClipFoundry; they are not YouTube metrics."
+DERIVED_DISCLOSURE = "Scores are calculated by ClipForge; they are not YouTube metrics."
 YOUTUBE_CATEGORIES = {
     "1": "Film & Animation", "2": "Autos & Vehicles", "10": "Music", "15": "Pets & Animals", "17": "Sports",
     "19": "Travel & Events", "20": "Gaming", "22": "People & Blogs", "23": "Comedy", "24": "Entertainment",

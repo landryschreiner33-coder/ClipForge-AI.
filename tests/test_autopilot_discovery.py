@@ -231,7 +231,8 @@ def test_trend_and_source_scout(google, data, tmp_path, monkeypatch):
     usage = quota.usage()
     assert usage["search"]["by_purpose"]["discovery"] >= 3 and usage["default"]["units"] >= 2
 
-    db.save_settings({"autopilot_sources_per_day": 2})
+    # This legacy coverage inspects every rejected row. Quality-first's bounded admission has its own suite.
+    db.save_settings({"autopilot_sources_per_day": 2, "discovery_quality_first": False})
     run("source_scout")
     src = {s["external_id"]: s for s in db.select("sources")}
     assert "short1" in src and src["short1"]["status"] == "skipped" and "short" in src["short1"]["status_note"]
@@ -429,11 +430,14 @@ def test_the_website_is_ready_to_publish():
 
     from clipfoundry.api import LEGAL_DIR
 
-    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == ["index.html", "privacy.html", "site.css", "terms.html"]
+    assert sorted(p.name for p in LEGAL_DIR.iterdir()) == [
+        "app-icon.png", "favicon.ico", "index.html", "privacy.html", "site.css", "terms.html"]
     for page in ("index.html", "privacy.html", "terms.html"):
         html = (LEGAL_DIR / page).read_text(encoding="utf-8")
         assert not re.search(r"\{\{|\[[A-Z][A-Z ]+\]", html), f"{page}: unresolved placeholder"
-        assert not re.search(r"<script|<form|<iframe|<img|@import", html, re.I), page
+        assert not re.search(r"<script|<form|<iframe|@import", html, re.I), page
+        # The visible logo is the same bundled PNG as TikTok; it must not load an external image.
+        assert re.findall(r'<img[^>]+src="([^"]+)"', html) == ["app-icon.png"], page
         assert re.findall(r'<link rel="stylesheet" href="([^"]+)"', html) == ["site.css"], page
         header = html.split("<main", 1)[0]
         assert 'href="privacy.html"' in header and 'href="terms.html"' in header, page

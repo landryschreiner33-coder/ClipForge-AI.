@@ -1,0 +1,33 @@
+name: Publish tested personal Mac preview
+# Started by hand after a successful "Native Mac desktop app" run; publishes exactly that run's DMG.
+on:
+  workflow_dispatch:
+    inputs:
+      tested_run:
+        description: ID of a successful Native Mac desktop app run (macos-desktop.yml)
+        required: true
+        type: string
+      tag:
+        description: Release tag to create, for example clipforge-mac-2026-11-04-abc1234
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: macos-personal-preview-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and publish the unchanged tested DMG as an unsigned preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED_RUN: ${{ inputs.tested_run }}
+          TAG: ${{ inputs.tag }}
+        run: python3 .github/scripts/publish_personal_mac.py

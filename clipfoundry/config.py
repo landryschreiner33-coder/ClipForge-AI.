@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-APP_NAME = "ClipFoundry"
+APP_NAME = "ClipForge"
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = PACKAGE_DIR.parent
@@ -53,6 +53,11 @@ def db_path() -> Path:
 # Every persisted setting must have a default here; the type of the default is
 # used to coerce incoming values from the UI.
 DEFAULT_SETTINGS: dict[str, Any] = {
+    # Optional, separately authenticated phone status listener. Only its local setup controls may change these.
+    "phone_enabled": False,
+    "phone_mode": "tailscale",
+    "phone_address": "",
+    "phone_port": 8766,
     # Transcription (faster-whisper)
     "whisper_model": "auto",          # auto | tiny | base | small | medium | large-v3 | large-v3-turbo ...
     "whisper_device": "auto",         # auto | cuda | cpu
@@ -102,7 +107,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_overlay": True,
     "hook_seconds": 3.0,
     "normalize_audio": True,
-    "encoder": "auto",                # auto | nvenc | x264
+    "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",
     "max_fps": 30,
@@ -116,6 +121,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tiktok_client_secret": "",
     "tiktok_app_audited": False,        # True once TikTok's audit lifted the private-only (SELF_ONLY) restriction
     "tiktok_direct_post": True,         # request video.publish (Direct Post) when connecting
+    "tiktok_inbox_upload": True,        # request video.upload (inbox draft) when connecting
     "tiktok_read_stats": True,          # request video.list (views, likes... of your own videos) when connecting
     # Who may watch uploads (publish/audience.py): selected (your test viewers), owner_only (staging that only you
     # see) or local_only (never uploaded). Nothing uploads until you confirm the destination once per platform.
@@ -127,17 +133,19 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "audience_tiktok_confirmed_at": 0.0,
     "audience_youtube_group_version": 1,    # raised when you say the people in the test group changed
     "audience_tiktok_group_version": 1,
-    # Autopilot (docs/AUTOPILOT.md). Off until turned on; every post still needs the user's approval (platform rules).
+    # Autopilot (docs/AUTOPILOT.md). Off initially; a source request can authorize only its own YouTube clips.
     "autopilot_enabled": False,
+    "autopilot_input_mode": "submitted",  # submitted: process only explicitly added links/files; discovery is optional
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
-    "autopilot_daily_target": 15,       # a target, never a quota: quality, rights and platform limits come first
-    "autopilot_sources_per_day": 3,
+    "autopilot_daily_target": 0,        # 0: no app daily cap; quality, rights and platform allowances still apply
+    "autopilot_sources_per_day": 0,     # 0: continuously refill a bounded work queue with strong sources
     "autopilot_clips_per_source": 5,
     "autopilot_min_quality": 60.0,      # minimum Viral Potential for autopilot clips
     "autopilot_youtube": True,
     "autopilot_tiktok": True,
     "autopilot_auto_schedule": True,
+    "autopilot_review_before_publish": True,  # prepare local drafts; only the owner's approval may upload them
     "autopilot_auto_publish": True,     # publish approved posts at their scheduled time without another click
     "autopilot_dynamic_replacement": True,
     "autopilot_replacement_threshold": 15.0,  # % better than the weakest future item before it is replaced
@@ -154,11 +162,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "brain_min_testers": 3,             # ...or this many different testers rated it
     "autopilot_keep_awake": True,       # Windows: keep the PC from sleeping while Autopilot is on (screen may sleep)
     "autopilot_timezone": "America/Chicago",
-    "autopilot_active_start": 9,        # local hour, inclusive
-    "autopilot_active_end": 21,         # local hour, exclusive (posting window 9 a.m.-9 p.m.)
-    "autopilot_min_gap_minutes": 45,
-    "autopilot_youtube_daily_limit": 15,
-    "autopilot_tiktok_daily_limit": 15,
+    "autopilot_active_start": 0,        # local hour, inclusive
+    "autopilot_active_end": 24,         # local hour, exclusive; default: posting may run at any hour
+    "autopilot_min_gap_minutes": 30,    # spread new posts; daily totals stay uncapped
+    "autopilot_youtube_daily_limit": 0, # 0: no app cap, never overrides platform/API restrictions
+    "autopilot_tiktok_daily_limit": 0,
+    "autopilot_discovery_uploadable_only": True,  # broad automatic searches need recorded reuse coverage
     "autopilot_youtube_privacy": "private",  # the only YouTube visibility allowed (publish/audience.py)
     "autopilot_upload_lead_minutes": 30,    # YouTube: upload this early (as Private: YouTube never makes it public)
     "autopilot_allow_republish": False,
@@ -173,6 +182,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "discovery_excluded_topics": "",         # comma-separated words or phrases the owner does not want
     "discovery_audience_terms": "United States, USA, American, NBA, NFL",  # context clues, never audience demographics
     "discovery_min_source_score": 50.0,      # never lower this estimate floor just to fill today's target
+    "discovery_quality_first": True,        # shortlist strong estimates; do not chase the clip target with more tries
+    "discovery_candidates_per_scan": 3,     # new broad-search candidates, not manually supplied/selected sources
+    "discovery_queue_limit": 6,             # unfinished automatic search picks before admitting more
+    "discovery_creator_limit": 1,           # one creator cannot occupy a whole discovery shortlist
     "discovery_require_complete_clips": True,  # transcript must contain hook, context and payoff before auto-render
     "youtube_api_key": "",              # optional: discovery without a connected account (uses the same quota)
     "youtube_derived_metrics_approved": False,  # Google granted this project the derived-metrics exception
@@ -206,8 +219,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
                "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
+SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
-ACTION_ONLY_KEYS = {"nvidia_opt_in_at"}  # set only by their own button (an explicit agreement), never a settings save
+ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}
 AUTOPILOT_PROCESS = ["separate", "in_app"]
 YOUTUBE_PRIVACY = ["private", "public"]  # public also needs an explicitly confirmed public audience
 AUDIENCE_INTENTS = ["selected", "owner_only", "local_only", "public"]
@@ -257,6 +271,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
             continue
+        elif key == "autopilot_input_mode" and v not in {"submitted", "discovery"}:
+            continue
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
         elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:
@@ -267,26 +283,39 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "nvidia_mode" and v not in NVIDIA_MODES:
             continue
+        elif key == "phone_mode" and v not in {"tailscale", "wifi"}:
+            continue
+        elif key == "phone_port" and not 1024 <= v <= 65535:
+            continue
         elif key == "nvidia_production_url" and v and not v.lower().startswith("https://"):
             continue  # the key is only ever sent over https
         elif key == "trend_region":
             v = v.upper()[:2]
         elif key == "trend_language":
             v = v.strip().lower()[:20]
+        elif key in SEARCH_API_KEYS:
+            v = v.strip()
         elif key in ("discovery_excluded_topics", "discovery_audience_terms"):
             v = v[:2000]
         out[key] = v
     return out
 
 
+def discovery_enabled(settings: dict) -> bool:
+    """Background searching and watched feeds require the explicit discovery mode."""
+    return settings.get("autopilot_input_mode", "submitted") == "discovery"
+
+
 _RANGES: dict[str, tuple[float, float]] = {
     "discovery_min_source_score": (0.0, 100.0),
+    "discovery_candidates_per_scan": (1, 30), "discovery_queue_limit": (1, 100),
+    "discovery_creator_limit": (1, 30),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
     "brain_min_testers": (2, 100), "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),
     "nvidia_daily_spend_cap_usd": (0.0, 1000.0),
-    "autopilot_daily_target": (1, 100), "autopilot_sources_per_day": (1, 30), "autopilot_clips_per_source": (1, 10),
+    "autopilot_daily_target": (0, 100), "autopilot_sources_per_day": (0, 30), "autopilot_clips_per_source": (1, 10),
     "autopilot_min_quality": (0.0, 100.0), "autopilot_replacement_threshold": (0.0, 500.0),
     "autopilot_replacement_cooldown_hours": (0.0, 168.0),
     "autopilot_active_start": (0, 23), "autopilot_active_end": (1, 24), "autopilot_min_gap_minutes": (0, 1440),

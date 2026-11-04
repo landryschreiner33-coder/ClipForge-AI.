@@ -24,7 +24,8 @@ def transfer_started(pub: dict | None) -> bool:
     return bool(info.get("upload_session") or info.get("final_chunk_at") or (pub or {}).get("remote_id"))
 
 
-def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict) -> None:
+def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, settings: dict,
+                       publication: dict | None = None) -> None:
     """Manual Publish keeps the existing source terms and checks the selected Autopilot artifact, too."""
     from ..autopilot import gate, queue as work_queue, rights, verify
     from ..pipeline import artifact
@@ -37,13 +38,10 @@ def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, se
                            "rights")
     if source and verify.ensure([source], settings):
         source = db.fetch("sources", source["id"]) or source
-    try:
-        rights.gate(source, "publish", settings)
-    except rights.RightsBlocked as exc:
-        raise PublishError(str(exc), "Review the source's reuse terms in Autopilot → Sources.", "rights") from exc
-    allowed, why = rights.platform_allowed(source, platform, settings)
+    allowed, why = rights.publication_allowed(source, platform, settings, publication=publication)
     if not allowed:
-        raise PublishError(why, "The agreement for this video does not cover this platform.", "rights")
+        raise PublishError(why, "Review reuse in Queue and approve the exact post, or record its source permission.",
+                           "rights")
     current_path, current_version, _ = artifact.active(clip)
     if current_version != version_id or not current_path or Path(current_path).resolve() != Path(path).resolve():
         raise PublishError("The selected video version changed after confirmation.",
@@ -52,7 +50,7 @@ def manual_eligibility(clip: dict, platform: str, path: str, version_id: str, se
         db.select("quality_reports", "clip_id = ?", (clip["id"],), limit=1))
     if applicable:
         try:
-            gate.verify_file(clip, path)
+            gate.verify_file(clip, path, publication=publication)
         except work_queue.Wait as exc:
             raise PublishError(exc.message, "Wait for the final quality check, then publish again.", "quality") \
                 from exc
@@ -86,7 +84,7 @@ def _check_manual_publication(pub: dict, settings: dict) -> None:
     clip = db.get_clip(pub["clip_id"])
     if not clip or clip["status"] != "ready":
         raise PublishError("The clip is missing or not rendered.", "Render the clip and review it again.", "quality")
-    manual_eligibility(clip, pub["platform"], pub["video_path"], pub.get("version_id") or "", settings)
+    manual_eligibility(clip, pub["platform"], pub["video_path"], pub.get("version_id") or "", settings, publication=pub)
 
 
 def feature_snapshot(clip: dict, version: dict | None = None) -> dict:
@@ -112,14 +110,36 @@ def _progress_writer(pub_id: str) -> Callable[[float], None]:
     return write
 
 
+def connection_for(pub: dict) -> dict:
+    """The connection this publication uploads to. It never changes after creation: a different default account,
+    a new connection or a reconnect of another account cannot move it. A publication from before multiple accounts
+    with no binding is bound to the default only if that is still the account it was approved for."""
+    cid = pub.get("connection_id") or ""
+    label = {"youtube": "YouTube", "tiktok": "TikTok"}.get(pub["platform"], pub["platform"])
+    approved = (pub.get("options") or {}).get("approved_account") or ""
+    if not cid:
+        default = db.get_connection(db.default_connection_id(pub["platform"]))
+        if not default or (approved and default["external_id"] != approved):
+            raise PublishError(f"This upload is not bound to a connected {label} account.",
+                               "Reconnect the account it was approved for, or review the post again.", "reconnect")
+        cid = default["id"]
+        db.update_publication(pub["id"], connection_id=cid)
+    acc = db.get_connection(cid)
+    if not acc or acc["status"] == "disconnected" or not acc.get("has_tokens"):
+        name = (acc or {}).get("nickname") or (acc or {}).get("display_name") or "the chosen account"
+        raise PublishError(f"{label} account “{name}” is not connected.",
+                           f"Reconnect “{name}” in Accounts. Uploads to other accounts continue.", "reconnect")
+    if approved and approved != acc["external_id"]:
+        raise PublishError(f"Another {label} account is connected than the one this upload was approved for.",
+                           "Reconnect the original account, or review a new post for this account.", "reconnect")
+    return acc
+
+
 def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
-    token = youtube.Token(settings)
+    acc = connection_for(pub)
+    token = youtube.Token(settings, acc["id"])
     opts = pub.get("options") or {}
-    if opts.get("approved_account") and opts["approved_account"] != (db.get_account("youtube") or {}).get(
-            "account_id"):
-        raise PublishError("Another YouTube account is connected than the one this upload was approved for.",
-                           "Reconnect the original account, or review a new post for this account.", "reconnect")
     _check_manual_publication(pub, settings)
     info = pub.get("info") or {}
     stamp = pub.get("audience") or {}
@@ -127,7 +147,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
         stamp = audience.check("youtube", pub["requested_privacy"], settings, stamp=stamp or None)
         db.update_publication(pub["id"], audience=stamp)
     body = youtube.video_body(pub["title"], pub["description"], pub.get("tags") or [], pub["requested_privacy"],
-                              bool(opts.get("made_for_kids")), settings.get("youtube_category_id") or "22",
+                              opts.get("made_for_kids"), settings.get("youtube_category_id") or "22",
                               audience_intent=stamp.get("intent") or "")
     requested = pub["requested_privacy"]
     db.update_publication(pub["id"], status="uploading", progress=0,
@@ -151,7 +171,8 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     st = video.get("status") or {}
     privacy = st.get("privacyStatus") or ""
     info = {**((db.get_publication(pub["id"]) or pub).get("info") or {}), "studio_url": youtube.studio_url(vid),
-            "upload_status": st.get("uploadStatus", "")}
+            "upload_status": st.get("uploadStatus", ""),
+            "youtube_audience": youtube.audience_readback(st, opts.get("made_for_kids"), privacy)}
     delivery = audience.delivery_after_upload("youtube", stamp, privacy, "api")
     locked_private = requested == "public" and privacy == "private"
     if requested == "private" and privacy and privacy != "private":
@@ -160,7 +181,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     elif locked_private:
         message = ("Uploaded to YouTube, but YouTube reports Private instead of the requested Public visibility. "
                    "Check this video's visibility and your channel's restrictions in YouTube Studio. "
-                   "ClipFoundry has not made it public.")
+                   "ClipForge has not made it public.")
     elif stamp.get("intent") == audience.PUBLIC:
         message = "Uploaded to YouTube as Public (YouTube confirmed)." if privacy == "public" else \
             "Uploaded to YouTube; Public was requested, but YouTube did not report visibility. Check it in Studio."
@@ -208,12 +229,9 @@ def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
 
 def run_tiktok(pub: dict, cancelled: Callable[[], bool]) -> None:
     settings = db.get_settings()
-    token = tiktok.Token(settings)
+    acc = connection_for(pub)
+    token = tiktok.Token(settings, acc["id"])
     opts = pub.get("options") or {}
-    if opts.get("approved_account") and opts["approved_account"] != (db.get_account("tiktok") or {}).get(
-            "account_id"):
-        raise PublishError("Another TikTok account is connected than the one this upload was approved for.",
-                           "Reconnect the original account, or review a new post for this account.", "reconnect")
     _check_manual_publication(pub, settings)
     mode = pub.get("mode") or "direct"
     username = ""
@@ -272,7 +290,7 @@ def _hold_manual_unknown(pub: dict, exc: PublishError) -> dict:
                           message="Upload outcome unknown: YouTube may already have the video. Another upload "
                                   "is held to avoid a duplicate.",
                           fix=fix + "Open YouTube Studio → Content and use Refresh status to find the existing upload. "
-                              "ClipFoundry will not upload this clip again while the outcome is unknown.",
+                              "ClipForge will not upload this clip again while the outcome is unknown.",
                           info={**info, "outcome_unknown": True,
                                 "code": youtube.OUTCOME_UNKNOWN, "studio_url": "https://studio.youtube.com/"},
                           delivery={**(pub.get("delivery") or {}), "transfer": "outcome_unknown"})
@@ -292,14 +310,18 @@ def _refresh_manual_unknown(pub: dict) -> dict:
     from ..autopilot.publisher import _youtube_upload_by_title
 
     approved_account = (pub.get("options") or {}).get("approved_account")
-    if not approved_account or approved_account != (db.get_account("youtube") or {}).get("account_id"):
+    try:
+        acc = connection_for(pub) if approved_account else None
+    except PublishError:
+        acc = None
+    if not acc:
         raise PublishError("Reconnect the original YouTube account before checking this upload's outcome.",
                            "The uncertain upload stays held; no video is uploaded to the current account.",
                            "reconnect")
     try:
         found = _youtube_upload_by_title(pub, require_exact_metadata=True)
         video_id = (found or {}).get("id") or ""
-        status = youtube.video_status(youtube.Token(db.get_settings()), video_id) if video_id else None
+        status = youtube.video_status(youtube.Token(db.get_settings(), acc["id"]), video_id) if video_id else None
     except (httpx.HTTPError, ValueError) as exc:
         raise PublishError("YouTube's upload outcome could not be checked.",
                            "Check the connection and use Refresh status again; no new upload is started.",
@@ -320,16 +342,24 @@ def _refresh_manual_unknown(pub: dict) -> dict:
 RUNNERS: dict[str, Callable[[dict, Callable[[], bool]], None]] = {"youtube": run_youtube, "tiktok": run_tiktok}
 
 
+def _status_connection(pub: dict) -> str | None:
+    """Status of an existing video is read with the account that uploaded it (None: the default, for rows from
+    before multiple accounts)."""
+    return pub.get("connection_id") or None
+
+
 def refresh(pub: dict) -> dict:
     """Ask the platform for the current state of an uploaded video."""
     if pub["platform"] == "youtube" and not pub.get("scheduled_id") and unknown_outcome(pub):
         return _refresh_manual_unknown(pub)
     if pub["platform"] == "youtube" and pub.get("remote_id"):
-        st = youtube.video_status(youtube.Token(db.get_settings()), pub["remote_id"])
+        st = youtube.video_status(youtube.Token(db.get_settings(), _status_connection(pub)), pub["remote_id"])
         info = {**(pub.get("info") or {}), **{k: v for k, v in st.items() if k != "exists"}, "checked_at": time.time()}
         if not st["exists"]:
             db.update_publication(pub["id"], info=info, message="This video no longer exists on YouTube.")
         else:
+            info["youtube_audience"] = youtube.audience_readback(
+                st, (pub.get("options") or {}).get("made_for_kids"), st["privacy"])
             delivery = dict(pub.get("delivery") or {})
             delivery["visibility"] = {**(delivery.get("visibility") or {}), "returned": st["privacy"],
                                       "evidence": "api", "checked_at": time.time()}
@@ -340,7 +370,7 @@ def refresh(pub: dict) -> dict:
             if requested == "private" and st["privacy"] != "private" and governed:
                 audience.incident("youtube", f"YouTube reports video {pub['remote_id']} as {st['privacy']}, not "
                                              "Private.", pub["remote_id"])
-                msg = (f"YouTube reports this video as {st['privacy'].capitalize()}, not Private. ClipFoundry stopped "
+                msg = (f"YouTube reports this video as {st['privacy'].capitalize()}, not Private. ClipForge stopped "
                        "uploading to YouTube until you check it in YouTube Studio.")
             if (pub.get("audience") or {}).get("intent") == audience.PUBLIC:
                 delivery["audience_setup"] = "public_api_verified" if st["privacy"] == "public" else \
@@ -352,7 +382,7 @@ def refresh(pub: dict) -> dict:
                     f"YouTube reports {st['privacy'] or 'unknown'} visibility; Public was requested. Check Studio."
             db.update_publication(pub["id"], privacy=st["privacy"], info=info, message=msg, delivery=delivery)
     if pub["platform"] == "tiktok" and pub.get("remote_id") and pub["status"] in ("processing", "action_needed"):
-        token = tiktok.Token(db.get_settings())
+        token = tiktok.Token(db.get_settings(), _status_connection(pub))
         outcome = _tiktok_outcome(pub, tiktok.fetch_status(token, pub["remote_id"]),
                                   (pub.get("info") or {}).get("username", ""))
         if outcome and not (pub["status"] == "action_needed" and outcome["status"] == "action_needed"):

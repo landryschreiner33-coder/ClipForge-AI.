@@ -1,6 +1,6 @@
 import { req, PlatformAccount } from "./api";
 
-/** A metric as a platform reported it (observed), derived by ClipFoundry (estimated), or not reported. */
+/** A metric as a platform reported it (observed), derived by ClipForge (estimated), or not reported. */
 export interface Metric {
   value: number | null;
   status: "observed" | "estimated" | "unavailable";
@@ -268,6 +268,8 @@ export interface UpcomingPost {
   status: string;
   /** Approved by your automatic-publishing permission (not reviewed by you). */
   auto: boolean;
+  /** A source submission authorizes its new clips without a separate review of each finished post. */
+  approval_by?: string;
   /** Already uploaded: the platform publishes it at its time, even if this PC is off. */
   on_platform: boolean;
 }
@@ -283,6 +285,17 @@ export interface WorkingOn {
 }
 
 export interface HomeView {
+  posting?: {
+    finished: number; checked: number; sampled: boolean;
+    source_guidance?: {
+      uploadable_only: boolean; review_before_publish?: boolean; title: string; detail: string;
+      options: { title: string; detail: string; link: string }[];
+    };
+    platforms: {
+      platform: "youtube" | "tiktok"; code: string; title: string; detail: string; link: string;
+      counts: Record<string, number>; automatic: boolean;
+    }[];
+  };
   setup: {
     started: boolean; connected: ("youtube" | "tiktok")[]; can_discover: boolean; topics: string;
     /** The choice made in first-time setup ("manual": you make clips yourself). */
@@ -358,6 +371,8 @@ export interface AgreementIn {
 }
 
 export interface AutoPublishView {
+  /** When enabled, every prepared post waits for the owner's review. */
+  review_before_publish?: boolean;
   youtube: { supported: boolean; note: string; enabled: boolean; can_enable?: boolean; blocker?: string;
     visibility?: string; account_id?: string; consent: { id: string; settings: AutoPublishState["settings"];
       text: string; created_at: number } | null };
@@ -393,6 +408,9 @@ export interface AutopilotStatus {
   trends: TrendSignal[];
   providers: Record<string, ProviderStatus>;
   web_search: { used: number; free: number; allowed: number; budget_usd: number; cost_usd: number; month: string };
+  discovery_shortlist?: { enabled: boolean; checked: number; admitted: number; held: number; filtered: number;
+    backlog: number; daily_attempts_remaining: number | null; message: string;
+    reasons: Record<string, number> | { reason: string; count: number }[] } | null;
   settings: Record<string, any>;
   home: HomeView;
 }
@@ -473,6 +491,8 @@ export interface ScheduledItem extends ScheduledItemRow {
   approval_valid: boolean;
   clip: { id: string; title: string; duration: number; score: number; category: string; status: string; has_thumbnail: boolean; video_url: string; thumbnail_url: string; caption_text: string };
   source: { id?: string; title: string; url?: string; platform?: string; channel?: string; rights_status: string; rights_label: string };
+  reuse_review?: { required: boolean; confirmed: boolean; basis: string; explanation: string; status: string;
+    confirmed_from?: string };
   trend: { topic: string; score: number; mode: string } | null;
   clip_scores: Record<string, any> | null;
   metadata_options: MetadataOption[];

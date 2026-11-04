@@ -38,7 +38,9 @@ def env(monkeypatch, tmp_path):
     db.save_settings({"youtube_client_id": "cid.apps.googleusercontent.com", "youtube_client_secret": "csecret",
                       "tiktok_client_key": "tkkey", "tiktok_client_secret": "tksecret", "autopilot_enabled": True,
                       "autopilot_youtube": True, "autopilot_tiktok": False, "autopilot_min_gap_minutes": 60,
-                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3})
+                      "autopilot_youtube_daily_limit": 3, "autopilot_tiktok_daily_limit": 3,
+                      "autopilot_active_start": 9,
+                      "autopilot_active_end": 21})  # explicitly exercise the owner's finite schedule
     yield {"g": g, "t": t, "tmp": tmp_path}
     g.stop()
     t.stop()
@@ -408,7 +410,7 @@ def test_approvals_from_before_the_content_hash_are_asked_again(env):
     for i in (yt, tt):
         cur = db.fetch("scheduled_publications", i["id"])
         assert not scheduler.approval_valid(cur)
-        assert scheduler.approval_problem(cur) == "approved before ClipFoundry checked the exact video file"
+        assert scheduler.approval_problem(cur) == "approved before ClipForge checked the exact video file"
     consent_youtube(env)
     scheduler.process_due(db.get_settings(), now)  # due: both go back to approval
     assert {db.fetch("scheduled_publications", i["id"])["status"] for i in (yt, tt)} == {"awaiting_approval"}

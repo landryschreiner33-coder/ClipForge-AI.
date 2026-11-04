@@ -159,7 +159,7 @@ export function RewritePostDialog({ clip, edited, onClose, onDone }: {
         toast("New post text written from the clip's words");
       }}>
       <p className="muted">
-        ClipFoundry writes new titles, captions, hashtags, a description and a hook from this clip's own words.
+        ClipForge writes new titles, captions, hashtags, a description and a hook from this clip's own words.
       </p>
       {edited && <p className="small"><b>Your edited post text is replaced.</b> The video doesn't change.</p>}
     </ConfirmDialog>

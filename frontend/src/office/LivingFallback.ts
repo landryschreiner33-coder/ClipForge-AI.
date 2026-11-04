@@ -257,7 +257,7 @@ export class LivingFallback {
     const delta = this.lastDraw === undefined ? 0 : Math.max(0, Math.min(time - this.lastDraw, 100));
     this.lastDraw = time;
     const paused = ["paused", "pausing"].includes(snap.run.state) || snap.brain?.state === "paused";
-    const actualBrainBusy = snap.brain?.state === "evaluating"
+    const actualBrainBusy = snap.brain?.state === "evaluating" || snap.brain?.activity?.state === "working"
       || snap.roles.some(r => BY_ID[r.id]?.room === "brain" && r.state === "working");
     if (paused || offline) this.brainBusy = false;
     else if (!still || this.lastActualBrainBusy === undefined || this.brainSuppressed) {

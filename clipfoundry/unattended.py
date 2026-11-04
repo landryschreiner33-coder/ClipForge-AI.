@@ -239,11 +239,15 @@ def run(host: str, port: int, open_browser: bool = False) -> int:
                 return 2
             acquired.append(lock)
         logger, handler = _logger(profile / "logs")
-        for signum in (signal.SIGINT, signal.SIGTERM):
+        shutdown_signals = [signal.SIGINT, signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            # Terminal closure must clean the separate app process group just like Control+C.
+            shutdown_signals.append(signal.SIGHUP)
+        for signum in shutdown_signals:
             old_signals[signum] = signal.signal(signum, lambda *_: stop.set())
         env = {**os.environ, "CLIPFOUNDRY_DATA": str(profile), "CLIPFOUNDRY_PORT": str(port), "PYTHONUNBUFFERED": "1"}
         command = [sys.executable, "-m", "clipfoundry", "--host", host, "--port", str(port), "--unattended-child"]
-        print(f"ClipFoundry unattended mode; logs: {profile / 'logs' / 'unattended.log'}\n"
+        print(f"ClipForge unattended mode; logs: {profile / 'logs' / 'unattended.log'}\n"
               "Leave this window open. Ctrl+C stops the app and its workers.", flush=True)
         if open_browser:
             import webbrowser

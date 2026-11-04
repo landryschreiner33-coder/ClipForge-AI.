@@ -20,6 +20,9 @@ interface Transfer {
   id: number; from: string; to: string; card: WorkCard; phase: "approach" | "pass" | "received";
   started: number; until: number; fromJobs: string[]; toJobs: string[];
 }
+interface HandoffRoute {
+  event: OfficeEvent; path: string[]; step: number; jobs: string[]; until: number;
+}
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
 const SPEED = 130;
 const POSE: Record<string, Pose> = {
@@ -47,6 +50,8 @@ export class OfficeMotion {
   private rows = new Map<string, RoleRow>();
   private targets: ReturnType<typeof placements> = {};
   private transfers = new Map<number, Transfer>();
+  private handoffs = new Map<number, HandoffRoute>();
+  private seen = new Set<number>();
   private jobOwners = new Map<string, Owner>();
   private refOwners = new Map<string, Owner>();
   private cutoff: number;
@@ -93,6 +98,7 @@ export class OfficeMotion {
   resync(snap: Snapshot) {
     this.clearTransfers();
     this.cutoff = snap.cursor;
+    this.seen.clear();
     this.jobOwners.clear(); this.refOwners.clear();
     this.reconcile(snap, true);
   }
@@ -104,29 +110,38 @@ export class OfficeMotion {
 
   events(events: OfficeEvent[], serverTime: number, now: number, reduced: boolean) {
     for (const event of events) {
-      if (event.id <= this.cutoff || serverTime - event.at > 30 || event.at > serverTime + 5) continue;
-      if (event.type === "report" && BY_ID[event.data?.worker] && BY_ID[event.role]) {
-        this.transfer(event.data.worker, event.role, event, now, reduced);
-      }
+      if (event.id <= this.cutoff || this.seen.has(event.id) || serverTime - event.at > 30
+        || event.at > serverTime + 5) continue;
+      this.seen.add(event.id);
+      const recordedPath = Object.prototype.hasOwnProperty.call(event.data || {}, "handoff_path");
+      const explicit = this.handoffPath(event);
+      if (explicit) this.queueHandoff(event, explicit, now, reduced);
+      else if (!recordedPath && event.type === "report" && !event.data?.routine
+        && BY_ID[event.data?.worker] && BY_ID[event.role])
+        this.queueHandoff(event, [event.data.worker, event.role], now, reduced);
       if (!event.job_id || !BY_ID[event.role] || event.data?.routine) continue;
       if (event.type !== "job_started" && event.type !== "job_stage") continue;
       const previous = this.jobOwners.get(event.job_id);
       const ref = `${event.ref_type}:${event.ref_id}`;
       if (previous && (event.id <= previous.cursor || event.at < previous.at)) continue;
       if (previous && (previous.kind !== event.kind || previous.ref !== ref)) continue;
-      if (event.type === "job_stage" && previous && previous.role !== event.role) {
-        this.transfer(previous.role, event.role, event, now, reduced);
-      } else if (event.type === "job_started" && event.ref_type && event.ref_id) {
+      if (!recordedPath && event.type === "job_stage" && previous && previous.role !== event.role) {
+        // Older feeds still identify real stage changes. Preserve the cast's reporting hierarchy instead of
+        // sending a worker straight across departments. Only explicit recorded checkpoints visit COMMAND.
+        this.queueHandoff(event, this.stagePath(previous.role, event.role), now, reduced);
+      } else if (!recordedPath && event.type === "job_started" && event.ref_type && event.ref_id) {
         const before = this.refOwners.get(`${event.ref_type}:${event.ref_id}`);
         if (before && before.job !== event.job_id && before.cursor < event.id && event.at - before.at <= 30
           && event.at >= before.at && CROSS_JOB[before.kind]?.includes(event.kind)) {
-          this.transfer(before.role, event.role, event, now, reduced, before.job);
+          this.queueHandoff(event, this.stagePath(before.role, event.role), now, reduced, before.job);
         }
       }
       const owner = { role: event.role, job: event.job_id, kind: event.kind, ref, at: event.at, cursor: event.id };
       this.jobOwners.set(event.job_id, owner);
       if (event.ref_type && event.ref_id) this.refOwners.set(`${event.ref_type}:${event.ref_id}`, owner);
     }
+    while (this.seen.size > 512) this.seen.delete(this.seen.values().next().value!);
+    this.startHandoffs(now, reduced);
     this.trim(this.jobOwners); this.trim(this.refOwners);
   }
 
@@ -137,7 +152,7 @@ export class OfficeMotion {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
       // Individually paused/unavailable workers may finish returning to a reserved resting place,
       // but only eligible workers rotate through decorative activities once they arrive.
-      if (a.transfer === null) this.go(a, this.destination(a.id), reduced);
+      if (a.transfer === null) this.go(a, this.destination(a.id), reduced || this.atWork(a.id));
       this.walk(a, dt, reduced);
       this.faceBreak(a);
     }
@@ -154,12 +169,13 @@ export class OfficeMotion {
         tr.phase = "received"; tr.until = now + 1000;
         from.card = null; to.card = tr.card;
       } else if (tr.phase === "received" && now >= tr.until) {
-        this.cancel(tr.id);
+        this.cancel(tr.id, true);
       }
     }
+    this.startHandoffs(now, reduced);
     // Every completed transfer returns to the latest actual destination, without waiting for another poll.
     for (const a of this.actors.values()) if (a.transfer === null) {
-      this.go(a, this.destination(a.id), reduced); this.faceBreak(a);
+      this.go(a, this.destination(a.id), reduced || this.atWork(a.id)); this.faceBreak(a);
     }
   }
 
@@ -215,16 +231,68 @@ export class OfficeMotion {
     return a.transfer !== null && this.transfers.get(a.transfer)?.from === a.id;
   }
 
-  clearTransfers() { for (const id of [...this.transfers.keys()]) this.cancel(id); }
+  clearTransfers() {
+    for (const id of [...this.transfers.keys()]) this.cancel(id);
+    this.handoffs.clear();
+  }
 
-  private transfer(from: string, to: string, event: OfficeEvent, now: number, reduced: boolean, predecessor = "") {
+  private handoffPath(event: OfficeEvent): string[] | null {
+    const path = event.data?.handoff_path;
+    if (!Array.isArray(path) || path.length < 2 || path.length > 5 || event.data?.routine
+      || !path.every(id => typeof id === "string" && BY_ID[id])) return null;
+    const consultation = ["brain_consultation_done", "brain_consultation_failed"].includes(event.type)
+      && typeof event.data?.consultation_id === "string" && !!event.data.consultation_id;
+    if (!event.job_id && !consultation) return null;
+    if (!["report", "decision", "job_started", "job_stage", "brain_consultation_done",
+      "brain_consultation_failed"].includes(event.type)) return null;
+    return path.filter((id, i) => !i || id !== path[i - 1]);
+  }
+
+  private stagePath(from: string, to: string): string[] {
+    if (BY_ID[from].dept === BY_ID[to].dept) return [from, to];
+    return [from, BY_ID[from].manager, BY_ID[to].manager, to]
+      .filter((id, i, path) => id && (!i || id !== path[i - 1]));
+  }
+
+  private queueHandoff(event: OfficeEvent, path: string[], now: number, reduced: boolean, predecessor = "") {
+    if (path.length < 2 || this.handoffs.has(event.id)) return;
+    if (reduced) return;
+    // Animate only a small, fresh window. Overflow remains visible in Activity rather than being replayed as work.
+    if (this.handoffs.size >= 24) return;
+    const consultation = event.data?.consultation_id;
+    const jobs = [predecessor, event.job_id,
+      typeof consultation === "string" && consultation ? `consultation:${consultation}` : ""].filter(Boolean);
+    this.handoffs.set(event.id, { event, path, step: 0, jobs, until: now + 30000 });
+  }
+
+  private startHandoffs(now: number, reduced: boolean) {
+    const reserved = new Set<string>();
+    for (const [id, handoff] of this.handoffs) {
+      if (this.transfers.has(id)) {
+        handoff.path.forEach(role => reserved.add(role)); continue;
+      }
+      const from = handoff.path[handoff.step], to = handoff.path[handoff.step + 1];
+      if (reduced || now > handoff.until || !to || this.blocked(from) || this.blocked(to)
+        || this.foreignWork(from, handoff.jobs) || this.foreignWork(to, handoff.jobs)) {
+        this.handoffs.delete(id); continue;
+      }
+      // A later stage cannot take the same manager/director before the earlier report reaches them.
+      // Independent departments may still transfer concurrently when their recorded routes do not overlap.
+      const waiting = handoff.path.some(role => reserved.has(role));
+      handoff.path.forEach(role => reserved.add(role));
+      if (waiting) continue;
+      if (this.actors.get(from)?.transfer !== null || this.actors.get(to)?.transfer !== null) continue;
+      this.transfer(from, to, handoff.event, now, false, handoff.jobs);
+    }
+  }
+
+  private transfer(from: string, to: string, event: OfficeEvent, now: number, reduced: boolean, jobs: string[]) {
     const sender = this.actors.get(from), receiver = this.actors.get(to);
     if (!sender || !receiver || from === to || this.blocked(from) || this.blocked(to)) return;
-    const fromJobs = predecessor ? [predecessor, event.job_id] : [event.job_id], toJobs = [event.job_id];
+    const fromJobs = jobs, toJobs = jobs;
     if (this.foreignWork(from, fromJobs) || this.foreignWork(to, toJobs)) return;
     if (reduced) { this.react(to, "review", now); return; }
-    if (sender.transfer !== null) this.cancel(sender.transfer);
-    if (receiver.transfer !== null) this.cancel(receiver.transfer);
+    if (sender.transfer !== null || receiver.transfer !== null) return;
     this.lounge.release(from); this.lounge.release(to);
     const card: WorkCard = { job_id: event.job_id, kind: event.kind, ref_type: event.ref_type,
       ref_id: event.ref_id, state: event.data?.state || "stage", summary: event.message, from, to };
@@ -244,7 +312,7 @@ export class OfficeMotion {
       fromJobs, toJobs });
   }
 
-  private cancel(id: number) {
+  private cancel(id: number, completed = false) {
     const tr = this.transfers.get(id);
     if (!tr) return;
     for (const who of [tr.from, tr.to]) {
@@ -254,11 +322,17 @@ export class OfficeMotion {
       this.lounge.sync(who, this.targets[who]?.lounge || false, this.canBreak(who));
     }
     this.transfers.delete(id);
+    const handoff = this.handoffs.get(id);
+    if (completed && handoff && ++handoff.step < handoff.path.length - 1) return;
+    this.handoffs.delete(id);
   }
 
   private blocked(id: string) { return ["paused", "unavailable"].includes(this.rows.get(id)?.state || "unavailable"); }
+  private atWork(id: string) { return ["working", "reviewing"].includes(this.rows.get(id)?.state || ""); }
   private foreignWork(id: string, allowed: string[]) {
     const row = this.rows.get(id);
+    if (row?.task?.kind === "brain_consultation" && row.task.status === "running" && this.atWork(id))
+      return !row.task.consultation_id || !allowed.includes(`consultation:${row.task.consultation_id}`);
     return !!row?.task?.job_id && row.task.status === "running" && ["working", "reviewing"].includes(row.state)
       && !allowed.includes(row.task.job_id);
   }

@@ -1,11 +1,768 @@
 # AI changelog
 
+## PR #16 merge review and website refresh — 2026-11-04 (Codex)
+
+The owner explicitly requested reviewing Claude's changes, merging PR #16 and updating the existing public website.
+Working checkout: `/workspace/clipforge-pr16`, branch `codex/review-clipforge-pr16`, based on Claude head `4e0da48`.
+Merged the newer `codex/cloud-plan` documentation into that head without dropping either set of handoff notes.
+
+Review fixes:
+- Hold automatic YouTube uploads over 15 minutes when the channel's long-upload eligibility is unknown. Keep the
+  full master available and explain the next step; add destination/boundary regression checks.
+- Include cloud requirements in development/test installs: the new OIDC test fixtures require PyJWT, which the
+  existing CI installation command otherwise omitted. Desktop runtime dependencies remain unchanged.
+- Correct creation/render copy that incorrectly described local desktop processing as server processing.
+- Rebuild and retain the tracked frontend distribution.
+- Close secondary-workspace access to shared Brain guidance and media-processing writes until those services
+  are truly workspace-scoped. A regression reproduced private owner note metadata in the old guidance response;
+  the same request is now refused. The primary owner workflow remains available.
+
+Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
+existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+
+The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
+`/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
+real sandbox screenshots, responsive controls, and explicit source-preview / desktop-release / cloud availability.
+Keep https://clipfoundry-studio.landryschreiner33.chatgpt.site and its public audience. Mac/Windows download URLs,
+bytes and hashes remain unchanged because no new native release has been built. The source changes are not yet
+in those installers. Website QA passed at 1440/1024/768/390/320 px, with no horizontal overflow or browser errors;
+preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript download anchors passed.
+
+Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
+full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
+head SHA. Do not describe cloud hosting, public signup,
+per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
+`docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
+it is not a newly required owner approval for this session.
+
+## ClipForge studio, phases 0–6 — 2026-11-04 (Claude Code)
+
+Built the ClipForge prompt (`docs/CLIPFORGE_CLAUDE_PROMPT.md`) on `claude/new-session-b9itcy` (draft PR #16).
+
+What was built:
+- **Cloud mode:** owner-only OIDC sign-in, server sessions, CSRF/host/origin guards, strict CSP, workspace ownership on
+  every ID, AES-256-GCM secrets.
+- **Accounts:** multiple YouTube/TikTok connections, migrated without changing tokens.
+- **Server plumbing:** resumable private uploads; durable studio jobs; backup/restore/retention CLI.
+- **Guidance:** precedence with frozen snapshots and "Used from your Brain"; saved styles and declarative skills.
+- **Full stories:** complete stories as 9:16 clips, with destination eligibility (never truncated).
+- **Full YouTube video:** assembly on a versioned FFmpeg engine with revisions.
+- **Interface:** the new ClipForge shell; theme/layout prefs; robot display names; the visible rename.
+
+The office map and robots are unchanged. Desktop data, Keychain/DPAPI names, settings keys, the publish header and
+old addresses are kept.
+
+Final regression fixes:
+- Link/transcript import is reachable at `#/create/link`.
+- Make clips previews guidance with a GET.
+- Startup robot-name loading no longer redraws the page and discards a just-chosen file.
+- Remaining Clips/Queue labels now say Projects/Publishing.
+- Motion stays the per-browser Animations choice.
+- The sidebar is narrower below 1366 px, so the office map keeps its minimum width.
+- Browser specs follow the new navigation.
+
+Tests: see `docs/IMPLEMENTATION_STATUS.md` (2026-11-04 test log). Not verified: real sign-in, deployment, uploads,
+transcodes, native Windows/Mac hardware, throughput. FilmCraft stays Blocked (build not permitted here). No real
+posts, no deployment, no owner media.
+## Website redesign added to the Claude handoff — 2026-11-04 (America/Chicago)
+
+The owner asks to tell Claude to update the website and improve its appearance. Section 17 of
+[CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md) now makes the existing public website redesign a
+required deliverable: ClipForge branding, clear landing-page hierarchy, real previews, both creation workflows,
+verified Mac/Windows downloads, accurate feature/cloud availability, responsive/accessibility checks and
+publication/rollback evidence. Open Studio must lead to a real authenticated deployment; owner-only access
+and the unsigned Mac preview remain honestly described. CF-18 adds the website acceptance scenario.
+
+A separate read-only review verified the existing buildless site source and public project identity under
+/workspace/sites/clipfoundry-downloads. Keep that project/address, current release metadata/checksums and the
+separate GitHub Pages/TikTok verification site. No live site, installer or application code changed in this
+checkpoint; only the requested prompt/plan and handoff documents were edited.
+
+Verification: source/identity review, numbered sections and CF IDs, internal links, JSONL syntax, preservation
+of prior acceptance scenarios and git diff --check. No website/browser/application tests were run because no
+implementation changed. The future website work must supply those checks before being called complete.
+
+## Opening handoff and bug-prevention requirement — 2026-11-03 (America/Chicago)
+
+The owner requests a handoff at the beginning of the Markdown prompt and asks to keep it “big free,” interpreted
+as bug-free. [CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md) now opens with a continuation handoff,
+truthful current planning state, and instructions to maintain AI_HANDOFF.md at startup, checkpoints and exit.
+It requires root-cause fixes, regression checks, reproducible defect reporting, and no readiness claim while
+known core failures remain. Unverified external behavior must remain Partial/Blocked, not be described as
+literally free of all possible bugs. The detailed requirements and 17 acceptance scenarios are unchanged.
+
+Verification: an independent read-only prompt review found no conflict with continuing implementation;
+checked opening-handoff placement, preservation of the numbered implementation body, links, JSONL syntax
+and git diff --check. Documentation only; no application tests, deployment or real uploads were performed.
+
+## Detailed ClipForge build contract added to Claude prompt — 2026-11-03 (America/Chicago)
+
+The owner requests a much more specific Markdown prompt and a simple explanation afterward. The canonical
+[CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md) now contains section 16: exact screen responsibilities,
+Clips/full-video journeys, question fields/defaults, Brain snapshots, skill behavior, stable data relationships,
+job/failure handling, visual defaults, robot-name validation and 17 concrete acceptance scenarios (CF-01–CF-17).
+A labeled 12-minute/three-story fixture includes a chunk boundary inside one story. The prompt requires actual
+media/provenance/account-isolation evidence; UI placeholders or mocked semantic results cannot prove completion.
+
+Existing authorized YouTube clip creation does not gain a new mandatory per-clip review step. Full stories
+remains inside Clips with full narrative preservation, vertical framing and accurate destination eligibility.
+The prompt preserves previous cloud/login, multiple accounts, ClipForge rename, UI, Brain, skills, editing,
+robot naming, AAC/audio and publishing requirements. The full-video brief explicitly distinguishes reusable
+style preferences from project-specific ranges, private paths and publication consent.
+
+This checkpoint changes planning documents only, not application behavior, website, installers or cloud
+services. Checks: requested scope and superseded-default checks, internal links, sequential sections,
+CF scenario IDs/fixture continuity, source references, JSONL syntax and git diff --check. No functional app
+suite was run; the new contract is not implementation or real-platform verification.
+
+## ClipForge prompt revision: Clips modes, multiple accounts and redesigned UI — 2026-11-03 (America/Chicago)
+
+The owner's latest correction is authoritative: Full stories is inside **Make clips**, alongside Highlights.
+Each story in a long source becomes a complete vertical TikTok/YouTube clip, with safe captions and dynamic
+framing. Preserve over-limit story masters and show destination eligibility; never silently split/truncate.
+The other main creation choice remains **Make a YouTube video** from uploaded clips.
+
+The owner also requests multiple connected YouTube/TikTok accounts, the visible name **ClipForge**, a redesigned
+interface organized around these workflows, and editable robot names. The canonical complete Markdown prompt
+is [CLIPFORGE_CLAUDE_PROMPT.md](docs/CLIPFORGE_CLAUDE_PROMPT.md). The earlier prompt path redirects readers to it.
+[STUDIO_EXPANSION_PLAN.md](docs/STUDIO_EXPANSION_PLAN.md) and the cloud plan now reflect these requirements.
+
+The prompt includes stable workspace/connection/robot IDs, separate account-bound publications and quota scopes,
+profile-preserving branding migration, consistent icon identity, responsive navigation and display-name tests.
+Cloud, Brain, skills, full-video editing, prior AAC/audio fixes and publishing guarantees remain in scope.
+This checkpoint writes the requested plan/prompt only; no feature, product rename, website or installer changed.
+
+Verification: documentation scope/conflict checks, relative links, source references, sequential prompt sections,
+JSONL syntax and git diff --check. No functional app tests were run because no application code changed.
+FilmCraft remains an unbenchmarked integration candidate; cloud capacity/accounts and real uploads unverified.
+
+## Cloud studio expansion plan and Claude implementation prompt — 2026-11-03 (America/Chicago)
+
+The owner has now specified the second major change: full YouTube-video assembly from supplied clips,
+complete-story batch clipping, account access across devices, importable skills, simple guided workflows and
+saved themes/layouts. They request a plan and a detailed prompt for Claude Code, not implementation in this
+checkpoint. Cloud remains owner-only initially, later public release, more than five source hours/day and
+lowest possible cost. No paid provisioning is authorized.
+
+[Product and build plan](docs/STUDIO_EXPANSION_PLAN.md) and
+[ready-to-use Claude prompt](docs/CLAUDE_STUDIO_BUILD_PROMPT.md) define phased implementation, concrete acceptance
+criteria, migration/cost controls and preservation of previous audio, Brain and publishing fixes. Continue
+from the latest source after inspecting remote refs; do not start an older branch and lose Claude changes.
+
+Official upstream inspection identifies FilmCraft (the ArtCraft team's nonlinear editor) as the first
+integration candidate. Its pinned source documents a browser build and headless CLI/MCP under MIT OR Apache-2.0,
+with separate notices, but remains alpha. The stock browser build processes media locally; cloud storage and
+rendering require a bridge. A repeatable integration experiment must prove capabilities and audio correctness.
+The separate artcraft-services repository has competing-product restrictions and is excluded from the proposed
+public-product architecture without a separate grant. Sources and exact upstream commits are in the plan.
+
+No application code, installer, website or cloud service changed. FilmCraft was not compiled or benchmarked.
+Verification: official upstream README/license/notices, browser and control documentation and CLI source were
+inspected; planning documents checked for complete requested scope, internal links and whitespace. No functional
+tests were run for this documentation-only checkpoint. Provider accounts, capacity, end-to-end throughput and
+actual cloud deployment remain unverified. The working Mac download remains unchanged.
+
+## Cloud migration scope and cost plan — 2026-11-03 (America/Chicago)
+
+Current planning branch: `codex/cloud-plan`, based on the verified native-app/delivery branch at `9e0aaee`.
+The owner confirms the Mac app now opens; its port conflict was a separate Python HTTP file server, not an
+app defect. The new request is cloud execution with login, owner-only initially, later public release,
+more than five source-video hours daily, at the lowest possible cost. The second major change is unspecified.
+
+[Cloud migration plan](docs/CLOUD_PLAN.md) records the code audit, $0 infrastructure pilot proposal, migration,
+benchmark, authorization/storage changes and separate public-signup requirements. Proposed providers are
+Oracle Always Free A1 (current docs: 2 OCPUs/12 GB RAM allowance, 200 GB total block storage) and free Supabase
+Auth with owner-only Google login. Availability/throughput are unverified. No paid GPU/server is selected.
+
+No application code or deployed website changed. No accounts, resources, credentials, login or cloud server
+were created. This is a plan, not an implemented cloud feature. Existing loopback guards, local data stores
+and Mac credentials cannot simply be exposed on the internet; follow the plan before enabling cloud access.
+The owner must complete provider registration/card verification directly. No paid provisioning is authorized.
+Any paid recommendation must follow an actual workload estimate and an explicit owner budget decision.
+
+Verification: inspected current authentication, OAuth, secrets, data and job paths; checked official provider
+allowances/pricing and billing documentation; documentation whitespace check passed. No functional tests were
+run because this checkpoint changes only planning documents. Preserve the working Mac app and published DMG.
+
+## Personal Mac app download published — 2026-11-03 (America/Chicago)
+
+The owner chose personal use without Apple Developer membership and reported that the website still offered
+the old ZIP. That supersedes the earlier wait-for-signing delivery restriction. The existing public website
+now offers the tested native `.dmg`, explicitly labelled **unsigned personal preview** with Apple's one-time
+per-app opening instructions. No Developer ID signing, notarization or removal of that warning is claimed.
+
+Website: https://clipfoundry-studio.landryschreiner33.chatgpt.site
+Site version 2, deployment `appgdep_6aea47758b188191a727141520a951e8`, returned **succeeded**.
+Site source: `e8df8d718de6a6b42d9118e44375176874d6d85b`; same project and public audience retained.
+
+Mac DMG: https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/macos-personal-2026-11-03-bc3ce2c/ClipFoundry-Mac-Apple-Silicon.dmg
+SHA-256: `4fa4d423159c29d40f70632ae414c1fa047c7f72542e702f07f2e8ad0bb52d7d`; 191,813,213 bytes.
+This is the unchanged native app/DMG tested at `bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`:
+1,556 fast tests, 19 real-media/restart tests, and the native Mac checks passed. macOS 15+ / Apple silicon.
+The release includes exact corresponding source and `mac-personal-preview.json`. It is a prerelease and does
+not replace the separate Developer ID/notarized release process. No real uploads or physical M5 test occurred.
+
+Delivery workflow: https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41661606857
+It verified the pinned artifact hash, mounted/verified the DMG, checked the bundled app signature/icon/source
+identity and verified every release-asset digest before publication. The first attempt left a complete draft
+because GitHub cannot resolve unpublished drafts through its tag endpoint; the corrected workflow reused that
+same draft by ID and published successfully. No duplicate release or changed application bytes were created.
+The public DMG was downloaded back and its full byte count/SHA-256 matched. Site release metadata now points
+to that asset and its matching verification record. Windows download and checksum are unchanged.
+
+Website browser checks: 1440, 390 and 320 px, zero page errors or horizontal overflow, mouse/keyboard setup tabs
+passed, direct DMG anchor also works without JavaScript. The site's privacy policy retains its Sites hosting
+disclosure and adds native local WebKit storage. Existing Mac data/Keychain identities are unchanged. Quit an
+old launcher before opening the new app; drag into Applications, then open normally. macOS may require
+Privacy & Security → Open Anyway once. No security setting was disabled, and no owner machine was accessed.
+
+Source continuation stays on `codex/macos-native-app`. This checkpoint changes only delivery, website copy,
+metadata and evidence; the existing app tests were reused for the unchanged packaged bytes. Do not rebuild or
+merge solely to change the download. Keep the public link/checksum pair and truthful unsigned labelling intact.
+
+## Personal Mac DMG delivery — 2026-11-03 (in progress)
+
+The owner confirmed they are using ClipFoundry personally without Apple Developer membership and reported
+that the website still downloads the old source ZIP. This supersedes waiting for signing before offering the
+native app: deliver the unchanged tested DMG as an explicitly unsigned personal preview, with Apple's per-app
+opening steps and no claim that Gatekeeper warnings are removed. Preserve the existing public Site identity.
+
+`.github/workflows/macos-personal-preview.yml` publishes only the pinned successful native artifact from
+`bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`, run 41656652146. It checks artifact SHA-256, mounts/verifies the DMG,
+checks the app source identity/signature/icon, and verifies every uploaded release asset digest before publishing
+a prerelease. This does not run or alter the separate Developer ID/notarized release process. No application
+code changes or media re-encoding are included. The 1,575 tests and native checks remain those of the exact
+packaged commit. Delivery and website verification will be recorded once complete.
+
+## Native Mac app verified; Apple signing pending — 2026-11-03
+
+Continue on `codex/macos-native-app`. The tested implementation is
+`bc3ce2cdc23ccc7a495d2cfc2ed15aba3fe161e3`. A complete native Apple-silicon `.app` and branded
+Retina drag-to-Applications DMG now build successfully, with the canonical robot icon, Swift/AppKit window,
+native file/export panels and bundled Python/FFmpeg. No first-launch pip, Terminal or global Python is needed.
+The existing Brain, clipping, framing, captions and publishing code/data remain intact. macOS 15+ is required.
+
+**Verification:** [CI run 41656652146](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41656652146)
+passed the native macOS 15 ARM64 job and the complete fast suite: **1,556 passed, 19 deselected in 531.55 s**.
+The complete real-media/restart suite also passed: **19 passed, 1,556 deselected in 950.85 s**. No final failures or skips.
+Native checks used isolated profiles and synthetic media: the real WebKit window, simulated OAuth/help links,
+Blob export, unsaved-edit event guards, normal Quit and Force Quit cleanup, unchanged signed bundle, Keychain,
+caffeinate, captioned 1080x1920 rendering with stable opening audio/valid raw AAC clocks, and actual AV1 decode.
+The runner's VideoToolbox probe succeeded. The DMG passed `hdiutil verify`. No physical M5 or real social upload
+was tested. Local focused lifecycle/release checks passed 33 tests. No frontend changes required a rebuild.
+
+The final correction keeps the complete Python runtime under Resources, reserves Frameworks for real dylibs,
+and signs the main executable with its enclosing bundle last. The FFmpeg build includes dav1d for AV1 input.
+Native Quit preserves existing unsaved-edit checks. A test-only Linux process-disappearance race was corrected
+without changing the app's watchdog. Previous packaging failures and the earlier one-test failure are superseded
+by this exact-commit run, not counted as passes.
+
+Actual screenshots, hashes and test provenance: [design/mac-app/2026-11-03](design/mac-app/2026-11-03/README.md).
+The development artifact is named **ClipFoundry-Development-NOT-NOTARIZED**, ID `13240393392`, and expires after
+seven days. Its ZIP SHA-256 is `49bc9aeffcd8cfa183ee6e3ccdddfb843dfd86e9084570514be35cc37ff39709`.
+This is ad-hoc signed development evidence, **not a warning-free public release**.
+
+**Remaining blocker:** the owner has not confirmed active Apple Developer Program membership, and no Developer
+ID/notarization credentials are available. Check Membership details at https://developer.apple.com/account/ .
+Use the secure signing setup in `macos/DESKTOP.md`; never request passwords or private keys in chat. The signed
+release workflow must consume a successful exact-commit development artifact and pass Apple notarization,
+stapling, Gatekeeper assessment and signed native smoke checks before publication. It has not been run.
+The release workflow may need to be made available on the default branch before manual dispatch; do not merge
+without authorization. If the artifact expires, rebuild the recorded source before signing.
+
+The public Site identity/address and its current source ZIP are unchanged. Only update its download/hash once
+an actually signed and notarized DMG exists. No Gatekeeper bypass, paid enrollment, owner-data modification,
+real upload, owner-machine install, branch merge or public release was performed in this checkpoint.
+
+## Native Mac app verification in progress — 2026-11-02
+
+Continue on `codex/macos-native-app`, implementation commit `e5197f84196ab5fb34f40146d50e034a3254ca8c`.
+The owner wants a normal local .app with an icon and no Gatekeeper override. Swift/AppKit window compilation
+passed on macOS 15 ARM64. Native packaging exposed an @rpath dependency in Brotli and a source-mirror download
+that failed its hash; the builder now resolves/relocates those libraries and uses Homebrew's verified source
+fetcher (including pinned Git sources), never ignoring a checksum. A branded Retina DMG, secure ephemeral-CI
+signing keychain, Apple notarization/stapling checks and release gates are implemented. Signed release code has
+not run because no Apple signing credentials or membership confirmation are available.
+
+Verified locally: 33 focused lifecycle/release-gate tests passed; the production renderer produced a 1080x1920
+captioned synthetic clip with stable opening audio and valid raw AAC timing. Native WebKit popup/export and
+clean/force-quit checks plus complete fast/slow suites are running at
+https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41542754495 . Do not call these pending tests
+passed. Earlier two development CI attempts exposed the packaging failures above; neither is a release.
+
+Read `macos/DESKTOP.md` for build, data, signing and release instructions. The public website/source ZIP remain
+unchanged until a genuinely notarized DMG exists. No security settings were weakened, no enrollment/payment
+was made, and no owner media/accounts were used in testing. Preserve all prior Brain, audio and upload fixes.
+
+
+## Native Mac app construction — 2026-11-02
+
+The owner requests a professional local .app with a Dock icon and no Terminal setup. Work now continues on
+`codex/macos-native-app`, from the final published website/source ZIP checkpoint. Added a Swift/AppKit WKWebView
+window, bundled-runtime builder, owned backend launcher, parent-death cleanup and isolated readiness nonce.
+Existing ~/Library/Application Support/ClipFoundry/data and Keychain identities stay unchanged. External OAuth
+uses the system browser; native file/export panels retain the full studio UI. The media builder compiles pinned
+FFmpeg 9.0.2 with x264/libass and redistributes its exact dependency sources/licenses (no nonfree FFmpeg binary).
+
+Local verification: 25 desktop/real-process watchdog tests passed; git diff --check passed. Native CI and full
+regression are pending. Development app is ad-hoc signed ONLY for CI. No Developer ID credentials or Apple
+membership confirmation are available; no notarization, warning-free delivery or owner-machine execution is
+claimed. The existing public website/download remain unchanged until a verified distributable is ready.
+
+
 Development checkpoints made by AI assistants, newest first. Each one says what changed, why, what was actually run
 and what was not. The same checkpoints, in machine-readable form, are in `.clipfoundry/ai-change-log.jsonl` (shown
 read-only in Settings → Advanced → Dev Log). Work before October 7, 2026 is not repeated here: it is recorded in
 `docs/IMPLEMENTATION_STATUS.md` (plan, matrix and test log) and in the Git history.
 
 Commit ids are snapshots of a branch at the time of writing; fetch before relying on them.
+
+## Public website and final downloads published — 2026-11-02 (America/Chicago)
+
+Public website: https://clipfoundry-studio.landryschreiner33.chatgpt.site . Sites version 1, deployment
+`appgdep_6ae90bd92960819190941651776a171b`, returned **succeeded**. Site source commit:
+`8844f76843b02bcf6752cbebc1e2c73380fdb8d2` in the separate Sites source repository.
+
+Final Mac ZIP: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/0bfaba410a6d6a93717efeb012671a39bc66df9e/ClipFoundry-Mac-Apple-Silicon.zip
+
+SHA-256: `c192292bc6cd438b64876c6e4713d8982dcd2da46a942b67ea8a1bd6c382fb60`; 28,699,559 bytes.
+Packaged source `fd0d764b746f7f55f2df1dd19e660f3ac9fd036a` differs from tested
+`18aacfe6cc6e893a9c5acdc15693775400a334ad` only in verification documentation/logs. The public download
+was fetched and hash-checked; its app contains the final SIGHUP shutdown correction and raw AAC timing guard.
+The existing Windows download at `fc7b1991e07dc9e58afc7fe74328a0874bf24e57` remains unchanged and verified.
+No merge, real video upload, owner-machine install or paid service enrollment was performed.
+
+The next assistant should preserve this Site identity/audience, update immutable release links and checksums
+together, and continue from the app branch `codex/macos-download-site` and delivery branch
+`codex/macos-download-delivery`. Do not claim signing/notarization or physical M5 Max testing. macOS version
+and Apple Developer membership remain unconfirmed. This documentation-only commit needs no new installer.
+
+## Public downloads and Apple-silicon preview — 2026-11-02 (America/Chicago)
+
+Final Terminal-close correction: a real isolated POSIX watchdog test reproduced SIGHUP bypassing owned-app
+cleanup. SIGHUP now follows the same shutdown path as Control+C. All 17 real-process launcher tests also passed
+on native macOS ARM64, including Terminal-close cleanup. The final full suites passed against this correction.
+
+The owner explicitly requests a public download website and the full ClipFoundry workflow on an M5 Max.
+Source branch: `codex/macos-download-site`, continued from 88386d6 with all prior Claude changes and the raw AAC
+clock correction retained. Download-site source lives separately at `/workspace/sites/clipfoundry-downloads`;
+Sites identity: `appgprj_6ae8b76d68108191bc36af565f138bed`, explicitly public. Its reserved address is
+https://clipfoundry-studio.landryschreiner33.chatgpt.site . Publication/delivery records accompany the Mac ZIP.
+The existing GitHub Pages/TikTok verification site, icon, Windows ZIP and blocked historical EXE are unchanged.
+
+`macos/` builds a readable unsigned ZIP with a verified native ARM64 Python 3.12 runtime. First setup installs
+Mac dependencies and obtains pinned FFmpeg/ffprobe directly from upstream, checking compressed and extracted
+hashes. Code/environments are per-release; data stays in `~/Library/Application Support/ClipFoundry/data`.
+Old releases/data are retained. Another running installation is not killed. First-run imports and a synthetic
+H.264/AAC render with the production raw-clock check must pass before setup is marked complete.
+
+New Mac credentials use AES-GCM and a per-profile login Keychain key, with no plaintext fallback. CPU Whisper
+is a supported native path (no Metal ASR claim). Auto encoding checks VideoToolbox before choosing it, with
+x264 fallback. Mac Autopilot uses a process-bound caffeinate request; the office no longer treats the absence
+of an NVIDIA GPU as a Mac failure. YouTube/TikTok permission, review, limit and uncertain-upload behavior is unchanged.
+
+**Verified:** complete fast suite **1,540 passed, 19 deselected in 528.40 s**; complete real-media/restart suite
+**19 passed, 1,540 deselected in 1012.69 s**. No final failures or skips. Both ran on fresh public Ubuntu 24.04
+CI runners against 18aacfe6cc6e893a9c5acdc15693775400a334ad. The native macOS 14 ARM64 job built the actual
+package, installed its bundled runtime/dependencies, passed the production AAC timing check, performed a real
+Keychain encryption round trip, acquired/released caffeinate, and served the HTTP API/bundled UI. Its virtual
+runner did not expose VideoToolbox, so software fallback was exercised. CI evidence:
+https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41492774348 . Release documentation added
+after this run changes no tested application code. Frontend build passed. Website browser checks passed at
+1440, 390 and 320 pixels with working keyboard setup tabs, no page errors and no horizontal overflow.
+
+An earlier local full-suite run was interrupted by the resumed workspace; an initial slow run lacked the
+speech-fixture tool on PATH. The tool was restored, and the slower local reruns were deliberately stopped after
+fresh CI took over. Partial local results are not counted as passes. Native CI also independently passed on
+7e30061. Mac archive contents and executable launcher modes are checked; no owner media, secrets, data folders,
+virtual environments or design/test fixtures are bundled.
+
+**Limits:** macOS version and Apple Developer membership remain unconfirmed. No physical M5 Max test,
+Finder/quarantine interaction, Apple signing/notarization, real social upload, existing-upload repair, paid
+enrollment or security-policy change was performed. Speech models download on first transcription; no Metal
+speech acceleration is present. Reconnect Windows-protected accounts on Mac; existing profiles are not silently
+migrated. Keep Terminal and the Mac awake. The stable Windows download remains at delivery fc7b199.
+See `macos/README.md` and `docs/MACOS_RELEASE_VERIFICATION.md` for setup and verification details.
+
+## Confirmed upload audio timing defect — 2026-10-29 (America/Chicago)
+
+The owner has now supplied both matching versions: the local 1080x1920 render and Google's processed
+720x1280 copy. Their pictures match (692 frames each; downscaled grayscale RMSE 0.707). The YouTube copy
+contains exact silence from 0.8360 to 3.0607 s while the local decoded audio remains present.
+
+**Correction to the earlier investigation:** default ffprobe/FFmpeg parsing repaired the AAC packet clock,
+so its apparently continuous timestamps did not establish a valid MP4 sample table. Direct examination of
+`stts`, and ffprobe with `-fflags +nofillin`, exposes 140 invalid audio packets in the local file. Many opening
+packet durations are 1 sample instead of 1024; a later packet covers 113498 samples instead of 1024. This
+squeezes the opening and leaves a 2.36 s interval, matching the pattern in Google's output. The audio samples
+and transfer bytes were intact. The previous volume-normalization fix alone was not a verified solution.
+
+New rendering resets the audio time base to 1/48000 and rebuilds timestamps from actual output sample counts
+AFTER cuts, speed, resampling and the compensated limiter. Real source delays/gaps have already been represented
+by samples and remain intact. AAC-LC is explicit. Before promoting a temporary render, an independent bounded,
+cancellable probe checks the stored packet clock without automatic timestamp repair. The final quality gate
+performs the same check. Gate version 3 invalidates old cached passes for unstarted work; malformed clocks fail
+with a rerender explanation and can return to the existing bounded render-repair path. Active/uncertain uploads
+retain their existing session behavior. Existing uploaded media and approvals are not rewritten or reuploaded.
+Older local files must receive a fresh render/check to use the fix; updating cannot restore an existing YouTube
+copy's missing audio.
+
+A separate private-workspace copy of the supplied ORIGINAL was repaired by rebuilding AAC packet timestamps
+without re-encoding: encoded video/audio packets and decoded audio are identical; its raw clock now has zero
+invalid packets. Neither owner file nor derived media is committed to Git or included in releases. A real
+YouTube re-upload of the corrected file has not been performed or verified.
+
+**Validation:** Full fast suite: 1,524 passed, 19 deselected in 1777.86 s. Full real-media/restart suite: 19 passed, 1,524 deselected in 2168.08 s. No final failures or skips. Nine new timing regressions pass, covering broken raw AAC clocks despite successful playback, corrected clocks, priming/final padding, two sample rates, malformed probes, cancellation and render handoff. All 204 frozen Python source/test files match. The 17 previously built frontend files are unchanged; no new frontend build was needed. The supplied local file fails the new raw timing check; its privately repaired copy passes with identical encoded audio/video packets and decoded audio. A synthetic regression fixture was corrected to include a video track before the final full fast run. A cloud workspace restart interrupted both earlier full-suite runs; both were restarted completely. Real YouTube re-upload and native Windows remain unverified.
+
+## Supplied audio sample investigation — 2026-10-28 (America/Chicago)
+
+The owner supplied a finished 23.067-second MP4 and its matching YouTube Shorts URL. The local MP4 fully
+decodes without reported errors: H.264 video and AAC-LC stereo at 48 kHz, audio/video starting at zero,
+matching 23.066667-second container lengths, and continuous audio packet timestamps. There is no opening
+silent stretch of 100 ms at either -50 or -60 dBFS. One-second channel correlation stays positive; this
+sample does not establish a phase-cancellation cause. This is structural/sample analysis, not a listening
+assessment or proof about platform playback.
+
+The exact supplied file (8,906,887 bytes) passed three local fake-YouTube transfers using the production
+8 MiB chunk size: normal, interruption after the first chunk followed by resume, and retry after HTTP 503.
+All three delivered byte-identical media through one session and produced one fake video. Secondary local
+128 kbps AAC and Opus encodes of this real sample preserved the first ten seconds: sample correlation >0.9975
+and maximum active 100 ms-window RMS drop <0.167 dB. These are not real YouTube transcode tests.
+
+**Still unresolved:** the browser service could not fetch either Shorts or watch playback (throttled), and the
+workspace proxy rejected YouTube access with HTTP 403. Do not work around that access policy. Request the
+posted copy downloaded through YouTube Studio, or a playback recording if that copy does not reproduce it.
+An optional question about replay on another device/browser is pending. The app source still has no confirmed
+upload-only defect. No speculative processing change, new installer, real upload or owner-account action was
+performed. Supplied media and derived audio remain in the private workspace, outside Git and release packages.
+
+## Upload-only audio clarification — 2026-10-23 (America/Chicago)
+
+**Unresolved:** The owner now clarifies that the video sounds fine before upload and becomes distorted/quiet
+only after upload. The earlier normalization defect is real, but it is not a confirmed explanation or fix for
+this reported upload-only problem. Do not claim the prior download fixes this case without comparing the actual
+finished local MP4 with its matching platform playback. It remains unknown whether the local preview means the
+original source, the finished clip, or another rendered version; the platform/link has been requested.
+
+Follow-up on app revision `58770e2242c8a84a6b6394048abde55a5065dc23`: traced selected-file resolution, content-hash
+checks, and YouTube/TikTok binary upload paths. The encoders are not invoked by the uploaders. Six focused
+resumable/interrupted/chunk tests passed (50 deselected, 6.63 s). A retained synthetic render has AAC-LC stereo
+at 48 kHz, with audio/video starting at zero and both container durations 11.600 s. Four local secondary encodes
+(AAC/Opus, mono/stereo, 128 kbps) retained clean initial tone and stable repeated passages: initial-to-later
+RMS change remained within 0.007 dB and initial tone purity exceeded 99.99%. These are local FFmpeg tests,
+not YouTube/TikTok processing tests and not evidence about the owner's particular media.
+
+No functional code, media, platform account or release package changed in this follow-up. Next evidence needed:
+the exact exported finished MP4 that sounds correct locally and the corresponding affected uploaded-video link
+(or the platform-processed file if the link cannot be accessed). Compare the same version, initial decoded
+samples, channel phase/downmix, timestamps and platform output before choosing another processing change.
+The cloud workspace has no owner-PC VPN/account connection and its network policy does not currently grant
+YouTube/TikTok access. Do not bypass that policy or ask for account credentials.
+
+## Audio startup and volume stability — 2026-10-23 (America/Chicago)
+
+Base: `2eda06afe16b9dbfd22a2f42c3056d08c88c7094`, verified as the latest pushed source on both
+`claude/sharp-rubin-zmg6tx` and `codex/brain-graph-quality-discovery` before work. All 18 remote branch heads
+were checked. This update continues from that source and preserves the earlier Brain, framing, scheduler,
+submitted-video, Python setup and robot-office changes.
+
+The previous single-pass loudness normalizer could boost a quiet opening by about 50 dB, then reduce the same
+quiet signal by over 24 dB after a loud moment. This is a reproduced processing defect, not proof that every
+reported distorted source has this cause. The owner has not supplied an affected original/render/platform pair.
+The uploaders transfer the rendered MP4 bytes without changing the audio.
+
+New normalized renders measure the complete kept audio timeline after first-track selection, clock repair,
+trims/joins, stereo downmix and speed changes. The encode uses one constant gain targeting -14 LUFS, limited
+by the measured -1.5 dB true-peak headroom and a maximum 24 dB boost. Highly dynamic recordings can therefore
+finish quieter than -14 LUFS rather than pumping or flattening their dynamics. Silent/ungated material receives
+no guessed boost. Explicit gain and the existing compensated final limiter remain. Normalization off skips the
+measurement pass. Failed/malformed measurements stop rendering; cancellation and time bounds apply. Numeric
+measurements and the applied gain are retained in local `render_info.audio_processing`; no extra audio recording
+is saved or sent to a service. The editor describes -14 LUFS as a target, not a guaranteed platform standard.
+
+Existing files, approvals and uploads are not rewritten or posted again. To apply the fix to an older clip,
+render it again from its source, preview it, and let its new exact-file checks/approval run before uploading.
+Already damaged source samples cannot be reconstructed by changing loudness normalization.
+
+**Validation:** Full fast suite: 1,515 passed, 19 slow deselected in 573.11 s. Full real-media/restart suite: 19 passed, 1,515 deselected in 890.51 s. No failures or skips in these final runs. The first media attempt lacked espeak on PATH (12 passed, four skipped, three fixture-setup failures); the existing isolated speech tool was added to that test process's PATH and all 19 cases were rerun without code changes. TypeScript/Vite production build passed (Vite 4.88 s); two existing built-browser creation/editor checks passed (11.6 s). All 202 frozen Python source/test files and 17 built files match. New regressions verify stable AAC startup and repeated quiet passages, noise/silence, exact kept intervals and speed, invalid-measurement/cancellation handling, a full 1080x1920 render from AAC 44.1 kHz, and byte-identical transfers through fake YouTube and TikTok. Before/after output measurement reduced an artificial 24.42 dB drop on identical quiet audio to 0.0013 dB. Real platform transcoding and the owner's affected original remain unverified.
+
+No owner data/profile, native Windows/RTX3050, real YouTube/TikTok upload or platform transcoding was tested.
+The local privacy text describes the added measurements; public Pages is not redeployed by this update.
+
+
+## 2026-10-19 · Brain-guided creation, moving crops and spaced publishing
+
+* **Changed:** platform-tagged Brain lessons apply across subjects, manual clips retain real ranking provenance,
+  and the editor lists used lessons. Automatic crops follow measured visual motion when faces disappear, with
+  cache invalidation and recorded quality-gate evidence. Default posts are 30 minutes apart; automatic pending
+  collisions and already queued transfers respect spacing across restarts. Positive custom gaps/explicit rescheduled times
+  and active/uncertain transfers remain intact. Existing valid input reuse statements carry through Queue
+  review; generated repairs require fresh exact-file checks and approval, without retyping source reuse.
+* **Why:** owner reports unused Brain guidance, static crops, simultaneous schedules and repeated Queue reuse
+  questions for supplied inputs. No local-file ownership assumption or new old-backlog grant was introduced.
+* **Validation:** Final full fast suite: 1,504 passed, 18 slow deselected in 687.23 s. All 18 selected real-FFmpeg/synthetic-media and restart cases passed: 15 in 766.75 s before stopping the remaining legacy zero-gap fixture wait, then its corrected three cases in 455.55 s. TypeScript/production build passed (6.03 s); all 61 built-browser checks passed in 170.29 s. All 204 other frozen Python/source/test/bootstrap/dependency files and 17 tested built files retain their hashes. Only the slow-loop fixture changed after the fast/first-15-media checks, to explicitly select zero spacing for compressed test time; all its three affected cases were rerun. Production source stayed unchanged. The final 205-file manifest matches the delivered source. The final source adds the reviewed alternate-version repair guard, covered by the final full suites and 62 focused checks; the already completed browser run covers unchanged frontend paths. Earlier full attempts stopped for evidence/pacing/version corrections are not final evidence. Actual moving-frame output, saved Brain ranking influence, input-bound reuse, concurrent/restarted pacing, platform waits and exact fake uploads were checked in disposable profiles. No owner profile, real social upload, native Windows/RTX3050 or 24-hour soak was tested.
+* **Delivery/limits:** readable source setup is pinned separately with managed release history preserved; no
+  custom EXE rebuild or security setting changes. Native Windows/GPU, owner profile, real platform delivery,
+  approval and 24-hour operation are unverified. Existing media/uploads remain unchanged.
+
+## 2026-10-19 · Matching TikTok icon across the app and public website
+
+* **Changed:** reuse the exact submitted 1024-square robot PNG for app branding, the public site's headers and
+  browser tabs, and the helper's single recommended icon. Form packs include matching PNG/ICO website assets;
+  local legal previews serve them correctly. Legacy icon download endpoints remain compatible.
+* **Published:** branding-only `gh-pages` revision `80a6a3f4782de64fed88a06d9db54533de4869bd`; successful
+  Pages deployment and exact readback of all eight source files. Preserve existing TikTok URL verification,
+  `.nojekyll` and product/legal copy. The public-site fix needs no desktop reinstall.
+* **Why:** TikTok's reviewer found the submitted robot differed from the website's old filmstrip logo/favicon.
+* **Validation:** TypeScript/production build passed (5.11 s). Final affected Python suites: 41 passed in 6.89 s.
+  Twelve Chromium checks cover all three public pages at desktop/mobile widths in light/dark mode; the built app
+  header, favicon, helper preview and download also match the exact submitted PNG. All six ICO frames match nearest-
+  neighbor canonical pixels. The broad fast run completed with 1,489 passed, one obsolete website-readiness fixture
+  failure and 17 slow deselected in 537.24 s. It had already collected the older fixture, which forbade added assets
+  and all image elements. The corrected fixture permits only the bundled canonical image and passes in both the
+  41-case affected-suite rerun and a final individual rerun. All 326 frozen code/test/build/website hashes match.
+  Exact published source readback and successful Pages deployment were verified. The media/Autopilot pipeline and
+  dependency/bootstrap files are unchanged; slow media and broad browser suites were not rerun for this branding
+  correction.
+* **Limits:** direct live-site HTTP is unavailable under this environment's network policy. No TikTok portal
+  submission/approval or real account upload verified. Existing installer artifact remains pinned to its prior
+  revision; media/Autopilot/dependency behavior is unchanged.
+
+## 2026-10-19 · Verified Windows Python selection and preserved environment recovery
+
+* **Changed:** standard-library bootstrap verifies actual standard 64-bit CPython 3.12/3.11 for Windows AMD64;
+  both readable installer and app launcher share the check. Compatible `.venv` is kept; incompatible copies get
+  unique backups before fresh creation, failed partials are preserved with rollback where possible, and a known
+  active environment blocks replacement. Missing supported Python yields side-by-side official-install guidance.
+* **Why:** owner screenshot reports no matching CTranslate2 distribution. Its exact runtime/index is unknown;
+  current CPython 3.13/3.14 AMD64 wheels exist, so this uses the app's supported runtime policy without claiming
+  those versions inherently lack wheels. Native ARM64/32-bit lack the applicable wheel.
+* **Preserved:** owner data/Brain/accounts/clips, GPU/dependency pins, rendering, frontend and submitted-video
+  upload behavior; no automatic global Python installation, PATH/registry/security change or old-environment
+  deletion. Previous release evidence remains separate.
+* **Validation:** Full fast regression suite: 1,489 passed, 17 slow deselected in 527.16 s. All 203 frozen source/test/bootstrap/dependency hashes matched. The 38 focused bootstrap checks passed in 3.54 s, including real disposable-host venv creation, reuse and replacement, preserved dependency markers/data, failure rollback, active-process and concurrency guards, exact runtime checks and read-only probes. A 19,230,360-byte CPython 3.12 Windows AMD64 CTranslate2 4.8.3 wheel was downloaded and its SHA-256 matched PyPI (b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9). No dependency/GPU pins, app pipeline or frontend files changed; all 17 previously browser-tested built files retain their hashes. The previous 17 media and 59 browser results apply to unchanged scopes and were not rerun. The readable setup is separately pinned to this exact app commit; its delivery proof records installer/helper tests, full source hashes, managed-release history and immutable download readback. No native Windows/owner install, CUDA/RTX3050,
+  real upload/Defender or 24-hour run verified. Linux cross-pip dry runs are not native Windows proof.
+
+## 2026-10-19 · Submitted videos to Brain-guided clips and automatic YouTube uploads
+
+* **Changed:** Missions accepts a recorded-video link/file with **Make & upload clips** or **Make clips only**.
+  Submitted input is now the default; periodic/queued search and watched-folder admission stop without deleting
+  old data or removing optional discovery. Relevant supported Brain guidance uses Settings fallback.
+* **Authorization:** one explicit input-scoped request records destination/audience, genuine kids answer and
+  reuse basis outside Brain. Acquired original/project/current terms and every final file/payload are bound.
+  Only its newly generated qualifying YouTube posts can auto-approve; old backlog/later inputs/TikTok stay separate.
+  Source requests do not change ownership or global audience/standing consent. Stop/pause/cancel, credit, quality,
+  source drift, waits and uncertain-session/no-duplicate handling remain. An accepted-input enqueue gap recovers
+  durably without reviving attempted/canceled jobs. Retention keeps referenced source/audit records while
+  clearing stale API data and ordinary unused discovery; its foreign key no longer interrupts maintenance.
+* **Audio:** retain measured downmix/peak/clock/track corrections and exercise actual Brain-guided rendered AAC
+  through the exact fake YouTube upload bytes and restart. Existing distortion and real platform processing are
+  not guaranteed repaired. Existing media/uploads remain unchanged.
+* **Validation:** Final full fast suite: 1,451 passed, 17 slow deselected, in 676.07 s. Final full real-FFmpeg/synthetic-media and restart suite: 17 passed, 1,451 deselected, in 934.97 s. TypeScript and the production build passed (10.00 s). All 59 final built-browser checks passed in 161.55 s. The final fast suite used 198 frozen Python source/test files. All production and selected media-test sources stayed unchanged during the full media run; 81 frontend source and 17 built-file hashes stayed unchanged through the final browser checks. A deselected fast retention fixture's timestamp setup was corrected before the final fast run; the media run's production/selected sources were unaffected. Focused checks also passed: 60 submission/consent, 79 final status/routes/legacy readiness, 29 advanced-route/legacy, 119 legacy intake/scheduler/publishing, three new actual-media and 26 legacy audio/quality and nine retention checks. The three new media cases use relevant saved Brain guidance, real caption/AAC rendering, exact fake-upload bytes and restart without duplicates, including the broad YouTube switch off and TikTok enabled. Earlier full attempts were interrupted before the final route/status/retention corrections and are not final evidence. Tests use isolated profiles, synthetic media and fake platforms only. The readable source setup is pinned separately to this committed app tree with the tested frontend manifest; its delivery verification records exact archive hashes and source revision.
+  No real owner account/Windows/RTX3050/Defender/24-hour run verified.
+
+## 2026-10-15 · Failed search keys and post-only reuse explanations
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `0c2729d`.
+* **What changed:** bounded same-account OAuth refresh, safe key setup/restriction errors, explicit uncached saved
+  search tests, credential-current results, strict responses and quota-aware concurrency. Key whitespace handling,
+  provider-specific/review-mode diagnosis and clear post-only reuse text with independent Brain boundary tests.
+* **Why:** owner reports no clips, clarifies both keys fail and asks that reuse entries not be saved in Brain.
+  They confirmed these appear only on the post. No automatic Brain write existed; deliberate notes stay intact.
+* **Validation:** Final full fast suite: 1,373 passed, 14 slow deselected, in 755.18 s. Final full real-FFmpeg/synthetic-media and restart suite: 14 passed, 1,373 deselected, in 945.34 s. Final TypeScript and production build passed (5.17 s). All 51 final built-browser checks passed in 167.41 s, with all 17 built-file hashes unchanged. Focused provider verification: 77 passed in 7.83 s; focused diagnosis/health/phone: 88 passed in 11.26 s; independent saved-search/Brain separation checks: 113 passed in 22.43 s before the final wait-order correction, then 53 passed in 4.06 s including both same-key full-server-wait regressions. All 261 frozen production/frontend/Python-test hashes remained unchanged through final verification. Tests used isolated data, synthetic media, MockTransport and fake platforms. No owner keys, Windows profile/RTX3050, actual search-service account, real upload, Defender acceptance or 24-hour soak was verified. Permission answers were already post-only; the update clarifies and verifies that boundary.
+* **Not verified:** owner keys/provider setup, Windows/profile/RTX3050, real uploads or a 24-hour soak.
+
+## 2026-10-15 · Audio, comments, ongoing search and live/Windows recovery
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `11bdb435`.
+* **What changed:** stereo downmix before normalization, final post-gain peak control, shared audio-clock/track
+  handling; strict real kids answers and truthful YouTube comments/audience explanations; independent provider
+  waits, recurring capacity-aware search, bounded pagination and saved-signal refill; visible supported search
+  keys/free-only controls; safe paired HLS and bounded empty-ended-stream archive recovery; scoped Windows
+  10054 cleanup with Python-version-compatible detachment. Added concrete `CLAUDE_HANDOFF.md`.
+  Health/phone cadence reads remain pure; host-only deadline reconciliation also handles a full queue draining.
+* **Why:** owner confirmed distorted uploaded audio, comments off on some posts, searches stopping and the two
+  supplied live/Windows errors. Concrete defects were reproduced locally; no owner media/account was accessed.
+* **Validation:** Final full fast suite: 1,278 passed, 14 slow deselected, in 579.81 s. Real-FFmpeg/synthetic-speech media and restart verification covered all 14 scenarios across two runs: the full attempt passed 12 with 2 repeat-discovery timeouts (1,274 deselected, 1153.68 s); after correcting only the compressed-clock fixture's discovery-list cache expiry, both private/public repeat scenarios passed in 374.57 s. This was not a single all-green full-media run. Production cache/quota policy and all real render, final-report, exact-upload-byte and restart assertions were unchanged by that fixture correction. Final production build: 10.32 s; TypeScript passed. All 43 final built-browser checks passed in 93.25 s, with all 17 frontend hashes unchanged. Focused independent bugfix verification: 73 passed in 32.22 s, including measured encoded mono/surround audio, exact fake-upload bytes, real split-HLS synchronization and real asyncio cleanup compatibility. Windows/phone focused verification: 63 passed in 10.25 s; earlier discovery focused: 89 passed in 11.12 s. The final queue-drain deadline correction and surrounding discovery checks passed 61 tests in 9.13 s. Final comments/search checks after the current-label correction: 47 passed in 22.85 s. The final read-only health/phone/search correction passed 77 checks in 16.64 s, with database-unchanged assertions intact. The complete media run used the final audio/live/publishing code, preceding only the pure health-cadence refactor and its four new fast tests; all 39 media-scope source hashes remained unchanged. That refactor is covered by the final full fast run and 77 focused checks. The earlier interrupted suites preceded final deadline/returned-label corrections and are not final evidence. No real owner Windows profile/media, RTX3050, live provider key, account upload or 24-hour soak was tested.
+* **Not verified:** owner Windows runtime/profile/original audio, RTX3050, real provider keys/accounts/uploads,
+  actual platform comment settings, native Windows/Defender or a 24-hour unattended soak. Existing published
+  audio is not rewritten and source distortion cannot be reconstructed.
+
+## 2026-10-15 · Faster review, bulk approval and consistent Brain guidance
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `ec20aec`.
+* **What changed:** inline Queue video/text previews, Quick approve and selection of up to 50 YouTube posts.
+  Permission presets replace required typing, and one combined consent replaces duplicate checkboxes. Batch
+  approval uses a fixed, expiring, account/file/source/terms/payload/audience/check-bound preview, explicit common
+  permission basis and any missing kids answer; each success receives its own manual approval. Future posts gain
+  no permission. Final guarded writes reject changed or active work without hashing under the database lock.
+  Partial results retain skipped posts for review; exact retries return prior results. Known credit, physical
+  quality, grounded text, post audience/time, platform waits and duplicate protections remain. TikTok stays
+  individual. Single review and current per-post assertions retain exact-payload confirmation.
+  Brain matching now retains source-title/spoken context through candidate generation, ranking, planning and
+  rendering, including resume/live. Natural caption declarations and example feature fields are recognized;
+  disliked-example observations no longer become desirable ranking traits. Recognized effects/length hints are
+  shown honestly, Settings remain the fallback and explicit clip edits win. Unsupported text stays searchable.
+* **Why:** the owner finds repeated review too slow and reports saved Brain notes/examples not changing clips.
+* **Validation:** Final full fast suite: 1,195 passed, 11 slow deselected, in 739.22 s. Final real-FFmpeg/synthetic-speech media and restart suite: 11 passed, 1,195 deselected, in 1024.81 s. This includes exact selected-post fake uploads/restart and two actual Brain-guided/owner-overridden caption renders with persisted provenance. Final production build: 9.44 s; TypeScript passed. All 31 final built-browser checks passed in 95.78 s, with all 17 frontend hashes unchanged. Focused checks: 42 bulk, 19 independent approval audit and 86 Brain/context checks passed. Browser fixture wording/details visibility and async readiness were corrected before the final run; earlier interrupted or fixture-correction runs are not final evidence.
+* **Not verified:** the owner's PC/profile, native Windows/GPU, real social uploads or a 24-hour soak.
+
+## 2026-10-14 · Prepare and schedule for individual reuse review
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `d0b7102`.
+* **What changed:** review before publishing defaults on. Bounded quality-first discovery and local posting plans
+  can include accessible unblocked sources with unrecorded reuse terms. Rights labels remain truthful, and new
+  posts wait for manual approval. Queue shows proposed times without calling them approved uploads; review drafts
+  do not expire. Uncovered posts need an individual owner reuse statement and basis bound to the exact source,
+  terms/credit, post, account, audience, platform, bytes/version, text and options. Known required credit and
+  physical-media checks remain binding. Old unstarted automatic approvals return to review atomically, retaining
+  time, text, privacy and publication identity. Queued work, retry and not-published recovery cannot restore an
+  automatic upload grant. Unknown outcomes retain their session and use account-bound readback. Separate manual
+  publishing cannot borrow an assertion. Explicitly disabling review restores the existing guarded automatic mode.
+* **Why:** the owner wants to inspect finished clips and confirm reuse before approving publication, rather than
+  have missing records prevent a review plan or let standing permission authorize new uploads.
+* **Validation:** Final full fast suite: 1,112 passed, nine slow deselected, in 529.54 s. Final real-FFmpeg/synthetic-speech media and restart suite: nine passed, 1,112 deselected, in 879.93 s, including the new review/owner-confirmation/exact-byte upload/restart loop. Final production build passed in 8.79 s; 12 built browser checks passed in 40.23 s, with all 17 frontend file hashes unchanged. Focused checks: 95 publishing/reuse checks; 64 scheduler/public/manual checks; final 46 review/current-terms checks; 107 legacy recovery checks; and eight final independent audit/fixture checks. The initial full fast attempt found an older fixture approving an unverified channel claim; its corrected exact-video verification retains all connection, quota, hash, explicit-block and no-upload assertions. Earlier full attempts were stopped before final corrections and are not final suite evidence.
+* **Not verified:** the owner's Windows profile, native Windows/GPU operation, real platform uploads or a 24-hour soak.
+
+## 2026-10-13 · Continuous eligible uploading and Brain/manager handoffs
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `718358f`.
+* **What changed:** app daily source/clip/platform caps default to 0 (unlimited), with all-day earliest-slot
+  posting. A recorded one-time volume amendment preserves existing account/audience/kids permission and old
+  posts, while future owner limits persist. Bounded search/queue/quality/API/cost/platform holds remain active.
+  Uploadable-only broad discovery prioritizes verified own/agreed/CC media and explains local-only clips;
+  legacy local-only finds cannot monopolize capacity. Past-due eligible approval holds and lost replacement
+  times recover; reported platform zero holds approved dispatch without disrupting an active transfer.
+  Current reuse/credit checks bind to both reports and actual upload text. Missing credit returns to editable
+  review; proven unstarted row synchronization retains upload identity, route and current feature evidence.
+  Private/canceled/manual/started/uncertain work remains protected. Count-only real Brain consultations now
+  appear separately from mature-result learning. Explicit fresh manager/boss handoffs respect newer checkpoint
+  outcomes, actual job ownership and Pause/Reduced/hidden/offline/history guards. Quiet rooms explain idle state.
+* **Why:** the owner reported missing-permission posting holds, requested no app daily cap and continuous work,
+  and found the office's Brain/handoffs misleading. No missing reuse or account permission was fabricated.
+* **Validation:** Final fast suite: 1,047 passed in 556.14 s; eight real-media/restart checks passed in 836.38 s.
+  Final production build passed in 6.16 s; 11 final built browser checks passed in 94.42 s, matching all 17 file
+  hashes. Earlier 12 choreography checks, six department, three motion and six lounge checks passed. Final
+  reuse/publishing: 93 passed; public/manual publishing: 34 passed. New current-terms regressions: 26 passed;
+  independent continuous: 12 passed. Root phone checks: 56 passed. Initial full fast run found ten stale fixtures;
+  updated local-discovery/finite-plan/current-report fixtures retain all permission/bytes/version/quality/wait
+  checks. No owner Windows/GPU, real platform upload or 24-hour soak was tested.
+* **Not verified:** real owner Windows data/runtime, RTX3050, actual account posting/visibility or a 24-hour soak.
+  No real publishing, account/privacy change, spending, media deletion, security exclusion or deployment occurred.
+
+## 2026-10-13 · Finished clips reach YouTube scheduling
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `987ebb2`.
+* **What changed:** reusable accessible discovery candidates take priority; parked permission/file waits cannot
+  monopolize the bounded workable queue or displace them. Finished recorded clips get immediate durable handoff
+  before batch yielding. Bounded reconciliation recovers proven old handoffs while preserving canceled work,
+  manual edits, live decisions and existing packaging states. Parent cancellation/Pause is rechecked after
+  fingerprinting. Stale consent no longer hides pending approval reminders; Private permission requires a
+  confirmed upload destination too. Setup embeds audience and separate YouTube permission controls for connected
+  accounts. Read-only readiness/derived warnings explain finished-clip holds without depending on a working
+  scheduler; unavailable times are not called scheduled, and newer preparation overrides historical failures.
+* **Why:** the owner had finished clips after an all-day YouTube-only run, with no posts or Needs you explanation.
+  The exact owner-PC hold remains unknown; code failures were reproduced on disposable data and corrected.
+* **Validation:** Final full fast suite: 958 passed, eight slow deselected, in 489.73 s. Final real-FFmpeg/synthetic-speech
+media and restart suite: eight passed, 958 deselected, in 695.71 s, including Public/Private and live recovery
+loops. Final production build passed in 3.98 s; seven built-interface browser checks passed in 43.6 s. All 17
+tested built-file hashes match. Final focused handoff/readiness/simple-page checks: 88 passed in 24.79 s.
+Discovery focused checks: 99 passed in 19.36 s; four new behavior regressions fail on the original source.
+Scheduler/consent checks: 73 passed, one slow deselected, in 78.53 s. Independent review found the late-
+cancellation race; its three corrected regressions passed and no material findings remain. No real owner data,
+Windows/RTX3050, platform upload or 24-hour soak was tested.
+* **Not verified:** owner Windows data/runtime, RTX3050, real platform accounts or a 24-hour unattended soak.
+  No real publishing, consent/account change, spending, firewall/router change or deployment occurred.
+
+## 2026-10-13 · Private phone status companion
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `4838aa8`.
+* **What changed:** default-off Tailscale/home-Wi-Fi listener serves a mobile read-only dashboard, separate from
+  desktop APIs and media. Guarded owner controls issue single-use expiring pairing codes, enable/disable access
+  and revoke up to eight hashed 90-day device grants. Keys use authorization headers and opt-in browser storage;
+  codes and keys never enter URLs/logs. Listener failures leave the desktop functional; custom desktop ports,
+  restart and shutdown cleanup are covered. Counts, progress, status and attention policy follow actual app
+  state. Mobile polling handles background/offline/reconnect/expiry, clears unauthorized data and escapes text.
+  Desktop setup prevents old polls from overwriting newer actions. Setup/privacy/architecture docs are updated.
+* **Why:** the owner wants to see how ClipFoundry is doing from a phone, including away from home.
+* **Validation:** Final full fast suite: 869 passed, eight slow deselected, in 386.91 s. Final focused phone tests: 55 passed in 9.03
+s; 75 existing local-guard/office/Autopilot regressions passed in 30.43 s before the final attention refinement.
+Final built phone browser suite: ten passed in 12.6 s. Final built desktop setup/race checks: two passed in 27.6 s.
+Production build passed in 3.85 s; all 17 built-file hashes were recorded. No actual phone, Windows/Tailscale
+connection or real account was tested.
+  Initial full fast suite: 865 passed before the final attention-policy refinement. No processing/publishing
+  handler changed, so no new slow media run. Installer tests and exact bundle integrity are recorded separately.
+* **Not verified:** native Windows/RTX3050, actual phone browsers, real Tailscale account connectivity/firewall
+  behavior or platform accounts. No real upload, account change, router/firewall configuration or cloud hosting.
+
+## 2026-10-13 · Automatic Brain guidance and supported integration cards
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `28aee85`.
+* **What changed:** enabled saved Brain material participates automatically in new clip selection/rendering,
+  with Settings fallback. Local recognition covers supported caption/pacing controls and ranking priorities;
+  explicit choices override prose. Good examples contribute measured duration hints blended once with the
+  original target. Disabled/paused material remains inactive. Revision-specific selection/render decisions merge
+  without mutating shared snapshots. Manual editor overrides retain precedence; existing clips/posts persist.
+  Brain shows recognized choices, automatic activation and unsaved drafts, with no separate approval action.
+  Integrations removes seven inactive connector placeholders while retaining real platform permission/limit
+  messages. Raw Brain material is never executed or sent to an AI; only fixed priority names accompany its
+  existing transcript payload. Privacy/product documentation describes the changed behavior.
+* **Why:** the owner reported stored Brain material was not being used and requested automatic use even with
+  sparse knowledge, combined with Settings, plus removal or repair of unsupported integration entries.
+* **Validation:** Final full fast suite: 814 passed, eight slow deselected, in 349.16 s. Final focused Brain/provider/blueprint/artifact regressions: 96 passed in 43.45 s. Actual-FFmpeg/synthetic-speech media/restart suite: eight passed, 811 deselected, in 710.71 s before the final example-blending/provenance review fixes; those final fixes are covered by the final 814/96 runs. Final controlled browser batch: eight passed in 45.5 s against the final built interface. Build passed in 6.44 s. No real uploads, accounts, Windows/RTX3050 execution or 24-hour soak were tested.
+  Final fast/focused coverage includes the last example-blending and shared-provenance fixes. Media ran before
+  those last fixes; all eight passed using existing portable speech tools and adequate workspace temp storage.
+  Eight final browser checks cover activation, real lookup, unsaved drafts, stale-revision recovery, graph
+  accessibility/mobile/motion/bounds and removal of placeholders. The local report collector separately passes
+  synthetic privacy/GET-only/custom-port/offline/invalid-port checks. Packaging integrity is recorded separately.
+* **Not verified:** native Windows installation/runtime, RTX 3050 CUDA/NVENC, actual account grants/visibility,
+  model quality with owner clips, visual learning from examples, or an actual 24-hour soak. No real posts,
+  account-permission changes, dependency upgrades, purchases or deployment.
+
+## 2026-10-13 · TikTok setup, visible Brain graph and focused discovery
+
+* **Tool:** Codex. **Branch:** `codex/brain-graph-quality-discovery`. **Base:** `8999e5f` from the default branch;
+  PR #14 is already merged. **Result:** the commit containing this entry.
+* **What changed:** TikTok form helper supplies copyable app details, current-port Desktop callback, two 1024×1024
+  PNG icons, products/scopes and a form-pack export with local draft website/legal pages. Inbox, Direct Post and
+  optional statistics request only their chosen permissions after applying, saving and reconnecting. Exports
+  exclude credentials, tokens, account identity and owner media; URL checks are syntactic, with no network fetch.
+  The helper prepares drafts only when opened and does not claim registration, review approval, hosting or an
+  actual integration demo.
+  Brain's interactive graph shows actual saved notes/examples/preferences, shared tags and recorded readings and
+  clip influence; notes/evidence open their stored records/provenance. Decorative glow and positions are not model
+  thoughts.
+  Add note is simpler; Teach preference retains explicit revision review/approval. Stale edits return 409 and keep
+  unsaved text until explicit reload. Uploaded material does not fine-tune a model.
+  Quality-first broad discovery defaults to three picks per pass, six unfinished picks including needs-rights,
+  one known creator and two per topic. The existing default three-attempt daily budget remains; explicit inputs
+  keep their behavior and weak estimates do not trigger unlimited attempts to fill the clip target.
+  Tavily's optional free-key setup explains 1,000 monthly credits/no card and explicitly selects a $0 app spending
+  limit when chosen, preserving other settings. No new graphics or browser dependency was added.
+  One read-only Integrations assertion now expects the already implemented explicit Public audience choice,
+  while Unlisted remains absent. Owner-data test flows and the HTTP write blocker are unchanged; no permission
+  is selected or saved by that test.
+* **Why:** the owner requested a finished app and Windows installer, clearer TikTok setup, an Obsidian-style view
+  of saved Brain data and stronger discovery choices instead of chasing more clips.
+* **Validation:** final full fast Python: **804 passed**, eight slow deselected, in **429.01 s**; Python is unchanged.
+  All eight media cases passed across the initial run (seven passed, one environment disk-capacity failure,
+  965.89 s) and unchanged live rerun (48.81 s) using workspace temp storage.
+  **52 unique browser checks** are covered across runs: initial 42 passed/two failed in 12.7 min; final 19 passed
+  in 1.1 min (11 changed UI, eight strict read-only Settings; ten overlap the initial batch); complete loop one
+  passed in 7.0 min. The final lazy helper fixes background preparation; the old Public assertion was updated
+  with read-only policy intact. Recorder/temp-storage prerequisites were fixed for the actual complete loop.
+  Final build passed in **4.06 s**; all 14 tested/captured hashes match.
+  [Desktop/mobile/empty previews](design/brain-workspace/README.md) use controlled records from the final run.
+  Earlier interrupted outputs and historical checkpoint counts are separate evidence. The Windows installer
+  has a separate bundle/integrity record on `codex/clipfoundry-one-click`; native Windows remains unverified.
+* **Not verified:** Windows installation/execution, RTX 3050 CUDA/NVENC, real platform grants/visibility and an
+  actual 24-hour soak. TikTok personal-tool eligibility, Sandbox/public limits and per-post consent remain external
+  constraints. No real upload, app registration/review, account-permission change or website deployment occurred.
+
+The PR #14 entries below retain their original branch status and evidence. PR #14 is now merged; earlier
+draft/unmerged instructions are historical and do not govern this new checkpoint.
 
 ## 2026-10-11 · Final merge review and stable log-rotation check
 

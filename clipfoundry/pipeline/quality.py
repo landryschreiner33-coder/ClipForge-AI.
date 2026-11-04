@@ -25,11 +25,11 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config
-from . import artifact
+from . import artifact, audio_timing
 from .common import Cancelled, read_json
 from .ffmpeg_utils import NO_WINDOW, FFmpegError, ffmpeg_bin, probe
 
-GATE_VERSION = 2
+GATE_VERSION = 3
 PASS, WARN, FAIL, SKIP = "pass", "warn", "fail", "skipped"
 DETERMINISTIC, HEURISTIC = "deterministic", "heuristic"
 MIN_SECONDS = 1.0
@@ -177,6 +177,7 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     else:
         out.append(check("audio_stream", "Audio track", DETERMINISTIC, PASS))
     out.append(_av_timing(info))
+    out.append(_audio_packet_timing(path, cancelled))
     dims_ok = (info["width"], info["height"]) == (config.OUTPUT_W, config.OUTPUT_H)
     out.append(check("dimensions", f"{config.OUTPUT_W}x{config.OUTPUT_H} vertical", DETERMINISTIC,
                      PASS if dims_ok else FAIL, "" if dims_ok else f"The file is {info['width']}x{info['height']}.",
@@ -211,6 +212,20 @@ def media_checks(path: str | Path, expected: dict, cancelled: Callable[[], bool]
     out += _caption_checks(expected.get("srt"), duration, expected.get("transcript"))
     out += _cut_checks(expected.get("transcript"), expected.get("edl"))
     return out
+
+
+def _audio_packet_timing(path: str | Path, cancelled: Callable[[], bool] | None = None) -> dict:
+    label = "Audio timing for upload"
+    try:
+        result = audio_timing.inspect(path, cancelled)
+    except FFmpegError as exc:
+        return check("audio_packet_timing", label, DETERMINISTIC, FAIL, str(exc))
+    if not result["applicable"]:
+        return check("audio_packet_timing", label, DETERMINISTIC, SKIP, result["reason"])
+    return check("audio_packet_timing", label, DETERMINISTIC, PASS if result["valid"] else FAIL,
+                 "Stored audio timestamps are continuous." if result["valid"] else
+                 "The file has broken audio timestamps that can cause glitches or silence after upload. "
+                 "Render it again before uploading.", **result)
 
 
 def _av_timing(info: dict) -> dict:
@@ -368,6 +383,12 @@ def framing_checks(render_info: dict) -> list[dict]:
     if mode in ("screen", "manual"):
         return [check("framing", "Framing", HEURISTIC, PASS, "Follows the screen's action (estimate)." if mode ==
                       "screen" else "Framed by you.")]
+    if mode == "motion":
+        evidence = render_info.get("framing_evidence") or {}
+        samples, tracked = evidence.get("samples") or 0, evidence.get("visual_target_samples") or 0
+        if samples >= 3 and tracked >= max(3, samples * .5) and (evidence.get("motion") or 0) > .25:
+            return [check("framing", "Framing", HEURISTIC, PASS,
+                          "Follows measured moving visual activity (estimate); this is not face identification.")]
     return [check("framing", "Framing", HEURISTIC, WARN, "No face or subject was tracked, so the picture is cropped in "
                                                         "the middle; people at the sides may be cut off.")]
 

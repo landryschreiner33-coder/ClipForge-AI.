@@ -1,14 +1,15 @@
 """YouTube Data API quota manager.
 
 Google gives every Cloud project a daily quota that resets at midnight Pacific Time. Since June 1, 2026 it has three
-buckets: `videos.insert` calls (uploads), `search.list` calls, and units for every other method. ClipFoundry
+buckets: `videos.insert` calls (uploads), `search.list` calls, and units for every other method. ClipForge
 
 * counts every call it makes, by method and purpose (publish, account, stats, discovery),
 * enforces the budgets configured in Settings (set them to your project's real quota),
 * limits discovery to a share of each bucket and never lets it eat the quota needed for publishing, statistics and
   account checks,
 * caches recent discovery answers and never sends the same discovery request twice while it is fresh,
-* slows trend polling down as discovery approaches its share, and stops it when the share is used,
+* spaces YouTube discovery checks as it approaches its share, and stops calls in an exhausted bucket,
+  without stopping unrelated searches or folder checks,
 * believes YouTube over its own count: when YouTube answers `quotaExceeded`, that bucket is treated as empty until the
   next reset, and nothing claims quota is available when it is not.
 """
@@ -240,12 +241,14 @@ def status(settings: dict, now: float | None = None) -> dict:
         buckets[name] = entry
     factor = discovery_period_factor(settings, now)
     if factor == float("inf"):
-        warnings.append("Trend discovery is paused until the quota resets, to keep quota for publishing.")
+        warnings.append("YouTube discovery has reached a quota allowance until the reset. Other searches and "
+                        "folder checks continue.")
     elif factor > 1:
-        warnings.append(f"Trend discovery runs {factor:.0f}x less often to stay within its share of the quota.")
+        warnings.append("YouTube discovery spaces its next checks to stay within its quota share. Other searches "
+                        "and folder checks continue.")
     return {"day": day, "resets_at": reset, "buckets": buckets, "analytics_calls": used["analytics"]["calls"],
             "planned_uploads": uploads_planned, "discovery_slowdown": None if factor == float("inf") else factor,
             "discovery_paused": factor == float("inf"), "warnings": warnings,
             "cache": state.get(f"quota:counters:{day}", {}) or {},
-            "note": "Counted by ClipFoundry from the calls it made. Set the budgets to your Google Cloud project's "
+            "note": "Counted by ClipForge from the calls it made. Set the budgets to your Google Cloud project's "
                     "real quota (Google Cloud console → APIs & Services → YouTube Data API v3 → Quotas)."}

@@ -12,6 +12,7 @@ def data(monkeypatch, tmp_path):
     from clipfoundry import db
 
     db.init()
+    db.save_settings({"autopilot_discovery_uploadable_only": False})  # exercise optional local discovery
     return tmp_path
 
 
@@ -138,6 +139,8 @@ def test_changed_preferences_reconsider_auto_skips_and_preserve_manual_skips(dat
     db.save_settings({"trend_topics": "NFL"})
     stored = scout.upsert_signal({**signal(provider="web_search", platform="url", title="Gardening interview"),
                                   "url": "https://public.example/garden.mp4", "raw": {"duration_s": 1800}}, now)
+    # Existing candidates from before quality-first admission remain reviewable and can follow changed preferences.
+    scout.upsert_source(scout.source_from_signal(stored))
     host.WorkerHost(periodic=False)
 
     def scan():

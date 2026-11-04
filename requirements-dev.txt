@@ -1,2 +1,2 @@
--r requirements.txt
+-r requirements-cloud.txt  # the regression suite also exercises cloud sign-in and encrypted storage
 pytest>=8

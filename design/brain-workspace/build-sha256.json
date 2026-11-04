@@ -1,0 +1,23 @@
+{
+  "frontend_dist": {
+    "assets/StudioArt-Bdckv3bY.js": "acf5a2668e5a8d2ba3fdf8cd648b2e7585757ebb4402cfe896b6195deede4eb4",
+    "assets/StudioPortraits-DtJH0jjE.js": "09389b9c1692a5a9c7f0d8692de2b5d7795bdcf9b4818cfe5dab6501b7c56a32",
+    "assets/StudioScene-Dl-5ELk6.js": "0ca6d7f18f4e1c6c60d0c22058c5b438775934202f8eff238740f16de4d4cf62",
+    "assets/browserAll-BZunmzHZ.js": "30257af809460728c9d2b9a60f12db8e6134af5d015e2391546bb8439c2ae38d",
+    "assets/foundry-pixel-B4sVaom2.ttf": "1a6a2fedced299d7fd687734ede74b27c53249827ca021d327d76ad58aec59c4",
+    "assets/index-BZTLJiXQ.css": "086bb4f9a67fd901c9889cf2c7c72c306d95ea792c3164c42238504c1ac02326",
+    "assets/index-C5pGZmlp.js": "598f0d52402334d91585463c9581129659b9efd2a9227a04f20635185247114c",
+    "assets/index-S_MfwOOZ.js": "f45c1f500347800fa9edce22683d1c7fb84a7fdd03fc677288c6922c2caf1f86",
+    "assets/webworkerAll-BfjnzZq5.js": "e8ed5aefcaae8c260aa5ab233ef45d37c989eef11bf0bab08bf169ea626ae094",
+    "favicon.svg": "a8610063d9e58d667881bfcff4209cf18583ee30fac017c334a0fe9b1b3bd58f",
+    "index.html": "d48b0761575d33cea05af32d85c46b5fcba5f0733fe441d5c25c5ddb9b9742f8",
+    "office-art/README.txt": "76086ff8ec76d1babd644f5492f78b19b439165da77664c324fee25275715a8d",
+    "office-art/skyline.png": "f4e1a6c898ea18630a778bec418f915bcf21cd25a058f7908242d6c03e16e207",
+    "third-party-graphics.txt": "5ef82922dbd407603f7f2d4e66386b7ddced733c5b77924f6f9512c964851fa5"
+  },
+  "screenshots": {
+    "graph-desktop.png": "2653b09dbec3074f15f9fff037e00169d0eb30dd8998c58457f984eaca0c2524",
+    "graph-empty.png": "c5ee421569466e4b3f14dc949c047c58c8e204f89fae73fb7c0b2eb21b33da3a",
+    "graph-mobile.png": "e45d0c3c21cda99a880ac481cd7094592a6243a659ddad88c23a7b35b7f2b5e1"
+  }
+}

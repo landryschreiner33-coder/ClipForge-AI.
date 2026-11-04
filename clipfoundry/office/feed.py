@@ -22,6 +22,11 @@ KEEP_DAYS = 14
 RULES = "rules-v1"             # version of the deterministic checkpoint rules (recorded with each decision)
 # jobs that run every minute or so: their routine runs are not shown as walks, only their real results
 ROUTINE = {"schedule_tick", "feed_scan", "live_watch", "maintenance", "selftest"}
+NEXT_JOBS = {"rights_check": ("hunt_source",), "hunt_source": ("analyze_source",),
+             "package_clip": ("quality_check",), "regenerate_clip": ("package_clip",),
+             "live_capture": ("post_live",)}
+JOB_CHECKPOINTS = {"hunt_source": "source", "analyze_source": "source", "package_clip": "clip",
+                   "schedule_tick": "qc", "publish": "upload"}
 
 
 def emit(type_: str, role: str = "", *, job_id: str = "", kind: str = "", ref: tuple[str, str] = ("", ""),
@@ -48,9 +53,56 @@ def job_event(job: dict, type_: str, message: str = "", stage: str = "", **data:
     kind = job.get("kind") or ""
     role = roles.role_for(kind, stage or job.get("stage") or "")
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    if type_ in ("job_started", "job_stage"):
+        try:
+            data = {**_job_handoff(job, role, type_), **data}
+        except Exception as exc:  # noqa: BLE001 - display metadata must not interrupt a leased job
+            log.warning("office handoff not read for %s: %s", job.get("id"), exc)
     emit(type_, role, job_id=job.get("id") or "", kind=kind, ref=_ref(job), message=message,
          stage=stage or job.get("stage") or "",
          routine=kind in ROUTINE and not payload.get("manual"), worker=job.get("worker") or "", **data)
+
+
+def _job_handoff(job: dict, role: str, type_: str) -> dict:
+    """Route only an observed job assignment or stage change, using its recorded checkpoint when present.
+
+    A decision cannot dispatch work by itself. The actual job transition must follow it within the live feed
+    window. Older reports and unrelated sources are history, rather than evidence for a new document pass.
+    """
+    now = time.time()
+    previous = db.select("office_events", "job_id = ? AND type IN ('job_started', 'job_stage')",
+                         (job.get("id") or "",), "id DESC", 1)
+    before = previous[0] if previous else None
+    ref_type, ref_id = _ref(job)
+    if type_ == "job_stage":
+        decisions = db.select("office_decisions", "job_id = ? AND created_at > ?",
+                              (job.get("id") or "", now - 30), "created_at DESC", 1)
+    elif ref_type and ref_id and job.get("kind") in JOB_CHECKPOINTS:
+        decisions = db.select("office_decisions", "subject_type = ? AND subject_id = ? AND created_at > ?",
+                              (ref_type, ref_id, now - 30), "created_at DESC", 1)
+    else:
+        decisions = []
+    if (decisions and decisions[0]["action"] == "approved"
+            and (type_ == "job_stage" or decisions[0]["point"] == JOB_CHECKPOINTS.get(job.get("kind")))
+            and (not before or float(decisions[0]["created_at"]) > float(before["at"]))):
+        path = roles.handoff_path("command", roles.manager_of(role), role)
+        return {"handoff_path": path, "handoff_kind": "stage", "decision_id": decisions[0]["id"]}
+    if type_ == "job_started" and ref_type and ref_id:
+        reports = db.select("office_reports", "ref_type = ? AND ref_id = ? AND created_at > ? "
+                            "AND job_id != ?", (ref_type, ref_id, now - 30, job.get("id") or ""),
+                            "created_at DESC", 1)
+        if (reports and reports[0]["state"] == "done" and reports[0]["recommendation"] == "continue"
+                and job.get("kind") in NEXT_JOBS.get(reports[0]["kind"], ())):
+            return {"handoff_path": roles.handoff_path("command", roles.manager_of(role), role),
+                    "handoff_kind": "stage", "report_id": reports[0]["id"]}
+    if (type_ == "job_stage" and before and now - float(before["at"]) <= 30
+            and before.get("kind") == job.get("kind") and _ref(before) == _ref(job)
+            and before.get("role") != role):
+        prior = before["role"]
+        return {"handoff_path": roles.handoff_path(prior, roles.manager_of(prior), roles.manager_of(role), role),
+                "handoff_kind": "stage"}
+    # An empty explicit path prevents the browser from guessing a cross-department transfer without evidence.
+    return {"handoff_path": [], "handoff_kind": "stage"}
 
 
 # ------------------------------------------------------------------ manager reports
@@ -103,7 +155,7 @@ def _report(job: dict, state: str, result: dict, error: str, fix: str) -> dict |
         return None
     emit("report", manager, job_id=row["job_id"], kind=kind, ref=(row["ref_type"], row["ref_id"]),
          message=row["summary"], worker=worker, state=state, recommendation=row["recommendation"],
-         report_id=saved.get("id"))
+         report_id=saved.get("id"), handoff_path=roles.reporting_path(worker), handoff_kind="report")
     return saved
 
 
@@ -142,9 +194,32 @@ def decide(point: str, action: str, subject: tuple[str, str], reason: str, *, jo
     except sqlite3.Error as exc:
         log.warning("office decision not written: %s", exc)
         return None
+    try:
+        path = _decision_handoff(reported_by, action, subject, evidence)
+    except Exception as exc:  # noqa: BLE001 - a missing display route must not alter the recorded decision
+        log.warning("office decision handoff not read: %s", exc)
+        path = roles.reporting_path(reported_by)
     emit("decision", "command", job_id=job_id, ref=subject, message=reason[:300], point=point, action=action,
-         reported_by=reported_by, decision_id=saved.get("id"))
+         reported_by=reported_by, decision_id=saved.get("id"),
+         handoff_path=path, handoff_kind="decision")
     return saved
+
+
+def _decision_handoff(reported_by: str, action: str, subject: tuple[str, str], evidence: dict) -> list[str]:
+    path = roles.reporting_path(reported_by)
+    repair_id, target = evidence.get("repair_job_id"), evidence.get("next_role")
+    if action != "rework" or not repair_id or target not in roles.BY_ID:
+        return path
+    repair = db.fetch("worker_jobs", str(repair_id))
+    # A rejection may suggest a role without assigning a job. Only an actual queued repair is handed back.
+    if (not repair or repair.get("status") not in ("queued", "running", "waiting", "retrying")
+            or _ref(repair) != subject):
+        return path
+    assigned = (repair.get("payload") or {}).get("handoff") or {}
+    recipient = assigned.get("to_role") or roles.role_for(repair["kind"], repair.get("stage") or "")
+    if recipient != target:
+        return path
+    return roles.handoff_path(*path, "command", roles.manager_of(target), target)
 
 
 def decisions_for(subject_type: str, subject_id: str) -> list[dict]:

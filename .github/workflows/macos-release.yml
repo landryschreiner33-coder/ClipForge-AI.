@@ -1,0 +1,79 @@
+name: Signed and notarized Mac release
+on:
+  workflow_dispatch:
+    inputs:
+      tested_run:
+        description: Successful Native Mac desktop app workflow run ID
+        required: true
+        type: string
+      version:
+        description: Release version (for example 1.0.0)
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: macos-release
+    steps:
+      - name: Require complete successful tests in this repository
+        id: tested
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TESTED_RUN: ${{ inputs.tested_run }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run = os.environ['TESTED_RUN']
+          version = os.environ['RELEASE_VERSION']
+          assert run.isdecimal() and re.fullmatch(r'\d+\.\d+\.\d+', version), 'Invalid run or version'
+          meta = json.loads(subprocess.check_output(['gh','api',f'repos/{os.environ["GH_REPO"]}/actions/runs/{run}']))
+          assert meta['conclusion'] == 'success' and meta['path'] == '.github/workflows/macos-desktop.yml'
+          assert meta['head_repository']['full_name'] == os.environ['GH_REPO']
+          assert meta['event'] in ('push', 'workflow_dispatch'), 'No PR artifacts may be signed'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out: out.write('commit='+meta['head_sha']+'\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tested.outputs.commit }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClipFoundry-Development-NOT-NOTARIZED
+          run-id: ${{ inputs.tested_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/tested
+      - name: Extract exact tested app and prepare packaging tool
+        run: |
+          ditto -x -k "$RUNNER_TEMP/tested/ClipFoundry-Development.zip" "$RUNNER_TEMP/tested"
+          python3 -m venv "$RUNNER_TEMP/package-venv"
+          "$RUNNER_TEMP/package-venv/bin/pip" install 'dmgbuild==1.6.7'
+      - name: Sign, notarize, staple and verify before creating any release
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.NOTARY_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          "$RUNNER_TEMP/package-venv/bin/python" macos/ci_sign.py --app "$RUNNER_TEMP/tested/ClipFoundry.app" --sources "$RUNNER_TEMP/tested/ClipFoundry-Corresponding-Source.tar.gz" --work "$RUNNER_TEMP/release" --commit '${{ steps.tested.outputs.commit }}'
+      - name: Publish verified DMG and matching source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.tested.outputs.commit }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          folder = pathlib.Path(os.environ['RUNNER_TEMP'])/'release'
+          meta = json.loads((folder/'mac-release.json').read_text())
+          assert meta['notarized'] and meta['developer_id_signed'] and meta['source_commit'] == os.environ['COMMIT']
+          notes = folder/'release-notes.md'
+          notes.write_text('Native ClipFoundry for Apple silicon, macOS 15 or newer.\n\nOpen the DMG, drag ClipFoundry into Applications, then open it. Existing Brain, clips and settings are preserved.\n\nDeveloper ID signed, notarized by Apple, and stapled. All release gates and native smoke checks passed. No real accounts or uploads were used in tests.\n\nSHA-256: `'+meta['sha256']+'`\n')
+          subprocess.run(['gh','release','create','macos-v'+os.environ['VERSION'],'--target',os.environ['COMMIT'],'--title','ClipFoundry for Mac '+os.environ['VERSION'],'--notes-file',str(notes),str(folder/meta['file']),str(folder/meta['sources_file']),str(folder/'mac-release.json')],check=True)
+          PY

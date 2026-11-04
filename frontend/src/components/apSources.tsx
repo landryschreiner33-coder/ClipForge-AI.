@@ -6,6 +6,7 @@ import {
 import { plural } from "../format";
 import { navigate } from "../router";
 import { PLATFORM_NAME } from "./accounts";
+import DiscoveryControls from "./discoveryControls";
 import {
   ConfirmDialog, Icon, MenuItem, MoreMenu, Pill, Segmented, TextPromptDialog, toast, Toggle, Tone, usePoll,
 } from "./ui";
@@ -95,6 +96,7 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
 
   return (
     <>
+      <DiscoveryControls st={st} refresh={refreshStatus} />
       <section className="panel agreements" aria-labelledby="agr">
         <div className="panel-head">
           <h2 id="agr">Creator agreements</h2>
@@ -228,7 +230,7 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
           </div>
         ) : <p className="small muted">No videos{filter ? " with this status" : " yet"}.</p>}
         <p className="tiny faint">Only confirm permission you actually have. Being public, trending or downloadable
-          does not make a video reusable. Source Score is ClipFoundry's own estimate of how promising a video is for
+          does not make a video reusable. Source Score is ClipForge's own estimate of how promising a video is for
           clips, not a platform number.</p>
       </section>
 
@@ -246,7 +248,7 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
             toast("File added");
             all();
           }}>
-          <p className="small muted">“{dialog.source.title}”. ClipFoundry does not download videos from YouTube or
+          <p className="small muted">“{dialog.source.title}”. ClipForge does not download videos from YouTube or
             other platforms by itself (their terms): choose the original file on this computer.</p>
         </TextPromptDialog>
       )}
@@ -587,7 +589,7 @@ export function AddContentDialog({ onClose, onDone }: { onClose: () => void; onD
           throw new Error(mode === "link" ? "Paste the link first."
             : mode === "folder" ? "Enter the folder first." : "Enter the file's path first.");
         }
-        if (canUse === null) throw new Error("Say whether ClipFoundry may use it.");
+        if (canUse === null) throw new Error("Say whether ClipForge may use it.");
         const path = where.trim().replace(/^"|"$/g, "");
         if (mode === "folder") {
           await ap.addFeed({ kind: "watch_folder", name: title || "My videos", config: { path },
@@ -621,7 +623,7 @@ export function AddContentDialog({ onClose, onDone }: { onClose: () => void; onD
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
           <fieldset>
-            <legend className="label">Can ClipFoundry use it?</legend>
+            <legend className="label">Can ClipForge use it?</legend>
             {CAN_USE.map((c) => (
               <label key={c.value} className="choice small">
                 <input type="radio" name={name} checked={canUse === c.value} onChange={() => setCanUse(c.value)} />

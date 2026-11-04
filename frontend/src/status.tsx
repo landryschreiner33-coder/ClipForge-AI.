@@ -2,7 +2,7 @@ import { createContext, ReactNode, useContext, useEffect, useRef, useState } fro
 import { ap, AutopilotStatus } from "./autopilot";
 
 /**
- * Autopilot's status, read once for the whole app (the sidebar, Home and Autopilot share it). When ClipFoundry stops
+ * Autopilot's status, read once for the whole app (the sidebar, Home and Autopilot share it). When ClipForge stops
  * answering, the last known status stays on screen, `lost` is set, and the shell says so: nothing shows as a
  * confirmed good state until it answers again.
  */

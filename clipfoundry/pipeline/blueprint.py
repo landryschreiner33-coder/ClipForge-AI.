@@ -110,7 +110,7 @@ class Blueprint:
     payoff: Payoff = field(default_factory=Payoff)
     reasons: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
-    knowledge: list[dict] = field(default_factory=list)  # approved reference revisions that changed this plan
+    knowledge: list[dict] = field(default_factory=list)  # enabled guidance revisions that changed this plan
     origin: str = "strategist"
     schema_version: int = SCHEMA_VERSION
 
@@ -413,16 +413,26 @@ def build(clip: dict, project: dict, words: list[dict], settings: dict, *, sourc
     and sound, the words worth stressing, the hook and the payoff. `video_path` is the file to look for scene cuts
     in; `video_offset` is where it starts in source time (a live window file)."""
     from . import render
-    from ..autopilot import knowledge
+    from ..autopilot import brain, knowledge
     from .postpack import _payoff_sentence  # noqa: PLC2701 - the shared "which line delivers the point" rule
     from .text_utils import build_sentences
 
     opts = render.effective_options(settings, project.get("options") or {}, {})
-    opts, influences = knowledge.choose(clip, opts, settings)
+    with brain.consultation("blueprint", settings, ref=("clip", clip["id"])):
+        opts, influences = knowledge.choose(knowledge.context(clip, project), opts, settings)
+    # Selection provenance is persisted with the chosen range, so a resumed render uses the original decision.
+    selected = (selection or {}).get("brain_knowledge") or []
+    combined = {}
+    for item in selected + influences:
+        if (item["knowledge_id"], item["revision"]) in combined:
+            combined[(item["knowledge_id"], item["revision"])]["decisions"].update(item["decisions"])
+        else:
+            combined[(item["knowledge_id"], item["revision"])] = {**item, "decisions": dict(item["decisions"])}
+    influences = list(combined.values())
     start, end = float(clip["start"]), float(clip["end"])
     reasons = [r for r in [clip.get("reason") or ""] if r] + [str(x) for x in ((selection or {}).get("explanation")
                                                                                 or [])[:4]]
-    reasons += [f"Approved {i['snapshot']['kind']} '{i['snapshot']['title']}' (revision {i['revision']}): "
+    reasons += [f"Saved {i['snapshot']['kind']} '{i['snapshot']['title']}' (revision {i['revision']}): "
                 + ", ".join(f"{k.replace('_', ' ')} = {d['after']}" for k, d in i["decisions"].items())
                 for i in influences]
     if video_path:
@@ -504,6 +514,14 @@ def with_edit(bp: Blueprint, edit: dict, origin: str = "edit") -> Blueprint:
         changed.append("caption text")
     if not changed:
         return bp
+    # The stored strategist plan keeps its original explanation. This edited render must not attribute an
+    # owner's explicit look or replacement range to the earlier Brain choice; selection evidence still applies.
+    overridden = set(edit)
+    if "range" in changed:
+        overridden.add("pacing")
+    new.knowledge = [{**item, "decisions": {key: value for key, value in item["decisions"].items()
+                                          if key not in overridden}} for item in new.knowledge]
+    new.knowledge = [item for item in new.knowledge if item["decisions"]]
     new.origin = origin
     who = "you" if origin == "edit" else "the version"
     new.reasons = [*bp.reasons, f"changed by {who}: {', '.join(changed)}"]

@@ -203,3 +203,45 @@ def test_manifest_addressing_work_is_bounded_before_resolving_resources(internet
     with stream_access.PublicStream("https://video.example/live.m3u8") as relay:
         assert fetch(relay.url).status_code == 502 and "too many resources" in relay.error()
     assert len(requests) == 1
+
+
+def test_split_master_keeps_audio_nested_addresses_guarded(internet):
+    routes, requests = internet
+    routes["https://video.example/video.m3u8"] = playlist("#EXTM3U\n#EXT-X-ENDLIST\n")
+    routes["https://audio.example/audio.m3u8?secret=signature"] = playlist(
+        "#EXTM3U\n#EXTINF:1,\nhttp://127.0.0.1/private.ts\n")
+    with stream_access.PublicStream("https://video.example/video.m3u8",
+                                    audio_url="https://audio.example/audio.m3u8?secret=signature") as relay:
+        master = fetch(relay.url)
+        assert master.status_code == 200 and "signature" not in master.text and "example" not in master.text
+        audio = re.search(r'URI="([^"]+)"', master.text).group(1)
+        assert fetch(audio).status_code == 502
+        assert "safe public HTTP" in relay.error()
+    assert len(requests) == 1 and requests[0][0].startswith("https://audio.example/")
+
+
+def test_split_renditions_share_one_capture_byte_limit(internet):
+    routes, _ = internet
+    body = "#EXTM3U\n#EXT-X-ENDLIST\n"
+    routes["https://video.example/video.m3u8"] = playlist(body)
+    routes["https://video.example/audio.m3u8"] = playlist(body)
+    with stream_access.PublicStream("https://video.example/video.m3u8", max_bytes=len(body) * 2 - 1,
+                                    audio_url="https://video.example/audio.m3u8") as relay:
+        master = fetch(relay.url)
+        video = master.text.splitlines()[-1]
+        audio = re.search(r'URI="([^"]+)"', master.text).group(1)
+        assert fetch(video).status_code == 200
+        assert fetch(audio).status_code == 502 and "size limit" in relay.error()
+
+
+def test_split_audio_server_wait_also_holds_video_requests(internet):
+    routes, requests = internet
+    routes["https://video.example/audio.m3u8"] = (503, {"Retry-After": "7200"}, b"busy")
+    with stream_access.PublicStream("https://video.example/video.m3u8",
+                                    audio_url="https://video.example/audio.m3u8") as relay:
+        master = fetch(relay.url)
+        audio = re.search(r'URI="([^"]+)"', master.text).group(1)
+        assert fetch(audio).status_code == 502
+        held = fetch(master.text.splitlines()[-1])
+        assert held.status_code == 503 and int(held.headers["retry-after"]) >= 7199
+    assert len(requests) == 1

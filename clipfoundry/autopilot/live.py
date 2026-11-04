@@ -46,6 +46,8 @@ EDGE_MARGIN = 15.0            # a live clip must have ended this long before the
 STALL_SECONDS = 90            # no new data this long: the stream or recording has ended
 REPLACE_MARGIN = 3.0          # a post-live clip replaces a live clip only if clearly better
 TURN_SECONDS = 2.0             # release the monitor between safe processing steps; captures keep recording
+ARCHIVE_MAX_ATTEMPTS = 8       # an ended broadcast's public recording may take time to become available
+ARCHIVE_MAX_WAIT_SECONDS = 6 * 3600
 
 
 class StreamEnded(Exception):
@@ -71,7 +73,10 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
             if not ok:
                 raise queue.Fail(why, "Allow downloads of authorized sources in Settings, or record the stream "
                                       "yourself into a watch folder.")
-            url = _resolve_platform_stream(url)
+            resolved = _resolve_platform_stream(url)
+            url, audio_url = resolved if isinstance(resolved, tuple) else (resolved, None)
+        else:
+            audio_url = None
         public = not rights.url_typed_by_user(src) or rights.is_platform_url(src.get("url") or "")
         if src.get("user_added") and urlsplit(url).scheme.lower() not in netguard.HTTP:
             raise queue.Fail("This public stream format cannot be accessed safely. Use a public HTTP stream link "
@@ -80,39 +85,60 @@ def input_args(src: dict, settings: dict, public_relays: list | None = None,
             from .stream_access import PublicStream
 
             relay = PublicStream(url, max_bytes=byte_budget if byte_budget is not None else max_source_bytes(settings),
-                                 on_retry=on_retry)
+                                 on_retry=on_retry, audio_url=audio_url)
             public_relays.append(relay)
             return [*timeout, "-protocol_whitelist", "http,tcp,crypto", "-i", relay.url]
+        if audio_url:
+            raise queue.Fail("Separate live video and audio require the guarded stream relay.")
         return [*timeout, *netguard.ffmpeg_input(url, allow_private=not public)]
     except (netguard.UnsafeUrl, StreamRefused) as exc:
         raise queue.Fail(f"Not captured: {exc}", "Use a stream address on the internet, or add your own stream "
                                                  "in Autopilot → Sources.") from exc
 
 
-def _resolve_platform_stream(url: str) -> str:
-    """The HLS address of a platform live stream (no logins, cookies or DRM)."""
-    from ..media_import import MediaUnavailable, public_extractor
+def _resolve_platform_stream(url: str) -> str | tuple[str, str]:
+    """One combined HLS rendition or a synchronized video/audio pair; no logins, cookies or DRM."""
+    from ..media_import import public_extractor, unavailable
 
     try:
         with public_extractor() as ydl:
             info = ydl.extract_info(url, download=False) or {}
     except (netguard.UnsafeUrl, queue.Wait):
         raise
-    except Exception:
-        raise queue.Fail("The public live video could not be accessed. Use a direct public HLS stream link.") from None
+    except Exception as exc:
+        error = unavailable(exc)
+        if error.retry_after is not None:
+            raise queue.Wait("server", error.retry_after, str(error)) from None
+        if error.temporary:
+            raise queue.Retry(str(error), error.fix) from None
+        raise queue.Fail(str(error), error.fix) from None
+    if not isinstance(info, dict) or info.get("_type") in ("playlist", "multi_video") or info.get("entries"):
+        raise queue.Fail("Use a link to one live video, rather than a playlist or channel.")
+    if info.get("has_drm"):
+        raise queue.Fail("Protected or DRM streams cannot be captured.")
     if not info.get("is_live"):
         if info.get("live_status") in ("was_live", "post_live") or info.get("was_live"):
             raise StreamEnded()
         raise queue.Wait("offline", 300, "The stream is not live right now")
     fmts = [f for f in info.get("formats") or [] if "m3u8" in str(f.get("protocol", "")) and
-            (f.get("height") or 0) <= 1080]
+            (f.get("height") or 0) <= 1080 and not f.get("has_drm") and f.get("url")]
     if not fmts:
         raise queue.Fail("No live stream address was found")
-    usable = [f for f in fmts if f.get("acodec") != "none" and f.get("vcodec") != "none"]
-    if not usable:
-        raise queue.Fail("The available live formats have no combined video and audio track.",
-                         "Use a stream with sound or add your own recording; no transcription was attempted.")
-    return max(usable, key=lambda f: (bool(f.get("acodec")), f.get("height") or 0, f.get("tbr") or 0))["url"]
+    video = lambda f: f.get("vcodec") not in (None, "none")
+    audio = lambda f: f.get("acodec") not in (None, "none")
+    usable = [f for f in fmts if audio(f) and video(f)]
+    if usable:
+        return max(usable, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))["url"]
+    videos = [f for f in fmts if video(f)]
+    audios = [f for f in fmts if audio(f) and not video(f)]
+    if videos and audios:
+        picture = max(videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+        # Prefer the original/default language before bitrate, rather than unexpectedly recording a dub.
+        sound = max(audios, key=lambda f: (bool(f.get("language") and f.get("language") == info.get("language")),
+                                           f.get("language_preference") or 0, f.get("abr") or f.get("tbr") or 0))
+        return picture["url"], sound["url"]
+    raise queue.Fail("The live stream has no usable video and audio renditions.",
+                     "Use a stream with sound or add your own recording; no transcription was attempted.")
 
 
 # ------------------------------------------------------------------ session state (on disk, survives restarts)
@@ -145,6 +171,7 @@ class Session:
         self.transcript = st.get("transcript") or self.transcript
         self.capture_complete = bool(st.get("capture_complete"))
         self.limit_reached = bool(st.get("limit_reached"))
+        self.archive_recovery: dict = st.get("archive_recovery") or {}
         # A crash after the database render commit but before this checkpoint must not rediscover the same moment.
         known = {c["id"] for c in self.clips}
         for clip in db.list_clips(project["id"]):
@@ -165,9 +192,11 @@ class Session:
                                                 "untranscribed": self.untranscribed, "transcript": self.transcript,
                                                 "missing_audio": self.missing_audio,
                                                 "capture_complete": self.capture_complete,
+                                                "archive_recovery": self.archive_recovery,
                                                 "limit_reached": self.limit_reached})
-        write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
-        write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
+        if not self.archive_recovery.get("complete"):
+            write_json(self.pdir / "transcript.json", {**self.transcript, "duration": self.offset})
+            write_json(self.pdir / "loudness.json", {"hop": 0.1, "db": self.env})
 
     def done_names(self) -> set[str]:
         return {s["name"] for s in self.segments}
@@ -435,12 +464,14 @@ def process_segment(sess: Session, name: str, duration: float, job: Job) -> None
 
 def detect(sess: Session, job: Job) -> dict | None:
     """The best complete, strong moment in the rolling window that is not already a clip."""
+    from . import knowledge
+
     edge = sess.offset
     words = [w for w in sess.words if w["start"] >= edge - WINDOW_SECONDS]
     sents = build_sentences(words)
     if len(sents) < 3:
         return None
-    opts = process._options(sess.project, sess.settings)  # noqa: SLF001 - the project's clip options
+    opts = process._options(sess.project, sess.settings, words=words)  # noqa: SLF001 - the project's clip options
     loud = Loudness({"hop": 0.1, "db": sess.env})
     feats = cand_mod.sentence_features(sents, words)
     min_quality = float(sess.settings.get("autopilot_min_quality") or 0)
@@ -452,8 +483,13 @@ def detect(sess: Session, job: Job) -> dict | None:
         if any(min(c["end"], k["end"]) - max(c["start"], k["start"]) > 0.15 * (c["end"] - c["start"])
                for k in sess.clips):
             continue
-        r = max((virality.analyze(a, b, sents, feats, words, loud, opts)
-                 for a, b in virality.variants(c["s0"], c["s1"], sents, opts, feats)), key=lambda x: x["raw"])
+        local, used = knowledge.selection_options(
+            {"title": sess.project.get("name") or "", "caption_text": " ".join(
+                sentence["text"] for sentence in sents[c["s0"]:c["s1"] + 1])}, opts, sess.settings)
+        if not any("target_duration" in item["decisions"] for item in used):
+            used += opts.get("brain_duration_knowledge") or []
+        r = max((virality.analyze(a, b, sents, feats, words, loud, local)
+                 for a, b in virality.variants(c["s0"], c["s1"], sents, local, feats)), key=lambda x: x["raw"])
         if r["blocked"] or r["viral_potential"] < max(min_quality, float(opts.get("min_score", 50))) or \
                 r["end"] > edge - EDGE_MARGIN:
             continue
@@ -462,6 +498,7 @@ def detect(sess: Session, job: Job) -> dict | None:
         if clip_reason(r, sess.settings):
             continue
         if best is None or r["viral_potential"] > best[0]["viral_potential"]:
+            r["brain_knowledge"] = used
             best = (r, sents, loud)
     return {"r": best[0], "sents": best[1], "loud": best[2]} if best else None
 
@@ -625,25 +662,137 @@ def capture_allowed(src: dict, settings: dict) -> tuple[bool, str]:
     return bool(src.get("url")), "Stream URL"
 
 
+def _recover_ended_stream(sess: Session, job: Job) -> Path:
+    """An ended platform broadcast may expose its ordinary public archive only after processing.
+
+    Only an empty capture uses the archive: replacing a partial recording would change all saved live times.
+    Attempts and server waits survive restarts, and the existing importer owns every network/media guard.
+    """
+    from ..jobs import DownloadRefused, download_url
+    from ..media_import import MediaUnavailable
+
+    src, settings = sess.src, sess.settings
+    fix = "The saved minutes are kept. Add your own recording, or retry when the platform's public recording exists."
+
+    def fail(message: str) -> None:
+        db.update("sources", src["id"], status="needs_file", status_note=message, error=message)
+        raise queue.Fail(message, fix)
+
+    if src.get("local_path") or not (rights.is_platform_url(src.get("url") or "") or
+                                     (src.get("access") or {}).get("webpage")):
+        fail("The ended stream has no saved minutes or public recording to recover.")
+    ok, why = rights.download_allowed(src, settings)
+    if not ok:
+        fail(why)
+    recovery = sess.archive_recovery
+    now = time.time()
+    until = float(recovery.get("until") or 0)
+    if until > now:
+        raise queue.Wait("archive", until - now, "Waiting for the platform's public recording")
+
+    # A completed download is atomically moved here. Reuse it after a crash between that move and checkpoint.
+    paths = sorted(p for p in sess.pdir.glob("source.*") if p.suffix.lower() in config.VIDEO_EXTENSIONS)
+    output = paths[0] if paths else None
+    if output is None:
+        attempts = int(recovery.get("attempts") or 0)
+        started = float(recovery.get("started") or now)
+        if attempts >= ARCHIVE_MAX_ATTEMPTS or now - started >= ARCHIVE_MAX_WAIT_SECONDS:
+            fail("The platform has not provided a usable public recording after repeated checks.")
+        job.check()
+        require_disk_space(sess.pdir, max_source_bytes(settings))
+        sess.archive_recovery = recovery = {**recovery, "started": started, "attempts": attempts + 1, "until": 0}
+        sess.save()  # claim the attempt before I/O, so a crash cannot cause unlimited immediate retries
+        db.update_project(sess.project["id"], source_path=str(sess.pdir / "source.mp4"))
+        try:
+            download_url(sess.project["id"], src["url"], job.pipeline_ctx(0, 1),
+                         max_bytes=max_source_bytes(settings),
+                         max_seconds=60.0 * float(settings.get("autopilot_max_source_minutes") or 240))
+        except (MediaUnavailable, queue.Wait, queue.Retry) as exc:
+            if isinstance(exc, MediaUnavailable) and exc.code not in ("extraction_failed", "network", "rate_limited"):
+                fail(str(exc))  # no retrying private, blocked, removed, protected or unsupported media
+            if recovery["attempts"] >= ARCHIVE_MAX_ATTEMPTS:
+                fail("The platform has not provided a usable public recording after repeated checks.")
+            requested = (exc.seconds if isinstance(exc, queue.Wait) else
+                         exc.retry_after if isinstance(exc, MediaUnavailable) else exc.delay)
+            delay = requested if requested is not None else min(900, 60 * 2 ** (recovery["attempts"] - 1))
+            recovery["until"] = time.time() + max(1, delay)
+            sess.save()
+            message = "The stream ended; waiting for its public recording to become available"
+            db.update("sources", src["id"], status="ingesting", status_note=message)
+            raise queue.Wait("archive", delay, message) from None
+        except DownloadRefused as exc:
+            if exc.code == "disk_space":
+                raise queue.Wait("disk", 1800, "Waiting for free disk space; saved work is kept") from None
+            fail(str(exc))
+        except netguard.UnsafeUrl:
+            fail("The public recording contains an address that cannot be accessed safely.")
+        fresh = db.get_project(sess.project["id"]) or {}
+        candidate = Path(fresh.get("source_path") or "")
+        output = candidate if candidate.parent == sess.pdir and candidate.is_file() else None
+    if output is None:
+        fail("The ended stream's public recording could not be recovered.")
+    job.check()
+    _check_local_permission(sess)
+    metadata = probe(output, cancel=job.cancelled)
+    duration = float(metadata.get("duration") or 0)
+    if not metadata.get("has_video") or not metadata.get("has_audio") or duration <= 0:
+        fail("The public recording has no usable video and audio; add a complete recording with sound.")
+    if duration > 60.0 * float(settings.get("autopilot_max_source_minutes") or 240) + 0.1 or \
+            output.stat().st_size > max_source_bytes(settings):
+        fail("The public recording exceeds the configured source limits.")
+    if not recovery.get("complete"):
+        sess.archive_recovery = {**recovery, "complete": output.name, "until": 0}
+        sess.offset = duration
+        sess.untranscribed = [[0, duration]]  # the empty live transcript must never stand in for archive speech
+        sess.capture_complete = True
+        sess.meta = metadata
+        sess.save()
+        (sess.pdir / "transcript.json").unlink(missing_ok=True)
+        (sess.pdir / "loudness.json").unlink(missing_ok=True)
+    db.update_project(sess.project["id"], source_path=str(output), source_filename=output.name,
+                      duration=duration, info=metadata)
+    return output
+
+
 @handler("live_watch")
 def live_watch(job: Job) -> dict:
+    from . import scout
+
     settings = db.get_settings()
+    if not config.discovery_enabled(settings):
+        return {"started": [], "message": "Automatic stream discovery is off. Add a stream explicitly to record it."}
     if not settings.get("autopilot_live_monitoring"):
         return {"message": "Live monitoring is off"}
     started = []
-    for src in db.select("sources", "kind = 'live' AND status IN ('eligible', 'needs_file')"):
+    for src in db.select("sources", "kind = 'live' AND status IN ('eligible', 'needs_file')", (),
+                         "user_added DESC, source_score DESC"):
         if src.get("live_status") == "ended" or (src.get("intake") or {}).get("canceled"):
             continue
+        broad = scout.automatic_discovery(src, settings=settings)
+        remaining = scout.discovery_attempts_remaining(settings)
+        if broad and settings.get("autopilot_discovery_uploadable_only", True) and \
+                not rights.discovery_publishable(src, settings):
+            continue
+        if broad and settings.get("discovery_quality_first", True) and remaining is not None and remaining <= 0:
+            continue  # selected streams and explicit links keep their intent; do not restart held recordings
         ok, why = capture_allowed(src, settings)
         if not ok:
             db.update("sources", src["id"], status_note=why)
             continue
-        row = queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}",
-                      ref=("source", src["id"]), timeout_s=24 * 3600, max_attempts=5,
-                      priority=queue.source_priority(src), revive=False)
-        if row["status"] not in queue.ACTIVE:
-            continue
-        db.update("sources", src["id"], status="ingesting", status_note="Live: capturing")
+        with locks.named("discovery-selection"):
+            remaining = scout.discovery_attempts_remaining(settings)
+            if broad and settings.get("discovery_quality_first", True) and remaining is not None and remaining <= 0:
+                continue
+            if not src.get("user_added") and int(settings.get("autopilot_sources_per_day") or 0) == 0 and \
+                    scout.still_needed(settings) <= 0:
+                continue
+            row = queue.enqueue("live_capture", {"source_id": src["id"]}, idem_key=f"live:{src['id']}",
+                          ref=("source", src["id"]), timeout_s=24 * 3600, max_attempts=5,
+                          priority=queue.source_priority(src), revive=False)
+            if row["status"] not in queue.ACTIVE:
+                continue
+            fields = {"selected_day": scout.local_day(settings)} if broad else {}
+            db.update("sources", src["id"], status="ingesting", status_note="Live: capturing", **fields)
         started.append(src["id"])
     return {"started": started, "message": f"{len(started)} live source(s) started"}
 
@@ -706,7 +855,7 @@ def live_capture(job: Job) -> dict:
             if finished_segments(sess):
                 raise queue.Wait("live", TURN_SECONDS, "Recovering the final recorded minutes")
             if not sess.segments:
-                raise queue.Fail("The ended stream has no usable recording")
+                return _finish_capture(sess, job, recording=_recover_ended_stream(sess, job))
             sess.capture_complete = True
             sess.save()
         if not sess.capture_complete:
@@ -815,15 +964,17 @@ def live_capture(job: Job) -> dict:
     return _finish_capture(sess, job)
 
 
-def _finish_capture(sess: Session, job: Job) -> dict:
+def _finish_capture(sess: Session, job: Job, *, recording: Path | None = None) -> dict:
     src = sess.src
-    output = finalize(sess, cancel=job.cancelled)
+    output = recording or finalize(sess, cancel=job.cancelled)
     no_audio = bool(sess.missing_audio) and all([s["start"], s["end"]] in sess.missing_audio for s in sess.segments)
     if output and Path(output).is_file():
         final_meta = probe(output, cancel=job.cancelled)
         db.update_project(sess.project["id"], info={**(db.get_project(sess.project["id"]) or {}).get("info", {}),
                                                   **final_meta, "missing_audio": sess.missing_audio})
         no_audio = not final_meta.get("has_audio")
+    job.check()
+    _check_local_permission(sess)
     if no_audio:
         reason = "The completed live recording contains video only; no usable audio track is available."
         db.update("sources", src["id"], live_status="stopped" if sess.limit_reached else "ended", status="failed",

@@ -15,6 +15,70 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Shared download website (2026-11-04):** The owner asked for a website that both Claude and ChatGPT/Codex can
+update. It is https://landryschreiner33-coder.github.io/ClipForge-AI./download/ , served by GitHub Pages from the
+`download/` folder of the `gh-pages` branch. Any assistant with repository push access updates it with an ordinary,
+never forced, commit to `gh-pages`. Download data lives only in `download/releases.json`; run
+`python3 download/build.py` and `--verify` before pushing. The procedure is in `download/UPDATING.md` on that branch.
+The root pages of `gh-pages` (legal pages, icon and the TikTok verification file) stay unchanged unless the owner
+asks. The ChatGPT Sites page at clipfoundry-studio.landryschreiner33.chatgpt.site is separate, and only its own
+workspace can publish it.
+
+**ClipForge build (2026-11-04):** The prompt's phases 0–6 are implemented on `claude/new-session-b9itcy` (reviewed
+PR #16; check GitHub for its merge state) with tests on synthetic media and fake platforms. Status per requirement (Implemented / Partial /
+Blocked): `docs/clipforge/FEATURE_CHECKLIST.md`; addresses: `docs/clipforge/ROUTE_MAP.md`; owner steps:
+`docs/clipforge/OWNER_GUIDE.md`. New code lives in `clipfoundry/cloud/` and `clipfoundry/studio/`. Cloud mode
+(`CLIPFOUNDRY_MODE=cloud`) is owner-only; public sign-up stays off. The public download/preview website was updated as version 3; see `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+The application cloud service is not deployed, and no real upload or sign-in was verified. Desktop installers still
+predate this source preview. The owner explicitly authorized merging PR #16 after review.
+
+**ClipForge prompt correction (2026-11-03):** The planned visible product name is now ClipForge. The latest
+owner request is a Markdown implementation prompt, not implementation yet. Use `docs/CLIPFORGE_CLAUDE_PROMPT.md`.
+Its section 16 specifies screen/flow/data contracts, defaults and CF-01–CF-18 acceptance scenarios; read the
+complete prompt before implementation and distinguish planned requirements from implemented behavior.
+The 2026-11-04 website addition in section 17 requires redesigning the existing public Sites project/address,
+with truthful feature availability, verified downloads, real cloud CTA and responsive/live checks.
+There are two creation entries: Make clips (Highlights / Full stories) and Make a YouTube video. Each full story
+becomes a complete vertical TikTok/YouTube clip, subject to actual destination eligibility. Also required:
+multiple connected social accounts, redesigned navigation/screens and saved custom robot display names.
+Preserve existing data/profile/internal IDs, exact account-bound publication and real robot roles/handoffs.
+The earlier three-choice layout and source-aspect-ratio story default are superseded by this correction.
+
+**Cloud studio expansion planning (2026-11-03):** The owner has specified full YouTube-video assembly from
+uploaded clips, complete-story batch clipping, account access across devices, declarative skill imports,
+simpler guided creation and saved themes/layouts. This checkpoint delivers a plan and Claude Code prompt only:
+`docs/STUDIO_EXPANSION_PLAN.md` and `docs/CLAUDE_STUDIO_BUILD_PROMPT.md`. FilmCraft is a researched integration
+candidate, not a verified dependency; prove browser/headless capabilities and audio correctness first.
+Preserve the existing local app and earlier fixes. The separate artcraft-services license is not the same as
+the permissively licensed editor. No implementation, public signup or paid deployment is implied by the plan.
+
+**Cloud migration planning (2026-11-03):** The owner requests server execution and login for themselves first,
+a later public release, more than five hours of source video daily, at the lowest possible cost. See
+`docs/CLOUD_PLAN.md` on `codex/cloud-plan`. No cloud feature or service has been deployed. Keep the working
+local app, private data and publishing guarantees intact. Start with a free pilot only if capacity is available;
+measure throughput before selecting paid resources. Never treat a login page as multi-user data isolation.
+
+**Native Mac app continuation (2026-11-03):** Current work is on `codex/macos-native-app`; see the newest handoff
+for the tested commit and evidence. The native Swift/AppKit `.app` bundles Python and video tools, keeps the
+canonical icon and existing profile/Keychain data, and has a branded drag-to-Applications DMG. macOS 15+ on Apple
+silicon is required. Native CI passed on macOS 15 ARM64; physical M5 execution is unverified. Development artifacts
+are ad-hoc signed only. No Developer ID/notarization credentials are available; the owner has chosen personal use without membership.
+The owner now chooses personal use without Apple membership (2026-11-03). Deliver the tested DMG as a clearly
+labelled unsigned personal preview on the existing download site. Do not imply Developer ID signing,
+notarization or removal of the per-app opening warning. Keep the separate signed-release gates intact.
+See `macos/DESKTOP.md`; preserve earlier audio, Brain, publishing and data guarantees.
+
+**Public download website and Mac continuation (2026-11-02):** The owner requests a new public hosted download
+website and the full workflow on an Apple-silicon M5 Max. Public website publication is explicitly authorized.
+The original GitHub Pages/TikTok verification site and canonical robot icon remain intact. `macos/` contains a
+readable unsigned source launcher, native ARM64 Python package builder, and first-run diagnostics. Mac data stays
+in `~/Library/Application Support/ClipFoundry/data`, separate from immutable release code/environments. Preserve
+prior data/releases and don't kill other installations. New Mac credentials use AES-GCM with a Keychain-held
+key; failure must not fall back to plaintext. Native CPU faster-whisper is supported; do not promise Metal ASR.
+Use VideoToolbox only after a real hardware probe. No native M5 execution, signing or notarization is claimed.
+The owner's macOS version and Apple Developer membership remain unconfirmed. This grants no real video upload,
+paid enrollment, credential migration, or system security changes. Keep the prior raw AAC clock repair and checks.
+
 ClipFoundry (repo name ClipForge-AI) is a **local-first, single-user desktop tool**. It turns long videos into
 captioned 9:16 short clips for TikTok, YouTube Shorts and Reels. It is not a SaaS: it has no accounts, no cloud
 rendering, and a local SQLite database and files. The owner runs it on a **Windows PC with an NVIDIA RTX 3050**.
@@ -26,17 +90,32 @@ VIDEO → TRANSCRIPT → BEST MOMENTS → CLIPS → 9:16 → CAPTIONS → HOOKS 
 There are two ways to use it:
 
 * **Manual:** drop in a video, get ranked clips, edit, export, or publish through the official APIs.
-* **Autopilot:** 12 background workers on a durable SQLite job queue. Every 3 hours they look for videos the user may
-  use (own content, recorded creator agreements, CC BY, public domain), clip and package them, check the final file,
-  schedule posts (9:00-21:00 America/Chicago) and publish them: YouTube automatically once the user has given that
-  permission, TikTok only after the user's OK on each post. Then they learn from the real results. Nothing asks the
-  user about single videos: what is not covered is skipped and explained in the Activity log.
+* **Autopilot:** 12 background workers on a durable SQLite job queue. The default is **submitted videos**:
+  Missions accepts a recorded-video link or file, uses relevant supported Brain guidance and Settings, renders and
+  checks clips, then automatically uploads qualifying YouTube clips when the owner explicitly chooses **Make &
+  upload clips** for that input. **Make clips only** keeps them local. Automatic discovery and folder admission are
+  off in this mode; optional discovery is a separate advanced choice. TikTok still requires per-post review.
+
+**Current continuous-upload continuation:** app daily source/clip/platform caps default to 0 (unlimited), while
+quality floors, bounded queues, API/cost allowances and platform refusals remain active. Automatic broad discovery
+defaults to uploadable owned/agreed/verified-license sources; explicit public local imports still grant no reuse
+permission. The owner's volume request authorizes a one-time recorded amendment to old app limits and existing
+YouTube permission, preserving its channel/audience/kids choice and historical posts. Future explicit caps survive
+restarts. Current reuse terms and credit must cover the actual approved upload payload; changed terms cannot
+silently rewrite owner text or an active/uncertain upload. Real saved-guidance consultations and recorded manager/
+boss paths appear in the office without invented work, approval or model training. See the latest handoff.
+
+**Earlier review continuation (superseded for explicitly submitted inputs below):** the owner wanted local schedules followed by individual reuse review and
+manual approval. `autopilot_review_before_publish` defaults on; missing recorded coverage can reach the review
+queue without becoming an upload grant. Existing standing permission cannot approve new work in this mode.
+Uncovered posts need an exact-post owner reuse statement and basis before approval. The continuation under
+Standing instructions below supersedes the older coverage-before-scheduling requirement.
 
 ## Stack
 
 | Part | Details |
 | --- | --- |
-| Backend | Python 3.11/3.12, FastAPI + uvicorn, SQLite (`clipfoundry/db.py`), served at http://127.0.0.1:8765 |
+| Backend | Standard 64-bit CPython 3.12 recommended / 3.11 supported on Windows AMD64, FastAPI + uvicorn, SQLite (`clipfoundry/db.py`), served at http://127.0.0.1:8765 |
 | Media | ffmpeg (NVENC or x264), OpenCV (YuNet face model), PySceneDetect |
 | Transcription | faster-whisper / CTranslate2 on CUDA 12 (cuBLAS + cuDNN 9 from pip, `requirements-gpu.txt`) |
 | AI scoring | Local heuristic by default. Optional: Ollama / LM Studio / OpenAI-compatible, Claude API (paid, off by default). |
@@ -50,6 +129,7 @@ There are two ways to use it:
 clipfoundry/
   __main__.py      CLI: app, `process <video>`, `gpu-check`, `workers`
   api.py           REST API + serves frontend/dist
+  phone.py         optional private-network read-only status companion; separate listener, pairing and hashed grants
   config.py        settings, defaults and ranges (DEFAULT_SETTINGS, validate_settings)
   db.py            SQLite schema (SCHEMA, JSON_FIELDS, ADDED_COLUMNS for migrations, CLIP_CHILDREN)
   jobs.py          manual-mode background job runner
@@ -84,9 +164,10 @@ data/              created at runtime (gitignored): clipfoundry.db, projects/<id
 The Autopilot flow is:
 
 ```
-hunt_source → analyze_source (Engagement Strategist writes a Clip Blueprint, render follows it)
-  → package_clip → quality_check (Final Quality Gate) → schedule_tick → user approves in Queue
-  → publish (audience check first: YouTube Private, TikTok followers, or a ready-to-post package)
+submitted link/file → hunt_source → analyze_source (relevant Brain guidance + Settings → Clip Blueprint)
+  → render → package_clip → quality_check (exact file + text) → schedule_tick
+  → input-scoped automatic YouTube approval → publish (the account/audience chosen for this input)
+  [Make clips only: no automatic upload; existing backlog/TikTok: separate manual review]
 ```
 
 ## Run and test
@@ -109,10 +190,10 @@ cd e2e && npm run test:sandbox                    # beginner, motion, robot and 
 * Last recorded results: see the test log in `docs/IMPLEMENTATION_STATUS.md`. `npm run build` reproduces the
   committed `dist/`.
 
-## Current continuation (2026-10-08)
+## Historical continuation (2026-10-08)
 
-See [AI_HANDOFF.md](AI_HANDOFF.md) for the new Public/Brain/discovery/reliability scope and current verification.
-The historical status below predates that continuation; its selected-only and hidden-idle descriptions are superseded.
+PR #14 is merged. See [AI_HANDOFF.md](AI_HANDOFF.md) for the current October 13 Brain/discovery/TikTok checkpoint
+and verification. The status below describes earlier work; its old branch-state instructions are historical.
 
 ## Earlier status (2026-10-08)
 
@@ -248,7 +329,7 @@ fixes to it). Start new work from the default branch; the tested commits are in 
       with rollback per platform that the same results cannot undo.
     * Optional NVIDIA text AI (`pipeline/nvidia.py`), off by default, with opt-in, budgets and local fallback.
 
-**Zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
+**Historical zero-config and hands-off Autopilot** (PR #3; tables in `IMPLEMENTATION_STATUS.md`). The user wants: connect
 YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page.
 * `autopilot/home.py` builds the simple page (`status()["home"]`: currently, needs_you, opportunities, upcoming,
   activity, empty-state text, setup). `POST /api/autopilot/start`.
@@ -260,7 +341,7 @@ YouTube, connect TikTok, START AUTOPILOT, and nothing technical on the main page
   feed, provider, source, quota) off Home, the Autopilot overview, Setup and Settings → Accounts/Defaults;
   `test_autopilot_simple.py` checks the backend's page text.
 
-**Decided:** live monitoring is on by default (owner, 2026-09-29). Public video discovery (`autopilot_public_videos`)
+**Earlier discovery-mode defaults:** live monitoring is enabled within optional discovery (owner, 2026-09-29). Public video discovery (`autopilot_public_videos`)
 stays on, with publishing eligibility checked separately (owner, 2026-10-08); `e2e/sandbox/beginner-flow.spec.ts`
 now expects public videos to be clipped on the PC and never planned or posted, and passes.
 
@@ -283,14 +364,18 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
    clipping with `autopilot_public_videos` (default on, owner request 2026-10-03). With that mode off, only Owned,
    Licensed, Allowlisted, creator agreements, CC BY and public domain are selected. Public links submitted in
    Autopilot may be processed locally through supported media access even when reuse permission is unknown;
-   explicit Blocks always win. Submitting a link grants no download, reuse or publishing permission. Rights are
-   re-checked before processing, scheduling and publishing; scheduling/publishing still require reuse coverage.
+   explicit Blocks always win. A link alone grants no download, reuse or publishing permission. The separate
+   **Make & upload clips** confirmation records the owner's reuse basis and input-scoped YouTube request; it is
+   an assertion, not verified ownership/license. Local review plans need no recorded reuse prerequisite; actual
+   publication needs current coverage or its exact-post assertion, final checks and applicable consent.
    * **A channel named by a feed or list is only a claim.** Ownership and channel rules apply only after the platform
      confirmed that exact video's channel (`autopilot/verify.py`), and the link must lead to that same video. A
      confirmed channel still needs a matching rule or agreement; confirmation alone grants nothing.
 2. **Approval for every post.** A post goes out only with the user's approval: their OK on the post, or for YouTube
-   the automatic-publishing permission they turned on (stored with its wording in `publish_consents`). TikTok
-   always needs the OK on each post.
+   a new input's explicit **Make & upload clips** request (`source_submissions`), or the optional standing
+   permission (`publish_consents`) when review mode is deliberately off. A source submission covers only its new
+   clips on its bound YouTube account/audience; it cannot approve old backlog or other inputs. TikTok always needs
+   the OK on each post.
 3. **Publish exactly what was checked.** The publisher re-hashes the file and needs a passing gate report for those
    exact bytes. Any re-render needs a new report.
 4. **No silent CPU fallback in Autopilot.** Manual mode may fall back, but it must say so visibly.
@@ -327,7 +412,10 @@ These are product guarantees; tests enforce most of them. Don't weaken them to m
     own stations, idle peers remain idle, and managers supervise without inventing jobs or reports. Quiet paused
     or unavailable peers may be present. Confirmed handoffs return to the latest department assignment.
 
-## Current continuation scope (2026-10-08)
+## Historical continuation scope (2026-10-08)
+
+This scope describes the then-unmerged PR #14. That PR is now merged; the current October 13 scope and branch
+are recorded in [AI_HANDOFF.md](AI_HANDOFF.md). The standing owner instructions below remain in force.
 
 Finish PR #14 on `claude/project-thread-vw1n9y`, unmerged. Improve all 25 visible robots with truthful state icons
 and Follow system / Full / Reduced animation settings; a durable, editable Brain reference workspace with recorded
@@ -337,7 +425,130 @@ settings, GPU dependencies and user data. Use isolated development data and fake
 Measure bottlenecks before server advice; do not purchase or deploy. Delivery includes visual/animation evidence,
 test results, exact-commit ZIP download and simple isolated Windows testing steps.
 
+## Brain activation continuation (2026-10-13)
+
+The owner explicitly requested saved Brain material to be used automatically, supplemented by Settings, and
+unavailable integration cards removed. Enabled supported guidance now applies on save without separate Brain
+approval; historical approval-only teaching instructions are superseded. Posting consent and exact-file/platform
+checks remain unchanged. Prose is interpreted only into a bounded local editing vocabulary, never executed or
+sent raw to a model. Uploaded examples supply measured length hints, not visual model training or result evidence.
+
 ## Standing instructions from the owner
+
+**Confirmed upload-audio continuation (2026-10-29, America/Chicago):** The matching supplied media proves the
+local MP4 has a damaged AAC timing table that default FFmpeg parsing hides; Google's processed copy loses the
+opening sound. Preserve samples and source-clock repair; regenerate the FINAL audio clock after all filters.
+Check stored packet timing with timestamp auto-repair disabled, invalidate old quality caches, preserve started
+upload sessions, and require fresh checks/approval for replacement bytes. Keep owner media outside Git/releases.
+Do not claim actual YouTube re-upload verification without performing an authorized test.
+
+**Audio startup continuation (2026-10-23, America/Chicago):** Continue from the latest pushed Claude/source
+revision, verified before edits. Replace single-pass loudness pumping with a whole-edited-clip measurement and
+constant bounded gain. Preserve track/clock/downmix/speed/limiter behavior, explicit normalization-off choice,
+source audio and exact-file upload checks. No automatic rewrite or reupload of old clips. Test actual decoded
+AAC beginnings/quiet passages and fake platform bytes. Record limits honestly: no affected owner original,
+native Windows/GPU or real platform transcode was available. Deliver the readable source update with prior
+managed-profile identities intact; keep the historical blocked EXE unchanged.
+
+**Creation reliability continuation (2026-10-19, America/Chicago):** The owner reports unused Brain guidance,
+stationary framing, same-time schedules and repeated reuse questions in Queue for supplied videos. Platform
+labels such as TikTok/Shorts apply across topics; remaining topic tags still narrow guidance. Keep actual ranking
+revision evidence on manual clips as well as blueprints. Auto framing may follow measured visual activity when
+faces are absent/lost, with honest heuristic evidence, stable motion and a new cache version; explicit fixed
+framing stays fixed. Default posting gap is 30 minutes, with a one-time old-zero correction; preserve positive
+custom spacing and later explicit choices, daily uncapped totals, exact platform waits and uncertain-session
+identity. Repair only automatic unstarted collisions, preserving explicit manual times and approval bindings.
+Carry a valid existing input's reuse assertion into Queue review instead of retyping it; never infer ownership
+or new publishing authorization from a local upload alone, or attach a new request to old backlog. Repaired
+generated clips need fresh exact-file approval/checks; owner edits, cancellation and source/destination drift
+still hold them. Deliver a verified readable source update with prior managed-profile identities preserved.
+
+**TikTok icon review correction (2026-10-19, America/Chicago):** The reviewer requires the Basic information
+icon to match the public website and browser tab. Keep `design/tiktok/app-icon-dark.png` as the canonical
+unchanged 1024-square robot, reused by the app, public pages, favicon and current form export. Recommend one
+icon rather than interchangeable themes. Publish only the branding correction to the existing `gh-pages` site;
+preserve its existing verification file and legal/product copy. This request grants no real-post authorization
+or TikTok eligibility/approval. The public website update does not require reinstalling the desktop app.
+
+**Latest Windows setup continuation (2026-10-19, America/Chicago):** The owner reports pip cannot find a
+matching CTranslate2 distribution. The screenshot alone does not identify the actual Python version, architecture
+or index. Use the project's supported Windows runtime policy: standard **64-bit CPython 3.12**, then **3.11**,
+verified by executing each candidate and checking implementation/version/platform (`win-amd64`), pointer width
+and non-free-threaded build. Do not choose the latest generic `py -3` or infer compatibility from a launcher label.
+The readable installer uses the bundled helper's `--check-python` before app/profile writes, then forwards its
+verified interpreter as `CLIPFOUNDRY_BOOTSTRAP_PYTHON`; `start.bat` checks it again. `windows_bootstrap.py` uses only
+the standard library and verifies an existing `.venv`. Keep compatible environments; preserve incompatible ones
+under unique `.venv-backup-*` names, create and verify a fresh environment, and preserve a failed partial under
+`.venv-failed-*` with old-environment rollback where possible. Refuse replacement of a known active environment; never kill its
+processes or delete old environments automatically. Keep Brain/accounts/clips/data and GPU/dependency pins intact.
+If no compatible runtime exists, request official Windows installer **64-bit Python 3.12** side by side and reopen;
+do not install/remove global Python, change PATH/registry/security settings automatically or rebuild the blocked
+EXE. Current CTranslate2 CPython 3.13/3.14 Windows AMD64 wheels exist; do not claim those versions inherently lack
+wheels. Native ARM64/32-bit lack the applicable wheel. The narrow tested policy and a direct 3.12-wheel probe do
+not prove the owner's exact cause or native Windows installation. Leave rendering/frontend/Autopilot unchanged.
+
+**Latest submitted-video continuation (2026-10-19, America/Chicago):** The owner replaces automatic video finding
+with a link/file they supply, followed by Brain-guided creation and automatic YouTube upload. Default
+`autopilot_input_mode=submitted` disables periodic search, watched-folder admission and stale queued discovery
+handlers, while existing media/history remain. A one-time mode migration preserves later explicit choices.
+Missions offers **Make & upload clips** or **Make clips only**. For upload, show the actual connected account and
+confirmed audience, require a genuine kids answer, source reuse basis and one explicit confirmation. Store the
+input-scoped request separately in `source_submissions`; bind acquired original hash/project/current terms and
+credit, then approve each qualifying final file/text/account/audience separately as `approval.by=submission`.
+This explicitly supersedes per-post manual review for that input's new clips, even while global review or broad
+scheduling/publishing/platform toggles are off. It changes no global audience or standing grant and covers no old
+backlog, later input or TikTok post. Explicit Blocks, Cancel, Stop all jobs, Pause publishing, current terms/credit,
+quality/hash checks, real platform waits and uncertain-upload identity remain binding. Canceling future work
+retains saved media/history. Permission text never becomes Brain guidance. Relevant supported notes/example
+preferences apply with Settings fallback; raw notes and examples stay local and do not fine-tune a model.
+Preserve the measured audio fixes; never promise reconstruction of already distorted audio, real YouTube
+transcoding, native Windows/RTX3050 behavior or a 24-hour run without evidence.
+
+**Search-key and Brain separation continuation (2026-10-15, America/Chicago):** The owner reports no new clips
+and clarifies both search keys fail. Preserve explicit key/account selection, refresh rejected same-account OAuth
+once within quotas, provide safe actionable key errors and explicit saved-connection checks. A check cannot prove
+search/download/upload readiness or silently switch credentials. Provider waits, budgets and independent sources
+remain binding. The owner confirms reuse text appears only in approval/reuse details: retain that exact-post
+record and explain it never becomes Brain knowledge or future guidance. Do not filter/delete deliberate Brain notes.
+
+**Audio/search/live reliability continuation (2026-10-15, America/Chicago):** The owner reports distorted uploaded
+audio, comments disabled on some YouTube posts, searches stopping, Windows Proactor WinError 10054 cleanup
+tracebacks, and split-audio/video or ended-stream capture failures. Preserve source clocks/track choice through
+transcription and rendering; downmix before normalization and prevent post-gain clipping. Keep genuine boolean
+made-for-kids choices, explain their and Private visibility's comment restrictions, and do not claim the upload
+API can enable comments. Keep discovery recurring when capacity permits without bypassing provider waits,
+quality/queue/cost/API limits; expose existing supported search keys and free-only controls. Support safe paired
+HLS and bounded public-archive recovery without changing partial timelines or duplicate handoffs. Repair only
+the known Windows disconnect cleanup and report genuine errors. Provide a concrete Claude handoff and verified
+readable setup; never alter old uploads, owner media, audience answers, account permissions or security settings.
+
+**Brain-use correction (2026-10-15, America/Chicago):** The owner reports notes/examples not affecting clips.
+Carry actual source-title and transcript topic context through candidate generation, ranking, blueprint and
+render, including resumed and live paths. Relevant supported Brain choices override Settings, which fill gaps;
+explicit per-clip editor overrides still win. Measured good-example lengths remain within configured bounds.
+Bad-example observations must not promote undesired traits. Show recognized effects and reference-only material
+truthfully. Preserve old media, local raw-note privacy and all independent publishing/rights checks.
+
+**Faster approval continuation (2026-10-14, America/Chicago):** The owner authorizes faster manual review and bulk
+approval of selected YouTube posts. Queue previews and permission presets reduce navigation/typing; one combined
+consent may cover the explicit selected group. This remains individual exact-post manual authorization recorded
+for each approved item, not a standing grant or source ownership/license. Batch previews expire after ten minutes,
+are limited to 50 selected posts and must reject changed bytes/text/options/account/audience/terms/checks or any
+active/uncertain upload. No new arrivals are selected automatically. Preserve final checks, required credit,
+explicit permission basis, account/audience/kids choice, timing, idempotency and platform waits. TikTok keeps its
+individual platform review. Source statements and Brain notes never create bulk consent.
+
+**Earlier review-before-publishing continuation (2026-10-14):** Subject to the input-scoped exception above,
+this request superseded automatic publishing
+as the default and the requirement for recorded reuse coverage before *scheduling*. `autopilot_review_before_publish`
+defaults on. Discovery and local plans may include accessible, unblocked sources with unrecorded reuse terms;
+rights status must stay truthful. Posts outside an explicit source submission wait for manual approval. An uncovered post additionally needs
+an owner reuse statement and basis bound to its exact source, file/version, account, platform, audience, text and
+options. This records an assertion, not verified ownership/license or permission for other posts. Current credit,
+physical-media quality, grounded text, platform choices, account approval, cancellation, idempotency and waits
+remain binding. Old automatic approvals for provably unstarted transfers return to review with draft identity,
+text, privacy and time preserved. Started/uncertain sessions must remain intact. If review mode is deliberately
+disabled, the earlier separate standing YouTube permission and recorded reuse requirements apply again.
 
 * Don't change `.mcp.json` and don't pin Playwright versions. The one approved exception (owner, 2026-09-29):
   `.mcp.json` starts the Playwright MCP server through `e2e/playwright-mcp.mjs`, which uses the cloud's

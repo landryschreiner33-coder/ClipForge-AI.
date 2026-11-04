@@ -198,6 +198,8 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
                     lo: float = 0.5, hi: float = 0.58, trend_keywords: list[str] | None = None,
                     prior: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
     """(chosen, evaluated results, notes). `notes["candidates"]` records how far each pool candidate got."""
+    from ..autopilot import knowledge
+
     meta = meta or {}
     count = int(opts.get("clip_count", 5))
     min_score = float(opts.get("min_score", 50))
@@ -219,7 +221,10 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
     fast = []
     for c in cands:
         ctx.check()
-        r = virality.analyze(c["s0"], c["s1"], sentences, feats, words, loud, opts) if c["s0"] >= 0 else \
+        local, _ = knowledge.selection_options(
+            {"title": video_name, "caption_text": " ".join(
+                s["text"] for s in sentences[c["s0"]:c["s1"] + 1]) if c["s0"] >= 0 else ""}, opts, opts)
+        r = virality.analyze(c["s0"], c["s1"], sentences, feats, words, loud, local) if c["s0"] >= 0 else \
             virality.no_speech(c)
         fast.append((c, r))
         track[c["cid"]]["score"] = r["viral_potential"]

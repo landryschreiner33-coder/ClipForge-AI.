@@ -33,11 +33,19 @@ class ProviderError(RuntimeError):
     pass
 
 
-def build_prompt(video_name: str, sentences: list[str], context_before: str, duration: float) -> str:
+def build_prompt(video_name: str, sentences: list[str], context_before: str, duration: float,
+                 priorities: list[str] | None = None) -> str:
     numbered = "\n".join(f"[{k}] {s}" for k, s in enumerate(sentences))
     ctx = f'Context right before the clip (NOT part of the clip): "{context_before}"\n' if context_before else ""
+    # Only fixed factor names leave this PC. Raw Brain notes, example media and private paths are never sent.
+    supported = ("hook", "opening", "curiosity", "emotion", "density", "payoff", "standalone", "pacing",
+                 "uniqueness", "clarity", "retention")
+    selected = [key for key in supported if key in (priorities or [])]
+    guidance = ("Saved editing priorities: " + ", ".join(selected) + ". Favor ranges that satisfy these priorities "
+                "while preserving complete context and the payoff. Keep scores honest; these are editing "
+                "preferences, never source facts.\n") if selected else ""
     return (
-        f"Source video: {video_name}\n"
+        guidance + f"Source video: {video_name}\n"
         f"Candidate clip, about {duration:.0f} seconds. Sentences are numbered.\n{ctx}"
         f"CLIP TRANSCRIPT:\n{numbered}\n\n"
         "Score each factor from 0 to 10 (be strict; 5 is an average clip):\n"
@@ -232,7 +240,8 @@ def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str
 
 def evaluate(settings: dict, video_name: str, sentences: list[str], context_before: str,
              duration: float) -> dict:
-    text = complete(settings, build_prompt(video_name, sentences, context_before, duration))
+    prompt = build_prompt(video_name, sentences, context_before, duration, settings.get("brain_priorities"))
+    text = complete(settings, prompt)
     return parse_response(text, len(sentences))
 
 

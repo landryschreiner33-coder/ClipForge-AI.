@@ -1,0 +1,101 @@
+"""Robot names (CF-13) and synced appearance/layout preferences (CF-14), backend side."""
+from __future__ import annotations
+
+import pytest
+
+from cloud_support import ORIGIN, OWNER, SECOND, cloud_env, sign_in
+
+
+@pytest.fixture()
+def api(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        yield c
+
+
+def test_rename_editor_to_nova_keeps_every_real_id(api):
+    from clipfoundry.office import roles
+
+    before = {r["id"]: (r["manager"], r.get("kinds"), r["department"]) for r in roles.ROLES}
+    editor = next(r for r in roles.ROLES if r["title"] == "Video Editor")
+    r = api.put(f"/api/robots/names/{editor['id']}", json={"name": "  Nova  "})
+    assert r.status_code == 200
+    assert r.json() == {"role_id": editor["id"], "default_name": editor["name"], "role": "Video Editor",
+                        "display_name": "Nova", "custom": True}
+    assert {r["id"]: (r["manager"], r.get("kinds"), r["department"]) for r in roles.ROLES} == before
+    names = api.get("/api/robots/names").json()
+    assert names[editor["id"]]["display_name"] == "Nova" and len(names) == len(roles.ROLES)
+    assert api.delete(f"/api/robots/names/{editor['id']}").json()["display_name"] == editor["name"]
+
+
+def test_robot_names_accept_unicode_reject_blank_and_never_become_markup(api):
+    rid = "command"
+    assert api.put(f"/api/robots/names/{rid}", json={"name": "Ñandú 🤖"}).json()["display_name"] == "Ñandú 🤖"
+    assert api.put(f"/api/robots/names/{rid}", json={"name": "   "}).status_code == 422
+    assert api.put(f"/api/robots/names/{rid}", json={"name": "x" * 33}).status_code == 422
+    assert api.put(f"/api/robots/names/{rid}", json={"name": "a‮b"}).status_code == 422  # bidi override
+    tag = api.put(f"/api/robots/names/{rid}", json={"name": "<img src=x onerror=alert(1)>"})
+    assert tag.status_code == 422 or tag.json()["display_name"] == "<img src=x onerror=alert(1)>"[:32]
+    assert api.put("/api/robots/names/not-a-robot", json={"name": "Nova"}).status_code == 422
+    # duplicates are allowed; the role keeps them apart
+    api.put("/api/robots/names/tracker", json={"name": "Nova"})
+    api.put("/api/robots/names/vector", json={"name": "Nova"})
+    names = api.get("/api/robots/names").json()
+    assert names["tracker"]["role"] != names["vector"]["role"]
+
+
+def test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset(api):
+    a = api.get("/api/preferences/appearance").json()
+    assert a["value"]["theme"] == "system" and a["value"]["clips_mode"] == "highlights" and a["revision"] == 0
+    saved = api.put("/api/preferences/appearance", json={"value": {"theme": "dark", "accent": "blue",
+                                                                   "density": "compact", "motion": "reduced"},
+                                                         "revision": 0}).json()
+    assert saved["revision"] == 1 and saved["value"]["accent"] == "blue"
+    stale = api.put("/api/preferences/appearance", json={"value": {"theme": "light"}, "revision": 0})
+    assert stale.status_code == 409  # another device saved first: no silent overwrite
+    assert api.put("/api/preferences/appearance", json={"value": {"theme": "neon"}}).status_code == 422
+    desk = api.get("/api/preferences/layout/desktop").json()
+    panels = desk["value"]["screens"]["review"]
+    panels.reverse()
+    panels[0]["size"] = 0.5
+    panels[1]["visible"] = False
+    r = api.put("/api/preferences/layout/desktop", json={"value": desk["value"], "revision": desk["revision"]})
+    assert r.status_code == 200, r.text
+    phone = api.get("/api/preferences/layout/phone").json()
+    assert all("size" not in p for p in phone["value"]["screens"]["review"])  # never desktop sizes on a phone
+    hidden = {"screens": {"office": [{"id": p, "visible": False} for p in ("map", "team", "activity")]}}
+    bad = api.put("/api/preferences/layout/desktop", json={"value": hidden})
+    assert bad.status_code == 422 and "at least one panel" in bad.json()["detail"]
+    api.put("/api/robots/names/command", json={"name": "Boss"})
+    api.post("/api/studio/styles", json={"name": "Keep me", "values": {"feel": "calm"}})
+    reset = api.delete("/api/preferences/layout/desktop").json()
+    assert reset["default"] and reset["value"]["screens"]["review"][0]["id"] == "preview"
+    assert api.get("/api/robots/names").json()["command"]["display_name"] == "Boss"  # reset touched layouts only
+    assert [s["name"] for s in api.get("/api/studio/styles").json()] == ["Keep me"]
+    assert api.get("/api/preferences/appearance").json()["value"]["accent"] == "blue"
+
+
+def test_names_and_preferences_sync_across_devices_and_stay_in_their_workspace(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+
+    idp = cloud_env(monkeypatch, tmp_path)
+    with TestClient(app, base_url=ORIGIN) as desk, TestClient(app, base_url=ORIGIN) as phone, \
+            TestClient(app, base_url=ORIGIN) as other:
+        sign_in(desk, idp, OWNER)
+        sign_in(phone, idp, OWNER)
+        sign_in(other, idp, SECOND)
+        desk.put("/api/robots/names/frame", json={"name": "Nova"})
+        desk.put("/api/preferences/appearance", json={"value": {"theme": "light"}})
+        assert phone.get("/api/robots/names").json()["frame"]["display_name"] == "Nova"  # the other device
+        assert phone.get("/api/preferences/appearance").json()["value"]["theme"] == "light"
+        assert other.get("/api/robots/names").json()["frame"]["display_name"] == "FRAME"
+        assert other.get("/api/preferences/appearance").json()["value"]["theme"] == "system"
+    from clipfoundry.cloud import settings as cloud_settings
+
+    cloud_settings.reset()
