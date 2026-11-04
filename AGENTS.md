@@ -15,6 +15,14 @@ no transcripts of conversations) and refresh `AI_HANDOFF.md`.
 
 ## What it is
 
+**Cloud studio expansion planning (2026-11-03):** The owner has specified full YouTube-video assembly from
+uploaded clips, complete-story batch clipping, account access across devices, declarative skill imports,
+simpler guided creation and saved themes/layouts. This checkpoint delivers a plan and Claude Code prompt only:
+`docs/STUDIO_EXPANSION_PLAN.md` and `docs/CLAUDE_STUDIO_BUILD_PROMPT.md`. FilmCraft is a researched integration
+candidate, not a verified dependency; prove browser/headless capabilities and audio correctness first.
+Preserve the existing local app and earlier fixes. The separate artcraft-services license is not the same as
+the permissively licensed editor. No implementation, public signup or paid deployment is implied by the plan.
+
 **Cloud migration planning (2026-11-03):** The owner requests server execution and login for themselves first,
 a later public release, more than five hours of source video daily, at the lowest possible cost. See
 `docs/CLOUD_PLAN.md` on `codex/cloud-plan`. No cloud feature or service has been deployed. Keep the working

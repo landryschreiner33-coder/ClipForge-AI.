@@ -9,7 +9,10 @@ resource is authorized. The working Mac app and public download website remain u
 - Require login; admit only the owner initially, with a later public release in mind.
 - Process more than five hours of source video per day.
 - Minimize cost. Target a $0 infrastructure pilot; do not equate this with proven free production capacity.
-- A second major change has not yet been specified. Revisit the plan when it is provided.
+- The second major change is now specified: full-video assembly, complete-story exports, importable skills,
+  simple guided creation and account-synced themes/layouts. See [the expansion plan](STUDIO_EXPANSION_PLAN.md)
+  and [the Claude Code implementation prompt](CLAUDE_STUDIO_BUILD_PROMPT.md). This checkpoint remains planning
+  only; no new workflow or cloud feature has been implemented.
 
 ## Recommended first deployment
 

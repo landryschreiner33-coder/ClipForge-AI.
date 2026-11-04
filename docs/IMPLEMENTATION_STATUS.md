@@ -1,5 +1,31 @@
 # Implementation status
 
+## Cloud studio expansion plan and Claude implementation prompt — 2026-11-03 (America/Chicago)
+
+The owner has now specified the second major change: full YouTube-video assembly from supplied clips,
+complete-story batch clipping, account access across devices, importable skills, simple guided workflows and
+saved themes/layouts. They request a plan and a detailed prompt for Claude Code, not implementation in this
+checkpoint. Cloud remains owner-only initially, later public release, more than five source hours/day and
+lowest possible cost. No paid provisioning is authorized.
+
+[Product and build plan](STUDIO_EXPANSION_PLAN.md) and
+[ready-to-use Claude prompt](CLAUDE_STUDIO_BUILD_PROMPT.md) define phased implementation, concrete acceptance
+criteria, migration/cost controls and preservation of previous audio, Brain and publishing fixes. Continue
+from the latest source after inspecting remote refs; do not start an older branch and lose Claude changes.
+
+Official upstream inspection identifies FilmCraft (the ArtCraft team's nonlinear editor) as the first
+integration candidate. Its pinned source documents a browser build and headless CLI/MCP under MIT OR Apache-2.0,
+with separate notices, but remains alpha. The stock browser build processes media locally; cloud storage and
+rendering require a bridge. A repeatable integration experiment must prove capabilities and audio correctness.
+The separate artcraft-services repository has competing-product restrictions and is excluded from the proposed
+public-product architecture without a separate grant. Sources and exact upstream commits are in the plan.
+
+No application code, installer, website or cloud service changed. FilmCraft was not compiled or benchmarked.
+Verification: official upstream README/license/notices, browser and control documentation and CLI source were
+inspected; planning documents checked for complete requested scope, internal links and whitespace. No functional
+tests were run for this documentation-only checkpoint. Provider accounts, capacity, end-to-end throughput and
+actual cloud deployment remain unverified. The working Mac download remains unchanged.
+
 ## Cloud migration scope and cost plan — 2026-11-03 (America/Chicago)
 
 Current planning branch: `codex/cloud-plan`, based on the verified native-app/delivery branch at `9e0aaee`.
