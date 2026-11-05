@@ -51,6 +51,7 @@ RESOLVERS: dict[str, Callable[[str], str | None]] = {
     "style_id": lambda v: _one("SELECT workspace_id FROM styles WHERE id = ?", v),
     "skill_id": lambda v: _one("SELECT workspace_id FROM skills WHERE id = ?", v),
     "reference_id": lambda v: _one("SELECT workspace_id FROM reference_videos WHERE id = ?", v),
+    "import_id": lambda v: _one("SELECT workspace_id FROM media_imports WHERE id = ?", v),
 }
 NOT_FOUND = {"project_id": "Project not found", "clip_id": "Clip not found", "version_id": "Version not found",
              "pub_id": "Publication not found"}

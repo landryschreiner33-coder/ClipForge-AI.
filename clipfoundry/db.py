@@ -997,6 +997,68 @@ CREATE TABLE IF NOT EXISTS reference_analyses (  -- immutable: Reanalyze adds a 
     PRIMARY KEY (reference_id, revision)
 );
 CREATE INDEX IF NOT EXISTS idx_reference_analyses_key ON reference_analyses(cache_key);
+CREATE TABLE IF NOT EXISTS asset_sources (  -- where an imported file came from, on what terms (studio/media_sources.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,                   -- the local copy every project uses (never a hotlink)
+    provider TEXT NOT NULL,                   -- openverse | commons | pexels
+    kind TEXT NOT NULL,                       -- image | footage | music | effect
+    external_id TEXT NOT NULL,                -- the item's ID at the provider
+    title TEXT DEFAULT '',
+    creator TEXT DEFAULT '',
+    creator_url TEXT DEFAULT '',
+    page_url TEXT DEFAULT '',                 -- the item's page at its source
+    file_url TEXT DEFAULT '',                 -- the file that was downloaded
+    origin TEXT DEFAULT '',                   -- the collection Openverse indexed it from (Flickr, Freesound, ...)
+    license TEXT DEFAULT 'unknown',           -- cc0 | pdm | by | by-sa | by-nc | ... | pexels | unknown
+    license_version TEXT DEFAULT '',
+    license_name TEXT DEFAULT '',
+    license_url TEXT DEFAULT '',
+    terms TEXT DEFAULT '{}',                  -- known, commercial, modify, attribution, share_alike as retrieved
+    credit TEXT DEFAULT '',                   -- the credit line built from the retrieved terms
+    credit_required INTEGER DEFAULT 0,
+    restrictions TEXT DEFAULT '',
+    user_basis TEXT DEFAULT '',               -- the owner's own stated basis when the terms were unknown or did not fit
+    query TEXT DEFAULT '',                    -- what was searched for, when it was added automatically
+    retrieved_at REAL NOT NULL,
+    sha256 TEXT NOT NULL,                     -- of the original file as downloaded
+    size INTEGER DEFAULT 0,
+    created_at REAL NOT NULL,
+    UNIQUE (workspace_id, provider, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_sources_asset ON asset_sources(asset_id);
+CREATE TABLE IF NOT EXISTS media_imports (  -- one "Add to media" request; a durable, cancelable studio job
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    project_id TEXT DEFAULT '',               -- the project whose media bin receives it ('' = your media only)
+    provider TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    title TEXT DEFAULT '',
+    user_basis TEXT DEFAULT '',
+    status TEXT DEFAULT 'queued',             -- queued | importing | ready | failed | canceled
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    asset_id TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_imports_ws ON media_imports(workspace_id, provider, external_id);
+CREATE TABLE IF NOT EXISTS media_suggestions (  -- "Find supporting media for this project", one row per round
+    project_id TEXT NOT NULL,
+    round INTEGER NOT NULL,
+    workspace_id TEXT NOT NULL,
+    mode TEXT DEFAULT 'suggest',              -- suggest (for review) | auto (eligible items added as a new revision)
+    status TEXT DEFAULT 'queued',             -- queued | searching | ready
+    message TEXT DEFAULT '',
+    queries TEXT DEFAULT '[]',                -- [{kind, query, why}] from words said in the project (no AI)
+    items TEXT DEFAULT '[]',                  -- results per query, with whether each fits the project's rules
+    added TEXT DEFAULT '[]',                  -- what automatic mode imported and placed
+    problems TEXT DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (project_id, round)
+);
 CREATE TABLE IF NOT EXISTS robot_names (
     workspace_id TEXT NOT NULL,
     role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
@@ -1057,7 +1119,7 @@ JSON_FIELDS = {
     "oauth_connects": set(),
     "uploads": set(),
     "assets": {"probe"},
-    "studio_projects": {"asset_ids", "brief", "guidance", "destinations"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media"},
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
@@ -1070,6 +1132,9 @@ JSON_FIELDS = {
     "link_imports": set(),
     "reference_videos": {"likes", "ranges", "modes"},
     "reference_analyses": {"coverage", "measured", "observations", "applicable", "unsupported"},
+    "asset_sources": {"terms"},
+    "media_imports": set(),
+    "media_suggestions": {"queries", "items", "added", "problems"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -1093,6 +1158,8 @@ ADDED_COLUMNS = {
     # owner's corrections); a style revision keeps its own copy so older projects can still cite it
     "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
     "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
+    # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
+    "studio_projects": {"media": "TEXT DEFAULT '{}'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},

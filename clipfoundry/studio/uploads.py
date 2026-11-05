@@ -239,7 +239,7 @@ def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: st
         try:
             t = min(float(info.get("duration") or 0) * 0.1, 5.0) if kind == "video" else 0.0
             thumbnail(dest, t, folder / "thumb.jpg", 480)
-            thumb = str(folder / "thumb.jpg")
+            thumb = str(folder / "thumb.jpg") if (folder / "thumb.jpg").is_file() else ""  # ffmpeg may write none
         except Exception:  # noqa: BLE001 - a missing thumbnail never fails the upload
             thumb = ""
     return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": filename,

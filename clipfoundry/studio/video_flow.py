@@ -35,7 +35,7 @@ IMAGE_MS = 4000
 BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_ratio", "feel", "captions", "music",
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
                 "title_card", "music_level_db", "layout", "caption_size", "frame_rate", "duck_music",
-                "voiceover_asset_ids", "duck_depth_db", "shot_length_s"}
+                "voiceover_asset_ids", "duck_depth_db", "shot_length_s", "find_media"}
 STYLE_CHOICES = {"aspect_ratio", "feel", "captions", "music", "caption_style", "caption_position", "transition",
                  "title_card", "music_level_db", "layout", "target_duration_s", "video_type", "audience",
                  "caption_size", "frame_rate", "duck_music", "duck_depth_db", "shot_length_s"}
@@ -113,6 +113,10 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
             raise VideoError("Upload the music file you want to use.") from exc
         if m["kind"] != "audio":
             raise VideoError("The music must be an audio file.")
+    if brief.get("find_media") not in (None, "", "off", "suggest", "auto"):
+        raise VideoError("Supporting media: choose off, suggest for review, or add eligible media automatically.")
+    if brief.get("music") not in (None, "", "none", "supplied", "find"):
+        raise VideoError("Music: choose none, your own file, or find music for me.")
     voiceovers = brief.get("voiceover_asset_ids") or []
     if not isinstance(voiceovers, list):
         raise VideoError("Voiceovers must be a list of audio files.")
@@ -137,7 +141,9 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
         "id": "vid-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": (name or "My video")[:120],
         "status": "building", "message": "Reading your files", "asset_ids": asset_ids,
         "brief": {k: v for k, v in brief.items() if k in BRIEF_FIELDS}, "style_id": (style or {}).get("id", ""),
-        "guidance": snapshot})
+        "guidance": snapshot,
+        "media": {"mode": "auto" if brief.get("find_media") == "auto" else "suggest",
+                  "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
     remember = remember or {}
     pref = prefs.get_appearance(workspace_id, user_id)["value"]
     if remember.get("enabled", pref.get("remember_style", True)):
@@ -368,6 +374,11 @@ def build(job: dict, lease: Lease) -> dict:
         else project["plan_revision"]
     db.update("studio_projects", project["id"], status="ready", message="Rough cut ready; making a preview")
     enqueue(project["workspace_id"], "video_preview", project["id"], rev)
+    if (project.get("brief") or {}).get("find_media") in ("suggest", "auto") and \
+            not db.scalar("SELECT 1 FROM media_suggestions WHERE project_id = ?", (project["id"],)):
+        # the one supporting-media step you asked for; never repeated per render
+        from . import media_sources
+        media_sources.find_for_project(project["id"], project["workspace_id"])
     return {"revision": rev}
 
 
@@ -877,6 +888,11 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
         sha = artifact.sha256_file(out)
         (folder / f"{kind}.timeline.json").write_text(json.dumps({"timeline": info["timeline"],
                                                                    "words": info["words"]}))
+    from . import media_sources
+
+    info = {**info, "credits": media_sources.credits_text(project, plan)}  # media from providers, as edited
+    if info["credits"] and not preview:
+        (folder / "credits.txt").write_text(info["credits"] + "\n", encoding="utf-8")
     if not lease.alive():
         raise VideoError("This render lost its lease; another worker owns it.")
     db.execute("INSERT OR IGNORE INTO studio_artifacts (id, project_id, revision, kind, path, sha256, info, "
@@ -930,4 +946,12 @@ def view(project: dict) -> dict:
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
-            "capabilities": engine.capabilities()}
+            "capabilities": engine.capabilities(), **_media_view(project, plan, assets)}
+
+
+def _media_view(project: dict, plan: dict | None, assets: dict[str, dict]) -> dict:
+    from . import media_sources
+
+    sources = media_sources.provenance(list(assets), project["workspace_id"])
+    return {"sources": {aid: [media_sources.source_view(r) for r in rows] for aid, rows in sources.items()},
+            "credits": media_sources.credits(project, plan), "media_rules": media_sources.rules_for(project)}

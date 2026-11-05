@@ -192,6 +192,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tavily_api_key": "",               # optional web search (tavily.com): public TikTok links and originals of clips
     "tavily_free_credits": 1000,        # credits your Tavily plan includes each month (the free plan: 1,000)
     "discovery_monthly_budget_usd": 0.0,  # paid use beyond free credits; 0 = never spend money
+    # Find media (studio/media_sources.py): searched only when you search or ask for one project's supporting media
+    "media_openverse": True,            # Openverse: openly licensed images, music and sound effects (no key)
+    "media_commons": True,              # Wikimedia Commons: images, footage and sounds (no key)
+    "media_pexels": True,               # Pexels: photos and footage (needs the free key below)
+    "pexels_api_key": "",               # sealed at rest; never shown again after saving
     "library_discovery": True,          # search free-license libraries (Wikimedia Commons) for reusable videos
     "autopilot_public_videos": True,   # public internet videos for local clipping; grants no publishing rights
     # Rights: which statuses allow automatic clipping (OWNED always does; BLOCKED never)
@@ -218,7 +223,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-               "youtube_api_key", "tavily_api_key", "nvidia_api_key"}
+               "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key"}
 SEARCH_API_KEYS = {"youtube_api_key", "tavily_api_key"}
 SEALED_KEYS = SECRET_KEYS  # encrypted at rest (secure.py)
 ACTION_ONLY_KEYS = {"nvidia_opt_in_at", "phone_enabled", "phone_mode", "phone_address", "phone_port"}

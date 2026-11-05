@@ -2,6 +2,8 @@
 address is also checked app-wide (cloud/ownership.py)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -106,7 +108,7 @@ def asset_media(asset_id: str, download: int = 0) -> FileResponse:
 @router.get("/api/assets/{asset_id}/thumbnail")
 def asset_thumbnail(asset_id: str) -> FileResponse:
     a = _asset(asset_id)
-    if not a.get("thumb_path"):
+    if not a.get("thumb_path") or not Path(a["thumb_path"]).is_file():
         raise HTTPException(404, "No thumbnail")
     return FileResponse(a["thumb_path"], media_type="image/jpeg")
 
@@ -834,3 +836,184 @@ def delete_reference(reference_id: str, keep_style: int = 1, delete_file: int = 
                                 delete_file=bool(delete_file))
     except reference.ReferenceError as exc:
         raise _ref_error(exc) from exc
+
+
+# ------------------------------------------------------------------ Find media (Media sources)
+from fastapi.responses import PlainTextResponse, StreamingResponse
+
+from . import media_sources
+
+
+def _media_error(exc: media_sources.MediaError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class MediaSearch(BaseModel):
+    kind: str
+    query: str = Field(max_length=200)
+    providers: list[str] = []
+    filters: dict = {}
+    page: int = 1
+    project_id: str = ""
+
+
+class MediaImport(BaseModel):
+    result_id: str = Field(max_length=200)
+    project_id: str = ""
+    basis: str = Field(default="", max_length=500)
+
+
+class MediaProviderPatch(BaseModel):
+    enabled: bool | None = None
+    key: str | None = Field(default=None, max_length=4096)
+
+
+class MediaRules(BaseModel):
+    mode: str | None = None
+    commercial: bool | None = None
+    share_alike: bool | None = None
+
+
+class CreditEdit(BaseModel):
+    key: str = Field(max_length=300)
+    text: str = Field(default="", max_length=600)
+
+
+@router.get("/api/studio/media/providers")
+def media_providers() -> list[dict]:
+    return media_sources.providers_view()
+
+
+@router.put("/api/studio/media/providers/{provider_id}")
+def set_media_provider(provider_id: str, body: MediaProviderPatch) -> list[dict]:
+    p = media_sources.PROVIDERS.get(provider_id)
+    if not p:
+        raise HTTPException(404, "Unknown media source.")
+    patch: dict = {}
+    if body.enabled is not None:
+        patch[p.enabled_setting] = body.enabled
+    if body.key is not None:
+        if not p.key_setting:
+            raise HTTPException(422, f"{p.name} does not use a key.")
+        key = body.key.strip()
+        if len(key) > 512 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key):
+            raise HTTPException(422, "Paste only the API key, without spaces, headers or extra lines.")
+        patch[p.key_setting] = key  # sealed at rest by db.save_settings; never sent back to the page
+    if patch:
+        db.save_settings(patch)
+    return media_sources.providers_view()
+
+
+@router.post("/api/studio/media/providers/{provider_id}/test")
+def test_media_provider(provider_id: str) -> dict:
+    try:
+        return media_sources.check_provider(provider_id)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.post("/api/studio/media/search")
+def search_media(body: MediaSearch) -> dict:
+    ws = principal.workspace_id()
+    rules = None
+    if body.project_id:
+        rules = media_sources.rules_for(_video(body.project_id))
+    try:
+        return media_sources.search(ws, body.kind, body.query, providers=body.providers or None,
+                                    filters=body.filters, page=body.page, rules=rules)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/media/preview/{token}")
+def media_preview(token: str) -> StreamingResponse:
+    try:
+        body, ctype = media_sources.open_preview(token, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return StreamingResponse(body, media_type=ctype, headers={
+        "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@router.post("/api/studio/media/imports")
+def import_media(body: MediaImport) -> dict:
+    if body.project_id:
+        _video(body.project_id)
+    try:
+        return media_sources.start_import(principal.workspace_id(), body.result_id, project_id=body.project_id,
+                                          basis=body.basis)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/media/imports/{import_id}")
+def media_import_status(import_id: str) -> dict:
+    try:
+        return media_sources.get_import(import_id, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.post("/api/studio/media/imports/{import_id}/cancel")
+def cancel_media_import(import_id: str) -> dict:
+    try:
+        return media_sources.cancel_import(import_id, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/assets/{asset_id}/source")
+def asset_source(asset_id: str) -> list[dict]:
+    """Where a file came from and on what terms (empty for your own uploads)."""
+    uploads.asset(asset_id, principal.workspace_id())
+    rows = media_sources.provenance([asset_id], principal.workspace_id()).get(asset_id) or []
+    return [media_sources.source_view(r) for r in rows]
+
+
+@router.put("/api/studio/videos/{video_id}/media-rules")
+def set_media_rules(video_id: str, body: MediaRules) -> dict:
+    _video(video_id)
+    try:
+        media_sources.set_rules(video_id, body.model_dump(exclude_none=True))
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return video_flow.view(_video(video_id))
+
+
+@router.post("/api/studio/videos/{video_id}/supporting-media")
+def find_supporting_media(video_id: str) -> dict:
+    v = _video(video_id)
+    try:
+        return media_sources.find_for_project(video_id, v["workspace_id"])
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/videos/{video_id}/supporting-media")
+def supporting_media(video_id: str) -> dict:
+    _video(video_id)
+    return media_sources.suggestions_view(video_id)
+
+
+@router.put("/api/studio/videos/{video_id}/credits")
+def edit_video_credit(video_id: str, body: CreditEdit) -> dict:
+    _video(video_id)
+    try:
+        media_sources.edit_credit(video_id, body.key, body.text)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return video_flow.view(_video(video_id))
+
+
+@router.get("/api/studio/videos/{video_id}/credits.txt")
+def video_credits(video_id: str, revision: int = 0) -> PlainTextResponse:
+    v = _video(video_id)
+    rev = revision or v["plan_revision"]
+    try:
+        plan = video_flow.plan_at(video_id, rev) if rev else None
+    except video_flow.VideoError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    body = media_sources.credits_text(v, plan) or "This version uses no media from Media sources.\n"
+    return PlainTextResponse(body, headers={
+        "Content-Disposition": f'attachment; filename="{video_id}-v{rev}-credits.txt"'})
