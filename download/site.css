@@ -46,6 +46,14 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; }
 h1 { font-size: clamp(2.1rem, 1.3rem + 2.6vw, 3.4rem); line-height: 1.08; letter-spacing: -0.02em; margin: 0 0 20px;
   max-width: 17ch; }
 .lead { font-size: 1.12rem; color: var(--muted); max-width: 46ch; margin: 0 0 28px; }
+/* the version banner above the headline; every word of it comes from releases.json */
+.release { display: inline-block; max-width: 100%; margin: 0 0 22px; padding: 6px 16px 6px 6px;
+  border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--muted);
+  font-size: 0.92rem; line-height: 1.75; text-decoration: none; }
+.release:hover { border-color: var(--violet); color: var(--text); }
+.release-tag { display: inline-block; margin-right: 10px; padding: 2px 11px; border-radius: 999px;
+  background: var(--violet); color: var(--on-violet); font: 600 0.86rem/1.5 var(--display); white-space: nowrap; }
+.release b { color: var(--text); font-weight: 600; }
 .get { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 560px; }
 .get-btn { display: grid; gap: 4px; padding: 16px 18px; border-radius: var(--r); text-decoration: none;
   border: 1px solid var(--line); background: var(--panel); color: var(--text); }
@@ -103,13 +111,12 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 .how-check p { margin: 0; }
 .how-check code { color: var(--text); background: var(--raised); padding: 2px 6px; border-radius: 6px; word-break: break-all; }
 .tested { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
-.tested ul, .older { margin: 0; padding-left: 1.2em; display: grid; gap: 10px; color: var(--muted); }
-.older code { word-break: break-all; }
+.tested ul { margin: 0; padding-left: 1.2em; display: grid; gap: 10px; color: var(--muted); }
 
 /* new in this version, the Brain, questions */
 .hero-small { margin: 14px 0 0; max-width: 46ch; }
-.note { margin: 32px 0 0; padding: 14px 18px; border-left: 3px solid var(--amber); background: var(--panel);
-  border-radius: 0 10px 10px 0; color: var(--text); max-width: 72ch; }
+.new-meta { margin: -10px 0 28px; color: var(--muted); max-width: 72ch; }
+.new-earlier { margin: 28px 0 0; }
 .split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; }
 .list { margin: 0; display: grid; gap: 22px; }
 .list dt { font: 600 1.08rem/1.3 var(--display); margin-bottom: 4px; }
@@ -123,6 +130,21 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 .faq p { margin: 0 0 16px; color: var(--muted); }
 .steps code { background: var(--raised); padding: 1px 6px; border-radius: 6px; overflow-wrap: anywhere; }
 .office-shot { width: fit-content; max-width: 100%; }
+
+/* all versions */
+.history { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; max-width: 880px; }
+.history > li { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; }
+.history h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: 0 0 6px; font-size: 1.12rem; }
+.ver-date { font: 400 0.9rem/1.4 var(--body); color: var(--muted); }
+.ver-summary { margin: 0 0 8px; color: var(--muted); }
+.ver-more summary { cursor: pointer; padding: 4px 0; color: var(--violet-hi); font-weight: 600; font-size: 0.95rem; }
+.ver-more summary:focus-visible { outline: 3px solid var(--violet); outline-offset: 3px; border-radius: 6px; }
+.ver-more dl { margin: 10px 0 6px; display: grid; gap: 14px; }
+.ver-more dt { font: 600 1rem/1.3 var(--display); margin-bottom: 2px; }
+.ver-more dd { margin: 0; color: var(--muted); }
+.ver-more b, .ver-summary b { color: var(--text); font-weight: 600; }
+.ver-files { margin: 10px 0 0; font-size: 0.9rem; color: var(--muted); }
+.ver-files code { word-break: break-all; }
 
 /* footer */
 .foot { margin-top: 96px; border-top: 1px solid var(--line); }
