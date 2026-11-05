@@ -21,8 +21,10 @@
   --content-max: 1280px;
 }
 
-/* dark (also the default before the preference loads) */
-:root, :root[data-theme="dark"] {
+/* ClipForge is dark only. Palettes change the surfaces; text, status and accent colours stay the same and are checked
+   for contrast on every palette (tests/test_theme_contrast.py). The Studio palette is the default and what shows before
+   the saved choice loads (index.html sets the same canvas colour, so there is no bright flash). */
+:root, :root[data-palette="studio"] {
   color-scheme: dark;
   --canvas: #0B0D14; --surface: #151A25; --raised: #1D2331; --hover: #252C3D; --border: #2A3142;
   --control-border: #7D879B; --text: #F5F6FA; --text-2: #D0D5E0; --text-3: #A8B2C5; --disabled: #8C95A8;
@@ -32,28 +34,21 @@
   --shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.55);
   --frame: #05060A;
 }
-:root[data-theme="light"] {
-  color-scheme: light;
-  --canvas: #F5F6FA; --surface: #FFFFFF; --raised: #EEF0F6; --hover: #E4E7F0; --border: #D5D9E3;
-  --control-border: #6B7385; --text: #12141C; --text-2: #2E3443; --text-3: #4A5263; --disabled: #5F6779;
-  --on-primary: #FFFFFF; --focus: #1F5FBF;
-  --good: #0B6E64; --good-tint: #DDF3F0; --warn: #8A5A00; --warn-tint: #FBEFD5; --bad: #B3261E; --bad-tint: #FBE3E1;
-  --info: #1F5FBF; --info-tint: #E1ECFB; --neutral: #2E3443; --neutral-tint: #EEF0F6;
-  --shadow-overlay: 0 18px 48px rgba(18, 20, 28, 0.18);
-  --frame: #E4E7F0;
-}
+:root[data-palette="midnight"] { --canvas: #070B18; --surface: #0F1730; --raised: #172142; --hover: #1F2B52; --border: #28365F; }
+:root[data-palette="graphite"] { --canvas: #0E0F11; --surface: #18191C; --raised: #212226; --hover: #2A2C31; --border: #34363C; }
+:root[data-palette="plum"] { --canvas: #100B17; --surface: #1A1325; --raised: #231A31; --hover: #2D223F; --border: #382B4C; }
 
-/* accents: each value checked at >= 4.5:1 for text on the surfaces of its theme */
+/* accents: each checked at >= 4.5:1 as text on every palette's surfaces, and for the dark text on an accent button */
 :root, :root[data-accent="violet"] { --primary: #9A7CFF; --primary-hover: #B29BFF; --primary-tint: #241D45; }
+:root[data-accent="teal"] { --primary: #2DD4BF; --primary-hover: #5EEAD4; --primary-tint: #0F2E2B; }
 :root[data-accent="blue"] { --primary: #4FA3FF; --primary-hover: #7DBBFF; --primary-tint: #12263F; }
 :root[data-accent="coral"] { --primary: #FF8A5B; --primary-hover: #FFA884; --primary-tint: #3A2117; }
 :root[data-accent="green"] { --primary: #3DD68C; --primary-hover: #6BE3A8; --primary-tint: #10301F; }
 :root[data-accent="pink"] { --primary: #FF6FB5; --primary-hover: #FF96C8; --primary-tint: #3A1730; }
-:root[data-theme="light"], :root[data-theme="light"][data-accent="violet"] { --primary: #5B3FD0; --primary-hover: #4A30B5; --primary-tint: #ECE7FC; }
-:root[data-theme="light"][data-accent="blue"] { --primary: #1F5FBF; --primary-hover: #194E9C; --primary-tint: #E1ECFB; }
-:root[data-theme="light"][data-accent="coral"] { --primary: #B2461A; --primary-hover: #923812; --primary-tint: #FBE6DC; }
-:root[data-theme="light"][data-accent="green"] { --primary: #0E7A45; --primary-hover: #0B6338; --primary-tint: #DDF3E7; }
-:root[data-theme="light"][data-accent="pink"] { --primary: #B0246E; --primary-hover: #8F1D59; --primary-tint: #FADFEC; }
+
+/* text size: everything sized in rem follows (the office's labels included) */
+:root[data-text="large"] { font-size: 112.5%; }
+:root[data-text="larger"] { font-size: 125%; }
 
 :root[data-density="compact"] { --target: 36px; --s5: 20px; --s6: 26px; }
 @media (pointer: coarse) { :root[data-density="compact"] { --target: 44px; } }
@@ -361,3 +356,52 @@ input:not([type]) {
 .change-list { margin: 0; padding-left: 1.2em; }
 .change-list li + li { margin-top: 2px; }
 .ask-choice { white-space: normal; text-align: left; height: auto; max-width: 100%; overflow-wrap: anywhere; }
+
+/* Customize studio: a side panel, so the page behind it shows each change as a live preview */
+.customize { position: fixed; top: 0; right: 0; bottom: 0; z-index: 50; width: min(420px, 100vw); display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto; background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-overlay); }
+.customize-head, .customize-foot { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); }
+.customize-head { border-bottom: 1px solid var(--border); }
+.customize-head h2 { margin: 0; font-size: var(--fs-h2); }
+.customize-head h2:focus { outline: none; }
+.customize-foot { border-top: 1px solid var(--border); flex-wrap: wrap; }
+.customize-body { overflow-y: auto; padding: var(--s4); display: grid; gap: var(--s4); align-content: start; }
+.customize fieldset.field { display: grid; gap: var(--s2); margin: 0; padding: 0; border: 0; min-width: 0; }
+.customize legend { font-weight: 600; margin-bottom: var(--s2); padding: 0; }
+.palette-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.palette-choice { display: grid; gap: 2px; justify-items: start; text-align: left; padding: var(--s2) var(--s3);
+  min-height: var(--target, 44px); border: 1px solid var(--control-border); border-radius: var(--r-control);
+  background: var(--raised); color: var(--text); cursor: pointer; }
+.palette-choice.on, .accent-row .btn.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+/* native radios (arrow keys move between options, one Tab stop per group), drawn as the whole choice */
+.palette-choice, .accent-row .btn { position: relative; }
+.palette-choice input, .accent-row input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.palette-choice:has(input:focus-visible), .accent-row .btn:has(input:focus-visible) { outline: 2px solid var(--focus);
+  outline-offset: 2px; }
+.palette-choice .swatches { display: flex; gap: 3px; margin-bottom: 4px; }
+.palette-choice .swatches i { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--control-border); }
+.accent-row { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.accent-row .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.panel-list li { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding: 4px var(--s2);
+  border: 1px solid var(--border); border-radius: var(--r-control); background: var(--raised); }
+.panel-list li.off { opacity: 0.75; }
+.panel-list .panel-width { flex-basis: 100%; display: flex; gap: var(--s2); align-items: center; }
+.panel-list .panel-width input { flex: 1; }
+.point-up { transform: rotate(-90deg); }
+.point-down { transform: rotate(90deg); }
+@media (max-width: 520px) {
+  .customize { border-left: 0; }
+  .palette-grid { grid-template-columns: minmax(0, 1fr); }
+  .customize-foot .btn-quiet { flex-basis: 100%; justify-content: flex-start; }
+}
+
+/* pinning a project to the Studio page */
+.lib-card-wrap { position: relative; display: grid; }
+.pin-btn { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px;
+  min-height: 32px; padding: 2px 10px; border-radius: var(--r-pill); border: 1px solid var(--control-border);
+  background: rgba(11, 13, 20, 0.86); color: var(--text); font: inherit; font-size: var(--fs-tiny); cursor: pointer; }
+.pin-btn.on { border-color: var(--primary); color: var(--primary); }
+.pin-btn:hover { border-color: var(--primary); }
+.studio-customize { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.studio-customize .link-btn { display: inline-flex; align-items: center; gap: 4px; }

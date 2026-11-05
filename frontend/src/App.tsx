@@ -12,6 +12,7 @@ import Studio from "./pages/Studio";
 import MakeClips from "./pages/MakeClips";
 import MakeVideo from "./pages/MakeVideo";
 import VideoReview from "./pages/VideoReview";
+import Customize from "./components/Customize";
 import Projects from "./pages/Projects";
 import Accounts from "./pages/Accounts";
 import SignIn from "./pages/SignIn";
@@ -90,7 +91,7 @@ export default function App() {
 
 function Shell({ me }: { me: Me }) {
   const route = useRoute();
-  const { namesVersion, appearance, set } = useAppearance();
+  const { namesVersion, customizing, setCustomizing } = useAppearance();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("clipforge.sidebar") === "collapsed";
@@ -185,7 +186,6 @@ function Shell({ me }: { me: Me }) {
       return !c;
     });
   };
-  const dark = document.documentElement.dataset.theme === "dark";
 
   return (
     <ConnectionContext.Provider value={{ lost, lastOk }}>
@@ -218,8 +218,8 @@ function Shell({ me }: { me: Me }) {
                 </div>
               )}
             </div>
-            <button type="button" className="btn btn-small btn-icon hide-xs" aria-label={dark ? "Use the light theme" : "Use the dark theme"}
-              onClick={() => set({ theme: dark ? "light" : "dark" })} title={`Theme: ${appearance.theme}`}><Icon name="moon" /></button>
+            <button type="button" className="btn btn-small btn-icon" aria-label="Customize studio" title="Customize studio"
+              aria-haspopup="dialog" aria-expanded={customizing} onClick={() => setCustomizing(true)}><Icon name="sliders" /></button>
             <a href="#/missions" id="top-state" className={`pill ${state.tone} hide-xs`} aria-label={`Autopilot: ${state.word}. Open Autopilot`}>
               <Icon name="autopilot" />Autopilot: {state.word}
             </a>
@@ -265,6 +265,7 @@ function Shell({ me }: { me: Me }) {
         </Drawer>
       )}
       {leaving !== null && <LeaveDialog target={leaving} onClose={() => setLeaving(null)} />}
+      <Customize cloud={me.mode === "cloud"} />
       <ToastHost />
     </ConnectionContext.Provider>
   );

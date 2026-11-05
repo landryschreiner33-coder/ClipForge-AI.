@@ -58,7 +58,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
   if (tab === "appearance") {
     return (
       <div className="page">
-        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks on your devices. Saved to your account." />
+        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks. Customize studio changes it and says where each choice is kept." />
         <LinkTabs label="Settings sections" current="appearance" tabs={SETTINGS_TABS} />
         <AppearanceSettings />
       </div>
