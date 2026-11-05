@@ -1,5 +1,24 @@
 # AI changelog
 
+## Released ClipForge 2026.11.05.2: smart editing and the Mac link fix — 2026-11-05 (Claude Code)
+
+Landry asked in the project thread to merge both fixes (PR #22, PR #23) and update the website with the new versions.
+Both downloads are built from `2e5238e` (PR #20's branch with PR #22 merged, plus PR #23).
+
+- **Checks on `2e5238e`:** `macos-desktop.yml` run 42106643196: native build and bundled-app checks (including the
+  FFmpeg join and Deno), 27 slow tests; the fast-suite job hung in `apt-get` and passed on rerun (1,768). Locally
+  1,768 fast tests passed.
+- **Mac:** release `clipforge-mac-2026-11-05-2e5238e` (publish run 42114038409), `ClipForge-Mac-Apple-Silicon.dmg`
+  237,781,526 bytes, SHA-256 `14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f` (about 45 MB larger:
+  Deno for YouTube). Unsigned personal preview, prerelease.
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/d60445f` on `claude/clipforge-downloads`, 47,042,861 bytes,
+  SHA-256 `531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d`; 77 launcher tests, all 709 app files
+  equal the tree; Windows setup check run 42109581700 installed it over the 6ecdafc release (settings kept).
+- **Download page:** `gh-pages` `65f026a` (previous `138c4f7`, Pages run 42114472648), ClipForge 2026.11.05.2; `build.py --check` and
+  `--verify` passed (all eight listed files). Release notes in `.github/scripts/publish_personal_mac.py` name the
+  new features (`d45bb0d`).
+- **Not verified:** a real YouTube download, real AI models and keys, Windows 10/11 desktops, physical Macs.
+
 ## Smarter video editing and a free AI helper — 2026-11-05 (Claude Code)
 
 - **Make a YouTube video → "How much should ClipForge edit?"** New default "Edit it for me": cuts long pauses and

@@ -1,5 +1,19 @@
 # AI handoff
 
+## Release ClipForge 2026.11.05.2 (smart editing + Mac link fix) — 2026-11-05 (Claude Code, cloud session)
+
+Landry asked to merge both fixes and update the website. PR #22 was merged into `claude/project-thread-x72wkd`
+(`a6b17b1`), then merged into PR #23's branch (`2e5238e`, conflicts only in the changelog files). Both downloads
+come from `2e5238e`; PR #23 was merged after the release with this record. Details: the top entry of
+[AI_CHANGELOG.md](AI_CHANGELOG.md) and `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+
+- Mac: release `clipforge-mac-2026-11-05-2e5238e`, from tested run 42106643196. Windows: `raw/d60445f` on
+  `claude/clipforge-downloads`, Windows setup check run 42109581700. Page: `gh-pages` `65f026a`.
+- Rollback: revert `65f026a` on `gh-pages` with a normal commit; the 2026.11.05 files (6ecdafc) stay listed under
+  Older versions and their URLs never change.
+- Pushing straight to `gh-pages` worked this time (it was refused earlier the same day).
+- PR #20 (the studio upgrade branch these PRs merge into) is still not merged into the default branch.
+
 ## Smart video editing and the AI helper — 2026-11-05 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for a video editor that actually edits (trims, adds sound and pictures when
