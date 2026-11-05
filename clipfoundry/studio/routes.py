@@ -123,7 +123,7 @@ from fastapi import File, Form, UploadFile  # noqa: E402
 
 from .. import db  # noqa: E402
 from ..jobs import worker  # noqa: E402
-from . import capabilities, clips_flow, guidance, prefs, skills, story_review, styles  # noqa: E402
+from . import capabilities, clips_flow, guidance, prefs, reference, skills, story_review, styles  # noqa: E402
 
 
 def _bad(exc: Exception, status: int = 422) -> HTTPException:
@@ -142,6 +142,7 @@ class GuidanceRequest(BaseModel):
     skills_on: list[str] = []
     skills_off: list[str] = []
     title: str = ""
+    reference_id: str = ""
 
 
 def _snapshot(body: GuidanceRequest) -> dict:
@@ -150,9 +151,11 @@ def _snapshot(body: GuidanceRequest) -> dict:
         style = clips_flow._style(ws, body.style_id)  # noqa: SLF001
         enabled = skills.enabled_skills(ws)
         on = [s for s in (db.fetch("skills", i) for i in body.skills_on) if s and s["workspace_id"] == ws]
+        examples = reference.guidance_inputs(ws, body.mode, body.reference_id)
         return guidance.resolve(body.mode, project_choices=body.choices, style=style, project_skills=on,
                                 global_skills=[s for s in enabled if s["id"] not in set(body.skills_off) and
-                                               s not in on], context={"title": body.title, "caption_text": ""})
+                                               s not in on], context={"title": body.title, "caption_text": ""},
+                                **examples)
     except (ValueError, styles.StyleError) as exc:
         raise _bad(exc) from exc
 
@@ -165,7 +168,7 @@ def guidance_preview(body: GuidanceRequest) -> dict:
 
 @router.get("/api/studio/guidance/preview")
 def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}", skills_on: str = "",
-                          skills_off: str = "", title: str = "") -> dict:
+                          skills_off: str = "", title: str = "", reference_id: str = "") -> dict:
     """The same preview as a plain read: opening Make clips must not send a request that could change anything
     (the read-only browser checks against the owner's real app block every non-GET)."""
     import json
@@ -178,7 +181,8 @@ def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}
         raise HTTPException(422, "The choices must be a JSON object.")
     ids = lambda v: [x for x in v.split(",") if x][:50]  # noqa: E731
     return _snapshot(GuidanceRequest(mode=mode, style_id=style_id, choices=parsed, skills_on=ids(skills_on),
-                                     skills_off=ids(skills_off), title=title[:300]))
+                                     skills_off=ids(skills_off), title=title[:300],
+                                     reference_id=reference_id[:40]))
 
 
 # ------------------------------------------------------------------ Make clips
@@ -192,6 +196,7 @@ class ClipsRequest(BaseModel):
     skills_on: list[str] = []
     skills_off: list[str] = []
     upload: dict = {}
+    reference_id: str = ""
 
 
 @router.post("/api/studio/clips")
@@ -206,11 +211,13 @@ def make_clips(body: ClipsRequest) -> dict:
         if body.url.strip():
             project = link_import.start(p.workspace_id, p.user_id, url=body.url, request_id=body.request_id,
                                         mode=body.mode, style_id=body.style_id, choices=body.choices,
-                                        skills_on=body.skills_on, skills_off=body.skills_off, upload=body.upload)
+                                        skills_on=body.skills_on, skills_off=body.skills_off, upload=body.upload,
+                                        reference_id=body.reference_id)
         else:
             project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
                                         style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
-                                        skills_off=body.skills_off, upload=body.upload)
+                                        skills_off=body.skills_off, upload=body.upload,
+                                        reference_id=body.reference_id)
     except link_import.LinkError as exc:
         return JSONResponse({"detail": f"{exc.why} {exc.fix}", "problem": exc.view()}, status_code=422)
     except clips_flow.FlowError as exc:
@@ -556,6 +563,7 @@ class VideoRequest(BaseModel):
     brief: dict = {}
     style_id: str = "saved"
     remember: dict = {}
+    reference_id: str = ""
 
 
 def _video(video_id: str) -> dict:
@@ -570,7 +578,7 @@ def make_video(body: VideoRequest) -> dict:
     p = principal.current()
     try:
         v = video_flow.create(p.workspace_id, p.user_id, name=body.name, asset_ids=body.asset_ids, brief=body.brief,
-                              style_id=body.style_id, remember=body.remember)
+                              style_id=body.style_id, remember=body.remember, reference_id=body.reference_id)
     except (video_flow.VideoError, styles.StyleError) as exc:
         raise _bad(exc) from exc
     return video_flow.view(v)
@@ -719,3 +727,110 @@ def video_export(video_id: str, revision: int = 0) -> JSONResponse:
     return JSONResponse({"format": f"clipforge.edit-plan/v{engine_mod.SCHEMA}", "revision": rev, "plan": plan,
                          "timeline": engine_mod.timeline(plan)}, headers={
         "Content-Disposition": f'attachment; filename="{video_id}-v{rev}.plan.json"'})
+
+
+# ------------------------------------------------------------------ example videos (Brain)
+class ReferenceCreate(BaseModel):
+    asset_id: str
+    title: str = Field(default="", max_length=120)
+    likes: list[str] = []
+    note: str = Field(default="", max_length=2000)
+    ranges: list[dict] = []
+    avoid: bool = False
+    scope: str = "chosen"
+    modes: list[str] = []
+    project_only: bool = False
+
+
+class ReferencePatch(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    likes: list[str] | None = None
+    note: str | None = Field(default=None, max_length=2000)
+    avoid: bool | None = None
+    scope: str | None = None
+    modes: list[str] | None = None
+    project_only: bool | None = None
+    enabled: bool | None = None
+
+
+class ReferenceAgain(BaseModel):
+    ranges: list[dict] | None = None
+
+
+class ReferenceStyle(BaseModel):
+    values: dict
+    analysis_revision: int
+    name: str = Field(default="", max_length=60)
+    style_revision: int | None = None
+
+
+def _ref_error(exc: reference.ReferenceError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+@router.get("/api/studio/references")
+def list_references(all: int = 0) -> list[dict]:  # noqa: A002 - the query parameter's name
+    return reference.list_for(principal.workspace_id(), include_project_only=bool(all))
+
+
+@router.post("/api/studio/references")
+def add_reference(body: ReferenceCreate) -> dict:
+    data = body.model_dump(exclude={"asset_id", "ranges"})
+    if not data.get("title"):
+        data.pop("title")
+    try:
+        return reference.create(principal.workspace_id(), body.asset_id, data, body.ranges or None)
+    except (reference.ReferenceError, ValueError) as exc:
+        raise HTTPException(getattr(exc, "status", 422), str(exc)) from exc
+
+
+@router.get("/api/studio/references/{reference_id}")
+def get_reference(reference_id: str) -> dict:
+    try:
+        return reference.view(reference.get(reference_id, principal.workspace_id()))
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.patch("/api/studio/references/{reference_id}")
+def patch_reference(reference_id: str, body: ReferencePatch) -> dict:
+    try:
+        return reference.update(reference_id, principal.workspace_id(),
+                                {k: v for k, v in body.model_dump().items() if v is not None})
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.post("/api/studio/references/{reference_id}/analyze")
+def reanalyze_reference(reference_id: str, body: ReferenceAgain) -> dict:
+    try:
+        return reference.reanalyze(reference_id, principal.workspace_id(), body.ranges)
+    except (reference.ReferenceError, ValueError) as exc:
+        raise HTTPException(getattr(exc, "status", 422), str(exc)) from exc
+
+
+@router.post("/api/studio/references/{reference_id}/cancel")
+def cancel_reference(reference_id: str) -> dict:
+    try:
+        return reference.cancel(reference_id, principal.workspace_id())
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.put("/api/studio/references/{reference_id}/style")
+def save_reference_style(reference_id: str, body: ReferenceStyle) -> dict:
+    try:
+        return reference.save_style(reference_id, principal.workspace_id(), values=body.values,
+                                    analysis_revision=body.analysis_revision, name=body.name,
+                                    style_revision=body.style_revision)
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.delete("/api/studio/references/{reference_id}")
+def delete_reference(reference_id: str, keep_style: int = 1, delete_file: int = 0) -> dict:
+    try:
+        return reference.delete(reference_id, principal.workspace_id(), keep_style=bool(keep_style),
+                                delete_file=bool(delete_file))
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc

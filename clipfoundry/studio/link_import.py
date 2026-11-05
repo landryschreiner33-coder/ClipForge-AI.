@@ -160,7 +160,7 @@ def _job(row: dict) -> dict | None:
 
 def start(workspace_id: str, user_id: str, *, url: str, request_id: str = "", mode: str, style_id: str = "saved",
           choices: dict | None = None, skills_on: list[str] | None = None, skills_off: list[str] | None = None,
-          upload: dict | None = None) -> dict:
+          upload: dict | None = None, reference_id: str = "") -> dict:
     """Validate everything, create the project (status "importing") and queue the download; returns the project.
     The same request ID, or the same link and mode while its first import is still running, returns that project."""
     link = normalize(url)
@@ -175,7 +175,8 @@ def start(workspace_id: str, user_id: str, *, url: str, request_id: str = "", mo
         if project and project["status"] == "importing":
             return {**project, "already_started": True}
     ready = clips_flow.prepare(workspace_id, mode=mode, style_id=style_id, choices=choices, skills_on=skills_on,
-                               skills_off=skills_off, upload=upload, title=link["title"])
+                               skills_off=skills_off, upload=upload, title=link["title"],
+                               reference_id=reference_id)
     project = db.create_project(link["title"][:120], source_url=link["url"], status="importing", stage="download",
                                 message="Waiting to download the video", workspace_id=workspace_id, clip_mode=mode,
                                 guidance=ready["guidance"], destinations=ready["destinations"],

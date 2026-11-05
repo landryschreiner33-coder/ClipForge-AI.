@@ -2,10 +2,12 @@
 
 Precedence, highest first (deterministic):
 1. the project's explicit choices (the brief and the Customize controls);
-2. the style chosen for this project;
-3. skills: the ones switched on for this project, then the ones enabled for every project;
-4. enabled Brain notes whose topic matches the source (the existing saved guidance);
-5. Settings.
+2. an example video chosen for this project ("Use an example": its saved Example style);
+3. the style chosen for this project;
+4. skills: the ones switched on for this project, then the ones enabled for every project;
+5. example videos set to apply to every project or to this project type, then enabled Brain notes whose topic
+   matches the source (the existing saved guidance);
+6. Settings.
 When two entries of the same level disagree about one field, neither is applied: the next level decides and the
 conflict is shown, so an unrelated rule is never picked silently. The snapshot records every entry's ID and revision,
 what it decided, what it overrode and why, so a retry or a later render reproduces the same plan and the review
@@ -38,10 +40,19 @@ def _brain_candidates(mode: str, context: dict, settings: dict) -> list[tuple[di
     return out
 
 
+def _example_entry(level: str, style: dict) -> dict:
+    prov = style.get("provenance") or {}
+    return {**_entry(level, style.get("reference_id") or style["id"], style["revision"],
+                     f"Example “{style.get('reference_title') or prov.get('title') or style['name']}”"),
+            "style_id": style["id"], "analysis_revision": prov.get("analysis_revision")}
+
+
 def resolve(mode: str, *, project_choices: dict | None = None, style: dict | None = None,
             project_skills: list[dict] | None = None, global_skills: list[dict] | None = None,
-            settings: dict | None = None, context: dict | None = None) -> dict:
-    """The guidance snapshot for a new plan. `style` and skills are database rows (styles / skills tables)."""
+            settings: dict | None = None, context: dict | None = None, reference: dict | None = None,
+            examples: list[dict] | None = None) -> dict:
+    """The guidance snapshot for a new plan. `style` and skills are database rows (styles / skills tables);
+    `reference` and `examples` are Example styles (reference.chosen / reference.applying)."""
     if mode not in capabilities.MODES:
         raise ValueError(f"Unknown mode {mode}")
     settings = settings if settings is not None else db.get_settings()
@@ -49,6 +60,9 @@ def resolve(mode: str, *, project_choices: dict | None = None, style: dict | Non
     chosen, problems = capabilities.clean(project_choices or {}, (mode,))  # unknown choices are reported
     levels: list[tuple[str, list[tuple[dict, dict]]]] = [
         ("project", [(_entry("project", "", 0, "This project's choices"), chosen)] if chosen else []),
+        ("reference", [(_example_entry("reference", reference),
+                        {k: v for k, v in (reference.get("values_json") or {}).items() if k in fields})]
+         if reference else []),
         ("style", [(_entry("style", style["id"], style["revision"], style["name"]),
                     {k: v for k, v in (style.get("values_json") or {}).items() if k in fields})] if style else []),
         ("project_skill", [(_entry("skill", s["id"], s["revision"], s["name"]),
@@ -57,6 +71,8 @@ def resolve(mode: str, *, project_choices: dict | None = None, style: dict | Non
         ("skill", [(_entry("skill", s["id"], s["revision"], s["name"]),
                     {k: v for k, v in (s.get("supported") or {}).items() if k in fields})
                    for s in global_skills or [] if mode in (s.get("modes") or capabilities.MODES)]),
+        ("example", [(_example_entry("example", e), {k: v for k, v in (e.get("values_json") or {}).items()
+                                                      if k in fields}) for e in examples or []]),
         ("brain", _brain_candidates(mode, context or {}, settings)),
     ]
     values: dict = {}
@@ -96,7 +112,7 @@ def resolve(mode: str, *, project_choices: dict | None = None, style: dict | Non
     used = {}
     for d in decisions.values():
         e = d["from"]
-        if e["level"] in ("style", "skill", "brain"):
+        if e["level"] in ("reference", "style", "skill", "example", "brain"):
             used.setdefault((e["level"], e["id"]), {**e, "fields": []})["fields"].append(d["field"])
     return {"schema": SCHEMA, "mode": mode, "created_at": time.time(), "values": values,
             "decisions": list(decisions.values()), "conflicts": conflicts, "problems": problems,

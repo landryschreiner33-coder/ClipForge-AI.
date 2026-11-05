@@ -35,10 +35,10 @@ IMAGE_MS = 4000
 BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_ratio", "feel", "captions", "music",
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
                 "title_card", "music_level_db", "layout", "caption_size", "frame_rate", "duck_music",
-                "voiceover_asset_ids"}
+                "voiceover_asset_ids", "duck_depth_db", "shot_length_s"}
 STYLE_CHOICES = {"aspect_ratio", "feel", "captions", "music", "caption_style", "caption_position", "transition",
                  "title_card", "music_level_db", "layout", "target_duration_s", "video_type", "audience",
-                 "caption_size", "frame_rate", "duck_music"}
+                 "caption_size", "frame_rate", "duck_music", "duck_depth_db", "shot_length_s"}
 AUDIO_DEFAULTS = {"voiceover": {"gain_db": 0.0, "duck": False, "loop": False},
                   "music": {"gain_db": -18.0, "duck": True, "loop": True},
                   "effect": {"gain_db": 0.0, "duck": False, "loop": False}}
@@ -93,7 +93,7 @@ def _owned(workspace_id: str, aid: str) -> dict:
 
 
 def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], brief: dict, style_id: str = "saved",
-           remember: dict | None = None) -> dict:
+           remember: dict | None = None, reference_id: str = "") -> dict:
     """A new project. `asset_ids` is the media bin in order (any number of videos, images and audio files; the rough
     cut uses the videos and images, audio stays in the bin until you place it, apart from the music and voiceovers
     the brief names)."""
@@ -122,11 +122,15 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
     style = styles.default(workspace_id) if style_id == "saved" else (
         styles.get(style_id, workspace_id) if style_id not in ("", "settings") else None)
     choices = {k: v for k, v in brief.items() if k in STYLE_CHOICES and v not in (None, "")}
-    from . import skills
+    from . import reference, skills
 
+    try:
+        examples = reference.guidance_inputs(workspace_id, "full_video", reference_id)
+    except reference.ReferenceError as exc:
+        raise VideoError(str(exc)) from exc
     snapshot = guidance.resolve("full_video", project_choices=choices, style=style,
                                 global_skills=skills.enabled_skills(workspace_id),
-                                context={"title": name, "caption_text": brief.get("goal") or ""})
+                                context={"title": name, "caption_text": brief.get("goal") or ""}, **examples)
     if snapshot["problems"]:
         raise VideoError("; ".join(snapshot["problems"]))
     project = db.insert("studio_projects", {
@@ -162,6 +166,28 @@ def _speech_range(asset: dict, words: list[dict]) -> tuple[int, int]:
     if not words:
         return 0, length
     return max(0, int((words[0]["start"] - 0.4) * 1000)), min(length, int((words[-1]["end"] + 0.6) * 1000))
+
+
+def _shots(span: tuple[int, int], sents: list[dict], target_s: float) -> list[tuple[int, int]]:
+    """Split one kept range into shots of about `target_s` at sentence ends (a sentence is never cut), each shot
+    trimmed to its speech so the pauses between shots are left out. Without sentences the range stays whole."""
+    a_ms, b_ms = span
+    inside = [x for x in sents if x["start"] * 1000 >= a_ms - 50 and x["end"] * 1000 <= b_ms + 50]
+    if not inside:
+        return [span]
+    groups: list[list[dict]] = [[inside[0]]]
+    for x in inside[1:]:
+        if x["end"] - groups[-1][0]["start"] > target_s:
+            groups.append([x])
+        else:
+            groups[-1].append(x)
+    out = []
+    for g in groups:
+        s0 = max(a_ms, int((g[0]["start"] - 0.12) * 1000))
+        s1 = min(b_ms, int((g[-1]["end"] + 0.12) * 1000))
+        if s1 - s0 >= 300:
+            out.append((s0, s1))
+    return out or [span]
 
 
 def _audio_item(item_id: str, asset: dict, role: str, **over) -> dict:
@@ -211,8 +237,15 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
                 ranges = [r for x in ranges for r in ((x[0], min(x[1], a_ms)), (max(x[0], b_ms), x[1])) if
                           r[1] - r[0] >= 500]
                 notes.append(f"Removed “{s['text'][:80]}” from {a['filename']} because you asked to avoid “{hit}”.")
+        shot_s = float(values.get("shot_length_s") or 0)
+        if shot_s and sents:
+            before = len(ranges)
+            ranges = [r for x in ranges for r in _shots(x, sents, shot_s)]
+            if len(ranges) > before:
+                notes.append(f"Cut {a['filename']} into {len(ranges)} shots of about {shot_s:g} s at sentence ends, "
+                             "leaving out the pauses between them.")
         for k, (a_ms, b_ms) in enumerate(ranges):
-            cid = f"c{n}" + (chr(ord("a") + k) if len(ranges) > 1 else "")
+            cid = f"c{n}" + ((chr(ord("a") + k) if len(ranges) <= 26 else f"-{k + 1}") if len(ranges) > 1 else "")
             inside = [s for s in sents if s["start"] * 1000 >= a_ms - 50 and s["end"] * 1000 <= b_ms + 50]
             kept = [p for p in keep if any(p in s["text"].lower() for s in inside)]
             clips.append({"id": cid, "asset_id": aid, "kind": "video", "in_ms": a_ms, "out_ms": b_ms,
@@ -242,7 +275,7 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
                          "position": values.get("caption_position", "bottom"),
                          "size": values.get("caption_size", "medium")},
             "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
-            "ducking": {"depth_db": engine.DUCK_DEPTH_DB},
+            "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
             "outline": outline, "notes": notes}
     total = engine.duration_ms(plan) / 1000
     target = float(values.get("target_duration_s") or 0)

@@ -58,7 +58,7 @@ async def lifespan(_: FastAPI):
         _youtube_retention()
         worker.resume(db.interrupted_work())
         worker.start()
-        from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - registers job handlers
+        from .studio import jobs as studio_jobs, link_import, reference, video_flow  # noqa: F401 - job handlers
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
         link_import.clean_abandoned()  # partial downloads of canceled or failed links

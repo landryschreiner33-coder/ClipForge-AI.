@@ -50,6 +50,10 @@ class Field:
             return f"{self.label}: {'on' if value else 'off'}"
         if self.name == "target_duration_s":
             return "Length: use your judgment" if not value else f"Length: about {round(value / 60, 1):g} min"
+        if self.name == "shot_length_s":
+            return "Shots: keep each file whole" if not value else f"Shots: about {value:g} s, pauses cut out"
+        if self.name == "duck_depth_db":
+            return f"Music dips {value:g} dB under speech"
         return f"{self.label}: {self.words.get(value, value)}"
 
 
@@ -89,6 +93,11 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
                                                             60: "60 fps"}),
     Field("duck_music", "Music under speech", "bool", ("full_video",),
           applies="music dips while someone speaks"),
+    Field("duck_depth_db", "Music dip under speech", "number", ("full_video",), minimum=0, maximum=30,
+          applies="how many dB music and effects dip while someone speaks"),
+    Field("shot_length_s", "Shot length", "number", ("full_video",), minimum=0, maximum=60,
+          applies="the rough cut cuts speech into shots of about this length at sentence ends and leaves out the "
+                  "pauses between them (0 keeps each file whole)"),
     Field("video_type", "Video type", "text", ("full_video",), max_length=80, applies="the brief's starting answer"),
     Field("audience", "Audience", "text", ("full_video",), max_length=120, applies="the brief's starting answer"),
 )}

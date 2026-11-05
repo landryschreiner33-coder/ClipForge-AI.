@@ -92,14 +92,17 @@ def upload_request(workspace_id: str, upload: dict | None) -> dict:
 
 def prepare(workspace_id: str, *, mode: str, style_id: str = "saved", choices: dict | None = None,
             skills_on: list[str] | None = None, skills_off: list[str] | None = None, upload: dict | None = None,
-            title: str = "") -> dict:
+            title: str = "", reference_id: str = "") -> dict:
     """Validate a Make clips request and freeze its guidance; the same for a file and a link, so a link import can
     never lose the chosen mode, style, skill overrides, destinations or reuse statement."""
     if mode not in CLIP_MODES:
         raise FlowError("Choose Highlights or Full stories.")
+    from . import reference
+
     try:
         style = _style(workspace_id, style_id)
-    except styles.StyleError as exc:
+        examples = reference.guidance_inputs(workspace_id, mode, reference_id)
+    except (styles.StyleError, reference.ReferenceError) as exc:
         raise FlowError(str(exc)) from exc
     request = upload_request(workspace_id, upload)
     enabled = skills.enabled_skills(workspace_id)
@@ -108,7 +111,7 @@ def prepare(workspace_id: str, *, mode: str, style_id: str = "saved", choices: d
     on = [s for s in on if s and s["workspace_id"] == workspace_id]
     snapshot = guidance.resolve(mode, project_choices=choices, style=style, project_skills=on,
                                 global_skills=[s for s in enabled if s["id"] not in off and s not in on],
-                                context={"title": title, "caption_text": ""})
+                                context={"title": title, "caption_text": ""}, **examples)
     if snapshot["problems"]:
         raise FlowError("; ".join(snapshot["problems"]))
     return {"mode": mode, "guidance": snapshot, "destinations": request, "options": guidance.render_values(snapshot)}
@@ -139,7 +142,7 @@ def attach_source(project_id: str, asset: dict, *, submit: bool = True) -> dict:
 
 def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_id: str = "saved",
            choices: dict | None = None, skills_on: list[str] | None = None, skills_off: list[str] | None = None,
-           upload: dict | None = None) -> dict:
+           upload: dict | None = None, reference_id: str = "") -> dict:
     if mode not in CLIP_MODES:
         raise FlowError("Choose Highlights or Full stories.")
     try:
@@ -150,7 +153,7 @@ def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_i
         raise FlowError("Clips are made from a video file.")
     name = Path(asset["filename"]).stem[:120]
     ready = prepare(workspace_id, mode=mode, style_id=style_id, choices=choices, skills_on=skills_on,
-                    skills_off=skills_off, upload=upload, title=name)
+                    skills_off=skills_off, upload=upload, title=name, reference_id=reference_id)
     project = db.create_project(name, source_filename=asset["filename"], status="queued", workspace_id=workspace_id,
                                 asset_id=asset_id, clip_mode=mode, guidance=ready["guidance"],
                                 destinations=ready["destinations"], options=ready["options"])

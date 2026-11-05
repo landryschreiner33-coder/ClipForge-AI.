@@ -957,6 +957,46 @@ CREATE TABLE IF NOT EXISTS link_imports (    -- Make clips from a supplied link 
     UNIQUE (workspace_id, request_id)
 );
 CREATE INDEX IF NOT EXISTS idx_link_imports_url ON link_imports(workspace_id, url, status);
+CREATE TABLE IF NOT EXISTS reference_videos (  -- example videos the Brain measures (studio/reference.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,                   -- the private original: never placed in a project by itself
+    title TEXT NOT NULL,
+    likes TEXT DEFAULT '[]',                  -- overall | pacing | captions | framing | sound
+    note TEXT DEFAULT '',                     -- "What do you like about this example?" in the owner's words
+    ranges TEXT DEFAULT '[]',                 -- [{start_ms, end_ms}] analyzed; empty = the whole video
+    avoid INTEGER DEFAULT 0,                  -- an example to avoid: its choices are shown, never applied
+    scope TEXT DEFAULT 'chosen',              -- chosen (only when picked for a project) | all | modes
+    modes TEXT DEFAULT '[]',                  -- the project types for scope = modes
+    project_only INTEGER DEFAULT 0,           -- added while making one project and not remembered for others
+    enabled INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'queued',             -- queued | analyzing | ready | failed | canceled
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    round INTEGER DEFAULT 1,                  -- one studio job per round; Reanalyze starts the next round
+    analysis_revision INTEGER DEFAULT 0,      -- the newest finished analysis
+    style_id TEXT DEFAULT '',                 -- the Example style saved from this example
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reference_videos_ws ON reference_videos(workspace_id, updated_at);
+CREATE TABLE IF NOT EXISTS reference_analyses (  -- immutable: Reanalyze adds a revision
+    reference_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    cache_key TEXT NOT NULL,                  -- the file's content hash + the ranges + the analyzer version
+    analyzer TEXT NOT NULL,
+    method TEXT NOT NULL,                     -- what looked at the video and how, in words
+    model TEXT DEFAULT '',                    -- a model that observed the video; '' when none did
+    coverage TEXT DEFAULT '{}',
+    measured TEXT DEFAULT '{}',
+    observations TEXT DEFAULT '[]',           -- What I noticed, each measured or estimated, with evidence times
+    applicable TEXT DEFAULT '[]',             -- supported choices the measurements justify
+    unsupported TEXT DEFAULT '[]',            -- noticed but not reproduced by this editor
+    reused_from TEXT DEFAULT '',              -- "<reference>:<revision>" when an identical analysis was reused
+    created_at REAL NOT NULL,
+    PRIMARY KEY (reference_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_reference_analyses_key ON reference_analyses(cache_key);
 CREATE TABLE IF NOT EXISTS robot_names (
     workspace_id TEXT NOT NULL,
     role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
@@ -1022,12 +1062,14 @@ JSON_FIELDS = {
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
     "story_proposals": set(),
-    "styles": {"modes", "values_json"},
-    "style_revisions": {"modes", "values_json"},
+    "styles": {"modes", "values_json", "provenance"},
+    "style_revisions": {"modes", "values_json", "provenance"},
     "skills": {"modes", "topics", "supported", "unsupported", "blocked"},
     "preferences": {"value"},
     "robot_names": set(),
     "link_imports": set(),
+    "reference_videos": {"likes", "ranges", "modes"},
+    "reference_analyses": {"coverage", "measured", "observations", "applicable", "unsupported"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -1047,6 +1089,10 @@ ADDED_COLUMNS = {
     "action_items": {"dismissed_at": "REAL"},
     # how a revision was made (edit, undo, redo, restore) and which revisions undo/redo lead to; a name you gave it
     "edit_plans": {"meta": "TEXT DEFAULT '{}'", "name": "TEXT DEFAULT ''"},
+    # an Example style: the example it was learned from, that analysis revision, and how (method, ranges, the
+    # owner's corrections); a style revision keeps its own copy so older projects can still cite it
+    "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
+    "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
