@@ -101,7 +101,10 @@ def main():
         notes = work / "notes.md"
         notes.write_text(
             "ClipForge (formerly ClipFoundry) for Apple silicon, macOS 15 or newer: Make clips (Highlights or Full "
-            "stories), Make a YouTube video, saved styles and skills, several accounts and the robot office.\n\n"
+            "stories) from a video file or a link to one video, Make a YouTube video in the full-video editor "
+            "(voiceover, music and effects tracks, versions), example videos, Find media, the Brain map, several "
+            "accounts and the robot office, in one dark studio. ClipForge works only on the videos you add; it no "
+            "longer searches the internet for videos.\n\n"
             "Download the DMG, drag the app into Applications, and open it. Python and video tools are bundled. "
             "Quit any older ClipFoundry first. The app keeps its ClipFoundry name in Finder so your existing "
             "Brain, clips, accounts and settings stay where they are.\n\n"
