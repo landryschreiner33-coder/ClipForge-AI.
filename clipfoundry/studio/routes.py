@@ -350,6 +350,14 @@ class StylePatch(BaseModel):
     values: dict | None = None
 
 
+@router.get("/api/studio/brain/map")
+def brain_map_view() -> dict:
+    """Every style, skill and example video in this workspace, and the projects whose guidance used them."""
+    from . import brain_map
+
+    return brain_map.build(principal.workspace_id())
+
+
 @router.get("/api/studio/styles")
 def list_styles() -> list[dict]:
     return [styles.view(r) for r in db.select("styles", "workspace_id = ?", (principal.workspace_id(),),
