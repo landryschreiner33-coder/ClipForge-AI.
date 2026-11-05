@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { errorText } from "../api";
-import { Banner, EmptyState, Icon, ProgressBar } from "../components/ui";
+import { Banner, EmptyState, Icon, ProgressBar, toast } from "../components/ui";
+import { useAppearance } from "../prefs";
 import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
 import { LibraryItem, studio } from "../studio";
@@ -28,6 +29,7 @@ const KIND_WORD = (i: LibraryItem) => i.kind === "full_video" ? "YouTube video"
 export default function Studio() {
   const feed = useOffice();
   const { st } = useStatus();
+  const { appearance, layout, setCustomizing } = useAppearance();
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [problem, setProblem] = useState("");
   const [sel, setSel] = useOfficeSelection("studio");
@@ -56,6 +58,7 @@ export default function Studio() {
   const actions = (st?.home.needs_you || []).filter((n) => n.fix || n.link).slice(0, 5);
   const yourTurn = work.filter((w) => w.waiting_on === "you" && w.video_id).slice(0, 5);
   const current = running[0];
+  const pinned = appearance.pinned.map((id) => (items || []).find((i) => i.id === id)).filter(Boolean) as LibraryItem[];
 
   return (
     <div className="page studio-page">
@@ -89,87 +92,120 @@ export default function Studio() {
 
       {problem && <Banner tone="warn" title="Could not load your projects">{problem}</Banner>}
 
-      {(stopped.length > 0 || actions.length > 0 || yourTurn.length > 0) && (
-        <section className="panel needs-you" aria-labelledby="studio-needs">
-          <h2 id="studio-needs">Needs you</h2>
-          <ul className="file-list">
-            {stopped.map((i) => (
-              <li key={i.id} className="file-row">
-                <Icon name="alert" />
-                <div className="break"><b>{i.name}</b>
-                  <span className="block small muted">{i.error || i.message || "It stopped before it finished."}</span></div>
-                <a className="btn btn-small" href={i.href}>{i.status === "needs_input" ? "Answer" : "Open and retry"}</a>
-              </li>
-            ))}
-            {yourTurn.map((w) => (
-              <li key={w.id} className="file-row">
-                <Icon name="question" />
-                <div className="break"><b>{w.title || "Your video"}</b><span className="block small muted">{w.message}</span></div>
-                <a className="btn btn-small" href={`#/video/${w.video_id}`}>Open the editor</a>
-              </li>
-            ))}
-            {actions.map((n) => (
-              <li key={n.key} className="file-row">
-                <Icon name="alert" />
-                <div className="break"><b>{n.title}</b><span className="block small muted">{n.detail}</span></div>
-                {n.link ? <a className="btn btn-small" href={n.link}>{n.fix || "Fix it"}</a>
-                  : <span className="small">{n.fix}</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="panel" aria-labelledby="studio-current">
-        <h2 id="studio-current">Current project</h2>
-        {items === null ? <p className="muted">Loading…</p> : current ? (
-          <>
-            <CurrentProject item={current} jobs={jobsFor(current)} roles={feed.snap?.roles || []}
-              onRobot={(id) => setSel({ type: "robot", id, card: null })} />
-            {running.length > 1 && (
-              <ul className="file-list studio-more">
-                {running.slice(1, 5).map((i) => (
-                  <li key={i.id} className="file-row">
-                    <Icon name={i.kind === "full_video" ? "create" : "film"} />
-                    <div className="break"><b>{i.name}</b><span className="block small muted">{stageWords(i)}</span></div>
-                    <a className="btn btn-small" href={i.href}>Open</a>
-                  </li>
-                ))}
-              </ul>
+      <StudioPanels order={layout.screens.studio} panels={{
+        needs_you: (stopped.length > 0 || actions.length > 0 || yourTurn.length > 0) && (
+          <section className="panel needs-you" aria-labelledby="studio-needs">
+            <h2 id="studio-needs">Needs you</h2>
+            <ul className="file-list">
+              {stopped.map((i) => (
+                <li key={i.id} className="file-row">
+                  <Icon name="alert" />
+                  <div className="break"><b>{i.name}</b>
+                    <span className="block small muted">{i.error || i.message || "It stopped before it finished."}</span></div>
+                  <a className="btn btn-small" href={i.href}>{i.status === "needs_input" ? "Answer" : "Open and retry"}</a>
+                </li>
+              ))}
+              {yourTurn.map((w) => (
+                <li key={w.id} className="file-row">
+                  <Icon name="question" />
+                  <div className="break"><b>{w.title || "Your video"}</b><span className="block small muted">{w.message}</span></div>
+                  <a className="btn btn-small" href={`#/video/${w.video_id}`}>Open the editor</a>
+                </li>
+              ))}
+              {actions.map((n) => (
+                <li key={n.key} className="file-row">
+                  <Icon name="alert" />
+                  <div className="break"><b>{n.title}</b><span className="block small muted">{n.detail}</span></div>
+                  {n.link ? <a className="btn btn-small" href={n.link}>{n.fix || "Fix it"}</a>
+                    : <span className="small">{n.fix}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ),
+        pinned: pinned.length > 0 && (
+          <section className="panel" aria-labelledby="studio-pinned">
+            <h2 id="studio-pinned">Pinned</h2>
+            <div className="lib-grid">{pinned.map((i) => <LibraryCard key={i.id} item={i} />)}</div>
+          </section>
+        ),
+        current: (
+          <section className="panel" aria-labelledby="studio-current">
+            <h2 id="studio-current">Current project</h2>
+            {items === null ? <p className="muted">Loading…</p> : current ? (
+              <>
+                <CurrentProject item={current} jobs={jobsFor(current)} roles={feed.snap?.roles || []}
+                  onRobot={(id) => setSel({ type: "robot", id, card: null })} />
+                {running.length > 1 && (
+                  <ul className="file-list studio-more">
+                    {running.slice(1, 5).map((i) => (
+                      <li key={i.id} className="file-row">
+                        <Icon name={i.kind === "full_video" ? "create" : "film"} />
+                        <div className="break"><b>{i.name}</b><span className="block small muted">{stageWords(i)}</span></div>
+                        <a className="btn btn-small" href={i.href}>Open</a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <EmptyState icon="film" title="Ready for your next video" level={3}>
+                <span className="row wrap studio-empty-actions">
+                  <a className="btn btn-primary btn-small" href="#/create/clips"><Icon name="film" />Make clips</a>
+                  <a className="btn btn-small" href="#/create/link"><Icon name="external" />Paste a video link</a>
+                  <a className="btn btn-small" href="#/create/video"><Icon name="create" />Make a YouTube video</a>
+                </span>
+              </EmptyState>
             )}
-          </>
-        ) : (
-          <EmptyState icon="film" title="Ready for your next video" level={3}>
-            <span className="row wrap studio-empty-actions">
-              <a className="btn btn-primary btn-small" href="#/create/clips"><Icon name="film" />Make clips</a>
-              <a className="btn btn-small" href="#/create/link"><Icon name="external" />Paste a video link</a>
-              <a className="btn btn-small" href="#/create/video"><Icon name="create" />Make a YouTube video</a>
-            </span>
-          </EmptyState>
-        )}
-      </section>
-
-      <section className="office-page office-studio office-embedded" aria-labelledby="studio-office">
-        <h2 id="studio-office" className="studio-title">Your robot office</h2>
-        <OfficeView feed={feed} sel={sel} setSel={setSel} embedded />
-      </section>
-
-      <div className="studio-bottom">
-        <section className="panel" aria-labelledby="studio-recent">
-          <div className="panel-head"><h2 id="studio-recent">Recent projects</h2><a className="btn btn-small" href="#/projects">All projects</a></div>
-          {items !== null && recent.length === 0 ? (
-            <p className="muted small">Nothing finished yet.</p>
-          ) : (
-            <div className="lib-grid">{recent.map((i) => <LibraryCard key={i.id} item={i} />)}</div>
-          )}
-        </section>
-        <section className="panel" aria-labelledby="studio-publishing">
-          <div className="panel-head"><h2 id="studio-publishing">Publishing</h2><a className="btn btn-small" href="#/publishing/review">Open</a></div>
-          <PublishingStatus />
-        </section>
-      </div>
+          </section>
+        ),
+        office: (
+          <section className={`office-page office-studio office-embedded office-size-${appearance.office_size}`}
+            aria-labelledby="studio-office">
+            <h2 id="studio-office" className="studio-title">Your robot office</h2>
+            <OfficeView feed={feed} sel={sel} setSel={setSel} embedded compact={appearance.office_size === "compact"} />
+          </section>
+        ),
+        recent: (
+          <section className="panel" aria-labelledby="studio-recent">
+            <div className="panel-head"><h2 id="studio-recent">Recent projects</h2><a className="btn btn-small" href="#/projects">All projects</a></div>
+            {items !== null && recent.length === 0 ? (
+              <p className="muted small">Nothing finished yet.</p>
+            ) : (
+              <div className="lib-grid">{recent.map((i) => <LibraryCard key={i.id} item={i} />)}</div>
+            )}
+          </section>
+        ),
+        publishing: (
+          <section className="panel" aria-labelledby="studio-publishing">
+            <div className="panel-head"><h2 id="studio-publishing">Publishing</h2><a className="btn btn-small" href="#/publishing/review">Open</a></div>
+            <PublishingStatus />
+          </section>
+        ),
+      }} />
+      <p className="studio-customize small muted">
+        <button type="button" className="link-btn" onClick={() => setCustomizing(true)}><Icon name="sliders" size={14} />Customize studio</button>
+        {" "}to choose which panels show here, their order, the office size and the colours.
+      </p>
     </div>
   );
+}
+
+/** The Studio's panels in the order and visibility saved for this device (Customize studio). Recent projects and
+ * Publishing share a row when they are next to each other; a panel with nothing to show is left out. */
+function StudioPanels({ order, panels }: { order: { id: string; visible: boolean }[] | undefined;
+  panels: Record<string, ReactNode> }) {
+  const ids = (order?.length ? order : Object.keys(panels).map((id) => ({ id, visible: true })))
+    .filter((p) => p.visible && panels[p.id]).map((p) => p.id);
+  const out: ReactNode[] = [];
+  for (let n = 0; n < ids.length; n++) {
+    const pair = ["recent", "publishing"];
+    if (pair.includes(ids[n]) && pair.includes(ids[n + 1] || "")) {
+      out.push(<div key={ids[n]} className="studio-bottom">{panels[ids[n]]}{panels[ids[n + 1]]}</div>);
+      n++;
+    } else out.push(<div key={ids[n]} className="studio-panel-slot">{panels[ids[n]]}</div>);
+  }
+  return <>{out}</>;
 }
 
 function stageWords(i: LibraryItem): string {
@@ -242,15 +278,40 @@ function PublishingStatus() {
 export function LibraryCard({ item }: { item: LibraryItem }) {
   const [broken, setBroken] = useState(false);
   return (
-    <a className="lib-card" href={item.href}>
-      {item.thumbnail && !broken ? <img className="thumb" src={item.thumbnail} alt="" loading="lazy" onError={() => setBroken(true)} />
-        : <div className="thumb" aria-hidden="true" />}
-      <div className="body">
-        <b className="clamp-1">{item.name}</b>
-        <span className="small muted">{KIND_WORD(item)}</span>
-        <span className="small">{statusWords(item)}</span>
-      </div>
-    </a>
+    <div className="lib-card-wrap">
+      <a className="lib-card" href={item.href}>
+        {item.thumbnail && !broken ? <img className="thumb" src={item.thumbnail} alt="" loading="lazy" onError={() => setBroken(true)} />
+          : <div className="thumb" aria-hidden="true" />}
+        <div className="body">
+          <b className="clamp-1">{item.name}</b>
+          <span className="small muted">{KIND_WORD(item)}</span>
+          <span className="small">{statusWords(item)}</span>
+        </div>
+      </a>
+      <PinButton id={item.id} name={item.name} />
+    </div>
+  );
+}
+
+const PIN_MAX = 12;  // clipfoundry/studio/prefs.py PIN_MAX
+
+/** Pin a project to the top of the Studio page (saved with your appearance, per workspace). */
+export function PinButton({ id, name }: { id: string; name: string }) {
+  const { saved, set } = useAppearance();
+  const on = saved.pinned.includes(id);
+  const toggle = () => {
+    if (!on && saved.pinned.length >= PIN_MAX) {
+      toast(`You can pin up to ${PIN_MAX} projects. Unpin one first.`, true);
+      return;
+    }
+    set({ pinned: on ? saved.pinned.filter((x) => x !== id) : [...saved.pinned, id] });
+    toast(on ? `${name} is no longer pinned` : `${name} is pinned to the Studio page`);
+  };
+  return (
+    <button type="button" className={`pin-btn${on ? " on" : ""}`} aria-pressed={on} onClick={toggle}
+      aria-label={on ? `Unpin ${name}` : `Pin ${name} to the Studio page`} title={on ? "Unpin" : "Pin to Studio"}>
+      <Icon name="spark" size={14} />{on ? "Pinned" : "Pin"}
+    </button>
   );
 }
 
