@@ -29,12 +29,12 @@ const ago = (ts: number, skew: number) => {
 };
 
 const STATE_TONE: Record<string, string> = {
-  working: "info", reviewing: "accent", waiting: "warn", retrying: "warn", error: "bad", idle: "", paused: "",
-  unavailable: "",
+  working: "info", reviewing: "accent", queued: "", waiting: "warn", retrying: "warn", error: "bad", idle: "",
+  paused: "", unavailable: "",
 };
 const STATE_ICON: Record<string, IconName> = {
-  working: "play", reviewing: "check", waiting: "clock", retrying: "refresh", error: "alert", idle: "dot",
-  paused: "pause", unavailable: "x",
+  working: "play", reviewing: "check", queued: "clock", waiting: "clock", retrying: "refresh", error: "alert",
+  idle: "dot", paused: "pause", unavailable: "x",
 };
 export function StateBadge({ state }: { state: string }) {
   return (
@@ -50,12 +50,13 @@ export function HealthBadge({ status, label }: { status: HealthStatus; label: st
 }
 
 export const POSE_OF: Record<string, Pose> = {
-  idle: "idle", working: "work", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
-  paused: "paused", unavailable: "unavailable",
+  idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error",
+  reviewing: "review", paused: "paused", unavailable: "unavailable",
 };
 const NEXT_STAGE: Record<Dept, string> = {
-  boss: "—", discover: "Analyze", analyze: "Clip Studio", studio: "Caption", caption: "Quality check",
-  system: "Schedule", schedule: "Upload Dock", dock: "Results in the Brain Room", brain: "Discover",
+  control: "—", intake: "Story & analysis", research: "Editing (your media)", story: "Editing",
+  editing: "Sound & captions", sound: "Quality & export", quality: "Publishing", publishing: "Results in the Brain",
+  brain: "Guidance for the next project",
 };
 const POINT_LABEL: Record<string, string> = { source: "Video", clip: "Clip", qc: "Quality check", upload: "Upload" };
 const ACTION_LABEL: Record<string, [string, string]> = {
@@ -68,7 +69,9 @@ export function subjectLink(type: string, id: string): { href: string; label: st
   if (type === "clip") return { href: `#/clip/${id}`, label: "Open editor" };
   if (type === "scheduled") return { href: `#/post/${id}`, label: "Open post" };
   if (type === "source") return { href: "#/missions/sources", label: "Open videos found" };
-  if (type === "project") return { href: `#/project/${id}`, label: "Open source video" };
+  if (type === "project") return { href: `#/project/${id}`, label: "Open project" };
+  if (type === "video") return { href: `#/video/${id}`, label: "Open video" };
+  if (type === "example") return { href: "#/brain/example-videos", label: "Open example videos" };
   return null;
 }
 
@@ -153,9 +156,9 @@ export function OverviewPanel({ snap, skew, events, onRobot, onRoom, setupNeeded
             </span>
           </button>
         ) : (
-          <p className="muted small">{snap.run.state === "running" ? "Nothing is running right now. Autopilot checks for new videos on its schedule."
-            : snap.run.state === "paused" ? "Autopilot is paused. Running steps finish; nothing new starts."
-              : "Autopilot is stopped. Press Start to let it find and clip videos."}</p>
+          <p className="muted small">Ready for your next video. Nothing is running right now.
+            {snap.run.state === "running" ? " Autopilot handles the videos you submit to it."
+              : snap.run.state === "paused" ? " Autopilot is paused; your own projects still run." : ""}</p>
         )}
         {busy.length > 1 && <p className="muted tiny">{busy.length - 1} more step{busy.length > 2 ? "s" : ""} running.</p>}
       </Section>
@@ -172,7 +175,7 @@ export function OverviewPanel({ snap, skew, events, onRobot, onRoom, setupNeeded
           {snap.run.publishing_paused && <span className="pill warn"><Icon name="pause" />Publishing paused</span>}
         </p>
       </Section>
-      <Section title="Health" action={<button type="button" className="link-btn small" onClick={() => onRoom("system")}>Details</button>}>
+      <Section title="Health" action={<button type="button" className="link-btn small" onClick={() => onRoom("quality")}>Details</button>}>
         <p className="small"><HealthBadge status={snap.health.status} label={snap.health.label} /> {snap.health.headline}</p>
         {snap.health.action && <p className="small muted">{snap.health.action}</p>}
       </Section>
@@ -195,7 +198,7 @@ const FILTERS: { id: string; label: string; test: (e: OfficeEvent) => boolean }[
   { id: "decisions", label: "Decisions", test: (e) => e.type === "decision" },
   { id: "problems", label: "Problems", test: (e) => ["job_failed", "job_retry"].includes(e.type) ||
     (e.type === "decision" && ["rejected", "held", "rework"].includes(e.data?.action)) },
-  { id: "uploads", label: "Uploads", test: (e) => ["dock", "lock", "harbor", "clock"].includes(e.role) },
+  { id: "uploads", label: "Uploads", test: (e) => ["dock", "lock", "harbor", "quill"].includes(e.role) },
   { id: "brain", label: "Brain", test: (e) => e.type.startsWith("brain") || e.type.startsWith("strategy") },
 ];
 const TYPE_WORD: Record<string, string> = {
@@ -309,14 +312,18 @@ export function RobotPanel({ id, row, card, onRobot }: {
             <p className="small">{row.task.handoff.reason}</p>
             <p className="tiny muted">Repair {row.task.handoff.attempt} of {row.task.handoff.max_attempts}</p>
           </div>}
-          <div className="op-task-meta">{row.task.job_id ? <>
+          <div className="op-task-meta">{row.task.origin === "owner" ? <>
+            <span className="muted">Your {row.task.kind === "project" || row.task.kind.endsWith("_render") ? "project"
+              : "video"}{row.task.title ? `: ${row.task.title}` : ""}</span>
+          </> : row.task.job_id ? <>
             <span className="muted">Job {row.task.job_id.slice(0, 8)}</span>
             <a href="#/missions/jobs">Detailed jobs</a>
           </> : <>
             <span className="muted">Saved guidance consultation</span>
             <a href="#/brain">Open Brain workspace</a>
           </>}
-            {row.task.shared?.project_id && <a href={`#/project/${row.task.shared.project_id}`}>Shared source video</a>}
+            {row.task.shared?.project_id && <a href={`#/project/${row.task.shared.project_id}`}>Open the project</a>}
+            {row.task.shared?.video_id && <a href={`#/video/${row.task.shared.video_id}`}>Open the video</a>}
             {row.task.shared?.clip_id && <a href={`#/clip/${row.task.shared.clip_id}`}>Shared clip</a>}
           </div>
           {row.tasks > 1 && <p className="muted tiny">{row.tasks - 1} more job{row.tasks > 2 ? "s" : ""} waiting for {c.name}.</p>}
@@ -333,7 +340,8 @@ export function RobotPanel({ id, row, card, onRobot }: {
         <div className="op-callout bad">
           <b>Latest error</b>
           <p className="small">{row.error}</p>
-          <a className="small" href="#/missions/jobs">See the job and try again</a>
+          {row.task?.origin === "owner" && link ? <a className="small" href={link.href}>{link.label} to try again</a>
+            : <a className="small" href="#/missions/jobs">See the job and try again</a>}
         </div>
       )}
       {row?.last && (
@@ -358,7 +366,7 @@ export function RobotPanel({ id, row, card, onRobot }: {
         </Section>
       )}
       {link ? <a className="btn btn-primary op-main" href={link.href}><Icon name="external" />{link.label}</a>
-        : <a className="btn op-main" href="#/missions/jobs"><Icon name="dashboard" />See all jobs</a>}
+        : <a className="btn op-main" href="#/projects"><Icon name="dashboard" />Open Projects</a>}
     </div>
   );
 }
@@ -405,8 +413,8 @@ export function RoomPanel({ id, snap, onRobot, stale = false }: {
         </div>
       )}
       {id === "lounge" && <p className="muted small">These robots have no active work, or are paused.
-        They remain visible at their department stations. The Lounge does not process work.</p>}
-      {id === "workspace" && <p className="muted small">Handoffs between departments: each card is a real report a manager received.</p>}
+        The Lounge does not process work.</p>}
+      {d?.does && <p className="muted small">{d.does}</p>}
       {err && <p className="error-text small">{err}</p>}
       {!d && !err && <p className="muted small">Loading…</p>}
       {d && <RoomBody d={d} snap={snap} stale={stale || !!err} lastOk={lastOk} />}
@@ -419,57 +427,87 @@ function RoomBody({ d, snap, stale, lastOk }: {
 }) {
   const tz = useStatus().st?.timezone;
   switch (d.id) {
-    case "boss":
+    case "control":
       return (<>
-        <Section title="Work in the queue">
-          <p className="small">{["running", "queued", "waiting", "retrying"].map((k) => `${d.queue?.[k] || 0} ${k}`).join(" · ")}</p>
+        <Section title="Work right now">
+          <p className="small">Yours: {d.yours?.running || 0} running · {d.yours?.queued || 0} queued</p>
+          <p className="small">Autopilot: {["running", "queued", "waiting", "retrying"].map((k) => `${d.queue?.[k] || 0} ${k}`).join(" · ")}</p>
         </Section>
         <Section title="Recorded decisions" action={<span className="muted tiny">rules {d.decisions?.[0]?.rule_version || "v1"}</span>}>
           <DecisionList items={(d.decisions || []).slice(0, 8)} />
         </Section>
         <Section title="Managers' reports"><ReportList items={(d.reports || []).slice(0, 6)} /></Section>
       </>);
-    case "discover": {
-      const s = d.discovery || {};
+    case "intake":
       return (<>
-        <Section title="Searches">
-          <p className="small">Last search: {when(s.last_scan)} · Next: {when(s.next_scan)}</p>
-          {(s.problems || []).map((p: { name: string; detail: string; fix: string }, i: number) => (
-            <p key={i} className="small"><span className="pill warn">{p.name}</span> {p.detail} {p.fix}</p>
-          ))}
-        </Section>
-        <Section title="Videos found">
-          {(d.found || []).length ? (
+        <Section title="Your recent projects">
+          {(d.projects || []).length || (d.videos || []).length ? (
             <ul className="op-list">
-              {d.found.slice(0, 8).map((s2: any) => (
-                <li key={s2.id}><span className="grow">{s2.title || s2.url}</span><span className="muted tiny">{s2.platform} · {s2.status}</span></li>
+              {(d.projects || []).map((p: any) => (
+                <li key={p.id}><span className="grow">{p.name}<span className="block muted tiny">{p.message || p.stage}</span></span>
+                  <span className="muted tiny nowrap">Clips · {p.status}</span><a className="tiny" href={`#/project/${p.id}`}>Open</a></li>
+              ))}
+              {(d.videos || []).map((v: any) => (
+                <li key={v.id}><span className="grow">{v.name}<span className="block muted tiny">{v.message}</span></span>
+                  <span className="muted tiny nowrap">Video · {v.status}</span><a className="tiny" href={`#/video/${v.id}`}>Open</a></li>
               ))}
             </ul>
-          ) : <p className="muted small">Nothing found yet.</p>}
-          <a className="small" href="#/missions/sources">All videos found</a>
+          ) : <p className="muted small">Ready for your next video.</p>}
+          <a className="small" href="#/create">Make clips</a>
+        </Section>
+        <Section title="Reuse checks"><DecisionList items={(d.decisions || []).slice(0, 6)} empty="No reuse checks recorded yet." /></Section>
+      </>);
+    case "research":
+      return (<>
+        <Section title="Downloads you asked for">
+          {(d.imports || []).length ? (
+            <ul className="op-list">{d.imports.map((m: any) => (
+              <li key={m.id}><span className="grow">{m.title || m.external_id || "Media"}
+                {m.error && <span className="block error-text tiny">{m.error}</span>}</span>
+                <span className="muted tiny nowrap">{m.provider} · {m.status}</span></li>
+            ))}</ul>
+          ) : <p className="muted small">Nothing downloaded yet. Use Find media in a video's editor.</p>}
+        </Section>
+        <Section title="Media with a source record">
+          {(d.media || []).length ? (
+            <ul className="op-list">{d.media.map((m: any) => (
+              <li key={m.id}><span className="grow">{m.title || "Untitled"}<span className="block muted tiny">{m.creator}</span></span>
+                <span className="muted tiny nowrap">{m.license_name || m.license}{m.user_basis ? " · your reason recorded" : ""}</span></li>
+            ))}</ul>
+          ) : <p className="muted small">No media from outside sources yet.</p>}
         </Section>
       </>);
-    }
-    case "analyze":
+    case "story":
       return (<>
-        <Section title="Trends being watched">
-          {(d.trends || []).length ? (
-            <ul className="op-list">{d.trends.map((t: any) => (
-              <li key={t.id}><span className="grow">{t.topic || t.title}</span><span className="muted tiny">score {Math.round(t.score)} (estimate)</span></li>
+        <Section title="Example videos">
+          {(d.examples || []).length ? (
+            <ul className="op-list">{d.examples.map((x: any) => (
+              <li key={x.id}><span className="grow">{x.title}<span className="block muted tiny">{x.message}</span></span>
+                <span className="muted tiny nowrap">{x.avoid ? "to avoid · " : ""}{x.status}</span></li>
             ))}</ul>
-          ) : <p className="muted small">No active trends yet.</p>}
+          ) : <p className="muted small">No example videos yet.</p>}
+          <a className="small" href="#/brain/example-videos">Example videos</a>
         </Section>
         <Section title="Which videos to use"><DecisionList items={(d.decisions || []).slice(0, 6)} /></Section>
       </>);
-    case "studio":
-    case "caption":
+    case "editing":
+    case "sound":
       return (<>
+        {d.id === "editing" && (d.videos || []).length > 0 && (
+          <Section title="Full videos">
+            <ul className="op-list">{d.videos.map((v: any) => (
+              <li key={v.id}><span className="grow">{v.name}<span className="block muted tiny">{v.message}</span></span>
+                <span className="muted tiny nowrap">version {v.plan_revision} · {v.status}</span>
+                <a className="tiny" href={`#/video/${v.id}`}>Open</a></li>
+            ))}</ul>
+          </Section>
+        )}
         <Section title="Latest clips">
           {(d.clips || []).length ? (
             <ul className="op-list">{d.clips.map((c: any) => (
               <li key={c.id}>
                 <span className="grow">{c.title || "Untitled clip"}
-                  {d.id === "caption" && c.caption_text && <span className="block muted tiny">“{String(c.caption_text).slice(0, 90)}”</span>}
+                  {d.id === "sound" && c.caption_text && <span className="block muted tiny">“{String(c.caption_text).slice(0, 90)}”</span>}
                 </span>
                 <span className="muted tiny nowrap">{c.duration ? `${Math.round(c.duration)} s · ` : ""}{c.status}</span>
                 <a className="tiny" href={`#/clip/${c.id}`}>Open</a>
@@ -479,7 +517,8 @@ function RoomBody({ d, snap, stale, lastOk }: {
         </Section>
         <Section title="Clip and quality decisions"><DecisionList items={(d.decisions || []).slice(0, 6)} /></Section>
       </>);
-    case "schedule":
+    case "publishing": {
+      const a = d.audience || {};
       return (<>
         {d.publishing_paused && <p className="small"><span className="pill warn"><Icon name="pause" />Publishing paused</span> Clips are still made and checked.</p>}
         <Section title={`Planned posts (${d.timezone || "local time"})`}>
@@ -492,10 +531,6 @@ function RoomBody({ d, snap, stale, lastOk }: {
           ) : <p className="muted small">Nothing is planned.</p>}
           <a className="small" href="#/publishing/review">Open Publishing</a>
         </Section>
-      </>);
-    case "dock": {
-      const a = d.audience || {};
-      return (<>
         <Section title="Who can watch">
           <p className="small">{a.summary}</p>
           {["youtube", "tiktok"].map((p) => a[p] && (
@@ -517,14 +552,14 @@ function RoomBody({ d, snap, stale, lastOk }: {
         <Section title="Upload decisions"><DecisionList items={(d.decisions || []).slice(0, 6)} /></Section>
       </>);
     }
-    case "system":
+    case "quality":
       return (<>
         {/* the last readings this panel received; while it cannot read new ones they are shown as Unknown */}
         <HealthList health={d.health && stale ? staleHealth(d.health as Health, lastOk) : d.health as Health} />
         <Section title="Dev Log (read-only)">
           {(d.devlog || []).length ? (
             <ul className="op-list">{d.devlog.slice(0, 8).map((x: any, i: number) => (
-              <li key={i}><span className="grow">{x.summary || x.checkpoint}</span><span className="muted tiny nowrap">{x.at ? String(x.at).slice(0, 10) : ""}</span></li>
+              <li key={i}><span className="grow">{x.summary || x.checkpoint}</span><span className="muted tiny nowrap">{x.at ? String(x.at).slice(0, 10) : x.date || ""}</span></li>
             ))}</ul>
           ) : <p className="muted small">No development history in this copy.</p>}
           <a className="small" href="#/settings/advanced">Full Dev Log</a>
@@ -532,9 +567,8 @@ function RoomBody({ d, snap, stale, lastOk }: {
       </>);
     case "brain":
       return <BrainBody summary={(d.brain || snap.brain) as BrainSummary} />;
-    case "workspace":
     case "lounge":
-      return d.id === "workspace" ? <Section title="Latest handoffs"><ReportList items={(d.reports || []).slice(0, 8)} /></Section> : null;
+      return <Section title="Latest handoffs"><ReportList items={(d.reports || []).slice(0, 8)} /></Section>;
     default:
       return null;
   }
@@ -645,7 +679,7 @@ function BrainBody({ summary }: { summary: BrainSummary | undefined }) {
 export function DepartmentCards({ snap, onRobot, onRoom }: { snap: Snapshot; onRobot: (id: string) => void; onRoom: (id: RoomId) => void }) {
   const rows = Object.fromEntries(snap.roles.map((r) => [r.id, r]));
   const groups: { id: RoomId; name: string; ids: string[] }[] = [
-    { id: "boss", name: ROOM_NAMES.boss, ids: ["command"] },
+    { id: "control", name: ROOM_NAMES.control, ids: ["command"] },
     ...Object.entries(DEPARTMENTS).map(([dept, v]) => ({ id: dept as RoomId, name: v.name,
       ids: CAST.filter((c) => c.dept === dept).sort((a, b) => (a.rank === "manager" ? -1 : 1) - (b.rank === "manager" ? -1 : 1)).map((c) => c.id) })),
   ];

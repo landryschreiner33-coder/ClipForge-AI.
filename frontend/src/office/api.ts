@@ -1,7 +1,9 @@
 import { req } from "../api";
 
 /** What the office API returns (clipfoundry/office). Every value comes from the job system; nothing is invented. */
-export type RoleState = "idle" | "working" | "waiting" | "retrying" | "error" | "reviewing" | "paused" | "unavailable";
+/** "queued" is assigned but not started; "waiting" started and now waits (for you, a platform or a retry time). */
+export type RoleState = "idle" | "working" | "queued" | "waiting" | "retrying" | "error" | "reviewing" | "paused"
+  | "unavailable";
 
 export interface OfficeTask {
   job_id: string;
@@ -19,7 +21,11 @@ export interface OfficeTask {
   blocked_reason?: string;
   next_role?: string;
   dependencies?: string[];
-  shared?: { source_id?: string; project_id?: string; clip_id?: string };
+  shared?: { source_id?: string; project_id?: string; clip_id?: string; video_id?: string };
+  /** "owner" for work you started yourself (a project, render, download or editor request); Autopilot otherwise */
+  origin?: "owner" | "autopilot";
+  /** the project, video or file the work is for, when it has a name */
+  title?: string;
   handoff?: { from_role: string; reason: string; attempt: number; max_attempts: number; report_id?: string } | null;
 }
 
@@ -29,6 +35,8 @@ export interface RoleRow {
   task: OfficeTask | null;
   tasks: number;
   queued: number;
+  /** how many of this robot's tasks are your own work */
+  owner_tasks?: number;
   error: string;
   last: { summary: string; state: string; at: number } | null;
   /** Why an actual role has no assigned work; this does not turn an idle peer into a worker. */
@@ -185,6 +193,8 @@ export interface EventsPage {
 export interface RoomDetails {
   id: string;
   name: string;
+  /** what the department does, in one line */
+  does?: string;
   roles: string[];
   events: OfficeEvent[];
   [k: string]: any;

@@ -338,7 +338,8 @@ export class OfficeMotion {
   }
   private canBreak(id: string) {
     const state = this.rows.get(id)?.state;
-    return state === "idle" || state === "waiting" || state === "retrying" || (state === "paused" && this.stopped);
+    return state === "idle" || state === "queued" || state === "waiting" || state === "retrying"
+      || (state === "paused" && this.stopped);
   }
   private destination(id: string): Pt {
     return this.targets[id]?.lounge ? this.lounge.target(id) : this.targets[id].at;

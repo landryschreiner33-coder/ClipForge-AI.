@@ -198,7 +198,7 @@ export function ControlBar({ snap, onSnap, onRoom }: { snap: Snapshot; onSnap: (
           <span className="small">{mission ? `${BY_ID[mission.id].name}: ${mission.task!.message || "working"}` : "Nothing running"}</span></span>
       </div>
       <div className="cb-group">
-        <button type="button" className="link-btn small" onClick={() => onRoom("system")} title={gpu?.reason}>
+        <button type="button" className="link-btn small" onClick={() => onRoom("quality")} title={gpu?.reason}>
           <Icon name="cpu" /> GPU: {gpu ? <HealthBadge status={gpu.status} label={gpu.status === "healthy" ? "Ready" : gpu.status_label} /> : "—"}
         </button>
         <button type="button" className="btn btn-small btn-quiet" disabled={busy}

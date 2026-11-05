@@ -13,14 +13,14 @@ import type { StudioScene } from "./StudioScene";
 export type Card = WorkCard;
 export { placements } from "./OfficeMotion";
 const NEXT_ROOM: Record<string, Partial<Record<string, RoomId>>> = {
-  source: { approved: "studio", rejected: "discover", held: "analyze", rework: "analyze" },
-  clip: { approved: "caption", rejected: "studio", rework: "studio", held: "studio" },
-  qc: { approved: "schedule", rework: "studio", rejected: "studio", held: "system" },
-  upload: { approved: "dock", held: "dock", rejected: "dock", rework: "schedule" },
+  source: { approved: "editing", rejected: "intake", held: "story", rework: "story" },
+  clip: { approved: "sound", rejected: "editing", rework: "editing", held: "editing" },
+  qc: { approved: "publishing", rework: "editing", rejected: "editing", held: "quality" },
+  upload: { approved: "publishing", held: "publishing", rejected: "publishing", rework: "publishing" },
 };
 const STATE_ICON: Record<RoleState, IconName> = {
-  idle: "dot", working: "play", waiting: "clock", retrying: "refresh", error: "alert", reviewing: "check",
-  paused: "pause", unavailable: "x",
+  idle: "dot", working: "play", queued: "clock", waiting: "clock", retrying: "refresh", error: "alert",
+  reviewing: "check", paused: "pause", unavailable: "x",
 };
 const DECISION_POSE = { approved: "approved", rework: "rework", rejected: "error", held: "wait" } as const;
 const BREAK_WORDS: Record<string, string> = {
@@ -254,7 +254,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       </select></label>
       <span ref={transferNote} className="handoff-note" data-phase="idle" role="status" aria-live="polite" />
       {renderer === "canvas" && <span>Original artwork · new graphics unavailable in this browser</span>}
-      {(["working", "waiting", "idle", "paused", "error"] as RoleState[]).map(state =>
+      {(["working", "queued", "waiting", "idle", "paused", "error"] as RoleState[]).map(state =>
         <span key={state}><Icon name={STATE_ICON[state]} size={13} />{state[0].toUpperCase() + state.slice(1)}</span>)}
     </div>
     <span className="lounge-life-caption"
@@ -263,6 +263,6 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   </div>;
 }
 export const STATE_WORDS: Record<RoleState, string> = {
-  idle: "idle", working: "working", waiting: "waiting", retrying: "retrying", error: "stopped by an error",
-  reviewing: "reviewing", paused: "paused", unavailable: "unavailable",
+  idle: "idle", working: "working", queued: "queued", waiting: "waiting", retrying: "retrying",
+  error: "stopped by an error", reviewing: "reviewing", paused: "paused", unavailable: "unavailable",
 };
