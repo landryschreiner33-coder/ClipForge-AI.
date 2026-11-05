@@ -5,7 +5,7 @@
     "version": "2026.11.05.2",
     "date": "2026-11-05",
     "source_commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
-    "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac.",
+    "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac. (automatic rebuild test)",
     "changes": [
       {
         "title": "Edit it for me",
