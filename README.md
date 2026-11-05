@@ -12,9 +12,11 @@ with the video link fix (PR #22) and smart editing (PR #23). "Make a YouTube vid
 long pauses, "um"s and repeated takes, fits the length you ask for, shows your pictures when you mention them and
 adds free music and sound effects made on your computer. Settings → AI helper connects an optional free AI (a local
 Ollama or LM Studio model, or a free Gemini, Groq or OpenRouter key). The 77 setup tests passed, and all 709 app
-files were compared with that commit (six `.bat` files differ only by the declared CRLF export). See
-`verification-windows.json` for the Windows install check on a GitHub Windows runner. FFmpeg is not installed
-there, so no video is processed on Windows in that check; Windows 10/11 desktops, Windows security acceptance, GPUs,
+files were compared with that commit (six `.bat` files differ only by the declared CRLF export). [Windows setup check run 42109581700](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700)
+installed the previous release (6ecdafc) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 709
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs,
 real AI models and keys, and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is

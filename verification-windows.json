@@ -12,7 +12,7 @@
   "app_files": 709,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": false,
+  "native_windows_verified": true,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-05",
   "timezone": "UTC",
@@ -28,16 +28,30 @@
   "payload_review": "All 709 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "pending"
+    "status": "passed",
+    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700",
+    "commit": "d60445fb08b4f705448bddfef6e1a36e53fa7aa2",
+    "runner": "GitHub windows-2025 (Windows Server 2025, image win25-vs2026 20261030.294), CPython 3.12.10 64-bit",
+    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
+    "steps": [
+      "previous release (6ecdafc, raw/69a930e) installed to C:\\CF14 with a synthetic setting, then closed",
+      "this ZIP installed over it to C:\\CF14-Open, keeping data folder C:\\CF14\\data and the setting",
+      "marker records source commit 2e5238e; all 709 installed app files equal app.zip",
+      "the running app served this commit's index.html and app-icon.png byte for byte",
+      "closed and reopened: same folder, no second extraction, setting still there"
+    ],
+    "not_covered": [
+      "FFmpeg is not installed on the runner, so no video was processed on Windows",
+      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, real AI models and keys, real accounts and uploads"
+    ]
   },
   "app_tests": {
     "branch": "claude/project-thread-x72wkd (PR #20) with PR #22 (Mac YouTube link fix) and PR #23 (smart editing and the AI helper)",
     "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196",
     "local": {
       "commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
-      "fast": "pending",
-      "focused": "90 link import and smart editing tests passed"
+      "fast": 1768
     },
-    "github_run_result": "native Mac build and bundled-app smoke passed; Linux fast and slow suites pending at push time"
+    "github_run_result": "native Mac build and bundled-app smoke passed; slow suite 27 passed; fast-suite job hung in apt-get and was rerun"
   }
 }
