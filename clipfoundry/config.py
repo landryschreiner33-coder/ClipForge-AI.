@@ -135,7 +135,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "audience_tiktok_group_version": 1,
     # Autopilot (docs/AUTOPILOT.md). Off initially; a source request can authorize only its own YouTube clips.
     "autopilot_enabled": False,
-    "autopilot_input_mode": "submitted",  # submitted: process only explicitly added links/files; discovery is optional
+    "autopilot_input_mode": "submitted",  # process only the links/files you add (discovery is retired)
     "setup_mode": "",                   # first-time setup: "autopilot", or "manual" (you make clips yourself)
     "autopilot_process": "separate",    # separate: workers run in their own process | in_app: threads in the app
     "autopilot_daily_target": 0,        # 0: no app daily cap; quality, rights and platform allowances still apply
@@ -271,8 +271,9 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "autopilot_process" and v not in AUTOPILOT_PROCESS:
             continue
-        elif key == "autopilot_input_mode" and v not in {"submitted", "discovery"}:
-            continue
+        elif key == "autopilot_input_mode" and v not in ({"submitted"} if DISCOVERY_RETIRED else
+                                                          {"submitted", "discovery"}):
+            continue  # discovery is retired: an old client asking for it keeps the submitted-input mode
         elif key == "autopilot_youtube_privacy" and v not in YOUTUBE_PRIVACY:
             continue
         elif key in ("audience_youtube", "audience_tiktok") and v not in AUDIENCE_INTENTS:
@@ -301,9 +302,17 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Automatic source discovery (trend scans, watched feeds, live discovery and automatic source selection) is retired:
+# ClipForge works on the videos you supply (a file, or the link to one video you choose). The engine's code stays
+# dormant until it is deleted; no setting, migration, screen or restart can turn it on (db._migrate_discovery_retired
+# parks old discovery work). Project-specific supporting-media search (studio/media_library.py) is separate.
+DISCOVERY_RETIRED = True
+DISCOVERY_JOB_KINDS = ("trend_scan", "feed_scan", "source_scout", "live_watch")
+
+
 def discovery_enabled(settings: dict) -> bool:
-    """Background searching and watched feeds require the explicit discovery mode."""
-    return settings.get("autopilot_input_mode", "submitted") == "discovery"
+    """Background searching and watched feeds: retired (always False in the product)."""
+    return not DISCOVERY_RETIRED and settings.get("autopilot_input_mode", "submitted") == "discovery"
 
 
 _RANGES: dict[str, tuple[float, float]] = {

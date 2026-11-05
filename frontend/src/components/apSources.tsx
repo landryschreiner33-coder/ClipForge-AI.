@@ -6,7 +6,6 @@ import {
 import { plural } from "../format";
 import { navigate } from "../router";
 import { PLATFORM_NAME } from "./accounts";
-import DiscoveryControls from "./discoveryControls";
 import {
   ConfirmDialog, Icon, MenuItem, MoreMenu, Pill, Segmented, TextPromptDialog, toast, Toggle, Tone, usePoll,
 } from "./ui";
@@ -96,7 +95,6 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
 
   return (
     <>
-      <DiscoveryControls st={st} refresh={refreshStatus} />
       <section className="panel agreements" aria-labelledby="agr">
         <div className="panel-head">
           <h2 id="agr">Creator agreements</h2>
@@ -146,12 +144,10 @@ export default function SourcesView({ st, refreshStatus }: { st: AutopilotStatus
             <MoreMenu label="Add a place videos come from" text="Add…" items={[
               { label: "A video, link or folder of yours…", icon: "plus",
                 onSelect: () => setDialog({ kind: "content" }) },
-              { label: "A channel, stream or trend list…", icon: "link",
-                onSelect: () => setDialog({ kind: "feed" }) },
             ]} />
           </div>
-          <p className="small muted">Folders (your recordings; a file that is still growing is a live recording),
-            YouTube channels you follow, streams you may use, and trend lists you may use.</p>
+          <p className="small muted">The videos and folders you add. ClipForge no longer follows channels, streams or
+            trend lists to find videos by itself; places added earlier stay listed and are not searched.</p>
           {feeds === null ? <div className="skel skel-line" /> : feeds.length ? (
             <div className="rows">
               {feeds.map((f) => (

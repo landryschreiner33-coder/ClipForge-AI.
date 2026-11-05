@@ -513,11 +513,6 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           </div>
           <Errors keys={["autopilot_active_start", "autopilot_active_end"]} errors={errors} />
         </SettingRow>
-        <SettingRow k="trend_topics" label="Topics to look for online"
-          hint="Broad on purpose; a few are searched at a time (separate them with commas)">
-          <textarea id={fieldId("trend_topics")} rows={3} value={String(s.trend_topics ?? "")}
-            onChange={(e) => set({ trend_topics: e.target.value })} />
-        </SettingRow>
         <p className="small muted">
           Everything else has a sensible default. It's under Advanced, but you don't need to change it.
         </p>

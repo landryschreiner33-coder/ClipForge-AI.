@@ -1089,6 +1089,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_audience(conn)
     _migrate_continuous_volume(conn)
     _migrate_submitted_input(conn)
+    _migrate_discovery_retired(conn)
     _migrate_post_spacing(conn)
     _migrate_connections(conn)
     _migrate_cloud_secrets(conn)
@@ -1187,6 +1188,56 @@ def _migrate_submitted_input(conn: sqlite3.Connection) -> None:
                      (json.dumps(config.DEFAULT_SETTINGS["autopilot_input_mode"]),))
     conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
                  (SUBMITTED_INPUT_MIGRATION, json.dumps({"at": now, "version": 1}), now))
+
+
+DISCOVERY_RETIRED_MIGRATION = "discovery_retired_v1"
+
+
+def _migrate_discovery_retired(conn: sqlite3.Connection) -> None:
+    """Retire automatic source discovery once, without deleting anything (studio upgrade, CF2-16).
+
+    The saved input mode becomes "submitted". Discovery work that has not produced anything yet is canceled with an
+    explanation: periodic searches, feed and live watching, automatic source selection, and downloads/analysis of
+    videos that discovery picked (never of a video you added yourself). Sources, files, projects, clips, post
+    history and approvals stay exactly as they are, and one audit event records what changed."""
+    if not config.DISCOVERY_RETIRED:
+        return
+    if conn.execute("SELECT 1 FROM autopilot_state WHERE key = ?", (DISCOVERY_RETIRED_MIGRATION,)).fetchone():
+        return
+    now = time.time()
+    saved = conn.execute("SELECT value FROM settings WHERE key = 'autopilot_input_mode'").fetchone()
+    try:
+        previous = json.loads(saved["value"]) if saved else ""
+    except ValueError:
+        previous = ""
+    if saved:
+        conn.execute("UPDATE settings SET value = ? WHERE key = 'autopilot_input_mode'", (json.dumps("submitted"),))
+    note = "Automatic video discovery was retired. ClipForge now works on the videos you add; nothing was deleted."
+    active = "('queued', 'retrying', 'waiting', 'running')"
+    kinds = ",".join("?" * len(config.DISCOVERY_JOB_KINDS))
+    parked = conn.execute(f"UPDATE worker_jobs SET status = 'canceled', cancel_requested = 1, message = ?, "
+                          f"wait_reason = '', finished_at = ?, updated_at = ? WHERE kind IN ({kinds}) AND status IN "
+                          f"{active}", (note, now, now, *config.DISCOVERY_JOB_KINDS)).rowcount
+    picked = [r["id"] for r in conn.execute(
+        "SELECT id FROM sources WHERE COALESCE(user_added, 0) = 0 AND status IN ('discovered', 'queued', "
+        "'ingesting', 'analyzing', 'waiting_stream')").fetchall()]
+    sources = 0
+    for sid in picked:
+        jobs = conn.execute(f"UPDATE worker_jobs SET status = 'canceled', cancel_requested = 1, message = ?, "
+                            f"wait_reason = '', finished_at = ?, updated_at = ? WHERE kind IN ('hunt_source', "
+                            f"'analyze_source', 'identify_link', 'live_capture') AND status IN {active} AND "
+                            f"json_extract(payload, '$.source_id') = ?", (note, now, now, sid)).rowcount
+        conn.execute("UPDATE sources SET status = 'canceled', status_note = ?, updated_at = ? WHERE id = ?",
+                     (note, now, sid))
+        parked += jobs
+        sources += 1
+    record = {"at": now, "version": 1, "previous_mode": previous or "submitted", "jobs_canceled": parked,
+              "picked_sources_parked": sources}
+    conn.execute("INSERT INTO autopilot_state (key, value, updated_at) VALUES (?, ?, ?)",
+                 (DISCOVERY_RETIRED_MIGRATION, json.dumps(record), now))
+    if previous == "discovery" or parked or sources:
+        conn.execute("INSERT INTO autopilot_events (at, kind, level, message, ref_type, ref_id, data) VALUES "
+                     "(?, 'discovery_retired', 'info', ?, '', '', ?)", (now, note, json.dumps(record)))
 
 
 CONTINUOUS_VOLUME_MIGRATION = "continuous_volume_migrated_v1"

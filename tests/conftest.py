@@ -53,11 +53,21 @@ def _legacy_automatic_publishing_contract(monkeypatch, request):
     monkeypatch.setitem(config.DEFAULT_SETTINGS, "autopilot_review_before_publish", False)
 
 
+# Suites that test the product as it ships: automatic source discovery is retired (config.DISCOVERY_RETIRED).
+PRODUCT_DEFAULT_SUITES = ("test_review_submitted_", "test_studio_", "test_discovery_retired", "test_clipforge_",
+                          "test_media_library", "test_reference_", "test_editor_", "test_submitted_")
+
+
 @pytest.fixture(autouse=True)
 def _historical_discovery_contract(monkeypatch, request):
-    """Earlier suites explicitly exercise optional discovery; submitted-workflow suites keep the new default."""
-    if request.module.__name__.split(".")[-1].startswith("test_review_submitted_"):
+    """Dormant-engine coverage. Automatic source discovery is retired in the product: no setting, migration, screen
+    or restart can turn it on (tests/test_discovery_retired.py). Its code is still in the source, so the earlier
+    suites keep exercising it (queue, retry, deduplication, recovery and publishing paths it shares with submitted
+    videos) with the retirement switched off for that test only. Delete these suites together with the engine code;
+    see docs/clipforge/STUDIO_UPGRADE_MATRIX.md (CF2-16)."""
+    if request.module.__name__.split(".")[-1].startswith(PRODUCT_DEFAULT_SUITES):
         return
     from clipfoundry import config
 
+    monkeypatch.setattr(config, "DISCOVERY_RETIRED", False)
     monkeypatch.setitem(config.DEFAULT_SETTINGS, "autopilot_input_mode", "discovery")
