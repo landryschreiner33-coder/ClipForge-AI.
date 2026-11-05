@@ -55,9 +55,22 @@ touched.
     Core can be renamed (`office/RobotName.tsx`; `POST /api/robots/names/reset` needs `confirm`). Tests:
     `tests/test_office_owner_work.py`, `tests/test_office.py`, `tests/test_office_manager_handoffs.py`,
     `tests/test_studio_prefs.py`. Fast suite 1,733 passed on `c80bcb8`.
+  - Dark design, Customize studio and accessibility (handoff section 3): dark only (`theme.css` has one set of
+    tokens and four dark palettes; `public/appearance-boot.js` applies the saved choice before the first paint; a
+    saved Light or System theme is dropped by `studio/prefs.py`, appearance schema 2, and every other choice kept).
+    **Customize studio** (`components/Customize.tsx`) previews live and saves palette, accent, spacing, text size,
+    motion and office animation, Studio panels (order, visibility, presets), editor panels, compact or expanded
+    office and pinned projects; layouts are per device class (`layout:{desktop,tablet,phone}`, schema 2, older
+    editor layouts kept). The office map stops drawing off screen; Calm and Low power office options. Keyboard fixes:
+    the Make menu (shared `useMenu`) and the colour pickers (native radios). Also fixed: the editor crashed on
+    videos made before guidance was recorded, and full videos starting with a sound file asked for a missing
+    picture. Tests: `tests/test_theme_contrast.py` (11), `tests/test_studio_prefs.py`, `tests/test_studio_uploads.py`.
+    Browser checks (scripted, Chromium, disposable data): 16 screens at 320–1440 px with two text sizes, and
+    keyboard-only runs at 320, 390 and 1440 px with reduced motion. Fast suite 1,747 passed on `61492d0` (the code of this step; the last commits rebuild the app and add docs).
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
   analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
-  all-robot names~~ → dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
+  all-robot names~~ → ~~dark-only design and Customize studio~~ → full checks (fast, slow, browser, recovery,
+  audio) and native packages. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
   refuses them), so provider integrations are tested against fake transports only. No Mac/Windows runner.

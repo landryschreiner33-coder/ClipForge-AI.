@@ -123,7 +123,10 @@ artwork when the refined renderer cannot load. Neither renderer needs an account
 
 Follow system uses the operating system's reduced-motion preference; **Full overrides it explicitly**. Reduced
 freezes movement and animated drawing while current state information still updates. Hidden tabs and a stale feed
-also stop motion. Earlier refined-art evidence remains in
+also stop motion, and the map stops drawing while it is scrolled off screen. Customize studio adds **office
+animation**: Full, Calm (no lounge activities; work and its movement stay) or Low power (still drawings refreshed about once
+a second), saved per browser, and a **compact** office for the Studio page (the map without its side panel and
+control bar until something is selected). Earlier refined-art evidence remains in
 [design/robot-office/retro/README.md](../design/robot-office/retro/README.md); the seated-work and Brain captures are in
 [design/robot-office/living/](../design/robot-office/living/). The later recreational lounge evidence belongs in
 [design/robot-office/lounge/](../design/robot-office/lounge/), with controlled animation captures labeled separately.

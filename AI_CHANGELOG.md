@@ -1,5 +1,33 @@
 # AI changelog
 
+## Studio upgrade: dark only, Customize studio, keyboard and small screens — 2026-11-05 (Claude Code)
+
+- ClipForge is **dark only**. The Light theme and the System choice are gone; a saved Light or System choice is
+  dropped and every other choice (accent, spacing, clip mode) is kept. The saved colours are applied before the
+  first paint, so nothing flashes light.
+- **Customize studio** (the sliders button in the top bar, the Studio page, or Settings → Appearance) previews
+  every change live and keeps it only on Save: four dark palettes (Studio, Midnight, Graphite, Plum), six accents
+  including a new teal, spacing, text size (standard, large, larger), motion, office animation (Full, Calm, Low
+  power), which Studio panels show and in what order (with presets and Move up/down buttons), the editor's panels,
+  a compact or expanded office and pinned projects. Cancel or Escape puts everything back; Reset to defaults
+  previews the defaults until saved. The panel says where each choice is kept.
+- Pin a project from its card on the Studio page; pinned projects get their own section.
+- The office stops drawing while it is scrolled off screen; Calm drops the lounge activities and Low power keeps
+  the robots still. Office text follows the chosen text size.
+- Keyboard: the Make menu now opens on its first item, moves with arrow keys and closes with Escape back to the
+  button; the colour choices move with arrow keys.
+- Fixed: the editor crashed on videos made before ClipForge recorded their guidance; a full video starting with a
+  sound file made the Studio page ask for a picture that does not exist; "Follow system" was cut off in the
+  office's Animations menu at larger text.
+- Tests actually run: fast suite 1,747 passed on `61492d0`. New: `tests/test_theme_contrast.py` (every palette and accent against WCAG
+  contrast, and no light theme), the Light/System migration and pinned projects in `tests/test_studio_prefs.py`,
+  the full-video picture in `tests/test_studio_uploads.py`. Browser checks on a disposable data folder: 16 screens
+  at 320, 390, 768, 1024 and 1440 px with standard and larger text (no sideways scroll, no console errors), and
+  keyboard-only runs at 320, 390 and 1440 px with reduced motion (skip link, focus rings, Customize studio, Make
+  menu, a confirm dialog, the office list, the editor; no endless animation with reduced motion).
+- Not built: robot colour or badge variants (names only); separate page designs for phone, tablet and desktop
+  (panel order and visibility differ per device class). Not run: a screen reader pass.
+
 ## Studio upgrade: Studio and the office in one place, truthful robots, rename every robot — 2026-11-05 (Claude Code)
 
 - The app opens on **Studio**: Make clips, Make a YouTube video and Make clips from a video link; **Needs you** only
