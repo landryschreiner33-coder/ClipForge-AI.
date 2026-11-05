@@ -203,10 +203,12 @@ export function ExampleSelect({ value, onChange, mode }: { value: string; onChan
 /** "Used from your Brain": each decided choice with the entry (and revision) that decided it, and what it beat. */
 export function UsedFromBrain({ snapshot, compact }: { snapshot: Snapshot | null; compact?: boolean }) {
   if (!snapshot) return <p className="muted small">Working out what your style and Brain decide…</p>;
+  // a video made before ClipForge recorded its guidance has an empty record
+  if (!Array.isArray(snapshot.decisions)) return <p className="muted small">This video was made before ClipForge recorded which saved choices decided it.</p>;
   const shown = snapshot.decisions.filter((d) => d.text && (!compact || d.from.level !== "settings"));
   return (
     <div className="stack-3">
-      {snapshot.problems.length > 0 && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
+      {!!snapshot.problems?.length && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
       <ul className="used-list">
         {shown.map((d) => (
           <li key={d.field} className={d.from.level === "settings" ? "settings" : ""}>
