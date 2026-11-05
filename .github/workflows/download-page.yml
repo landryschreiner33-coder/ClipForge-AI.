@@ -6,7 +6,7 @@ name: Download page
 #   If any check fails, nothing is committed and the live page keeps showing the last good version.
 on:
   push:
-    branches: [gh-pages, claude/project-thread-48evld]   # TEMPORARY: test branch, removed before merge
+    branches: [gh-pages]
     paths: ['download/releases.json', 'download/build.py', 'download/index.html', '.github/workflows/download-page.yml']
   pull_request:
     branches: [gh-pages]
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Check the page and download every listed file
@@ -36,7 +36,7 @@ jobs:
       contents: write   # commit the rebuilt index.html
       pages: write      # ask GitHub Pages to publish it
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Rebuild the page from releases.json
         run: python3 download/build.py
       - name: Check the page and download every listed file

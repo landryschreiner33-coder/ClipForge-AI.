@@ -5,7 +5,7 @@
     "version": "2026.11.05.2",
     "date": "2026-11-05",
     "source_commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
-    "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac. (bad download test)",
+    "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac.",
     "changes": [
       {
         "title": "Edit it for me",
@@ -38,7 +38,7 @@
         "file": "ClipForge-Windows-Setup.zip",
         "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip",
         "bytes": 47042861,
-        "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+        "sha256": "531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
         "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700",
