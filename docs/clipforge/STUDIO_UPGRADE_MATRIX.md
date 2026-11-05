@@ -13,7 +13,8 @@ Status words:
 - **Blocked**: needs something this environment does not have; the missing thing is named.
 
 Separate events, never implied by each other: source implemented → tested → merged → packaged → website published →
-cloud deployed. As of this file, nothing from this branch is merged, packaged, published or deployed.
+cloud deployed. As of this file, nothing from this branch is merged, published or deployed; the only package is a
+development Mac build on a CI runner (CF2-23), which is not a release.
 
 ## Baseline (2026-11-05)
 
@@ -22,6 +23,34 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
 | Starting point | Default branch `claude/wonderful-ritchie-909tq3` @ `12afd01` (PR #16–#19 merged) plus `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`, this handoff), merged as `6c3f8d9`. |
 | Fast suite on `6c3f8d9` | **1,630 passed**, 21 deselected (slow), 10 min 55 s, clean worktree. |
 | Slow suite on `6c3f8d9` | **21 passed**, 16 min 59 s, clean worktree, including both tests the handoff listed as failing (`test_zero_touch_loop.py` `[public]` and the upcoming-stream test). They did not reproduce here. |
+
+## Step 7 checks (2026-11-05)
+
+Each suite ran on the pushed branch; browser failures were compared with the starting commit `6c3f8d9`, served the
+same way on its own disposable data.
+
+| Check | Result |
+| --- | --- |
+| Fast suite | **1,749 passed**, 26 deselected, on `349cae3` here (Python 3.13, 16 min) and on `44647c5` on GitHub's Linux runner (Python 3.12, workflow `macos-desktop.yml` run 8). The later commits change only the frontend, browser specs and docs. |
+| Slow suite (audio, uploads, renders, restart and recovery) | **26 passed** here (29 min) and on GitHub. Covers `test_audio_start_regression`, `test_upload_audio`, `test_review_submitted_audio` (3), the full-video, media and example-video renders, live capture, and `test_zero_touch_loop` (3: restart, retry and recovery of the submitted-input loop). |
+| Native launchers and packaging | `test_macos_desktop`, `test_macos_setup`, `test_macos_release_gate`, `test_windows_bootstrap`: 62 passed. |
+| Mac app | Built, smoke-tested and packaged on a GitHub Mac runner (CF2-23); development copy only. |
+| Windows installer | **Not verified**: this repository has no Windows runner. |
+| Phone page (browser) | 10 of 10 passed (`e2e/playwright.phone.config.ts`). |
+| Read-only browser suite (`e2e/tests`, empty disposable data) | Start: 49 passed, 8 failed, 9 skipped. Branch before updating: 37 passed, 20 failed. **Final: 52 passed, 7 failed, 9 skipped.** The 7 are the start's failures (Autopilot overview, intake and System panels; Office bottom bar, room list and lounge; the Settings field error), unchanged. 12 checks named screens this upgrade replaced and now check the new ones (Studio navigation, Make clips with a link, the transcript page, new office rooms, retired discovery settings). |
+| Sandbox browser suite (fake Google and TikTok stand-ins, own data) | Start: 97 passed, 3 failed. Branch before updating: 62 passed, 38 failed. **Final: 84 passed, 2 failed** (the beginner flow and the complete loop, which failed at the start too; the loop also expects a second automatic discovery, which is retired). |
+
+What the sandbox comparison found, besides names:
+
+- **Three regressions, fixed** (`e6e9380`): the office fallback map (used when the new graphics cannot load) stopped
+  drawing when any robot was queued, because the new "queued" state had no pose; the Brain's Saved items were
+  announced as list items rather than buttons; and with discovery retired the Missions page said passing clips "can
+  upload automatically" even in review mode.
+- **Stale specs, updated** (`d3241f3`, `5dca810`): rooms and cast of section 5, Brain map labels and its still idle
+  map (the motion check now requires that nothing animates on an idle map), the renamed setup choice.
+- **Retired screens:** `discovery-quality.spec.ts` and `search-connections.spec.ts` (15 checks) test discovery's
+  setup screens, which were removed. They stay in the repository but are not run; `discovery-retired.spec.ts` checks
+  that no screen offers discovery search, keys, topics or scan limits.
 
 ## Acceptance scenarios
 
@@ -44,12 +73,12 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
 | CF2-15 | Run/pause/retry/cancel/restart: truthful rooms and states | **Implemented, tested** (office side) | The office now reads your own work as well as Autopilot's (`office/work.py`): Make clips projects by stage, clip and version renders, video links, rough cuts, renders, Find media imports, example-video analysis and editor requests, each from its recorded row. States: queued (assigned, not started), working, waiting (for you: an editor question or proposal; for a platform or a retry: Autopilot's reason), retrying, stopped by an error (30 minutes, then history), reviewing, paused (only when Autopilot was started and then stopped; your own work still runs), idle with a reason, unavailable. Progress only when measured; no invented times. Rooms follow the workflow (Intake, Media research, Story & analysis, Editing, Sound & captions, Brain, Quality & export, Publishing, Control room, Lounge); old room ids still resolve. `tests/test_office_owner_work.py`, `tests/test_office.py`, `tests/test_office_manager_handoffs.py`. **Not separate states:** waiting for a platform is shown as waiting with the platform's reason. |
 | CF2-16 | Idle and restart a migrated discovery profile: no source searches | **Implemented, tested** | `config.DISCOVERY_RETIRED`, `db._migrate_discovery_retired`; `tests/test_discovery_retired.py`. Screens updated. Dormant engine code and its older suites remain (see below). |
 | CF2-17 | Re-render after approval needs new approval | Implemented (existing) | Approval-hash suites. |
-| CF2-18 | Audio regression set | Implemented (existing) | Slow audio suites: 21/21 on the baseline; the full-video suites pass on the new engine (`test_studio_video.py`, `test_studio_editor_render.py`). |
+| CF2-18 | Audio regression set | **Implemented, tested** | Slow audio suites: 21/21 on the baseline; 26/26 on the branch here and on GitHub's Linux runner (Step 7), including the audio-start, upload-audio and submitted-audio suites and the full-video renders on the new engine (`test_studio_video.py`, `test_studio_editor_render.py`). |
 | CF2-19 | Multiple destinations, never the wrong account | Implemented (existing) | `test_multi_accounts.py`. |
 | CF2-20 | Cross-workspace access refused | Implemented (existing) | `test_cloud_auth.py`. |
 | CF2-21 | Customize studio with save/cancel/reset | **Implemented, tested** (checked in a browser) | One **Customize studio** panel (top bar button, Studio page link, Settings → Appearance) that previews live behind itself, with Save, Cancel or Escape, and Reset to defaults (previews the defaults until saved; pinned projects are kept). Choices: four dark palettes (Studio, Midnight, Graphite, Plum); six accents, each checked for 4.5:1 text contrast on every palette, on its own tint and under button text (`test_theme_contrast.py`); spacing; text size (standard, large, larger); motion and office animation (full, calm, low power); the Studio page's panels (show or hide, move up or down with buttons, presets Everything, Focus on my work and Office first); the editor's panels and widths (widths not on phones); a compact or expanded office; pinned projects (a pin on each project card, up to 12); and a link to rename robots. Saved per user and workspace (to the account in the cloud version, "in ClipForge on this computer" on the desktop app), panels per device class (desktop, tablet, phone), motion per browser; the panel says which. `test_appearance_and_layouts_persist_per_device_with_conflicts_and_reset`, `test_pinned_projects_are_checked_and_an_older_editor_layout_is_kept`, the cloud workspace test. Browser: preview, Cancel and Escape put everything back and return focus to the opener; Save survives a reload; the compact office hides its side panel and controls; Reset then Save restores the defaults. **Not built:** robot colour or badge variants (names only), and phone, tablet and desktop differ by panel order and visibility, not by separate page designs. |
-| CF2-22 | Keyboard/reduced motion 320–1440 px | **Implemented, tested** (scripted browser checks) | Sweep: 16 screens (Studio, Office, Team, Projects, Brain, Publishing, Accounts, Settings, Appearance, both Make pages, video link, Autopilot, a clips project and two editor videos) at 320, 390, 768, 1024 and 1440 px, with standard and larger text: no sideways scroll, no console errors. Keyboard only at 320, 390 and 1440 px with reduced motion: the skip link comes first; every Tab stop shows a focus ring; Customize studio takes focus to its heading, its colour choices move with arrow keys, panels move with buttons, Escape cancels and returns focus; the Make menu opens on its first item, arrows move, Escape returns to the button (it did neither before); a confirm dialog keeps focus and Escape returns it; the office List view opens a robot with Enter; the editor's sequence controls (move earlier or later, Edit, Remove, insert a file) are reachable. With reduced motion no endless animation runs on Studio, Office or Brain. The office map stops drawing while off screen (and, like every animation frame, in a hidden tab), and Low power redraws it still about once a second. Office text uses rem sizes with an 11 px minimum, so larger text reaches it. **Not run:** a screen reader pass (NVDA, VoiceOver); these checks are scripted in Chromium only. |
-| CF2-23 | Verified native install/update | Not started | Needs Mac/Windows runners and owner approval to release. |
+| CF2-22 | Keyboard/reduced motion 320–1440 px | **Implemented, tested** (scripted browser checks) | Sweep: 16 screens (Studio, Office, Team, Projects, Brain, Publishing, Accounts, Settings, Appearance, both Make pages, video link, Autopilot, a clips project and two editor videos) at 320, 390, 768, 1024 and 1440 px, with standard and larger text: no sideways scroll, no console errors. Keyboard only at 320, 390 and 1440 px with reduced motion: the skip link comes first; every Tab stop shows a focus ring; Customize studio takes focus to its heading, its colour choices move with arrow keys, panels move with buttons, Escape cancels and returns focus; the Make menu opens on its first item, arrows move, Escape returns to the button (it did neither before); a confirm dialog keeps focus and Escape returns it; the office List view opens a robot with Enter; the editor's sequence controls (move earlier or later, Edit, Remove, insert a file) are reachable. With reduced motion no endless animation runs on Studio, Office or Brain. The office map stops drawing while off screen (and, like every animation frame, in a hidden tab), and Low power redraws it still about once a second. Office text uses rem sizes with an 11 px minimum, so larger text reaches it. Both browser suites were rerun and compared with the starting commit (Step 7); they found that the Brain's Saved items had lost their button role, now fixed. **Not run:** a screen reader pass (NVDA, VoiceOver); these checks are scripted in Chromium only. |
+| CF2-23 | Verified native install/update | **Partial** (Mac development build verified; no install or update test) | GitHub Mac runner, workflow `macos-desktop.yml` run 8 on `44647c5`: the Swift window compiled, the complete Apple-silicon app built, and `macos/desktop_smoke.py` passed (bundled tools, Keychain, WebView, process cleanup); a development zip and DMG were packaged (artifact `ClipFoundry-Development-NOT-NOTARIZED`, 519,668,274 bytes, zip sha256 `a3888a7c…59504b5`, kept 7 days; unsigned, not notarized, not a release). **Not done:** installing the DMG and updating over an older copy, Gatekeeper behaviour, and anything on Windows (this repository has no Windows runner). A release needs Landry's approval. |
 | CF2-24 | Published website download matches artifacts | Not started | Publishing needs owner approval. |
 | CF2-25 | Reference video analysis covers the selected timeline | Implemented and tested | `studio/reference_analysis.py`: every frame at 10 fps of each selected range is compared (cuts, dissolves, fades); one still per shot plus one every 8 s of long shots (≤160) is read for framing and captions; the whole range's sound is read. Observations are labelled Measured or Estimate with confidence and playable timestamps. The example's footage and sound never enter a project. `test_studio_reference.py` (synthetic frames), `test_studio_reference_render.py` (real decode). |
 | CF2-26 | Apply/edit/disable a learned example style | Implemented and tested | Example style = a style with revisions, linked to the example, its analysis revision, method and the owner's corrections. Used when chosen for a project, or for every project / some project types. Reanalysis adds a revision and never changes the saved style or a project's frozen snapshot. Disable, delete (keep or drop the style and file) and avoid examples covered. New supported fields `shot_length_s` and `duck_depth_db`. Slow test: the example's short shots, lower-third medium captions and 12 dB music dip appear in the new project's plan and the rendered sound (within 3 dB). |
@@ -114,6 +143,22 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
   selection and its links until zoomed in.
 - Not built: graph clustering beyond the per-collection cap, and a virtualized list (the list scrolls; 500 records per
   kind at most).
+
+## Product name (handoff section 11)
+
+- The web app, its page titles and the website copy already said ClipForge. What still said ClipFoundry, and now says
+  ClipForge: the Mac app's window title, menus (About, Hide, Quit, Help), status and error messages, its Finder display
+  name (`CFBundleName`, `CFBundleDisplayName`) and copyright line, the DMG volume name, the Mac and Windows launchers'
+  messages (`Open-ClipFoundry.command`, `start.bat`, `start.sh`, `macos/setup.py`, `windows_bootstrap.py`), and the
+  phone page (title, labels, messages).
+- Kept, because renaming them would move or orphan people's data or credentials without a tested migration: the bundle
+  id `com.clipfoundry.studio`, the executable and `ClipFoundry.app` file name, `Application Support/ClipFoundry`,
+  `Videos\ClipFoundry` (the Library page names this real folder), the Keychain service and DPAPI entropy, the window
+  autosave name, `Open-ClipFoundry.command`, the `X-ClipFoundry` header, `CLIPFOUNDRY_*` variables, the Python package
+  and the release workflow and artifact names.
+- `tests/test_macos_desktop.py`, `test_macos_setup.py`, `test_macos_release_gate.py`, `test_windows_bootstrap.py`
+  (62 passed) and the phone page's 10 browser checks pass; the renamed Swift window compiled and passed its smoke test
+  on a Mac runner (see Step 7).
 
 ## Tell the editor what to change (handoff section 9)
 

@@ -1,5 +1,22 @@
 # AI changelog
 
+## Studio upgrade: the ClipForge name in the apps, and the full checks — 2026-11-05 (Claude Code)
+
+- The Mac app's window, menus (About, Hide, Quit, Help), messages, Finder name and installer volume, the Mac and
+  Windows start-up windows and the phone page now say **ClipForge**. Folder names, the app's internal id and saved
+  passwords stay where they were, so nothing moves or has to be signed in again.
+- **Fixed** after the full browser checks: the office's simple map (shown when the new graphics cannot load) froze
+  with no robots as soon as one robot was queued; the Brain's saved-items list was read out as plain list items
+  instead of buttons; and Missions said clips "can upload automatically" even when every post waits for your review.
+- Checks actually run: fast suite 1,749 passed and slow suite 26 passed (audio, uploads, renders, restarts), on this
+  machine and on GitHub's Linux runner. The Mac app was built, started and checked on a GitHub Mac runner
+  (development copy, not notarized, not a release). Browser checks: read-only suite 52 passed, 7 failed; sandbox
+  suite 84 passed, 2 failed; every remaining failure also fails on the commit this work started from. Browser checks
+  that described screens this upgrade replaced were rewritten for the new screens; checks for the retired discovery
+  setup screens are no longer run, and a new check makes sure those screens stay gone.
+- Not verified: Windows packaging (no Windows runner here), installing or updating from the Mac installer, a screen
+  reader pass.
+
 ## Studio upgrade: one Brain map of everything it holds — 2026-11-05 (Claude Code)
 
 - Brain → Notes shows **styles, skills, example videos and the projects that used them** next to your notes. A line

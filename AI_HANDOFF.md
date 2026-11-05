@@ -4,9 +4,10 @@
 
 **Plain-English summary:** work on the studio upgrade handoff
 ([CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md](docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md)) has started, in its own
-order. Make clips now takes a **video link** through the same flow as a file, and **automatic source discovery is
-retired** with a migration. Nothing is merged, packaged, published or deployed; no real account, video or website was
-touched.
+order. Steps 1–7 are done: video links, discovery retired, the full-video editor, example videos, Find media, change
+requests, Studio and the office, dark design and Customize studio, the Brain map, the ClipForge name in the native
+apps, and the full checks. Nothing is merged, published or deployed; the only package is a development Mac build on a
+CI runner. No real account, video or website was touched.
 
 - **Branch:** `claude/project-thread-x72wkd`, started from the default branch `claude/wonderful-ritchie-909tq3` @
   `12afd01` and merged with `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`) as `6c3f8d9`.
@@ -73,13 +74,27 @@ touched.
     same records with filters, arrow keys and an inspector (effects, on/off, revision, projects that used it).
     **Save a style** is a new form (Brain toolbar and Styles tab). The idle glow is gone; only records applied in the
     last 15 minutes pulse. Tests: `tests/test_brain_map.py` (2); browser checks at 1440, 390 and 320 px.
+  - Product name (handoff section 11): the Mac app's window, menus and messages, its Finder name and DMG volume, the
+    Mac and Windows launchers and the phone page say ClipForge (`44647c5`). Bundle id, data folders, Keychain and
+    DPAPI names, the `X-ClipFoundry` header and `CLIPFOUNDRY_*` keys are kept (no tested migration).
+  - Step 7 checks (details in the matrix): fast 1,749 passed and slow 26/26 (audio, uploads, renders, restart and
+    recovery), here and on GitHub's Linux runner. Mac app compiled, smoke-tested and packaged on a GitHub Mac runner
+    (`macos-desktop.yml` run 8, artifact `ClipFoundry-Development-NOT-NOTARIZED`, 7 days; not a release). Browser
+    suites compared with the starting commit: read-only 52 passed / 7 failed (the start's own failures), sandbox 84
+    passed / 2 failed (both failing at the start). The comparison found three regressions, fixed in `e6e9380`: the
+    office fallback map stopped drawing when a robot was queued, the Brain's Saved items lost their button role, and
+    Missions claimed automatic uploads in review mode. Stale specs were updated (`5dca810`, `d3241f3`); discovery's
+    retired setup specs are kept but not run, and `discovery-retired.spec.ts` checks those screens stay gone.
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
   analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
-  all-robot names~~ → ~~dark-only design and Customize studio~~ → full checks (fast, slow, browser, recovery,
-  audio) and native packages. Website, release downloads and any real post wait for the
-  owner's explicit approval in the project thread.
+  all-robot names~~ → ~~dark-only design and Customize studio~~ → ~~full checks (fast, slow, browser, recovery,
+  audio) and native packages~~ → website and release downloads (step 8), only after the owner approves in the
+  project thread, as must merging and any real post.
+- **Not verified:** Windows packaging (no Windows runner), installing or updating the Mac app from the DMG,
+  Gatekeeper, a screen reader pass, live media provider APIs, real accounts and uploads.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
-  refuses them), so provider integrations are tested against fake transports only. No Mac/Windows runner.
+  refuses them), so provider integrations are tested against fake transports only. GitHub artifact storage is
+  unreachable too, so the Mac build's files were not downloaded here. No Windows runner.
 
 ## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
 
