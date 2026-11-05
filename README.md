@@ -1,23 +1,31 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge studio upgrade, November 5, 2026)
+## Windows setup (ClipForge 2026.11.05.2: smart editing and the AI helper, November 5, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
-keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages now say ClipForge. It
-needs 64-bit Python 3.12 (or 3.11) from python.org; see the details below, which still apply.
+keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
+needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884`, the studio upgrade (video
-links and files, the full-video editor, example videos, Find media, the dark Studio with its office and the Brain
-map). The 77 setup tests passed, and all 701 app files were compared with that commit. On that commit 1,749 fast and
-26 real-media checks passed. [Windows setup check run 42052332032](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032)
-installed the previous release with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over
-it: the new folder kept the same data folder and setting, served this commit's page and icon, and closed and
-reopened without a second copy. See `verification-windows.json`. FFmpeg was not installed there, so no video was
-processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs and real uploads are not tested.
+It installs ClipForge from source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45`: the studio upgrade (PR #20)
+with the video link fix (PR #22) and smart editing (PR #23). "Make a YouTube video" can now edit for you: it cuts
+long pauses, "um"s and repeated takes, fits the length you ask for, shows your pictures when you mention them and
+adds free music and sound effects made on your computer. Settings → AI helper connects an optional free AI (a local
+Ollama or LM Studio model, or a free Gemini, Groq or OpenRouter key). The 77 setup tests passed, and all 709 app
+files were compared with that commit (six `.bat` files differ only by the declared CRLF export). See
+`verification-windows.json` for the Windows install check on a GitHub Windows runner. FFmpeg is not installed
+there, so no video is processed on Windows in that check; Windows 10/11 desktops, Windows security acceptance, GPUs,
+real AI models and keys, and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (studio upgrade, November 5, 2026)
+
+Source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/69a930ec49561dbbb35d886f380160d752c4366b/ClipForge-Windows-Setup.zip
+(46,962,928 bytes, SHA-256 `89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84`), checked by
+[Windows setup check run 42052332032](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032).
 
 ### Previous Windows setup (November 4, 2026)
 

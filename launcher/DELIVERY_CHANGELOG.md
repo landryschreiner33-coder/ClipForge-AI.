@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-05: smart editing and the video link fix (ClipForge 2026.11.05.2)
+
+The setup ZIP now installs source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45`: the studio upgrade (PR #20)
+with PR #22 (yt-dlp is given the FFmpeg location; a missing FFmpeg is reported as "Video tools missing") and PR #23
+(smart editing that cuts pauses, fillers and retakes, pictures over the video, free music and effects, and the
+optional AI helper). start.bat is unchanged, so its pin and upgrade fixtures are the same. 77 launcher tests passed.
+All 709 app files equal the Git tree except the six declared BAT CRLF exports. The Windows install check now
+installs the 6ecdafc release (raw/69a930e) first, then this one over it.
+
 ## 2026-11-05: ClipForge studio upgrade setup and a native Windows check
 
 The setup ZIP now installs source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884` (the studio upgrade, PR #20).

@@ -1,18 +1,18 @@
 {
-  "source_commit": "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884",
-  "app_archive_sha256": "552604576b38e50116c2d383614f49dfca8ae7dc2846c7e54232b3429c3382b9",
-  "zip_bytes": 46962928,
-  "zip_sha256": "89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84",
+  "source_commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
+  "app_archive_sha256": "aab1b52fa5b7fe35b555b4b2f5a9e6c174f99e462a07333e822a212e3a4a608e",
+  "zip_bytes": 47042861,
+  "zip_sha256": "531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "be78a5b68f40ce40f77ee3a4584684a243df333cd6c6c2a0cefeab7b6e45b631",
-    "app.zip": "552604576b38e50116c2d383614f49dfca8ae7dc2846c7e54232b3429c3382b9",
+    "setup.py": "9f45e3724c49291157f80a28a0b5a07bb355f21c1d32d9d15250aae6bdfa8c1d",
+    "app.zip": "aab1b52fa5b7fe35b555b4b2f5a9e6c174f99e462a07333e822a212e3a4a608e",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
-  "app_files": 701,
+  "app_files": 709,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": true,
+  "native_windows_verified": false,
   "file": "ClipForge-Windows-Setup.zip",
   "date": "2026-11-05",
   "timezone": "UTC",
@@ -25,32 +25,19 @@
       "pin_bundle_test"
     ]
   },
-  "payload_review": "All 701 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "payload_review": "All 709 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "passed",
-    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032",
-    "commit": "69a930ec49561dbbb35d886f380160d752c4366b",
-    "runner": "GitHub windows-2025 (Windows Server 2025, image win25-vs2026), CPython 3.12.10 64-bit",
-    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
-    "steps": [
-      "previous release (06f459e, raw/29c4a63) installed to C:\\CF14 with a synthetic setting, then closed",
-      "this ZIP installed over it to C:\\CF14-Open, keeping data folder C:\\CF14\\data and the setting",
-      "marker records source commit 6ecdafc; all 701 installed app files equal app.zip",
-      "the running app served this commit's index.html (title ClipForge) and app-icon.png byte for byte",
-      "closed and reopened: same folder, no second extraction, setting still there, port released on close"
-    ],
-    "not_covered": [
-      "FFmpeg is not installed on the runner, so no video was processed on Windows",
-      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, real accounts and uploads"
-    ]
+    "status": "pending"
   },
   "app_tests": {
-    "branch": "claude/project-thread-x72wkd (PR #20, studio upgrade)",
+    "branch": "claude/project-thread-x72wkd (PR #20) with PR #22 (Mac YouTube link fix) and PR #23 (smart editing and the AI helper)",
+    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196",
     "local": {
-      "fast": 1749,
-      "slow": 26,
-      "commit": "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884"
-    }
+      "commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
+      "fast": "pending",
+      "focused": "90 link import and smart editing tests passed"
+    },
+    "github_run_result": "native Mac build and bundled-app smoke passed; Linux fast and slow suites pending at push time"
   }
 }
