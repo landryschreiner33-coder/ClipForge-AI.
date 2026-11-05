@@ -33,7 +33,7 @@ sign-in: the sign-in page returns to the address that was requested.
 ## Navigation
 
 Desktop (≥ 1024 px): a 232 px collapsible sidebar with Studio, Projects, Brain, Publishing, Accounts and
-Settings (the studio upgrade merged Home and Office into Studio), plus a 64 px top bar with the page title, the Autopilot status, a theme switch and (in cloud mode) the
+Settings (the studio upgrade merged Home and Office into Studio), plus a 64 px top bar with the page title, the Make menu, Customize studio, the Autopilot status and (in cloud mode) the
 signed-in owner and Sign out. Below 1024 px the sidebar becomes a drawer opened from the top bar. A persistent
 "Make" button stays in the top bar on every size, so the main task is always one tap away.
 

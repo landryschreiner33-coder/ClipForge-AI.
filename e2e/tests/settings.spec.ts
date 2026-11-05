@@ -42,11 +42,11 @@ test("Defaults, Integrations and Advanced have their sections", async ({ page })
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
   await page.goto("/#/settings/integrations");
-  for (const h of ["Who watches", "Connections", "NVIDIA AI (optional)"]) {
+  for (const h of ["Who watches", "Connections", "NVIDIA AI (optional)", "Check from your phone"]) {
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
   await page.goto("/#/settings/advanced");
-  for (const h of ["Transcription and GPU", "Autopilot details", "Autopilot posting", "Discovery and rights",
+  for (const h of ["Transcription and GPU", "Autopilot details", "Autopilot posting", "Rights and YouTube data",
     "Brain (learning)", "Rendering, AI scoring and system", "Dev Log"]) {
     await expect(page.getByRole("heading", { name: h, level: 2, exact: true })).toBeVisible();
   }
@@ -76,7 +76,27 @@ test("every setting has a place on one of the tabs", async ({ page, request }) =
     ["nvidia_production_url", "nvidia_price_per_mtok_usd", "nvidia_daily_spend_cap_usd"];
   const elsewhere = ["autopilot_enabled", "caption_style", "setup_mode", "nvidia_opt_in_at",
     "autopilot_publishing_paused", "brain_paused", "autopilot_youtube_privacy", ...own, ...production, ...hidden];
-  const missing = Object.keys(s).filter((k) => !found.has(k) && !elsewhere.includes(k));
+  // Find media's sources have their own on/off, key and Test connection on Settings → Media sources; the phone
+  // monitor is switched on and paired in "Check from your phone" on Integrations, through its own buttons.
+  const mediaSources = ["media_openverse", "media_commons", "media_pexels", "pexels_api_key"];
+  const phone = ["phone_enabled", "phone_mode", "phone_address", "phone_port"];
+  // Automatic source discovery is retired (studio upgrade, section 2): these stay in saved settings so older copies
+  // keep working, but no screen shows them and nothing can turn discovery back on.
+  const retired = ["autopilot_input_mode", "autopilot_discovery_uploadable_only", "trend_region", "trend_language",
+    "trend_topics", "trend_poll_minutes", "trend_max_age_hours", "discovery_require_topic_match",
+    "discovery_excluded_topics", "discovery_audience_terms", "discovery_min_source_score", "discovery_quality_first",
+    "discovery_candidates_per_scan", "discovery_queue_limit", "discovery_creator_limit",
+    "discovery_require_complete_clips", "youtube_api_key", "tavily_api_key", "tavily_free_credits",
+    "discovery_monthly_budget_usd", "library_discovery", "autopilot_public_videos", "youtube_discovery_share",
+    "youtube_search_discovery_share"];
+  expect(retired.filter((k) => found.has(k)), "retired discovery settings shown on the Settings page").toEqual([]);
+  await page.goto("/#/settings/media");
+  for (const name of ["Openverse", "Wikimedia Commons", "Pexels"]) {
+    await expect(page.getByRole("switch", { name: `Use ${name}` })).toBeVisible();
+  }
+  await expect(page.getByLabel("Pexels API key")).toBeVisible();
+  const missing = Object.keys(s).filter((k) => !found.has(k) && ![...elsewhere, ...mediaSources, ...phone, ...retired]
+    .includes(k));
   expect(missing, "settings without a place on the Settings page").toEqual([]);
 });
 
