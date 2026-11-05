@@ -1,5 +1,27 @@
 # AI changelog
 
+## Studio upgrade: example videos measured and applied — 2026-11-05 (Claude Code)
+
+- Brain → Example videos: upload an example, say what you like (overall, pacing, captions, framing, sound), pick an
+  optional range, mark it as one to avoid, and choose where it applies (only when chosen, every project, or some
+  project types). A durable, cancelable job measures it (`studio/reference_analysis.py`, analyzer `measure-1`):
+  cuts, dissolves and fades from 10 fps frame comparison; framing and caption band, position and size from stills;
+  speech, music level and the music dip under speech from three sound bands. Each observation is labelled measured
+  or estimate and links to the times it came from. No AI model watches or hears the video, and the screen says so.
+- Analyses are cached by file hash, ranges, analyzer and speech source; Reanalyze adds a revision. Supported choices
+  (shot length, caption position and size, music dip depth, aspect, frame rate, framing) can be corrected and saved
+  as an Example style with provenance (example, analysis revision, method, corrections).
+- Guidance precedence: project choice, then an example chosen for this project, then the style, skills, examples set
+  to apply broadly, Brain notes, Settings. Make clips and Make a video offer "Use an example" and show which example
+  (and which style revision) each choice came from. The example's own footage and sound never enter a project.
+- Fixed: Make a video used to send its default answers as project choices, so styles, skills and examples never
+  changed aspect, feel, captions, caption size or position, or frame rate.
+- Tests actually run: fast suite 1,687 passed; new `test_studio_reference.py` (15 fast) passes; new slow
+  `test_studio_reference_render.py` passes (an example with 1.5 s shots, lower-third captions and a 12 dB music dip
+  is measured, saved, applied to a new project, and the rendered dip is within 3 dB of the measured value).
+- Not verified: real Whisper transcripts (fixture transcripts used), examples longer than a few minutes on a real
+  device, a vision-model pass (not built; the measurements do not read on-screen text or recognise objects).
+
 ## Studio upgrade: full-video editor with audio tracks and revision safety — 2026-11-05 (Claude Code)
 
 - Engine `ffmpeg-v2` (plan schema 2) renders the picture in cached pieces of at most two inputs, joined by byte

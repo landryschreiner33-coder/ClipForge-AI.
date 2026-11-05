@@ -26,8 +26,15 @@ touched.
     word fixes, and a rebuilt editor screen. **Ducking now works at normal speech levels** (the old sidechain setting
     did nothing below loud speech; measured). Tests: `tests/test_studio_editor.py` (fast),
     `tests/test_studio_editor_render.py` (slow). Details: `docs/clipforge/EDITOR_INTEGRATION.md`.
-- **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → example-video analysis,
-  applied Brain styles, Find media providers, bounded AI corrections → Studio/Home/Office and all-robot names →
+  - Example videos (handoff section 6): `studio/reference_analysis.py` measures cuts/dissolves/fades, framing,
+    on-screen caption lines, speech, pauses and the music dip under speech locally (no AI model; labelled Measured
+    or Estimate with playable timestamps); `studio/reference.py` runs it as a durable job cached by content hash +
+    ranges + analyzer version, saves an Example style with provenance and corrections, and feeds guidance (a chosen
+    example ranks right after project choices). New fields `shot_length_s`, `duck_depth_db` are applied by the rough
+    cut. Make a video stopped sending pre-filled answers as project choices (they overrode every style). Tests:
+    `tests/test_studio_reference.py` (fast), `tests/test_studio_reference_render.py` (slow).
+- **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
+  analysis, applied Brain styles~~ → Find media providers, bounded AI corrections → Studio/Home/Office and all-robot names →
   dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy

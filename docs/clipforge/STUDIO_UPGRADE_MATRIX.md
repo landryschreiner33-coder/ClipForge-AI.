@@ -37,8 +37,8 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
 | CF2-08 | Reorder/trim/split/replace/add, reopen, undo/redo | **Implemented, tested** | `insert`, `replace`, `add_media`; undo/redo/restore save new revisions (monotonic, stale tabs refused); named versions. `test_files_added_after_the_rough_cut_are_inserted_or_swapped_in`, `test_undo_redo_restore_and_named_versions_never_lose_work`, `test_editor_routes_undo_redo_name_and_media`. Ctrl+Z / Ctrl+Shift+Z in the editor. |
 | CF2-09 | Supported correction → validated proposal → new revision → revert | Partial (existing) | Four fixed phrases (`video_flow.parse_request`). |
 | CF2-10 | AI off/timeout/malformed: manual work unaffected | Partial (existing) | No AI path in the editor yet. |
-| CF2-11 | Enabled style/skill changes a real plan/render field | Implemented (existing) | `test_studio_guidance.py`, `test_studio_render.py`. |
-| CF2-12 | Project override wins; no global mutation | Implemented (existing) | Same suites. |
+| CF2-11 | Enabled style/skill changes a real plan/render field | Implemented and tested | Existing: `test_studio_guidance.py`, `test_studio_render.py`. New: Make a video no longer sends its pre-filled answers (shape, feel, captions, caption size/position, frame rate, music dip) as project choices, which used to override every style, skill and example for those fields; empty answers now come from the guidance and the screen shows "Used from your Brain". Example styles proven in the render: `test_studio_reference_render.py`. |
+| CF2-12 | Project override wins; no global mutation | Implemented and tested | Same suites, plus `test_studio_reference.py::test_precedence_*` (project choice > chosen example > style > skills > examples that always apply > Brain notes > Settings) and the slow example test (a project shape overrides the example's). |
 | CF2-13 | Reuse/publishing permission kept apart from Brain lessons | Implemented (existing) | `test_review_brain_separation.py`. |
 | CF2-14 | Rename every bot including Core and managers | Partial (existing) | Names exist (`studio/prefs.py`); coverage of every surface not verified. |
 | CF2-15 | Run/pause/retry/cancel/restart: truthful rooms and states | Partial (existing) | |
@@ -51,9 +51,9 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
 | CF2-22 | Keyboard/reduced motion 320–1440 px | Partial (existing) | |
 | CF2-23 | Verified native install/update | Not started | Needs Mac/Windows runners and owner approval to release. |
 | CF2-24 | Published website download matches artifacts | Not started | Publishing needs owner approval. |
-| CF2-25 | Reference video analysis covers the selected timeline | Not started | |
-| CF2-26 | Apply/edit/disable a learned example style | Not started | |
-| CF2-27 | No vision model / interrupted analysis: honest labels | Not started | |
+| CF2-25 | Reference video analysis covers the selected timeline | Implemented and tested | `studio/reference_analysis.py`: every frame at 10 fps of each selected range is compared (cuts, dissolves, fades); one still per shot plus one every 8 s of long shots (≤160) is read for framing and captions; the whole range's sound is read. Observations are labelled Measured or Estimate with confidence and playable timestamps. The example's footage and sound never enter a project. `test_studio_reference.py` (synthetic frames), `test_studio_reference_render.py` (real decode). |
+| CF2-26 | Apply/edit/disable a learned example style | Implemented and tested | Example style = a style with revisions, linked to the example, its analysis revision, method and the owner's corrections. Used when chosen for a project, or for every project / some project types. Reanalysis adds a revision and never changes the saved style or a project's frozen snapshot. Disable, delete (keep or drop the style and file) and avoid examples covered. New supported fields `shot_length_s` and `duck_depth_db`. Slow test: the example's short shots, lower-third medium captions and 12 dB music dip appear in the new project's plan and the rendered sound (within 3 dB). |
+| CF2-27 | No vision model / interrupted analysis: honest labels | Implemented and tested | Every analysis says it was measured locally and that no AI model watched or heard it; a configured AI service is named as text-only. Without a transcript, speech is estimated from sound and said so. The job is durable (restart, cancel keeps the previous analysis, failure keeps the last good one). **Not built:** sending stills to a vision-capable model (none of the configured providers is used with images by ClipForge); cached analyses are reused instead. |
 | CF2-28 | Find and import an image and a sound effect | Not started | Provider hosts are not reachable from this environment; fake providers will be used for tests. |
 | CF2-29 | Missing key, quota, removed source: useful errors, offline render | Not started | |
 | CF2-30 | Unknown license / malicious metadata | Not started | |
@@ -86,3 +86,16 @@ Slow failures the handoff reported: both passed on this baseline (21/21), so not
 - The export format is `clipforge.edit-plan/v2`.
 - Remaining in section 8: true list virtualization (the sequence draws 60 rows at a time with "Show more"), waveform
   thumbnails, text overlays beyond the title card, per-join transition choice.
+
+## Example videos (handoff section 6, "Uploaded example videos")
+
+- Brain → **Example videos**: upload (resumable), "What do you like about this example?" (overall, pacing, captions,
+  framing, sound, own words), an optional part of the video, "example to avoid", and when it applies (only when chosen,
+  every project, some project types). Then **What I noticed** (each line Measured or Estimate, with buttons that play
+  the moment) and **What I can apply** (tick, correct a value, save once as an Example style).
+- Make clips and Make a video have **Use an example**. The chosen example ranks right after the project's own choices.
+- Measurements are calibrated on the editor's own captions and on synthetic footage. Real footage with on-screen
+  signs or logos can be read as text: a line that never changes is reported as "not captions"; anything else is an
+  estimate the owner can correct before saving.
+- Remaining: adding an example from inside Make a video (the API supports project-only examples; the screen links to
+  Brain), choosing several parts graphically on a timeline, the Brain graph redesign, and a vision-model pass.
