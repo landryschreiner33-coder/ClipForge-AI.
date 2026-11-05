@@ -20,24 +20,33 @@ jobs:
     env:
       PREVIOUS_URL: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/29c4a634a7fb8dae7686c24759b61b74a05620a6/ClipForge-Windows-Setup.zip
       PREVIOUS_SHA256: c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19
+    defaults:
+      run:
+        shell: pwsh
+        # Windows cannot create the usual checkout folder: the repository name ends with a dot. Everything runs in
+        # the runner's temporary folder and the files come from this commit's public download URLs instead, which
+        # are also the links people use.
+        working-directory: ${{ runner.temp }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           architecture: x64
+      - name: Download this commit's setup ZIP and check script
+        run: |
+          $base = "https://github.com/${{ github.repository }}/raw/${{ github.sha }}"
+          Invoke-WebRequest "$base/ClipForge-Windows-Setup.zip" -OutFile ClipForge-Windows-Setup.zip
+          Invoke-WebRequest "$base/launcher/windows_runner_check.py" -OutFile windows_runner_check.py
+          Invoke-WebRequest "$base/verification-windows.json" -OutFile verification-windows.json
+          Get-FileHash ClipForge-Windows-Setup.zip
       - name: Install previous release, then this one over it, then close and reopen
-        shell: pwsh
         run: |
           $commit = (Get-Content verification-windows.json | ConvertFrom-Json).source_commit
-          python launcher/windows_runner_check.py --zip ClipForge-Windows-Setup.zip --commit $commit `
+          python windows_runner_check.py --zip ClipForge-Windows-Setup.zip --commit $commit `
             --previous-url $env:PREVIOUS_URL --previous-sha256 $env:PREVIOUS_SHA256 --work "$env:RUNNER_TEMP\cf-check"
       - name: Show setup logs
         if: always()
-        shell: pwsh
-        run: Get-ChildItem "$env:RUNNER_TEMP\cf-check" -Filter *.log | ForEach-Object { "==== $($_.Name)"; Get-Content $_.FullName -Tail 120 }
+        run: Get-ChildItem "$env:RUNNER_TEMP\cf-check" -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { "==== $($_.Name)"; Get-Content $_.FullName -Tail 120 }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
