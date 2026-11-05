@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../api";
-import { DestinationPicker, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
+import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
 import { Banner, CAPTION_STYLES, Disclosure, Icon, PageHead, TRACKING } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { navigate } from "../router";
@@ -23,6 +23,7 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
   const [checked, setChecked] = useState<LinkCheck | null>(null);
   const [requestId, setRequestId] = useState(newRequestId);
   const [style, setStyle] = useState("saved");
+  const [example, setExample] = useState("");
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [upload, setUpload] = useState(false);
@@ -39,12 +40,12 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
   useEffect(() => {
     let alive = true;
     setSnapshot(null);
-    studio.preview({ mode, style_id: style, choices, title: input === "file" ? file?.file.name || "" : "" })
+    studio.preview({ mode, style_id: style, choices, title: input === "file" ? file?.file.name || "" : "", reference_id: example })
       .then((s) => alive && setSnapshot(s)).catch(() => alive && setSnapshot(null));
     return () => {
       alive = false;
     };
-  }, [mode, style, choices, file?.file.name, input]);
+  }, [mode, style, choices, file?.file.name, input, example]);
   // The link is checked as it is typed, without fetching anything; the download starts only on Make clips.
   useEffect(() => {
     const value = link.trim();
@@ -71,7 +72,7 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
     setProblem("");
     try {
       const source = input === "file" ? { asset_id: file!.asset!.id } : { url: link.trim(), request_id: requestId };
-      const body: Record<string, unknown> = { ...source, mode, style_id: style, choices };
+      const body: Record<string, unknown> = { ...source, mode, style_id: style, choices, reference_id: example };
       if (upload) {
         body.upload = { intent: "make_and_upload", destinations: dest, privacy, made_for_kids: kids === "yes",
           reuse_basis: basis, agreed };
@@ -147,6 +148,7 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
           <section className="panel" aria-labelledby="mc-style">
             <h2 id="mc-style">Style</h2>
             <StyleSelect value={style} onChange={setStyle} mode={mode} />
+            <ExampleSelect value={example} onChange={setExample} mode={mode} />
             <Disclosure summary="Customize captions and framing">
               <div className="grid-2">
                 <label className="field"><span>Caption position</span>

@@ -12,6 +12,7 @@ import {
 } from "../brain";
 import { Banner, Dialog, EmptyState, Icon, LinkTabs, PageHead, toast } from "../components/ui";
 import { SkillsTab, StylesTab } from "../components/StylesSkills";
+import { ExampleVideosTab } from "../components/ExampleVideos";
 import { brainApi } from "../office/api";
 import BrainGraph from "./BrainGraph";
 import { BrainNode, buildBrainGraph, filterBrainGraph, GraphCategory } from "./brainGraphModel";
@@ -70,8 +71,9 @@ const savedView = (tab: string) => {
 
 const BRAIN_TABS = [
   { id: "styles", href: "#/brain/styles", label: "Styles" },
+  { id: "example-videos", href: "#/brain/example-videos", label: "Example videos" },
   { id: "knowledge", href: "#/brain", label: "Notes" },
-  { id: "examples", href: "#/brain/examples", label: "Examples" },
+  { id: "examples", href: "#/brain/examples", label: "Example notes" },
   { id: "skills", href: "#/brain/skills", label: "Skills" },
   { id: "decisions", href: "#/brain/decisions", label: "Decisions" },
   { id: "results", href: "#/brain/results", label: "Performance history" },
@@ -79,12 +81,12 @@ const BRAIN_TABS = [
 
 /** Brain: Styles, Notes, Examples and Skills (the graph is an optional view inside Notes). */
 export default function Brain({ tab = "knowledge" }: { tab?: string }) {
-  if (tab === "styles" || tab === "skills") {
+  if (tab === "styles" || tab === "skills" || tab === "example-videos") {
     return (
       <div className="page">
         <PageHead kind="Brain" title="Brain" sub="What ClipForge remembers about how you like your videos edited." />
         <LinkTabs label="Brain sections" current={tab} tabs={BRAIN_TABS} />
-        {tab === "styles" ? <StylesTab /> : <SkillsTab />}
+        {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : <ExampleVideosTab />}
       </div>
     );
   }

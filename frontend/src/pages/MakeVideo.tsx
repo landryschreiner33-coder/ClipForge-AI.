@@ -1,10 +1,20 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorText } from "../api";
-import { FileDrop, Picked, StyleSelect, UploadRow } from "../components/studioParts";
+import { ExampleSelect, FileDrop, Picked, StyleSelect, UploadRow, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, PageHead } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { navigate } from "../router";
-import { studio } from "../studio";
+import { Snapshot, studio } from "../studio";
+
+/** Answers left empty come from the chosen example, style, skills and Brain (shown in "Used from your Brain"). */
+type Brief = { video_type: string; audience: string; goal: string; target_min: string; aspect_ratio: string; feel: string;
+  captions: "" | "on" | "off"; music: string; must_keep: string; avoid: string; frame_rate: number; caption_size: string;
+  caption_position: string; duck_music: "" | "on" | "off" };
+const DEFAULTS: Record<string, unknown> = { aspect_ratio: "16:9", feel: "balanced", captions: true, frame_rate: 30,
+  caption_size: "medium", caption_position: "bottom", duck_music: true };
+const WORDS: Record<string, string> = { "16:9": "16:9 widescreen", "9:16": "9:16 vertical", "1:1": "1:1 square",
+  "4:5": "4:5 portrait", calm: "calm", balanced: "balanced", energetic: "energetic", bottom: "lower third", middle: "centre",
+  top: "top", small: "small", medium: "medium", large: "large", true: "on", false: "off" };
 
 /** Make a YouTube video: a media bin and four questions. The timeline comes after, on the review page. */
 export default function MakeVideo() {
@@ -15,9 +25,11 @@ export default function MakeVideo() {
   const [voices, setVoices] = useState<Picked[]>([]);
   const [name, setName] = useState("");
   const [style, setStyle] = useState("saved");
-  const [brief, setBrief] = useState({ video_type: "General YouTube video", audience: "", goal: "", target_min: "",
-    aspect_ratio: "16:9", feel: "balanced", captions: true, music: "none", must_keep: "", avoid: "",
-    frame_rate: 30, caption_size: "medium", caption_position: "bottom", duck_music: true });
+  const [example, setExample] = useState("");
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [brief, setBrief] = useState<Brief>({ video_type: "General YouTube video", audience: "", goal: "", target_min: "",
+    aspect_ratio: "", feel: "", captions: "", music: "none", must_keep: "", avoid: "",
+    frame_rate: 0, caption_size: "", caption_position: "", duck_music: "" });
   const [remember, setRemember] = useState(appearance.remember_style);
   const [styleName, setStyleName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -37,6 +49,33 @@ export default function MakeVideo() {
     return next;
   });
   const set = (k: string, v: unknown) => setBrief((b) => ({ ...b, [k]: v }));
+  // Only what you set here is this project's own choice; everything else comes from the example, style and Brain.
+  const choices = useMemo(() => {
+    const out: Record<string, unknown> = {};
+    if (brief.aspect_ratio) out.aspect_ratio = brief.aspect_ratio;
+    if (brief.feel) out.feel = brief.feel;
+    if (brief.captions) out.captions = brief.captions === "on";
+    if (brief.frame_rate) out.frame_rate = brief.frame_rate;
+    if (brief.caption_size) out.caption_size = brief.caption_size;
+    if (brief.caption_position) out.caption_position = brief.caption_position;
+    if (brief.music === "supplied" && brief.duck_music) out.duck_music = brief.duck_music === "on";
+    return out;
+  }, [brief]);
+  useEffect(() => {
+    let alive = true;
+    const t = window.setTimeout(() => {
+      studio.preview({ mode: "full_video", style_id: style, choices, reference_id: example, title: name })
+        .then((s) => alive && setSnapshot(s)).catch(() => alive && setSnapshot(null));
+    }, 200);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [style, example, choices, name]);
+  const eff = (k: string) => {
+    const v = snapshot?.values?.[k] ?? DEFAULTS[k];
+    return WORDS[String(v)] || String(v);
+  };
 
   const submit = async () => {
     setBusy(true);
@@ -45,13 +84,12 @@ export default function MakeVideo() {
       const minutes = parseFloat(brief.target_min);
       const v = await studio.makeVideo({
         name: name.trim() || ordered[0]?.file.name.replace(/\.[^.]+$/, "") || "My video",
-        asset_ids: ordered.map((f) => f.asset!.id), style_id: style,
+        asset_ids: ordered.map((f) => f.asset!.id), style_id: style, reference_id: example,
         brief: { video_type: brief.video_type, audience: brief.audience, goal: brief.goal,
-          target_duration_s: Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : 0, aspect_ratio: brief.aspect_ratio,
-          feel: brief.feel, captions: brief.captions, music: brief.music,
-          ...(brief.music === "supplied" && music?.asset ? { music_asset_id: music.asset.id, duck_music: brief.duck_music } : {}),
+          ...(Number.isFinite(minutes) && minutes > 0 ? { target_duration_s: minutes * 60 } : {}),
+          ...choices, music: brief.music,
+          ...(brief.music === "supplied" && music?.asset ? { music_asset_id: music.asset.id } : {}),
           ...(voices.length ? { voiceover_asset_ids: voices.map((f) => f.asset!.id) } : {}),
-          frame_rate: brief.frame_rate, caption_size: brief.caption_size, caption_position: brief.caption_position,
           must_keep: brief.must_keep, avoid: brief.avoid },
         remember: { enabled: remember, name: styleName.trim() },
       });
@@ -101,17 +139,19 @@ export default function MakeVideo() {
               <div className="grid-2">
                 <label className="field"><span>Length in minutes</span><input inputMode="decimal" value={brief.target_min} placeholder="Use your judgment" onChange={(e) => set("target_min", e.target.value)} /></label>
                 <label className="field"><span>Shape</span><select value={brief.aspect_ratio} onChange={(e) => set("aspect_ratio", e.target.value)}>
+                  <option value="">From your style ({eff("aspect_ratio")})</option>
                   <option value="16:9">16:9 widescreen</option><option value="9:16">9:16 vertical</option><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option>
                 </select></label>
               </div>
             </fieldset>
             <fieldset className="stack-3"><legend className="label">3. What should it feel like?</legend>
               <div className="mode-pick">
-                {[["calm", "Calm / storytelling", "Slow dissolves"], ["balanced", "Balanced", "Short dissolves"], ["energetic", "Energetic", "Straight cuts"]].map(([v, t, d]) => (
-                  <label key={v}><input type="radio" name="feel" checked={brief.feel === v} onChange={() => set("feel", v)} /><b>{t}</b><span>{d}</span></label>
+                {[["", "From your style", `Now: ${eff("feel")}`], ["calm", "Calm / storytelling", "Slow dissolves"], ["balanced", "Balanced", "Short dissolves"], ["energetic", "Energetic", "Straight cuts"]].map(([v, t, d]) => (
+                  <label key={v || "style"}><input type="radio" name="feel" checked={brief.feel === v} onChange={() => set("feel", v)} /><b>{t}</b><span>{d}</span></label>
                 ))}
               </div>
-              <label><input type="checkbox" checked={brief.captions} onChange={(e) => set("captions", e.target.checked)} /> Burn in captions</label>
+              <label className="field"><span>Burn in captions</span><select value={brief.captions} onChange={(e) => set("captions", e.target.value)}>
+                <option value="">From your style ({eff("captions")})</option><option value="on">On</option><option value="off">Off</option></select></label>
               <label><input type="checkbox" checked={brief.music === "supplied"} onChange={(e) => set("music", e.target.checked ? "supplied" : "none")} /> Add my own music (it dips while people speak)</label>
               {brief.music === "supplied" && <FileDrop accept="audio/*,.flac,.opus,.ogg" label="Drop the music file" onAssets={(rows) => setMusic(rows[0] || null)} />}
               <Disclosure summary={voices.length ? `Voiceover (${voices.length} file${voices.length > 1 ? "s" : ""})` : "Add a voiceover"}>
@@ -122,13 +162,17 @@ export default function MakeVideo() {
             <Disclosure summary="Customize">
               <div className="grid-2">
                 <label className="field"><span>Frame rate</span><select value={brief.frame_rate} onChange={(e) => set("frame_rate", Number(e.target.value))}>
+                  <option value={0}>From your style ({eff("frame_rate")} fps)</option>
                   {[24, 25, 30, 50, 60].map((f) => <option key={f} value={f}>{f} frames per second</option>)}</select></label>
                 <label className="field"><span>Caption size</span><select value={brief.caption_size} onChange={(e) => set("caption_size", e.target.value)}>
+                  <option value="">From your style ({eff("caption_size")})</option>
                   <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
                 <label className="field"><span>Caption position</span><select value={brief.caption_position} onChange={(e) => set("caption_position", e.target.value)}>
+                  <option value="">From your style ({eff("caption_position")})</option>
                   <option value="bottom">Lower third</option><option value="middle">Centre</option><option value="top">Top</option></select></label>
+                {brief.music === "supplied" && <label className="field"><span>Music dips while people speak</span><select value={brief.duck_music} onChange={(e) => set("duck_music", e.target.value)}>
+                  <option value="">From your style ({eff("duck_music")})</option><option value="on">On</option><option value="off">Off</option></select></label>}
               </div>
-              {brief.music === "supplied" && <label><input type="checkbox" checked={brief.duck_music} onChange={(e) => set("duck_music", e.target.checked)} /> Music dips while people speak</label>}
               <p className="small muted">Everything here can be changed later in the editor, together with each clip's and track's volume, fades and transitions.</p>
             </Disclosure>
             <fieldset className="stack-3"><legend className="label">4. What must stay or go?</legend>
@@ -141,10 +185,15 @@ export default function MakeVideo() {
           <section className="panel" aria-labelledby="mv-style">
             <h2 id="mv-style">Style</h2>
             <StyleSelect value={style} onChange={setStyle} mode="full_video" />
+            <ExampleSelect value={example} onChange={setExample} mode="full_video" />
             <label><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Remember this style</label>
             <p className="small muted">Saves your answers to questions 2 and 3 (and the video type) as a style for next time. Your files, what to keep or remove, and where to publish stay in this project only.</p>
             {remember && <label className="field"><span>Style name</span><input value={styleName} maxLength={60} placeholder={`${name || "My video"} style`} onChange={(e) => setStyleName(e.target.value)} /></label>}
             <Disclosure summary="Name this video"><label className="field"><span>Video name</span><input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} /></label></Disclosure>
+          </section>
+          <section className="panel" aria-labelledby="mv-brain">
+            <h2 id="mv-brain">Used from your Brain</h2>
+            <UsedFromBrain snapshot={snapshot} />
           </section>
           {problem && <Banner tone="bad" title="Not started">{problem}</Banner>}
           <button type="button" className="btn btn-primary btn-large" disabled={!ready || busy} onClick={submit}>

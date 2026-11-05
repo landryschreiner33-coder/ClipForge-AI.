@@ -27,7 +27,27 @@ export type Story = { id: string; position: number; kind: "story" | "gap"; title
   included: boolean; eligibility: Eligibility[] };
 
 export type Style = { id: string; name: string; revision: number; modes: string[]; values: Record<string, unknown>;
-  source: string; is_default: boolean; effects: string[] };
+  source: string; is_default: boolean; effects: string[]; reference_id?: string;
+  provenance?: { analysis_revision?: number; title?: string; method?: string;
+    corrections?: { field: string; measured: unknown; chosen: unknown }[]; reference_deleted_at?: number } };
+
+export type Evidence = { start_ms: number; end_ms: number; label?: string };
+export type Observation = { id: string; aspect: string; kind: "measured" | "estimate"; text: string; evidence: Evidence[];
+  confidence?: number };
+export type ApplyChoice = { field: string; value: unknown; aspect: string; why: string; selected: boolean; modes: string[];
+  label: string; text: string };
+export type ExampleVideo = { id: string; asset_id: string; title: string; likes: string[]; note: string;
+  ranges: { start_ms: number; end_ms: number }[]; scope: "chosen" | "all" | "modes"; modes: string[];
+  status: "queued" | "analyzing" | "ready" | "failed" | "canceled"; message: string; error: string;
+  analysis_revision: number; avoid: boolean; project_only: boolean; enabled: boolean; media_url: string;
+  progress: number | null; style: Style | null; duration_ms: number; updated_at: number;
+  analysis?: { revision: number; analyzer: string; method: string; model_note: string; speech_note: string;
+    reused_from: string; created_at: number; observations: Observation[]; applicable: ApplyChoice[];
+    unsupported: { aspect: string; text: string }[];
+    coverage: { ranges: { start_ms: number; end_ms: number }[]; seconds?: number; frames_compared: number;
+      scan_fps?: number; stills: number; still_method?: string; audio_seconds?: number; speech?: string } } };
+export type Field = { name: string; label: string; kind: "choice" | "bool" | "number" | "text"; modes: string[];
+  choices: (string | number)[]; minimum: number | null; maximum: number | null; applies: string };
 export type Skill = { id: string; skill_key: string; name: string; description: string; version: string; revision: number;
   modes: string[]; supported: Record<string, unknown>; unsupported: { text: string; why: string }[];
   blocked: { text: string; why: string }[]; enabled: boolean; effects: string[]; original_format: string };
@@ -68,9 +88,22 @@ export type Video = { id: string; name: string; status: string; message: string;
 export const studio = {
   library: (kind = "", q = "") => req<LibraryItem[]>("GET", `/api/studio/projects?kind=${kind}&q=${encodeURIComponent(q)}`),
   // A plain read (GET): showing the preview never changes anything.
-  preview: (body: { mode: string; style_id?: string; choices?: Record<string, unknown>; title?: string }) =>
+  preview: (body: { mode: string; style_id?: string; choices?: Record<string, unknown>; title?: string; reference_id?: string }) =>
     req<Snapshot>("GET", `/api/studio/guidance/preview?${new URLSearchParams({ mode: body.mode,
-      style_id: body.style_id || "saved", choices: JSON.stringify(body.choices || {}), title: body.title || "" })}`),
+      style_id: body.style_id || "saved", choices: JSON.stringify(body.choices || {}), title: body.title || "",
+      reference_id: body.reference_id || "" })}`),
+  capabilities: () => req<{ modes: string[]; fields: Field[] }>("GET", "/api/studio/capabilities"),
+  examples: (all = false) => req<ExampleVideo[]>("GET", `/api/studio/references${all ? "?all=1" : ""}`),
+  example: (id: string) => req<ExampleVideo>("GET", `/api/studio/references/${id}`),
+  addExample: (body: Record<string, unknown>) => req<ExampleVideo>("POST", "/api/studio/references", body),
+  patchExample: (id: string, body: Record<string, unknown>) => req<ExampleVideo>("PATCH", `/api/studio/references/${id}`, body),
+  analyzeExample: (id: string, ranges?: { start_ms: number; end_ms: number }[] | null) =>
+    req<ExampleVideo>("POST", `/api/studio/references/${id}/analyze`, { ranges: ranges ?? null }),
+  cancelExample: (id: string) => req<ExampleVideo>("POST", `/api/studio/references/${id}/cancel`),
+  saveExampleStyle: (id: string, body: { values: Record<string, unknown>; analysis_revision: number; name?: string; style_revision?: number }) =>
+    req<ExampleVideo>("PUT", `/api/studio/references/${id}/style`, body),
+  deleteExample: (id: string, keepStyle: boolean, deleteFile: boolean) =>
+    req<{ deleted: string; notes: string[] }>("DELETE", `/api/studio/references/${id}?keep_style=${keepStyle ? 1 : 0}&delete_file=${deleteFile ? 1 : 0}`),
   makeClips: (body: Record<string, unknown>) => req<{ id: string }>("POST", "/api/studio/clips", body),
   /** Is this a usable video link? Checked without fetching anything. */
   linkCheck: (url: string) => req<LinkCheck>("GET", `/api/studio/link-check?${new URLSearchParams({ url })}`),

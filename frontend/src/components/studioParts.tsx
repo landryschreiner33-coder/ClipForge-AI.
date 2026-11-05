@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useRef, useState } from "react";
-import { Connection, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
+import { Connection, ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
 import { Icon } from "./ui";
 
 export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string;
@@ -172,7 +172,33 @@ export function StyleSelect({ value, onChange, mode }: { value: string; onChange
   );
 }
 
-const LEVEL_WORDS: Record<string, string> = { project: "This project", style: "Style", skill: "Skill", brain: "Brain note", settings: "Settings" };
+const LEVEL_WORDS: Record<string, string> = { project: "This project", reference: "Example chosen for this project",
+  style: "Style", skill: "Skill", example: "Example video", brain: "Brain note", settings: "Settings" };
+
+/** "Use an example": an analyzed example video whose saved choices this project should follow. */
+export function ExampleSelect({ value, onChange, mode }: { value: string; onChange: (v: string) => void; mode: string }) {
+  const [rows, setRows] = useState<ExampleVideo[] | null>(null);
+  useEffect(() => {
+    studio.examples(true).then(setRows).catch(() => setRows([]));
+  }, []);
+  const usable = (rows || []).filter((r) => r.style && r.enabled && !r.avoid && r.status !== "queued");
+  const chosen = usable.find((r) => r.id === value);
+  const fields = chosen?.style ? Object.keys(chosen.style.values) : [];
+  return (
+    <div className="stack-2">
+      <label className="field">
+        <span>Use an example</span>
+        <select value={value} onChange={(e) => onChange(e.target.value)} disabled={rows === null}>
+          <option value="">No example</option>
+          {usable.map((r) => <option key={r.id} value={r.id}>{r.title}{r.project_only ? " (this project only)" : ""}</option>)}
+        </select>
+      </label>
+      {chosen && <p className="small muted">Follows {fields.length} saved choice{fields.length === 1 ? "" : "s"} learned from “{chosen.title}”
+        {mode === "full_video" ? "" : " that apply to clips"}. Choices you make below still win. The example's own footage and sound are never used.</p>}
+      {rows !== null && !usable.length && <p className="small muted">No example videos yet. <a className="textlink" href="#/brain/example-videos">Add one in Brain</a>: ClipForge measures its cuts, captions, framing and sound, and you choose what to reuse.</p>}
+    </div>
+  );
+}
 
 /** "Used from your Brain": each decided choice with the entry (and revision) that decided it, and what it beat. */
 export function UsedFromBrain({ snapshot, compact }: { snapshot: Snapshot | null; compact?: boolean }) {
@@ -185,8 +211,10 @@ export function UsedFromBrain({ snapshot, compact }: { snapshot: Snapshot | null
         {shown.map((d) => (
           <li key={d.field} className={d.from.level === "settings" ? "settings" : ""}>
             <span>{d.text}</span>
-            <span className="src">from {LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
-              ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}
+            <span className="src">from {d.from.level === "reference" || d.from.level === "example"
+              ? `${d.from.name}${d.from.level === "reference" ? ", chosen for this project" : ""}${d.from.revision ? ` (style revision ${d.from.revision})` : ""}`
+              : <>{LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
+                ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}</>}
               {d.overridden.length > 0 && ` · instead of ${d.overridden.map((o) => `${String(o.value)} from ${o.name}`).join(", ")}`}</span>
           </li>
         ))}
