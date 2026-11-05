@@ -45,10 +45,10 @@ test("robots stand where their real work is, and follow it when it changes", asy
   await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("reduced");
   await expect(page.locator(".robot-hit")).toHaveCount(25);
-  await expect(robot(page, "radar")).toHaveAttribute("data-room", "discover");
-  await expect(robot(page, "radar")).toHaveAttribute("aria-label", "RADAR, Scout, working: Reading search results");
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
-  await expect(robot(page, "check")).toHaveAttribute("data-room", "system");
+  await expect(robot(page, "radar")).toHaveAttribute("data-room", "intake");
+  await expect(robot(page, "radar")).toHaveAttribute("aria-label", "RADAR, Intake Clerk, working: Reading search results");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
+  await expect(robot(page, "check")).toHaveAttribute("data-room", "quality");
   await expect(robot(page, "check")).toHaveAttribute("data-state", "error");
   // a controlled rendering of a failure, for design/robot-office/screenshots (README there says so)
   const shots = path.resolve(process.cwd(), "..", "design", "robot-office", "screenshots");
@@ -83,7 +83,7 @@ test("a real report is carried to the manager; a decision gets COMMAND's reactio
   } });
   await page.goto("/#/office");
   await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   const now = Date.now() / 1000;
   feed.events.push({ id: 1, at: now, type: "report", role: "frame", job_id: "job-1", kind: "package_clip",
     ref_type: "clip", ref_id: "c1", message: "Clip 2 rendered", data: { worker: "splice", state: "done" } });
@@ -128,7 +128,7 @@ test("Full overrides system motion; Reduced stills the map and all 25 fit deskto
   await page.getByRole("combobox", { name: "Animations" }).selectOption("full");
   await expect(page.locator("html")).toHaveAttribute("data-motion", "full");
   const canvas = page.locator(".office-world canvas");
-  await expect(robot(page, "splice")).toHaveAttribute("data-room", "studio");
+  await expect(robot(page, "splice")).toHaveAttribute("data-room", "editing");
   const frame = () => canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL());
   const a = await frame();
   await page.waitForTimeout(700);

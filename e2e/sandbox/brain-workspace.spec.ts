@@ -142,7 +142,7 @@ test("a real example exposes its measured length hint and a bad example stops co
     "color=c=0x233744:s=128x224:r=5", "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
   try {
     await page.goto("/#/brain/examples");
-    await page.getByRole("button", { name: "Add example", exact: true }).click();
+    await page.getByRole("button", { name: "Add example note", exact: true }).click();
     await page.getByLabel("Title", { exact: true }).fill("Lumen length — isolated real example");
     const details = page.locator(".brain-editor-details");
     if ((await details.getAttribute("open")) == null) await details.locator("summary").click();

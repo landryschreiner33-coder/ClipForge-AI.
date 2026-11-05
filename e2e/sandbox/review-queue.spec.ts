@@ -98,7 +98,8 @@ test("review mode replaces standing automatic approval with a simple review path
   await expect(page.getByRole("button", { name: /Turn on automatic publishing/ })).toHaveCount(0);
   await expect(page.getByText("Old permission remains recorded")).toHaveCount(0);
   await page.goto("/#/missions");
-  await expect(page.getByText("Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post.",
+  await expect(page.getByText(
+    "Add a video link or file. Brain guides the edits; nothing uploads until you review and approve each post.",
     { exact: true })).toBeVisible();
   const readiness = page.getByRole("region", { name: "Why clips are waiting to post" });
   await expect(readiness.getByText("Prepared posts need your review", { exact: true })).toBeVisible();
