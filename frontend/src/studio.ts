@@ -52,6 +52,17 @@ export type Skill = { id: string; skill_key: string; name: string; description: 
   modes: string[]; supported: Record<string, unknown>; unsupported: { text: string; why: string }[];
   blocked: { text: string; why: string }[]; enabled: boolean; effects: string[]; original_format: string };
 
+/** The Brain map: every style, skill and example video, and the projects whose recorded guidance used them. */
+export type BrainMapExample = { id: string; title: string; status: string; enabled: boolean; avoid: boolean;
+  scope: "chosen" | "all" | "modes"; modes: string[]; likes: string[]; note: string; analysis_revision: number;
+  style_id: string; updated_at: number };
+export type BrainMapLink = { node: string; revision: number | null; name: string; fields: string[] };
+export type BrainMapProject = { id: string; kind: "clips" | "full_video"; name: string; href: string; at: number;
+  mode: string; links: BrainMapLink[] };
+export type BrainMap = { styles: (Style & { updated_at?: number })[];
+  skills: Omit<Skill, "unsupported" | "blocked">[]; examples: BrainMapExample[]; projects: BrainMapProject[];
+  omitted_projects: number; applied: { node: string; at: number; project: string }[]; recent_seconds: number };
+
 export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: string; name: string; status: string;
   message?: string; stage?: string; progress?: number; error?: string; clip_count?: number; updated_at: number;
   thumbnail: string; href: string };
@@ -177,6 +188,7 @@ export const studio = {
   nameRevision: (id: string, revision: number, name: string) => req<Video>("PUT", `/api/studio/videos/${id}/revisions/${revision}/name`, { name }),
   addVideoMedia: (id: string, asset_ids: string[]) => req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids }),
   styles: () => req<Style[]>("GET", "/api/studio/styles"),
+  brainMap: () => req<BrainMap>("GET", "/api/studio/brain/map"),
   createStyle: (body: Record<string, unknown>) => req<Style>("POST", "/api/studio/styles", body),
   updateStyle: (id: string, body: Record<string, unknown>) => req<Style>("PATCH", `/api/studio/styles/${id}`, body),
   defaultStyle: (id: string) => req<Style>("POST", `/api/studio/styles/${id}/default`),

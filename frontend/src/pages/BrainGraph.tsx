@@ -5,8 +5,10 @@ import { BrainGraphModel, BrainNode } from "./brainGraphModel";
 import "./BrainGraph.css";
 
 type View = { x: number; y: number; width: number; height: number };
+const RECORD: Partial<Record<BrainNode["kind"], string>> = { style: "Style", skill: "Skill", video: "Example video",
+  project: "Project" };
 function nodeName(node: BrainNode) {
-  const kind =
+  const kind = RECORD[node.kind] ? `${RECORD[node.kind]}${node.applied ? ", just used" : ""}` :
     node.kind === "knowledge"
       ? node.category === "reference"
         ? "Note"
@@ -45,7 +47,8 @@ export default function BrainGraph({
   const gradient = useId().replace(/:/g, "");
   const home = useMemo(() => bounds(model), [model]);
   const [view, setView] = useState(home);
-  const [quiet, setQuiet] = useState(false);
+  const [offscreen, setOffscreen] = useState(false);
+  const section = useRef<HTMLElement>(null);
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<{ x: number; y: number; view: View } | null>(null);
   const points = useMemo(() => new Map(model.nodes.map((node) => [node.id, node])), [model]);
@@ -54,10 +57,23 @@ export default function BrainGraph({
       .filter((edge) => edge.from === selected || edge.to === selected)
       .flatMap((edge) => [edge.from, edge.to]),
   );
-  const frozen = reduceMotion || pageHidden || lost || quiet;
+  // The map is still unless a project really applied something in the last few minutes; that pulse stops in a hidden
+  // tab, off screen, with reduced motion and while ClipForge is not answering.
+  const frozen = reduceMotion || pageHidden || lost || offscreen;
+  const applied = model.nodes.filter((node) => node.applied).length;
+  const leaves = model.nodes.filter((node) => node.kind !== "brain" && node.kind !== "collection").length;
+  const zoomLevel = home.width / view.width;
+  // labels thin out when zoomed out on a busy map; the selected item, its links and every collection keep theirs
+  const allLabels = leaves <= 40 || zoomLevel >= 1.5;
   useEffect(() => {
     setView(home);
   }, [home]);
+  useEffect(() => {
+    if (typeof IntersectionObserver !== "function" || !section.current) return;
+    const seen = new IntersectionObserver(([entry]) => setOffscreen(!entry.isIntersecting));
+    seen.observe(section.current);
+    return () => seen.disconnect();
+  }, []);
   const zoom = (factor: number) =>
     setView((current) => {
       const width = Math.max(home.width * 0.28, Math.min(home.width * 2.5, current.width * factor));
@@ -116,18 +132,19 @@ export default function BrainGraph({
 
   return (
     <section
+      ref={section}
       className={`brain-graph ${frozen ? "is-still" : ""}`}
       aria-label="Knowledge graph"
-      data-animation={frozen ? "still" : "decorative-glow"}
+      data-animation={frozen || !applied ? "still" : "applied"}
     >
       <div className="brain-graph-heading">
         <span>
           <i />
           LOCAL KNOWLEDGE MAP
         </span>
-        <button className="brain-graph-motion" aria-pressed={quiet} onClick={() => setQuiet(!quiet)}>
-          {quiet ? "Resume glow" : "Pause glow"}
-        </button>
+        <span className="brain-graph-motion" role="status">
+          {applied ? `${applied} used in the last 15 minutes` : "Still: nothing applied just now"}
+        </span>
       </div>
       <svg
         ref={svg}
@@ -170,6 +187,7 @@ export default function BrainGraph({
                 x2={to.x}
                 y2={to.y}
                 className={`edge-${edge.kind}`}
+                strokeDasharray={edge.kind === "provenance" ? "4 3" : undefined}
                 data-highlighted={edge.from === selected || edge.to === selected}
                 style={{ stroke: from.color }}
               >
@@ -186,7 +204,7 @@ export default function BrainGraph({
             data-brain-node={node.id}
             aria-label={nodeName(node)}
             aria-pressed={selected === node.id}
-            className={`brain-graph-node node-${node.kind}`}
+            className={`brain-graph-node node-${node.kind}${node.applied ? " is-applied" : ""}`}
             data-connected={connected.has(node.id)}
             style={{ color: node.color }}
             transform={`translate(${node.x} ${node.y})`}
@@ -203,6 +221,7 @@ export default function BrainGraph({
               {node.knowledge ? ` · ${node.knowledge.state.replace(/_/g, " ")}` : ""}
             </title>
             <circle className="brain-node-hit" r={Math.max(14, node.radius + 10)} />
+            {node.applied && <circle className="brain-node-applied" r={node.radius + 9} />}
             {(node.kind === "brain" || node.kind === "collection") && (
               <circle className="brain-node-aura" r={node.radius + 11} />
             )}
@@ -213,9 +232,12 @@ export default function BrainGraph({
               fill={node.kind === "brain" ? `url(#${gradient}-core)` : node.color}
             />
             {node.knowledge?.state === "disabled" && <path d="M-6 6L6-6" className="brain-node-disabled" />}
-            <text y={node.radius + 19} textAnchor="middle" className="brain-node-label">
-              {node.label}
-            </text>
+            {(allLabels || node.kind === "brain" || node.kind === "collection" || node.applied ||
+              selected === node.id || connected.has(node.id)) && (
+              <text y={node.radius + 19} textAnchor="middle" className="brain-node-label">
+                {node.label}
+              </text>
+            )}
           </g>
         ))}
       </svg>
@@ -230,7 +252,8 @@ export default function BrainGraph({
         </div>
       )}
       <div className="brain-graph-bottom">
-        <p id={`${gradient}-help`}>Drag to explore · Tab selects nodes · Arrow keys pan · + / − zoom</p>
+        <p id={`${gradient}-help`}>Drag to explore · Tab selects items · Arrow keys pan · + / − zoom · 0 fits
+          {Object.values(model.hidden).some(Boolean) ? " · large collections are listed in full under Saved items" : ""}</p>
         <div className="brain-graph-controls">
           <button aria-label="Zoom out" onClick={() => zoom(1.25)}>
             −

@@ -1058,3 +1058,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   .cb-group.cb-audience { flex-wrap: nowrap; align-items: flex-start; }
   .team-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Brain → Save a style: the editing choices, two or three per row */
+.style-fields { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); }
+.style-fields .field { min-width: 0; }
