@@ -357,8 +357,9 @@ def delete_project(project_id: str) -> dict:
 @app.get("/api/projects/{project_id}/thumbnail")
 def project_thumbnail(project_id: str) -> FileResponse:
     p = _project_or_404(project_id)
-    thumb = project_dir(p) / "thumb.jpg"
-    if not thumb.exists():
+    # a project made from a link has no source file until its download finishes
+    thumb = project_dir(p) / "thumb.jpg" if p.get("source_path") else None
+    if thumb is None or not thumb.exists():
         raise HTTPException(404, "No thumbnail")
     return FileResponse(thumb, media_type="image/jpeg")
 
@@ -366,8 +367,8 @@ def project_thumbnail(project_id: str) -> FileResponse:
 @app.get("/api/projects/{project_id}/source")
 def project_source(project_id: str) -> FileResponse:
     p = _project_or_404(project_id)
-    src = Path(p["source_path"])
-    if not src.exists():
+    src = Path(p["source_path"]) if p.get("source_path") else None
+    if src is None or not src.exists():
         raise HTTPException(404, "Source video missing")
     return FileResponse(src)
 

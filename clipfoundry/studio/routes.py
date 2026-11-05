@@ -542,7 +542,8 @@ def library(kind: str = "", q: str = "") -> list[dict]:
                         "name": p["name"], "status": p["status"], "stage": p.get("stage"),
                         "progress": p.get("progress"), "message": p.get("message"), "error": p.get("error"),
                         "clip_count": p.get("clip_count") or 0, "updated_at": p["updated_at"],
-                        "thumbnail": f"/api/projects/{p['id']}/thumbnail", "href": f"#/project/{p['id']}"})
+                        "thumbnail": f"/api/projects/{p['id']}/thumbnail" if p.get("source_path") else "",
+                        "href": f"#/project/{p['id']}"})
     if kind in ("", "full_video"):
         for v in db.select("studio_projects", "workspace_id = ?", (ws,), "updated_at DESC"):
             first = (v.get("asset_ids") or [""])[0]

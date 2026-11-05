@@ -161,3 +161,14 @@ def test_uploads_and_assets_never_cross_workspaces(monkeypatch, tmp_path):
     from clipfoundry.cloud import settings as cloud_settings
 
     cloud_settings.reset()
+
+
+def test_a_project_still_downloading_from_a_link_has_no_picture_yet_and_does_not_crash(api):
+    from clipfoundry import db
+
+    p = db.create_project("From a link", status="importing", stage="download")  # no source file yet
+    assert db.get_project(p["id"])["source_path"] in (None, "")
+    for path in (f"/api/projects/{p['id']}/thumbnail", f"/api/projects/{p['id']}/source"):
+        assert api.get(path).status_code == 404
+    item = next(i for i in api.get("/api/studio/projects").json() if i["id"] == p["id"])
+    assert item["thumbnail"] == ""  # the Studio shows the plain frame instead of asking for a picture
