@@ -15,7 +15,7 @@ account or deploy tool is needed.
 | `index.html` | The page | Edit text outside the `<!-- generated:… -->` markers by hand; `build.py` writes what is inside them |
 | `build.py` | Writes the generated parts from `releases.json`, checks them and can download and hash every file | Run it; standard library only |
 | `site.css`, `app.js` | Look and the small optional script (puts the visitor's system first, Copy buttons) | Edit by hand; every link must still work without the script |
-| `img/` | Screenshots and robot portraits from a throwaway sandbox copy of the app (no owner data) | Replace with new sandbox captures only |
+| `img/` | Screenshots and robot portraits from a throwaway sandbox copy of the app with made-up media (no owner data) | Replace with new sandbox captures only |
 | `fonts/` | Poppins SemiBold (SIL Open Font License, `OFL-Poppins.txt`) and the project's own Foundry Pixel, subset to WOFF2 | Leave as is |
 
 Leave the rest of the branch alone unless the owner asks: `index.html`, `privacy.html`, `terms.html`, `site.css`,
@@ -39,7 +39,7 @@ app reviews point to.
    ```
 
 5. Look at the page: `python3 -m http.server 8000` in the checkout, then open http://127.0.0.1:8000/download/.
-   Check a desktop and a phone-sized window, in dark and light mode.
+   Check a desktop and a phone-sized window. The page is dark only, like the app.
 6. Commit `releases.json` and `index.html` together on `gh-pages`, with a message that names the version, and push
    normally. Never force-push. If the push is refused because someone else pushed first, fetch, put your change on
    top of the newer `gh-pages`, run `python3 download/build.py --check` again and push.

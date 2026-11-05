@@ -1,6 +1,5 @@
-/* ClipForge download page. The app's own studio look: night canvas, violet accent, the pixel robot crew.
-   Everything is served from this site: no web fonts or scripts from other sites. Dark by default, light when the
-   device asks for it. */
+/* ClipForge download page. The app's own dark studio look: night canvas, violet accent, the pixel robot crew.
+   Everything is served from this site: no web fonts or scripts from other sites. Dark only, like the app. */
 @font-face { font-family: "ClipForge Display"; src: url("fonts/poppins-semibold.woff2") format("woff2");
   font-weight: 600; font-display: swap; }
 @font-face { font-family: "Foundry Pixel"; src: url("fonts/foundry-pixel.woff2") format("woff2"); font-display: swap; }
@@ -13,11 +12,6 @@
   --display: "ClipForge Display", "Segoe UI", system-ui, sans-serif;
   --body: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --r: 14px;
-}
-@media (prefers-color-scheme: light) {
-  :root { color-scheme: light; --night: #F4F6FB; --panel: #FFFFFF; --raised: #EAEEF6; --line: #D3D9E5;
-    --text: #141824; --muted: #4F586B; --violet: #5A3ED6; --violet-hi: #4A2FC4; --on-violet: #FFFFFF;
-    --amber: #8F5B00; --floor: #E9DFC9; }
 }
 
 * { box-sizing: border-box; }
@@ -88,7 +82,7 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 .ways { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
 .ways p { color: var(--muted); max-width: 58ch; margin: 0 0 20px; }
 .ways b { color: var(--text); font-weight: 600; }
-.more dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+.more dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px 40px; }
 .more dt { font: 600 1.08rem/1.3 var(--display); margin-bottom: 4px; }
 .more dd { margin: 0; color: var(--muted); }
 .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
@@ -112,6 +106,24 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 .tested ul, .older { margin: 0; padding-left: 1.2em; display: grid; gap: 10px; color: var(--muted); }
 .older code { word-break: break-all; }
 
+/* new in this version, the Brain, questions */
+.hero-small { margin: 14px 0 0; max-width: 46ch; }
+.note { margin: 32px 0 0; padding: 14px 18px; border-left: 3px solid var(--amber); background: var(--panel);
+  border-radius: 0 10px 10px 0; color: var(--text); max-width: 72ch; }
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; }
+.list { margin: 0; display: grid; gap: 22px; }
+.list dt { font: 600 1.08rem/1.3 var(--display); margin-bottom: 4px; }
+.list dd { margin: 0; color: var(--muted); max-width: 52ch; }
+.crew h2 { margin-bottom: 28px; }
+.faq { display: grid; gap: 10px; max-width: 820px; }
+.faq details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; }
+.faq summary { cursor: pointer; padding: 14px 0; font: 600 1.02rem/1.4 var(--display); list-style-position: outside; }
+.faq summary:focus-visible { outline: 3px solid var(--violet); outline-offset: 3px; border-radius: 6px; }
+.faq details[open] summary { color: var(--violet-hi); }
+.faq p { margin: 0 0 16px; color: var(--muted); }
+.steps code { background: var(--raised); padding: 1px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+.office-shot { width: fit-content; max-width: 100%; }
+
 /* footer */
 .foot { margin-top: 96px; border-top: 1px solid var(--line); }
 .foot-in { padding-top: 24px; padding-bottom: 40px; color: var(--muted); font-size: 0.9rem; }
@@ -120,14 +132,16 @@ h3 { font-size: 1.22rem; line-height: 1.3; margin: 0 0 10px; }
 
 @media (max-width: 960px) {
   .hero { grid-template-columns: 1fr; gap: 32px; }
-  .more dl { grid-template-columns: 1fr; gap: 24px; }
+  .more dl { grid-template-columns: 1fr 1fr; gap: 24px; }
+  .split { grid-template-columns: 1fr; gap: 32px; }
   .hero { padding-top: 40px; }
   .crew-leads { flex-wrap: wrap; justify-content: center; gap: 18px 10px; }
-  .crew-leads li { width: 30%; }
+  .crew-leads { align-items: flex-start; }
+  .crew-leads li { width: 30%; text-align: center; }
   .crew-team { flex-wrap: wrap; justify-content: center; gap: 6px 10px; }
 }
 @media (max-width: 720px) {
-  .ways, .steps, .tested { grid-template-columns: 1fr; gap: 32px; }
+  .ways, .steps, .tested, .more dl { grid-template-columns: 1fr; gap: 32px; }
   .get { grid-template-columns: 1fr; }
   .block { padding-top: 64px; }
   .top nav { gap: 2px 16px; font-size: 0.9rem; }
