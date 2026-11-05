@@ -211,8 +211,10 @@ def test_unavailable_link_fails_readably_then_retry_succeeds_once(site):
     assert retried.status_code == 200, retried.text
     wait_for(lambda: site["handed_off"])
     assert site["handed_off"] == [(pid, None)]
-    rounds = db.select("studio_jobs", "kind = 'link_import'")
-    assert len(rounds) == 2 and {j["status"] for j in rounds} == {"done"}
+    # The hand-off happens inside the second job, just before the job is marked done: wait for that too.
+    rounds = wait_for(lambda: (lambda jobs: jobs if len(jobs) == 2 and {j["status"] for j in jobs} == {"done"}
+                               else None)(db.select("studio_jobs", "kind = 'link_import'")), timeout=10)
+    assert len(rounds) == 2
     assert db.get_project(pid)["asset_id"]
 
 
