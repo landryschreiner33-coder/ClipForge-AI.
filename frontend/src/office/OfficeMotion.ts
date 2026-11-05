@@ -1,6 +1,6 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
-import { OfficeEvent, RoleRow, Snapshot } from "./api";
+import { OfficeEvent, RoleRow, RoleState, Snapshot } from "./api";
 import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
 import { LoungeLife } from "./LoungeLife";
 import { departmentAttendance, OfficeDuty } from "./DepartmentDuty";
@@ -25,8 +25,9 @@ interface HandoffRoute {
 }
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
 const SPEED = 130;
-const POSE: Record<string, Pose> = {
-  idle: "idle", working: "work", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
+// every robot state needs a pose: a missing one left the fallback map unable to draw (a "queued" robot)
+const POSE: Record<RoleState, Pose> = {
+  idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
   paused: "paused", unavailable: "unavailable",
 };
 const CROSS_JOB: Record<string, string[]> = {

@@ -409,7 +409,7 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                 <div className="brain-vault-divider">
                   <span>SAVED ITEMS</span>
                 </div>
-                <div className="brain-vault-notes" role="list" aria-label="Saved items: arrow keys move"
+                <div className="brain-vault-notes" role="group" aria-label="Saved items: arrow keys move"
                   onKeyDown={listKeys}>
                   {rows
                     .filter(
@@ -428,7 +428,6 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                     .map((item) => (
                       <button
                         key={item.id}
-                        role="listitem"
                         aria-pressed={nodeId === `knowledge:${item.id}`}
                         onClick={() => selectNode(`knowledge:${item.id}`)}
                       >
@@ -438,7 +437,7 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                       </button>
                     ))}
                   {listed.map((node) => (
-                    <button key={node.id} role="listitem" aria-pressed={nodeId === node.id}
+                    <button key={node.id} aria-pressed={nodeId === node.id}
                       onClick={() => selectNode(node.id)}>
                       <i className="brain-note-dot" style={{ background: node.color }} />
                       <span>{node.title}<small className="sr-only">, {RECORD_WORD[node.kind as RecordKind]}</small></span>

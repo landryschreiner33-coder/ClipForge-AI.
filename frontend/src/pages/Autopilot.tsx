@@ -33,12 +33,10 @@ export default function AutopilotPage({ tab }: { tab?: string }) {
   const since = lastOk ? new Date(lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   return (
     <div className="page">
-      <PageHead title="Missions" sub={st.settings.autopilot_input_mode === "submitted"
-        ? "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."
-        : st.settings.autopilot_review_before_publish !== false
-        ? "Finds videos, makes clips, checks them and plans posts. Nothing uploads until you review and approve each post."
-        : "Finds videos you may use, makes clips, checks them and plans posts. Nothing is posted without your OK, "
-          + "or the permission you gave for YouTube."} />
+      {/* Autopilot only works on the videos you add (discovery is retired); review mode decides what may upload. */}
+      <PageHead title="Missions" sub={st.settings.autopilot_review_before_publish !== false
+        ? "Add a video link or file. Brain guides the edits; nothing uploads until you review and approve each post."
+        : "Add a video link or file. Brain guides the edits; passing clips can upload automatically to your chosen YouTube account."} />
       {st.paused && <StoppedBanner refresh={refresh} />}
       <LinkTabs label="Missions sections" current={advanced ? "system" : slug || "overview"} tabs={[
         { id: "overview", href: "#/missions", label: "Overview" },
