@@ -980,6 +980,7 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .op-callout { display: grid; gap: 6px; justify-items: start; padding: var(--s3); border-left: 3px solid var(--primary);
   background: var(--raised); border-radius: var(--r-control); }
 .op-callout.bad { border-left-color: var(--bad); }
+.op-callout.warn { border-left-color: var(--warn); }
 .op-needs { display: flex; align-items: center; gap: var(--s3); padding: var(--s3); border: 1px solid var(--warn);
   background: var(--warn-tint); color: var(--text); text-decoration: none; border-radius: var(--r-control); }
 .op-needs > .icon:first-child { color: var(--warn); }

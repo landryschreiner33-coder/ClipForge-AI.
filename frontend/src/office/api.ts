@@ -26,6 +26,8 @@ export interface OfficeTask {
   origin?: "owner" | "autopilot";
   /** the project, video or file the work is for, when it has a name */
   title?: string;
+  /** "you" when the work waits for you rather than for a robot or a platform */
+  waiting_on?: "" | "you";
   handoff?: { from_role: string; reason: string; attempt: number; max_attempts: number; report_id?: string } | null;
 }
 
@@ -187,13 +189,17 @@ export interface OwnerWork {
   id: string;
   kind: string;
   stage: string;
-  status: "queued" | "running";
+  /** waiting: it needs you (an editor question to answer, or proposed changes to check) */
+  status: "queued" | "running" | "waiting";
   role: string;
   message: string;
   /** measured progress 0-1, null when not measured */
   progress: number | null;
   project_id: string;
   video_id: string;
+  title: string;
+  /** "you" when the work waits for you rather than for a robot or a platform */
+  waiting_on: "" | "you";
 }
 
 export interface EventsPage {

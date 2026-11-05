@@ -5,7 +5,7 @@ import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
 import { BY_ID, CAST, CORE, DEPARTMENTS, Dept, RoomId, ROOM_NAMES } from "./cast";
 import { RobotNameEditor } from "./RobotName";
-import { brainApi, BrainSummary, Health, HealthStatus, office, OfficeDecision, OfficeEvent, RoleRow, RoomDetails,
+import { brainApi, BrainSummary, Health, HealthStatus, office, OfficeDecision, OfficeEvent, OfficeTask, RoleRow, RoomDetails,
   Snapshot, staleHealth } from "./api";
 import Portrait from "./Portrait";
 import { Card, STATE_WORDS } from "./OfficeMap";
@@ -54,6 +54,14 @@ export const POSE_OF: Record<string, Pose> = {
   idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error",
   reviewing: "review", paused: "paused", unavailable: "unavailable",
 };
+// what the reason under a task means: only a real stop is shown as one
+type ReasonKind = "you" | "queued" | "waiting" | "failed" | "blocked";
+const reasonKind = (t: OfficeTask): ReasonKind => t.waiting_on === "you" ? "you" : t.status === "queued" ? "queued"
+  : t.status === "waiting" || t.status === "retrying" ? "waiting" : t.status === "failed" ? "failed" : "blocked";
+const REASON_WORDS: Record<ReasonKind, string> = { you: "Waiting for you", queued: "Queued", waiting: "Waiting",
+  failed: "Stopped", blocked: "Blocked" };
+const REASON_TONE: Record<ReasonKind, string> = { you: "warn", queued: "", waiting: "warn", failed: "bad", blocked: "bad" };
+
 const NEXT_STAGE: Record<Dept, string> = {
   control: "—", intake: "Story & analysis", research: "Editing (your media)", story: "Editing",
   editing: "Sound & captions", sound: "Quality & export", quality: "Publishing", publishing: "Results in the Brain",
@@ -301,8 +309,10 @@ export function RobotPanel({ id, row, card, onRobot }: {
         <Section title="Current task">
           <p className="small">{row.task.message || row.task.kind}</p>
           {row.task.status === "running" && <Progress value={row.task.progress} label={`${c.name} progress`} />}
-          {row.task.blocked_reason && <div className="op-callout bad">
-            <b>Blocked</b><p className="small">{row.task.blocked_reason}</p>
+          {row.task.blocked_reason && <div className={`op-callout ${REASON_TONE[reasonKind(row.task)]}`}>
+            <b>{REASON_WORDS[reasonKind(row.task)]}</b><p className="small">{row.task.blocked_reason}</p>
+            {row.task.waiting_on === "you" && row.task.shared?.video_id &&
+              <a className="btn btn-small" href={`#/video/${row.task.shared.video_id}`}>Open the editor</a>}
           </div>}
           {row.task.next_role && BY_ID[row.task.next_role] && <p className="small">Next robot: <button
             type="button" className="link-btn" onClick={() => onRobot(row.task!.next_role!)}>
@@ -700,7 +710,8 @@ export function DepartmentCards({ snap, onRobot, onRoom }: { snap: Snapshot; onR
                   <button type="button" className="dept-robot" onClick={() => onRobot(id)}>
                     <Portrait id={id} scale={1} pose={POSE_OF[r?.state || "idle"]} animate={false} crop />
                     <span className="grow"><b>{BY_ID[id].name}</b> <span className="muted tiny">{BY_ID[id].title}</span>
-                      <span className="block small">{r?.task?.message || (r?.state === "error" ? r.error : "")}</span></span>
+                      <span className="block small clamp-2" title={r?.task?.message || (r?.state === "error" ? r.error : "")}>
+                        {r?.task?.message || (r?.state === "error" ? r.error : "")}</span></span>
                     <StateBadge state={r?.state || "idle"} />
                   </button>
                 </li>

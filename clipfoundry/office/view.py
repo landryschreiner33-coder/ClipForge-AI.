@@ -97,6 +97,7 @@ def _task(j: dict) -> dict:
             "shared": {"source_id": source_id, "project_id": project_id, "clip_id": clip_id,
                        "video_id": payload.get("video_id") or ""},
             "origin": j.get("origin") or "autopilot", "title": str(payload.get("title") or "")[:120],
+            "waiting_on": payload.get("waiting_on") or "",
             "handoff": handoff or None}
 
 
@@ -291,7 +292,8 @@ def owner_work(now: float | None = None) -> list[dict]:
         out.append({"id": j["id"], "kind": j["kind"], "stage": j.get("stage") or "", "status": j["status"],
                     "role": roles.role_for(j["kind"], j.get("stage") or ""), "message": (j.get("message") or "")[:200],
                     "progress": round(float(j["progress"]), 3) if measured else None,
-                    "project_id": payload.get("project_id") or "", "video_id": payload.get("video_id") or ""})
+                    "project_id": payload.get("project_id") or "", "video_id": payload.get("video_id") or "",
+                    "title": str(payload.get("title") or "")[:120], "waiting_on": payload.get("waiting_on") or ""})
     return out
 
 

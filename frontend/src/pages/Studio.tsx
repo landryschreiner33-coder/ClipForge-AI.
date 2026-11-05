@@ -52,8 +52,9 @@ export default function Studio() {
     .sort((a, b) => Number(b.live) - Number(a.live) || a.n - b.n).map((x) => x.i);
   const stopped = (items || []).filter((i) => STOPPED.has(i.status)).slice(0, 5);
   const recent = (items || []).filter((i) => !RUNNING.has(i.status)).slice(0, 6);
-  // Autopilot's own list, kept to items that say what to do
+  // Autopilot's own list, kept to items that say what to do, and your own work that waits for an answer from you
   const actions = (st?.home.needs_you || []).filter((n) => n.fix || n.link).slice(0, 5);
+  const yourTurn = work.filter((w) => w.waiting_on === "you" && w.video_id).slice(0, 5);
   const current = running[0];
 
   return (
@@ -88,7 +89,7 @@ export default function Studio() {
 
       {problem && <Banner tone="warn" title="Could not load your projects">{problem}</Banner>}
 
-      {(stopped.length > 0 || actions.length > 0) && (
+      {(stopped.length > 0 || actions.length > 0 || yourTurn.length > 0) && (
         <section className="panel needs-you" aria-labelledby="studio-needs">
           <h2 id="studio-needs">Needs you</h2>
           <ul className="file-list">
@@ -98,6 +99,13 @@ export default function Studio() {
                 <div className="break"><b>{i.name}</b>
                   <span className="block small muted">{i.error || i.message || "It stopped before it finished."}</span></div>
                 <a className="btn btn-small" href={i.href}>{i.status === "needs_input" ? "Answer" : "Open and retry"}</a>
+              </li>
+            ))}
+            {yourTurn.map((w) => (
+              <li key={w.id} className="file-row">
+                <Icon name="question" />
+                <div className="break"><b>{w.title || "Your video"}</b><span className="block small muted">{w.message}</span></div>
+                <a className="btn btn-small" href={`#/video/${w.video_id}`}>Open the editor</a>
               </li>
             ))}
             {actions.map((n) => (
@@ -176,8 +184,10 @@ function CurrentProject({ item, jobs, roles, onRobot }: {
 }) {
   const [broken, setBroken] = useState(false);
   const live = jobs.filter((w) => w.status === "running");
-  const step = live[0] || jobs[0];
-  const state = live.length ? "Working" : jobs.length || item.status === "queued" ? "Queued" : "In progress";
+  const step = live[0] || jobs.find((w) => w.waiting_on === "you") || jobs[0];
+  const yours = jobs.filter((w) => w.waiting_on === "you");
+  const state = live.length ? "Working" : yours.length ? "Waiting for you"
+    : jobs.length || item.status === "queued" ? "Queued" : "In progress";
   const progress = live.map((w) => w.progress).find((p) => typeof p === "number") ?? null;
   const team = useMemo(() => [...new Set(jobs.map((w) => w.role))].filter((id) => BY_ID[id]), [jobs]);
   const rows = Object.fromEntries(roles.map((r) => [r.id, r]));

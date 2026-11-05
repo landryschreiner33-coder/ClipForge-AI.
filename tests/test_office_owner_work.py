@@ -175,6 +175,27 @@ def test_the_snapshot_lists_your_work_item_by_item(data):
     work = {w["kind"]: w for w in view.snapshot()["work"]}
     assert work["video_build"] == {"id": work["video_build"]["id"], "kind": "video_build", "stage": "",
                                    "status": "queued", "role": "story", "message": "Waiting for a worker",
-                                   "progress": None, "project_id": "", "video_id": v["id"]}
+                                   "progress": None, "project_id": "", "video_id": v["id"], "title": "Trip video",
+                                   "waiting_on": ""}
     assert work["project"]["role"] == "splice" and work["project"]["progress"] == 0.6
     assert work["project"]["project_id"] == p["id"]
+
+
+def test_an_editor_question_or_proposal_waits_for_you_until_the_edit_moves_on(data):
+    from clipfoundry.office import view
+
+    v = data.insert("studio_projects", {"workspace_id": "local", "name": "Trip video", "plan_revision": 3})
+    ask = data.insert("edit_requests", {"workspace_id": "local", "project_id": v["id"], "text": "move the part",
+                                        "base_revision": 3, "status": "question",
+                                        "message": "Which part do you mean: the summit or the lake?"})
+    story = _states(data)["story"]
+    assert story["state"] == "waiting" and story["task"]["waiting_on"] == "you"
+    assert story["task"]["blocked_reason"].startswith("Waiting for your answer: Which part")
+    work = view.snapshot()["work"]
+    assert [(w["status"], w["title"], w["waiting_on"], w["video_id"]) for w in work] == \
+        [("waiting", "Trip video", "you", v["id"])]
+    data.update("edit_requests", ask["id"], status="ready", message="Check the changes, then apply them.")
+    assert "check the proposed changes" in _states(data)["story"]["task"]["message"]
+    # another edit made the proposal out of date: the editor says so, and nothing waits on it any more
+    data.update("studio_projects", v["id"], plan_revision=4)
+    assert _states(data)["story"]["state"] == "idle" and view.snapshot()["work"] == []

@@ -67,7 +67,7 @@ def target(j: dict) -> tuple[str, str, dict]:
 
 
 def active(now: float | None = None) -> list[dict]:
-    """Owner work that is queued, running or waiting right now (newest first within each kind)."""
+    """Owner work that is queued, running or waiting for you right now (newest first within each kind)."""
     now = now or time.time()
     ws = workspace()
     out: list[dict] = []
@@ -118,6 +118,17 @@ def active(now: float | None = None) -> list[dict]:
         out.append(_row(id=f"request:{r['id']}", kind="edit_request", status="running", updated_at=r["updated_at"],
                         message=f"Asking {r.get('provider') or 'the AI service'} about “{r['text'][:60]}”",
                         ref_type="video", ref_id=r["project_id"], payload={"video_id": r["project_id"]}))
+    # an editor request that waits for you: a question to answer, or proposed changes to check and apply. Only while
+    # it was made for the edit as it is now; after any other edit the editor marks it out of date and nothing waits.
+    for r in db.select("edit_requests", "status IN ('question', 'ready')" + rwhere, rargs, "created_at DESC", 20):
+        video = db.fetch("studio_projects", r["project_id"]) or {}
+        if not video or int(r.get("base_revision") or 0) != int(video.get("plan_revision") or 0):
+            continue
+        message = (f"Waiting for your answer: {r.get('message') or ''}" if r["status"] == "question"
+                   else "Waiting for you to check the proposed changes and apply them")
+        out.append(_row(id=f"request:{r['id']}", kind="edit_request", status="waiting", updated_at=r["updated_at"],
+                        message=message[:200], ref_type="video", ref_id=r["project_id"],
+                        payload={"video_id": r["project_id"], "title": video.get("name") or "", "waiting_on": "you"}))
     return out
 
 
