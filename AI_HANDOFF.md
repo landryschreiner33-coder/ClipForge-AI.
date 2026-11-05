@@ -1,5 +1,14 @@
 # AI handoff
 
+## Mac YouTube link fix — 2026-11-05 (Claude Code, cloud session)
+
+Landry reported that the released Mac app (2026.11.05) failed every YouTube link with "No downloadable video was found
+on this page". The fix is on branch `claude/project-thread-8zldhx`, in draft PR #22, which is stacked on PR #20 (its
+base is `claude/project-thread-x72wkd`). See the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md) for the cause, the
+fix and the checks. It is not merged and not released; a new Mac DMG needs Landry's OK (release flow: the
+`macos-desktop.yml` run, then `macos-personal-preview.yml`). YouTube itself cannot be tested from the cloud
+environment or from GitHub runners (bot check), so only a real Mac confirms it.
+
 ## ClipForge studio upgrade, released — 2026-11-05 (Claude Code, cloud session)
 
 **Plain-English summary:** work on the studio upgrade handoff

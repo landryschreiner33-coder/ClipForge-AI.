@@ -72,6 +72,9 @@ MESSAGES = {
                "Use a public link, or Video file."),
     "no_downloader": ("Link import not installed", "This installation has no video downloader (yt-dlp).",
                       "Use Video file, or reinstall ClipForge."),
+    "tools_missing": ("Video tools missing", "ClipForge could not find its video tools (FFmpeg), which join the "
+                      "video's picture and sound after the download.",
+                      "Reinstall ClipForge, or set the FFmpeg folder in Settings, then press Retry."),
 }
 TEMPORARY = {"rate_limited", "network", "disk_space"}
 

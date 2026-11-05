@@ -1,5 +1,23 @@
 # AI changelog
 
+## Mac: YouTube video links work again — 2026-11-05 (Claude Code)
+
+- **Bug (released Mac build 2026.11.05):** a YouTube link ended with "No downloadable video was found on this page".
+  YouTube serves picture and sound separately and yt-dlp joins them with FFmpeg, but yt-dlp only looked on the PATH.
+  The Mac app keeps FFmpeg in `Contents/Helpers` (CLIPFOUNDRY_FFMPEG), and a Finder-opened app's PATH has no FFmpeg.
+  yt-dlp's "ffmpeg is not installed" error matched no rule and was shown as "No video found".
+- **Fix:** `media_import.public_extractor` passes `ffmpeg_location`, found the same way the renderer finds FFmpeg.
+  A new reason, `tools_missing` ("Video tools missing"), names a really missing FFmpeg. The Mac app now installs
+  `yt-dlp[default,deno]`: Deno (sandboxed by yt-dlp) and yt-dlp-ejs give yt-dlp its full YouTube support. Without a
+  JavaScript runtime it asks only one YouTube player.
+- **Tests run:** a new offline test with separate picture and sound and FFmpeg off the PATH, which failed on the
+  released code and passes now. Local fast suite: 1,751 passed. A race in
+  `test_unavailable_link_fails_readably_then_retry_succeeds_once` was fixed: it checked the job status before the job
+  runner marked it done. The native Mac build (run 42068752230) passed, including the new bundled-app checks: the
+  separate streams were joined by the bundled FFmpeg, and yt-dlp found the bundled Deno 2.9.8, which had no file access.
+- **Not verified:** a real YouTube download. This environment can't reach YouTube, and GitHub's Mac runners get
+  YouTube's "confirm you're not a bot" page for every player. No new Mac release was made (PR #22, not merged).
+
 ## Studio upgrade released: Mac and Windows downloads and the download page — 2026-11-05 (Claude Code)
 
 - **Download page** (https://landryschreiner33-coder.github.io/ClipForge-AI./download/, `gh-pages` `138c4f7`):
