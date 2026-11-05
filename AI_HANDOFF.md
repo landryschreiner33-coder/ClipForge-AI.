@@ -12,14 +12,21 @@ touched.
   `12afd01` and merged with `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`) as `6c3f8d9`.
   Other remote branches were compared; none has newer app source.
 - **Requirement matrix (kept current):** [docs/clipforge/STUDIO_UPGRADE_MATRIX.md](docs/clipforge/STUDIO_UPGRADE_MATRIX.md).
-- **Baseline on `6c3f8d9`:** fast suite 1,630 passed (clean worktree). Slow suite: see the next checkpoint.
+- **Baseline on `6c3f8d9`:** fast suite 1,630 passed; slow suite 21 passed (clean worktree), including the two tests
+  the 2026-11-04 entry below lists as failing. They did not reproduce here, so they were left as they are.
 - **Done so far:**
   - `cc89a87` Video link in Make clips: `studio/link_import.py`, `jobs.fetch_public_video`, `uploads.store_file`;
     29 tests in `tests/test_studio_links.py`.
   - `d3abd6e` Discovery retired: `config.DISCOVERY_RETIRED`, `db._migrate_discovery_retired`, screens cleaned;
     `tests/test_discovery_retired.py`. Older discovery suites run with the retirement patched off (dormant-engine
     coverage, documented in `tests/conftest.py` and the matrix).
-- **Plan (handoff order):** scalable media and multi-track audio editing with revisions → example-video analysis,
+  - Full-video editor (handoff section 8): engine `ffmpeg-v2` renders in pieces (any number of clips; ≤2 inputs per
+    FFmpeg run; audio mixed in 10 s blocks; disk space checked first), plan schema 2 with voiceover/music/effects
+    tracks, insert/replace/add media after the rough cut, undo/redo/restore/named versions as new revisions, caption
+    word fixes, and a rebuilt editor screen. **Ducking now works at normal speech levels** (the old sidechain setting
+    did nothing below loud speech; measured). Tests: `tests/test_studio_editor.py` (fast),
+    `tests/test_studio_editor_render.py` (slow). Details: `docs/clipforge/EDITOR_INTEGRATION.md`.
+- **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → example-video analysis,
   applied Brain styles, Find media providers, bounded AI corrections → Studio/Home/Office and all-robot names →
   dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.

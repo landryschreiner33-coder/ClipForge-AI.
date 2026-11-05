@@ -1,5 +1,26 @@
 # AI changelog
 
+## Studio upgrade: full-video editor with audio tracks and revision safety — 2026-11-05 (Claude Code)
+
+- Engine `ffmpeg-v2` (plan schema 2) renders the picture in cached pieces of at most two inputs, joined by byte
+  concatenation, so long timelines no longer build one huge filter graph. Element positions come from a whole-frame
+  map, so sync does not drift. Older plans upgrade on load (a music bed becomes a music audio item).
+- Audio: voiceover, music and effect items with start, trim, gain, fades, loop and a clip anchor; four track
+  controls (source, voiceover, music, effects); a block mixer in 10 s blocks. Ducking is now measured from the
+  speech track (frames above the speech level lower the music by the chosen depth, default 12 dB). This replaces
+  the sidechain compressor, which only lowered music by 0 to 5.6 dB in a measured check.
+- Editing: add footage, images and sound after the rough cut (insert or replace), undo and redo, restore and named
+  versions; every change is a new immutable revision. A preview with the same plan is reused, and the screen marks
+  an out-of-date preview. Free disk space is checked before a render.
+- Screen: timeline with paged sequence, clip inspector, Sound panel with tracks, Your media upload with three
+  parallel uploads you can stop and resume, Look (frame rate, caption size and position), Versions.
+- Tests actually run: fast suite 1,672 passed; new `test_studio_editor.py` (9 fast) and
+  `test_studio_editor_render.py` (3 slow: 120 clips frame-exact, three audio roles with at least 6 dB ducking,
+  media added after the rough cut through the API) pass; `test_studio_video.py` (slow) passes. Editor screen checked
+  in a browser at 1440 px and 390 px with no horizontal scroll and no console errors.
+- Not verified: memory use on a real device with hours of footage, real Whisper transcripts (model download blocked
+  here, fixture transcripts used), waveforms and text overlays (not built yet).
+
 ## Studio upgrade: video links in Make clips, discovery retired — 2026-11-05 (Claude Code)
 
 - Make clips offers Video file and Video link; a link keeps the chosen mode, style, skills and destinations through a
