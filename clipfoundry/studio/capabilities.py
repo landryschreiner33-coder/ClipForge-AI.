@@ -82,6 +82,13 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("music_level_db", "Music level", "number", ("full_video",), minimum=-36, maximum=-6,
           applies="music volume under speech (it ducks further while someone speaks)"),
     Field("title_card", "Title card", "bool", ("full_video",), applies="an opening title"),
+    Field("caption_size", "Caption size", "choice", ("full_video",), ("small", "medium", "large"),
+          applies="how large burned-in captions are"),
+    Field("frame_rate", "Frame rate", "choice", ("full_video",), (24, 25, 30, 50, 60),
+          applies="frames per second of the video", words={24: "24 fps", 25: "25 fps", 30: "30 fps", 50: "50 fps",
+                                                            60: "60 fps"}),
+    Field("duck_music", "Music under speech", "bool", ("full_video",),
+          applies="music dips while someone speaks"),
     Field("video_type", "Video type", "text", ("full_video",), max_length=80, applies="the brief's starting answer"),
     Field("audience", "Audience", "text", ("full_video",), max_length=120, applies="the brief's starting answer"),
 )}

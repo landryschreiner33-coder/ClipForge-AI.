@@ -108,7 +108,9 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     assert any("boring part" in n for n in plan["notes"])  # the avoid request removed that sentence
     c_parts = [c for c in plan["clips"] if c["asset_id"] == ids["c"]]
     assert len(c_parts) == 2 and c_parts[0]["out_ms"] < c_parts[1]["in_ms"]
-    assert plan["transition"] == {"type": "dissolve", "ms": 400} and plan["music"]["asset_id"] == ids["music"]
+    assert plan["transition"] == {"type": "dissolve", "ms": 400}
+    music = [i for i in plan["audio"] if i["role"] == "music"]  # the brief's music is an item on the music track
+    assert [(m["asset_id"], m["loop"], m["duck"]) for m in music] == [(ids["music"], True, True)]
     assert [s["name"] for s in api.get("/api/studio/styles").json()] == ["Trip style"]  # Remember this style
     assert api.get("/api/studio/styles").json()[0]["values"].get("feel") == "balanced"
     assert "must_keep" not in api.get("/api/studio/styles").json()[0]["values"]
@@ -160,7 +162,7 @@ def test_cf09_mixed_media_assembly_edits_reopen_and_server_render(env):
     media = api.get(f"/api/studio/videos/{vid}/media?kind=final&revision={rev1 + 3}&download=1")
     assert media.status_code == 200 and media.content[:12].find(b"ftyp") >= 0
     exported = api.get(f"/api/studio/videos/{vid}/export?revision={rev1 + 3}").json()
-    assert exported["plan"] == saved and exported["format"] == "clipforge.edit-plan/v1"
+    assert exported["plan"] == saved and exported["format"] == "clipforge.edit-plan/v2"
 
     # cancellation: the render stops, no artifact appears for that revision, the plan stays
     api.post(f"/api/studio/videos/{vid}/render", json={"revision": rev1 + 4})

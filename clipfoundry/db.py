@@ -1018,7 +1018,7 @@ JSON_FIELDS = {
     "uploads": set(),
     "assets": {"probe"},
     "studio_projects": {"asset_ids", "brief", "guidance", "destinations"},
-    "edit_plans": {"plan"},
+    "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
     "story_proposals": set(),
@@ -1045,6 +1045,8 @@ ADDED_COLUMNS = {
     "scheduled_publications": {"audience": "TEXT DEFAULT '{}'", "delivery": "TEXT DEFAULT '{}'",
                                "reuse_confirmation": "TEXT DEFAULT '{}'", "connection_id": "TEXT DEFAULT ''"},
     "action_items": {"dismissed_at": "REAL"},
+    # how a revision was made (edit, undo, redo, restore) and which revisions undo/redo lead to; a name you gave it
+    "edit_plans": {"meta": "TEXT DEFAULT '{}'", "name": "TEXT DEFAULT ''"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},

@@ -605,14 +605,72 @@ class RevisionBody(BaseModel):
 @router.post("/api/studio/videos/{video_id}/restore")
 def restore_revision(video_id: str, body: RevisionBody) -> dict:
     """Reopen an earlier version exactly, as a new revision (nothing in between is lost)."""
-    v = _video(video_id)
+    _video(video_id)
     try:
-        plan = video_flow.plan_at(video_id, body.revision)
-        rev = video_flow.save_revision(video_id, plan, f"Back to version {body.revision}", v["plan_revision"])
+        video_flow.restore(video_id, body.revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
-    enqueue(v["workspace_id"], "video_preview", video_id, rev)
     return video_flow.view(_video(video_id))
+
+
+class BaseBody(BaseModel):
+    base_revision: int
+
+
+@router.post("/api/studio/videos/{video_id}/undo")
+def undo_edit(video_id: str, body: BaseBody) -> dict:
+    """Undo the last change (saved as a new version, so a stale tab cannot overwrite it)."""
+    _video(video_id)
+    try:
+        out = video_flow.undo(video_id, body.base_revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+@router.post("/api/studio/videos/{video_id}/redo")
+def redo_edit(video_id: str, body: BaseBody) -> dict:
+    _video(video_id)
+    try:
+        out = video_flow.redo(video_id, body.base_revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+class NameBody(BaseModel):
+    name: str = Field(default="", max_length=60)
+
+
+@router.put("/api/studio/videos/{video_id}/revisions/{revision}/name")
+def name_revision(video_id: str, revision: int, body: NameBody) -> dict:
+    _video(video_id)
+    try:
+        video_flow.name_revision(video_id, revision, body.name)
+    except video_flow.VideoError as exc:
+        raise _bad(exc, 404) from exc
+    return video_flow.view(_video(video_id))
+
+
+class MediaBody(BaseModel):
+    asset_ids: list[str]
+
+
+@router.post("/api/studio/videos/{video_id}/media")
+def add_video_media(video_id: str, body: MediaBody) -> dict:
+    """Add files to the project's media bin (also after the rough cut); place them with an insert or audio edit."""
+    _video(video_id)
+    try:
+        out = video_flow.add_media(video_id, body.asset_ids)
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
 
 
 @router.post("/api/studio/videos/{video_id}/render")
@@ -658,6 +716,6 @@ def video_export(video_id: str, revision: int = 0) -> JSONResponse:
         raise _bad(exc, 404) from exc
     from . import engine as engine_mod
 
-    return JSONResponse({"format": "clipforge.edit-plan/v1", "revision": rev, "plan": plan,
+    return JSONResponse({"format": f"clipforge.edit-plan/v{engine_mod.SCHEMA}", "revision": rev, "plan": plan,
                          "timeline": engine_mod.timeline(plan)}, headers={
         "Content-Disposition": f'attachment; filename="{video_id}-v{rev}.plan.json"'})
