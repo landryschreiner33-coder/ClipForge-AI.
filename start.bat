@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title ClipFoundry
+title ClipForge
 cd /d "%~dp0"
 
 echo.
-echo   ClipFoundry - local AI clipping
+echo   ClipForge - local AI clipping
 echo   --------------------------------
 
 rem ---------------------------------------------------------------- Python
