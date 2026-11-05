@@ -1,5 +1,28 @@
 # AI changelog
 
+## Studio upgrade: tell the editor what to change — 2026-11-05 (Claude Code)
+
+- Editor → Tell the editor what to change: a request becomes a proposal you check before anything changes. It lists
+  each change in the editor's clip numbers (new order, trims, removals, captions, music dip, length) and is applied
+  only with Apply, as a new version that Undo takes back. A proposal made before another edit is refused as out of
+  date.
+- Understood without AI: removing the silence at the start, shortening the introduction, moving or removing a part
+  named by what is said in it or by its number ("move the summit part before lunch", "move clips 3 to 4 to the
+  start"), dipping music further under speech, music level, caption size, position and on/off, and transitions.
+  When a part comes up in several places, one short question offers the choices; no time is guessed.
+- Anything else goes to the AI service chosen in Settings → AI, only when one is set up, as text: the clip list with
+  ids and times, the words said, the current settings, the project's Brain choices and the request. Never the video,
+  sound, file paths or keys. The screen says what was sent and whether it stays on the computer. The answer must be
+  operations from a fixed list or one question; it is checked exactly like a manual edit.
+- Limits: a timeout (60 s by default), cancel, a daily limit (40 per workspace by default; both in Settings → AI), a
+  cache for the same request on the same version, and no automatic retries. A restart while waiting is reported
+  and the request is not sent again.
+- Tests actually run: fast suite 1,716 passed; new `test_studio_edit_requests.py` (14 fast, with a fake AI
+  service) passes. The panel and settings were checked in a browser at 1440 px and 390 px (no sideways scroll, no
+  console errors).
+- Not verified: answers from a real model (no AI service is reachable from this environment). Not built: AI story
+  segmentation and outlines, and a preview render of a proposal before Apply.
+
 ## Studio upgrade: Find media with license records and credits — 2026-11-05 (Claude Code)
 
 - Editor → Find media: Images, Footage/B-roll, Music and Sound effects from Openverse, Wikimedia Commons and Pexels,

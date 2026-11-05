@@ -41,8 +41,14 @@ touched.
     (suggest by default, or add automatically as one undoable version). Editor panel, Settings tab and Make a video
     choices built. Tests: `tests/test_studio_media_sources.py` (fast), `tests/test_studio_media_render.py` (slow).
     **Provider APIs not live-verified** (hosts unreachable here).
+  - Tell the editor what to change (handoff section 9): `studio/edit_requests.py` turns a request into a
+    `clipforge.edit-proposal/v1` proposal (stable clip ids, source times), checked on its own revision by the same
+    edits as the manual controls and applied only on Apply as a new revision (Undo reverts; stale proposals are
+    refused). Rules understand the handoff's examples without AI; anything else goes text-only to the AI service in
+    Settings → AI when one is set up, with a timeout, cancel, a daily limit, a cache and no automatic retries.
+    Tests: `tests/test_studio_edit_requests.py` (fake AI service; no real model was called).
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
-  analysis, applied Brain styles~~ → ~~Find media providers~~ → bounded AI corrections → Studio/Home/Office and all-robot names →
+  analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → Studio/Home/Office and all-robot names →
   dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
