@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { errorText } from "../api";
+import { api, errorText } from "../api";
 import { ExampleSelect, FileDrop, Picked, StyleSelect, UploadRow, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, PageHead } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { navigate } from "../router";
-import { Snapshot, studio } from "../studio";
+import { SmartLevel, Snapshot, studio } from "../studio";
 
 /** Answers left empty come from the chosen example, style, skills and Brain (shown in "Used from your Brain"). */
 type Brief = { video_type: string; audience: string; goal: string; target_min: string; aspect_ratio: string; feel: string;
   captions: "" | "on" | "off"; music: string; must_keep: string; avoid: string; frame_rate: number; caption_size: string;
-  caption_position: string; duck_music: "" | "on" | "off" };
+  caption_position: string; duck_music: "" | "on" | "off"; smart_edit: SmartLevel; broll_images: boolean;
+  sound_effects: boolean; punch_in: "" | "on" | "off"; ai_edit: boolean };
+const LEVELS: [SmartLevel, string, string][] = [
+  ["smart", "Edit it for me", "Cuts long pauses, repeated takes and weak parts, fits your length, adds your pictures, music and soft sound effects"],
+  ["tight", "Fast-paced", "The same with shorter pauses and a small zoom on every other cut"],
+  ["off", "Keep my clips as they are", "Only trims silence at the start and end of each clip"]];
 const DEFAULTS: Record<string, unknown> = { aspect_ratio: "16:9", feel: "balanced", captions: true, frame_rate: 30,
   caption_size: "medium", caption_position: "bottom", duck_music: true };
 const WORDS: Record<string, string> = { "16:9": "16:9 widescreen", "9:16": "9:16 vertical", "1:1": "1:1 square",
@@ -29,8 +34,10 @@ export default function MakeVideo() {
   const [example, setExample] = useState("");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [brief, setBrief] = useState<Brief>({ video_type: "General YouTube video", audience: "", goal: "", target_min: "",
-    aspect_ratio: "", feel: "", captions: "", music: "none", must_keep: "", avoid: "",
-    frame_rate: 0, caption_size: "", caption_position: "", duck_music: "" });
+    aspect_ratio: "", feel: "", captions: "", music: "auto", must_keep: "", avoid: "",
+    frame_rate: 0, caption_size: "", caption_position: "", duck_music: "", smart_edit: "smart", broll_images: true,
+    sound_effects: true, punch_in: "", ai_edit: true });
+  const [ai, setAi] = useState<{ provider: string; label: string } | null>(null);
   const [remember, setRemember] = useState(appearance.remember_style);
   const [styleName, setStyleName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,6 +67,12 @@ export default function MakeVideo() {
     if (brief.caption_size) out.caption_size = brief.caption_size;
     if (brief.caption_position) out.caption_position = brief.caption_position;
     if (brief.music === "supplied" && brief.duck_music) out.duck_music = brief.duck_music === "on";
+    out.smart_edit = brief.smart_edit;
+    if (brief.smart_edit !== "off") {
+      out.broll_images = brief.broll_images;
+      out.sound_effects = brief.sound_effects;
+      if (brief.punch_in) out.punch_in = brief.punch_in === "on";
+    }
     return out;
   }, [brief]);
   useEffect(() => {
@@ -73,6 +86,13 @@ export default function MakeVideo() {
       window.clearTimeout(t);
     };
   }, [style, example, choices, name]);
+  useEffect(() => {
+    let alive = true;
+    api.aiSetup().then((s) => alive && setAi({ provider: s.provider, label: s.label })).catch(() => alive && setAi(null));
+    return () => { alive = false; };
+  }, []);
+  const aiOn = !!ai && ai.provider !== "heuristic";
+  const smart = brief.smart_edit !== "off";
   const eff = (k: string) => {
     const v = snapshot?.values?.[k] ?? DEFAULTS[k];
     return WORDS[String(v)] || String(v);
@@ -88,7 +108,7 @@ export default function MakeVideo() {
         asset_ids: ordered.map((f) => f.asset!.id), style_id: style, reference_id: example,
         brief: { video_type: brief.video_type, audience: brief.audience, goal: brief.goal,
           ...(Number.isFinite(minutes) && minutes > 0 ? { target_duration_s: minutes * 60 } : {}),
-          ...choices, music: brief.music,
+          ...choices, music: brief.music, ...(smart ? { ai_edit: brief.ai_edit } : {}),
           ...(brief.music === "supplied" && music?.asset ? { music_asset_id: music.asset.id } : {}),
           ...(voices.length ? { voiceover_asset_ids: voices.map((f) => f.asset!.id) } : {}),
           must_keep: brief.must_keep, avoid: brief.avoid,
@@ -105,7 +125,7 @@ export default function MakeVideo() {
   return (
     <div className="page">
       <PageHead kind="Make" title="Make a YouTube video" crumbs={[{ label: "Home", href: "#/" }, { label: "Make a YouTube video" }]}
-        sub="Add your clips, images and sounds and answer four questions. ClipForge builds a rough cut you can preview and change. Add more files any time, also after the rough cut." />
+        sub="Add your clips, images and sounds and answer four questions. ClipForge edits a first version for you to preview and change. Add more files any time, also later." />
       <div className="studio-grid">
         <div className="stack-5">
           <section className="panel" aria-labelledby="mv-bin">
@@ -127,6 +147,24 @@ export default function MakeVideo() {
                 </li>
               ))}
             </ol>
+          </section>
+          <section className="panel" aria-labelledby="mv-edit">
+            <h2 id="mv-edit">How much should ClipForge edit?</h2>
+            <div className="mode-pick">
+              {LEVELS.map(([v, t, d]) => (
+                <label key={v}><input type="radio" name="smart_edit" checked={brief.smart_edit === v} onChange={() => set("smart_edit", v)} /><b>{t}</b><span>{d}</span></label>
+              ))}
+            </div>
+            {smart && <div className="stack-2">
+              <label><input type="checkbox" checked={brief.broll_images} onChange={(e) => set("broll_images", e.target.checked)} /> Show my images over the video while people talk (an image whose file name is said appears right then)</label>
+              <label><input type="checkbox" checked={brief.sound_effects} onChange={(e) => set("sound_effects", e.target.checked)} /> Soft sound effects at scene changes and as pictures appear</label>
+              <label><input type="checkbox" checked={brief.punch_in ? brief.punch_in === "on" : brief.smart_edit === "tight"} onChange={(e) => set("punch_in", e.target.checked ? "on" : "off")} /> Zoom in a little on every other cut</label>
+              <label><input type="checkbox" checked={brief.ai_edit && aiOn} disabled={!aiOn} onChange={(e) => set("ai_edit", e.target.checked)} /> Let the AI helper read what is said to choose better cuts, pictures and chapters</label>
+              <p className="small muted">{aiOn
+                ? <>AI helper: {ai!.label}. Only the words said, as text, are sent to it. <a href="#/settings/ai">Change</a></>
+                : <>No AI helper is set up, so ClipForge's built-in editor decides alone (it works well without one). <a href="#/settings/ai">Set up a free AI helper</a> (a model on your computer, or a free key).</>}</p>
+              <p className="small muted">Everything it cuts stays in the sequence, switched off, so you can put any part back. Each choice is a version you can undo.</p>
+            </div>}
           </section>
           <section className="panel" aria-labelledby="mv-brief">
             <h2 id="mv-brief">Four questions</h2>
@@ -155,8 +193,11 @@ export default function MakeVideo() {
               <label className="field"><span>Burn in captions</span><select value={brief.captions} onChange={(e) => set("captions", e.target.value)}>
                 <option value="">From your style ({eff("captions")})</option><option value="on">On</option><option value="off">Off</option></select></label>
               <label className="field"><span>Music</span><select value={brief.music} onChange={(e) => set("music", e.target.value)}>
-                <option value="none">No added music</option><option value="supplied">My own music file (it dips while people speak)</option>
-                <option value="find">Find music for me in Media sources</option></select></label>
+                <option value="auto">Pick for me (a long music file in your media, or free music made by ClipForge)</option>
+                <option value="library">Free music made by ClipForge, in the video's mood</option>
+                <option value="supplied">My own music file (it dips while people speak)</option>
+                <option value="find">Find music for me in Media sources</option>
+                <option value="none">No added music</option></select></label>
               <label className="field"><span>Supporting media</span><select value={findMedia} onChange={(e) => setFindMedia(e.target.value)}>
                 <option value="off">Don't look for images or music</option>
                 <option value="suggest">After the rough cut, suggest images (and music) for my review</option>

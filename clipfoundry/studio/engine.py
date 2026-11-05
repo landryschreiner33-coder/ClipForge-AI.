@@ -25,6 +25,15 @@ of the speech's own typical level (so a quiet recording ducks as much as a loud 
 duck are lowered by the plan's depth (default 12 dB) with a short attack, a hold between words and a slow release.
 Speech itself is never compressed. (Before 2026-11-05 a fixed sidechain compressor did this; it dipped music by about
 6 dB under loud speech and not at all under speech at a normal recording level.)
+
+Smart editing (studio/smart_edit.py) adds three plan features:
+* a clip's `join: "cut"` makes the join into it a straight cut whatever the plan's transition, so the jump cuts inside
+  one recording stay cuts while the joins between recordings dissolve;
+* a clip's `zoom` (1.0 to 1.5) punches in on the centre of the picture, which hides a jump cut;
+* `overlays`: images (or muted footage) shown over a clip while its sound keeps playing (B-roll). Each overlay is
+  attached to a clip at an offset, stays inside that clip's own part of the picture (never over a transition), can
+  push in slowly ("zoom") and fades in and out. A render cuts the clip's body at the overlay's edges, so an overlay is
+  always exactly one cached piece with one extra input.
 """
 from __future__ import annotations
 
@@ -65,7 +74,14 @@ DUCK_FRAME = 480              # 10 ms analysis frames
 DUCK_ATTACK_S, DUCK_HOLD_S, DUCK_RELEASE_S = 0.06, 0.25, 0.45
 SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "title", "captions", "audio_tracks",
              "voiceover", "music", "effects", "gain", "mute", "fades", "ducking", "aspect", "layout", "insert",
-             "replace", "split", "word_fixes"}
+             "replace", "split", "word_fixes", "joins", "zoom", "overlays"}
+ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
+OVERLAY_KINDS = ("image", "video")
+OVERLAY_MOTIONS = ("still", "zoom")
+OVERLAY_FITS = ("fill", "fit")
+OVERLAY_MIN_MS = 500
+OVERLAY_PUSH = 0.08           # how far a "zoom" overlay pushes in over its whole length
+OVERLAY_FADE_S = 0.2
 UNSUPPORTED = {"color_grade": "colour grading", "keyframes": "keyframed motion", "pip": "picture in picture",
                "speed": "speed changes", "effects_plugins": "effects plugins", "multicam": "multicam"}
 MIX_BLOCK = SR * 10  # samples per mixing block (bounded memory whatever the length)
@@ -80,6 +96,8 @@ def capabilities() -> dict:
             "fps": list(FPS), "transitions": list(TRANSITIONS), "layouts": list(LAYOUTS), "roles": list(ROLES),
             "tracks": TRACKS, "caption_sizes": list(CAPTION_SIZES), "caption_positions": list(CAPTION_POSITIONS),
             "gain_range_db": list(GAIN_RANGE), "duck_depth_db": {"default": DUCK_DEPTH_DB, "range": list(DUCK_RANGE)},
+            "zoom_range": list(ZOOM_RANGE), "overlays": {"kinds": list(OVERLAY_KINDS), "motions": list(OVERLAY_MOTIONS),
+                                                         "min_ms": OVERLAY_MIN_MS},
             "unsupported": UNSUPPORTED,
             "limits": "No fixed number of files, clips or audio items. Free disk space is checked before a "
                       "render; each step opens at most two media files.",
@@ -222,15 +240,22 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
             out.append(f"The sound fades of “{name}” are longer than the clip.")
         if not _gain_ok(float(c.get("gain_db") or 0)):
             out.append(f"The volume of “{name}” is outside {GAIN_RANGE[0]:.0f} to +{GAIN_RANGE[1]:.0f} dB.")
+        zoom = c.get("zoom", 1.0)
+        if isinstance(zoom, bool) or not isinstance(zoom, (int, float)) or not ZOOM_RANGE[0] <= zoom <= ZOOM_RANGE[1]:
+            out.append(f"The zoom of “{name}” must be between {ZOOM_RANGE[0]:g} and {ZOOM_RANGE[1]:g}.")
+        if c.get("join") not in (None, "cut"):
+            out.append(f"Clip “{name}” has an unknown join.")
     t = (plan.get("transition") or {})
     if t.get("type", "cut") not in TRANSITIONS:
         out.append("Unknown transition.")
     elif t.get("type", "cut") != "cut" and clips:
-        shortest = min(_dur(c) for c in clips)
-        too_long = int(t.get("ms") or 0) * 2 >= shortest
+        joins = _joins(plan)
+        sides = [c for c in clips if any(joins[c["id"]])]  # clips that take part in a transition
+        too_long = bool(sides) and int(t.get("ms") or 0) * 2 >= min(_dur(c) for c in sides)
         if not too_long and int((plan.get("output") or {}).get("fps") or 30) in FPS:
-            els, overlap = frame_map(plan, int((plan.get("output") or {}).get("fps") or 30))
-            too_long = any(e["frames"] < overlap * (2 if 0 < k < len(els) - 1 else 1) for k, e in enumerate(els))
+            els, _overlap = frame_map(plan, int((plan.get("output") or {}).get("fps") or 30))
+            too_long = any(e["frames"] < e["ov_in"] + (els[k + 1]["ov_in"] if k + 1 < len(els) else 0)
+                           for k, e in enumerate(els))
         if too_long:
             out.append("A transition is longer than half of the shortest clip; shorten it.")
     captions = plan.get("captions") or {}
@@ -238,7 +263,58 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
         out.append("Unknown caption size.")
     if captions.get("position", "bottom") not in CAPTION_POSITIONS:
         out.append("Unknown caption position.")
-    return out + _validate_audio(plan, assets)
+    return out + _validate_audio(plan, assets) + _validate_overlays(plan, assets)
+
+
+def _validate_overlays(plan: dict, assets: dict[str, dict]) -> list[str]:
+    out = []
+    clip_ids = {c.get("id") for c in plan.get("clips") or []}
+    seen: set = set()
+    for o in plan.get("overlays") or []:
+        name = o.get("label") or "A picture over the video"
+        if o.get("id") in seen:
+            out.append("Two pictures over the video share one ID.")
+        seen.add(o.get("id"))
+        a = assets.get(o.get("asset_id"))
+        if not a:
+            out.append(f"“{name}” refers to a file that is missing.")
+            continue
+        if a["kind"] not in OVERLAY_KINDS:
+            out.append(f"“{a['filename']}” is not an image or video, so it cannot be shown over the video.")
+        elif not Path(a["path"]).is_file():
+            out.append(f"The original file “{a['filename']}” is missing on the server. Upload it again.")
+        if o.get("clip_id") not in clip_ids:
+            out.append(f"“{name}” is attached to a clip that is not in this video.")
+        offset, length = o.get("offset_ms"), o.get("length_ms")
+        if isinstance(offset, bool) or not isinstance(offset, (int, float)) or offset < 0:
+            out.append(f"“{name}” starts before its clip.")
+        if isinstance(length, bool) or not isinstance(length, (int, float)) or length < OVERLAY_MIN_MS:
+            out.append(f"“{name}” must be shown for at least {OVERLAY_MIN_MS / 1000:g} s.")
+        if o.get("motion", "still") not in OVERLAY_MOTIONS:
+            out.append(f"“{name}” has an unknown motion.")
+        if o.get("fit") not in (None, *OVERLAY_FITS):
+            out.append(f"“{name}” has an unknown framing.")
+        if a["kind"] == "video":
+            src_in = int(o.get("in_ms") or 0)
+            if src_in < 0 or (_length(a) and src_in + int(length or 0) > _length(a) + 50):
+                out.append(f"“{name}” is trimmed outside its file.")
+    return out
+
+
+def _joins(plan: dict) -> dict[str, tuple[int, int]]:
+    """For each included clip, how many ms it shares with the element before and after it (a transition overlap;
+    0 at a straight cut, at a clip whose join is "cut", and at the ends of the video)."""
+    t = plan.get("transition") or {}
+    overlap = int(t.get("ms") or 0) if t.get("type", "cut") != "cut" else 0
+    inc = [c for c in plan.get("clips") or [] if c.get("include", True)]
+    title = _has_title(plan)
+    out = {}
+    for k, c in enumerate(inc):
+        ov_in = 0 if (k == 0 and not title) or c.get("join") == "cut" else overlap
+        nxt = inc[k + 1] if k + 1 < len(inc) else None
+        ov_out = 0 if nxt is None or nxt.get("join") == "cut" else overlap
+        out[c["id"]] = (ov_in, ov_out)
+    return out
 
 
 def _has_title(plan: dict) -> bool:
@@ -250,14 +326,11 @@ def timeline(plan: dict) -> list[dict]:
     """The output time map: every included clip's source range and where it plays, in integer milliseconds.
     A transition overlaps each pair of neighbours (the title card counts as the first element), so every later
     element starts earlier by the transition length, exactly as the pieces are joined."""
-    t = plan.get("transition") or {}
-    overlap = int(t.get("ms") or 0) if t.get("type", "cut") != "cut" else 0
+    joins = _joins(plan)
     pos = int((plan.get("title") or {}).get("ms") or 0) if _has_title(plan) else 0
-    first = not _has_title(plan)
     out = []
     for c in (c for c in plan.get("clips") or [] if c.get("include", True)):
-        start = pos if first else pos - overlap
-        first = False
+        start = pos - joins[c["id"]][0]
         out.append({"clip_id": c["id"], "asset_id": c["asset_id"], "kind": c.get("kind", "video"),
                     "src_in_ms": int(c["in_ms"]), "src_out_ms": int(c["out_ms"]), "out_start_ms": start,
                     "out_end_ms": start + _dur(c)})
@@ -285,9 +358,10 @@ def frame_map(plan: dict, fps: int) -> tuple[list[dict], int]:
         els.append({**seg, "clip": clips[seg["clip_id"]], "ideal_end_ms": seg["out_end_ms"]})
     end = 0
     for k, e in enumerate(els):
-        start = 0 if k == 0 else end - overlap
+        ov = 0 if k == 0 or (e.get("clip") or {}).get("join") == "cut" else overlap
+        start = 0 if k == 0 else end - ov
         end = max(start + 1, round(e["ideal_end_ms"] * fps / 1000))
-        e.update(start_f=start, end_f=end, frames=end - start)
+        e.update(start_f=start, end_f=end, frames=end - start, ov_in=ov)
     return els, (overlap if len(els) > 1 else 0)
 
 
@@ -327,6 +401,64 @@ def audio_timeline(plan: dict, segs: list[dict] | None = None, total_ms: int | N
                     "track": ROLE_TRACK[item["role"]], "out_start_ms": start, "out_end_ms": end,
                     "src_in_ms": 0 if item.get("loop") else int(item.get("in_ms") or 0),
                     "loop": bool(item.get("loop")), "cut_ms": start + length - end})
+    return out
+
+
+def overlay_timeline(plan: dict, segs: list[dict] | None = None) -> list[dict]:
+    """Where each picture over the video shows (ms): inside its clip's own part of the picture (never over a
+    transition), a later overlay on the same clip starting after the earlier one ends. A removed clip hides its
+    overlays."""
+    segs = timeline(plan) if segs is None else segs
+    by = {s["clip_id"]: s for s in segs}
+    joins = _joins(plan)
+    out: list[dict] = []
+    last_end: dict[str, int] = {}
+    items = sorted((o for o in plan.get("overlays") or [] if o.get("clip_id") in by and not o.get("hide")),
+                   key=lambda o: (o["clip_id"], int(o.get("offset_ms") or 0)))
+    for o in items:
+        s = by[o["clip_id"]]
+        ov_in, ov_out = joins.get(o["clip_id"], (0, 0))
+        lo, hi = s["out_start_ms"] + ov_in, s["out_end_ms"] - ov_out
+        start = max(lo, s["out_start_ms"] + int(o.get("offset_ms") or 0), last_end.get(o["clip_id"], lo))
+        end = min(hi, start + int(o.get("length_ms") or 0))
+        if end - start < 300:
+            continue
+        last_end[o["clip_id"]] = end
+        out.append({"overlay_id": o["id"], "asset_id": o["asset_id"], "clip_id": o["clip_id"], "out_start_ms": start,
+                    "out_end_ms": end})
+    return sorted(out, key=lambda x: x["out_start_ms"])
+
+
+def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dict]) -> dict[int, list[dict]]:
+    """The overlays of each element in whole output frames, inside the element's body (as overlay_timeline)."""
+    index = {e["clip_id"]: k for k, e in enumerate(els) if e["kind"] != "title"}
+    out: dict[int, list[dict]] = {}
+    last_end: dict[int, int] = {}
+    items = sorted((o for o in plan.get("overlays") or [] if o.get("clip_id") in index and not o.get("hide")),
+                   key=lambda o: (index[o["clip_id"]], int(o.get("offset_ms") or 0)))
+    for o in items:
+        k = index[o["clip_id"]]
+        e = els[k]
+        b0 = e["start_f"] + e["ov_in"]
+        b1 = e["end_f"] - (els[k + 1]["ov_in"] if k + 1 < len(els) else 0)
+        start = max(b0, e["start_f"] + round(int(o.get("offset_ms") or 0) * fps / 1000), last_end.get(k, b0))
+        end = min(b1, start + round(int(o.get("length_ms") or 0) * fps / 1000))
+        if end - start < max(1, round(0.3 * fps)):
+            continue
+        last_end[k] = end
+        a = assets[o["asset_id"]]
+        probe_ = a.get("probe") or {}
+        fit = o.get("fit")
+        if fit not in OVERLAY_FITS:  # automatic: fill unless the picture's shape is far from the frame's
+            w, h = probe_.get("width") or 0, probe_.get("height") or 0
+            fit = "fill"
+            if w and h:
+                ow, oh = ASPECTS[plan["output"]["aspect"]]
+                fit = "fit" if abs(math.log((w / h) / (ow / oh))) > 0.35 else "fill"
+        out.setdefault(k, []).append({"id": o["id"], "kind": a["kind"], "path": a["path"], "sha": a.get("sha256", ""),
+                                      "start_f": start, "end_f": end, "fit": fit,
+                                      "motion": o.get("motion", "still") if a["kind"] == "image" else "still",
+                                      "src_in_ms": int(o.get("in_ms") or 0)})
     return out
 
 
@@ -430,16 +562,55 @@ def _video_input(e: dict, rel_frame: int, frames: int, fps: int, width: int, hei
         args = ["-ss", f"{start:.6f}", "-t", f"{secs:.3f}", "-i", path]
     layout = (e.get("clip") or {}).get("layout") or layout
     lines = []
+    src = f"[{idx}:v]"
+    zoom = float((e.get("clip") or {}).get("zoom") or 1.0)
+    if zoom > 1.001:  # punch in on the centre (hides a jump cut)
+        lines.append(f"{src}crop=trunc(iw/{zoom:.4f}/2)*2:trunc(ih/{zoom:.4f}/2)*2[zm{idx}]")
+        src = f"[zm{idx}]"
     if layout == "fill":
-        chain = f"[{idx}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+        chain = f"{src}scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
     else:
-        lines.append(f"[{idx}:v]split[bgs{idx}][fgs{idx}]")
+        lines.append(f"{src}split[bgs{idx}][fgs{idx}]")
         lines.append(f"[bgs{idx}]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
                      f"boxblur=20:2[bg{idx}]")
         lines.append(f"[fgs{idx}]scale={width}:{height}:force_original_aspect_ratio=decrease[fg{idx}]")
         chain = f"[bg{idx}][fg{idx}]overlay=(W-w)/2:(H-h)/2"
     lines.append(f"{chain},fps={fps},format=yuv420p,setsar=1,settb=AVTB,setpts=PTS-STARTPTS,"
                  f"tpad=stop=-1:stop_mode=clone{label}")
+    return args, lines
+
+
+def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx: int,
+                   label: str) -> tuple[list[str], list[str]]:
+    """(input arguments, filter lines) for one picture over the video, exactly `frames` long, fading in and out."""
+    secs = frames / fps + 0.5
+    if ov["kind"] == "image":
+        args = ["-loop", "1", "-framerate", str(fps), "-t", f"{secs:.3f}", "-i", ov["path"]]
+    else:
+        args = ["-ss", f"{ov['src_in_ms'] / 1000:.6f}", "-t", f"{secs:.3f}", "-an", "-i", ov["path"]]
+    push = ov["motion"] == "zoom"
+    # a slow push-in is cropped from a larger frame, so it moves smoothly and never upscales the output
+    w, h = (int(width * 1.5) // 2 * 2, int(height * 1.5) // 2 * 2) if push else (width, height)
+    lines = []
+    src = f"[{idx}:v]"
+    if ov["fit"] == "fit":
+        lines.append(f"{src}split[obs{idx}][ofs{idx}]")
+        lines.append(f"[obs{idx}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=20:2[obg{idx}]")
+        lines.append(f"[ofs{idx}]scale={w}:{h}:force_original_aspect_ratio=decrease[ofg{idx}]")
+        chain = f"[obg{idx}][ofg{idx}]overlay=(W-w)/2:(H-h)/2"
+    else:
+        chain = f"{src}scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
+    if push:
+        chain += (f",zoompan=z='1+{OVERLAY_PUSH}*on/{max(1, frames)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                  f":d=1:s={width}x{height}:fps={fps}")
+    chain += f",fps={fps},setsar=1,settb=AVTB,setpts=PTS-STARTPTS,tpad=stop=-1:stop_mode=clone"
+    fade = min(round(OVERLAY_FADE_S * fps), frames // 4)
+    if fade > 0:
+        chain += (f",format=yuva420p,fade=t=in:start_frame=0:nb_frames={fade}:alpha=1,"
+                  f"fade=t=out:start_frame={frames - fade}:nb_frames={fade}:alpha=1")
+    else:
+        chain += ",format=yuv420p"
+    lines.append(chain + label)
     return args, lines
 
 
@@ -456,7 +627,13 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
                "layout": layout, "kind": kind if len(spec["els"]) == 2 else None, "enc": encode, "ass": ass,
                "inputs": [{"kind": els[k]["kind"], "sha": els[k].get("sha256", ""), "in": els[k]["src_in_ms"],
                            "title": els[k].get("title", ""),
-                           "layout": (els[k].get("clip") or {}).get("layout")} for k in spec["els"]]}
+                           "layout": (els[k].get("clip") or {}).get("layout"),
+                           **({"zoom": (els[k].get("clip") or {}).get("zoom")}
+                              if float((els[k].get("clip") or {}).get("zoom") or 1.0) > 1.001 else {})}
+                          for k in spec["els"]]}
+    if spec.get("ov"):
+        ov = spec["ov"]
+        key_src["overlay"] = {k: ov[k] for k in ("kind", "sha", "fit", "motion", "src_in_ms")}
     key = hashlib.sha256(json.dumps(key_src, sort_keys=True).encode()).hexdigest()[:32]
     out = cache / f"{key}.h264"
     if out.is_file() and out.stat().st_size > 0:
@@ -471,6 +648,13 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
         last = "[j]"
     else:
         last = "[s0]"
+    if spec.get("ov"):
+        n = len(spec["els"])
+        args, chain = _overlay_input(spec["ov"], spec["frames"], fps, width, height, n, f"[o{n}]")
+        inputs += args
+        lines += chain
+        lines.append(f"{last}[o{n}]overlay=0:0:format=auto,format=yuv420p[ov]")
+        last = "[ov]"
     if ass:
         (tmp / "piece.ass").write_text(ass, encoding="utf-8")
         lines.append(f"{last}ass=piece.ass:fontsdir={filter_path(config.FONTS_DIR, tmp)},format=yuv420p[vout]")
@@ -696,13 +880,14 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         d.mkdir(parents=True, exist_ok=True)
     width, height = _size(plan, preview)
     fps = int((plan.get("output") or {}).get("fps") or 30)
-    els, overlap = frame_map(plan, fps)
+    els, _overlap = frame_map(plan, fps)
     for e in els:
         if e["kind"] == "title":
             e["title"] = plan["title"]["text"]
         else:
             a = assets[e["asset_id"]]
             e.update(path=a["path"], sha256=a.get("sha256", ""))
+    overlays = _overlay_frames(plan, els, fps, assets)
     total_f = els[-1]["end_f"]
     total_s = total_f / fps
     segs = render_timeline(plan, fps)
@@ -716,11 +901,15 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         # ---- picture: bodies and joins, each a separate small FFmpeg run, cached by content
         specs = []
         for k, e in enumerate(els):
-            head = overlap if k > 0 else 0
-            tail = overlap if k < len(els) - 1 else 0
-            if e["frames"] - head - tail > 0:
-                specs.append({"els": [k], "rel": [head], "frames": e["frames"] - head - tail,
-                              "at": e["start_f"] + head})
+            head = e["ov_in"]
+            tail = els[k + 1]["ov_in"] if k + 1 < len(els) else 0
+            b0, b1 = e["start_f"] + head, e["end_f"] - tail
+            if b1 > b0:  # the body, cut at the edges of its overlays (each overlay is exactly one piece)
+                mine = overlays.get(k) or []
+                cuts = sorted({b0, b1, *(x for o in mine for x in (o["start_f"], o["end_f"]) if b0 < x < b1)})
+                for a, b in zip(cuts, cuts[1:]):
+                    ov = next((o for o in mine if o["start_f"] <= a and b <= o["end_f"]), None)
+                    specs.append({"els": [k], "rel": [a - e["start_f"]], "frames": b - a, "at": a, "ov": ov})
             if tail:
                 specs.append({"els": [k, k + 1], "rel": [e["frames"] - tail, 0], "frames": tail,
                               "at": e["end_f"] - tail})
@@ -758,8 +947,8 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
                                                                         int(clip.get("fade_out_ms") or 0), n / SR),
                              n, tmp / f"el{k}.raw", cancelled)
             speech.append({"start": e["start_f"] * spf, "n": n, "path": raw,
-                           "ramp_in": overlap * spf if k > 0 else 0,
-                           "ramp_out": overlap * spf if k < len(els) - 1 else 0})
+                           "ramp_in": e["ov_in"] * spf,
+                           "ramp_out": (els[k + 1]["ov_in"] if k + 1 < len(els) else 0) * spf})
         items = {i["id"]: i for i in plan.get("audio") or []}
         placed = audio_timeline(plan, segs, round(total_s * 1000))
         for k, place in enumerate(placed):
@@ -826,5 +1015,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "duration": info["duration"], "expected_duration": round(total_s, 3), "fps": info["fps"],
             "has_audio": info["has_audio"], "audio_timing": timing, "normalization_gain_db": round(gain, 3),
             "timeline": segs, "audio_timeline": placed, "ducking": ducking, "words": words,
+            "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
+                         for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events),
             "pieces": len(used), "frames": total_f}

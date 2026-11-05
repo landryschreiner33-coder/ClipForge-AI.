@@ -155,6 +155,15 @@ export interface Clip {
 
 export type Settings = Record<string, any>;
 
+/** A ready-made AI helper choice (Settings → AI helper). */
+export type AiPreset = { id: string; name: string; provider: "ollama" | "openai_compatible" | "anthropic"; url: string;
+  model: string; needs_key: boolean; local: boolean; cost: string; about: string; key_url: string };
+export type AiTask = { kind?: "download" | "import"; model?: string; state?: "running" | "done" | "failed"; status?: string;
+  completed?: number; total?: number; error?: string };
+export type AiSetup = { presets: AiPreset[]; ollama_models: { name: string; size_gb: number; about: string }[];
+  ollama_download: string; ollama: { running: boolean; version: string; models: { name: string; size_gb: number }[]; problem: string };
+  task: AiTask; provider: string; label: string; recommended: string };
+
 export interface Health {
   version: string;
   platform: string;
@@ -330,6 +339,9 @@ export const api = {
   settings: () => req<Settings>("GET", "/api/settings"),
   saveSettings: (s: Settings) => req<Settings>("PUT", "/api/settings", s),
   checkAi: () => req<{ ok: boolean; detail: string; models?: string[] }>("POST", "/api/ai/check"),
+  aiSetup: () => req<AiSetup>("GET", "/api/ai/setup"),
+  ollamaPull: (model: string) => req<AiTask>("POST", "/api/ai/ollama/pull", { model }),
+  ollamaImport: (path: string, name: string) => req<AiTask>("POST", "/api/ai/ollama/import", { path, name }),
   projects: () => req<Project[]>("GET", "/api/projects"),
   project: (id: string) => req<Project>("GET", `/api/projects/${id}`),
   renameProject: (id: string, name: string) => req<Project>("PATCH", `/api/projects/${id}`, { name }),

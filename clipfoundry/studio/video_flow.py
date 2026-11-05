@@ -13,6 +13,12 @@ their own tracks, with gain, mute, fades, ducking and loops (engine.py renders t
 
 Nothing is invented: no narration, statements or endings are generated; a length target the footage cannot meet is
 explained, not filled.
+
+With smart editing on (the brief's "How much should ClipForge edit?"), the rough cut is made by smart_edit.py: it
+cuts dead air and repeated takes, fits the length, shows your images over the video, and adds music and soft sound
+effects (your own, or free ones ClipForge makes on this computer, library.py), optionally helped by the AI helper
+from Settings (ai_editor.py). "Edit it for me" on the editor page runs the same edit again on any project, as a new
+version that Undo reverts.
 """
 from __future__ import annotations
 
@@ -35,10 +41,16 @@ IMAGE_MS = 4000
 BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_ratio", "feel", "captions", "music",
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
                 "title_card", "music_level_db", "layout", "caption_size", "frame_rate", "duck_music",
-                "voiceover_asset_ids", "duck_depth_db", "shot_length_s", "find_media"}
+                "voiceover_asset_ids", "duck_depth_db", "shot_length_s", "find_media", "smart_edit", "cut_pauses",
+                "cut_retakes", "fit_length", "punch_in", "sound_effects", "broll_images", "ai_edit"}
+SMART_OPTIONS = {"smart_edit": ("off", "smart", "tight"), "music": ("none", "supplied", "find", "auto", "library"),
+                 "cut_pauses": (True, False), "cut_retakes": (True, False), "fit_length": (True, False),
+                 "punch_in": (True, False), "sound_effects": (True, False), "broll_images": (True, False),
+                 "ai_edit": (True, False)}
 STYLE_CHOICES = {"aspect_ratio", "feel", "captions", "music", "caption_style", "caption_position", "transition",
                  "title_card", "music_level_db", "layout", "target_duration_s", "video_type", "audience",
-                 "caption_size", "frame_rate", "duck_music", "duck_depth_db", "shot_length_s"}
+                 "caption_size", "frame_rate", "duck_music", "duck_depth_db", "shot_length_s", "smart_edit",
+                 "punch_in", "sound_effects", "broll_images"}
 AUDIO_DEFAULTS = {"voiceover": {"gain_db": 0.0, "duck": False, "loop": False},
                   "music": {"gain_db": -18.0, "duck": True, "loop": True},
                   "effect": {"gain_db": 0.0, "duck": False, "loop": False}}
@@ -115,8 +127,12 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
             raise VideoError("The music must be an audio file.")
     if brief.get("find_media") not in (None, "", "off", "suggest", "auto"):
         raise VideoError("Supporting media: choose off, suggest for review, or add eligible media automatically.")
-    if brief.get("music") not in (None, "", "none", "supplied", "find"):
-        raise VideoError("Music: choose none, your own file, or find music for me.")
+    if brief.get("music") not in (None, "", "none", "supplied", "find", "auto", "library"):
+        raise VideoError("Music: choose none, your own file, free music made by ClipForge, pick for me, or find "
+                         "music for me.")
+    for key, allowed in SMART_OPTIONS.items():
+        if key != "music" and brief.get(key) not in (None, "", *allowed):
+            raise VideoError(f"“{key}” must be one of: {', '.join(map(str, allowed))}.")
     voiceovers = brief.get("voiceover_asset_ids") or []
     if not isinstance(voiceovers, list):
         raise VideoError("Voiceovers must be a list of audio files.")
@@ -207,12 +223,17 @@ def _audio_item(item_id: str, asset: dict, role: str, **over) -> dict:
     return item
 
 
-def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict]]) -> dict:
+def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], smart: dict | None = None) -> dict:
     """Revision 1: the videos and images in the order of the media bin, each trimmed to its speech (measured silence
     kept short), avoid-requests cut out at sentence boundaries, the brief's music and voiceovers on their tracks,
-    and the brief/style choices applied."""
+    and the brief/style choices applied. With smart editing on, smart_edit.build makes it instead (`smart`: what
+    prepare_smart got ready: the AI helper's advice and the music and effects to use)."""
     values = (project.get("guidance") or {}).get("values") or {}
     brief = project.get("brief") or {}
+    from . import smart_edit
+
+    if smart_edit.options(values, brief)["level"] != "off":
+        return smart_edit.build(project, assets, words, values, ctx=smart)
     feel = values.get("feel", "balanced")
     t_type, t_ms = FEEL_TRANSITIONS.get(feel, FEEL_TRANSITIONS["balanced"])
     if values.get("transition"):
@@ -291,6 +312,16 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
     elif target and total < target * 0.9:
         plan["notes"].append(f"Your footage adds up to {total / 60:.1f} min, shorter than the {target / 60:.1f} min "
                              "you asked for. Nothing is invented to fill the difference.")
+    music = (smart or {}).get("music") or {}
+    if not any(i["role"] == "music" for i in audio) and music.get("asset_id") in assets:
+        m = assets[music["asset_id"]]
+        audio.append({**_audio_item(f"a{len(audio) + 1}", m, "music",
+                                    gain_db=float(values.get("music_level_db", -20 if music.get("how") == "library"
+                                                             else -18)),
+                                    duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
+                      "auto": True})
+        plan["notes"].append(f"Added {'free background music' if music.get('how') == 'library' else 'your music file'} "
+                             f"“{m['filename']}” under the whole video; it dips while people speak.")
     vo_end = max((i["start_ms"] + (engine.item_length(i) or 0) for i in audio if i["role"] == "voiceover"),
                  default=0)
     if vo_end > total * 1000 + 100:
@@ -306,6 +337,7 @@ def _assets(project: dict, plan: dict | None = None) -> dict[str, dict]:
         list(brief.get("voiceover_asset_ids") or [])
     if plan:
         ids += [c["asset_id"] for c in plan.get("clips") or []] + [i["asset_id"] for i in plan.get("audio") or []]
+        ids += [o["asset_id"] for o in plan.get("overlays") or []]
         if plan.get("music"):
             ids.append(plan["music"].get("asset_id"))
     out = {}
@@ -368,7 +400,8 @@ def build(job: dict, lease: Lease) -> dict:
         lease.progress(0.05 + 0.6 * k / len(project["asset_ids"]), f"Listening to {assets[aid]['filename']}")
         words[aid] = transcript_words(assets[aid], settings, lease)
     lease.progress(0.7, "Building the rough cut")
-    plan = rough_cut(project, assets, words)
+    smart = prepare_smart(project, assets, words, settings, lease)
+    plan = rough_cut(db.fetch("studio_projects", project["id"]), assets, words, smart)
     rev = save_revision(project["id"], plan, "Rough cut from your brief", None,
                         {"action": "build", "prev": None, "redo": None}) if project["plan_revision"] == 0 \
         else project["plan_revision"]
@@ -379,6 +412,153 @@ def build(job: dict, lease: Lease) -> dict:
         # the one supporting-media step you asked for; never repeated per render
         from . import media_sources
         media_sources.find_for_project(project["id"], project["workspace_id"])
+    return {"revision": rev}
+
+
+def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], settings: dict,
+                  lease: Lease | None = None) -> dict:
+    """What a smart edit needs besides the transcripts: the AI helper's advice (when one is set up and allowed), and
+    the music and sound effects it will use, stored as assets and added to the project's media (`assets` is
+    updated in place). Empty when smart editing is off."""
+    from . import ai_editor, library, smart_edit
+
+    values = (project.get("guidance") or {}).get("values") or {}
+    brief = project.get("brief") or {}
+    opts = smart_edit.options(values, brief)
+    off = opts["level"] == "off"
+    if off and opts["music"] not in ("auto", "library"):
+        return {}
+    ctx: dict = {}
+    if off:  # clips kept as they are, with background music picked for you
+        pass
+    elif opts["ai"] and ai_editor.configured(settings):
+        table = smart_edit.sentence_table(project, assets, words)
+        keep = [p.strip().lower() for p in re.split(r"[,;\n]|\band\b", brief.get("must_keep") or "")
+                if len(p.strip()) >= 3]
+        if table:
+            if lease:
+                lease.progress(0.72, "The AI helper is reading what is said")
+            try:
+                ctx["ai"] = ai_editor.advise(
+                    table, {**brief, **{k: values[k] for k in ("video_type", "audience", "target_duration_s")
+                                        if k in values and not brief.get(k)}}, settings,
+                    protected={s["i"] for s in table if any(p in s["text"].lower() for p in keep)},
+                    heartbeat=(lambda m: lease.progress(0.74, m)) if lease else None,
+                    canceled=lease.canceled if lease else None)
+            except ai_editor.AdviceError as exc:
+                ctx["ai_problem"] = str(exc)[:200]
+    elif opts["ai"]:
+        ctx["ai_problem"] = "none is set up; Settings → AI helper has free choices"
+    music = smart_edit.choose_music(project, assets, values, (ctx.get("ai") or {}).get("music", ""))
+    added: list[dict] = []
+    lib: dict[str, dict] = {}
+    try:
+        if music.get("how") == "library":
+            if lease:
+                lease.progress(0.78, "Making the background music")
+            a = library.asset(project["workspace_id"], music["key"])
+            music["asset_id"] = a["id"]
+            added.append(a)
+        if opts["sound_effects"] and not off:
+            for key in ("whoosh", "swish"):
+                lib[key] = library.asset(project["workspace_id"], key)
+                added.append(lib[key])
+    except (OSError, ValueError, RuntimeError) as exc:  # the edit goes on without them, and says so
+        ctx["library_problem"] = str(exc)[:200]
+        music = {"how": ""} if music.get("how") == "library" and not music.get("asset_id") else music
+    for a in added:
+        assets[a["id"]] = a
+    fresh = [a["id"] for a in added if a["id"] not in project["asset_ids"]]
+    if fresh:
+        current = db.fetch("studio_projects", project["id"])
+        db.update("studio_projects", project["id"], asset_ids=list(dict.fromkeys(current["asset_ids"] + fresh)),
+                  updated_at=time.time())
+    ctx.update(music=music if music.get("how") in ("bin", "library") else {}, library=lib)
+    return ctx
+
+
+SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks")
+
+
+def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
+    """Run the smart edit again on this project with these choices, as a background job that saves a new version
+    (Undo returns to the current one). Your look, captions, word fixes and the sounds and pictures you placed
+    yourself are kept."""
+    project = db.fetch("studio_projects", project_id)
+    if not project or not project["plan_revision"]:
+        raise VideoError("The rough cut is not ready yet.")
+    if base_revision != project["plan_revision"]:
+        raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
+    unknown = set(choices) - set(SMART_OPTIONS) - {"target_duration_s"}
+    if unknown:
+        raise VideoError("Unknown choices: " + ", ".join(sorted(unknown)))
+    for key, value in choices.items():
+        if key == "target_duration_s":
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or
+                                      not 0 <= value <= 4 * 3600):
+                raise VideoError("The length must be between 0 and 4 hours.")
+        elif value not in SMART_OPTIONS[key]:
+            raise VideoError(f"“{key}” must be one of: {', '.join(map(str, SMART_OPTIONS[key]))}.")
+    if choices.get("music") == "supplied" and not (project.get("brief") or {}).get("music_asset_id"):
+        raise VideoError("Add your music file to this video first, or choose another music option.")
+    brief = {**(project.get("brief") or {}), **choices}
+    db.update("studio_projects", project_id, brief=brief, updated_at=time.time())
+    job = enqueue(project["workspace_id"], "video_smart", project_id, base_revision)
+    return {"job": job["id"]}
+
+
+@handler("video_smart")
+def smart_job(job: dict, lease: Lease) -> dict:
+    project = db.fetch("studio_projects", job["target_id"])
+    if not project:
+        raise VideoError("The project was deleted.")
+    base = job["revision"]
+    if project["plan_revision"] != base:
+        raise VideoError("The video changed before this edit started; nothing was changed. Press Edit it for me "
+                         "again.")
+    settings = db.get_settings()
+    current = plan_at(project["id"], base)
+    assets = _assets(project, current)
+    words = {}
+    videos = [aid for aid in project["asset_ids"] if (assets.get(aid) or {}).get("kind") == "video"]
+    for k, aid in enumerate(videos):
+        lease.progress(0.05 + 0.5 * k / max(1, len(videos)), f"Listening to {assets[aid]['filename']}")
+        words[aid] = transcript_words(assets[aid], settings, lease)
+    lease.progress(0.6, "Editing")
+    ctx = prepare_smart(project, assets, words, settings, lease)
+    project = db.fetch("studio_projects", project["id"])
+    new = rough_cut(project, assets, words, ctx)
+    for key in SMART_KEEP:  # the look and the fixes you made stay as they are
+        if key in current:
+            new[key] = copy.deepcopy(current[key])
+    clip_ids = {c["id"] for c in new["clips"]}
+    mine = [i for i in current.get("audio") or [] if not i.get("auto") and
+            (not i.get("anchor") or i["anchor"].get("clip_id") in clip_ids)]
+    lost = [i["label"] for i in current.get("audio") or [] if not i.get("auto") and i not in mine]
+    auto = [i for i in new.get("audio") or [] if i.get("auto") or i["role"] != "voiceover"]
+    if any(i["role"] == "music" for i in mine):
+        auto = [i for i in auto if i["role"] != "music"]
+    auto = [i for i in auto if not any(m["asset_id"] == i["asset_id"] and m["role"] == i["role"] for m in mine)]
+    new["audio"] = []
+    for n, item in enumerate(mine + auto, 1):
+        new["audio"].append({**item, "id": f"a{n}"})
+    keep_ov = [o for o in current.get("overlays") or [] if not o.get("auto") and o.get("clip_id") in clip_ids]
+    lost += [o.get("label", "") for o in current.get("overlays") or [] if not o.get("auto") and o not in keep_ov]
+    new["overlays"] = [{**o, "id": f"o{n}"} for n, o in enumerate(keep_ov + (new.get("overlays") or []), 1)]
+    if lost:
+        new["notes"].append("These were attached to parts that are no longer in the video and were left out: " +
+                            ", ".join(x for x in lost if x)[:300] + ". Add them again from Your media.")
+    problems = engine.validate(new, _assets(db.fetch("studio_projects", project["id"]), new))
+    if problems:
+        raise VideoError("; ".join(problems))
+    level = (new.get("smart") or {}).get("level", "off")
+    note = {"smart": "Edited for you", "tight": "Edited for you (fast-paced)"}.get(level, "Rebuilt the rough cut")
+    try:
+        rev = save_revision(project["id"], new, note, base)
+    except Conflict as exc:
+        raise VideoError("The video changed while it was being edited; nothing was overwritten. Press Edit it for "
+                         "me again.") from exc
+    enqueue(project["workspace_id"], "video_preview", project["id"], rev)
     return {"revision": rev}
 
 
@@ -500,9 +680,62 @@ def _clip_set(p: dict, edit: dict, field: str, value) -> str:
         c[field] = _ms(value, "A fade")
     elif field == "layout" and value in (None, *engine.LAYOUTS):
         c["layout"] = value
+    elif field == "zoom":
+        c["zoom"] = _number(value, *engine.ZOOM_RANGE, "A clip's zoom")
+    elif field == "join" and value in (None, "cut"):
+        if value is None:
+            c.pop("join", None)
+        else:
+            c["join"] = "cut"
     else:
         raise VideoError(f"“{field}” cannot be set to that.")
     return f"Changed {field.replace('_', ' ')} of {c['label']}"
+
+
+def _overlay_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
+    """Pictures over the video: add one to a clip, move or resize it, change its motion, or remove it."""
+    op = edit["op"]
+    p.setdefault("overlays", [])
+    if op == "overlay_add":
+        a = _bin_asset(assets, edit.get("asset_id"))
+        if a["kind"] not in engine.OVERLAY_KINDS:
+            raise VideoError(f"“{a['filename']}” is a sound; add it to an audio track instead.")
+        c = _find(p, edit.get("clip_id"))
+        length = _ms(edit.get("length_ms", 3500), "The length")
+        if length < engine.OVERLAY_MIN_MS:
+            raise VideoError("Show a picture for at least half a second.")
+        item = {"id": _new_id("o", (o["id"] for o in p["overlays"])), "asset_id": a["id"], "clip_id": c["id"],
+                "offset_ms": _ms(edit.get("offset_ms", 0), "The start"), "length_ms": length,
+                "motion": edit.get("motion", "zoom" if a["kind"] == "image" else "still"), "label": a["filename"]}
+        if item["motion"] not in engine.OVERLAY_MOTIONS:
+            raise VideoError("Choose still or a slow zoom.")
+        if a["kind"] == "video":
+            item["in_ms"] = _ms(edit.get("in_ms", 0), "The start in the file")
+        p["overlays"].append(item)
+        return f"Showed {a['filename']} over {c['label']}"
+    o = next((x for x in p["overlays"] if x["id"] == edit.get("overlay_id")), None)
+    if o is None:
+        raise VideoError("That picture is not over this video.")
+    if op == "overlay_remove":
+        p["overlays"].remove(o)
+        return f"Removed {o['label']} from over the video (the file stays in your media)"
+    if op == "overlay_set":
+        field, value = edit.get("field"), edit.get("value")
+        if field in ("offset_ms", "length_ms"):
+            o[field] = _ms(value, "A time")
+            if field == "length_ms" and o[field] < engine.OVERLAY_MIN_MS:
+                raise VideoError("Show a picture for at least half a second.")
+        elif field == "motion" and value in engine.OVERLAY_MOTIONS:
+            o["motion"] = value
+        elif field == "fit" and value in (None, *engine.OVERLAY_FITS):
+            o["fit"] = value
+        elif field == "clip_id":
+            o["clip_id"] = _find(p, value)["id"]
+        else:
+            raise VideoError(f"“{field}” cannot be set to that.")
+        o.pop("auto", None)  # you changed it: a later "Edit it for me" keeps it
+        return f"Changed {str(field).replace('_', ' ')} of {o['label']}"
+    raise VideoError("Unknown edit.")
 
 
 def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
@@ -658,6 +891,8 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         return p, f"Replaced {old} with {a['filename']}"
     if op in ("add_audio", "audio_remove", "audio_move", "audio_trim", "audio_set"):
         return p, _audio_edit(p, edit, assets)
+    if op in ("overlay_add", "overlay_remove", "overlay_set"):
+        return p, _overlay_edit(p, edit, assets)
     if op == "track_set":
         track = edit.get("track")
         if track not in engine.TRACKS:
@@ -816,8 +1051,8 @@ def name_revision(project_id: str, revision: int, name: str) -> None:
 
 # ------------------------------------------------------------------ renders
 def plan_hash(plan: dict) -> str:
-    """What decides a render's pixels and sound: the plan without its notes and outline."""
-    core = {k: v for k, v in engine.upgrade(plan).items() if k not in ("notes", "outline")}
+    """What decides a render's pixels and sound: the plan without its notes, outline, chapters and edit report."""
+    core = {k: v for k, v in engine.upgrade(plan).items() if k not in ("notes", "outline", "chapters", "smart")}
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
 
 
@@ -946,7 +1181,20 @@ def view(project: dict) -> dict:
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
-            "capabilities": engine.capabilities(), **_media_view(project, plan, assets)}
+            "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+
+
+def _smart_view(plan: dict | None) -> dict:
+    from ..pipeline import llm
+    from . import ai_editor, smart_edit
+
+    settings = db.get_settings()
+    provider = ai_editor.configured(settings)
+    return {"overlay_timeline": engine.overlay_timeline(plan) if plan else [],
+            "chapters": smart_edit.chapter_times(plan) if plan else [],
+            "smart": (plan or {}).get("smart"),
+            "ai_helper": {"configured": bool(provider), "label": llm.provider_label(settings) if provider else "",
+                          "local": ai_editor.is_local(settings, provider) if provider else False}}
 
 
 def _media_view(project: dict, plan: dict | None, assets: dict[str, dict]) -> dict:

@@ -5,7 +5,7 @@ import { AskForChange } from "../components/AskForChange";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
-import { AudioItem, AudioRole, fmtEdit, fmtTime, Plan, PlanClip, studio, TrackName, Video } from "../studio";
+import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
 const ROLE_WORDS: Record<AudioRole, string> = { voiceover: "Voiceover", music: "Music", effect: "Sound effect" };
@@ -56,6 +56,9 @@ function Timeline({ v, selected, onSelect }: { v: Video; selected: string; onSel
             style={{ left: pct(s.out_start_ms), width: pct(s.out_end_ms - s.out_start_ms) }}
             aria-label={`Clip ${i + 1}, ${fmtEdit(s.out_start_ms)} to ${fmtEdit(s.out_end_ms)}`} onClick={() => onSelect(s.clip_id)} />
         ))}</div></div>
+      {(v.overlay_timeline?.length ?? 0) > 0 && <div className="tl-row"><span className="tl-name">Pictures</span><div className="tl-lane">
+        {v.overlay_timeline!.map((o) => <span key={o.overlay_id} className="tl-seg image"
+          style={{ left: pct(o.out_start_ms), width: pct(o.out_end_ms - o.out_start_ms) }} />)}</div></div>}
       {rows.map(([track, name]) => {
         const items = v.audio_timeline.filter((a) => a.track === track);
         const muted = v.plan?.tracks?.[track]?.mute;
@@ -91,6 +94,18 @@ function ClipInspector({ c, plan, v, edit, busy }: { c: PlanClip; plan: Plan; v:
         <TimeField label="Fade in (s)" ms={c.fade_in_ms || 0} disabled={busy} onCommit={(ms) => edit({ op: "set", clip_id: c.id, field: "fade_in_ms", value: ms })} />
         <TimeField label="Fade out (s)" ms={c.fade_out_ms || 0} disabled={busy} onCommit={(ms) => edit({ op: "set", clip_id: c.id, field: "fade_out_ms", value: ms })} />
         <label><input type="checkbox" checked={!!c.mute} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "mute", value: e.target.checked })} /> Mute this clip's sound</label>
+      </div>}
+      {c.kind === "video" && <div className="grid-2">
+        <label className="field"><span>Zoom</span>
+          <select value={String(c.zoom || 1)} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "zoom", value: Number(e.target.value) })}>
+            {[["1", "None"], ["1.1", "A little (110%)"], ["1.2", "More (120%)"], ["1.3", "Close (130%)"], ["1.5", "Very close (150%)"]].map(([z, t]) => <option key={z} value={z}>{t}</option>)}
+            {c.zoom && ![1, 1.1, 1.2, 1.3, 1.5].includes(c.zoom) && <option value={String(c.zoom)}>{Math.round(c.zoom * 100)}%</option>}
+          </select></label>
+        {plan.clips[0]?.id !== c.id && <label className="field"><span>Join with the clip before</span>
+          <select value={c.join || ""} disabled={busy} onChange={(e) => edit({ op: "set", clip_id: c.id, field: "join", value: e.target.value || null })}>
+            <option value="">Like the rest of the video ({plan.transition.type === "cut" ? "straight cut" : plan.transition.type})</option>
+            <option value="cut">Straight cut (jump cut)</option>
+          </select></label>}
       </div>}
       <div className="grid-2">
         <label className="field"><span>Framing</span>
@@ -147,6 +162,154 @@ function AudioRow({ item, v, edit, busy }: { item: AudioItem; v: Video; edit: Ed
         </div>
       </Disclosure>
     </li>
+  );
+}
+
+const LEVELS: [SmartLevel, string, string][] = [
+  ["smart", "Edit it for me", "Cut pauses, repeated takes and weak parts; pictures, music and sound effects"],
+  ["tight", "Fast-paced", "Shorter pauses and a small zoom on every other cut"],
+  ["off", "Keep my clips as they are", "Only the silence at the start and end is trimmed"]];
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** What the last smart edit did, in a sentence. */
+function smartDone(r: SmartReport): string {
+  const s = r.stats;
+  const parts: string[] = [];
+  if (s.pauses_cut) parts.push(`cut ${plural(s.pauses_cut, "pause")} (${Math.round(s.seconds_saved)} s)`);
+  if (s.retakes) parts.push(`left out ${plural(s.retakes, "repeated take")}`);
+  if (s.ai_left_out) parts.push(`left out ${plural(s.ai_left_out, "weak part")} the AI helper found`);
+  if (s.fit_left_out) parts.push(`left out ${plural(s.fit_left_out, "weaker sentence")} to fit your length`);
+  if (s.overlays) parts.push(`showed ${plural(s.overlays, "picture")}`);
+  if (s.music) parts.push("added music");
+  if (s.effects) parts.push(`added ${plural(s.effects, "sound effect")}`);
+  if (!parts.length) return "Nothing needed cutting.";
+  const text = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+  return text.charAt(0).toUpperCase() + text.slice(1) + ".";
+}
+
+/** Edit it for me (again): the smart edit with your choices, as a new version you can undo. */
+function SmartPanel({ v, plan, busy, onStarted }: { v: Video; plan: Plan; busy: boolean; onStarted: () => void }) {
+  const report = plan.smart;
+  const brief = v.brief as Record<string, unknown>;
+  const opts = (report?.options || {}) as Record<string, unknown>;
+  const [level, setLevel] = useState<SmartLevel>(report && report.level !== "off" ? report.level : "smart");
+  const [broll, setBroll] = useState(opts.broll !== undefined ? !!opts.broll : brief.broll_images !== false);
+  const [fx, setFx] = useState(opts.sound_effects !== undefined ? !!opts.sound_effects : brief.sound_effects !== false);
+  const [punch, setPunch] = useState<boolean | null>(typeof brief.punch_in === "boolean" ? brief.punch_in : null);
+  const current = String(brief.music || "none");
+  const [music, setMusic] = useState(current === "none" && !report ? "auto" : current);
+  const [ai, setAi] = useState(brief.ai_edit !== false);
+  const [minutes, setMinutes] = useState(brief.target_duration_s ? String(Math.round(Number(brief.target_duration_s) / 6) / 10) : "");
+  const [starting, setStarting] = useState(false);
+  const running = v.jobs.some((j) => j.kind === "video_smart" && (j.status === "running" || j.status === "queued"));
+  const helper = v.ai_helper;
+  const chapters = v.chapters || [];
+  const start = async () => {
+    setStarting(true);
+    const m = parseFloat(minutes.replace(",", "."));
+    try {
+      await studio.smartVideo(v.id, v.plan_revision, { smart_edit: level, broll_images: broll, sound_effects: fx, music,
+        ai_edit: ai, target_duration_s: Number.isFinite(m) && m > 0 ? Math.round(m * 60) : 0,
+        ...(punch === null ? {} : { punch_in: punch }) });
+      toast("Editing it for you. The new version appears here when it is ready; Undo goes back to this one.");
+      onStarted();
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setStarting(false);
+  };
+  const copyChapters = async () => {
+    const text = chapters.map((c) => `${fmtTime(c.ms / 1000)} ${c.title}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Chapters copied. Paste them into your YouTube description.");
+    } catch {
+      toast(text);
+    }
+  };
+  return (
+    <section className="panel" aria-labelledby="vr-smart">
+      <div className="panel-head"><h2 id="vr-smart">Edit it for me</h2>
+        {report && report.level !== "off" && <span className="pill">{report.level === "tight" ? "Fast-paced" : "Smart edit"}</span>}</div>
+      {report && report.level !== "off" ? <p>{smartDone(report)}</p>
+        : <p className="muted">ClipForge can cut the pauses, repeated takes and weak parts, fit your length, and add your pictures, music and soft sound effects. It makes a new version you can undo.</p>}
+      {report?.ai?.used ? <p className="small muted">{report.ai.sent}{report.ai.problems?.length ? ` Some parts were decided without it: ${report.ai.problems[0]}` : ""}</p>
+        : report?.ai?.problem ? <p className="small muted">The AI helper was not used ({report.ai.problem}). <a href="#/settings/ai">AI helper settings</a></p> : null}
+      <Disclosure summary={report && report.level !== "off" ? "Edit it again with other choices" : "Choose how"}>
+        <div className="stack-3">
+          <div className="mode-pick">
+            {LEVELS.map(([lv, t, d]) => (
+              <label key={lv}><input type="radio" name="vr-smart-level" checked={level === lv} onChange={() => setLevel(lv)} /><b>{t}</b><span>{d}</span></label>
+            ))}
+          </div>
+          <div className="grid-2">
+            <label className="field"><span>Length in minutes</span><input inputMode="decimal" value={minutes} placeholder="Keep everything good" onChange={(e) => setMinutes(e.target.value)} /></label>
+            <label className="field"><span>Music</span><select value={music} onChange={(e) => setMusic(e.target.value)}>
+              <option value="auto">Pick for me (your music file, or free ClipForge music)</option>
+              <option value="library">Free music made by ClipForge</option>
+              {!!brief.music_asset_id && <option value="supplied">My own music file</option>}
+              {current === "find" && <option value="find">Music found in Media sources</option>}
+              <option value="none">No added music</option></select></label>
+          </div>
+          {level !== "off" && <div className="stack-2">
+            <label><input type="checkbox" checked={broll} onChange={(e) => setBroll(e.target.checked)} /> Show my images over the video while people talk</label>
+            <label><input type="checkbox" checked={fx} onChange={(e) => setFx(e.target.checked)} /> Soft sound effects at scene changes and pictures</label>
+            <label><input type="checkbox" checked={punch ?? level === "tight"} onChange={(e) => setPunch(e.target.checked)} /> Zoom in a little on every other cut</label>
+            <label><input type="checkbox" checked={ai && !!helper?.configured} disabled={!helper?.configured} onChange={(e) => setAi(e.target.checked)} /> Use the AI helper{helper?.configured ? ` (${helper.label}${helper.local ? ", on this computer" : ", online"})` : ""}</label>
+            {!helper?.configured && <p className="small muted">No AI helper is set up; the built-in editor works without one. <a href="#/settings/ai">Set up a free AI helper</a></p>}
+          </div>}
+          <p className="small muted">Your look, captions, word fixes and the sounds and pictures you placed yourself stay. What it cuts stays in the sequence, switched off.</p>
+          <button type="button" className="btn btn-primary" disabled={busy || starting || running} onClick={start}>
+            <Icon name="create" />{running ? "Editing…" : report && report.level !== "off" ? "Edit it again" : "Edit it for me"}</button>
+        </div>
+      </Disclosure>
+      {chapters.length > 0 && <Disclosure summary={`Chapters for YouTube (${chapters.length})`}>
+        <ul className="small">{chapters.map((c) => <li key={`${c.ms}-${c.title}`}>{fmtTime(c.ms / 1000)} {c.title}</li>)}</ul>
+        <button type="button" className="btn btn-small" onClick={copyChapters}>Copy for the description</button>
+      </Disclosure>}
+    </section>
+  );
+}
+
+/** Pictures shown over the video while its sound goes on (B-roll). */
+function Pictures({ v, plan, edit, busy }: { v: Video; plan: Plan; edit: EditFn; busy: boolean }) {
+  const images = v.bin.map((aid) => v.assets.find((a) => a.id === aid)).filter((a) => a && (a.kind === "image" || a.kind === "video"));
+  const clips = plan.clips.filter((c) => c.include && c.kind === "video");
+  const [add, setAdd] = useState({ asset: "", clip: "" });
+  const overlays = plan.overlays || [];
+  if (!overlays.length && !images.some((a) => a!.kind === "image")) return null;
+  const placed = (o: Overlay) => v.overlay_timeline?.find((x) => x.overlay_id === o.id);
+  return (
+    <section className="panel" aria-labelledby="vr-pictures">
+      <h2 id="vr-pictures">Pictures over the video ({overlays.length})</h2>
+      {overlays.length ? <ul className="seq audio-list">{overlays.map((o) => {
+        const at = placed(o);
+        const clip = plan.clips.find((c) => c.id === o.clip_id);
+        return (
+          <li key={o.id}>
+            <div className="break">
+              <b className="clamp-1">{o.label}</b>
+              <span className="block small muted">{at ? `${fmtEdit(at.out_start_ms)}–${fmtEdit(at.out_end_ms)}` : "Not shown (its clip is switched off or too short)"}
+                {clip ? ` · over “${clip.label}”` : ""}{o.why ? ` · ${o.why}` : ""}</span>
+            </div>
+            <div className="row-actions wrap">
+              <select value={o.motion} aria-label={`Motion of ${o.label}`} disabled={busy} onChange={(e) => edit({ op: "overlay_set", overlay_id: o.id, field: "motion", value: e.target.value })}>
+                <option value="zoom">Slow push in</option><option value="still">Still</option></select>
+              <TimeField label="Shown for (s)" ms={o.length_ms} disabled={busy} onCommit={(ms) => edit({ op: "overlay_set", overlay_id: o.id, field: "length_ms", value: ms })} />
+              <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "overlay_remove", overlay_id: o.id })}><Icon name="trash" />Remove</button>
+            </div>
+          </li>
+        );
+      })}</ul> : <p className="small muted">Show an image over a clip while its sound goes on, instead of between clips.</p>}
+      {images.length > 0 && clips.length > 0 && <div className="row-actions wrap" role="group" aria-label="Show a picture over the video">
+        <select value={add.asset} aria-label="Picture to show" onChange={(e) => setAdd({ ...add, asset: e.target.value })}>
+          <option value="">Show a picture…</option>{images.map((a) => <option key={a!.id} value={a!.id}>{a!.filename}</option>)}</select>
+        <select value={add.clip} aria-label="Over which clip" onChange={(e) => setAdd({ ...add, clip: e.target.value })}>
+          <option value="">Over clip…</option>{clips.map((c) => <option key={c.id} value={c.id}>Clip {plan.clips.indexOf(c) + 1} ({c.label}, {((c.out_ms - c.in_ms) / 1000).toFixed(1)} s)</option>)}</select>
+        <button type="button" className="btn btn-small" disabled={busy || !add.asset || !add.clip}
+          onClick={() => edit({ op: "overlay_add", asset_id: add.asset, clip_id: add.clip, offset_ms: 0, length_ms: 3500 })}><Icon name="plus" />Show</button>
+      </div>}
+    </section>
   );
 }
 
@@ -247,6 +410,7 @@ export default function VideoReview({ id }: { id: string }) {
           </section>),
         outputs: plan && (
           <div className="stack-5">
+            <SmartPanel key={v.plan_revision} v={v} plan={plan} busy={busy} onStarted={() => void load()} />
             <section className="panel" aria-labelledby="vr-seq">
               <div className="panel-head"><h2 id="vr-seq">Sequence ({plan.clips.length})</h2>
                 <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "shorten_intro", seconds: 5 })}>Shorten the introduction</button></div>
@@ -285,6 +449,7 @@ export default function VideoReview({ id }: { id: string }) {
               <AskForChange v={v} busy={busy} onApplied={() => void load()} />
               {plan.notes.length > 0 && <ul className="small">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
             </section>
+            <Pictures v={v} plan={plan} edit={edit} busy={busy} />
             <section className="panel" aria-labelledby="vr-audio">
               <h2 id="vr-audio">Sound</h2>
               <div className="track-grid">
