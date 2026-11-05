@@ -3,7 +3,8 @@ import { errorText } from "../api";
 import { ConfirmDialog, Icon, IconName, toast } from "../components/ui";
 import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
-import { BY_ID, CAST, DEPARTMENTS, Dept, RoomId, ROOM_NAMES } from "./cast";
+import { BY_ID, CAST, CORE, DEPARTMENTS, Dept, RoomId, ROOM_NAMES } from "./cast";
+import { RobotNameEditor } from "./RobotName";
 import { brainApi, BrainSummary, Health, HealthStatus, office, OfficeDecision, OfficeEvent, RoleRow, RoomDetails,
   Snapshot, staleHealth } from "./api";
 import Portrait from "./Portrait";
@@ -225,8 +226,9 @@ export function ActivityList({ events, skew, limit, onRobot, filter = "all" }: {
         return (
           <li key={e.id} className={bad ? "bad" : ""}>
             <span className="dot" aria-hidden="true" style={{ background: c ? c.palette.trim : "#7d8494" }} />
-            {c ? <button type="button" className="link-btn" onClick={() => onRobot(e.role)}>{c.name}</button>
-              : <b>{e.role === "core" ? "CORE" : "System"}</b>}
+            {c ? <button type="button" className="link-btn" onClick={() => onRobot(e.role)} title={c.title}
+              aria-label={`${c.name}, ${c.title}`}>{c.name}</button>
+              : <b>{e.role === "core" ? CORE.name : "System"}</b>}
             <span className="grow">{TYPE_WORD[e.type] || e.type}{e.message ? `: ${e.message}` : ""}</span>
             <time className="muted tiny nowrap" dateTime={new Date(e.at * 1000).toISOString()} title={new Date(e.at * 1000).toLocaleString()}>{ago(e.at, skew)}</time>
           </li>
@@ -281,6 +283,7 @@ export function RobotPanel({ id, row, card, onRobot }: {
           <b>{c.name}</b>
           <span>{c.title}</span>
           <StateBadge state={state} />
+          <RobotNameEditor id={id} />
         </div>
       </div>
       <dl className="op-pair">
@@ -581,7 +584,8 @@ function ReportList({ items }: { items: RoomDetails["reports"] }) {
       {items.map((r: any) => (
         <li key={r.id}>
           <span className="op-mini" aria-hidden="true" style={{ background: BY_ID[r.worker]?.palette.trim }} />
-          <span className="grow"><b>{BY_ID[r.worker]?.name || r.worker}</b> → {BY_ID[r.manager]?.name || r.manager}: {r.summary}</span>
+          <span className="grow"><b title={BY_ID[r.worker]?.title}>{BY_ID[r.worker]?.name || r.worker}</b> →{" "}
+            <span title={BY_ID[r.manager]?.title}>{BY_ID[r.manager]?.name || r.manager}</span>: {r.summary}</span>
           <span className="muted tiny nowrap">{time(r.created_at)}</span>
         </li>
       ))}

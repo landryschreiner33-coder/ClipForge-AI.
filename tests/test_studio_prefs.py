@@ -28,8 +28,26 @@ def test_rename_editor_to_nova_keeps_every_real_id(api):
                         "display_name": "Nova", "custom": True}
     assert {r["id"]: (r["manager"], r.get("kinds"), r["department"]) for r in roles.ROLES} == before
     names = api.get("/api/robots/names").json()
-    assert names[editor["id"]]["display_name"] == "Nova" and len(names) == len(roles.ROLES)
+    assert names[editor["id"]]["display_name"] == "Nova" and len(names) == len(roles.ROLES) + 1  # and CORE
     assert api.delete(f"/api/robots/names/{editor['id']}").json()["display_name"] == editor["name"]
+
+
+def test_every_robot_including_core_can_be_renamed_and_all_reset_with_confirmation(api):
+    from clipfoundry.office import roles, view
+
+    ids = [r["id"] for r in roles.ROLES] + ["core"]
+    for n, rid in enumerate(ids):
+        assert api.put(f"/api/robots/names/{rid}", json={"name": f"Robot {n} ✨"}).status_code == 200, rid
+    names = api.get("/api/robots/names").json()
+    assert names["core"] == {"role_id": "core", "default_name": "CORE", "role": "Brain Core",
+                             "display_name": f"Robot {len(ids) - 1} ✨", "custom": True}
+    assert all(names[rid]["custom"] for rid in ids)
+    # a name is display only: work still goes to the same role ids
+    assert roles.role_for("video_render") == "check" and {r["id"] for r in view.role_states({})} == set(roles.BY_ID)
+    assert api.post("/api/robots/names/reset", json={}).status_code == 422  # not confirmed: nothing changes
+    assert api.get("/api/robots/names").json()["core"]["custom"]
+    after = api.post("/api/robots/names/reset", json={"confirm": True}).json()
+    assert not any(v["custom"] for v in after.values()) and after["core"]["display_name"] == "CORE"
 
 
 def test_robot_names_accept_unicode_reject_blank_and_never_become_markup(api):
@@ -96,6 +114,10 @@ def test_names_and_preferences_sync_across_devices_and_stay_in_their_workspace(m
         assert phone.get("/api/preferences/appearance").json()["value"]["theme"] == "light"
         assert other.get("/api/robots/names").json()["frame"]["display_name"] == "FRAME"
         assert other.get("/api/preferences/appearance").json()["value"]["theme"] == "system"
+        other.put("/api/robots/names/frame", json={"name": "Theirs"})
+        reset = other.post("/api/robots/names/reset", json={"confirm": True})
+        assert reset.status_code == 200, reset.text
+        assert desk.get("/api/robots/names").json()["frame"]["display_name"] == "Nova"  # only their own names reset
     from clipfoundry.cloud import settings as cloud_settings
 
     cloud_settings.reset()

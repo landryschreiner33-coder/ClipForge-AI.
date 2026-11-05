@@ -207,6 +207,8 @@ export const studio = {
   robotNames: () => req<Record<string, { role_id: string; default_name: string; role: string; display_name: string; custom: boolean }>>("GET", "/api/robots/names"),
   renameRobot: (id: string, name: string) => req<{ display_name: string }>("PUT", `/api/robots/names/${id}`, { name }),
   resetRobot: (id: string) => req<{ display_name: string }>("DELETE", `/api/robots/names/${id}`),
+  /** Every robot back to its original name; the screen confirms first. */
+  resetAllRobots: () => req<Record<string, { display_name: string }>>("POST", "/api/robots/names/reset", { confirm: true }),
 };
 
 // ------------------------------------------------------------------ resumable upload

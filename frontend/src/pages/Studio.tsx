@@ -9,7 +9,7 @@ import { OwnerWork, RoleRow } from "../office/api";
 import { useOffice } from "../office/useOffice";
 import { POSE_OF } from "../office/panels";
 import Portrait from "../office/Portrait";
-import { OfficeView, Sel } from "./Office";
+import { OfficeView, useOfficeSelection } from "./Office";
 import "../office/studio.css";
 
 const RUNNING = new Set(["queued", "processing", "importing", "uploading", "building", "rendering"]);
@@ -30,7 +30,7 @@ export default function Studio() {
   const { st } = useStatus();
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [problem, setProblem] = useState("");
-  const [sel, setSel] = useState<Sel>(null);
+  const [sel, setSel] = useOfficeSelection("studio");
 
   useEffect(() => {
     let alive = true;

@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { BY_ID } from "./office/cast";
+import { BY_ID, CORE } from "./office/cast";
 import { studio } from "./studio";
 
 /**
@@ -19,7 +19,8 @@ const AppearanceContext = createContext<Ctx>({ appearance: DEFAULT, set: () => {
   namesVersion: 0, refreshNames: async () => {} });
 export const useAppearance = () => useContext(AppearanceContext);
 
-const DEFAULT_NAMES: Record<string, string> = Object.fromEntries(Object.entries(BY_ID).map(([id, c]) => [id, c.name]));
+const DEFAULT_NAMES: Record<string, string> = { ...Object.fromEntries(Object.entries(BY_ID).map(([id, c]) => [id, c.name])),
+  [CORE.id]: CORE.name };
 
 export function deviceClass(): "desktop" | "tablet" | "phone" {
   const w = window.innerWidth;
@@ -47,7 +48,7 @@ function readLocal(): Appearance {
 /** Applies saved robot names to the cast registry; true when any shown name changed. */
 export function applyRobotNames(names: Record<string, { display_name: string }>): boolean {
   let changed = false;
-  for (const [id, c] of Object.entries(BY_ID)) {
+  for (const [id, c] of [...Object.entries(BY_ID), [CORE.id, CORE] as const]) {
     const next = names[id]?.display_name || DEFAULT_NAMES[id] || c.name;  // display only; c.id never changes
     if (next !== c.name) changed = true;
     c.name = next;

@@ -528,6 +528,18 @@ def reset_robot(role_id: str) -> dict:
     return _pref_call(prefs.reset_robot, principal.workspace_id(), role_id)
 
 
+class ResetAll(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/api/robots/names/reset")
+def reset_all_robots(body: ResetAll) -> dict:
+    """Every name back to the original. The screen asks first; the request must say it was confirmed."""
+    if not body.confirm:
+        raise HTTPException(422, "Confirm resetting every robot's name.")
+    return prefs.reset_all_robots(principal.workspace_id())
+
+
 # ------------------------------------------------------------------ one library
 @router.get("/api/studio/projects")
 def library(kind: str = "", q: str = "") -> list[dict]:

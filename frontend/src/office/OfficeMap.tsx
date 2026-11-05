@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon, IconName } from "../components/ui";
 import { useMotion } from "../motion";
-import { BY_ID, CAST, RoomId, ROOM_NAMES } from "./cast";
+import { BY_ID, CAST, CORE, RoomId, ROOM_NAMES } from "./cast";
 import { OfficeEvent, RoleState, Snapshot } from "./api";
 import { ROOM_ACCENT } from "./draw";
 import { CORE_AT, ROOMS, roomOf, WORLD } from "./world";
@@ -174,9 +174,9 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
         const word = brainMode === "active" && (consulting || consulted)
           ? consulting || coreConsulted.current === "consulting" ? "Consulting guidance" : "Consulted guidance"
           : { offline: "Offline", paused: "Paused", active: "Processing", standby: "Standby" }[brainMode];
-        brainLink.current.setAttribute("aria-label", `Brain Core: ${word}. Open Brain workspace`);
+        brainLink.current.setAttribute("aria-label", `${CORE.name}, Brain Core: ${word}. Open Brain workspace`);
         const label = brainLink.current.querySelector("span");
-        if (label && label.textContent !== `CORE · ${word}`) label.textContent = `CORE · ${word}`;
+        if (label && label.textContent !== `${CORE.name} · ${word}`) label.textContent = `${CORE.name} · ${word}`;
       }
       const transfer = motion.activeTransfer(), note = transferNote.current;
       if (note) {
@@ -226,10 +226,10 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
           <span className="room-sign" aria-hidden="true">{ROOM_NAMES[r.id]}</span>
         </button>)}
         <a ref={brainLink} href="#/brain" className="brain-core-hit" data-mode="standby"
-          aria-label="Brain Core: Standby. Open Brain workspace" style={{ left: `${(CORE_AT.x - 66) / WORLD.w * 100}%`,
+          aria-label={`${CORE.name}, Brain Core: Standby. Open Brain workspace`} style={{ left: `${(CORE_AT.x - 66) / WORLD.w * 100}%`,
             top: `${(CORE_AT.y - 130) / WORLD.h * 100}%`, width: `${132 / WORLD.w * 100}%`,
             height: `${132 / WORLD.h * 100}%` }}>
-          <span aria-hidden="true">CORE · Standby</span>
+          <span aria-hidden="true">{CORE.name} · Standby</span>
         </a>
         {CAST.map(c => <button key={c.id} type="button" className={`robot-hit${selected === c.id ? " on" : ""}`}
           ref={el => { if (el) buttons.current.set(c.id, el); else buttons.current.delete(c.id); }}

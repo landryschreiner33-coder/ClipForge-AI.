@@ -3,6 +3,7 @@ import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, toast } from "../components/ui";
 import { AnimationMode, useMotion } from "../motion";
 import { useStatus } from "../status";
+import { useAppearance } from "../prefs";
 import { BY_ID, RoomId, ROOM_NAMES } from "../office/cast";
 import { Control, office, Snapshot, staleHealth } from "../office/api";
 import { OfficeFeed, useOffice } from "../office/useOffice";
@@ -30,9 +31,25 @@ function storedView(): "map" | "list" {
   return window.matchMedia?.("(max-width: 760px)").matches ? "list" : "map";
 }
 
+// Renaming a robot re-mounts the page so every label shows the new name; this keeps the robot or room that was open.
+// React renders the new page before the old one is cleaned up, so the open item is recorded as it changes, and a
+// normal exit (going to another page) forgets it.
+let kept: { scope: string; sel: Sel; version: number } | null = null;
+export function useOfficeSelection(scope: string): [Sel, (s: Sel) => void] {
+  const { namesVersion } = useAppearance();
+  const [sel, setSel] = useState<Sel>(() => kept && kept.scope === scope && kept.version !== namesVersion ? kept.sel : null);
+  useEffect(() => {
+    kept = { scope, sel, version: namesVersion };
+  }, [scope, sel, namesVersion]);
+  useEffect(() => () => {
+    kept = null;
+  }, []);
+  return [sel, setSel];
+}
+
 export default function Office() {
   const feed = useOffice();
-  const [sel, setSel] = useState<Sel>(null);
+  const [sel, setSel] = useOfficeSelection("office");
   return (
     <div className="office-page office-studio">
       <h1 className="sr-only" tabIndex={-1}>Office</h1>

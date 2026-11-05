@@ -147,9 +147,10 @@ def reset_layout(workspace_id: str, user_id: str, device: str) -> dict:
 
 # ------------------------------------------------------------------ robot names
 def _roles() -> dict[str, dict]:
-    from ..office.roles import ROLES
+    """Every character drawn as a robot: the Director, managers and workers, and the Brain Core."""
+    from ..office.roles import CORE, ROLES
 
-    return {r["id"]: r for r in ROLES}
+    return {**{r["id"]: r for r in ROLES}, CORE["id"]: CORE}
 
 
 def clean_name(name: str) -> str:
@@ -187,3 +188,9 @@ def reset_robot(workspace_id: str, role_id: str) -> dict:
         raise PrefError("Unknown robot.")
     db.execute("DELETE FROM robot_names WHERE workspace_id = ? AND role_id = ?", (workspace_id, role_id))
     return robot_names(workspace_id)[role_id]
+
+
+def reset_all_robots(workspace_id: str) -> dict:
+    """Every robot back to its original name (only this workspace's names; roles and routing never change)."""
+    db.execute("DELETE FROM robot_names WHERE workspace_id = ?", (workspace_id,))
+    return robot_names(workspace_id)
