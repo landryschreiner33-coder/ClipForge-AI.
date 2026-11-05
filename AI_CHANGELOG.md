@@ -1,10 +1,10 @@
 # AI changelog
 
-## Studio upgrade released: Mac and Windows downloads; download page ready — 2026-11-05 (Claude Code)
+## Studio upgrade released: Mac and Windows downloads and the download page — 2026-11-05 (Claude Code)
 
-- **Download page (ready, not yet live):** ClipForge 2026.11.05 for Windows and Mac, with exact sizes and SHA-256
-  fingerprints. It could not be pushed from this session, so https://landryschreiner33-coder.github.io/ClipForge-AI./download/
-  still offers 2026.11.04 until it is uploaded. The page is dark only like the app, shows the new
+- **Download page** (https://landryschreiner33-coder.github.io/ClipForge-AI./download/, `gh-pages` `138c4f7`):
+  ClipForge 2026.11.05 for Windows and Mac, with exact sizes and SHA-256 fingerprints. The page is dark only like the
+  app, shows the new
   studio (screenshots from a throwaway copy with made-up videos), explains video links, the editor, example videos,
   Find media and the Brain map, no longer mentions automatic video discovery, adds an FFmpeg step for Windows, a
   Questions section and a Support link. Yesterday's downloads stay under Older versions.

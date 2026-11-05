@@ -1,15 +1,15 @@
 # AI handoff
 
-## ClipForge studio upgrade, downloads released — 2026-11-05 (Claude Code, cloud session)
+## ClipForge studio upgrade, released — 2026-11-05 (Claude Code, cloud session)
 
 **Plain-English summary:** work on the studio upgrade handoff
 ([CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md](docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md)) was carried out in its own
 order. Steps 1–7 are done: video links, discovery retired, the full-video editor, example videos, Find media, change
 requests, Studio and the office, dark design and Customize studio, the Brain map, the ClipForge name in the native
-apps and the full checks. Step 8, the release Landry approved, is done except the website: the Mac DMG preview
-release and the Windows setup ZIP, both from `6ecdafc`, are out, and the new download page is ready and checked but
-**not published**, because this session may not push `gh-pages`. Merging PR #20 is a separate decision. No real
-account or video was touched; there is no cloud deployment.
+apps and the full checks. Step 8, the release Landry approved, is done: the Mac DMG preview release and the Windows
+setup ZIP, both from `6ecdafc`, and the new download page on GitHub Pages (`gh-pages` `138c4f7`, PR #21, merged at
+Landry's request "update the website"). Merging PR #20 is a separate decision. No real account or video was touched;
+there is no cloud deployment.
 
 - **Branch:** `claude/project-thread-x72wkd`, started from the default branch `claude/wonderful-ritchie-909tq3` @
   `12afd01` and merged with `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`) as `6c3f8d9`.
@@ -92,18 +92,15 @@ account or video was touched; there is no cloud deployment.
     published by run 42060598566;
     Windows `ClipForge-Windows-Setup.zip` at `raw/69a930e` (46,962,928 bytes, SHA-256 `89df9b2d…5ea84`) on
     `claude/clipforge-downloads`, with a new Windows install check (`windows-setup-check.yml`, run 42052332032:
-    previous release, then this one over it, data and settings kept, close and reopen). The download page is
-    prepared as `gh-pages` commit `89c922b` on top of `414ef86` and **not published**: every push from this session
-    to `gh-pages` or to a new branch was refused ("fatal error in commit_refs_rules"; the repository has no rulesets
-    or branch protection). The project's shared files hold it under `clipforge-release/` (bundle, patch, ZIP and
-    browser-upload steps). The live page still offers 2026.11.04. The ChatGPT Sites page is unchanged (no access
-    here).
+    previous release, then this one over it, data and settings kept, close and reopen). Download page: `gh-pages`
+    `138c4f7` (squash of PR #21 from `claude/download-page-2026-11-05`; same tree as the checked commit `89c922b`;
+    previous `414ef86`), deployed by Pages run 42062766514. Rollback: revert `138c4f7` on `gh-pages`. The ChatGPT Sites
+    page is unchanged (no access here).
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
   analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
   all-robot names~~ → ~~dark-only design and Customize studio~~ → ~~full checks (fast, slow, browser, recovery,
-  audio) and native packages~~ → release downloads (step 8, done) and the download page (ready, waiting for someone
-  who can write `gh-pages`; afterwards run `download/build.py --verify` against the live page). Merging PR #20 and
-  any real post still need the owner's OK in the project thread.
+  audio) and native packages~~ → ~~release downloads and the download page (step 8)~~. Merging PR #20 and any real
+  post still need the owner's OK in the project thread.
 - **Not verified:** installing the DMG over an older copy on a real Mac and Gatekeeper, Windows 10/11 desktops and
   Defender/SmartScreen, video processing on Windows (the runner had no FFmpeg), a screen reader pass, live media
   provider APIs, real accounts and uploads.
@@ -112,7 +109,9 @@ account or video was touched; there is no cloud deployment.
   unreachable too, so the Mac build's files were not downloaded here (release downloads and raw URLs do work).
   GitHub's hosted Windows runners work (the repository is public); actions/checkout cannot create the checkout folder
   there because the repository name ends with a dot, so the Windows check downloads its files from raw URLs instead.
-  Pushes from this session were accepted only for existing `claude/` branches, not for `gh-pages` or a new branch.
+  Git pushes from this session are accepted only for existing `claude/` branches, not for `gh-pages` or a new branch;
+  the page went through a branch created with the GitHub tools and a PR into `gh-pages`. `*.github.io` is
+  unreachable from here, so the live page was not loaded; the Pages run and the merged files were checked instead.
 
 ## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
 

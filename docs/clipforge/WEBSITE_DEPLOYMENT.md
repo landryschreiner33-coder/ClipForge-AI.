@@ -86,16 +86,16 @@ of release).
   installed the previous release with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over
   it; the data folder and setting were kept, the app served this commit's page and icon byte for byte, all 701 files
   matched, and it closed and reopened cleanly. FFmpeg was not installed there, so no video was processed on Windows.
-- **Download page: prepared, not published.** Commit `89c922b` on top of `gh-pages` `414ef86`; this session's pushes
-  to `gh-pages` were refused, so it waits in the project's shared files (`clipforge-release/`: bundle, patch, ZIP
-  and browser-upload steps). Dark only, new sandbox screenshots
+- **Download page:** `gh-pages` commit `138c4f7` (previous: `414ef86`), merged from PR #21 at Landry's request and
+  deployed by Pages run 42062766514. It is a squash of the checked commit `89c922b` with the identical tree; direct pushes
+  to `gh-pages` were refused for this session, so it went through a review branch. Dark only, new sandbox screenshots
   (made-up media, throwaway data), the new features, the retired discovery removed from the copy and the robot roles,
   an FFmpeg step for Windows, a Questions section and a Support link. `build.py --check` and `--verify` passed; the
   page was checked at 1440, 390 and 320 px (no sideways scroll, no missing images or errors, keyboard, no JavaScript).
 - **Sites page** (https://clipfoundry-studio.landryschreiner33.chatgpt.site): **unchanged**. This session has no
   access to its Sites workspace; it still links its older downloads. Its workspace can link to the GitHub Pages page.
 
-After it is published, run `python3 download/build.py --verify` and check the live page. Rollback: revert that commit
-on `gh-pages` with a normal commit (never force-push); the 2026-11-04 files stay
+`build.py --check` and `--verify` passed again on `138c4f7`. The github.io page itself could not be loaded from this
+session. Rollback: revert `138c4f7` on `gh-pages` with a normal commit (never force-push); the 2026-11-04 files stay
 listed under Older versions and their URLs never change. The previous Mac release and the Windows ZIP at `29c4a63`
 are untouched.
