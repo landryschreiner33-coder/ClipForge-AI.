@@ -632,6 +632,32 @@ def edit_video(video_id: str, body: VideoEdit) -> dict:
     return {**out, **video_flow.view(_video(video_id))}
 
 
+class SmartBody(BaseModel):
+    base_revision: int
+    choices: dict = Field(default_factory=dict)
+
+
+@router.post("/api/studio/videos/{video_id}/smart")
+def smart_edit_video(video_id: str, body: SmartBody) -> dict:
+    """Edit it for me (again): the smart edit with these choices, as a new version made in the background."""
+    _video(video_id)
+    try:
+        out = video_flow.smart_again(video_id, body.base_revision, body.choices)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+@router.get("/api/studio/sound-library")
+def sound_library() -> dict:
+    """ClipForge's own free music and sound effects (made on this computer, free to use)."""
+    from . import library
+
+    return library.catalog()
+
+
 class RevisionBody(BaseModel):
     revision: int
 

@@ -1,3 +1,4 @@
+import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
 import MediaSourcesSettings from "../components/MediaSources";
 import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -55,6 +56,15 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       </div>
     );
   }
+  if (tab === "ai") {
+    return (
+      <div className="page narrow">
+        <PageHead kind="Settings" title="Settings" sub="An optional AI that helps edit your videos: free on your own computer, or with a free key." />
+        <LinkTabs label="Settings sections" current="ai" tabs={SETTINGS_TABS} />
+        <AiHelperSettings />
+      </div>
+    );
+  }
   if (tab === "appearance") {
     return (
       <div className="page">
@@ -70,6 +80,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
   { id: "media", href: "#/settings/media", label: "Media sources" },
+  { id: "ai", href: "#/settings/ai", label: "AI helper" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
@@ -671,13 +682,18 @@ function AdvancedTab({ c, health, st }: {
           errors={errors}>
           <NumInput k="hook_seconds" c={c} step={0.5} />
         </SettingRow>
+        <p className="small muted">
+          The easiest way to choose a free AI service is{" "}
+          <a className="textlink" href="#/settings/ai">Settings → AI helper</a> (download a model, or paste a free key).
+          The same service helps the smart video editor.
+        </p>
         <SettingRow k="ai_provider" label="AI scoring"
           hint={"Stage 1 always runs locally. Stage 2 re-scores only the strongest candidates. Ollama and LM Studio "
             + "are free; the Claude API is paid per use"}>
           <Select k="ai_provider" c={c} options={[
             { value: "heuristic", label: "Local heuristic (offline, free)" },
             { value: "ollama", label: "Ollama (local AI, free)" },
-            { value: "openai_compatible", label: "LM Studio or another OpenAI-compatible local server" },
+            { value: "openai_compatible", label: "LM Studio, a free online service, or another OpenAI-compatible server" },
             { value: "anthropic", label: "Claude API (optional, paid)" },
             { value: "nvidia", label: "NVIDIA AI (optional; set it up under Integrations)" },
           ]} />
@@ -701,7 +717,7 @@ function AdvancedTab({ c, health, st }: {
           <>
             <SettingRow k="openai_url" label="Server address"><TextInput k="openai_url" c={c} /></SettingRow>
             <SettingRow k="openai_model" label="Server model"><TextInput k="openai_model" c={c} /></SettingRow>
-            <SettingRow k="openai_api_key" label="Server API key" hint="Usually not needed for local servers">
+            <SettingRow k="openai_api_key" label="Server API key" hint="Not needed for local servers; online services need their key">
               <SecretField k="openai_api_key" c={c} removable />
             </SettingRow>
           </>

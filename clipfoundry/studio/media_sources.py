@@ -1020,6 +1020,7 @@ def used_assets(plan: dict | None) -> list[str]:
         return []
     ids = [c["asset_id"] for c in plan.get("clips") or [] if c.get("include", True)]
     ids += [i["asset_id"] for i in plan.get("audio") or [] if not i.get("mute")]
+    ids += [o["asset_id"] for o in plan.get("overlays") or []]
     return list(dict.fromkeys(ids))
 
 
@@ -1154,6 +1155,18 @@ def _place_after(plan: dict, words_by_asset: dict[str, list[dict]], word: str) -
     return len(plan.get("clips") or [])
 
 
+def _said_at(plan: dict, words_by_asset: dict[str, list[dict]], word: str) -> dict | None:
+    """The talking clip and offset where `word` is first said (None when it is not said in a kept clip)."""
+    for c in plan.get("clips") or []:
+        if c.get("kind") != "video" or not c.get("include", True):
+            continue
+        for w in words_by_asset.get(c["asset_id"]) or []:
+            t = float(w.get("start") or 0) * 1000
+            if c["in_ms"] <= t < c["out_ms"] and re.sub(r"[^a-z]", "", str(w.get("w", "")).lower()) == word:
+                return {"clip_id": c["id"], "offset_ms": max(0, int(t - c["in_ms"]) - 300)}
+    return None
+
+
 @handler("media_suggest")
 def suggest_job(job: dict, lease: Lease) -> dict:
     from . import engine, video_flow
@@ -1177,10 +1190,14 @@ def suggest_job(job: dict, lease: Lease) -> dict:
     words = video_flow._words(assets)
     spoken = [w for aid in dict.fromkeys(c["asset_id"] for c in plan["clips"] if c.get("kind") == "video")
               for w in words.get(aid) or []]
-    queries = [{"kind": "image", "query": t["word"],
-                "why": f"You say “{t['word']}” {t['count']} time{'s' if t['count'] != 1 else ''} "
-                       f"(first at {int(t['first_s'] // 60)}:{int(t['first_s'] % 60):02d})."}
-               for t in topics(spoken)]
+    wanted = ((plan.get("smart") or {}).get("picture_queries") or [])[:4]
+    queries = [{"kind": "image", "query": text(q["query"], 40), "why": "The AI helper suggested a picture here.",
+                "at": {"clip_id": q["clip_id"], "offset_ms": int(q.get("offset_ms") or 0)}} for q in wanted
+               if q.get("query") and q.get("clip_id")]
+    queries += [{"kind": "image", "query": t["word"],
+                 "why": f"You say “{t['word']}” {t['count']} time{'s' if t['count'] != 1 else ''} "
+                        f"(first at {int(t['first_s'] // 60)}:{int(t['first_s'] % 60):02d})."}
+                for t in topics(spoken)][:max(0, 3 - len(queries) // 2)]
     if not queries and project.get("name"):
         queries = [{"kind": "image", "query": text(project["name"], 60), "why": "From the project's name."}]
     brief = project.get("brief") or {}
@@ -1231,7 +1248,14 @@ def suggest_job(job: dict, lease: Lease) -> dict:
                 assets = video_flow._assets(project, plan)
                 new, notes, added = plan, [], []
                 for o, asset, prov in picks:
-                    if o["kind"] == "image":
+                    smart = ((new.get("smart") or {}).get("level") or "off") != "off"
+                    over = (o.get("at") or _said_at(new, words, o["query"])) if o["kind"] == "image" and smart \
+                        else None
+                    if over and any(c["id"] == over["clip_id"] for c in new["clips"]):
+                        # over the talking video, when it is said (the sound goes on)
+                        edit = {"op": "overlay_add", "asset_id": asset["id"], "clip_id": over["clip_id"],
+                                "offset_ms": over["offset_ms"], "length_ms": 3500, "motion": "zoom"}
+                    elif o["kind"] == "image":
                         at = _place_after(new, words, o["query"])
                         edit = {"op": "insert", "asset_id": asset["id"], "at": at, "duration_ms": 3000}
                     else:
@@ -1240,7 +1264,9 @@ def suggest_job(job: dict, lease: Lease) -> dict:
                                 "gain_db": float(values.get("music_level_db", -18)),
                                 "duck": bool(values.get("duck_music", True))}
                     new, _note = video_flow.apply_edit(new, edit, words, assets)
-                    if o["kind"] == "image":
+                    if edit["op"] == "overlay_add":
+                        new["overlays"][-1].update(auto=True, why=o["why"])
+                    elif o["kind"] == "image":
                         cid = new["clips"][edit["at"]]["id"]
                         for item in new.get("outline") or []:
                             if item["clip_id"] == cid:

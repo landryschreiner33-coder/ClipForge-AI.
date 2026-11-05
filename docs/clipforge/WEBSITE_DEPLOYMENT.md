@@ -99,3 +99,27 @@ of release).
 session. Rollback: revert `138c4f7` on `gh-pages` with a normal commit (never force-push); the 2026-11-04 files stay
 listed under Older versions and their URLs never change. The previous Mac release and the Windows ZIP at `29c4a63`
 are untouched.
+
+## Smart editing and the Mac link fix — November 5, 2026 (Claude Code)
+
+Landry asked in the project thread to merge both fixes and "update the website with the new fixed versions". Both
+downloads are built from source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45` (PR #20's branch with PR #22, the
+Mac YouTube link fix, and PR #23, smart editing and the AI helper). Listed as ClipForge 2026.11.05.2.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-2e5238e/ClipForge-Mac-Apple-Silicon.dmg
+  (237,781,526 bytes, SHA-256 `14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f`). Unsigned personal
+  preview, published unchanged from [build and test run 42106643196](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196)
+  by [publish run 42114038409](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42114038409). It is
+  about 45 MB larger than 2026.11.05 because it bundles Deno for YouTube.
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip
+  (47,042,861 bytes, SHA-256 `531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d`).
+  [Windows setup check run 42109581700](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700)
+  installed the 2026.11.05 release with a synthetic setting, then this ZIP over it: same data folder and setting,
+  this commit's page and icon, all 709 files, close and reopen. No FFmpeg on the runner, so no video was processed.
+- **Download page:** `gh-pages` commit `65f026a` (previous `138c4f7`), pushed directly and deployed by Pages run 42114472648. New: Edit it for me, the
+  optional free AI helper (local Ollama/LM Studio or free Gemini, Groq, OpenRouter keys; Claude marked paid), the
+  YouTube link fix, updated test counts (1,768 fast, 27 slow) and "not tested" lines for real AI models and keys and
+  a real YouTube download. `build.py --check` and `--verify` passed (all eight files); checked at 1440, 390 and
+  320 px (no sideways scroll, no errors). The github.io page itself cannot be loaded from this session.
+
+Rollback: revert `65f026a` on `gh-pages` with a normal commit. The 2026.11.05 files stay under Older versions.

@@ -69,18 +69,29 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
 
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
   gain_db: number; include: boolean; must_keep?: string[]; mute?: boolean; fade_in_ms?: number; fade_out_ms?: number;
-  layout?: string | null };
+  layout?: string | null; join?: "cut"; zoom?: number };
+/** A picture (or muted video) shown over a clip while its sound goes on. */
+export type Overlay = { id: string; asset_id: string; clip_id: string; offset_ms: number; length_ms: number;
+  motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string };
+export type SmartLevel = "off" | "smart" | "tight";
+export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
+  stats: { pauses_cut: number; seconds_saved: number; trimmed_s: number; retakes: number; stumbles?: number; ai_left_out: number;
+    fit_left_out: number; fillers: number; overlays: number; effects: number; music: string };
+  ai: { used: boolean; provider?: string; sent?: string; local?: boolean; problems?: string[]; problem?: string;
+    windows?: number; skipped_sentences?: number };
+  picture_queries: { query: string; clip_id: string; offset_ms: number }[] };
 export type AudioRole = "voiceover" | "music" | "effect";
 export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: string; start_ms: number; in_ms: number;
   out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
-  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null };
+  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
 export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clips: PlanClip[];
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
   captions: { enabled: boolean; style: string; position: string; size?: string };
   audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };
   word_fixes?: Record<string, Record<string, string>>;
-  outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[] };
+  outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[];
+  overlays?: Overlay[]; chapters?: { clip_id: string; offset_ms?: number; title: string }[]; smart?: SmartReport };
 export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
   out_start_ms: number; out_end_ms: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
@@ -95,7 +106,10 @@ export type Video = { id: string; name: string; status: string; message: string;
   can_undo: boolean; can_redo: boolean;
   capabilities: { tracks: Record<TrackName, string>; caption_sizes: string[]; caption_positions: string[]; fps: number[];
     duck_depth_db: { default: number; range: [number, number] }; limits: string };
-  sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules };
+  sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules;
+  overlay_timeline?: { overlay_id: string; asset_id: string; clip_id: string; out_start_ms: number; out_end_ms: number }[];
+  chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
+  ai_helper?: { configured: boolean; label: string; local: boolean } };
 
 export type MediaKind = "image" | "footage" | "music" | "effect";
 export type MediaTerms = { known: boolean; commercial: boolean; modify: boolean; attribution: boolean; share_alike: boolean };
@@ -186,6 +200,9 @@ export const studio = {
   undoVideo: (id: string, base_revision: number) => req<Video & { note: string }>("POST", `/api/studio/videos/${id}/undo`, { base_revision }),
   redoVideo: (id: string, base_revision: number) => req<Video & { note: string }>("POST", `/api/studio/videos/${id}/redo`, { base_revision }),
   nameRevision: (id: string, revision: number, name: string) => req<Video>("PUT", `/api/studio/videos/${id}/revisions/${revision}/name`, { name }),
+  /** Edit it for me (again): a new version made in the background with these choices. */
+  smartVideo: (id: string, base_revision: number, choices: Record<string, unknown>) =>
+    req<{ job: string }>("POST", `/api/studio/videos/${id}/smart`, { base_revision, choices }),
   addVideoMedia: (id: string, asset_ids: string[]) => req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids }),
   styles: () => req<Style[]>("GET", "/api/studio/styles"),
   brainMap: () => req<BrainMap>("GET", "/api/studio/brain/map"),

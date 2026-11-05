@@ -207,6 +207,43 @@ def ai_check() -> dict:
     return llm.check_provider(db.get_settings())
 
 
+@app.get("/api/ai/setup")
+def ai_setup_view() -> dict:
+    """The AI helper's ready-made choices, Ollama's state on this computer and any download or import running."""
+    from . import ai_setup
+
+    s = db.get_settings()
+    try:
+        gpus = cuda.probe().get("gpus") or []
+        vram = int((gpus[0] if gpus else {}).get("vram_mb") or 0)
+    except Exception:  # noqa: BLE001 - only a hint for the recommended model
+        vram = 0
+    return {**ai_setup.presets(), "ollama": ai_setup.ollama_status(s.get("ollama_url") or ""),
+            "task": ai_setup.task(), "provider": s.get("ai_provider", "heuristic"),
+            "label": llm.provider_label(s), "recommended": ai_setup.recommended_model(vram, sys.platform == "darwin")}
+
+
+@app.post("/api/ai/ollama/pull")
+def ai_ollama_pull(body: dict[str, Any]) -> dict:
+    from . import ai_setup
+
+    try:
+        return ai_setup.pull(db.get_settings().get("ollama_url") or "", str(body.get("model") or ""))
+    except ai_setup.SetupError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.post("/api/ai/ollama/import")
+def ai_ollama_import(body: dict[str, Any]) -> dict:
+    from . import ai_setup
+
+    try:
+        return ai_setup.import_gguf(db.get_settings().get("ollama_url") or "", str(body.get("path") or ""),
+                                    str(body.get("name") or ""))
+    except ai_setup.SetupError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
 def _my_projects() -> list[dict]:
     """The requesting workspace's projects (all of them on the desktop, which has one workspace)."""
     mine = principal.workspace_id()

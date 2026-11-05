@@ -1,5 +1,45 @@
 # AI changelog
 
+## Released ClipForge 2026.11.05.2: smart editing and the Mac link fix — 2026-11-05 (Claude Code)
+
+Landry asked in the project thread to merge both fixes (PR #22, PR #23) and update the website with the new versions.
+Both downloads are built from `2e5238e` (PR #20's branch with PR #22 merged, plus PR #23).
+
+- **Checks on `2e5238e`:** `macos-desktop.yml` run 42106643196: native build and bundled-app checks (including the
+  FFmpeg join and Deno), 27 slow tests; the fast-suite job hung in `apt-get` and passed on rerun (1,768). Locally
+  1,768 fast tests passed.
+- **Mac:** release `clipforge-mac-2026-11-05-2e5238e` (publish run 42114038409), `ClipForge-Mac-Apple-Silicon.dmg`
+  237,781,526 bytes, SHA-256 `14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f` (about 45 MB larger:
+  Deno for YouTube). Unsigned personal preview, prerelease.
+- **Windows:** `ClipForge-Windows-Setup.zip` at `raw/d60445f` on `claude/clipforge-downloads`, 47,042,861 bytes,
+  SHA-256 `531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d`; 77 launcher tests, all 709 app files
+  equal the tree; Windows setup check run 42109581700 installed it over the 6ecdafc release (settings kept).
+- **Download page:** `gh-pages` `65f026a` (previous `138c4f7`, Pages run 42114472648), ClipForge 2026.11.05.2; `build.py --check` and
+  `--verify` passed (all eight listed files). Release notes in `.github/scripts/publish_personal_mac.py` name the
+  new features (`d45bb0d`).
+- **Not verified:** a real YouTube download, real AI models and keys, Windows 10/11 desktops, physical Macs.
+
+## Smarter video editing and a free AI helper — 2026-11-05 (Claude Code)
+
+- **Make a YouTube video → "How much should ClipForge edit?"** New default "Edit it for me": cuts long pauses and
+  lone "um"/"uh" (checked in the sound, never inside a word), leaves out an earlier take of a line said again and a
+  stumble said twice, fits the length you ask for (the opening, ending and must-keep words stay), shows your images
+  over the video when their name is said, adds free background music that dips under speech and soft sound effects.
+  "Fast-paced" cuts shorter pauses and zooms in a little on every other cut. "Keep my clips as they are" is the old
+  rough cut. Everything left out stays in the sequence, switched off, so Put back restores it.
+- **Free music and sound effects** are made on your computer by ClipForge (no downloads, no licence questions) and
+  appear in Your media like any file.
+- **Editor:** an "Edit it for me" panel (what was done, Edit it again with other choices as a version you can undo,
+  YouTube chapters to copy), "Pictures over the video" (push-in or still, length, remove, add), a Pictures row on the
+  timeline, and per-clip zoom and straight-cut joins.
+- **Settings → AI helper (optional, free):** Ollama on this computer (download a recommended model, or import a
+  .gguf file you already have), LM Studio, or a free key for Google Gemini, Groq or OpenRouter's free models; the
+  Claude API is listed as paid. The helper reads only the words said, as text, and suggests what to leave out,
+  where a picture helps, chapter titles and the music's mood; its answers are checked and limited. Without it the
+  built-in editor decides alone.
+- **Fixed:** captions dropped a word whose measured end ran into a cut pause (common with speech models).
+- Details: docs/clipforge/SMART_EDITING.md.
+
 ## Mac: YouTube video links work again — 2026-11-05 (Claude Code)
 
 - **Bug (released Mac build 2026.11.05):** a YouTube link ended with "No downloadable video was found on this page".
