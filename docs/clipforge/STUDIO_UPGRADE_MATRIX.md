@@ -92,6 +92,29 @@ cloud deployed. As of this file, nothing from this branch is merged, packaged, p
 - Not built: robot colour or badge variants; separate page designs per device class (only panel order and visibility
   differ).
 
+## Brain map (handoff section 6, "Interface")
+
+- Brain → Notes shows one map of everything the Brain holds: notes and clip preferences (as before), styles, skills,
+  example videos and the projects that used them, in eight clusters around the Brain. `GET /api/studio/brain/map`
+  (`studio/brain_map.py`) reads them per workspace.
+- Every line is a recorded fact: "used in" comes from a project's guidance snapshot (the entries it applied, with
+  revision and fields; older snapshots without that list are read from their decisions), "learned from" from an
+  Example style's link to its example video, plus the existing collections, shared tags and clip evidence. Nothing is
+  inferred. `tests/test_brain_map.py`.
+- Graph and List show the same records: the list under Saved items has every record of the chosen collection (arrow
+  keys, Home and End move), and a large collection draws its first 36 (records used in a project first) and says the
+  rest are in the list. Search and the collection filters apply to both.
+- The inspector shows what a record changes, whether it is on, its revision, the example a style came from, and the
+  projects that used it with the fields they took; a project shows what it used, each one link to select it.
+- Actions: Add note, Teach preference, Add example (Example videos), **Save a style** (a new form: name, project types
+  and the supported editing choices; also on the Styles tab, which used to promise one), Import skill.
+- Motion: the map is still when idle (the old breathing glow is gone, so nothing suggests learning that is not
+  happening). A record a project applied in the last 15 minutes gets a few rings and a "Just used" word; the rings
+  stop off screen, in a hidden tab and with reduced motion. On a busy map, labels show only for collections, the
+  selection and its links until zoomed in.
+- Not built: graph clustering beyond the per-collection cap, and a virtualized list (the list scrolls; 500 records per
+  kind at most).
+
 ## Tell the editor what to change (handoff section 9)
 
 - Rules first, AI second: a request the rules understand never leaves the computer. A request they do not understand
@@ -158,4 +181,4 @@ Slow failures the handoff reported: both passed on this baseline (21/21), so not
   signs or logos can be read as text: a line that never changes is reported as "not captions"; anything else is an
   estimate the owner can correct before saving.
 - Remaining: adding an example from inside Make a video (the API supports project-only examples; the screen links to
-  Brain), choosing several parts graphically on a timeline, the Brain graph redesign, and a vision-model pass.
+  Brain), choosing several parts graphically on a timeline, and a vision-model pass.

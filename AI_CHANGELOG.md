@@ -1,5 +1,23 @@
 # AI changelog
 
+## Studio upgrade: one Brain map of everything it holds — 2026-11-05 (Claude Code)
+
+- Brain → Notes shows **styles, skills, example videos and the projects that used them** next to your notes. A line
+  means something really happened: a project's recorded guidance used that style, skill, example or note, or a
+  style was learned from that example video. Nothing is guessed.
+- Pick any dot, or any item in the list beside the map (arrow keys move through it), to see what it changes, whether
+  it is on, its revision, where it came from and which projects used it, with links to open them.
+- **Save a style** is now a real form (on the Brain toolbar and the Styles tab): a name, the project types and the
+  editing choices to remember.
+- The map no longer glows on its own. When a project has just used something, that item shows "Just used" and a
+  few rings, which stop off screen and with reduced motion. Busy maps show fewer labels until you zoom in.
+- Tests actually run: `tests/test_brain_map.py` (2: links only from recorded use and provenance, other workspaces
+  never shown, older snapshots read from their decisions, an example deleted with its style kept), with the guidance,
+  example-video and rename suites (28 passed). Browser checks at 1440, 390 and 320 px on synthetic data: no
+  sideways scroll, no console errors, list arrow keys, inspector details, Save a style, and no animation with
+  reduced motion.
+- Not built: clustering beyond showing 36 per collection on the map (the rest are listed), a virtualized list.
+
 ## Studio upgrade: dark only, Customize studio, keyboard and small screens — 2026-11-05 (Claude Code)
 
 - ClipForge is **dark only**. The Light theme and the System choice are gone; a saved Light or System choice is

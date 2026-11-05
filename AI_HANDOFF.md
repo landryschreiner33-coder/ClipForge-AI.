@@ -67,6 +67,12 @@ touched.
     picture. Tests: `tests/test_theme_contrast.py` (11), `tests/test_studio_prefs.py`, `tests/test_studio_uploads.py`.
     Browser checks (scripted, Chromium, disposable data): 16 screens at 320–1440 px with two text sizes, and
     keyboard-only runs at 320, 390 and 1440 px with reduced motion. Fast suite 1,747 passed on `61492d0` (the code of this step; the last commits rebuild the app and add docs).
+  - Brain map (handoff section 6, "Interface"): Brain → Notes now maps styles, skills, example videos and the
+    projects that used them next to the notes, linked only by recorded facts (`studio/brain_map.py`,
+    `GET /api/studio/brain/map`; project guidance snapshots and Example style provenance). Graph and List show the
+    same records with filters, arrow keys and an inspector (effects, on/off, revision, projects that used it).
+    **Save a style** is a new form (Brain toolbar and Styles tab). The idle glow is gone; only records applied in the
+    last 15 minutes pulse. Tests: `tests/test_brain_map.py` (2); browser checks at 1440, 390 and 320 px.
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
   analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
   all-robot names~~ → ~~dark-only design and Customize studio~~ → full checks (fast, slow, browser, recovery,
