@@ -69,6 +69,16 @@ def room(room_id: str) -> dict:
         raise HTTPException(404, "There is no such room.") from None
 
 
+@router.get("/robots/{role_id}/log", dependencies=READ)
+def robot_log(role_id: str, limit: int = 8) -> dict:
+    """One robot's log: its own recorded steps for your work in the last day (Autopilot's are in the event feed)."""
+    if role_id not in roles.BY_ID:
+        raise HTTPException(404, "There is no such robot.")
+    from . import work
+
+    return {"entries": work.history(role_id, limit=max(1, min(50, limit)))}
+
+
 @router.get("/devlog", dependencies=READ)
 def devlog(limit: int = 50) -> list[dict]:
     return view.devlog(max(1, min(500, limit)))

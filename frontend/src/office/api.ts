@@ -202,6 +202,16 @@ export interface OwnerWork {
   waiting_on: "" | "you";
 }
 
+export interface RobotLogEntry {
+  at: number;
+  type: "job_done" | "job_failed" | "job_canceled";
+  role: string;
+  kind: string;
+  ref_type: string;
+  ref_id: string;
+  message: string;
+}
+
 export interface EventsPage {
   events: OfficeEvent[];
   cursor: number;
@@ -244,6 +254,8 @@ export const office = {
   reports: (manager = "") => req<OfficeReport[]>("GET", `${O}/reports${manager ? `?manager=${manager}` : ""}`),
   health: () => req<Health>("GET", `${O}/health`),
   devlog: (limit = 50) => req<DevLogEntry[]>("GET", `${O}/devlog?limit=${limit}`),
+  /** one robot's log of your own work that ended in the last day (Autopilot's steps are in the event feed) */
+  robotLog: (id: string) => req<{ entries: RobotLogEntry[] }>("GET", `${O}/robots/${encodeURIComponent(id)}/log`),
   control: (action: Control) => req<Snapshot>("POST", `${O}/control`, { action }),
 };
 

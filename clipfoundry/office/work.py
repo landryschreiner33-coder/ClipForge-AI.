@@ -157,3 +157,54 @@ def failures(now: float | None = None) -> list[dict]:
                         error=p.get("error") or "It stopped.", updated_at=p["updated_at"],
                         finished_at=p["updated_at"], ref_type="project", ref_id=p["id"]))
     return out
+
+
+HISTORY_SECONDS = 24 * 3600
+_ENDED = {"done": "job_done", "failed": "job_failed", "canceled": "job_canceled"}
+
+
+def history(role_id: str, now: float | None = None, limit: int = 8) -> list[dict]:
+    """One robot's log of your own work that ended in the last day, newest first: what it was for, how it ended and
+    when, from the recorded rows (the shared office feed has no workspace, so your work is read from its own rows)."""
+    from .roles import role_for
+
+    now = now or time.time()
+    ws = workspace()
+    where, args = _mine(ws)
+    since = now - HISTORY_SECONDS
+    out: list[dict] = []
+    for j in db.select("studio_jobs", "status IN ('done', 'failed', 'canceled') AND updated_at > ?" + where,
+                       (since, *args), "updated_at DESC", 200):
+        if role_for(j["kind"], "") != role_id:
+            continue
+        ref_type, ref_id, payload = target(j)
+        label = STUDIO_KINDS.get(j["kind"], j["kind"])
+        detail = f" ({j.get('error')})" if j["status"] == "failed" and j.get("error") else ""
+        out.append({"at": j["updated_at"], "type": _ENDED[j["status"]], "role": role_id, "kind": j["kind"],
+                    "ref_type": ref_type, "ref_id": ref_id,
+                    "message": f"{label}{': ' + payload['title'] if payload.get('title') else ''}{detail}"[:300]})
+    with db.connect() as conn:
+        projects = [dict(r) for r in conn.execute(
+            "SELECT id, name, status, stage, error, updated_at FROM projects WHERE status IN ('ready', 'error') AND "
+            "updated_at > ? AND COALESCE(origin, 'manual') NOT IN ('autopilot', 'live')" + where +
+            " ORDER BY updated_at DESC LIMIT 100", (since, *args))]
+    for p in projects:
+        ready = p["status"] == "ready"
+        # a finished project's last step was the clip render; a stopped one names the step it stopped at
+        if role_for("project", "render" if ready else (p.get("stage") or "queued")) != role_id:
+            continue
+        what = "Clips rendered" if ready else (STAGE_WORDS.get(p.get("stage") or "", "") or "Stopped")
+        detail = f" ({p.get('error')})" if not ready and p.get("error") else ""
+        out.append({"at": p["updated_at"], "type": "job_done" if ready else "job_failed", "role": role_id,
+                    "kind": "project", "ref_type": "project", "ref_id": p["id"],
+                    "message": f"{what}: {p.get('name') or ''}{detail}"[:300]})
+    if role_id == "story":
+        for r in db.select("edit_requests", "status IN ('applied', 'failed') AND updated_at > ?" + where,
+                           (since, *args), "updated_at DESC", 50):
+            applied = r["status"] == "applied"
+            out.append({"at": r["updated_at"], "type": "job_done" if applied else "job_failed", "role": role_id,
+                        "kind": "edit_request", "ref_type": "video", "ref_id": r["project_id"],
+                        "message": (f"Changes applied: “{r['text'][:80]}”" if applied
+                                    else f"Request stopped: “{r['text'][:80]}” ({r.get('message') or ''})")[:300]})
+    out.sort(key=lambda e: e["at"], reverse=True)
+    return out[:limit]

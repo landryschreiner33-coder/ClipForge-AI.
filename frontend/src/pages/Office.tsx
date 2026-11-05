@@ -152,7 +152,8 @@ export function OfficeView({ feed, sel, setSel, embedded = false }: {
             {sel && <button type="button" className="btn btn-small btn-icon btn-quiet" aria-label="Close details" onClick={() => setSel(null)}><Icon name="x" /></button>}
           </div>
           {sel?.type === "robot" ? (
-            <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={(id) => onRobot(id)} />
+            <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={(id) => onRobot(id)}
+              events={feed.events} skew={feed.skew} />
           ) : sel?.type === "room" ? (
             <RoomPanel key={sel.id} id={sel.id} snap={snap} onRobot={(id) => onRobot(id)} stale={feed.lost} />
           ) : sel?.type === "activity" ? (

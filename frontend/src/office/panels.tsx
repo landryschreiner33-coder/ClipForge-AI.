@@ -263,11 +263,25 @@ export function ActivityPanel({ events, skew, onRobot }: { events: OfficeEvent[]
 }
 
 // ------------------------------------------------------------------ one robot
-export function RobotPanel({ id, row, card, onRobot }: {
+export function RobotPanel({ id, row, card, onRobot, events = [], skew = 0 }: {
   id: string; row: RoleRow | undefined; card: Card | null; onRobot: (id: string) => void;
+  /** the office feed (Autopilot's steps); this robot's are picked out for its log */
+  events?: OfficeEvent[]; skew?: number;
 }) {
   const c = BY_ID[id];
   const [decisions, setDecisions] = useState<OfficeDecision[] | null>(null);
+  const [owned, setOwned] = useState<OfficeEvent[]>([]);
+  const taskKey = row?.task?.job_id || "";
+  useEffect(() => {
+    let alive = true;
+    office.robotLog(id).then((r) => alive && setOwned(r.entries.map((e, n) => ({ ...e, id: -(n + 1), job_id: "",
+      data: {} })))).catch(() => alive && setOwned([]));
+    return () => {
+      alive = false;
+    };
+  }, [id, taskKey, row?.state]);
+  const log = useMemo(() => [...owned, ...events.filter((e) => e.role === id)].sort((a, b) => a.at - b.at),
+    [owned, events, id]);
   const subject = card ? [card.ref_type, card.ref_id] : row?.task ? [row.task.ref_type, row.task.ref_id] : ["", ""];
   useEffect(() => {
     setDecisions(null);
@@ -362,6 +376,9 @@ export function RobotPanel({ id, row, card, onRobot }: {
           <p className="small">{row.last.summary} <span className="muted tiny">{when(row.last.at)}</span></p>
         </Section>
       )}
+      <Section title="Log">
+        <ActivityList events={log} skew={skew} limit={8} onRobot={onRobot} />
+      </Section>
       {decisions && decisions.length > 0 && (
         <Section title="Recorded decisions">
           <DecisionList items={decisions.slice(0, 5)} />

@@ -199,3 +199,48 @@ def test_an_editor_question_or_proposal_waits_for_you_until_the_edit_moves_on(da
     # another edit made the proposal out of date: the editor says so, and nothing waits on it any more
     data.update("studio_projects", v["id"], plan_revision=4)
     assert _states(data)["story"]["state"] == "idle" and view.snapshot()["work"] == []
+
+
+def test_each_robot_keeps_a_log_of_your_work_that_ended(data):
+    from clipfoundry.office import work
+
+    v = _video(data, name="Lake video")
+    _job(data, "video_build", v["id"], "done")
+    _job(data, "video_render", v["id"], "failed", error="Not enough free disk space")
+    _job(data, "video_preview", v["id"], "canceled")
+    data.create_project("Interview", status="ready", stage="done")
+    data.create_project("Talk", status="error", stage="transcribe", error="No sound in the file")
+    data.insert("edit_requests", {"workspace_id": "local", "project_id": v["id"], "text": "shorten the intro",
+                                  "base_revision": 1, "status": "applied"})
+    theirs = _video(data, name="Their video", ws="someone-else")
+    _job(data, "video_build", theirs["id"], "done", ws="someone-else")
+    from clipfoundry.studio.jobs import enqueue
+
+    old = enqueue("local", "video_build", v["id"], 7, submit=False)  # an earlier revision's rough cut, two days ago
+    data.update("studio_jobs", old["id"], status="done")
+    data.execute("UPDATE studio_jobs SET updated_at = ? WHERE id = ?", (time.time() - 2 * 86400, old["id"]))
+
+    story = work.history("story")
+    assert [e["type"] for e in story] == ["job_done", "job_done"]  # this workspace, this day only
+    assert {e["message"] for e in story} == {"Building the rough cut: Lake video",
+                                             "Changes applied: “shorten the intro”"}
+    check = work.history("check")
+    assert check[0]["type"] == "job_failed" and "free disk space" in check[0]["message"]
+    assert {e["message"] for e in work.history("splice")} >= {"Clips rendered: Interview",
+                                                              "Rendering a preview: Lake video"}
+    archive = work.history("archive")
+    assert archive == [{**archive[0], "type": "job_failed", "message": "Transcribing: Talk (No sound in the file)"}]
+    assert work.history("radar") == []
+
+
+def test_the_robot_log_endpoint(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+        db.create_project("Interview", status="ready", stage="done")
+        assert c.get("/api/office/robots/splice/log").json()["entries"][0]["message"] == "Clips rendered: Interview"
+        assert c.get("/api/office/robots/attic/log").status_code == 404
