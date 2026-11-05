@@ -147,6 +147,27 @@ def retakes(sents: list[dict]) -> dict[int, int]:
     return out
 
 
+def stumbles(ws: list[dict], s: dict) -> set[int]:
+    """Words of a stumble inside one sentence: a run of two or more words said again right away ("the water was
+    the water was really cold") keeps only the second time."""
+    idx = [i for i in range(s["i0"], s["i1"] + 1) if not is_filler(ws[i])]
+    norm = [re.sub(r"[^a-z0-9']", "", str(ws[i]["w"]).lower()) for i in idx]
+    out: set[int] = set()
+    k = 0
+    while k < len(idx):
+        hit = 0
+        for n in (4, 3, 2):
+            if k + 2 * n <= len(idx) and all(norm[k:k + n]) and norm[k:k + n] == norm[k + n:k + 2 * n]:
+                hit = n
+                break
+        if hit:
+            out.update(idx[k:k + hit])
+            k += hit
+        else:
+            k += 1
+    return out
+
+
 def score(s: dict) -> float:
     """How much a sentence carries, 0 to about 1 (no AI): information per second, strong or emotional words, a
     payoff, numbers; filler and very short asides count against it."""
@@ -189,9 +210,10 @@ def _phrases(text: str) -> list[str]:
 
 # ------------------------------------------------------------------ cutting one recording
 def _runs(ws: list[dict], sents: list[dict], keep: list[bool], opts: dict, level: dict, length_ms: int,
-          quiet: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """The kept parts of one recording (ms), with long pauses and lone fillers cut out."""
+          quiet: list[tuple[int, int]], drop: set[int] | None = None) -> list[tuple[int, int]]:
+    """The kept parts of one recording (ms), with long pauses, lone fillers and stumbles (`drop`) cut out."""
     pause_s, pad_s = level["pause_s"], level["pad_s"]
+    drop = drop or set()
     kept: list[int] = []
     sentence_of: dict[int, int] = {}
     for k, s in enumerate(sents):
@@ -200,6 +222,8 @@ def _runs(ws: list[dict], sents: list[dict], keep: list[bool], opts: dict, level
         idx = list(range(s["i0"], s["i1"] + 1))
         real = [i for i in idx if not is_filler(ws[i])]
         for i in idx:
+            if i in drop:
+                continue
             if opts["cut_pauses"] and real and is_filler(ws[i]):
                 continue  # an um/uh in a sentence with real words: left out when it leaves a gap worth cutting
             kept.append(i)
@@ -290,7 +314,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     by_key = {(s["asset_id"], s["k"]): s["i"] for s in table}
     ai_cut = {int(k): v for k, v in (ai.get("cut") or {}).items()}
     notes: list[str] = []
-    stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "ai_left_out": 0, "fit_left_out": 0,
+    stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "stumbles": 0, "ai_left_out": 0, "fit_left_out": 0,
              "fillers": 0, "overlays": 0, "effects": 0, "music": ""}
 
     # ---- 1. what is said, per recording; what to leave out
@@ -406,7 +430,13 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
             continue
         keep_mask = [s == "keep" for s in t["status"]]
         quiet = quiet_spans(levels(a), level["pause_s"]) if opts["cut_pauses"] else []
-        runs = _runs(ws, sents, keep_mask, opts, level, length, quiet)
+        drop: set[int] = set()
+        if opts["cut_retakes"]:
+            for k, s in enumerate(sents):
+                if keep_mask[k] and not any(p in s["text"].lower() for p in keep_words):
+                    drop |= stumbles(ws, s)
+            stats["stumbles"] += len(drop)
+        runs = _runs(ws, sents, keep_mask, opts, level, length, quiet, drop)
         if opts["cut_pauses"] and runs:
             dropped = [_span(ws, s, pad, length) for s, k in zip(sents, keep_mask) if not k]
             for (_a1, b1), (a2, _b2) in zip(runs, runs[1:]):
@@ -458,6 +488,9 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     if stats["retakes"]:
         notes.append(f"Left out {stats['retakes']} earlier take{'s' if stats['retakes'] != 1 else ''} of a line "
                      "you said again (switched off in the sequence; Put back restores one).")
+    if stats["stumbles"]:
+        notes.append(f"Cut {stats['stumbles']} word{'s' if stats['stumbles'] != 1 else ''} of stumbles said twice "
+                     "in a row (the second time stays).")
     if stats["ai_left_out"]:
         notes.append(f"The AI helper suggested leaving out {stats['ai_left_out']} weak or off-topic "
                      f"sentence{'s' if stats['ai_left_out'] != 1 else ''} (switched off in the sequence).")
@@ -499,13 +532,15 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     if images_for_overlay:
         _place_pictures(plan, images_for_overlay, talks, ai, table, feel, stats)
         matched = stats.pop("matched", 0)
-        when = (", each when its name is said" if matched and matched == stats["overlays"] else
-                f", {matched} of them when the name is said" if matched else "")
-        notes.append(f"Showed {stats['overlays']} of your image{'s' if len(images_for_overlay) != 1 else ''} over "
-                     f"the video while the talking goes on{when}.")
-        if stats["overlays"] < len(images_for_overlay):
-            notes.append(f"{len(images_for_overlay) - stats['overlays']} image(s) found no free spot; insert them "
-                         "from Your media.")
+        n, shown = len(images_for_overlay), stats["overlays"]
+        when = ("" if not matched else " when its name is said" if shown == 1 else
+                ", each when its name is said" if matched == shown else f", {matched} of them when the name is said")
+        what = "your image" if n == 1 else f"{shown} of your {n} images" if shown < n else f"your {n} images"
+        if shown:
+            notes.append(f"Showed {what} over the video while the talking goes on{when}.")
+        if shown < n:
+            notes.append(f"{n - shown} image{'s' if n - shown != 1 else ''} found no free spot over the video; show "
+                         f"or insert {'it' if n - shown == 1 else 'them'} from Pictures over the video.")
     picture_queries = []
     for p in ai.get("pictures") or []:
         where = _where_said(plan, talks, table, p["i"])
@@ -619,8 +654,9 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
                 for w in t["words"]:
                     tok = re.sub(r"[^a-z]", "", str(w.get("w", "")).lower()).rstrip("s")
                     if tok and tok in names:
-                        where = _locate(plan, t["asset"]["id"], max(0, int(w["start"] * 1000) - 300))
-                        if where and put(img, where, f"you say “{w['w'].strip(' ,.!?')}”"):
+                        why = f"you say “{w['w'].strip(' ,.!?')}”"
+                        if any(put(img, where, why) for where in _near(plan, segs, t["asset"]["id"],
+                                                                        int(w["start"] * 1000), length)):
                             done = True
                             stats["matched"] = stats.get("matched", 0) + 1
                             break
@@ -653,6 +689,30 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
                         best = (d, s["clip_id"], start - s["out_start_ms"], end - start)
         if best:
             put(img, {"clip_id": best[1], "offset_ms": best[2]}, "spread over a long talking stretch", best[3])
+
+
+def _near(plan: dict, segs: dict, asset_id: str, said_ms: int, length: int):
+    """Places for a picture of something said at `said_ms` (source time), best first: just before the word; earlier
+    in the same clip so that it still covers the word when the clip ends soon after (a jump cut); the start of the
+    next clip when that follows within 1.5 s."""
+    where = _locate(plan, asset_id, max(0, said_ms - 300))
+    if not where:
+        return
+    yield where
+    seg = segs.get(where["clip_id"])
+    if not seg:
+        return
+    clip_len = seg["out_end_ms"] - seg["out_start_ms"]
+    earlier = max(0, clip_len - length)
+    if earlier < where["offset_ms"]:
+        yield {"clip_id": where["clip_id"], "offset_ms": earlier}
+    said_out = seg["out_start_ms"] + where["offset_ms"] + 300
+    order = [c["id"] for c in plan["clips"] if c.get("include", True)]
+    k = order.index(where["clip_id"]) if where["clip_id"] in order else -1
+    if 0 <= k < len(order) - 1:
+        nxt = segs.get(order[k + 1])
+        if nxt and nxt["kind"] == "video" and nxt["out_start_ms"] - said_out <= 1500:
+            yield {"clip_id": order[k + 1], "offset_ms": 0}
 
 
 def _place_effects(plan: dict, library: dict, stats: dict) -> None:

@@ -177,6 +177,7 @@ function smartDone(r: SmartReport): string {
   const parts: string[] = [];
   if (s.pauses_cut) parts.push(`cut ${plural(s.pauses_cut, "pause")} (${Math.round(s.seconds_saved)} s)`);
   if (s.retakes) parts.push(`left out ${plural(s.retakes, "repeated take")}`);
+  if (s.stumbles) parts.push(`cut ${plural(s.stumbles, "stumbled word")}`);
   if (s.ai_left_out) parts.push(`left out ${plural(s.ai_left_out, "weak part")} the AI helper found`);
   if (s.fit_left_out) parts.push(`left out ${plural(s.fit_left_out, "weaker sentence")} to fit your length`);
   if (s.overlays) parts.push(`showed ${plural(s.overlays, "picture")}`);

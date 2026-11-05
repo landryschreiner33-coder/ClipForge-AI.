@@ -75,7 +75,7 @@ export type Overlay = { id: string; asset_id: string; clip_id: string; offset_ms
   motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string };
 export type SmartLevel = "off" | "smart" | "tight";
 export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
-  stats: { pauses_cut: number; seconds_saved: number; trimmed_s: number; retakes: number; ai_left_out: number;
+  stats: { pauses_cut: number; seconds_saved: number; trimmed_s: number; retakes: number; stumbles?: number; ai_left_out: number;
     fit_left_out: number; fillers: number; overlays: number; effects: number; music: string };
   ai: { used: boolean; provider?: string; sent?: string; local?: boolean; problems?: string[]; problem?: string;
     windows?: number; skipped_sentences?: number };

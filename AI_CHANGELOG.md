@@ -1,5 +1,26 @@
 # AI changelog
 
+## Smarter video editing and a free AI helper — 2026-11-05 (Claude Code)
+
+- **Make a YouTube video → "How much should ClipForge edit?"** New default "Edit it for me": cuts long pauses and
+  lone "um"/"uh" (checked in the sound, never inside a word), leaves out an earlier take of a line said again and a
+  stumble said twice, fits the length you ask for (the opening, ending and must-keep words stay), shows your images
+  over the video when their name is said, adds free background music that dips under speech and soft sound effects.
+  "Fast-paced" cuts shorter pauses and zooms in a little on every other cut. "Keep my clips as they are" is the old
+  rough cut. Everything left out stays in the sequence, switched off, so Put back restores it.
+- **Free music and sound effects** are made on your computer by ClipForge (no downloads, no licence questions) and
+  appear in Your media like any file.
+- **Editor:** an "Edit it for me" panel (what was done, Edit it again with other choices as a version you can undo,
+  YouTube chapters to copy), "Pictures over the video" (push-in or still, length, remove, add), a Pictures row on the
+  timeline, and per-clip zoom and straight-cut joins.
+- **Settings → AI helper (optional, free):** Ollama on this computer (download a recommended model, or import a
+  .gguf file you already have), LM Studio, or a free key for Google Gemini, Groq or OpenRouter's free models; the
+  Claude API is listed as paid. The helper reads only the words said, as text, and suggests what to leave out,
+  where a picture helps, chapter titles and the music's mood; its answers are checked and limited. Without it the
+  built-in editor decides alone.
+- **Fixed:** captions dropped a word whose measured end ran into a cut pause (common with speech models).
+- Details: docs/clipforge/SMART_EDITING.md.
+
 ## Studio upgrade released: Mac and Windows downloads and the download page — 2026-11-05 (Claude Code)
 
 - **Download page** (https://landryschreiner33-coder.github.io/ClipForge-AI./download/, `gh-pages` `138c4f7`):

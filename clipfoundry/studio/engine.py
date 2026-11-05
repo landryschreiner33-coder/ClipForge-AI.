@@ -464,7 +464,11 @@ def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dic
 
 def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[dict] | None = None) -> list[dict]:
     """The words heard in the output, on the output timeline (seconds), through the time map. A word you corrected
-    (plan `word_fixes`) shows your text; its timing stays the measured one."""
+    (plan `word_fixes`) shows your text; its timing stays the measured one.
+
+    A word counts for a clip when it starts inside it and most of its measured time is inside: speech models often
+    let a word's end run on into the silence after it, and a cut made in that silence must not drop the word from
+    the captions (its shown end is then the clip's end)."""
     fixes = plan.get("word_fixes") or {}
     out = []
     for seg in timeline(plan) if segs is None else segs:
@@ -472,12 +476,18 @@ def output_words(plan: dict, words_by_asset: dict[str, list[dict]], segs: list[d
         shift = seg["out_start_ms"] / 1000 - a
         mine = fixes.get(seg["asset_id"]) or {}
         for w in words_by_asset.get(seg["asset_id"]) or []:
-            if w["start"] >= a - 0.01 and w["end"] <= b + 0.01:
-                text = mine.get(str(int(round(w["start"] * 1000))), w["w"])
-                if not text.strip():
-                    continue  # a word you deleted from the captions
-                out.append({"w": text, "start": round(w["start"] + shift, 3), "end": round(w["end"] + shift, 3),
-                            "clip_id": seg["clip_id"], "src_start": w["start"], "src_end": w["end"]})
+            if not (a - 0.01 <= w["start"] < b):
+                continue
+            end = w["end"]
+            if end > b + 0.01:
+                if b - w["start"] < 0.5 * (end - w["start"]):
+                    continue  # mostly cut away
+                end = b
+            text = mine.get(str(int(round(w["start"] * 1000))), w["w"])
+            if not text.strip():
+                continue  # a word you deleted from the captions
+            out.append({"w": text, "start": round(w["start"] + shift, 3), "end": round(end + shift, 3),
+                        "clip_id": seg["clip_id"], "src_start": w["start"], "src_end": w["end"]})
     return out
 
 

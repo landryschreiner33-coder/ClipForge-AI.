@@ -99,6 +99,27 @@ def test_pauses_lone_fillers_and_repeated_takes_are_cut(env):
     assert all(b["start_f"] == a["end_f"] for a, b in zip(els, els[1:]))
 
 
+def test_a_stumble_inside_a_sentence_keeps_the_second_time(env):
+    from clipfoundry.studio import engine, smart_edit, video_flow
+
+    v = _asset(env, "talk.mp4", "video", 20)
+    script = _say(1.0, "The water was the water was really cold.") + _say(5.0, "So so we swam.")
+    ws = _words(script)
+    assert smart_edit.stumbles(ws, {"i0": 0, "i1": 7}) == {0, 1, 2}
+    assert smart_edit.stumbles(ws, {"i0": 8, "i1": 11}) == set()  # one word twice is not a stumble
+    project = _project([v], {"smart_edit": "smart", "music": "none"})
+    plan = _cut(project, {v["id"]: ws})
+    on = [c for c in plan["clips"] if c["include"]]
+    first_was, second_the = ws[2], ws[3]
+    assert not any(c["in_ms"] <= first_was["start"] * 1000 < c["out_ms"] for c in on)  # the first "was" is cut
+    assert any(c["in_ms"] <= second_the["start"] * 1000 and second_the["end"] * 1000 <= c["out_ms"] for c in on)
+    assert plan["smart"]["stats"]["stumbles"] == 3 and any("stumbles" in n for n in plan["notes"])
+    assert engine.validate(plan, video_flow._assets(project, plan)) == []
+    # must-keep words are never touched
+    keep = _project([v], {"smart_edit": "smart", "music": "none", "must_keep": "water"}, "Keep")
+    assert _cut(keep, {v["id"]: ws})["smart"]["stats"]["stumbles"] == 0
+
+
 def test_fast_paced_cuts_shorter_pauses_and_punches_in(env):
     from clipfoundry.studio import engine, video_flow
 
@@ -214,6 +235,25 @@ def test_music_and_sound_effects_are_attached(env):
     assert lib["how"] == "library" and lib["key"].startswith("calm-") and lib["mood"] == "calm"
     assert smart_edit.choose_music(_project([a], {"smart_edit": "smart", "music": "none"}, "No music"),
                                    {}, {}) == {"how": ""}
+
+
+def test_clips_kept_as_they_are_get_music_only_when_asked(env, monkeypatch):
+    from clipfoundry.studio import library, video_flow
+
+    v = _asset(env, "talk.mp4", "video", 20)
+    made = []
+    monkeypatch.setattr(library, "asset", lambda ws, key: made.append(key) or _asset(env, library.filename(key),
+                                                                                     "audio", 50))
+    plain = _project([v], {})  # no choice at all: the old rough cut, nothing added
+    assert video_flow.prepare_smart(plain, video_flow._assets(plain), {}, {}) == {} and made == []
+    asked = _project([v], {"smart_edit": "off", "music": "library"}, "Asked")
+    assets = video_flow._assets(asked)
+    ctx = video_flow.prepare_smart(asked, assets, {}, {})
+    assert len(made) == 1 and made[0].startswith("balanced-") and ctx["library"] == {}  # music, no effects
+    plan = video_flow.rough_cut(asked, assets, {}, ctx)
+    music = [i for i in plan["audio"] if i["role"] == "music"]
+    assert len(music) == 1 and music[0]["auto"] and any("free background music" in n for n in plan["notes"])
+    assert len(plan["clips"]) == 1 and "smart" not in plan  # the clips themselves are kept as they are
 
 
 def test_ai_advice_is_checked_bounded_and_used(env):

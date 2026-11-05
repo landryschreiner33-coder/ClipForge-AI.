@@ -426,8 +426,8 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
     brief = project.get("brief") or {}
     opts = smart_edit.options(values, brief)
     off = opts["level"] == "off"
-    if off and opts["music"] not in ("auto", "library"):
-        return {}
+    if off and (brief.get("music") or values.get("music")) not in ("auto", "library"):
+        return {}  # clips kept as they are get music only when it was asked for
     ctx: dict = {}
     if off:  # clips kept as they are, with background music picked for you
         pass
