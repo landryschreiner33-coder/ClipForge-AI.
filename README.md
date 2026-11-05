@@ -10,9 +10,11 @@ needs 64-bit Python 3.12 (or 3.11) from python.org; see the details below, which
 It installs ClipForge from source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884`, the studio upgrade (video
 links and files, the full-video editor, example videos, Find media, the dark Studio with its office and the Brain
 map). The 77 setup tests passed, and all 701 app files were compared with that commit. On that commit 1,749 fast and
-26 real-media checks passed. `.github/workflows/windows-setup-check.yml` installs this ZIP on a GitHub Windows runner
-over the previous release and checks launch, icon, source commit, kept data, and closing and reopening; see
-`verification-windows.json`. Windows security acceptance on a real PC and real uploads are not tested.
+26 real-media checks passed. [Windows setup check run 42052332032](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032)
+installed the previous release with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over
+it: the new folder kept the same data folder and setting, served this commit's page and icon, and closed and
+reopened without a second copy. See `verification-windows.json`. FFmpeg was not installed there, so no video was
+processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
