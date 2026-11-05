@@ -342,3 +342,12 @@ input:not([type]) {
 .media-preview audio { width: 100%; }
 .media-noimg { display: grid; place-items: center; aspect-ratio: 16 / 10; background: var(--surface); border-radius: var(--r-control); color: var(--text-2); }
 .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Tell the editor what to change */
+.ask-row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: flex-end; }
+.ask-row .field { flex: 1 1 260px; min-width: 0; }
+.ask-row input { width: 100%; min-height: 36px; }
+.ask-result { border: 1px solid var(--border); border-radius: var(--r-control); padding: var(--s3); background: var(--raised); }
+.change-list { margin: 0; padding-left: 1.2em; }
+.change-list li + li { margin-top: 2px; }
+.ask-choice { white-space: normal; text-align: left; height: auto; max-width: 100%; overflow-wrap: anywhere; }

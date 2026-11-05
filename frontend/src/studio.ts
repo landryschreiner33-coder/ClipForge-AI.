@@ -114,7 +114,18 @@ export type Suggestions = { rules: MediaRules; latest: null | { round: number; m
   items: { kind: MediaKind; query: string; why: string; results: MediaResult[] }[];
   added: { asset_id: string; kind: MediaKind; title: string; query: string }[]; problems: string[] } };
 
+export type ChangeRequest = { id: string; project_id: string; base_revision: number; text: string;
+  status: "thinking" | "ready" | "question" | "unsupported" | "invalid" | "failed" | "canceled" | "applied" | "stale";
+  source: "rules" | "ai"; provider: string; sent: string; message: string; applied_revision: number; created_at: number;
+  proposal: { format?: string; summary?: string; operations?: Record<string, unknown>[]; changes?: string[]; notes?: string[];
+    question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
+
 export const studio = {
+  askForChange: (id: string, text: string, base_revision: number) =>
+    req<ChangeRequest>("POST", `/api/studio/videos/${id}/requests`, { text, base_revision }),
+  changeRequest: (rid: string) => req<ChangeRequest>("GET", `/api/studio/requests/${rid}`),
+  applyChange: (rid: string) => req<ChangeRequest>("POST", `/api/studio/requests/${rid}/apply`),
+  cancelChange: (rid: string) => req<ChangeRequest>("POST", `/api/studio/requests/${rid}/cancel`),
   mediaProviders: () => req<MediaProvider[]>("GET", "/api/studio/media/providers"),
   setMediaProvider: (id: string, body: { enabled?: boolean; key?: string }) => req<MediaProvider[]>("PUT", `/api/studio/media/providers/${id}`, body),
   testMediaProvider: (id: string) => req<{ ok: boolean; state: string; message: string }>("POST", `/api/studio/media/providers/${id}/test`),

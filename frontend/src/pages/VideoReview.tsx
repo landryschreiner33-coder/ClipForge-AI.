@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
+import { AskForChange } from "../components/AskForChange";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
@@ -155,7 +156,6 @@ export default function VideoReview({ id }: { id: string }) {
   const [v, setV] = useState<Video | null>(null);
   const [problem, setProblem] = useState("");
   const [busy, setBusy] = useState(false);
-  const [request, setRequest] = useState("");
   const [selected, setSelected] = useState("");
   const [shown, setShown] = useState(PAGE);
   const [insert, setInsert] = useState({ asset: "", at: -1 });
@@ -282,10 +282,7 @@ export default function VideoReview({ id }: { id: string }) {
                   {plan.clips.slice(0, -1).map((c, i) => <option key={c.id} value={i + 1}>After clip {i + 1} ({c.label})</option>)}</select>
                 <button type="button" className="btn btn-small" disabled={busy || !insert.asset} onClick={() => edit({ op: "insert", asset_id: insert.asset, at: insert.at < 0 ? plan.clips.length : insert.at })}><Icon name="plus" />Insert</button>
               </div>}
-              <form className="robot-name-form" onSubmit={(e) => { e.preventDefault(); if (request.trim()) void edit({ op: "request", text: request }); }}>
-                <label className="field grow"><span>Ask for a change</span><input value={request} onChange={(e) => setRequest(e.target.value)} placeholder="For example: shorten the intro by 3 seconds" /></label>
-                <button type="submit" className="btn" disabled={busy || !request.trim()}>Apply</button>
-              </form>
+              <AskForChange v={v} busy={busy} onApplied={() => void load()} />
               {plan.notes.length > 0 && <ul className="small">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
             </section>
             <section className="panel" aria-labelledby="vr-audio">

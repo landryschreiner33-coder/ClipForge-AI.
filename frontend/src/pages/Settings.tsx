@@ -721,6 +721,16 @@ function AdvancedTab({ c, health, st }: {
           hint="How many candidates per video stage 2 re-scores; caps paid calls (1 to 30)" errors={errors}>
           <NumInput k="ai_max_candidates" c={c} />
         </SettingRow>
+        <SettingRow k="ai_edit_requests_per_day" label="Editor requests a day"
+          hint={"\u201cTell the editor what to change\u201d sends a request to the AI service above only when ClipForge does not "
+            + "understand it on its own, as text (never video or sound). At most this many a day; 0 never sends one"}
+          errors={errors}>
+          <NumInput k="ai_edit_requests_per_day" c={c} />
+        </SettingRow>
+        <SettingRow k="ai_edit_timeout_s" label="Editor request timeout"
+          hint="Seconds to wait for an answer before giving up; nothing is changed (5 to 300)" errors={errors}>
+          <NumInput k="ai_edit_timeout_s" c={c} />
+        </SettingRow>
         <div className="row wrap" style={{ paddingBottom: 8 }}>
           <button type="button" className="btn" aria-disabled={aiDirty || checking || undefined}
             onClick={() => (aiDirty ? toast("Save the AI scoring settings first: the test uses the saved ones.", true)
