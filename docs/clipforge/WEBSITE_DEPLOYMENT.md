@@ -69,3 +69,33 @@ unchanged. The Sites page above is a separate site; its workspace can link to th
 
 The previous ClipFoundry downloads are listed as older versions. To make the Sites page offer the same files, its
 workspace replaces its two download links with these, or links to https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+## Studio upgrade release — November 5, 2026 (Claude Code)
+
+Landry approved the release in the project thread ("release it"). Both downloads are built from source commit
+`6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884` (branch `claude/project-thread-x72wkd`, PR #20; not merged at the time
+of release).
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-6ecdafc/ClipForge-Mac-Apple-Silicon.dmg
+  (192,306,837 bytes, SHA-256 `198706f383c54226375908133be527e568129e2855adc9fa4e02eca93b3e6c5d`). Unsigned personal preview (ad-hoc signature, not notarized),
+  published unchanged from [build and test run 42050818316](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42050818316)
+  by [publish run 42060598566](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42060598566).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/69a930ec49561dbbb35d886f380160d752c4366b/ClipForge-Windows-Setup.zip
+  (46,962,928 bytes, SHA-256 `89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84`), built on
+  `claude/clipforge-downloads`. New check: [Windows setup check run 42052332032](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42052332032)
+  installed the previous release with a synthetic setting on a GitHub Windows Server 2025 runner, then this ZIP over
+  it; the data folder and setting were kept, the app served this commit's page and icon byte for byte, all 701 files
+  matched, and it closed and reopened cleanly. FFmpeg was not installed there, so no video was processed on Windows.
+- **Download page: prepared, not published.** Commit `89c922b` on top of `gh-pages` `414ef86`; this session's pushes
+  to `gh-pages` were refused, so it waits in the project's shared files (`clipforge-release/`: bundle, patch, ZIP
+  and browser-upload steps). Dark only, new sandbox screenshots
+  (made-up media, throwaway data), the new features, the retired discovery removed from the copy and the robot roles,
+  an FFmpeg step for Windows, a Questions section and a Support link. `build.py --check` and `--verify` passed; the
+  page was checked at 1440, 390 and 320 px (no sideways scroll, no missing images or errors, keyboard, no JavaScript).
+- **Sites page** (https://clipfoundry-studio.landryschreiner33.chatgpt.site): **unchanged**. This session has no
+  access to its Sites workspace; it still links its older downloads. Its workspace can link to the GitHub Pages page.
+
+After it is published, run `python3 download/build.py --verify` and check the live page. Rollback: revert that commit
+on `gh-pages` with a normal commit (never force-push); the 2026-11-04 files stay
+listed under Older versions and their URLs never change. The previous Mac release and the Windows ZIP at `29c4a63`
+are untouched.

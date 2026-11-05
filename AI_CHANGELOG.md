@@ -1,5 +1,21 @@
 # AI changelog
 
+## Studio upgrade released: Mac and Windows downloads; download page ready — 2026-11-05 (Claude Code)
+
+- **Download page (ready, not yet live):** ClipForge 2026.11.05 for Windows and Mac, with exact sizes and SHA-256
+  fingerprints. It could not be pushed from this session, so https://landryschreiner33-coder.github.io/ClipForge-AI./download/
+  still offers 2026.11.04 until it is uploaded. The page is dark only like the app, shows the new
+  studio (screenshots from a throwaway copy with made-up videos), explains video links, the editor, example videos,
+  Find media and the Brain map, no longer mentions automatic video discovery, adds an FFmpeg step for Windows, a
+  Questions section and a Support link. Yesterday's downloads stay under Older versions.
+- **Mac:** unsigned personal preview DMG (Apple silicon, macOS 15+), the unchanged file from the tested build. macOS
+  asks once before opening it (System Settings › Privacy & Security › Open Anyway).
+- **Windows:** the setup ZIP now installs the upgrade, and its window says ClipForge. It was installed on a GitHub
+  Windows runner over yesterday's version: your data folder and settings were kept, and it closed and reopened
+  cleanly.
+- Not verified: a real Mac or Windows PC, Windows security acceptance, processing a video on Windows, real uploads.
+  The ChatGPT Sites page was not changed.
+
 ## Studio upgrade: the ClipForge name in the apps, and the full checks — 2026-11-05 (Claude Code)
 
 - The Mac app's window, menus (About, Hide, Quit, Help), messages, Finder name and installer volume, the Mac and
