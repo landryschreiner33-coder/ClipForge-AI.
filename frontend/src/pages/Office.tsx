@@ -5,17 +5,19 @@ import { AnimationMode, useMotion } from "../motion";
 import { useStatus } from "../status";
 import { BY_ID, RoomId, ROOM_NAMES } from "../office/cast";
 import { Control, office, Snapshot, staleHealth } from "../office/api";
-import { useOffice } from "../office/useOffice";
+import { OfficeFeed, useOffice } from "../office/useOffice";
 import OfficeMap, { Card } from "../office/OfficeMap";
 import { ActivityPanel, DepartmentCards, HealthBadge, OverviewPanel, RobotPanel, RoomPanel } from "../office/panels";
 import { ROOM_ACCENT } from "../office/draw";
 import "../office/studio.css";
 
 /**
- * Office: the robot office (layout of reference image A) over the real job system. The map shows where work is,
- * the right panel explains a selected robot or room, and the bottom bar has the controls that fit the current state.
+ * Office: the robot office over the real work (yours and Autopilot's). The map shows where work is, the right panel
+ * explains a selected robot or room, and the bottom bar has the controls that fit the current state. The Studio page
+ * embeds the same view; #/office is its expanded form.
  */
-type Sel = { type: "robot"; id: string; card: Card | null } | { type: "room"; id: RoomId } | { type: "activity" } | null;
+export type Sel = { type: "robot"; id: string; card: Card | null } | { type: "room"; id: RoomId } | { type: "activity" }
+  | null;
 const VIEW_KEY = "clipfoundry.officeView";
 
 function storedView(): "map" | "list" {
@@ -30,9 +32,23 @@ function storedView(): "map" | "list" {
 
 export default function Office() {
   const feed = useOffice();
+  const [sel, setSel] = useState<Sel>(null);
+  return (
+    <div className="office-page office-studio">
+      <h1 className="sr-only" tabIndex={-1}>Office</h1>
+      <StudioHeading connected={!!feed.snap && !feed.lost && !feed.error && feed.lastOk !== null}
+        loading={!feed.snap && !feed.error} count={feed.snap?.roles.length} />
+      <OfficeView feed={feed} sel={sel} setSel={setSel} />
+    </div>
+  );
+}
+
+/** The office itself (map or list, the details panel and the controls), fed by the caller's feed. */
+export function OfficeView({ feed, sel, setSel, embedded = false }: {
+  feed: OfficeFeed; sel: Sel; setSel: (s: Sel) => void; embedded?: boolean;
+}) {
   const { st } = useStatus();
   const { reduceMotion, animationMode, setAnimationMode } = useMotion();
-  const [sel, setSel] = useState<Sel>(null);
   const [view, setViewState] = useState<"map" | "list">(storedView);
   const setView = (v: "map" | "list") => {
     setViewState(v);
@@ -56,31 +72,24 @@ export default function Office() {
     };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [sel]);
+  }, [sel, setSel]);
 
   if (!snap) {
-    return (
-      <div className="office-page office-studio">
-        <h1 className="sr-only" tabIndex={-1}>Office</h1>
-        <StudioHeading connected={false} loading={!feed.error} />
-        {feed.error ? (
-          <Banner tone="warn" title="The office could not load" actions={<button type="button" className="btn btn-small" onClick={() => feed.reload().catch(() => {})}><Icon name="refresh" />Try again</button>}>
-            {feed.error}
-          </Banner>
-        ) : <p className="muted">Opening the office…</p>}
-      </div>
-    );
+    return feed.error ? (
+      <Banner tone="warn" title="The office could not load" actions={<button type="button" className="btn btn-small" onClick={() => feed.reload().catch(() => {})}><Icon name="refresh" />Try again</button>}>
+        {feed.error}
+      </Banner>
+    ) : <p className="muted">Opening the office…</p>;
   }
 
   const title = sel?.type === "robot" ? BY_ID[sel.id]?.name : sel?.type === "room" ? ROOM_NAMES[sel.id]
     : sel?.type === "activity" ? "Activity" : "Today";
   const accent = sel?.type === "room" ? ROOM_ACCENT[sel.id] : sel?.type === "robot" ? BY_ID[sel.id]?.palette.trim : undefined;
-  const setupNeeded = !!st && !st.home.setup.started && snap.run.state === "stopped";
+  // the Studio page leaves Autopilot's setup out of the way: making clips or a video needs none of it
+  const setupNeeded = !embedded && !!st && !st.home.setup.started && snap.run.state === "stopped";
 
   return (
-    <div className="office-page office-studio">
-      <h1 className="sr-only" tabIndex={-1}>Office</h1>
-      <StudioHeading connected={!feed.lost && !feed.error && feed.lastOk !== null} count={snap.roles.length} />
+    <>
       {feed.lost && (
         <Banner tone="warn" icon="offline" title="The office is not updating">
           What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipForge answers again.
@@ -105,6 +114,7 @@ export default function Office() {
             <span className="spacer" />
             <button type="button" className="btn btn-small btn-quiet" aria-pressed={sel?.type === "activity"} onClick={() => setSel(sel?.type === "activity" ? null : { type: "activity" })}><Icon name="clock" />Activity</button>
             <a className="btn btn-small btn-quiet" href="#/office/team"><Icon name="user" />Team</a>
+            {embedded && <a className="btn btn-small btn-quiet" href="#/office"><Icon name="external" />Expand</a>}
           </div>
           {view === "map" ? (
             <OfficeMap snap={snap} subscribe={feed.subscribe} skew={feed.skew} reduce={reduceMotion}
@@ -136,7 +146,7 @@ export default function Office() {
         </aside>
       </div>
       <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />
-    </div>
+    </>
   );
 }
 
@@ -144,12 +154,12 @@ function StudioHeading({ connected, loading = false, count }: { connected: boole
   return (
     <header className="studio-heading">
       <div>
-        <p className="studio-eyebrow">Live production studio</p>
+        <p className="studio-eyebrow"><a href="#/">Studio</a> · expanded</p>
         <h2 className="studio-title">Your robot office</h2>
         <p className="studio-description">A little studio. Real work behind every robot.</p>
       </div>
       <div className="studio-status" aria-label="Office connection">
-        <a className="btn btn-primary btn-small" href="#/missions"><Icon name="plus" />Add a video</a>
+        <a className="btn btn-primary btn-small" href="#/create/clips"><Icon name="plus" />Add a video</a>
         <span className={`studio-connection${connected ? " connected" : ""}`}>
           <Icon name={connected ? "dot" : loading ? "clock" : "offline"} size={14} />
           {connected ? "Live connection" : loading ? "Connecting" : "Not updating"}

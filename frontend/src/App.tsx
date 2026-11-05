@@ -8,7 +8,7 @@ import { MotionProvider } from "./motion";
 import { AppearanceProvider, useAppearance } from "./prefs";
 import { installRequestProtection, loadMe, Me, signOut, SIGNED_OUT } from "./session";
 import Office from "./pages/Office";
-import Home from "./pages/Home";
+import Studio from "./pages/Studio";
 import MakeClips from "./pages/MakeClips";
 import MakeVideo from "./pages/MakeVideo";
 import VideoReview from "./pages/VideoReview";
@@ -30,16 +30,17 @@ import SettingsPage from "./pages/Settings";
 
 export { navigate };
 
-type NavKey = "home" | "projects" | "brain" | "publishing" | "accounts" | "office" | "settings";
+// Studio combines Home and the Office (studio upgrade handoff, section 2); #/office is the Studio's expanded office.
+type NavKey = "studio" | "projects" | "brain" | "publishing" | "accounts" | "settings";
 const SECTION_NAV: Record<string, NavKey> = {
-  "": "home", create: "home", projects: "projects", project: "projects", clip: "projects", publish: "projects",
+  "": "studio", create: "studio", projects: "projects", project: "projects", clip: "projects", publish: "projects",
   video: "projects", brain: "brain", publishing: "publishing", post: "publishing", accounts: "accounts",
-  office: "office", missions: "office", setup: "office", dev: "office", settings: "settings",
+  office: "studio", missions: "studio", setup: "studio", dev: "studio", settings: "settings",
 };
 const SECTION_TITLE: Record<string, string> = {
-  "": "Home", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
+  "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
   video: "Full video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
-  office: "Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
+  office: "Studio · Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
 };
 
 function page(route: Route) {
@@ -61,7 +62,7 @@ function page(route: Route) {
     case "accounts": return <Accounts />;
     case "settings": return <SettingsPage tab={id} />;
     case "brain": return <Brain tab={id} />;
-    default: return <Home />;
+    default: return <Studio />;
   }
 }
 
@@ -107,7 +108,7 @@ function Shell({ me }: { me: Me }) {
   // and React's development double run of effects must not count as a move.
   const shown = useRef<string | null>(null);
   const section = route.parts[0] || "";
-  const active = SECTION_NAV[section] || "home";
+  const active = SECTION_NAV[section] || "studio";
   const wide = section === "office" && !route.parts[1];
 
   useEffect(() => {
@@ -150,14 +151,13 @@ function Shell({ me }: { me: Me }) {
   const fix = st?.home.posts?.fix || 0;
   const nav = (
     <>
-      <NavLink href="#/" icon="home" label="Home" on={active === "home"} />
+      <NavLink href="#/" icon="home" label="Studio" on={active === "studio"} />
       <NavLink href="#/projects" icon="film" label="Projects" on={active === "projects"} />
       <NavLink href="#/brain/styles" icon="spark" label="Brain" on={active === "brain"} />
       <NavLink href="#/publishing/review" icon="posts" label="Publishing" on={active === "publishing"}
         extra={review ? <span className="count" title={`${review} waiting for your OK`}><span className="sr-only">, waiting for your OK: </span>{review}</span>
           : fix ? <span className="count bad" title={`${fix} need you to settle something`}><span className="sr-only">, need you: </span>{fix}</span> : null} />
       <NavLink href="#/accounts" icon="user" label="Accounts" on={active === "accounts"} />
-      <NavLink href="#/office" icon="cpu" label="Office" on={active === "office"} />
       <NavLink href="#/settings/appearance" icon="settings" label="Settings" on={active === "settings"} />
     </>
   );
@@ -170,7 +170,7 @@ function Shell({ me }: { me: Me }) {
     </div>
   );
   const brand = (
-    <a className="brand" href="#/" aria-label="ClipForge, Home">
+    <a className="brand" href="#/" aria-label="ClipForge, Studio">
       <Logo />
       <span className="brand-name" aria-hidden="true">ClipForge</span>
     </a>
@@ -244,7 +244,7 @@ function Shell({ me }: { me: Me }) {
               )}
               {route.unknown !== undefined && (
                 <Banner tone="info" title="That address does not exist">
-                  There is no page at “#/{route.unknown}”, so Home is shown instead.
+                  There is no page at “#/{route.unknown}”, so the Studio is shown instead.
                 </Banner>
               )}
             </div>

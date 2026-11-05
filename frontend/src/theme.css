@@ -246,7 +246,7 @@ input:not([type]) {
 /* The robot office: the same robots, pixel art and pixel titles as before, on a dark stage in the ClipForge palette
    (owner, 2026-11-04: keep the robots and the office, in the new style). The stage stays dark in the light theme so
    the pixel art keeps its colours; panels follow the studio's quiet surfaces and rounded corners. */
-.office-page, .team-page, .robot-team {
+.office-page, .team-page {
   color-scheme: dark;
   --canvas: #0B0D14; --surface: #151A25; --raised: #1D2331; --hover: #252C3D; --border: #2A3142;
   --control-border: #7D879B; --text: #F5F6FA; --text-2: #D0D5E0; --text-3: #A8B2C5; --disabled: #8C95A8;
@@ -262,15 +262,25 @@ input:not([type]) {
 .team-page .page-head .kind-label, .office-page .kind-label { display: inline; }
 .team-card { border-radius: var(--r-panel); }
 
-.robot-team { border: 1px solid var(--border); }
-.robot-strip { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--s3); }
-.robot-strip li { display: grid; justify-items: center; text-align: center; gap: 2px; padding: var(--s3) var(--s2);
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-control); min-width: 0; }
-.robot-strip li > b { font-family: var(--font-pixel); font-weight: 400; font-size: 0.95rem; max-width: 100%; }
-.robot-strip .state-working { color: var(--good); }
-.robot-strip .state-error { color: var(--bad); }
-.robot-strip .state-waiting, .robot-strip .state-retrying { color: var(--warn); }
 .story-card ul { margin: 0; padding-left: 1.2em; }
+
+/* ---- Studio: Home and the Office together */
+.studio-page { gap: var(--s5); }
+.studio-link-action { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0; }
+.current-project { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: var(--s4); align-items: start; }
+.current-project .thumb { width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r-control);
+  background: var(--raised); border: 1px solid var(--border); }
+.current-team { display: grid; gap: var(--s1); }
+.studio-more { margin-top: var(--s3); }
+.studio-empty-actions { justify-content: center; margin-top: var(--s2); }
+.studio-bottom { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: var(--s5); align-items: start; }
+.studio-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+@media (max-width: 900px) {
+  .studio-bottom { grid-template-columns: minmax(0, 1fr); }
+  .current-project { grid-template-columns: minmax(0, 1fr); }
+  .current-project .thumb { width: 100%; max-width: 320px; }
+  .current-project > .btn { justify-self: start; }
+}
 
 /* ---- full-video editor: timeline, inspector, tracks */
 .tl { display: grid; gap: 6px; }

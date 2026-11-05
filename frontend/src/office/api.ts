@@ -179,6 +179,21 @@ export interface Snapshot {
   today: { clips: number; passed_check: number; uploads: number };
   needs_you: { key: string; kind: string; level: string; title: string; detail: string; fix: string }[];
   brain: BrainSummary | Record<string, never>;
+  /** your own work item by item (office/view.py owner_work) */
+  work?: OwnerWork[];
+}
+
+export interface OwnerWork {
+  id: string;
+  kind: string;
+  stage: string;
+  status: "queued" | "running";
+  role: string;
+  message: string;
+  /** measured progress 0-1, null when not measured */
+  progress: number | null;
+  project_id: string;
+  video_id: string;
 }
 
 export interface EventsPage {

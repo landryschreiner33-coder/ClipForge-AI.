@@ -164,3 +164,17 @@ def test_rooms_list_your_recent_work(data):
     assert view.room("discover")["id"] == "intake"  # an old address finds the room that replaced it
     with pytest.raises(KeyError):
         view.room("attic")
+
+
+def test_the_snapshot_lists_your_work_item_by_item(data):
+    from clipfoundry.office import view
+
+    v = _video(data)
+    _job(data, "video_build", v["id"], "queued")
+    p = data.create_project("Interview", status="processing", stage="render", progress=0.6, message="Rendering clips")
+    work = {w["kind"]: w for w in view.snapshot()["work"]}
+    assert work["video_build"] == {"id": work["video_build"]["id"], "kind": "video_build", "stage": "",
+                                   "status": "queued", "role": "story", "message": "Waiting for a worker",
+                                   "progress": None, "project_id": "", "video_id": v["id"]}
+    assert work["project"]["role"] == "splice" and work["project"]["progress"] == 0.6
+    assert work["project"]["project_id"] == p["id"]

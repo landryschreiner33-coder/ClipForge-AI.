@@ -7,8 +7,11 @@ import { useEffect, useState } from "react";
 const POSTS = "(review|scheduled|published|history|problems|results)";
 const MISSIONS = "(activity|sources|system|jobs|learning)";
 const ALIASES: [RegExp, string][] = [
-  // ClipForge places (docs/clipforge/ROUTE_MAP.md): Home, Projects, Brain, Publishing, Accounts, Office, Settings.
-  [/^home$/, ""],
+  // ClipForge places (docs/clipforge/ROUTE_MAP.md): Studio, Projects, Brain, Publishing, Accounts, Settings.
+  // Studio is Home and the Office together; #/office is its expanded office and #/office/team the Team list.
+  [/^(home|studio)$/, ""],
+  [/^studio\/office$/, "office"],
+  [/^studio\/team$/, "office/team"],
   [/^office\/(?!team$).*$/, "office"],
   [/^clips\/feedback$/, "projects/feedback"],
   [/^(clips|library)(\/.*)?$/, "projects"],
@@ -39,7 +42,7 @@ export type Route = {
   /** The path after "#/", without a trailing slash ("posts/review"). */
   path: string;
   parts: string[];
-  /** Set when the address did not exist, so Home is shown with a note. */
+  /** Set when the address did not exist, so the Studio is shown with a note. */
   unknown?: string;
 };
 

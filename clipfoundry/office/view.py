@@ -277,7 +277,22 @@ def snapshot() -> dict:
         "needs_you": [{k: a.get(k) for k in ("key", "kind", "level", "title", "detail", "fix")}
                       for a in ap_state.open_actions()[:5]],
         "brain": brain,
+        "work": owner_work(now),
     }
+
+
+def owner_work(now: float | None = None) -> list[dict]:
+    """Your own work item by item, for the Studio's current project card: which robot has it, whether it is queued
+    or running, its recorded message and its progress only when measured."""
+    out = []
+    for j in work.active(now):
+        payload = j.get("payload") or {}
+        measured = j["status"] == "running" and float(j.get("progress") or 0) > 0
+        out.append({"id": j["id"], "kind": j["kind"], "stage": j.get("stage") or "", "status": j["status"],
+                    "role": roles.role_for(j["kind"], j.get("stage") or ""), "message": (j.get("message") or "")[:200],
+                    "progress": round(float(j["progress"]), 3) if measured else None,
+                    "project_id": payload.get("project_id") or "", "video_id": payload.get("video_id") or ""})
+    return out
 
 
 def _today(settings: dict, now: float) -> dict:

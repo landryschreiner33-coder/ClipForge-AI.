@@ -9,7 +9,7 @@ sign-in: the sign-in page returns to the address that was requested.
 | Screen | Address | Replaces / aliases | Contents |
 | --- | --- | --- | --- |
 | Sign in (cloud only) | shown in place of any address while signed out | — | ClipForge name and robot icon, Continue with Google, error and retry. No project data is requested before sign-in. |
-| Home | `#/` | `#/home` | Make clips, Make a YouTube video, recent projects, real running work, actionable problems. |
+| Studio | `#/` | `#/home`, `#/studio` | Home and the Office together: Make clips, Make a YouTube video, a video-link action, Needs you (only when actionable), the current project (real step, measured progress, its robots, next action), the office (map or list, expandable), recent projects and publishing status. Empty state: "Ready for your next video". |
 | Make clips | `#/create/clips` | `#/create` (old Add video) | Highlights / Full stories selector, file or link, saved style, destinations, Make clips / Make & upload clips. |
 | Add from a link | `#/create/link` | — | The earlier Add video page: a public link, or a file with its own transcript; linked from Make clips. |
 | Make a YouTube video | `#/create/video` | — | Media bin, four-question brief, saved style, Remember this style, Build my video. |
@@ -23,17 +23,17 @@ sign-in: the sign-in page returns to the address that was requested.
 | Publishing | `#/publishing/{review,scheduled,published,history,problems,results}` | `#/queue/*`, `#/posts/*`, `#/publish-center/*` | Queue/calendar with per-destination rows, exact account names and an account filter. |
 | Post review | `#/post/:id` | (unchanged) | Existing post page. |
 | Accounts | `#/accounts` | `#/settings/accounts` | Add YouTube account, Add TikTok account, connection cards, Reconnect, Disconnect. |
-| Office | `#/office` | old `#/` (Office), `#/office/*` | Real robot activity. |
-| Team | `#/office/team` | (unchanged) | Robot list with Rename / Reset name. |
-| Autopilot | `#/missions/*` | `#/autopilot/*` | Existing Missions pages, reached from Office and the top-bar Autopilot status. |
+| Office (expanded) | `#/office` | `#/studio/office`, `#/office/*` | The Studio's office at full size: rooms that follow the workflow, real robot states, details panel, controls. |
+| Team | `#/office/team` | `#/studio/team` | Robot list with Rename / Reset name. |
+| Autopilot | `#/missions/*` | `#/autopilot/*` | Existing Missions pages, reached from the Studio and the top-bar Autopilot status. |
 | Settings | `#/settings`, `#/settings/{appearance,defaults,integrations,storage,advanced}` | existing Settings tabs | Appearance and layouts, default style, storage/retention, advanced. |
 | Setup | `#/setup/*` | (unchanged) | Existing first-run steps. |
 | Robot gallery | `#/dev/robots` | (unchanged) | Development view. |
 
 ## Navigation
 
-Desktop (≥ 1024 px): a 232 px collapsible sidebar with Home, Projects, Brain, Publishing, Accounts, Office and
-Settings, plus a 64 px top bar with the page title, the Autopilot status, a theme switch and (in cloud mode) the
+Desktop (≥ 1024 px): a 232 px collapsible sidebar with Studio, Projects, Brain, Publishing, Accounts and
+Settings (the studio upgrade merged Home and Office into Studio), plus a 64 px top bar with the page title, the Autopilot status, a theme switch and (in cloud mode) the
 signed-in owner and Sign out. Below 1024 px the sidebar becomes a drawer opened from the top bar. A persistent
 "Make" button stays in the top bar on every size, so the main task is always one tap away.
 

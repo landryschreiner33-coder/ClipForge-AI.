@@ -33,8 +33,8 @@ games, food, drinks and reading are decorative. Nothing in the office drawing st
 
 | Place | Address | What is there |
 | --- | --- | --- |
-| Office | `#/` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view, room camera and Follow system / Full / Reduced animations are above the map. |
-| Team | `#/office/team` | All 25 robots and the Brain Core, read-only, with their job, room and manager. |
+| Office | in the Studio at `#/`, full size at `#/office` | The office map, the details panel (overview, a robot, or a room), the activity feed and the bottom bar (Start, Pause, Resume, Stop all, Pause publishing). A list view, room camera and Follow system / Full / Reduced animations are above the map. |
+| Team | `#/office/team` | All 25 robots and the Brain Core with their job, room and manager; rename any of them. |
 | Missions | `#/missions` (+ `/activity`, `/sources`, `/system`, `/jobs`, `/learning`) | The former Autopilot page: Needs you, what it works on, your videos, coming up, Activity, Permissions & sources, and the technical tabs. |
 | Clips | `#/clips`, `#/clips/feedback` | The former Library (your videos and their clips) and Test feedback (tester answers and numbers you copy from YouTube Studio or TikTok). |
 | Queue | `#/queue/review` (+ `/scheduled`, `/published`, `/history`, `/problems`, `/results`) | The former Posts page: every planned and uploaded post, who it is for and what really happened. |
@@ -52,17 +52,28 @@ One Director, eight managers and sixteen workers (25 robots), plus the Brain Cor
 backend registry is `clipfoundry/office/roles.py`; the visual identities are `frontend/src/office/cast.ts` (see
 [design/robots/README.md](../design/robots/README.md)). `tests/test_office.py` fails if the two lists differ.
 
-| Room | Manager | Workers (the job kinds and stages they stand for) |
+The rooms follow the real workflow (studio upgrade handoff, section 4). Role ids never changed; titles, rooms and
+managers moved when automatic discovery was retired, and old room ids (`boss`, `discover`, `analyze`, `studio`,
+`caption`, `workspace`, `schedule`, `dock`, `system`) still open the room that replaced them.
+
+| Room | Manager | Workers (the work kinds and stages they stand for) |
 | --- | --- | --- |
-| Boss Hub | COMMAND, Director | Records the decision at four checkpoints: source, clip, quality check, upload. |
-| Discover | TRACKER (`trend_scan`) | RADAR (searches, feeds, live checks), ARCHIVE (pasted links, live recording, transcription) |
-| Analyze | VECTOR | PULSE (trend scoring), GAVEL (`rights_check`), BOOST (`analyze_source` scoring) |
-| Clip Studio | FRAME | SPARK (moments), STORY (clip plans), SPLICE (rendering, re-renders) |
-| Caption | SCRIPT | GLYPH (captions), QUILL (`package_clip`: titles, descriptions, hashtags) |
-| Schedule | CLOCK (`schedule_tick`) | none: the scheduler is CLOCK's own job, and no worker is invented to fill a chair |
-| Upload Dock | HARBOR | LOCK (audience check before upload), DOCK (`publish`) |
-| System | SWITCH | CHECK (`quality_check`, the Final Quality Gate), PATCH (maintenance, self-test) |
-| Brain Room | CURATOR | METRIC (result readings), SYNAPSE (`learn`: compares results) |
+| Control room | COMMAND, Director | Records the decision at four checkpoints: video, clip, quality check, upload. |
+| Intake | TRACKER (`trend_scan`, only if discovery is turned back on) | RADAR (your uploads and links: `link_import`, `video_media`, a Make clips project's download and probe; live recording), GAVEL (`rights_check`) |
+| Media research | CLOCK | PULSE (Find media: `media_suggest`, `media_import`) |
+| Story & analysis | VECTOR | ARCHIVE (transcription), SPARK (moments and stories), BOOST (scoring; example videos: `reference_analysis`) |
+| Editing | FRAME | STORY (rough cut `video_build`, editor requests, clip plans), SPLICE (previews, clip and version renders) |
+| Sound & captions | SCRIPT | GLYPH (captions) |
+| Brain | CURATOR | METRIC (result readings), SYNAPSE (`learn`: compares results) |
+| Quality & export | SWITCH | CHECK (`quality_check`, final `video_render`), PATCH (maintenance, self-test) |
+| Publishing | HARBOR (`schedule_tick`) | QUILL (`package_clip`: titles, descriptions, hashtags), LOCK (audience check), DOCK (`publish`) |
+
+Your own work counts as much as Autopilot's (`office/work.py`): Make clips projects at their pipeline stage, clip and
+version renders, the studio's durable jobs and editor requests waiting for the AI service. A robot is **queued** when
+work is assigned but not started, **working** while it runs (progress only when measured), **waiting** or
+**retrying** when it started and now waits, **error** for 30 minutes after a failure, and **idle** otherwise. It is
+**paused** only when you paused or stopped Autopilot and it has none of your own work; Autopilot that was never
+started does not make the office look paused.
 
 `roles.role_for(kind, stage)` maps every job (and the stage it reports) to exactly one role.
 
