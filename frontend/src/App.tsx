@@ -48,7 +48,8 @@ function page(route: Route) {
     case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return id === "video" ? <MakeVideo /> : id === "link" ? <Create /> : <MakeClips />;
+    case "create": return id === "video" ? <MakeVideo /> : id === "transcript" ? <Create />
+      : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "project": return <ProjectView id={id} key={id} />;
     case "clip": return <ClipEditor id={id} key={id} />;

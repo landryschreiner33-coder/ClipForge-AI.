@@ -58,9 +58,10 @@ async def lifespan(_: FastAPI):
         _youtube_retention()
         worker.resume(db.interrupted_work())
         worker.start()
-        from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - video_flow registers its job handlers
+        from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - registers job handlers
 
-        studio_jobs.recover()  # builds and renders that were waiting or running continue
+        studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
+        link_import.clean_abandoned()  # partial downloads of canceled or failed links
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
@@ -118,6 +119,10 @@ def _clip_or_404(clip_id: str) -> dict:
 def _public_project(p: dict) -> dict:
     out = {k: v for k, v in p.items() if k not in {"source_path"}}
     out["has_thumbnail"] = (Path(p["source_path"]).parent / "thumb.jpg").exists() if p.get("source_path") else False
+    if (p.get("info") or {}).get("link"):  # made from a supplied video link
+        from .studio import link_import
+
+        out["link_import"] = link_import.view(p)
     return out
 
 
@@ -309,8 +314,13 @@ class ProcessBody(BaseModel):
 @app.post("/api/projects/{project_id}/process")
 def reprocess(project_id: str, body: ProcessBody) -> dict:
     p = _project_or_404(project_id)
-    if p["status"] in {"queued", "processing"}:
+    if p["status"] in {"queued", "processing", "importing"}:
         raise HTTPException(409, "Project is already processing")
+    if (p.get("info") or {}).get("link") and not p.get("asset_id"):  # the supplied link was never downloaded: try it again
+        from .studio import link_import
+
+        link_import.retry(project_id)
+        return get_project(project_id)
     opts = {**(p.get("options") or {}), **_clean_options(body.options)}
     db.update_project(project_id, options=opts)
     worker.submit_project(project_id, url=p.get("source_url") if not Path(p["source_path"]).exists() else None)
@@ -319,7 +329,12 @@ def reprocess(project_id: str, body: ProcessBody) -> dict:
 
 @app.post("/api/projects/{project_id}/cancel")
 def cancel(project_id: str) -> dict:
-    _project_or_404(project_id)
+    p = _project_or_404(project_id)
+    if p["status"] == "importing":
+        from .studio import link_import
+
+        link_import.cancel(project_id)
+        return {"ok": True}
     worker.cancel(project_id)
     return {"ok": True}
 

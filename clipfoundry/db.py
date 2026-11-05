@@ -937,6 +937,26 @@ CREATE TABLE IF NOT EXISTS preferences (
     updated_at REAL NOT NULL,
     PRIMARY KEY (workspace_id, user_id, pref_key)
 );
+CREATE TABLE IF NOT EXISTS link_imports (    -- Make clips from a supplied link (studio/link_import.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,                 -- the browser's request ID: asking twice returns the same project
+    url TEXT NOT NULL,                        -- the normalized link of the one recording
+    original_url TEXT DEFAULT '',
+    mode TEXT DEFAULT 'highlights',
+    project_id TEXT NOT NULL,
+    status TEXT DEFAULT 'queued',             -- queued | running | done | failed | canceled
+    round INTEGER DEFAULT 0,                  -- incremented by every Retry (one studio job per round)
+    attempts INTEGER DEFAULT 0,
+    asset_id TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    error_code TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (workspace_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_link_imports_url ON link_imports(workspace_id, url, status);
 CREATE TABLE IF NOT EXISTS robot_names (
     workspace_id TEXT NOT NULL,
     role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
@@ -1007,6 +1027,7 @@ JSON_FIELDS = {
     "skills": {"modes", "topics", "supported", "unsupported", "blocked"},
     "preferences": {"value"},
     "robot_names": set(),
+    "link_imports": set(),
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these

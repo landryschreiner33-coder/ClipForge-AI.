@@ -9,6 +9,8 @@ export type Upload = { id: string; filename: string; kind: string; size: number;
 export type Decision = { field: string; value: unknown; text: string; from: Entry; also: Entry[];
   overridden: (Entry & { value: unknown; reason: string })[] };
 export type Entry = { level: string; id: string; revision: number; name: string };
+export type LinkProblem = { code: string; label: string; why: string; fix: string; temporary: boolean };
+export type LinkCheck = { ok: boolean; url?: string; platform?: string; video_id?: string; problem?: LinkProblem };
 export type Snapshot = { mode: string; values: Record<string, unknown>; decisions: Decision[]; problems: string[];
   conflicts: { field: string; label: string; level: string; entries: (Entry & { value: unknown })[]; resolution: string }[];
   used: (Entry & { fields: string[] })[] };
@@ -54,6 +56,8 @@ export const studio = {
     req<Snapshot>("GET", `/api/studio/guidance/preview?${new URLSearchParams({ mode: body.mode,
       style_id: body.style_id || "saved", choices: JSON.stringify(body.choices || {}), title: body.title || "" })}`),
   makeClips: (body: Record<string, unknown>) => req<{ id: string }>("POST", "/api/studio/clips", body),
+  /** Is this a usable video link? Checked without fetching anything. */
+  linkCheck: (url: string) => req<LinkCheck>("GET", `/api/studio/link-check?${new URLSearchParams({ url })}`),
   projectGuidance: (id: string) => req<{ snapshot: Snapshot; frozen: boolean; note: string }>("GET", `/api/projects/${id}/guidance`),
   stories: (id: string) => req<{ mode: string; stories: Story[]; summary: Record<string, unknown> }>("GET", `/api/projects/${id}/stories`),
   patchStory: (id: string, body: Record<string, unknown>) => req<Story>("PATCH", `/api/stories/${id}`, body),

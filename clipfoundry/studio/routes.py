@@ -183,7 +183,9 @@ def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}
 
 # ------------------------------------------------------------------ Make clips
 class ClipsRequest(BaseModel):
-    asset_id: str
+    asset_id: str = ""
+    url: str = Field(default="", max_length=4096)  # Video link: the same flow, downloaded first
+    request_id: str = Field(default="", max_length=64)
     mode: str = "highlights"
     style_id: str = "saved"
     choices: dict = {}
@@ -194,14 +196,37 @@ class ClipsRequest(BaseModel):
 
 @router.post("/api/studio/clips")
 def make_clips(body: ClipsRequest) -> dict:
+    """Make clips from an uploaded file (asset_id) or a supplied video link (url): one request, one flow."""
+    from . import link_import
+
     p = principal.current()
+    if bool(body.asset_id) == bool(body.url.strip()):
+        raise HTTPException(422, "Choose either a video file or a video link.")
     try:
-        project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
-                                    style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
-                                    skills_off=body.skills_off, upload=body.upload)
+        if body.url.strip():
+            project = link_import.start(p.workspace_id, p.user_id, url=body.url, request_id=body.request_id,
+                                        mode=body.mode, style_id=body.style_id, choices=body.choices,
+                                        skills_on=body.skills_on, skills_off=body.skills_off, upload=body.upload)
+        else:
+            project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
+                                        style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
+                                        skills_off=body.skills_off, upload=body.upload)
+    except link_import.LinkError as exc:
+        return JSONResponse({"detail": f"{exc.why} {exc.fix}", "problem": exc.view()}, status_code=422)
     except clips_flow.FlowError as exc:
         raise _bad(exc) from exc
     return {k: v for k, v in project.items() if k != "source_path"}
+
+
+@router.get("/api/studio/link-check")
+def link_check(url: str = "") -> dict:
+    """Is this a usable video link? Answered without any network access (nothing is fetched or searched)."""
+    from . import link_import
+
+    try:
+        return {"ok": True, **link_import.normalize(url[:4096])}
+    except link_import.LinkError as exc:
+        return {"ok": False, "problem": exc.view()}
 
 
 @router.get("/api/projects/{project_id}/guidance")

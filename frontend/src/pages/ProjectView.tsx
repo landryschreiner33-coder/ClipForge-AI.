@@ -15,6 +15,7 @@ import {
 } from "../components/ui";
 import { ESTIMATE_NOTE, QualitySummary, ViralPanel } from "../components/viral";
 import { navigate } from "../router";
+import type { LinkProblem } from "../studio";
 import StoryReview from "../components/StoryReview";
 import "./library.css";
 
@@ -67,7 +68,7 @@ export default function ProjectView({ id }: { id: string }) {
     if (!p) return;
     const before = was.current;
     was.current = p.status;
-    if (!before || before === p.status || !["created", "uploading", "queued", "processing"].includes(before)) return;
+    if (!before || before === p.status || !["created", "uploading", "importing", "queued", "processing"].includes(before)) return;
     const n = p.clips?.length || 0;
     if (p.status === "ready") {
       toast(n ? `${plural(n, "clip")} ${n === 1 ? "is" : "are"} ready from “${p.name}”`
@@ -123,6 +124,16 @@ export default function ProjectView({ id }: { id: string }) {
     }
     setZipping(false);
   };
+  const linkProblem = (p as LibProject & { link_import?: { problem?: LinkProblem | null } }).link_import?.problem || null;
+  const retryLink = async () => {
+    try {
+      await api.reprocess(p.id, {});
+      toast("Trying the link again.");
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    refresh();
+  };
   const menu = projectMenu(p, {
     cancel: () => cancelProcessing(p, refresh),
     remake: () => setDialog("remake"),
@@ -144,7 +155,18 @@ export default function ProjectView({ id }: { id: string }) {
         </>} />
       {(p as Project & { clip_mode?: string }).clip_mode === "full_stories" && <StoryReview projectId={p.id} version={p.updated_at} onChange={refresh} />}
 
-      {p.status === "error" && (
+      {p.status === "error" && linkProblem && (
+        <Banner tone="bad" title={`The video link couldn't be downloaded: ${linkProblem.label}`} actions={<>
+          <button type="button" className="btn btn-small" onClick={retryLink}>
+            <Icon name="refresh" />Try the link again
+          </button>
+          <a className="btn btn-small" href="#/create/clips">Use a video file instead</a>
+        </>}>
+          <span className="break">{linkProblem.why}</span>
+          <br /><b>What to do:</b> {linkProblem.fix}
+        </Banner>
+      )}
+      {p.status === "error" && !linkProblem && (
         <Banner tone="bad" title="ClipForge couldn't make clips from this video." actions={<>
           <button type="button" className="btn btn-small" onClick={() => setDialog("remake")}>
             <Icon name="refresh" />Try again…
@@ -270,7 +292,21 @@ function Working({ p }: { p: Project }) {
   const step = p.status === "processing" ? STAGE_STEP[p.stage || "queued"] ?? -1 : -1;
   const pct = Math.round((p.progress || 0) * 100);
   const label = p.status === "uploading" ? "Copying into ClipForge"
-    : p.status === "processing" ? p.message || "Making clips" : p.message || "Waiting to start";
+    : p.status === "importing" ? p.message || "Downloading the video from the link"
+      : p.status === "processing" ? p.message || "Making clips" : p.message || "Waiting to start";
+  if (p.status === "importing") {
+    return (
+      <div className="stack">
+        <b>{label}</b>
+        {pct > 0 ? <ProgressBar value={p.progress} label="Download of this video" />
+          : <span className="tiny faint">Waiting for the website to answer.</span>}
+        <span className="tiny faint">
+          {pct > 0 ? `${pct}% downloaded, as the website reports it. ` : ""}Your clip type, style and destinations are
+          already saved with this project. You can leave this page or restart ClipForge; the download continues.
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="stack">
       <b>{label}</b>

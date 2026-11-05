@@ -1,4 +1,4 @@
-export type Status = "created" | "uploading" | "queued" | "processing" | "ready" | "error" | "cancelled";
+export type Status = "created" | "uploading" | "importing" | "queued" | "processing" | "ready" | "error" | "cancelled";
 
 export interface Project {
   id: string;
