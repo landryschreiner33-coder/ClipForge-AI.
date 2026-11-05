@@ -1,5 +1,32 @@
 # AI changelog
 
+## Studio upgrade: Find media with license records and credits — 2026-11-05 (Claude Code)
+
+- Editor → Find media: Images, Footage/B-roll, Music and Sound effects from Openverse, Wikimedia Commons and Pexels,
+  searched together. Each card shows a preview (served through ClipForge, never loaded straight from the source),
+  length or size, creator, source, license and restrictions; filters for shape, length and license. Picking a result
+  copies the file into Your media; adding it to the edit is a separate step.
+- Imports are durable, cancelable jobs. Downloads go through `netguard` (address pinned, redirects re-checked), with
+  a size cap per kind, a content-type allow list and an FFmpeg decode check. Each file gets a provenance record
+  (source, item, creator, license and version, terms, credit, retrieval time, hash) in `asset_sources`, separate from
+  the Brain. Switching a source off or the source removing the item never breaks media already imported.
+- Terms: unknown or unfit terms are labelled; importing one needs the owner's written reason and holds automatic
+  posting for that render. Titles and descriptions from sources are inert text.
+- Credits: an editable list per project, carried into the render info, a `credits.txt` beside each final render,
+  and the description of automatic uploads. A credit the license requires must keep the creator and license.
+- Settings → Media sources: on/off per source, Pexels key sealed with the other secrets and tested without showing
+  it, limits and terms links. A 429 pauses only that source for its Retry-After time; searches are cached.
+- Supporting media per project (Make a video, and the editor): off, suggest for review (default), or add
+  automatically as one undoable version (images after the clip where a repeated word is said; music looped and
+  ducked). Make a video also has a Music choice: none, your own, or find some.
+- Fixed: a thumbnail that FFmpeg failed to write was recorded anyway and its route returned 500; it is now skipped
+  and the route returns 404.
+- Tests actually run: fast suite 1,702 passed; new `test_studio_media_sources.py` (15 fast) passes; new slow
+  `test_studio_media_render.py` passes (rain sound and landscape image found, auditioned, imported, placed,
+  reopened offline with the source off, rendered with timing and credit intact).
+- Not verified: the live Openverse, Wikimedia Commons and Pexels APIs (unreachable from this environment; tests
+  use recorded responses shaped like their documentation), Content ID behaviour of any imported file.
+
 ## Studio upgrade: example videos measured and applied — 2026-11-05 (Claude Code)
 
 - Brain → Example videos: upload an example, say what you like (overall, pacing, captions, framing, sound), pick an

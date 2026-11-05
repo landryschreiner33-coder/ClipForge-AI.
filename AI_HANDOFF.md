@@ -33,8 +33,16 @@ touched.
     example ranks right after project choices). New fields `shot_length_s`, `duck_depth_db` are applied by the rough
     cut. Make a video stopped sending pre-filled answers as project choices (they overrode every style). Tests:
     `tests/test_studio_reference.py` (fast), `tests/test_studio_reference_render.py` (slow).
+  - Find media (handoff section 6, web media library): `studio/media_sources.py` searches Openverse, Wikimedia
+    Commons and Pexels (key sealed in Settings → Media sources), proxies previews per workspace, imports through a
+    durable job with `netguard` downloads, size/type/decode checks and a provenance row (`asset_sources`, kept apart
+    from the Brain), and keeps an editable credits list (render info, `credits.txt`, automatic upload descriptions).
+    Unknown or unfit terms need the owner's written reason and hold automatic posting. Supporting media per project
+    (suggest by default, or add automatically as one undoable version). Editor panel, Settings tab and Make a video
+    choices built. Tests: `tests/test_studio_media_sources.py` (fast), `tests/test_studio_media_render.py` (slow).
+    **Provider APIs not live-verified** (hosts unreachable here).
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
-  analysis, applied Brain styles~~ → Find media providers, bounded AI corrections → Studio/Home/Office and all-robot names →
+  analysis, applied Brain styles~~ → ~~Find media providers~~ → bounded AI corrections → Studio/Home/Office and all-robot names →
   dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
