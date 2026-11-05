@@ -1,5 +1,15 @@
 # AI changelog
 
+## Studio upgrade: video links in Make clips, discovery retired — 2026-11-05 (Claude Code)
+
+- Make clips offers Video file and Video link; a link keeps the chosen mode, style, skills and destinations through a
+  durable, cancelable, resumable download into a private asset (`studio/link_import.py`).
+- Automatic source discovery is retired (`config.DISCOVERY_RETIRED`, one-time migration with an audit event; nothing
+  deleted). Setup, Settings and Missions no longer offer topics, search keys or discovery controls.
+- Tests actually run: baseline fast suite 1,630 passed on `6c3f8d9`; new `test_studio_links.py` (29) and
+  `test_discovery_retired.py` (4) pass; 148 product-default suites pass with discovery retired.
+- Not verified: real YouTube downloads (host unreachable here), browser checks of the changed screens, slow suite.
+
 ## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
 
 The owner's latest request is a detailed implementation prompt, including example-video learning and web media

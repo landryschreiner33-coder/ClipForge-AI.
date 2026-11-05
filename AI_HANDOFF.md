@@ -1,5 +1,31 @@
 # AI handoff
 
+## ClipForge studio upgrade, in progress — 2026-11-05 (Claude Code, cloud session)
+
+**Plain-English summary:** work on the studio upgrade handoff
+([CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md](docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md)) has started, in its own
+order. Make clips now takes a **video link** through the same flow as a file, and **automatic source discovery is
+retired** with a migration. Nothing is merged, packaged, published or deployed; no real account, video or website was
+touched.
+
+- **Branch:** `claude/project-thread-x72wkd`, started from the default branch `claude/wonderful-ritchie-909tq3` @
+  `12afd01` and merged with `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`) as `6c3f8d9`.
+  Other remote branches were compared; none has newer app source.
+- **Requirement matrix (kept current):** [docs/clipforge/STUDIO_UPGRADE_MATRIX.md](docs/clipforge/STUDIO_UPGRADE_MATRIX.md).
+- **Baseline on `6c3f8d9`:** fast suite 1,630 passed (clean worktree). Slow suite: see the next checkpoint.
+- **Done so far:**
+  - `cc89a87` Video link in Make clips: `studio/link_import.py`, `jobs.fetch_public_video`, `uploads.store_file`;
+    29 tests in `tests/test_studio_links.py`.
+  - `d3abd6e` Discovery retired: `config.DISCOVERY_RETIRED`, `db._migrate_discovery_retired`, screens cleaned;
+    `tests/test_discovery_retired.py`. Older discovery suites run with the retirement patched off (dormant-engine
+    coverage, documented in `tests/conftest.py` and the matrix).
+- **Plan (handoff order):** scalable media and multi-track audio editing with revisions → example-video analysis,
+  applied Brain styles, Find media providers, bounded AI corrections → Studio/Home/Office and all-robot names →
+  dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
+  owner's explicit approval in the project thread.
+- **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
+  refuses them), so provider integrations are tested against fake transports only. No Mac/Windows runner.
+
 ## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
 
 The owner's latest request is a detailed implementation prompt, including example-video learning and web media
