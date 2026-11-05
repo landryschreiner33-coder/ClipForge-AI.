@@ -145,9 +145,11 @@ export class OfficeMotion {
     this.trim(this.jobOwners); this.trim(this.refOwners);
   }
 
-  tick(dt: number, now: number, reduced: boolean, frozen: boolean) {
+  /** decorative = lounge break activities (Customize studio → Office animation: Calm turns them off) */
+  tick(dt: number, now: number, reduced: boolean, frozen: boolean, decorative = true) {
     if (frozen) return;
-    if (!reduced) this.lounge.tick(dt, this.actors.values());
+    if (!reduced && decorative) this.lounge.tick(dt, this.actors.values());
+    else if (!decorative) this.lounge.reset();
     for (const a of this.actors.values()) {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
       // Individually paused/unavailable workers may finish returning to a reserved resting place,

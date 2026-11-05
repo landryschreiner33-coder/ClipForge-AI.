@@ -36,7 +36,7 @@
   margin: 0;
   color: #d9ba83;
   font-family: var(--font);
-  font-size: 10px;
+  font-size: 0.6875rem;
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: .14em;
@@ -55,7 +55,7 @@
 
 .office-studio .studio-description {
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
 
@@ -65,7 +65,7 @@
   flex-wrap: wrap;
   gap: 8px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -106,20 +106,20 @@
   border-radius: 8px;
   background: #172134;
 }
-.office-studio .office-tools .seg button { min-height: 38px; font-size: 12px; padding: 0 12px; }
+.office-studio .office-tools .seg button { min-height: 38px; font-size: 0.75rem; padding: 0 12px; }
 .office-studio .office-tools .seg button.on {
   color: #f1d8ab;
   background: #323444;
   box-shadow: inset 0 -2px 0 #d9ba83;
 }
-.office-studio .office-tools .btn { min-height: 38px; font-size: 12px; gap: 6px; }
-.office-studio .office-motion { gap: 7px; font-size: 12px; }
+.office-studio .office-tools .btn { min-height: 38px; font-size: 0.75rem; gap: 6px; }
+.office-studio .office-motion { gap: 7px; font-size: 0.75rem; }
 .office-studio .office-motion select {
   min-height: 38px;
-  max-width: 150px;
+  max-width: 12rem;  /* grows with the text size, so "Follow system" is never cut */
   padding: 4px 25px 4px 9px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .office-studio .office-map-frame {
@@ -142,9 +142,9 @@
   background: #182234;
   border-top: 1px solid #344157;
   color: #bcc6d7;
-  font-size: 10px;
+  font-size: 0.6875rem;
 }
-.office-studio .office-map-legend > span:first-child { font-size: 11px; }
+.office-studio .office-map-legend > span:first-child { font-size: 0.6875rem; }
 .office-studio .robot-tag { border-radius: 3px; background: #101a2beb; }
 .office-studio .robot-hit[data-room="lounge"][data-label-row="lower"] .robot-tag {
   margin-top: max(11px, calc(var(--s) * 13px));
@@ -166,7 +166,7 @@
   border-radius: 4px;
   background: #142032df;
   color: #d7c5a9;
-  font-size: 9px;
+  font-size: 0.6875rem;
   pointer-events: none;
 }
 .office-studio .robot-hit[data-offering="true"] .robot-tag { transform: translate(-50%, 100%); }
@@ -210,18 +210,18 @@
   background: #152338ed;
   border: 1px solid #665b49;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   pointer-events: none;
   white-space: nowrap;
 }
 .office-studio .handoff-note[data-phase="idle"] { display: none; }
-.office-studio .office-camera { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; }
+.office-studio .office-camera { display: inline-flex; align-items: center; gap: 5px; font-size: 0.6875rem; }
 .office-studio .office-camera select {
   min-height: 22px;
   height: 22px;
   max-width: 132px;
   padding: 1px 20px 1px 5px;
-  font-size: 10px;
+  font-size: 0.6875rem;
 }
 .office-studio .room-sign { border-radius: 4px; background: #132034eb; }
 
@@ -233,35 +233,35 @@
 }
 .office-studio .op-head { min-height: 72px; padding: 15px 18px; gap: 8px; }
 .office-studio .studio-panel-title { display: grid; gap: 5px; min-width: 0; }
-.office-studio .studio-panel-title .studio-eyebrow { font-size: 9px; color: var(--text-3); letter-spacing: .1em; }
-.office-studio .op-head h2 { font-size: 20px; line-height: 1.15; }
-.office-studio .op-head > .pill { font-size: 10px; padding: 3px 6px; }
+.office-studio .studio-panel-title .studio-eyebrow { font-size: 0.6875rem; color: var(--text-3); letter-spacing: .1em; }
+.office-studio .op-head h2 { font-size: 1.25rem; line-height: 1.15; }
+.office-studio .op-head > .pill { font-size: 0.6875rem; padding: 3px 6px; }
 .office-studio .op-head > .btn-icon { min-width: 32px; min-height: 32px; padding: 4px; }
 .office-studio .op-body {
   gap: 22px;
   padding: 18px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.55;
   scrollbar-width: thin;
   scrollbar-color: #59647c transparent;
 }
-.office-studio .op-body .small { font-size: 12px; }
-.office-studio .op-body .tiny { font-size: 11px; }
+.office-studio .op-body .small { font-size: 0.75rem; }
+.office-studio .op-body .tiny { font-size: 0.6875rem; }
 .office-studio .op-section { gap: 9px; }
-.office-studio .op-section h3 { color: #bac4d5; font-size: 10px; letter-spacing: .09em; }
+.office-studio .op-section h3 { color: #bac4d5; font-size: 0.6875rem; letter-spacing: .09em; }
 .office-studio .op-facts { gap: 8px; padding: 12px 10px; background: #212d42; border: 1px solid #344157; border-radius: 10px; }
-.office-studio .op-facts dt { font-size: 10px; }
-.office-studio .op-facts dd { margin-top: 5px; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.office-studio .op-facts dt { font-size: 0.6875rem; }
+.office-studio .op-facts dd { margin-top: 5px; font-size: 1.25rem; font-weight: 600; line-height: 1.3; }
 .office-studio .op-list li,
-.office-studio .op-activity li { font-size: 12px; padding: 9px 0; border-color: #344157; }
-.office-studio .op-chip { min-height: 36px; border-color: #44516b; font-size: 11px; background: #222e43; }
+.office-studio .op-activity li { font-size: 0.75rem; padding: 9px 0; border-color: #344157; }
+.office-studio .op-chip { min-height: 36px; border-color: #44516b; font-size: 0.6875rem; background: #222e43; }
 .office-studio .op-mission { padding: 10px; background: #222e43; border-color: #43506a; border-radius: 9px; }
 .office-studio .op-callout { padding: 12px; background: #222e43; border-radius: 8px; }
 .office-studio .op-needs { padding: 12px; border-radius: 9px; }
-.office-studio .op-main { min-height: 40px; font-size: 12px; }
+.office-studio .op-main { min-height: 40px; font-size: 0.75rem; }
 .office-studio .op-portrait { padding: 8px; border-radius: 10px; }
 .office-studio .op-pair { gap: 14px; }
-.office-studio .op-pair dt { font-size: 11px; }
+.office-studio .op-pair dt { font-size: 0.6875rem; }
 .office-studio .op-progress { border-radius: 4px; }
 .office-studio .op-progress span { border-radius: 3px; }
 
@@ -272,20 +272,20 @@
   border-color: #344157;
   border-radius: 12px;
 }
-.office-studio .cb-title { font-size: 16px; color: #eed5aa; }
-.office-studio .control-bar .btn { min-height: 36px; font-size: 12px; }
-.office-studio .control-bar .pill { font-size: 11px; }
+.office-studio .cb-title { font-size: 1rem; color: #eed5aa; }
+.office-studio .control-bar .btn { min-height: 36px; font-size: 0.75rem; }
+.office-studio .control-bar .pill { font-size: 0.6875rem; }
 .office-studio .cb-mission { flex-basis: 180px; }
-.office-studio .cb-mission .small { font-size: 12px; }
-.office-studio .cb-mission .tiny { font-size: 10px; letter-spacing: .02em; }
+.office-studio .cb-mission .small { font-size: 0.75rem; }
+.office-studio .cb-mission .tiny { font-size: 0.6875rem; letter-spacing: .02em; }
 .office-studio .cb-audience { flex-basis: 100%; border-top: 1px solid #344157; padding-top: 10px; }
-.office-studio .cb-audience .small { font-size: 11px; }
+.office-studio .cb-audience .small { font-size: 0.6875rem; }
 .office-studio .cb-audience .icon { width: 13px; height: 13px; }
 
 .office-studio .dept-cards { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); padding-right: 2px; }
 .office-studio .dept-card { padding: 16px; border-radius: 12px; background: #192438; }
-.office-studio .dept-card h3 { margin-bottom: 14px; font-size: 16px; }
-.office-studio .dept-robot { padding: 6px; font-size: 12px; }
+.office-studio .dept-card h3 { margin-bottom: 14px; font-size: 1rem; }
+.office-studio .dept-robot { padding: 6px; font-size: 0.75rem; }
 
 /* Laptop height keeps the full office, details and controls together without shrinking the art. */
 @media (min-width: 1101px) and (min-height: 601px) and (max-height: 800px) {
@@ -298,9 +298,9 @@
   .office-studio .studio-heading { min-height: 32px; padding: 0 2px; gap: 8px; }
   .office-studio .studio-heading .studio-eyebrow,
   .office-studio .studio-description { display: none; }
-  .office-studio .studio-title { margin: 0; font-size: 23px; line-height: 1.3; }
+  .office-studio .studio-title { margin: 0; font-size: 1.4375rem; line-height: 1.3; }
   .office-studio .studio-connection,
-  .office-studio .studio-roster-count { min-height: 28px; padding: 4px 9px; font-size: 11px; }
+  .office-studio .studio-roster-count { min-height: 28px; padding: 4px 9px; font-size: 0.6875rem; }
   .office-studio .office-body {
     flex: 1 1 auto;
     grid-template-columns: minmax(0, 1fr) 300px;
@@ -316,15 +316,15 @@
   .office-studio .office-tools .seg button { padding: 0 10px; }
   .office-studio .office-map { min-height: 464px; }
   .office-studio .office-map-legend { min-height: 24px; padding: 3px 12px; gap: 6px 12px; }
-  .office-studio .office-map-legend > span:first-child { font-size: 10px; }
+  .office-studio .office-map-legend > span:first-child { font-size: 0.6875rem; }
   .office-studio .handoff-note { bottom: 30px; }
-  .office-studio .lounge-life-caption { bottom: 30px; font-size: 8px; }
+  .office-studio .lounge-life-caption { bottom: 30px; font-size: 0.6875rem; }
   .office-studio .office-panel .op-head { min-height: 59px; padding: 10px 16px; }
   .office-studio .office-panel .op-body { padding: 14px 16px; gap: 18px; }
   .office-studio .control-bar { gap: 5px 16px; padding: 6px 12px; }
   .office-studio .control-bar .btn { min-height: 32px; }
   .office-studio .control-bar .pill { min-height: 24px; }
-  .office-studio .cb-title { font-size: 15px; }
+  .office-studio .cb-title { font-size: 0.9375rem; }
   .office-studio .cb-mission .tiny { line-height: 1.2; }
   .office-studio .cb-mission .small {
     display: block;
@@ -334,7 +334,7 @@
     white-space: nowrap;
   }
   .office-studio .cb-audience { padding-top: 0; border-top: 0; }
-  .office-studio .cb-audience .small { font-size: 10px; line-height: 1.3; }
+  .office-studio .cb-audience .small { font-size: 0.6875rem; line-height: 1.3; }
 }
 
 @media (max-width: 1100px), (max-height: 600px) {
@@ -346,27 +346,29 @@
 @media (max-width: 760px) {
   .office-page.office-studio { gap: 14px; min-height: 0; }
   .office-studio .studio-heading { gap: 12px; }
-  .office-studio .studio-title { font-size: 23px; }
+  .office-studio .studio-title { font-size: 1.4375rem; }
   .office-studio .studio-status { gap: 7px; }
   .office-studio .studio-connection,
-  .office-studio .studio-roster-count { font-size: 11px; }
+  .office-studio .studio-roster-count { font-size: 0.6875rem; }
   .office-studio .office-tools { gap: 8px; }
   .office-studio .office-tools .spacer { display: none; }
   .office-studio .office-tools .seg { margin-right: auto; }
   .office-studio .office-motion { flex-wrap: wrap; }
-  .office-studio .office-motion select { max-width: 135px; }
+  .office-studio .office-motion select { max-width: 11rem; }
   .office-studio .office-panel .op-body { padding: 16px; }
   .office-studio .control-bar { order: 0; padding: 14px; }
   .office-studio .cb-group { max-width: 100%; }
   .office-studio .cb-mission { flex-basis: 100%; }
-  .office-studio .cb-group .link-btn { font-size: 12px; }
+  .office-studio .cb-group .link-btn { font-size: 0.75rem; }
   .office-studio .dept-cards { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* The office inside the Studio page: the page scrolls; the office keeps a steady height instead of filling it. */
 .office-page.office-studio.office-embedded { height: auto; min-height: 0; padding-bottom: var(--s3); }
-.office-studio.office-embedded > .studio-title { margin: 0; font-size: 20px; }
+.office-studio.office-embedded > .studio-title { margin: 0; font-size: 1.25rem; }
 .office-studio.office-embedded .office-body { height: clamp(520px, 72vh, 760px); }
+.office-studio.office-embedded.office-size-compact .office-body { height: clamp(340px, 48vh, 460px); }
+.office-studio .office-body.no-panel { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 1100px), (max-height: 600px) {
   .office-studio.office-embedded .office-body { height: auto; }
 }

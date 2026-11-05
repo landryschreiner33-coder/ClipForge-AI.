@@ -61,11 +61,14 @@ export default function Office() {
 }
 
 /** The office itself (map or list, the details panel and the controls), fed by the caller's feed. */
-export function OfficeView({ feed, sel, setSel, embedded = false }: {
+export function OfficeView({ feed, sel, setSel, embedded = false, compact = false }: {
   feed: OfficeFeed; sel: Sel; setSel: (s: Sel) => void; embedded?: boolean;
+  /** Customize studio → Office on the Studio page: Compact (no overview panel or Autopilot bar until you pick a robot
+   * or room; the expanded office keeps them) */
+  compact?: boolean;
 }) {
   const { st } = useStatus();
-  const { reduceMotion, animationMode, setAnimationMode } = useMotion();
+  const { reduceMotion, animationMode, setAnimationMode, officeActivity } = useMotion();
   const [view, setViewState] = useState<"map" | "list">(storedView);
   const setView = (v: "map" | "list") => {
     setViewState(v);
@@ -112,7 +115,7 @@ export function OfficeView({ feed, sel, setSel, embedded = false }: {
           What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipForge answers again.
         </Banner>
       )}
-      <div className={`office-body${sel ? "" : " overview"}`}>
+      <div className={`office-body${sel ? "" : " overview"}${compact && !sel ? " no-panel" : ""}`}>
         <section className="office-stage" aria-label="The office">
           <div className="office-tools">
             <div className="seg" role="group" aria-label="Show the office as">
@@ -134,14 +137,14 @@ export function OfficeView({ feed, sel, setSel, embedded = false }: {
             {embedded && <a className="btn btn-small btn-quiet" href="#/office"><Icon name="external" />Expand</a>}
           </div>
           {view === "map" ? (
-            <OfficeMap snap={snap} subscribe={feed.subscribe} skew={feed.skew} reduce={reduceMotion}
+            <OfficeMap snap={snap} subscribe={feed.subscribe} skew={feed.skew} reduce={reduceMotion || officeActivity === "low_power"}
               selected={sel?.type === "robot" ? sel.id : null} room={sel?.type === "room" ? sel.id : null}
               onRobot={onRobot} onRoom={onRoom} stale={feed.lost} />
           ) : (
             <DepartmentCards snap={snap} onRobot={(id) => onRobot(id)} onRoom={onRoom} />
           )}
         </section>
-        <aside className="office-panel" aria-label="Details" style={accent ? { ["--accent" as string]: accent } as React.CSSProperties : undefined}>
+        {(!compact || sel) && <aside className="office-panel" aria-label="Details" style={accent ? { ["--accent" as string]: accent } as React.CSSProperties : undefined}>
           <div className="op-head">
             <div className="studio-panel-title">
               <span className="studio-eyebrow">{sel?.type === "robot" ? "Robot details" : sel?.type === "room" ? "Department" : sel?.type === "activity" ? "Event feed" : "Studio overview"}</span>
@@ -161,9 +164,9 @@ export function OfficeView({ feed, sel, setSel, embedded = false }: {
           ) : (
             <OverviewPanel snap={snap} skew={feed.skew} events={feed.events} onRobot={(id) => onRobot(id)} onRoom={onRoom} setupNeeded={setupNeeded} />
           )}
-        </aside>
+        </aside>}
       </div>
-      <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />
+      {!compact && <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />}
     </>
   );
 }

@@ -44,7 +44,9 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   reduce: boolean; stale: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
-  const { pageHidden } = useMotion();
+  const { pageHidden, officeActivity } = useMotion();
+  // drawing stops while the office is scrolled out of view (the Studio page embeds it below other panels)
+  const onScreen = useRef(true);
   const choreography = useRef<OfficeMotion | null>(null);
   if (!choreography.current) choreography.current = new OfficeMotion(snap);
   const motion = choreography.current;
@@ -52,8 +54,8 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   const brainLink = useRef<HTMLAnchorElement>(null), transferNote = useRef<HTMLSpanElement>(null);
   const pulses = useRef(new Map<RoomId, number>()), core = useRef(0);
   const coreConsulted = useRef<"consulting" | "consulted" | null>(null);
-  const latest = useRef({ snap, selected, reduce, stale, pageHidden });
-  latest.current = { snap, selected, reduce, stale, pageHidden };
+  const latest = useRef({ snap, selected, reduce, stale, pageHidden, officeActivity });
+  latest.current = { snap, selected, reduce, stale, pageHidden, officeActivity };
   const cutoff = useRef(snap.cursor), suspendedSnapshot = useRef<Snapshot | null>(null);
   const [scale, setScale] = useState(1);
   const [renderer, setRenderer] = useState<"pixi" | "canvas">("pixi");
@@ -73,7 +75,10 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       setScale(best >= 2 ? Math.floor(best) : best);
     };
     fit(); const observer = new ResizeObserver(fit); observer.observe(el);
-    return () => observer.disconnect();
+    const seen = typeof IntersectionObserver === "function"
+      ? new IntersectionObserver(([entry]) => { onScreen.current = entry.isIntersecting; }) : null;
+    seen?.observe(el);
+    return () => { observer.disconnect(); seen?.disconnect(); };
   }, []);
 
   useEffect(() => {
@@ -127,13 +132,17 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
   useEffect(() => {
     const cv = canvas.current!;
     let scene: StudioScene | null = null, fallback: LivingFallback | null = null;
-    let cancelled = false, raf = 0, last = performance.now(), drawn = 0;
+    let cancelled = false, raf = 0, wait = 0, last = performance.now(), drawn = 0;
     const frame = (now: number) => {
+      if (!onScreen.current) {  // nothing to show: look again shortly, without drawing or animating
+        last = now; wait = window.setTimeout(() => { raf = requestAnimationFrame(frame); }, 400); return;
+      }
       const state = latest.current, dt = Math.min(0.1, (now - last) / 1000); last = now;
       const frozen = state.stale || state.pageHidden || suspendedSnapshot.current !== null
         || ["paused", "pausing"].includes(state.snap.run.state);
-      const still = state.reduce || frozen;
-      motion.tick(dt, now, state.reduce, frozen);
+      const lowPower = state.officeActivity === "low_power";
+      const still = state.reduce || frozen || lowPower;
+      motion.tick(dt, now, state.reduce || lowPower, frozen, state.officeActivity === "full");
       if (drawn && now - drawn < (still ? 250 : 45)) { raf = requestAnimationFrame(frame); return; }
       drawn = now;
       for (const [id, until] of pulses.current) if (until < now) pulses.current.delete(id);
@@ -188,6 +197,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
             ? "Passing document" : "Received"}` : "";
         if (note.textContent !== label) note.textContent = label;
       }
+      if (lowPower) { wait = window.setTimeout(() => { raf = requestAnimationFrame(frame); }, 1000); return; }
       raf = requestAnimationFrame(frame);
     };
     const init = async () => {
@@ -205,7 +215,7 @@ export default function OfficeMap({ snap, subscribe, selected, room, onRobot, on
       raf = requestAnimationFrame(frame);
     };
     void init();
-    return () => { cancelled = true; cancelAnimationFrame(raf); scene?.destroy(); fallback?.destroy(); };
+    return () => { cancelled = true; cancelAnimationFrame(raf); window.clearTimeout(wait); scene?.destroy(); fallback?.destroy(); };
   }, [renderer, motion]);
 
   const label = (id: string) => {
