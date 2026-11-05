@@ -1,4 +1,5 @@
 import AppearanceSettings from "../components/AppearanceSettings";
+import MediaSourcesSettings from "../components/MediaSources";
 import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
@@ -34,7 +35,7 @@ const ACCOUNT_KEYS: Record<Platform, string[]> = {
     "tiktok_app_audited"],
 };
 const SECRETS = new Set(["openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
-  "youtube_api_key", "tavily_api_key", "nvidia_api_key"]);
+  "youtube_api_key", "tavily_api_key", "nvidia_api_key", "pexels_api_key"]);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -45,6 +46,15 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * "•••••••• (saved)" with Replace.
  */
 export default function SettingsPage({ tab }: { tab?: string }) {
+  if (tab === "media") {
+    return (
+      <div className="page narrow">
+        <PageHead kind="Settings" title="Settings" sub="Where Find media looks for images, footage, music and sound effects." />
+        <LinkTabs label="Settings sections" current="media" tabs={SETTINGS_TABS} />
+        <MediaSourcesSettings />
+      </div>
+    );
+  }
   if (tab === "appearance") {
     return (
       <div className="page">
@@ -59,6 +69,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 
 const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
+  { id: "media", href: "#/settings/media", label: "Media sources" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },

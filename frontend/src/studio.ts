@@ -83,9 +83,50 @@ export type Video = { id: string; name: string; status: string; message: string;
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
   can_undo: boolean; can_redo: boolean;
   capabilities: { tracks: Record<TrackName, string>; caption_sizes: string[]; caption_positions: string[]; fps: number[];
-    duck_depth_db: { default: number; range: [number, number] }; limits: string } };
+    duck_depth_db: { default: number; range: [number, number] }; limits: string };
+  sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules };
+
+export type MediaKind = "image" | "footage" | "music" | "effect";
+export type MediaTerms = { known: boolean; commercial: boolean; modify: boolean; attribution: boolean; share_alike: boolean };
+export type MediaResult = { id: string; provider: string; provider_name: string; kind: MediaKind; external_id: string;
+  title: string; creator: string; creator_url: string; page_url: string; origin: string; license: string;
+  license_version: string; license_name: string; license_url: string; terms: MediaTerms; restrictions: string;
+  width: number | null; height: number | null; duration_s: number | null; filetype: string; credit: string;
+  preview: { image?: string; audio?: string; video?: string };
+  fits: { eligible: boolean; reasons: string[]; credit_required: boolean } };
+export type ProviderStatus = { id: string; name: string; state: string; message: string; count: number; cached: boolean;
+  retry_after: number | null; notice: string };
+export type MediaSearchResult = { kind: MediaKind; query: string; page: number; results: MediaResult[]; providers: ProviderStatus[] };
+export type MediaProvider = { id: string; name: string; kinds: MediaKind[]; supplies: string; key_required: boolean;
+  key_saved: boolean; key_help: string; limits: string; terms_url: string; docs_url: string; notice: string;
+  enabled: boolean; state: string; message: string };
+export type MediaImport = { id: string; result_id: string; project_id: string; provider: string; kind: MediaKind; title: string;
+  status: "queued" | "importing" | "ready" | "failed" | "canceled"; message: string; error: string; asset_id: string;
+  progress: number; job_message: string };
+export type AssetSource = { provider: string; provider_name: string; kind: MediaKind; title: string; creator: string;
+  page_url: string; origin: string; license_name: string; license_url: string; terms: MediaTerms; credit: string;
+  credit_required: boolean; restrictions: string; user_basis: string; retrieved_at: number };
+export type Credit = { key: string; asset_id: string; provider_name: string; title: string; creator: string; required: boolean;
+  generated: string; text: string; edited: boolean; license_name: string; license_url: string; page_url: string; user_basis: string };
+export type MediaRules = { mode: "suggest" | "auto"; commercial: boolean; share_alike: boolean };
+export type Suggestions = { rules: MediaRules; latest: null | { round: number; mode: string; status: string; message: string;
+  queries: { kind: MediaKind; query: string; why: string }[];
+  items: { kind: MediaKind; query: string; why: string; results: MediaResult[] }[];
+  added: { asset_id: string; kind: MediaKind; title: string; query: string }[]; problems: string[] } };
 
 export const studio = {
+  mediaProviders: () => req<MediaProvider[]>("GET", "/api/studio/media/providers"),
+  setMediaProvider: (id: string, body: { enabled?: boolean; key?: string }) => req<MediaProvider[]>("PUT", `/api/studio/media/providers/${id}`, body),
+  testMediaProvider: (id: string) => req<{ ok: boolean; state: string; message: string }>("POST", `/api/studio/media/providers/${id}/test`),
+  searchMedia: (body: { kind: MediaKind; query: string; filters?: Record<string, string>; page?: number; project_id?: string; providers?: string[] }) =>
+    req<MediaSearchResult>("POST", "/api/studio/media/search", body),
+  importMedia: (body: { result_id: string; project_id?: string; basis?: string }) => req<MediaImport>("POST", "/api/studio/media/imports", body),
+  mediaImport: (id: string) => req<MediaImport>("GET", `/api/studio/media/imports/${id}`),
+  cancelMediaImport: (id: string) => req<MediaImport>("POST", `/api/studio/media/imports/${id}/cancel`),
+  setMediaRules: (id: string, body: Partial<MediaRules>) => req<Video>("PUT", `/api/studio/videos/${id}/media-rules`, body),
+  findSupportingMedia: (id: string) => req<Suggestions>("POST", `/api/studio/videos/${id}/supporting-media`),
+  supportingMedia: (id: string) => req<Suggestions>("GET", `/api/studio/videos/${id}/supporting-media`),
+  editCredit: (id: string, key: string, text: string) => req<Video>("PUT", `/api/studio/videos/${id}/credits`, { key, text }),
   library: (kind = "", q = "") => req<LibraryItem[]>("GET", `/api/studio/projects?kind=${kind}&q=${encodeURIComponent(q)}`),
   // A plain read (GET): showing the preview never changes anything.
   preview: (body: { mode: string; style_id?: string; choices?: Record<string, unknown>; title?: string; reference_id?: string }) =>

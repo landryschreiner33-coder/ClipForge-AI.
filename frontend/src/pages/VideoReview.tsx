@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
+import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Plan, PlanClip, studio, TrackName, Video } from "../studio";
@@ -231,6 +232,7 @@ export default function VideoReview({ id }: { id: string }) {
           {working && <button type="button" className="btn" onClick={async () => setV(await studio.cancelVideo(v.id))}><Icon name="stop" />Cancel</button>}
         </>} />
       {failed && <Banner tone="bad" title="That did not finish">{failed.error}</Banner>}
+      <MediaBanner v={v} />
       {working && <div className="panel"><b>{working.message || "Waiting for a worker"}{working.kind === "video_render" ? ` (version ${working.revision}; later edits do not change it)` : ""}</b><ProgressBar value={working.progress} label="Progress" /></div>}
       <LayoutFlow screen="review" sections={{
         preview: (
@@ -324,10 +326,11 @@ export default function VideoReview({ id }: { id: string }) {
                 <ul className="file-list">{bin.map((a) => (
                   <li key={a.id} className="file-row">
                     {a.has_thumbnail ? <img className="thumb-mini" src={`/api/assets/${a.id}/thumbnail`} alt="" /> : <span className="thumb-mini" aria-hidden="true" />}
-                    <div className="break"><b className="clamp-1">{a.filename}</b><span className="block small muted">{a.kind === "audio" ? "Sound" : a.kind === "image" ? "Image" : "Video"}{a.duration ? ` · ${fmtTime(a.duration)}` : ""}</span></div>
+                    <div className="break"><b className="clamp-1">{a.filename}</b><span className="block small muted">{a.kind === "audio" ? "Sound" : a.kind === "image" ? "Image" : "Video"}{a.duration ? ` · ${fmtTime(a.duration)}` : ""}</span><SourceLine v={v} assetId={a.id} /></div>
                   </li>))}</ul>
               </Disclosure>
             </section>
+            <FindMedia v={v} onChanged={() => void load()} />
           </div>),
         guidance: <section className="panel" aria-labelledby="vr-brain"><h2 id="vr-brain">Used from your Brain</h2><UsedFromBrain snapshot={v.guidance} compact /></section>,
         transcript: (<div className="stack-5">{plan && (
@@ -368,7 +371,8 @@ export default function VideoReview({ id }: { id: string }) {
               </li>
             ))}</ul>
             <a className="small" href={`/api/studio/videos/${v.id}/export`}>Download the edit plan (JSON)</a>
-          </section></div>),
+          </section>
+          <Credits v={v} onSaved={setV} /></div>),
       }} />
     </div>
   );

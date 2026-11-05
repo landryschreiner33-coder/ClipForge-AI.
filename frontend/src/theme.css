@@ -330,3 +330,15 @@ input:not([type]) {
   .ex-apply-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .ex-apply-row > span { grid-column: 1 / -1; }
 }
+
+/* ---- Find media (video editor) */
+.media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s3); margin: 0; padding: 0; list-style: none; }
+.media-grid.compact { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.media-card { display: grid; gap: var(--s2); align-content: start; padding: var(--s3); min-width: 0;
+  background: var(--canvas); border: 1px solid var(--border); border-radius: var(--r-panel); }
+.media-card .break { overflow-wrap: anywhere; }
+.media-preview { display: grid; gap: var(--s2); }
+.media-preview img, .media-preview video { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: #000; border-radius: var(--r-control); }
+.media-preview audio { width: 100%; }
+.media-noimg { display: grid; place-items: center; aspect-ratio: 16 / 10; background: var(--surface); border-radius: var(--r-control); color: var(--text-2); }
+.clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

@@ -22,6 +22,7 @@ export default function MakeVideo() {
   const [files, setFiles] = useState<Picked[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [music, setMusic] = useState<Picked | null>(null);
+  const [findMedia, setFindMedia] = useState("off");
   const [voices, setVoices] = useState<Picked[]>([]);
   const [name, setName] = useState("");
   const [style, setStyle] = useState("saved");
@@ -90,7 +91,8 @@ export default function MakeVideo() {
           ...choices, music: brief.music,
           ...(brief.music === "supplied" && music?.asset ? { music_asset_id: music.asset.id } : {}),
           ...(voices.length ? { voiceover_asset_ids: voices.map((f) => f.asset!.id) } : {}),
-          must_keep: brief.must_keep, avoid: brief.avoid },
+          must_keep: brief.must_keep, avoid: brief.avoid,
+          find_media: brief.music === "find" && findMedia === "off" ? "suggest" : findMedia },
         remember: { enabled: remember, name: styleName.trim() },
       });
       navigate(`video/${v.id}`);
@@ -152,7 +154,14 @@ export default function MakeVideo() {
               </div>
               <label className="field"><span>Burn in captions</span><select value={brief.captions} onChange={(e) => set("captions", e.target.value)}>
                 <option value="">From your style ({eff("captions")})</option><option value="on">On</option><option value="off">Off</option></select></label>
-              <label><input type="checkbox" checked={brief.music === "supplied"} onChange={(e) => set("music", e.target.checked ? "supplied" : "none")} /> Add my own music (it dips while people speak)</label>
+              <label className="field"><span>Music</span><select value={brief.music} onChange={(e) => set("music", e.target.value)}>
+                <option value="none">No added music</option><option value="supplied">My own music file (it dips while people speak)</option>
+                <option value="find">Find music for me in Media sources</option></select></label>
+              <label className="field"><span>Supporting media</span><select value={findMedia} onChange={(e) => setFindMedia(e.target.value)}>
+                <option value="off">Don't look for images or music</option>
+                <option value="suggest">After the rough cut, suggest images (and music) for my review</option>
+                <option value="auto">After the rough cut, add eligible ones as a version I can undo</option></select></label>
+              {(findMedia !== "off" || brief.music === "find") && <p className="small muted">Searches only for this project, using a few words you say most often, under its license rules (commercial use, no share-alike) that you can change in the editor. <a href="#/settings/media">Media sources</a></p>}
               {brief.music === "supplied" && <FileDrop accept="audio/*,.flac,.opus,.ogg" label="Drop the music file" onAssets={(rows) => setMusic(rows[0] || null)} />}
               <Disclosure summary={voices.length ? `Voiceover (${voices.length} file${voices.length > 1 ? "s" : ""})` : "Add a voiceover"}>
                 <p className="small muted">Voiceover files play one after another from the start, on their own track. Music dips under them like under speech.</p>
