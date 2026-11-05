@@ -47,9 +47,17 @@ touched.
     refused). Rules understand the handoff's examples without AI; anything else goes text-only to the AI service in
     Settings → AI when one is set up, with a timeout, cancel, a daily limit, a cache and no automatic retries.
     Tests: `tests/test_studio_edit_requests.py` (fake AI service; no real model was called).
+  - Studio and the office (handoff sections 4 and 5): `pages/Studio.tsx` replaces Home (two choices, video link,
+    Needs you, current project with its real step and team, the embedded office, recent projects, publishing);
+    navigation is Studio, Projects, Brain, Publishing, Accounts, Settings. `office/work.py` feeds your own work into
+    the robots (queued, working, waiting for you, error, with a per-robot log of the last day), filtered by
+    workspace; `office/roles.py` has the new rooms with `OLD_ROOMS` for old ids. Every robot including the Brain
+    Core can be renamed (`office/RobotName.tsx`; `POST /api/robots/names/reset` needs `confirm`). Tests:
+    `tests/test_office_owner_work.py`, `tests/test_office.py`, `tests/test_office_manager_handoffs.py`,
+    `tests/test_studio_prefs.py`. Fast suite 1,733 passed on `c80bcb8`.
 - **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
-  analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → Studio/Home/Office and all-robot names →
-  dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
+  analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
+  all-robot names~~ → dark-only design and Customize studio → full checks. Website, release downloads and any real post wait for the
   owner's explicit approval in the project thread.
 - **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
   refuses them), so provider integrations are tested against fake transports only. No Mac/Windows runner.

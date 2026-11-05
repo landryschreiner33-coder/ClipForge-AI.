@@ -1,5 +1,37 @@
 # AI changelog
 
+## Studio upgrade: Studio and the office in one place, truthful robots, rename every robot — 2026-11-05 (Claude Code)
+
+- The app opens on **Studio**: Make clips, Make a YouTube video and Make clips from a video link; **Needs you** only
+  when something has a fix (a stopped project, an editor question or proposal waiting for you, Autopilot's own
+  list); the **current project** with its picture, the step it is really at, a Working, Queued or Waiting for you
+  label, progress only when measured and the robots on it; the robot office (Expand opens it at `#/office`); recent
+  projects and publishing. "Ready for your next video" when nothing runs. Navigation is Studio, Projects, Brain,
+  Publishing, Accounts, Settings; older addresses redirect.
+- The robots now show **your own work**, not only Autopilot's: Make clips projects by stage, clip and version
+  renders, video links, rough cuts and renders, Find media downloads, example-video analysis and editor requests,
+  each from its recorded row and only in your workspace. Queued is its own state. Paused shows only when Autopilot
+  was started and then stopped, and never hides your own work. A failure shows for 30 minutes, then moves to the
+  robot's log.
+- Rooms follow the workflow: Intake, Media research, Story & analysis, Editing, Sound & captions, Brain, Quality &
+  export, Publishing, Control room, Lounge. The 25 robots keep their ids; old room addresses still open the room
+  that replaced them.
+- Each robot's details show a **Log** (its Autopilot steps plus your work that ended in the last day), and the
+  reason under a task now says what it is (Waiting for you, Queued, Waiting, Stopped, Blocked) instead of always
+  "Blocked".
+- **Every robot can be renamed**, the Brain Core included, from its details or the Team page; Reset all names asks
+  first. Names reach the map, the list, accessible labels, handoff notes, activity and the Studio's team chips.
+  Renaming keeps the open robot.
+- Fixed: a Make clips project still downloading from a link made its picture request fail with a server error
+  every few seconds on the Studio page.
+- Tests actually run: fast suite 1,733 passed on `c80bcb8`. New: `tests/test_office_owner_work.py` (15),
+  renaming and reset-all in `tests/test_studio_prefs.py`, the link-project picture in `tests/test_studio_uploads.py`;
+  office tests updated for the new rooms and the queued state. Browser checks at 1440 px and 390 px on a disposable
+  data folder: Studio, the office map and list, renaming from the details and the Team page, reset all with
+  confirmation, waiting for you, the log; no sideways scroll and no console errors.
+- Not built: separate states for waiting on a platform and waiting on a retry timer (the reason says which), and
+  your own work in the shared activity feed (it is in each robot's log).
+
 ## Studio upgrade: tell the editor what to change — 2026-11-05 (Claude Code)
 
 - Editor → Tell the editor what to change: a request becomes a proposal you check before anything changes. It lists

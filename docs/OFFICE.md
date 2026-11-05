@@ -71,9 +71,16 @@ managers moved when automatic discovery was retired, and old room ids (`boss`, `
 Your own work counts as much as Autopilot's (`office/work.py`): Make clips projects at their pipeline stage, clip and
 version renders, the studio's durable jobs and editor requests waiting for the AI service. A robot is **queued** when
 work is assigned but not started, **working** while it runs (progress only when measured), **waiting** or
-**retrying** when it started and now waits, **error** for 30 minutes after a failure, and **idle** otherwise. It is
+**retrying** when it started and now waits, **error** for 30 minutes after a failure, and **idle** otherwise. An
+editor request that asked you a question, or proposed changes for you to check, puts the Story Editor in **waiting**
+with "Waiting for you" (while it was made for the edit as it is now); the Studio lists it under Needs you. It is
 **paused** only when you paused or stopped Autopilot and it has none of your own work; Autopilot that was never
 started does not make the office look paused.
+
+A robot's details show its name, role, manager, state, current task with the project or video it is for, and a
+**Log**: Autopilot's steps from the event feed plus your own work that ended in the last day
+(`GET /api/office/robots/{id}/log`, read per workspace from the recorded rows). Rename it there or on the Team page;
+Reset all names on the Team page asks first.
 
 `roles.role_for(kind, stage)` maps every job (and the stage it reports) to exactly one role.
 

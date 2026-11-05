@@ -618,7 +618,7 @@ function AdvancedTab({ c, health, st }: {
       <SettingsPanel id="adv-brain" title="Brain (learning)"
         intro={<>How carefully ClipForge learns from your viewers' results. These are lower limits: it never learns
           from fewer than 30 clips or changes a value by more than 10% at once. Pause, reset and roll back are in the
-          Office's <a className="textlink" href="#/">Brain Room</a>.</>}>
+          Brain room of the Studio's office (<a className="textlink" href="#/office">open the office</a>, then the Brain room).</>}>
         <SettingRow k="brain_min_clips" label="Clips before any change" errors={errors}
           hint="Mature clips in one comparable audience before a strategy may change (30 to 1,000)">
           <NumInput k="brain_min_clips" c={c} />
