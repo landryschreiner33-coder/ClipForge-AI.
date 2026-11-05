@@ -1059,6 +1059,26 @@ CREATE TABLE IF NOT EXISTS media_suggestions (  -- "Find supporting media for th
     updated_at REAL NOT NULL,
     PRIMARY KEY (project_id, round)
 );
+CREATE TABLE IF NOT EXISTS edit_requests (  -- "Tell the editor what to change": one request and its checked proposal
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    base_revision INTEGER NOT NULL,           -- the revision the proposal was made for (stale once another exists)
+    text TEXT NOT NULL,                       -- what you asked, as typed
+    status TEXT DEFAULT 'thinking',           -- thinking | ready | question | unsupported | invalid | failed |
+                                              -- canceled | applied | stale
+    source TEXT DEFAULT 'rules',              -- rules (no AI) | ai
+    provider TEXT DEFAULT '',                 -- the AI service's label when source = ai
+    sent TEXT DEFAULT '',                     -- what left this computer for the AI service, in words ('' = nothing)
+    prompt_chars INTEGER DEFAULT 0,
+    proposal TEXT DEFAULT '{}',               -- clipforge.edit-proposal/v1: operations, changes, question
+    message TEXT DEFAULT '',
+    applied_revision INTEGER DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edit_requests_project ON edit_requests(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_edit_requests_ws ON edit_requests(workspace_id, source, created_at);
 CREATE TABLE IF NOT EXISTS robot_names (
     workspace_id TEXT NOT NULL,
     role_id TEXT NOT NULL,                    -- the stable office/roles.py ID; display metadata only
@@ -1135,6 +1155,7 @@ JSON_FIELDS = {
     "asset_sources": {"terms"},
     "media_imports": set(),
     "media_suggestions": {"queries", "items", "added", "problems"},
+    "edit_requests": {"proposal"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these

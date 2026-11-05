@@ -42,7 +42,7 @@ SECONDARY_ALLOWED = re.compile(
     r"^/api/(auth/|uploads(/|$)|assets/|studio/|projects(/|$)|clips/[^/]+(/(video|thumbnail|words|versions))?$|"
     r"versions/[^/]+/(video|thumbnail)$|stories/|preferences/|robots/names|connections(/|$)|stats$|health$)")
 SECONDARY_BLOCKED = re.compile(
-    r"/publish|/publications|/post-package|/guidance(?:/|$)|^/api/studio/(?:clips|videos|references|media)(?:/|$)|"
+    r"/publish|/publications|/post-package|/guidance(?:/|$)|^/api/studio/(?:clips|videos|references|media|requests)(?:/|$)|"
     r"^/api/assets/[^/]+/source$")
 SECONDARY_SHARED_WRITES = re.compile(r"^/api/(?:projects|clips|versions|stories)(?:/|$)")
 

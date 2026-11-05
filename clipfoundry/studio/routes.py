@@ -1017,3 +1017,55 @@ def video_credits(video_id: str, revision: int = 0) -> PlainTextResponse:
     body = media_sources.credits_text(v, plan) or "This version uses no media from Media sources.\n"
     return PlainTextResponse(body, headers={
         "Content-Disposition": f'attachment; filename="{video_id}-v{rev}-credits.txt"'})
+
+
+# ------------------------------------------------------------------ "Tell the editor what to change" (section 9)
+from . import edit_requests
+
+
+class ChangeRequest(BaseModel):
+    text: str
+    base_revision: int | None = None
+
+
+def _request_error(exc: edit_requests.RequestError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+@router.post("/api/studio/videos/{video_id}/requests")
+def ask_for_change(video_id: str, body: ChangeRequest) -> dict:
+    v = _video(video_id)
+    try:
+        return edit_requests.ask(video_id, v["workspace_id"], body.text, body.base_revision)
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.get("/api/studio/videos/{video_id}/requests")
+def change_requests(video_id: str) -> list[dict]:
+    _video(video_id)
+    return edit_requests.recent(video_id)
+
+
+@router.get("/api/studio/requests/{request_id}")
+def change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.view(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.post("/api/studio/requests/{request_id}/apply")
+def apply_change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.apply(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.post("/api/studio/requests/{request_id}/cancel")
+def cancel_change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.cancel(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
