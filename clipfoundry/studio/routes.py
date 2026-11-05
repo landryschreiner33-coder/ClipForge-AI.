@@ -559,9 +559,12 @@ def library(kind: str = "", q: str = "") -> list[dict]:
     if kind in ("", "full_video"):
         for v in db.select("studio_projects", "workspace_id = ?", (ws,), "updated_at DESC"):
             first = (v.get("asset_ids") or [""])[0]
+            # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
+            asset = db.fetch("assets", first) if first else None
+            pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
             out.append({"id": v["id"], "kind": "full_video", "mode": "full_video", "name": v["name"],
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
-                        "thumbnail": f"/api/assets/{first}/thumbnail" if first else "", "href": f"#/video/{v['id']}"})
+                        "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "", "href": f"#/video/{v['id']}"})
     if q:
         out = [x for x in out if q.lower() in x["name"].lower()]
     return sorted(out, key=lambda x: -x["updated_at"])

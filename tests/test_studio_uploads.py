@@ -172,3 +172,22 @@ def test_a_project_still_downloading_from_a_link_has_no_picture_yet_and_does_not
         assert api.get(path).status_code == 404
     item = next(i for i in api.get("/api/studio/projects").json() if i["id"] == p["id"])
     assert item["thumbnail"] == ""  # the Studio shows the plain frame instead of asking for a picture
+
+
+def test_a_full_video_whose_first_file_has_no_picture_is_listed_without_one(api, tmp_path):
+    from clipfoundry import db
+
+    sound = tmp_path / "voice.m4a"
+    sound.write_bytes(b"x")
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(b"\xff\xd8\xff")
+    a = db.insert("assets", {"workspace_id": "local", "kind": "audio", "filename": "voice.m4a", "sha256": "s1",
+                             "size": 1, "path": str(sound), "probe": {"duration": 9, "has_audio": True}})
+    b = db.insert("assets", {"workspace_id": "local", "kind": "video", "filename": "trip.mp4", "sha256": "s2",
+                             "size": 1, "path": str(sound), "thumb_path": str(frame), "probe": {"duration": 9}})
+    quiet = db.insert("studio_projects", {"workspace_id": "local", "name": "Voice first", "asset_ids": [a["id"]]})
+    shown = db.insert("studio_projects", {"workspace_id": "local", "name": "Picture first", "asset_ids": [b["id"]]})
+    items = {i["id"]: i for i in api.get("/api/studio/projects?kind=full_video").json()}
+    assert items[quiet["id"]]["thumbnail"] == ""  # no request that can only answer 404
+    assert items[shown["id"]]["thumbnail"] == f"/api/assets/{b['id']}/thumbnail"
+    assert api.get(items[shown["id"]]["thumbnail"]).status_code == 200
