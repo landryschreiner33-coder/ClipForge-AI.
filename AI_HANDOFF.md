@@ -1,5 +1,25 @@
 # AI handoff
 
+## Smart video editing and the AI helper — 2026-11-05 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a video editor that actually edits (trims, adds sound and pictures when
+it helps) and for a free way to plug in an AI (a key or a local model). "Make a YouTube video" now defaults to
+"Edit it for me": pauses, lone fillers, earlier takes and stumbles are cut, the length is fitted, images are shown
+over the video when they are named, and free music and soft effects made on the computer are added. Settings → AI
+helper sets up Ollama (download or .gguf import), LM Studio or a free Gemini/Groq/OpenRouter key. Draft PR #23,
+not merged.
+
+- **Branch:** `claude/project-thread-k49gua`, from `claude/project-thread-x72wkd` (#20, unmerged), PR #23 targets it.
+- **Design and limits:** [docs/clipforge/SMART_EDITING.md](docs/clipforge/SMART_EDITING.md).
+- **Code:** `studio/smart_edit.py` (the plan), `studio/ai_editor.py` (AI advice, windowed and validated),
+  `studio/library.py` (synthesized music/effects), `ai_setup.py` (presets, Ollama pull/import), engine `join`,
+  `zoom`, `overlays`; `video_flow.prepare_smart`, `smart_again`, job `video_smart`; frontend MakeVideo, VideoReview
+  (SmartPanel, Pictures), `components/AiHelperSettings.tsx` at `#/settings/ai`.
+- **Compatibility:** API callers without `smart_edit` get the old rough cut; music is added to unedited clips only
+  when `music` is `auto`/`library`. Captions now keep a word that starts in a clip and is mostly inside it.
+- **Tests:** `tests/test_studio_smart_edit.py` (fast), `tests/test_studio_smart_render.py` (slow, needs espeak-ng).
+- **Not verified:** a real Ollama/LM Studio model, real free-tier keys, the native apps with these screens.
+
 ## ClipForge studio upgrade, released — 2026-11-05 (Claude Code, cloud session)
 
 **Plain-English summary:** work on the studio upgrade handoff
