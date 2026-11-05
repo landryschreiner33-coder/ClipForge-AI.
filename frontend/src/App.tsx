@@ -1,7 +1,7 @@
 import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { ap } from "./autopilot";
-import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost } from "./components/ui";
+import { Banner, ConnectionContext, Dialog, Icon, IconName, Logo, toast, ToastHost, useMenu } from "./components/ui";
 import { leaveGuard, leaveTo, navigate, setLeaveAsker, useRoute, type Route } from "./router";
 import { autopilotState, StatusProvider, useStatus } from "./status";
 import { MotionProvider } from "./motion";
@@ -100,6 +100,7 @@ function Shell({ me }: { me: Me }) {
     }
   });
   const [makeOpen, setMakeOpen] = useState(false);
+  const makeMenu = useMenu(makeOpen, setMakeOpen);
   const { st, lost, lastOk, refresh } = useStatus();
   const [drawer, setDrawer] = useState(false);
   // Where the person wanted to go when the page had unsaved changes ("" is the Office); null while nobody is asked.
@@ -208,11 +209,11 @@ function Shell({ me }: { me: Me }) {
             </button>
             <p className="page-title">{SECTION_TITLE[section] || "ClipForge"}</p>
             <span className="spacer" />
-            <div className="make-menu">
-              <button type="button" className="btn btn-primary btn-small" aria-haspopup="menu" aria-expanded={makeOpen}
-                onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
+            <div className="make-menu" ref={makeMenu.wrap} onKeyDown={makeMenu.onKey}>
+              <button ref={makeMenu.button} type="button" className="btn btn-primary btn-small" aria-haspopup="menu"
+                aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
-                <div role="menu" aria-label="Make" onKeyDown={(e) => e.key === "Escape" && setMakeOpen(false)}>
+                <div role="menu" aria-label="Make">
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
                 </div>

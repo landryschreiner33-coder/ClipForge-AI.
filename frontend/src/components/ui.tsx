@@ -462,22 +462,19 @@ export type MenuItem =
   | "separator";
 
 /**
- * Rare and destructive actions: "⋯" with a name that says whose menu it is ("More for Morning Mic episode 12").
- * A disabled item says why ("Cancel processing first").
+ * Keyboard and pointer behaviour for a menu button: opening focuses the first item, arrows and Home/End move between
+ * items, Escape closes and gives focus back to the button, and Tab or a click elsewhere closes.
  */
-export function MoreMenu({ label, items, up, text }: { label: string; items: MenuItem[]; up?: boolean; text?: string }) {
-  const [open, setOpen] = useState(false);
+export function useMenu(open: boolean, setOpen: (open: boolean) => void) {
   const wrap = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const id = useId();
   useEffect(() => {
     if (!open) return;
-    const first = wrap.current?.querySelector<HTMLElement>('[role="menuitem"]');
-    first?.focus();
+    wrap.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const away = (e: MouseEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
-  }, [open]);
+  }, [open, setOpen]);
   const onKey = (e: ReactKeyboardEvent) => {
     if (!open) return;
     const all = Array.from(wrap.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') || []);
@@ -497,6 +494,17 @@ export function MoreMenu({ label, items, up, text }: { label: string; items: Men
       setOpen(false);
     }
   };
+  return { wrap, button, onKey };
+}
+
+/**
+ * Rare and destructive actions: "⋯" with a name that says whose menu it is ("More for Morning Mic episode 12").
+ * A disabled item says why ("Cancel processing first").
+ */
+export function MoreMenu({ label, items, up, text }: { label: string; items: MenuItem[]; up?: boolean; text?: string }) {
+  const [open, setOpen] = useState(false);
+  const { wrap, button, onKey } = useMenu(open, setOpen);
+  const id = useId();
   const pick = (fn?: () => void) => {
     setOpen(false);
     button.current?.focus();
