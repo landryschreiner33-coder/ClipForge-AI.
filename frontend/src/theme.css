@@ -271,3 +271,32 @@ input:not([type]) {
 .robot-strip .state-error { color: var(--bad); }
 .robot-strip .state-waiting, .robot-strip .state-retrying { color: var(--warn); }
 .story-card ul { margin: 0; padding-left: 1.2em; }
+
+/* ---- full-video editor: timeline, inspector, tracks */
+.tl { display: grid; gap: 6px; }
+.tl-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--s2); align-items: center; }
+.tl-row.muted { opacity: 0.45; }
+.tl-name { font-size: var(--fs-small); color: var(--text-3); }
+.tl-lane { position: relative; height: 22px; border-radius: 6px; background: var(--canvas); border: 1px solid var(--border); overflow: hidden; }
+.tl-seg { position: absolute; top: 2px; bottom: 2px; min-width: 2px; padding: 0; border: 0; border-radius: 4px;
+  background: var(--primary); opacity: 0.8; cursor: pointer; box-shadow: inset -1px 0 0 var(--canvas); }
+.tl-seg.image { background: var(--good); }
+.tl-seg.on, .tl-seg:hover, .tl-seg:focus-visible { opacity: 1; outline: 2px solid var(--text); outline-offset: -2px; }
+.tl-seg.audio { cursor: default; background: var(--warn); }
+.tl-seg.audio.voiceover { background: var(--cyan, #46C8E6); }
+.tl-seg.audio.effects { background: var(--bad); }
+.tl-scale { display: flex; justify-content: space-between; padding-left: calc(72px + var(--s2)); }
+.seq li.on { border-color: var(--primary); }
+.seq li .inspector { grid-column: 1 / -1; padding-top: var(--s3); border-top: 1px solid var(--border); }
+.audio-list li { grid-template-columns: minmax(0, 1fr); }
+.track-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s3); }
+.track-ctl { display: grid; gap: var(--s2); padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-control); background: var(--canvas); }
+.time-field input { width: 100%; max-width: 9ch; font-variant-numeric: tabular-nums; }
+.row-actions.wrap { flex-wrap: wrap; }
+.version-list { display: grid; gap: var(--s2); padding-left: 0; list-style: none; }
+.flip-x { transform: scaleX(-1); }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3); align-items: end; }
+/* editor rows stay readable in a narrow column: actions sit under the text */
+.seq.edit-seq li { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+.seq.edit-seq li .row-actions { grid-column: 2; flex-wrap: wrap; justify-content: flex-start; }
+.seq.edit-seq li .break { overflow-wrap: anywhere; word-break: normal; }

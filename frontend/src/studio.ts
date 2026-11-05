@@ -37,17 +37,33 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
   thumbnail: string; href: string };
 
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
-  gain_db: number; include: boolean; must_keep?: string[] };
+  gain_db: number; include: boolean; must_keep?: string[]; mute?: boolean; fade_in_ms?: number; fade_out_ms?: number;
+  layout?: string | null };
+export type AudioRole = "voiceover" | "music" | "effect";
+export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: string; start_ms: number; in_ms: number;
+  out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
+  duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null };
+export type TrackName = "source" | "voiceover" | "music" | "effects";
 export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clips: PlanClip[];
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
-  captions: { enabled: boolean; style: string; position: string }; music: { asset_id: string; level_db: number } | null;
+  captions: { enabled: boolean; style: string; position: string; size?: string };
+  audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };
+  word_fixes?: Record<string, Record<string, string>>;
   outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[] };
+export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
+  out_start_ms: number; out_end_ms: number };
+export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
+  out_end_ms: number; src_in_ms: number; loop: boolean; cut_ms: number };
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
-  duration: number; assets: Asset[];
+  duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
   artifacts: { id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean }[];
+  preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
-  revisions: { revision: number; note: string; created_at: number }[] };
+  revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
+  can_undo: boolean; can_redo: boolean;
+  capabilities: { tracks: Record<TrackName, string>; caption_sizes: string[]; caption_positions: string[]; fps: number[];
+    duck_depth_db: { default: number; range: [number, number] }; limits: string } };
 
 export const studio = {
   library: (kind = "", q = "") => req<LibraryItem[]>("GET", `/api/studio/projects?kind=${kind}&q=${encodeURIComponent(q)}`),
@@ -71,6 +87,10 @@ export const studio = {
   renderVideo: (id: string, revision: number) => req<Video>("POST", `/api/studio/videos/${id}/render`, { revision }),
   cancelVideo: (id: string) => req<Video>("POST", `/api/studio/videos/${id}/cancel`),
   restoreVideo: (id: string, revision: number) => req<Video>("POST", `/api/studio/videos/${id}/restore`, { revision }),
+  undoVideo: (id: string, base_revision: number) => req<Video & { note: string }>("POST", `/api/studio/videos/${id}/undo`, { base_revision }),
+  redoVideo: (id: string, base_revision: number) => req<Video & { note: string }>("POST", `/api/studio/videos/${id}/redo`, { base_revision }),
+  nameRevision: (id: string, revision: number, name: string) => req<Video>("PUT", `/api/studio/videos/${id}/revisions/${revision}/name`, { name }),
+  addVideoMedia: (id: string, asset_ids: string[]) => req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids }),
   styles: () => req<Style[]>("GET", "/api/studio/styles"),
   createStyle: (body: Record<string, unknown>) => req<Style>("POST", "/api/studio/styles", body),
   updateStyle: (id: string, body: Record<string, unknown>) => req<Style>("PATCH", `/api/studio/styles/${id}`, body),
@@ -125,9 +145,9 @@ function remember(fp: string, id: string | null) {
 }
 
 async function sha256(file: File): Promise<string> {
-  // Small enough files are fingerprinted in the browser so the server can reject damaged transfers; for very large
-  // files the server's own hash is the record (reading gigabytes into memory would stall a phone).
-  if (file.size > 256 * 1024 * 1024 || !crypto?.subtle) return "";
+  // Small enough files are fingerprinted in the browser so the server can reject damaged transfers; for larger files
+  // the server's own hash is the record (the browser has no streaming hash, and several uploads run at once).
+  if (file.size > 64 * 1024 * 1024 || !crypto?.subtle) return "";
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -167,6 +187,13 @@ export async function uploadFile(file: File, onProgress: (p: UploadProgress) => 
   onProgress({ received: file.size, size: file.size, state: "done" });
   return asset;
 }
+
+/** Seconds with tenths, for edit points (m:ss.t). */
+export const fmtEdit = (ms: number) => {
+  const m = Math.floor(ms / 60000);
+  const sec = (ms % 60000) / 1000;
+  return `${m}:${sec.toFixed(1).padStart(4, "0")}`;
+};
 
 export const fmtTime = (s: number) => {
   const m = Math.floor(s / 60);
