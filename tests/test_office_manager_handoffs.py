@@ -43,11 +43,11 @@ def test_completed_work_goes_to_its_own_manager_then_the_boss(data):
     job = _claim("rights_check", ("source", "source-one"))
     queue.complete(job, "test-office", {"message": "Recorded reuse agreement covers YouTube"})
     event = _events("report")[0]
-    assert event["data"]["handoff_path"] == ["gavel", "vector", "command"]
+    assert event["data"]["handoff_path"] == ["gavel", "tracker", "command"]
     assert event["data"]["handoff_kind"] == "report"
     assert data.fetch("office_reports", event["data"]["report_id"])["worker"] == "gavel"
     states = _states(data)
-    assert states["vector"]["state"] == states["command"]["state"] == "reviewing"
+    assert states["tracker"]["state"] == states["command"]["state"] == "reviewing"
     assert states["command"]["last"]["summary"] == "Recorded reuse agreement covers YouTube"
     assert not data.select("office_decisions")  # receiving a report does not fabricate a boss approval
 
@@ -59,10 +59,10 @@ def test_manager_own_job_keeps_priority_over_an_older_report(data):
     queue.complete(finished, "test-office", {"started": 1, "message": "Dispatched one eligible upload"})
     running = _claim("schedule_tick", ("clip", "clip-two"))
     queue.progress(running["id"], 0.5, "Finding a posting time")
-    clock = _states(data)["clock"]
-    assert clock["state"] == "working"
-    assert clock["task"]["job_id"] == running["id"] and clock["task"]["progress"] == 0.5
-    assert _events("report")[0]["data"]["handoff_path"] == ["clock", "command"]
+    harbor = _states(data)["harbor"]
+    assert harbor["state"] == "working"
+    assert harbor["task"]["job_id"] == running["id"] and harbor["task"]["progress"] == 0.5
+    assert _events("report")[0]["data"]["handoff_path"] == ["harbor", "command"]
 
 
 def test_manager_failure_is_not_hidden_by_its_own_failure_report(data):
@@ -70,8 +70,8 @@ def test_manager_failure_is_not_hidden_by_its_own_failure_report(data):
 
     failed = _claim("schedule_tick", ("clip", "clip-one"))
     queue.fail(failed, "test-office", "Could not read the schedule", "Retry after checking the database")
-    clock = _states(data)["clock"]
-    assert clock["state"] == "error" and "Could not read the schedule" in clock["error"]
+    harbor = _states(data)["harbor"]
+    assert harbor["state"] == "error" and "Could not read the schedule" in harbor["error"]
 
 
 def test_unproductive_periodic_checks_do_not_create_report_handoffs(data):
@@ -136,7 +136,7 @@ def test_actual_repair_is_returned_through_the_recipients_manager(data):
     event = _events("decision")[-1]
     assert event["data"]["handoff_path"] == ["check", "switch", "command", "script", "glyph"]
     assert _states(data)["glyph"]["task"]["job_id"] == repair["id"]
-    assert _states(data)["glyph"]["state"] == "waiting"
+    assert _states(data)["glyph"]["state"] == "queued"  # assigned, not started yet
 
 
 @pytest.mark.parametrize("wrong", ["reference", "canceled", "recipient"])
@@ -268,12 +268,12 @@ def test_pending_result_learning_does_not_hide_real_guidance_work(data):
 
     knowledge.create({"title": "Readable captions", "content": "Use minimal captions", "kind": "instruction"})
     queued = queue.enqueue("learn", delay=3600)
-    assert _states(data)["synapse"]["state"] == "waiting"
+    assert _states(data)["synapse"]["state"] == "queued"
     with brain.consultation("ranking", data.get_settings()):
         synapse = _states(data)["synapse"]
         assert synapse["state"] == "working" and synapse["task"]["kind"] == "brain_consultation"
         assert data.fetch("worker_jobs", queued["id"])["status"] == "queued"
-    assert _states(data)["synapse"]["state"] == "waiting"
+    assert _states(data)["synapse"]["state"] == "queued"
 
 
 def test_quiet_rooms_have_explanations_and_pause_does_not_show_live_consultation(data):
@@ -283,7 +283,10 @@ def test_quiet_rooms_have_explanations_and_pause_does_not_show_live_consultation
     rows = _states(data)
     assert "mature" in rows["synapse"]["idle_reason"]
     assert all(row["idle_reason"] for row in rows.values())
+    from clipfoundry.autopilot import state
+
     with brain.consultation("ranking", data.get_settings()):
+        state.put("setup:started", time.time())  # turned off after a start: a real pause
         data.save_settings({"autopilot_enabled": False})
         rows = _states(data)
         assert rows["synapse"]["state"] == rows["curator"]["state"] == "paused"
