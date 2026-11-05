@@ -1,5 +1,17 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-05: ClipForge studio upgrade setup and a native Windows check
+
+The setup ZIP now installs source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884` (the studio upgrade, PR #20).
+The setup's console messages say ClipForge; the CMD file, folders, mutex and marker keep their ClipFoundry names so
+existing installations and data are found. That commit's start.bat says ClipForge, so its hash changed; the
+pre-rename start.bat is kept as `fixtures/start-before-rename.bat.txt` and every historical pin still has an exact
+upgrade fixture. 77 launcher tests passed. All 701 app files equal the Git tree except the six declared BAT CRLF
+exports. New: `windows_runner_check.py` and `.github/workflows/windows-setup-check.yml` install the previous
+release with a synthetic setting on a GitHub Windows runner, install this one over it, and check the served page,
+icon, source commit, kept data folder and setting, closing and reopening. Not tested: Defender/SmartScreen on a
+real PC, GPUs, real accounts and uploads.
+
 ## 2026-10-29: confirmed upload audio clock defect
 
 Source `88386d6cd4f4ede321d6f4d2fca406de67eba1cc`.

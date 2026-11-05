@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title ClipFoundry - source setup
+title ClipForge - source setup
 echo.
-echo ClipFoundry - source setup
+echo ClipForge - source setup
 echo Keep this window open while setup and the app run.
 echo.
 if not exist "%~dp0setup.py" goto missing_files
@@ -23,7 +23,7 @@ if "%errorlevel%"=="0" goto use_python
 python3 "%~dp0setup.py" --check-python >nul 2>nul
 if "%errorlevel%"=="0" goto use_python3
 echo A compatible Python was not found.
-echo ClipFoundry needs 64-bit x86-64 CPython 3.12 or 3.11.
+echo ClipForge needs 64-bit x86-64 CPython 3.12 or 3.11.
 echo Install the Windows installer ^(64-bit^) for Python 3.12 from:
 echo https://www.python.org/downloads/release/python-31210/
 echo Keep your other Python versions. Reopen this launcher after installation.

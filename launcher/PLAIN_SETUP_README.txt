@@ -1,7 +1,7 @@
-ClipFoundry source setup
+ClipForge source setup (formerly ClipFoundry)
 
-1. Save edits and close the previous ClipFoundry/setup windows.
-2. Right-click ClipFoundry-Source-Setup.zip and choose Extract All.
+1. Save edits and close the previous ClipFoundry/ClipForge setup windows.
+2. Right-click ClipForge-Windows-Setup.zip and choose Extract All.
 3. Open the extracted folder and double-click Open-ClipFoundry.cmd.
 4. Keep its console open while setup prepares a short installation folder and opens the app.
    Use this same CMD file for later sessions.
@@ -15,7 +15,7 @@ antivirus, execution-policy, trust/certificate, firewall or Windows scheduled-ta
 64-bit x86-64 CPython 3.12 or 3.11. The launcher checks installed runtimes, preferring 3.12 then 3.11, and does
 not choose an unsupported newer or 32-bit Python from PATH. If none is found, install the Windows installer
 (64-bit) from https://www.python.org/downloads/release/python-31210/, then reopen Open-ClipFoundry.cmd. Keep
-other Python versions. ClipFoundry does not install a runtime automatically or change system PATH/registry.
+other Python versions. ClipForge does not install a runtime automatically or change system PATH/registry.
 FFmpeg is recommended. Python/GPU packages and later speech models may still need internet access.
 
 Do not turn off antivirus or restore/allow the previously blocked EXE. If Windows also blocks the ZIP or an
@@ -51,7 +51,7 @@ New workflow: add a video, then make and upload clips
   TikTok posts, and it does not change global platform toggles. Make clips only keeps results on this PC.
 - Missions shows real progress and holds. Cancel video stops future work. Publishing pause, Stop, checks,
   posting windows, positive saved limits and actual provider waits remain active. Started/uncertain uploads
-  keep their identity for recovery instead of restarting duplicates. Keep ClipFoundry open and the PC awake.
+  keep their identity for recovery instead of restarting duplicates. Keep ClipForge open and the PC awake.
 - Reuse answers stay outside Brain knowledge. Brain examples contribute measured duration and supported
   preferences/notes; their visual appearance is not learned from their pixels. Existing knowledge stays.
 

@@ -1,4 +1,4 @@
-"""Readable Windows ClipFoundry setup using only Python's standard library.
+"""Readable Windows ClipForge setup using only Python's standard library.
 
 The accompanying app.zip is a fixed, checked source build. No app download, custom
 executable, PowerShell loader, antivirus exception or administrator access is used.
@@ -22,9 +22,9 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 
-COMMIT = "06f459eb185b87ac344ad14e8dbd3f8e03be58d1"
-ARCHIVE_HASH = "b008db0856fd59194b7f9115afca47a15bd5f63672854da21283bd9eb997f3d8"
-START_HASH = "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1"
+COMMIT = "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884"
+ARCHIVE_HASH = "552604576b38e50116c2d383614f49dfca8ae7dc2846c7e54232b3429c3382b9"
+START_HASH = "bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5"
 ARCHIVE_PREFIX = "ClipForge-AI.-" + COMMIT + "/"
 KNOWN_RELEASES = {
     "06f459eb185b87ac344ad14e8dbd3f8e03be58d1": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
@@ -35,6 +35,7 @@ KNOWN_RELEASES = {
     "4838aa897e59b68a1365dd7ed7f4d60f52dfcc8c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "4fae46c82f5b14e3a54c451dee7ff5e3d948b21f": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
     "58770e2242c8a84a6b6394048abde55a5065dc23": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
+    "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884": "bef75a1f2e64dc0c8a1f342f8cf7f79239c90d5e907117a016729714c18fdfe5",
     "718358f30110ab871e21059177f83ccd9ea3d3a9": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "7201047b795085f0cb608ea643efadf90074290c": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
     "88386d6cd4f4ede321d6f4d2fca406de67eba1cc": "26f2cb1ee7fcbda369d160cb2c8d3d37506a3393fcb1be14e7b3b485cce6b8d1",
@@ -47,7 +48,7 @@ KNOWN_RELEASES = {
     "fcd48aecece759ed676d871a9282d81b83f0ab92": "40cfe91a8c4818f6837d794beca0b610fa9d45863c381ea1dafd27c427e9f23c",
 }
 MARKER = ".clipfoundry-oneclick.json"
-RUNNING_ERROR = "ClipFoundry is still running. Close its app/setup windows, then reopen this installer."
+RUNNING_ERROR = "ClipForge is still running. Close its app/setup windows, then reopen this installer."
 
 
 class SetupError(RuntimeError):
@@ -64,7 +65,7 @@ def supported_python() -> bool:
 def require_supported_python() -> None:
     if not supported_python():
         raise SetupError(
-            "This ClipFoundry build supports 64-bit x86-64 CPython 3.12 or 3.11. "
+            "This ClipForge build supports 64-bit x86-64 CPython 3.12 or 3.11. "
             "Install the Windows installer (64-bit) for Python 3.12 from "
             "https://www.python.org/downloads/release/python-31210/, then reopen Open-ClipFoundry.cmd. "
             "Keep your other Python versions; no existing app or data was changed.")
@@ -428,7 +429,7 @@ def windows_python_paths() -> list[Path]:
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     if snapshot == ctypes.c_void_p(-1).value or not snapshot:
-        raise SetupError("Windows could not check running apps. Close ClipFoundry and retry.")
+        raise SetupError("Windows could not check running apps. Close ClipForge and retry.")
     result = []
     try:
         entry = ProcessEntry()
@@ -447,7 +448,7 @@ def windows_python_paths() -> list[Path]:
                         kernel.CloseHandle(process)
             found = kernel.Process32NextW(snapshot, ctypes.byref(entry))
         if ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES; fail closed on partial enumeration.
-            raise SetupError("Windows could not finish checking running apps. Close ClipFoundry and retry.")
+            raise SetupError("Windows could not finish checking running apps. Close ClipForge and retry.")
     finally:
         kernel.CloseHandle(snapshot)
     return result
@@ -518,7 +519,7 @@ def free_port() -> int:
                 return port
             except OSError:
                 pass
-    raise SetupError("The ClipFoundry browser ports are busy. Close its other window and retry.")
+    raise SetupError("The ClipForge browser ports are busy. Close its other window and retry.")
 
 
 def system_cmd() -> Path:
@@ -553,7 +554,7 @@ def start_setup(package: Path) -> None:
     owner = windows_owner()
     with WindowsMutex(owner) as mutex:
         if not mutex.held:
-            print("ClipFoundry is already starting or running. Keep its first window open.")
+            print("ClipForge is already starting or running. Keep its first window open.")
             return
         install = None
         try:
@@ -575,7 +576,7 @@ def start_setup(package: Path) -> None:
             environment["CLIPFOUNDRY_BOOTSTRAP_PYTHON"] = sys.executable
             environment["CLIPFOUNDRY_DATA"] = str(install.data_root / "data")
             environment.pop("CLIPFOUNDRY_WORKERS", None)
-            print("ClipFoundry folder:", install.root)
+            print("ClipForge folder:", install.root)
             print("Your saved Brain, accounts and clips:", environment["CLIPFOUNDRY_DATA"])
             print("First-time dependency setup can take several minutes. Keep this window open.")
             invoke_launcher(install.root, True, environment)
@@ -596,7 +597,7 @@ def main(arguments: list[str] | None = None) -> int:
     if arguments:
         print("Use Open-ClipFoundry.cmd to start setup.", file=sys.stderr)
         return 1
-    print("ClipFoundry - readable Python setup")
+    print("ClipForge - readable Python setup")
     try:
         start_setup(Path(__file__).absolute().parent)
     except (SetupError, OSError, zipfile.BadZipFile) as exc:

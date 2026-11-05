@@ -1,20 +1,20 @@
 {
-  "source_commit": "06f459eb185b87ac344ad14e8dbd3f8e03be58d1",
-  "app_archive_sha256": "b008db0856fd59194b7f9115afca47a15bd5f63672854da21283bd9eb997f3d8",
-  "zip_bytes": 46661349,
-  "zip_sha256": "c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19",
+  "source_commit": "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884",
+  "app_archive_sha256": "552604576b38e50116c2d383614f49dfca8ae7dc2846c7e54232b3429c3382b9",
+  "zip_bytes": 46962928,
+  "zip_sha256": "89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84",
   "members_sha256": {
-    "Open-ClipFoundry.cmd": "b56134c66d803d169425d91017e2ff85812f53f1509719601e3e87a100b7b108",
-    "setup.py": "13c5590e2dae82737fc906d987d4596d98aeea200a2f42fb951d95ff8e084441",
-    "app.zip": "b008db0856fd59194b7f9115afca47a15bd5f63672854da21283bd9eb997f3d8",
-    "README.txt": "606564a0edc89989e2e83043fde6eeb375b81e36a0f2f43eae7ea80ad9abf69e"
+    "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
+    "setup.py": "be78a5b68f40ce40f77ee3a4584684a243df333cd6c6c2a0cefeab7b6e45b631",
+    "app.zip": "552604576b38e50116c2d383614f49dfca8ae7dc2846c7e54232b3429c3382b9",
+    "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
-  "app_files": 675,
+  "app_files": 701,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
   "native_windows_verified": false,
   "file": "ClipForge-Windows-Setup.zip",
-  "date": "2026-11-04",
+  "date": "2026-11-05",
   "timezone": "UTC",
   "product": "ClipForge",
   "launcher_tests": {
@@ -25,14 +25,17 @@
       "pin_bundle_test"
     ]
   },
-  "payload_review": "All 675 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "payload_review": "All 701 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "native_windows_check": {
+    "workflow": ".github/workflows/windows-setup-check.yml",
+    "status": "pending"
+  },
   "app_tests": {
-    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/41899130825",
-    "github_run_result": "native Mac build and smoke, pytest fast and slow all passed on the source commit",
+    "branch": "claude/project-thread-x72wkd (PR #20, studio upgrade)",
     "local": {
-      "fast": 1630,
-      "slow": 21,
-      "commit": "a96781be95eca5ff9a4904e9db5d1d89401f3055"
+      "fast": 1749,
+      "slow": 26,
+      "commit": "6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884"
     }
   }
 }

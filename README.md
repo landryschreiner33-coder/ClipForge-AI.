@@ -1,20 +1,27 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge, November 4, 2026)
+## Windows setup (ClipForge studio upgrade, November 5, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
-keeps its ClipFoundry name so an existing setup and its data are found and kept. It needs 64-bit Python 3.12 (or
-3.11) from python.org; see the details below, which still apply.
+keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages now say ClipForge. It
+needs 64-bit Python 3.12 (or 3.11) from python.org; see the details below, which still apply.
 
-It installs ClipForge from source commit `06f459eb185b87ac344ad14e8dbd3f8e03be58d1` (main after PR #16, #17 and #18),
-the same commit as the Mac download. The 77 setup tests passed, and every file in the app was compared with that commit. GitHub run 41899130825 passed the native Mac build and smoke test and the fast and slow test suites on
-that commit. See
-`verification-windows.json`. This environment did not test native Windows, Windows security acceptance or real
-uploads.
+It installs ClipForge from source commit `6ecdafc96ca99904c04ebae8ae9ff82a5cdb8884`, the studio upgrade (video
+links and files, the full-video editor, example videos, Find media, the dark Studio with its office and the Brain
+map). The 77 setup tests passed, and all 701 app files were compared with that commit. On that commit 1,749 fast and
+26 real-media checks passed. `.github/workflows/windows-setup-check.yml` installs this ZIP on a GitHub Windows runner
+over the previous release and checks launch, icon, source commit, kept data, and closing and reopening; see
+`verification-windows.json`. Windows security acceptance on a real PC and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (November 4, 2026)
+
+Source commit `06f459eb185b87ac344ad14e8dbd3f8e03be58d1`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/29c4a634a7fb8dae7686c24759b61b74a05620a6/ClipForge-Windows-Setup.zip
+(46,661,349 bytes, SHA-256 `c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19`).
 
 ## Earlier ClipFoundry deliveries
 

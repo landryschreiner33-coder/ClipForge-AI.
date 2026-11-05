@@ -36,6 +36,10 @@ class PlainSetupTests(unittest.TestCase):
             cls.start = archive.read(setup.ARCHIVE_PREFIX + "start.bat")
         cls.legacy_start = (HERE / "fixtures/start-legacy.bat.txt").read_bytes()
         cls.legacy_start_hash = hashlib.sha256(cls.legacy_start).hexdigest()
+        # start.bat as released before its messages said ClipForge (November 2026); older managed installs keep it.
+        cls.before_rename_start = (HERE / "fixtures/start-before-rename.bat.txt").read_bytes()
+        cls.start_by_hash = {hashlib.sha256(start).hexdigest(): start
+                             for start in (cls.legacy_start, cls.before_rename_start, cls.start)}
         cls.original_commit = setup.COMMIT
         cls.original_start_hash = setup.START_HASH
 
@@ -55,7 +59,7 @@ class PlainSetupTests(unittest.TestCase):
         root = self.root / name
         root.mkdir()
         revision = commit or self.original_commit
-        start = self.legacy_start if setup.KNOWN_RELEASES.get(revision) == self.legacy_start_hash else self.start
+        start = self.start_by_hash.get(setup.KNOWN_RELEASES.get(revision), self.start)
         (root / "start.bat").write_bytes(start)
         marker = {"kind": kind, "commit": revision, "owner": owner or self.owner}
         if kind == "clipfoundry-oneclick-v2":

@@ -1,0 +1,48 @@
+name: Windows setup check
+# Installs the committed ClipForge-Windows-Setup.zip on a disposable GitHub Windows runner: the previous release
+# first, with one synthetic setting, then this one over it, then closes and reopens it. It checks launch, the served
+# page and icon, the source commit, that the data folder and setting are kept, and quit/reopen. No accounts, uploads
+# or owner data are involved.
+on:
+  push:
+    branches: [claude/clipforge-downloads]
+    paths: ['ClipForge-Windows-Setup.zip', 'launcher/windows_runner_check.py', '.github/workflows/windows-setup-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-setup-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  install:
+    runs-on: windows-2025
+    timeout-minutes: 75
+    env:
+      PREVIOUS_URL: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/29c4a634a7fb8dae7686c24759b61b74a05620a6/ClipForge-Windows-Setup.zip
+      PREVIOUS_SHA256: c1738e2975b346368f75725cc8a73f26cd12dffd574b29b9cffc16f2daabdb19
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install previous release, then this one over it, then close and reopen
+        shell: pwsh
+        run: |
+          $commit = (Get-Content verification-windows.json | ConvertFrom-Json).source_commit
+          python launcher/windows_runner_check.py --zip ClipForge-Windows-Setup.zip --commit $commit `
+            --previous-url $env:PREVIOUS_URL --previous-sha256 $env:PREVIOUS_SHA256 --work "$env:RUNNER_TEMP\cf-check"
+      - name: Show setup logs
+        if: always()
+        shell: pwsh
+        run: Get-ChildItem "$env:RUNNER_TEMP\cf-check" -Filter *.log | ForEach-Object { "==== $($_.Name)"; Get-Content $_.FullName -Tail 120 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-setup-check
+          path: |
+            ${{ runner.temp }}/cf-check/*.log
+            ${{ runner.temp }}/cf-check/evidence.json
+          retention-days: 14
