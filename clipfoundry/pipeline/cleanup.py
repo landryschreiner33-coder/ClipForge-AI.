@@ -71,12 +71,17 @@ MARKER = "clipforge-verified.json"
 
 # How hard each mode works. "atten_db" limits how far the denoiser may lower anything (a gentle limit keeps the
 # room's natural air); "level_share" is how much of the difference between quiet and loud passages is evened out.
+# The voice chain a dialogue editor uses: high-pass 80-100 Hz, 3-4 dB out of the mud at 200-400 Hz, 2-3 dB of
+# presence at 2.5-5 kHz, a 2.5:1 to 3.5:1 compressor with a 15-30 ms attack and a 50-100 ms release.
 PROFILES = {
-    "gentle": {"highpass": 70, "atten_db": 12.0, "breath_db": 6.0, "level_share": 0.5, "level_range": (-4.0, 6.0),
-               "deess": 0.25, "ratio": 2.0, "presence_db": 1.5, "mud_db": 0.0, "gate": 2.0},
-    "strong": {"highpass": 80, "atten_db": 30.0, "breath_db": 12.0, "level_share": 0.8, "level_range": (-6.0, 9.0),
-               "deess": 0.45, "ratio": 3.0, "presence_db": 3.0, "mud_db": -2.0, "gate": 3.0},
+    "gentle": {"highpass": 80, "atten_db": 12.0, "breath_db": 6.0, "level_share": 0.5, "level_range": (-4.0, 6.0),
+               "deess": 0.25, "ratio": 2.5, "presence_db": 2.0, "mud_db": -2.0, "gate": 2.0},
+    "strong": {"highpass": 100, "atten_db": 30.0, "breath_db": 12.0, "level_share": 0.8, "level_range": (-6.0, 9.0),
+               "deess": 0.45, "ratio": 3.5, "presence_db": 3.0, "mud_db": -3.5, "gate": 3.0},
 }
+PRESENCE_HZ = 3500
+MUD_HZ = 300
+COMP_ATTACK_MS, COMP_RELEASE_MS = 20, 90
 
 
 class CleanupError(RuntimeError):
@@ -665,12 +670,12 @@ def _polish_chain(p: dict, n: int) -> str:
     parts = []
     parts.append(f"deesser=i={p['deess']:.2f}:m=0.5:f=0.5:s=o")
     # Only the syllables louder than the typical level are pressed down, so pauses do not come up relative to speech.
-    parts.append(f"acompressor=threshold={TARGET_DB + 2:.0f}dB:ratio={p['ratio']:.1f}:attack=10:release=160:"
-                 "knee=6:makeup=1:detection=rms")
+    parts.append(f"acompressor=threshold={TARGET_DB + 2:.0f}dB:ratio={p['ratio']:.1f}:attack={COMP_ATTACK_MS}:"
+                 f"release={COMP_RELEASE_MS}:knee=6:makeup=1:detection=rms")
     if p["presence_db"]:
-        parts.append(f"equalizer=f=4000:t=q:w=0.8:g={p['presence_db']:.1f}")
+        parts.append(f"equalizer=f={PRESENCE_HZ}:t=q:w=0.8:g={p['presence_db']:.1f}")
     if p["mud_db"]:
-        parts.append(f"equalizer=f=300:t=q:w=1:g={p['mud_db']:.1f}")
+        parts.append(f"equalizer=f={MUD_HZ}:t=q:w=1:g={p['mud_db']:.1f}")
     parts.append(f"apad=whole_len={n},atrim=end_sample={n}")
     return ",".join(parts)
 

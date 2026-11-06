@@ -62,6 +62,10 @@ export type MemoryCheck = { ok: boolean; total: number; enabled: number; counts:
   sources: Record<string, number>; meaning_model: string; problems: { code: string; count: number; text: string; ids: string[] }[];
   duplicates: unknown[]; duplicates_truncated: boolean; size_bytes: number; uses: number; checked_at: number };
 export type Recalled = { memories: (Memory & { score: number })[]; prompt: string };
+/** One playbook of ClipForge AI's built-in craft know-how (brain/knowhow.py). */
+export type KnowHowTopic = { id: string; title: string; summary: string; lines: string[]; tasks: string[]; chars: number; score: number };
+export type KnowHow = { topics: KnowHowTopic[]; source: string; tasks: string[] };
+export type UsedKnowHow = { id: string; title: string; score?: number };
 const mem = "/api/brain/memories";
 export const memoryApi = {
   list: (q = "", kind = "", projectId = "") =>
@@ -79,11 +83,12 @@ export const memoryApi = {
   tidy: () => req<{ expired: number; merged: number }>("POST", `${mem}/tidy`),
   import: (data: unknown) => req<{ added: number; updated: number; skipped: number; invalid: number }>("POST", `${mem}/import`, { data }),
   exportUrl: `${mem}/export`,
+  knowhow: () => req<KnowHow>("GET", `${mem}/knowhow`),
 };
 
 export type ChatTool = "remember" | "forget" | "list" | "explain" | "change" | "answer" | "help";
 export type UsedMemory = { id: string; kind: MemoryKind; text: string; score?: number };
-export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; memory?: Memory; forgotten?: Memory;
+export type ChatData = { tool?: ChatTool; used?: UsedMemory[]; knowhow?: UsedKnowHow[]; memory?: Memory; forgotten?: Memory;
   candidates?: { id: string; kind: MemoryKind; text: string }[]; memories?: { id: string; kind: MemoryKind; text: string; source: MemorySource }[];
   request_id?: string; request?: import("./studio").ChangeRequest; provider?: string; sent?: string };
 export type ChatMessage = { id: string; chat_id: string; role: "owner" | "ai"; text: string; status: "done" | "thinking" | "failed";

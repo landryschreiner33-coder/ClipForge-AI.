@@ -23,8 +23,8 @@ from ..config import OUTPUT_H, OUTPUT_W
 from . import artifact, audio_timing, captions, cleanup, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
-from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
-                           run_process, video_encoder_args)
+from .ffmpeg_utils import (NO_WINDOW, AUDIO_BITRATE, FFmpegError, MediaWatchdog, delivery_args, ffmpeg_bin,
+                           filter_path, run_process, thumbnail, video_encoder_args)
 from .text_utils import ends_sentence
 
 SILENCE_PRESETS = {"light": (0.8, 0.22), "aggressive": (0.35, 0.08)}  # (min gap removed, padding kept)
@@ -443,7 +443,10 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
 
     enc_args, encoder = video_encoder_args(settings)
     fonts = filter_path(config.FONTS_DIR, out_dir)
-    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},format=yuv420p[v]"
+    # The frames arrive as RGB. Without an explicit matrix FFmpeg converts them to YUV with BT.601 coefficients
+    # while every player treats a 1080x1920 file as BT.709, which shifts reds and greens; so the conversion and the
+    # tags both say BT.709 (delivery_args).
+    vf = f"[0:v]ass=captions.ass:fontsdir={fonts},scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]"
     audio_in: list[str]
     sound = _clean_sound(src, start, end + 0.2, words_all, opts, ctx) if info.get("has_audio", True) else None
     if sound is not None and sound.path is not None:
@@ -462,8 +465,8 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     enc_cmd = [ffmpeg_bin(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", f"{fps}",
                "-i", "pipe:0", *audio_in, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-               *enc_args, "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
-               "-ac", "2", "-ar", "48000",
+               *enc_args, *delivery_args(fps), "-r", f"{fps}", "-c:a", "aac", "-profile:a", "aac_low",
+               "-b:a", AUDIO_BITRATE, "-ac", "2", "-ar", "48000",
                # The timeline already bounds both streams. FFmpeg's -shortest can stop consuming the raw
                # video pipe early when concatenated audio is buffered, dropping frames after a silence cut.
                "-movflags", "+faststart", "-t", f"{tl.duration:.6f}", tmp_out.name]

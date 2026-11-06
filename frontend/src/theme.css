@@ -374,6 +374,10 @@ input:not([type]) {
 .mem-list { display: grid; gap: var(--s2); }
 .mem-row { border: 1px solid var(--border); border-radius: var(--r-control); background: var(--raised); padding: var(--s3); display: grid; gap: var(--s2); min-width: 0; }
 .mem-row.off { opacity: 0.7; }
+.knowhow-list { display: grid; gap: var(--s2); padding-left: 0; list-style: none; margin: 0; }
+.knowhow-list > li > .link-btn { text-decoration: none; text-align: left; }
+.knowhow-list > li > .link-btn:hover { text-decoration: underline; }
+.knowhow-list ul { margin: var(--s1) 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .mem-row textarea { width: 100%; min-height: 64px; }
 .mem-meta { display: flex; gap: var(--s3); flex-wrap: wrap; color: var(--text-3); font-size: var(--fs-small); }
 

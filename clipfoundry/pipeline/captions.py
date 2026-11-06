@@ -20,7 +20,18 @@ STYLE_PRESETS = {
                 "emphasis": ""},
 }
 
-POSITIONS = {"bottom": (2, 0.23), "middle": (5, 0.0), "top": (8, 0.16)}
+# Alignment and margin (share of the height). Phone apps cover the bottom 35% and the top 15% of a 9:16 frame, so
+# "bottom" sits just above the buttons and the description, "top" just below the top bar, and "middle" is the
+# 45-55% band the platforms leave clear.
+POSITIONS = {"bottom": (2, 0.36), "middle": (5, 0.0), "top": (8, 0.16)}
+HOOK_TOP = 0.15                                   # the headline starts below the apps' top bar
+HOOK_SIZES = ((36, 68), (60, 58), (10 ** 9, 50))  # (up to this many characters, font size): two to three lines
+
+
+def hook_size(text: str) -> int:
+    """The headline's font size: 3-6 words stay big; a long hook shrinks so it still fits above the face."""
+    n = len(" ".join(text.split()))
+    return next(size for limit, size in HOOK_SIZES if n <= limit)
 
 
 def hex_to_ass(color: str, alpha: int = 0) -> str:
@@ -94,6 +105,7 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
     emph = hex_to_ass(p["emphasis"]) if opts.get("caption_emphasis") and p.get("emphasis") else ""
     hook_on = bool(opts.get("hook_overlay", True)) and hook_text.strip()
     hook_secs = float(opts.get("hook_seconds", 3.0) or 3.0)
+    hook_px = hook_size(hook_text) if hook_on else HOOK_SIZES[0][1]
 
     lines = [
         "[Script Info]",
@@ -110,8 +122,8 @@ def build_ass(words: list[dict], opts: dict, duration: float, hook_text: str = "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Caption,{p['font']},{size},{primary},{highlight},{outline_col},{back},{bold_flag},0,0,0,100,100,"
         f"1,0,1,{p['outline']},{p['shadow']},{align},90,90,{margin_v},1",
-        f"Style: Hook,Poppins ExtraBold,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
-        f"18,0,8,110,110,{int(OUTPUT_H * 0.11)},1",
+        f"Style: Hook,Poppins ExtraBold,{hook_px},&H00FFFFFF,&H00FFFFFF,&H00000000,&H28161616,-1,0,0,0,100,100,0,0,3,"
+        f"18,0,8,110,110,{int(OUTPUT_H * HOOK_TOP)},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

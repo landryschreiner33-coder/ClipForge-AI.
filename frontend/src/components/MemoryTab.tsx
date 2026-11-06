@@ -1,6 +1,6 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
 import { errorText } from "../api";
-import { Memory, memoryApi, MemoryCheck, MemoryKind, MemoryUse } from "../brain";
+import { KnowHow, Memory, memoryApi, MemoryCheck, MemoryKind, MemoryUse } from "../brain";
 import { ConfirmDialog, EmptyState, Icon, Pill, toast } from "./ui";
 
 const KIND_WORD: Record<MemoryKind, string> = { rule: "Rule", fact: "Fact", episode: "What it did", asset: "Asset", answer: "Answer" };
@@ -27,6 +27,11 @@ export function MemoryTab() {
   const [uses, setUses] = useState<Record<string, MemoryUse[]>>({});
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const [knowhow, setKnowhow] = useState<KnowHow | null>(null);
+  const [open, setOpen] = useState<string>("");
+  useEffect(() => {
+    memoryApi.knowhow().then(setKnowhow).catch(() => setKnowhow({ topics: [], source: "", tasks: [] }));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -148,6 +153,19 @@ export function MemoryTab() {
             ? <ul className="small">{uses[m.id].map((u) => <li key={u.id}>{date(u.created_at)}: {WHERE_WORD[u.where_used] || u.where_used}</li>)}</ul>
             : <p className="small muted">Not used yet.</p>)}
         </article>))}</div>
+      <section className="panel tight" aria-labelledby="mem-knowhow">
+        <div className="panel-head"><h3 id="mem-knowhow">What it knows about editing (built in)</h3>
+          {knowhow && knowhow.topics.length > 0 && <Pill tone="info">{knowhow.topics.length} playbooks</Pill>}</div>
+        <p className="small muted">{knowhow?.source || "ClipForge AI's built-in craft know-how."} Every answer, change request, smart edit
+          and FilmCraft pass reads the playbooks that fit it; what you teach it above always wins over them.</p>
+        {knowhow && knowhow.topics.length === 0 && <p className="small muted">Could not load the know-how.</p>}
+        {knowhow && knowhow.topics.length > 0 && <ul className="small knowhow-list">{knowhow.topics.map((t) => (
+          <li key={t.id}>
+            <button type="button" className="link-btn" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? "" : t.id)}>
+              <strong>{t.title}</strong>: {t.summary}</button>
+            {open === t.id && <ul>{t.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+          </li>))}</ul>}
+      </section>
       {del && <ConfirmDialog title={`Forget “${del.text.slice(0, 80)}${del.text.length > 80 ? "…" : ""}”?`} danger confirmLabel="Forget" onClose={() => setDel(null)}
         onConfirm={async () => { await memoryApi.forget(del.id); setDel(null); await load(); }}>
         <p>ClipForge AI will not use it again. Versions it already helped make keep their edits.</p></ConfirmDialog>}

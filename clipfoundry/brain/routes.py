@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..cloud import principal
 from ..publish.common import app_request, local_only
-from . import memories
+from . import knowhow, memories
 
 router = APIRouter(prefix="/api/brain/memories")
 READ = [Depends(local_only)]
@@ -78,6 +78,24 @@ def recall(body: RecallIn) -> dict:
 @router.get("/check", dependencies=READ)
 def check() -> dict:
     return memories.check(principal.workspace_id())
+
+
+class KnowHowIn(BaseModel):
+    query: str = Field(default="", max_length=4000)
+    task: str = ""
+
+
+@router.get("/knowhow", dependencies=READ)
+def knowhow_topics() -> dict:
+    """ClipForge AI's built-in craft know-how: every playbook, and where it came from."""
+    return {"topics": knowhow.topics(), "source": knowhow.SOURCE, "tasks": list(knowhow.TASKS)}
+
+
+@router.post("/knowhow/select", dependencies=READ)
+def knowhow_select(body: KnowHowIn) -> dict:
+    """What ClipForge AI would read from its know-how for these words (nothing is recorded)."""
+    picked = knowhow.select(body.query, body.task, limit=3, budget_chars=2400)
+    return {"topics": picked.snapshot(), "prompt": picked.prompt(), "answer": knowhow.answer(body.query)}
 
 
 @router.post("/rebuild", dependencies=WRITE)
