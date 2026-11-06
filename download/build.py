@@ -1,13 +1,15 @@
 """Keep the ClipForge download page in step with releases.json.
 
-The download links, sizes and checksums on index.html are generated from releases.json; everything else on the
-page is ordinary HTML you edit by hand. Standard library only, so any assistant or person can run it:
+Everything on index.html that belongs to one version is generated from releases.json: the version number and date,
+what changed, what was tested, the download links, sizes and checksums, and the version history. Everything else on
+the page is ordinary HTML you edit by hand. Standard library only, so any assistant or person can run it:
 
     python3 download/build.py            # rewrite the generated parts of index.html from releases.json
     python3 download/build.py --check    # exit 1 if releases.json is invalid or index.html is out of date
     python3 download/build.py --verify   # --check, then download every listed file and compare size and SHA-256
 
-See UPDATING.md for the whole procedure. Never edit text between the generated markers by hand.
+See UPDATING.md for the whole procedure. Never edit text between the generated markers by hand. In releases.json,
+text may use **bold** and `code`; everything else is shown exactly as written.
 """
 from __future__ import annotations
 
@@ -51,13 +53,48 @@ def _file(entry: dict, where: str) -> None:
         raise Invalid(f"{where}: sha256 must be the file's real 64-digit lower-case SHA-256")
 
 
+def inline(text: str) -> str:
+    """Escape text for the page, allowing only **bold** and `code`."""
+    out = html.escape(text, quote=False)
+    out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
+    if "**" in out or "`" in out:
+        raise Invalid(f"unpaired ** or ` in {text[:60]!r}")
+    return out
+
+
+def _words(value, where: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise Invalid(f"{where}: must be some plain-English text")
+    inline(value)
+
+
+def _lines(value, where: str) -> None:
+    if not isinstance(value, list) or not value:
+        raise Invalid(f"{where}: must be a list with at least one item")
+    for i, item in enumerate(value):
+        _words(item, f"{where}[{i}]")
+
+
 def _release(release: dict, where: str) -> None:
-    for key in ("name", "version", "date", "source_commit", "files"):
+    for key in ("name", "version", "date", "source_commit", "summary", "files"):
         if key not in release:
             raise Invalid(f"{where}: missing {key!r}")
     date.fromisoformat(release["date"])
     if not re.fullmatch(r"[0-9a-f]{40}", release["source_commit"]):
         raise Invalid(f"{where}: source_commit must be a full 40-character commit")
+    _words(release["summary"], f"{where}.summary")
+    if "changes" in release:
+        if not isinstance(release["changes"], list) or not release["changes"]:
+            raise Invalid(f"{where}.changes: must be a list with at least one change")
+        for i, change in enumerate(release["changes"]):
+            if not isinstance(change, dict) or set(change) != {"title", "text"}:
+                raise Invalid(f"{where}.changes[{i}]: needs exactly a title and a text")
+            _words(change["title"], f"{where}.changes[{i}].title")
+            _words(change["text"], f"{where}.changes[{i}].text")
+    for key in ("checked", "not_checked"):
+        if key in release:
+            _lines(release[key], f"{where}.{key}")
     if not release["files"] or set(release["files"]) - set(PLATFORMS):
         raise Invalid(f"{where}: files must be keyed by windows and/or mac")
     for platform, entry in release["files"].items():
@@ -66,13 +103,27 @@ def _release(release: dict, where: str) -> None:
 
 def load() -> dict:
     data = json.loads(DATA.read_text(encoding="utf-8"))
-    if data.get("schema") != 1:
-        raise Invalid("releases.json: schema must be 1")
-    _release(data["current"], "current")
-    if set(data["current"]["files"]) != set(PLATFORMS):
+    if data.get("schema") != 2:
+        raise Invalid("releases.json: schema must be 2")
+    cur = data["current"]
+    _release(cur, "current")
+    if set(cur["files"]) != set(PLATFORMS):
         raise Invalid("current: needs both a windows and a mac file")
-    for i, release in enumerate(data.get("previous", [])):
+    for key in ("changes", "checked", "not_checked"):
+        if key not in cur:
+            raise Invalid(f"current: missing {key!r}: every new version says what changed and what was tested")
+    previous = data.get("previous", [])
+    for i, release in enumerate(previous):
         _release(release, f"previous[{i}]")
+    versions = [r["version"] for r in (cur, *previous)]
+    if len(set(versions)) != len(versions):
+        raise Invalid("releases.json: each version number may appear only once; give the new release its own")
+    dates = [r["date"] for r in (cur, *previous)]
+    if dates != sorted(dates, reverse=True):
+        raise Invalid("releases.json: current must be the newest, and previous must go from newest to oldest")
+    if previous and (cur["summary"] == previous[0]["summary"] or cur["changes"] == previous[0].get("changes")):
+        raise Invalid("current: summary and changes are copied from the previous version; "
+                      "write what changed in this one")
     return data
 
 
@@ -83,9 +134,32 @@ def mb(n: int) -> str:
 LABEL = {"windows": "Windows", "mac": "Mac"}
 
 
+def _changes(changes: list[dict]) -> str:
+    return "<dl>" + "".join(f"<div><dt>{inline(c['title'])}</dt><dd>{inline(c['text'])}</dd></div>"
+                            for c in changes) + "</dl>"
+
+
+def _items(lines: list[str]) -> str:
+    return "<ul>" + "".join(f"<li>{inline(line)}</li>" for line in lines) + "</ul>"
+
+
 def render(data: dict) -> dict[str, str]:
     cur = data["current"]
     e = html.escape
+    version = f'{e(cur["name"])} {e(cur["version"])}'
+    released = e(_long_date(cur["date"]))
+    title = f"<title>{version} downloads</title>"
+    release = (
+        f'\n<a class="release" href="#new"><span class="release-tag">Version {e(cur["version"])}</span>'
+        f'<span class="release-text">{inline(cur["summary"])}\u00a0<span aria-hidden="true">→</span></span></a>\n')
+    new = (
+        f'\n<h2 id="new-title">What’s new in version {e(cur["version"])}</h2>\n'
+        f'<p class="new-meta">Released {released}. {inline(cur["summary"])}</p>\n'
+        f'<div class="more">{_changes(cur["changes"])}</div>\n')
+    was_tested = (
+        f'\n<h2 id="tested-title">What was tested in version {e(cur["version"])}</h2>\n'
+        f'<div class="tested"><div><h3>Checked before release</h3>{_items(cur["checked"])}</div>'
+        f'<div><h3>Not checked yet</h3>{_items(cur["not_checked"])}</div></div>\n')
     buttons = []
     for platform in PLATFORMS:
         f = cur["files"][platform]
@@ -95,7 +169,7 @@ def render(data: dict) -> dict[str, str]:
             f'<span class="get-meta">{e(f["kind"])}, {mb(f["bytes"])}. {e(f["requires"])}</span></a>')
     hero = (
         '\n<div class="get">' + "".join(buttons) + "</div>\n"
-        f'<p class="get-note">{e(cur["name"])} {e(cur["version"])}, released {e(_long_date(cur["date"]))}. '
+        f'<p class="get-note">{version}, released {released}. '
         'Free. <a href="#check">Check your download</a>.</p>\n')
     rows = []
     for platform in PLATFORMS:
@@ -116,21 +190,24 @@ def render(data: dict) -> dict[str, str]:
         f'<p class="small">Both are built from source commit <a href="{REPO}commit/{commit}"><code>{commit[:12]}</code></a>.'
         "</p>\n")
     older = []
-    for release in data.get("previous", []):
+    for old in data.get("previous", []):
         links = ", ".join(
             f'<a href="{e(f["url"])}">{LABEL[p]}</a> ({mb(f["bytes"])}, SHA-256 <code>{f["sha256"][:16]}…</code>)'
-            for p, f in release["files"].items())
-        note = f' {e(release["note"])}' if release.get("note") else ""
-        older.append(f'<li><b>{e(release["name"])} {e(release["version"])}</b>, {e(_long_date(release["date"]))}: '
-                     f"{links}.{note}</li>")
-    previous = '\n<ul class="older">' + "".join(older) + "</ul>\n" if older else "\n<p>No older versions.</p>\n"
-    version = f'{e(cur["name"])} {e(cur["version"])}'
+            for p, f in old["files"].items())
+        more = (f'<details class="ver-more"><summary>What changed in {e(old["version"])}</summary>'
+                f'{_changes(old["changes"])}</details>') if old.get("changes") else ""
+        older.append(
+            f'<li><h3>{e(old["name"])} {e(old["version"])}<span class="ver-date">{e(_long_date(old["date"]))}</span>'
+            f'</h3><p class="ver-summary">{inline(old["summary"])}</p>{more}'
+            f'<p class="ver-files">Download: {links}.</p></li>')
+    previous = '\n<ul class="history">' + "".join(older) + "</ul>\n" if older else "\n<p>No older versions.</p>\n"
     win, mac = e(cur["files"]["windows"]["file"]), e(cur["files"]["mac"]["file"])
     how = (
         '\n<div class="how-check">'
         f'<p><b>Windows:</b> open PowerShell in your Downloads folder and run <code>Get-FileHash .\\{win}</code></p>'
         f'<p><b>Mac:</b> open Terminal and run <code>shasum -a 256 ~/Downloads/{mac}</code></p></div>\n')
-    return {"hero": hero, "checksums": checks, "older": previous, "version": version, "how-check": how}
+    return {"title": title, "release": release, "hero": hero, "new": new, "tested": was_tested, "checksums": checks,
+            "how-check": how, "older": previous, "version": f"{version}, released {released}"}
 
 
 def _long_date(iso: str) -> str:

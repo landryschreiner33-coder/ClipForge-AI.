@@ -1,0 +1,65 @@
+name: Download page
+# Keeps the download page (download/index.html) in step with download/releases.json, so a new version appears on
+# the website from one edit to releases.json. See download/UPDATING.md.
+# - Pull request into gh-pages: checks the page and downloads every listed file to compare its size and SHA-256.
+# - Push to gh-pages: the same checks, then rebuilds index.html from releases.json and commits it if it changed.
+#   If any check fails, nothing is committed and the live page keeps showing the last good version.
+on:
+  push:
+    branches: [gh-pages]
+    paths: ['download/releases.json', 'download/build.py', 'download/index.html', '.github/workflows/download-page.yml']
+  pull_request:
+    branches: [gh-pages]
+    paths: ['download/releases.json', 'download/build.py', 'download/index.html', '.github/workflows/download-page.yml']
+permissions:
+  contents: read
+concurrency:
+  group: download-page-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check the page and download every listed file
+        run: python3 download/build.py --verify
+
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write   # commit the rebuilt index.html
+      pages: write      # ask GitHub Pages to publish it
+    steps:
+      - uses: actions/checkout@v5
+      - name: Rebuild the page from releases.json
+        run: python3 download/build.py
+      - name: Check the page and download every listed file
+        run: python3 download/build.py --verify
+      - name: Commit the rebuilt page
+        id: commit
+        run: |
+          if git diff --quiet -- download/index.html; then
+            echo "index.html was already in step with releases.json; nothing to commit."
+            exit 0
+          fi
+          version=$(python3 -c 'import json; c = json.load(open("download/releases.json", encoding="utf-8"))["current"]; print(c["name"], c["version"])')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add download/index.html
+          git commit -m "Show $version on the download page" \
+            -m "Rebuilt from download/releases.json by the Download page workflow, run ${GITHUB_RUN_ID}."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+      - name: Ask GitHub Pages to publish the rebuilt page
+        if: steps.commit.outputs.pushed == 'true' && github.ref == 'refs/heads/gh-pages'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" \
+            || echo "::warning::Could not request a Pages build. The push normally publishes the page by itself; check the Pages run."
