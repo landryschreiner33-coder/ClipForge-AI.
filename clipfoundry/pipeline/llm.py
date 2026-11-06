@@ -135,7 +135,8 @@ def _ollama(settings: dict, prompt: str) -> str:
         "messages": [{"role": "system", "content": _system(settings)}, {"role": "user", "content": prompt}],
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.2, "num_ctx": int(settings.get("_num_ctx") or 4096)},
+        "options": {"temperature": 0.2, "num_ctx": int(settings.get("_num_ctx") or 4096),
+                    **({"num_predict": int(settings["_max_tokens"])} if settings.get("_max_tokens") else {})},
     }
     r = httpx.post(url, json=body, timeout=_timeout(settings))
     if r.status_code != 200:
@@ -152,6 +153,7 @@ def _openai_compatible(settings: dict, prompt: str) -> str:
         "model": settings.get("openai_model") or "local-model",
         "messages": [{"role": "system", "content": _system(settings)}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
+        **({"max_tokens": int(settings["_max_tokens"])} if settings.get("_max_tokens") else {}),
     }
     r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=_timeout(settings))
     if r.status_code == 429:
@@ -209,7 +211,8 @@ def _builtin(settings: dict, prompt: str) -> str:
 
     try:
         return builtin_ai.chat(settings, _system(settings), prompt, timeout=_timeout(settings),
-                               json_object=bool(settings.get("_json_object")))
+                               json_object=bool(settings.get("_json_object")),
+                               max_tokens=int(settings.get("_max_tokens") or 0) or None)
     except builtin_ai.BuiltinError as exc:
         raise ProviderError(str(exc)) from exc
 
@@ -276,16 +279,19 @@ def _strip_thinking(text: str) -> str:
 
 
 def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str = "", system: str | None = None,
-             num_ctx: int | None = None, timeout: float | None = None, json_object: bool = False) -> str:
+             num_ctx: int | None = None, timeout: float | None = None, json_object: bool = False,
+             max_tokens: int | None = None) -> str:
     """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure).
     `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it).
     `system` replaces the clip-scoring instructions; `num_ctx` asks a local Ollama model for a larger context;
-    `timeout` is how long a local model may take; `json_object` makes the built-in AI answer with one JSON object."""
+    `timeout` is how long a local model may take; `json_object` makes the built-in AI answer with one JSON object;
+    `max_tokens` caps the answer's length (the built-in AI, Ollama and OpenAI-compatible servers)."""
     provider = settings.get("ai_provider", "heuristic")
-    if unattended or task or system or num_ctx or timeout or json_object:
+    if unattended or task or system or num_ctx or timeout or json_object or max_tokens:
         settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task,
                     **({"_system": system} if system else {}), **({"_num_ctx": int(num_ctx)} if num_ctx else {}),
-                    **({"_timeout": float(timeout)} if timeout else {}), **({"_json_object": True} if json_object else {})}
+                    **({"_timeout": float(timeout)} if timeout else {}), **({"_json_object": True} if json_object else {}),
+                    **({"_max_tokens": int(max_tokens)} if max_tokens else {})}
     fn = PROVIDERS.get(provider)
     if fn is None:
         raise ProviderError("heuristic mode")

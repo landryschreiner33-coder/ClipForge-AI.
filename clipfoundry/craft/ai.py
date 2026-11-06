@@ -12,7 +12,9 @@ runs in its sandbox). Every step is checked before it runs:
 * at most 40 steps and 2 shots; a step FilmCraft refuses is reported and the rest still run.
 
 A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
-made shorter until it fits (shorter tool descriptions and quotes, fewer effect and look names, then fewer clips).
+made shorter until it fits (shorter tool descriptions and quotes, fewer effect and look names, then fewer clips), it is
+asked for at most 10 steps, and its answer is capped at LOCAL_ANSWER_TOKENS. An answer cut off there still gives the
+steps it finished; a step repeated word for word runs once.
 """
 from __future__ import annotations
 
@@ -31,6 +33,9 @@ LOCAL_CONTEXT = 8192  # tokens: the built-in AI's context (builtin_ai.CONTEXT), 
 LOCAL_PROMPT_CHARS = 14_000  # about 4,000 tokens, leaving the rest of LOCAL_CONTEXT for the answer
 REMOTE_PROMPT_CHARS = 40_000
 LOCAL_TIMEOUT_S = 600.0  # a model on this computer without a graphics card can take minutes
+LOCAL_ANSWER_TOKENS = 1200  # a small model can repeat itself until the time-out; this ends its answer
+LOCAL_STEPS = 10
+SHORT = f"Keep the answer short: at most {LOCAL_STEPS} steps and one shot, each step once."
 # How the request is shortened, step by step: (characters of each tool's parameters, of what is said in a clip,
 # effect names, look names, clips)
 SHORTER = [(600, 160, 120, 60, 120), (240, 100, 60, 30, 80), (120, 60, 30, 20, 60), (0, 40, 20, 12, 40)]
@@ -126,13 +131,17 @@ def sequence_rows(film, edit, words_by_asset: dict, plan: dict) -> list[dict]:
     return rows
 
 
-def prompt_limit(settings: dict) -> int:
-    """How long the request may be: a model on this computer reads about 8,000 tokens at a time."""
+def local_model(settings: dict) -> bool:
+    """The AI runs on this computer (the built-in AI, or Ollama / LM Studio at a local address)."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
-    local = provider in llm.LOCAL_PROVIDERS and llm.is_local(settings, provider)
-    return LOCAL_PROMPT_CHARS if local else REMOTE_PROMPT_CHARS
+    return provider in llm.LOCAL_PROVIDERS and llm.is_local(settings, provider)
+
+
+def prompt_limit(settings: dict) -> int:
+    """How long the request may be: a model on this computer reads about 8,000 tokens at a time."""
+    return LOCAL_PROMPT_CHARS if local_model(settings) else REMOTE_PROMPT_CHARS
 
 
 def _cut(text: str, n: int) -> str:
@@ -152,7 +161,7 @@ def _fewer(rows: list[dict], n: int) -> list[dict]:
     return [r for i, r in enumerate(rows) if i in keep]
 
 
-def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[str], looks: list[str],
+def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[str], looks: list[str], short: bool,
             params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int) -> str:
     rows = [{**r, "said": _cut(r["said"], said_n)} if r.get("said") else r for r in _fewer(rows, rows_n)]
     tools = [{"id": c["id"], **({"label": c["label"]} if c.get("label") else {}),
@@ -164,24 +173,25 @@ def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[st
         # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
         "Video effects (for effects.apply): " + json.dumps(effects[:effects_n], ensure_ascii=False),
         "Colour looks (for lumetri.applyPreset name): " + json.dumps(looks[:looks_n], ensure_ascii=False),
-        ANSWER])
+        ANSWER + ("\n" + SHORT if short else "")])
 
 
 def build_prompt(plan: dict, edit, rows: list[dict], catalog: list[dict], effects: list[str],
-                 looks: list[str], limit: int | None = None) -> str:
-    """The request; with `limit`, made shorter step by step (SHORTER, then fewer clips) until it fits."""
+                 looks: list[str], limit: int | None = None, short: bool = False) -> str:
+    """The request; with `limit`, made shorter step by step (SHORTER, then fewer clips) until it fits. `short` asks a
+    model on this computer for a short answer."""
     tl = edit.timeline
     brief = {"title": (plan.get("title") or {}).get("text", ""), "width": tl.width, "height": tl.height,
              "fps": tl.fps, "seconds": round(tl.frames / tl.fps, 2), "captions": bool(tl.counts.get("captions"))}
     text = ""
     for step in SHORTER:
-        text = _prompt(brief, rows, catalog, effects, looks, *step)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *step)
         if limit is None or len(text) <= limit:
             return text
     n = SHORTER[-1][-1]
     while len(text) > limit and n > 8:  # a long video: the first clips that fit
         n = max(8, n * 2 // 3)
-        text = _prompt(brief, rows, catalog, effects, looks, *SHORTER[-1][:-1], n)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *SHORTER[-1][:-1], n)
     return text
 
 
@@ -190,7 +200,8 @@ def ask(settings: dict, prompt: str, cancelled=None) -> str:
     from ..pipeline import llm
 
     call = _pool.submit(llm.complete, settings, prompt, system=SYSTEM, task="filmcraft_finish",
-                        num_ctx=LOCAL_CONTEXT, timeout=LOCAL_TIMEOUT_S, json_object=True)
+                        num_ctx=LOCAL_CONTEXT, timeout=LOCAL_TIMEOUT_S, json_object=True,
+                        max_tokens=LOCAL_ANSWER_TOKENS if local_model(settings) else None)
     while True:
         try:
             return call.result(timeout=1.0)
@@ -201,14 +212,49 @@ def ask(settings: dict, prompt: str, cancelled=None) -> str:
 
 
 def parse(raw: str) -> dict:
+    """The answer's object; an answer cut off at its length limit gives the summary and the steps it finished
+    (`cut_off`), and the shots are left out."""
     text = (raw or "").strip()
     a, b = text.find("{"), text.rfind("}")
-    if a < 0 or b <= a:
+    if a < 0:
         raise ValueError("The AI's answer had no JSON object.")
-    got = json.loads(text[a:b + 1])
-    if not isinstance(got, dict):
-        raise ValueError("The AI's answer was not an object.")
+    if b > a:
+        try:
+            got = json.loads(text[a:b + 1])
+        except ValueError:
+            got = None
+        if got is not None:
+            if not isinstance(got, dict):
+                raise ValueError("The AI's answer was not an object.")
+            return got
+    got = _finished_part(text[a:])
+    if not got["steps"]:
+        raise ValueError("The AI's answer was cut off before its first step.")
     return got
+
+
+def _finished_part(text: str) -> dict:
+    dec = json.JSONDecoder()
+    out: dict = {"steps": [], "cut_off": True}
+    m = re.search(r'"summary"\s*:\s*', text)
+    if m:
+        try:
+            out["summary"] = dec.raw_decode(text, m.end())[0]
+        except ValueError:
+            pass
+    m = re.search(r'"steps"\s*:\s*\[', text)
+    i = m.end() if m else len(text)
+    while i < len(text):
+        while i < len(text) and text[i] in " \t\r\n,":
+            i += 1
+        if i >= len(text) or text[i] == "]":
+            break
+        try:
+            step, i = dec.raw_decode(text, i)
+        except ValueError:
+            break
+        out["steps"].append(step)
+    return out
 
 
 def _safe(value, key: str = "") -> bool:
@@ -223,7 +269,7 @@ def _safe(value, key: str = "") -> bool:
 
 def check_steps(steps: object, clip_ids: set) -> tuple[list[dict], list[str]]:
     """The steps that may run, and why the others may not."""
-    ok, refused = [], []
+    ok, refused, seen = [], [], set()
     if not isinstance(steps, list):
         return [], ["the steps were not a list"]
     for n, s in enumerate(steps[:MAX_STEPS], 1):
@@ -231,6 +277,11 @@ def check_steps(steps: object, clip_ids: set) -> tuple[list[dict], list[str]]:
             refused.append(f"step {n}: not a tool call")
             continue
         params = s.get("params") or {}
+        same = json.dumps([s["id"], params], sort_keys=True, default=str)
+        if same in seen:
+            refused.append(f"step {n}: the same as an earlier step")
+            continue
+        seen.add(same)
         if s["id"] not in ALLOWED:
             refused.append(f"step {n}: {s['id']} is not a finishing tool")
             continue
@@ -276,13 +327,16 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
         catalog = _catalog(film, edit.project)
         effects = _names(film, edit.project, "effects.list", {"kind": "Video"})
         looks = _names(film, edit.project, "lumetri.presets", {})
-        prompt = build_prompt(plan, edit, rows, catalog, effects, looks, prompt_limit(settings))
+        prompt = build_prompt(plan, edit, rows, catalog, effects, looks, prompt_limit(settings),
+                              short=local_model(settings))
         answer = parse(ask(settings, prompt, getattr(film, "cancelled", None)))
     except Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - the AI's finishing is optional: the FilmCraft edit stands without it
         return {"used": False, "why": (str(exc) or type(exc).__name__)[:300]}
     steps, refused = check_steps(answer.get("steps"), {r["clip"] for r in rows})
+    if answer.get("cut_off"):
+        refused.append("the answer was cut off at its length limit: the steps it finished were used, no shots")
     results = film.run_steps(edit.project, steps) if steps else []
     edit.steps += steps
     edit.results += results

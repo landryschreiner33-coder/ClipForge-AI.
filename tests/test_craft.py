@@ -348,6 +348,7 @@ def test_a_failing_step_is_reported_and_the_rest_still_run(env, tools):  # noqa:
 
 @linux_only
 def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, tools, monkeypatch):  # noqa: F811
+    from clipfoundry.craft import ai as craft_ai
     from clipfoundry.craft import finish
     from clipfoundry.pipeline import llm
 
@@ -379,7 +380,8 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
     assert any("file or address" in r for r in ai["refused"]) and any("not in this sequence" in r for r in ai["refused"])
     assert asked["task"] == "filmcraft_finish" and "timeline.razor" not in asked["prompt"]
     # a model on this computer gets a context that holds the request, minutes to answer, and answers in JSON
-    assert asked["kw"] == {"num_ctx": 8192, "timeout": 600.0, "json_object": True}
+    assert asked["kw"] == {"num_ctx": 8192, "timeout": 600.0, "json_object": True, "max_tokens": 1200}
+    assert asked["prompt"].endswith(craft_ai.SHORT)  # and is asked for a short answer
     assert "/" + "files" not in asked["prompt"] and str(env) not in asked["prompt"]  # never a path
     # FilmCraft's names have commas in them: the lists are JSON
     looks = asked["prompt"].split("Colour looks (for lumetri.applyPreset name): ", 1)[1].split("\n", 1)[0]
@@ -487,9 +489,26 @@ def test_the_built_in_ai_gets_the_wait_and_json_answer_it_is_asked_for(monkeypat
 
     seen = []
     monkeypatch.setattr(builtin_ai, "chat", lambda _s, _sys, _p, **kw: seen.append(kw) or "{}")
-    llm.complete({"ai_provider": "builtin"}, "x", task="filmcraft_finish", timeout=600, json_object=True)
+    llm.complete({"ai_provider": "builtin"}, "x", task="filmcraft_finish", timeout=600, json_object=True,
+                 max_tokens=1500)
     llm.complete({"ai_provider": "builtin"}, "x")
-    assert seen == [{"timeout": 600.0, "json_object": True}, {"timeout": 180.0, "json_object": False}]
+    assert seen == [{"timeout": 600.0, "json_object": True, "max_tokens": 1500},
+                    {"timeout": 180.0, "json_object": False, "max_tokens": None}]
+
+
+def test_a_cut_off_answer_gives_the_steps_it_finished():
+    from clipfoundry.craft import ai
+
+    step = {"id": "lumetri.applyPreset", "params": {"name": "Teal Shadows, Warm Skin", "clips": [3]}, "why": "w"}
+    raw = json.dumps({"summary": "Warmer.", "steps": [step, step, {"id": "effects.apply"}]})
+    got = ai.parse(raw[:raw.rindex('{"id": "effects.apply"') + 12])  # stops in the middle of the third step
+    assert got == {"summary": "Warmer.", "steps": [step, step], "cut_off": True}
+    ok, refused = ai.check_steps(got["steps"], {3})
+    assert len(ok) == 1 and refused == ["step 2: the same as an earlier step"]  # a repeated step runs once
+    assert ai.parse(raw) == json.loads(raw) and "cut_off" not in ai.parse(raw)
+    for bad in ('{"summary": "Warmer.", "steps": [{"id": "lum', "no json here", '["a list"]'):
+        with pytest.raises(ValueError):
+            ai.parse(bad)
 
 
 def test_shot_scripts_cannot_use_files_programs_or_the_network(tmp_path):

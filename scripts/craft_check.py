@@ -190,6 +190,10 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
     row["download_s"] = round(time.monotonic() - t0, 1)
     s = {**settings, "ai_provider": "builtin", "builtin_ai_level": level, "builtin_ai_idle_minutes": 30,
          "craft_ai_finish": True}
+    if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS"):
+        # GitHub's Mac machines can't use the graphics chip (about 5 words a second); a real Mac uses it
+        craft_ai.LOCAL_TIMEOUT_S = 1500.0
+        row["timeout_s"] = craft_ai.LOCAL_TIMEOUT_S
     want(craft_ai.usable(s), "the built-in AI is downloaded but ClipForge does not see it as set up")
     seen: dict = {}
     real = llm.complete
@@ -227,7 +231,16 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
         llm.complete = real
         builtin_ai.server.stop()
     row.update({k: seen[k] for k in ("prompt_chars", "answer_s", "error") if k in seen})
+    row["engine"] = dict(builtin_ai.last_answer)  # llama.cpp's timings and why the answer stopped
     row["raw_answer"] = str(seen.get("raw", ""))[:4000]
+    if not row.get("landed"):
+        from clipfoundry import config
+
+        try:
+            tail = (config.data_dir() / "logs" / "builtin-ai.log").read_text(errors="replace").splitlines()[-60:]
+        except OSError as exc:
+            tail = [f"no engine log: {exc}"]
+        print("built-in AI engine log (end):\n" + "\n".join(tail), flush=True)
     print("built-in AI:", json.dumps({k: v for k, v in row.items() if k != "raw_answer"})[:2500], flush=True)
     print("built-in AI answer:", row["raw_answer"], flush=True)
     return row

@@ -19,8 +19,15 @@ release.
   and the built-in AI answers in JSON mode (`json_object=True`, llama.cpp's `response_format`).
 - **Real check:** `scripts/craft_check.py --builtin-ai` (in `filmcraft-check.yml`) downloads the engine and the Basic
   model the way the app does and runs the AI pass with them on the real apps.
-- **Tests:** four new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
-  cancelling a slow answer, the timeout and JSON mode reaching the engine). The request now shows three example
+- **First real run (42269267394):** on both machines the built-in AI was still answering at the 10-minute limit
+  (no length cap, so a small model can go on until the time-out). Now a local model's answer is capped at 1,200
+  tokens and it is asked for at most 10 steps; an answer cut off at the cap still gives the steps it finished; a step
+  repeated word for word runs once. The check prints llama.cpp's timings and the engine's log when nothing lands, and
+  gives GitHub's Mac machine (no graphics chip) 25 minutes.
+- **Fixed in the built-in AI's setup:** it was marked done before it was chosen as the AI helper, so Settings (and a
+  test, about one run in five) could read the old helper. It is chosen first now.
+- **Tests:** five new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
+  cancelling a slow answer, the timeout, JSON mode and answer cap reaching the engine, a cut-off answer). The request now shows three example
   steps that real FilmCraft accepts (a look, an effect, a keyframed push-in), which small models need.
 
 ## FilmCraft and EffectCraft inside ClipForge: fixes from the real apps — 2026-11-06 (Claude Code)
