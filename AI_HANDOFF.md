@@ -1,5 +1,33 @@
 # AI handoff
 
+## ClipForge AI phase A: the brain and the chat — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wants the AI to be much better and called ClipForge AI: researched models combined
+with its own data and training, a chat to ask for changes, everything kept in the brain, finding music and pictures,
+making effects and music. The research and the four-phase plan are in the Claude Doc "ClipForge AI: research and
+plan" (link in the project memory); Landry chose to start with the brain and the chat. Phase A gives ClipForge AI a
+memory (rules, facts and what it did, with sources, scopes and a meaning search, no download needed), uses it in
+change requests, the FilmCraft pass and smart edits, and adds a chat on every video and in the Brain, plus a Memory
+tab. The old "AI helper" is now ClipForge AI's model.
+
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), draft PR into
+  `claude/project-thread-x72wkd`.
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md).
+- **Code:** `clipfoundry/brain/` (`memories.py`, `meaning.py`, `chat.py`, `routes.py`), `db.py` (four tables, the
+  `memories` column on `edit_requests`), `studio/edit_requests.py`, `studio/video_flow.py`, `studio/ai_editor.py`,
+  `craft/ai.py`, `craft/finish.py`; `frontend/src/brain.ts`, `components/ClipForgeAI.tsx`, `components/MemoryTab.tsx`,
+  `pages/Brain.tsx`, `pages/VideoReview.tsx`.
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_brain.py tests/test_clipforge_ai_chat.py
+  tests/test_studio_edit_requests.py tests/test_craft.py`; the FilmCraft check workflow for the real apps.
+- **Open questions for Landry** (my picks apply until answered, see the plan doc): monetised use (commercial-safe
+  licences only), the computer (plan for a plain laptop), internet for the finders (finders online, brain offline),
+  consent to learn (locally), where the brain lives (this computer, export/import), music find-first, the name,
+  where to train (free Colab), anything missing.
+- **Waiting on Landry:** review of the PR; no release.
+- **Next (phase B):** the embedding model download (Qwen3-Embedding-0.6B) behind `meaning_model`, the finders
+  (Pixabay, Freesound, Jamendo under their licences) and the first maker (ACE-Step music), each as a checked tool the
+  chat can use.
+
 ## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wants FilmCraft inside ClipForge, not separate, with the AI editing through its
