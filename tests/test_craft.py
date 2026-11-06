@@ -511,6 +511,42 @@ def test_a_cut_off_answer_gives_the_steps_it_finished():
             ai.parse(bad)
 
 
+def test_a_step_with_a_parameter_filmcraft_lacks_runs_again_without_it():
+    from clipfoundry.craft import ai
+
+    class Film:
+        def __init__(self):
+            self.ran = []
+
+        def run_steps(self, _project, steps):
+            out = []
+            for st in steps:
+                self.ran.append(st)
+                p = st["params"]
+                if "duration" in (p.get("params") or {}):
+                    out.append({"id": st["id"], "ok": False, "error": "`Cross Dissolve` has no param `duration`"})
+                elif "speed" in p:
+                    out.append({"id": st["id"], "ok": False, "error": "invalid parameters: has no param `speed`"})
+                elif p.get("param") == "opacity":
+                    out.append({"id": st["id"], "ok": False, "error": "no param `opacity`"})
+                else:
+                    out.append({"id": st["id"], "ok": True, "error": ""})
+            return out
+
+    film = Film()
+    steps = [{"id": "sequence.applyVideoTransition", "params": {"clip": 3, "effect": "Cross Dissolve",
+                                                                 "params": {"duration": 30}}, "for": "AI: soft"},
+             {"id": "graphics.newText", "params": {"text": "Hi", "speed": 2}, "for": "AI: title"},
+             {"id": "effects.setParam", "params": {"clip": 3, "effect": "motion", "param": "opacity"}, "for": "AI"},
+             {"id": "markers.add", "params": {"frame": 3}, "for": "AI: mark"}]
+    ran, results = ai.run_checked(film, "p", steps)
+    assert [r["ok"] for r in results] == [True, True, False, True]
+    assert ran[0]["params"] == {"clip": 3, "effect": "Cross Dissolve"} and ran[0]["for"] == "AI: soft (without `duration`)"
+    assert ran[1]["params"] == {"text": "Hi"} and ran[2] == steps[2] and len(film.ran) == 6  # 4, then 2 again
+    assert ai.without_unknown(steps[2], "`Motion` has no param `clip`") is None  # never without what it acts on
+    assert ai.without_unknown(steps[3], "some other error") is None
+
+
 def test_shot_scripts_cannot_use_files_programs_or_the_network(tmp_path):
     from clipfoundry.craft import shots
     from clipfoundry.craft.runner import CraftError, EffectCraft

@@ -24,9 +24,16 @@ release.
   tokens and it is asked for at most 10 steps; an answer cut off at the cap still gives the steps it finished; a step
   repeated word for word runs once. The check prints llama.cpp's timings and the engine's log when nothing lands, and
   gives GitHub's Mac machine (no graphics chip) 25 minutes.
+- **Second real run (42274107689):** Ubuntu passed. The built-in AI answered in 164 s (4,359-token request at 73
+  tokens/s, 844-token answer at 8 tokens/s) with 10 steps, and 6 landed in FilmCraft's render: a blur, brightness and
+  contrast, a push-in keyframe, a "Lake Day" title and a box. 4 used names FilmCraft lacks. On GitHub's Mac (1.5
+  tokens/s, 1,019 s) all 11 of its steps were transitions with a `duration` FilmCraft's transitions don't have, and
+  the final screenshot after the save timed out (the save itself came back as version 2). Now a step that fails only
+  on a parameter FilmCraft says it lacks runs once more without it (FilmCraft checks parameters before changing
+  anything), the request shows a transition example, and the check's screenshots are pictures only.
 - **Fixed in the built-in AI's setup:** it was marked done before it was chosen as the AI helper, so Settings (and a
   test, about one run in five) could read the old helper. It is chosen first now.
-- **Tests:** five new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
+- **Tests:** six new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
   cancelling a slow answer, the timeout, JSON mode and answer cap reaching the engine, a cut-off answer). The request now shows three example
   steps that real FilmCraft accepts (a look, an effect, a keyframed push-in), which small models need.
 

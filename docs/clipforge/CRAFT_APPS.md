@@ -33,7 +33,8 @@ FilmCraft (a video editor) and EffectCraft (motion graphics) are free, open-sour
    the pass is skipped. A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens, so
    its request is shortened to at most 14,000 characters: shorter tool descriptions and quotes, fewer effect and look
    names, then fewer clips (the main video's first). It is asked for at most 10 steps and one JSON object, its answer
-   is capped at 1,200 tokens (a cut-off answer still gives the steps it finished), it may take up to 10 minutes on a
+   is capped at 1,200 tokens (a cut-off answer still gives the steps it finished; a step that fails only on a
+   parameter FilmCraft says it lacks runs once more without it), it may take up to 10 minutes on a
    computer without a graphics card, and the job can be cancelled while it thinks.
 5. **FilmCraft renders the final video.** `video_flow._render` uses `finish.render` for final videos when FilmCraft is
    set up (setting `edit_engine`: `auto`, the default, falls back to the built-in FFmpeg editor if FilmCraft fails

@@ -71,6 +71,8 @@ Steps look like these (clip ids from the sequence, names from the lists above):
 {"id": "effects.apply", "params": {"clips": [12], "effect": "<a video effect>"}, "why": "soft glow"}
 {"id": "effects.setParam", "params": {"clip": 12, "effect": "motion", "param": "scale", "value": 108, "frame": 90,
  "keyframe": true}, "why": "slow push-in"}
+{"id": "sequence.applyVideoTransition", "params": {"clip": 12, "effect": "Cross Dissolve", "frames": 15, "edge": "in"},
+ "why": "softer cut"}
 Rules: use only the tools listed, with clip ids from the sequence; times for keyframes as "frame" (sequence frame) or
 "seconds"; at most 40 steps; no file paths. Leave steps empty when the edit is already good. A shot's script runs in
 After Effects' scripting model with `comp` already made (W x H, FPS, DUR seconds, transparent background): add text,
@@ -298,6 +300,44 @@ def check_steps(steps: object, clip_ids: set) -> tuple[list[dict], list[str]]:
     return ok, refused
 
 
+_NO_PARAM = re.compile(r"has no param `([^`]+)`")
+_NEEDED = {"clip", "clips", "effect", "name", "param", "value", "item", "text"}
+
+
+def without_unknown(step: dict, error: str) -> dict | None:
+    """The step without the parameter FilmCraft says it does not have (a small model often adds one, such as a
+    transition's "duration"), or None when that would not leave a step worth trying again. FilmCraft checks
+    parameters before it changes anything, so the failed try left nothing behind."""
+    m = _NO_PARAM.search(error or "")
+    if not m:
+        return None
+    k, p = m.group(1), dict(step.get("params") or {})
+    inner = p.get("params")
+    if isinstance(inner, dict) and k in inner:
+        p["params"] = {a: b for a, b in inner.items() if a != k}
+        if not p["params"]:
+            p.pop("params")
+    elif k in p and k not in _NEEDED:
+        p.pop(k)
+    else:
+        return None
+    return {**step, "params": p, "for": f"{step.get('for', '')} (without `{k}`)".strip()}
+
+
+def run_checked(film, project, steps: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Run the steps; a step that failed only on a parameter FilmCraft does not have runs once more without it.
+    The steps as they ran, and their results."""
+    steps = list(steps)
+    results = film.run_steps(project, steps) if steps else []
+    again = [(i, fixed) for i, (s, r) in enumerate(zip(steps, results))
+             if not r.get("ok") and (fixed := without_unknown(s, r.get("error", "")))]
+    if again:
+        for (i, fixed), r in zip(again, film.run_steps(project, [f for _, f in again])):
+            if r.get("ok"):
+                steps[i], results[i] = fixed, r
+    return steps, results
+
+
 def usable(settings: dict) -> bool:
     """An AI service is set up (the built-in AI counts once its engine and a level are downloaded)."""
     from ..pipeline import llm
@@ -337,7 +377,7 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
     steps, refused = check_steps(answer.get("steps"), {r["clip"] for r in rows})
     if answer.get("cut_off"):
         refused.append("the answer was cut off at its length limit: the steps it finished were used, no shots")
-    results = film.run_steps(edit.project, steps) if steps else []
+    steps, results = run_checked(film, edit.project, steps)
     edit.steps += steps
     edit.results += results
     made = []

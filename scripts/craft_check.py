@@ -352,7 +352,7 @@ def browser_check(out: Path, project: dict, want) -> dict:
             try:
                 button.click(timeout=60000)
             except Exception:
-                page.screenshot(path=str(out / "editor-page.png"), full_page=True)
+                snap(page, out / "editor-page.png", full_page=True)
                 panel = page.locator("#vr-filmcraft").locator("xpath=..")
                 print("editor page:", page.url, "\n", (panel.inner_text() if panel.count() else
                                                        page.locator("body").inner_text())[:3000], flush=True)
@@ -373,7 +373,7 @@ def browser_check(out: Path, project: dict, want) -> dict:
                     break
                 time.sleep(1)
             got["dialog"] = page.locator(".craft-editor").inner_text()[:800]
-            page.screenshot(path=str(out / "editor.png"))
+            snap(page, out / "editor.png")
             if frame is not None:
                 try:
                     got["load"] = frame.evaluate("() => ({load: window.filmcraftLoad || null, api: !!window.filmcraft,"
@@ -425,7 +425,7 @@ def browser_check(out: Path, project: dict, want) -> dict:
                 text = saved.read_text()
                 got["after_save"]["bytes"] = len(text)
                 want("/files/" not in text, "the saved project still names the editor's own files")
-            page.screenshot(path=str(out / "editor-saved.png"))
+            snap(page, out / "editor-saved.png")
             browser.close()
     except Exception as exc:  # noqa: BLE001 - reported
         want(False, f"the editor page check failed: {exc!r}")
@@ -433,6 +433,15 @@ def browser_check(out: Path, project: dict, want) -> dict:
         server.terminate()
         server.wait(timeout=30)
     return got
+
+
+def snap(page, path: Path, **kw) -> None:
+    """A screenshot for the uploaded files. Only a picture: a slow machine that can't take it in time (GitHub's Mac,
+    while FilmCraft redraws after a save) is noted, not counted as a problem."""
+    try:
+        page.screenshot(path=str(path), timeout=60000, **kw)
+    except Exception as exc:  # noqa: BLE001 - noted
+        print(f"no screenshot {path.name}: {str(exc).splitlines()[0][:200]}", flush=True)
 
 
 def left_running() -> list[str]:
