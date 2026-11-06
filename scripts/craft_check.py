@@ -10,8 +10,12 @@
 4. With --browser: FilmCraft's editor on ClipForge's editor page in headless Chrome. The page opens the version with
    its files (no "media not found"), and FilmCraft's Save comes back to ClipForge as version 2, whose saved project
    names only this video's files.
+5. With --builtin-ai: the same AI finishing pass answered by ClipForge's built-in AI (builtin_ai.py: the pinned
+   llama.cpp engine and the Basic model, downloaded and checked the way the app does it). Its request must fit the
+   model, its answer must be read, and at least one of its FilmCraft steps or EffectCraft shots must land in the edit
+   that FilmCraft renders. What it chose, what FilmCraft refused and how long it took are reported.
 
-    python scripts/craft_check.py --out /tmp/craft-check [--browser]
+    python scripts/craft_check.py --out /tmp/craft-check [--browser] [--builtin-ai]
 
 Writes report.json in --out and exits 1 when anything is wrong.
 """
@@ -35,6 +39,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--browser", action="store_true")
+    ap.add_argument("--builtin-ai", action="store_true")
     args = ap.parse_args()
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -117,6 +122,7 @@ def main() -> int:
     from clipfoundry.pipeline import llm
 
     asked: dict = {}
+    real_complete = llm.complete
 
     def answer(_settings, prompt, *, system=None, task="", **_kw):
         asked["prompt"] = prompt
@@ -158,7 +164,73 @@ def main() -> int:
     # 4. FilmCraft's editor on the editor page
     if args.browser:
         report["browser"] = browser_check(out, project, want)
+
+    # 5. the built-in AI finishing the edit with FilmCraft's tools
+    if args.builtin_ai:
+        llm.complete = real_complete
+        report["builtin_ai"] = builtin_check(out, plan, assets, words, project, settings, want)
     return finish_report(out, report, problems)
+
+
+def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dict, settings: dict, want) -> dict:
+    from clipfoundry import builtin_ai
+    from clipfoundry.craft import ai as craft_ai
+    from clipfoundry.craft import finish
+    from clipfoundry.pipeline import llm
+
+    level = "basic"
+    row: dict = {"level": level, "model": builtin_ai.MODELS[level]["model"]}
+    t0 = time.monotonic()
+    try:
+        builtin_ai._install_engine(lambda *_a: None)  # noqa: SLF001 - the same code the app runs, without its thread
+        builtin_ai._install_level(level, lambda *_a: None)  # noqa: SLF001
+    except Exception as exc:  # noqa: BLE001 - reported
+        want(False, f"the built-in AI could not be downloaded: {exc!r}")
+        return row
+    row["download_s"] = round(time.monotonic() - t0, 1)
+    s = {**settings, "ai_provider": "builtin", "builtin_ai_level": level, "builtin_ai_idle_minutes": 30,
+         "craft_ai_finish": True}
+    want(craft_ai.usable(s), "the built-in AI is downloaded but ClipForge does not see it as set up")
+    seen: dict = {}
+    real = llm.complete
+
+    def recording(settings_, prompt, **kw):
+        seen["prompt_chars"] = len(prompt)
+        t = time.monotonic()
+        try:
+            seen["raw"] = real(settings_, prompt, **kw)
+        except Exception as exc:  # noqa: BLE001 - reported below through the AI pass
+            seen["error"] = repr(exc)
+            raise
+        finally:
+            seen["answer_s"] = round(time.monotonic() - t, 1)
+        return seen["raw"]
+
+    llm.complete = recording
+    final = out / "builtin" / "final.mp4"
+    final.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        info = finish.render(plan, assets, words, final, name=project["name"], revision=1, settings=s,
+                             progress=lambda f, m: print(f"  {f:.2f} {m}", flush=True))
+        got = info["filmcraft"]["ai"]
+        row.update(ai=got, render={k: info[k] for k in ("duration", "expected_duration", "has_audio")})
+        landed = (got.get("steps") or 0) - len(got.get("failed") or []) + (got.get("shots") or 0)
+        row["landed"] = landed
+        want(bool(got.get("used")), f"the built-in AI's answer was not used: {got.get('why') or got}")
+        want(str(got.get("provider", "")).startswith("Built-in AI"), f"another AI answered: {got.get('provider')}")
+        want(seen.get("prompt_chars", 0) <= craft_ai.LOCAL_PROMPT_CHARS, f"request too long: {seen.get('prompt_chars')}")
+        want(landed > 0, f"none of the built-in AI's steps or shots landed in the edit: {got}")
+        want(abs(info["duration"] - info["expected_duration"]) <= 0.1, f"built-in AI render length {info['duration']}")
+    except Exception as exc:  # noqa: BLE001 - reported
+        want(False, f"the edit with the built-in AI failed: {exc!r}")
+    finally:
+        llm.complete = real
+        builtin_ai.server.stop()
+    row.update({k: seen[k] for k in ("prompt_chars", "answer_s", "error") if k in seen})
+    row["raw_answer"] = str(seen.get("raw", ""))[:4000]
+    print("built-in AI:", json.dumps({k: v for k, v in row.items() if k != "raw_answer"})[:2500], flush=True)
+    print("built-in AI answer:", row["raw_answer"], flush=True)
+    return row
 
 
 LOWER_THIRD = """

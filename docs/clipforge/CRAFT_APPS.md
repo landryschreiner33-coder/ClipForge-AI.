@@ -29,7 +29,11 @@ FilmCraft (a video editor) and EffectCraft (motion graphics) are free, open-sour
    finishing tools are allowed (effects and keyframes, colour presets, transitions, speed, titles and shapes, caption
    style, Essential Sound, markers), clip ids must belong to the sequence, no parameter may name a file or address,
    at most 40 steps. Shot scripts may not use files, programs, the network, saving or rendering. Settings, Editing
-   apps turns this off.
+   apps turns this off. ClipForge's built-in AI (`builtin_ai.py`) does this pass once it is downloaded; until then
+   the pass is skipped. A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens, so
+   its request is shortened to at most 14,000 characters: shorter tool descriptions and quotes, fewer effect and look
+   names, then fewer clips (the main video's first). It is asked for one JSON object, may take up to 10 minutes on a
+   computer without a graphics card, and the job can be cancelled while it thinks.
 5. **FilmCraft renders the final video.** `video_flow._render` uses `finish.render` for final videos when FilmCraft is
    set up (setting `edit_engine`: `auto`, the default, falls back to the built-in FFmpeg editor if FilmCraft fails
    and records why; `filmcraft` fails instead; `ffmpeg` never uses FilmCraft). The file is checked like the built-in
@@ -78,6 +82,9 @@ Environment: `CLIPFOUNDRY_FILMCRAFT_CLI` / `CLIPFOUNDRY_EFFECTCRAFT_CLI` use ano
   ClipForge's own install, the edit (every step must apply), the EffectCraft title, the AI pass with a stand-in
   answer, FilmCraft's render, and FilmCraft's editor on the editor page in headless Chrome (open, then Ctrl/Cmd+S or
   Save to ClipForge back as version 2). It also prints what EffectCraft's scripting model offers on a text layer.
+  With `--builtin-ai` it downloads the built-in AI's engine and Basic model the way the app does and runs the AI pass
+  with them: the request must fit, the answer must be read and at least one step or shot must land in FilmCraft's
+  render. It prints the model's answer, what FilmCraft refused and the time it took.
 
 ## Limits
 

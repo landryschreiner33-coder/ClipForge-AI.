@@ -221,9 +221,16 @@ def tools(cancelled: Callable[[], bool] | None = None) -> tuple[FilmCraft, Effec
 
 def edit_key(plan: dict, settings: dict | None, use_ai: bool = True) -> str:
     """What decides the FilmCraft edit of a plan: the plan, the apps' versions and whether the AI finishes it."""
+    from . import ai
+
     s = settings or {}
-    ai_on = bool(use_ai and s.get("craft_ai_finish", True) and s.get("ai_provider", "heuristic") != "heuristic")
-    raw = json.dumps({"plan": engine.upgrade(plan), "ai": ai_on and s.get("ai_provider"),
+    ai_on = bool(use_ai and s.get("craft_ai_finish", True) and ai.usable(s))
+    who = s.get("ai_provider")
+    if ai_on and who == "builtin":  # a newly downloaded built-in AI, or another level, edits again
+        from .. import builtin_ai
+
+        who = f"builtin:{builtin_ai.chosen_level(s)}"
+    raw = json.dumps({"plan": engine.upgrade(plan), "ai": ai_on and who,
                       "apps": {k: a.version for k, a in apps.APPS.items()}}, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
 

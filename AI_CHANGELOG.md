@@ -1,5 +1,28 @@
 # AI changelog
 
+## The built-in AI finishes the edit with FilmCraft — 2026-11-06 (Claude Code)
+
+Landry chose "Combine, test, then merge": the built-in AI (phase 1, PR #25) and FilmCraft inside ClipForge (PR #26)
+are joined on `claude/project-thread-605vsm`, and both go into the release line once the real check passes. No
+release.
+
+- **Joined:** PR #25's branch merged in. Overlaps fixed by keeping both sides: the server's shutdown stops running
+  FilmCraft/EffectCraft tools and the built-in AI's engine; `config.py` has both setting lists; change logs kept;
+  `frontend/dist` rebuilt from the merged sources.
+- **The built-in AI does the FilmCraft pass** (`craft/ai.py`): it counts once downloaded (`ai.usable`), and
+  `finish.edit_key` includes its level, so downloading it or switching level edits again. Its request is shortened
+  to 14,000 characters for a model on this computer (`SHORTER`: tool descriptions, quotes, effect and look names,
+  then clips, the main video's first); online services get up to 40,000. Ollama is now asked for an 8,192-token
+  context for this pass (it defaulted to 4,096, which cut the request short).
+- **Waiting for a local model:** `ai.ask` runs the request in its own thread so the job can be cancelled while the
+  model thinks; local models get up to 10 minutes (`llm.complete(timeout=...)`, also used by Ollama and LM Studio)
+  and the built-in AI answers in JSON mode (`json_object=True`, llama.cpp's `response_format`).
+- **Real check:** `scripts/craft_check.py --builtin-ai` (in `filmcraft-check.yml`) downloads the engine and the Basic
+  model the way the app does and runs the AI pass with them on the real apps.
+- **Tests:** four new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
+  cancelling a slow answer, the timeout and JSON mode reaching the engine). The request now shows three example
+  steps that real FilmCraft accepts (a look, an effect, a keyframed push-in), which small models need.
+
 ## FilmCraft and EffectCraft inside ClipForge: fixes from the real apps — 2026-11-06 (Claude Code)
 
 The first real-app run (GitHub macOS 15 and Ubuntu, run 42250189370) applied all 29 FilmCraft steps and FilmCraft's

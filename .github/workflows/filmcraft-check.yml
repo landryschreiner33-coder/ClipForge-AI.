@@ -1,7 +1,8 @@
 name: FilmCraft timeline check
 # Does a real FilmCraft (the open-source editor ClipForge hands cuts to) open ClipForge's timelines exactly, and do
 # FilmCraft and EffectCraft work inside ClipForge (fetched by ClipForge itself, the edit with FilmCraft's tools, the
-# EffectCraft title, the AI's finishing, FilmCraft's render, FilmCraft's editor on the editor page)?
+# EffectCraft title, the AI's finishing, FilmCraft's render, FilmCraft's editor on the editor page, and ClipForge's
+# built-in AI finishing the edit with FilmCraft's tools)?
 # Uses the apps' official release files, pinned by version and SHA-256; nothing is built from source.
 # See docs/clipforge/FILMCRAFT.md, docs/clipforge/CRAFT_APPS.md, scripts/filmcraft_check.py and scripts/craft_check.py.
 on:
@@ -9,6 +10,7 @@ on:
     branches: ['claude/**']
     paths: ['clipfoundry/studio/interchange.py', 'clipfoundry/studio/filmcraft.py', 'clipfoundry/studio/engine.py',
             'clipfoundry/craft/**', 'clipfoundry/studio/video_flow.py', 'frontend/src/components/FilmCraft.tsx',
+            'clipfoundry/builtin_ai.py', 'clipfoundry/pipeline/llm.py',
             'scripts/filmcraft_check.py', 'scripts/craft_check.py', '.github/workflows/filmcraft-check.yml']
   workflow_dispatch:
 permissions:
@@ -74,13 +76,13 @@ jobs:
           extra=""
           if [ "$RUNNER_OS" = "macOS" ]; then extra="--expect-app"; fi
           python scripts/filmcraft_check.py --cli "$FILMCRAFT_CLI" --out "$RUNNER_TEMP/filmcraft-check" $extra
-      - name: FilmCraft and EffectCraft inside ClipForge (fetch, edit, title shot, AI pass, render, editor page)
+      - name: FilmCraft and EffectCraft inside ClipForge (fetch, edit, title shot, AI pass, render, editor page, built-in AI)
         if: always()
         env:
           CLIPFOUNDRY_CRAFT_GPU: 'off'
         run: |
           python -m pip install playwright==1.55.0
-          python scripts/craft_check.py --out "$RUNNER_TEMP/craft-check" --browser
+          python scripts/craft_check.py --out "$RUNNER_TEMP/craft-check" --browser --builtin-ai
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -92,6 +94,8 @@ jobs:
             ${{ runner.temp }}/craft-check/report.json
             ${{ runner.temp }}/craft-check/*.png
             ${{ runner.temp }}/craft-check/ai/final.mp4
+            ${{ runner.temp }}/craft-check/builtin/final.mp4
+            ${{ runner.temp }}/craft-check/builtin/filmcraft/report.json
             ${{ runner.temp }}/craft-check/data/videos/*/r1/final.mp4
             ${{ runner.temp }}/craft-check/data/videos/*/r1/filmcraft/report.json
           retention-days: 7

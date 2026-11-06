@@ -10,9 +10,13 @@ runs in its sandbox). Every step is checked before it runs:
   video's length stay right; the person can still do anything by hand in FilmCraft's editor;
 * clip ids must be clips of this sequence; no parameter may name a file, folder or address;
 * at most 40 steps and 2 shots; a step FilmCraft refuses is reported and the rest still run.
+
+A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
+made shorter until it fits (shorter tool descriptions and quotes, fewer effect and look names, then fewer clips).
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import re
 
@@ -23,6 +27,14 @@ from .runner import CraftError
 
 MAX_STEPS = 40
 MAX_SHOTS = 2
+LOCAL_CONTEXT = 8192  # tokens: the built-in AI's context (builtin_ai.CONTEXT), also asked of Ollama
+LOCAL_PROMPT_CHARS = 14_000  # about 4,000 tokens, leaving the rest of LOCAL_CONTEXT for the answer
+REMOTE_PROMPT_CHARS = 40_000
+LOCAL_TIMEOUT_S = 600.0  # a model on this computer without a graphics card can take minutes
+# How the request is shortened, step by step: (characters of each tool's parameters, of what is said in a clip,
+# effect names, look names, clips)
+SHORTER = [(600, 160, 120, 60, 120), (240, 100, 60, 30, 80), (120, 60, 30, 20, 60), (0, 40, 20, 12, 40)]
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="filmcraft-ai")
 ALLOWED = {
     "effects.apply", "effects.setParam", "effects.addKeyframe", "effects.setInterpolation", "effects.remove",
     "effects.toggleEnabled", "effects.resetParam", "effects.reset",
@@ -49,6 +61,11 @@ ANSWER = """Answer format:
 {"summary": "one sentence for the person: what you did",
  "steps": [{"id": "<tool id>", "params": {...}, "why": "short reason"}],
  "shots": [{"name": "Lower third", "at_s": 3.0, "seconds": 4.0, "script": "<After Effects ExtendScript body>"}]}
+Steps look like these (clip ids from the sequence, names from the lists above):
+{"id": "lumetri.applyPreset", "params": {"name": "<a colour look>", "clips": [12]}, "why": "warmer skin"}
+{"id": "effects.apply", "params": {"clips": [12], "effect": "<a video effect>"}, "why": "soft glow"}
+{"id": "effects.setParam", "params": {"clip": 12, "effect": "motion", "param": "scale", "value": 108, "frame": 90,
+ "keyframe": true}, "why": "slow push-in"}
 Rules: use only the tools listed, with clip ids from the sequence; times for keyframes as "frame" (sequence frame) or
 "seconds"; at most 40 steps; no file paths. Leave steps empty when the edit is already good. A shot's script runs in
 After Effects' scripting model with `comp` already made (W x H, FPS, DUR seconds, transparent background): add text,
@@ -109,19 +126,78 @@ def sequence_rows(film, edit, words_by_asset: dict, plan: dict) -> list[dict]:
     return rows
 
 
+def prompt_limit(settings: dict) -> int:
+    """How long the request may be: a model on this computer reads about 8,000 tokens at a time."""
+    from ..pipeline import llm
+
+    provider = settings.get("ai_provider", "heuristic")
+    local = provider in llm.LOCAL_PROVIDERS and llm.is_local(settings, provider)
+    return LOCAL_PROMPT_CHARS if local else REMOTE_PROMPT_CHARS
+
+
+def _cut(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:max(0, n - 1)].rstrip() + "…"
+
+
+def _fewer(rows: list[dict], n: int) -> list[dict]:
+    """At most n clips, in their order: the main video's clips first, then pictures over it, then sound."""
+    if len(rows) <= n:
+        return rows
+
+    def rank(r: dict) -> int:
+        return 0 if r["track"] == "Video 1" else 2 if r["what"] == "sound" or "Sound" in r["track"] or \
+            r["track"] in ("Voiceover", "Music") else 1
+
+    keep = set(sorted(range(len(rows)), key=lambda i: (rank(rows[i]), i))[:n])
+    return [r for i, r in enumerate(rows) if i in keep]
+
+
+def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[str], looks: list[str],
+            params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int) -> str:
+    rows = [{**r, "said": _cut(r["said"], said_n)} if r.get("said") else r for r in _fewer(rows, rows_n)]
+    tools = [{"id": c["id"], **({"label": c["label"]} if c.get("label") else {}),
+              **({"params": _cut(c["params"], params_n)} if params_n and c.get("params") else {})} for c in catalog]
+    return "\n".join([
+        "The video: " + json.dumps(brief, ensure_ascii=False),
+        "The sequence (FilmCraft clip ids):", json.dumps(rows, ensure_ascii=False),
+        "Tools you may use (id, parameters):", json.dumps(tools, ensure_ascii=False),
+        # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
+        "Video effects (for effects.apply): " + json.dumps(effects[:effects_n], ensure_ascii=False),
+        "Colour looks (for lumetri.applyPreset name): " + json.dumps(looks[:looks_n], ensure_ascii=False),
+        ANSWER])
+
+
 def build_prompt(plan: dict, edit, rows: list[dict], catalog: list[dict], effects: list[str],
-                 looks: list[str]) -> str:
+                 looks: list[str], limit: int | None = None) -> str:
+    """The request; with `limit`, made shorter step by step (SHORTER, then fewer clips) until it fits."""
     tl = edit.timeline
     brief = {"title": (plan.get("title") or {}).get("text", ""), "width": tl.width, "height": tl.height,
              "fps": tl.fps, "seconds": round(tl.frames / tl.fps, 2), "captions": bool(tl.counts.get("captions"))}
-    return "\n".join([
-        "The video: " + json.dumps(brief, ensure_ascii=False),
-        "The sequence (FilmCraft clip ids):", json.dumps(rows[:120], ensure_ascii=False),
-        "Tools you may use (id, parameters):", json.dumps(catalog, ensure_ascii=False),
-        # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
-        "Video effects (for effects.apply): " + json.dumps(effects[:120], ensure_ascii=False),
-        "Colour looks (for lumetri.applyPreset name): " + json.dumps(looks[:60], ensure_ascii=False),
-        ANSWER])
+    text = ""
+    for step in SHORTER:
+        text = _prompt(brief, rows, catalog, effects, looks, *step)
+        if limit is None or len(text) <= limit:
+            return text
+    n = SHORTER[-1][-1]
+    while len(text) > limit and n > 8:  # a long video: the first clips that fit
+        n = max(8, n * 2 // 3)
+        text = _prompt(brief, rows, catalog, effects, looks, *SHORTER[-1][:-1], n)
+    return text
+
+
+def ask(settings: dict, prompt: str, cancelled=None) -> str:
+    """The AI service's answer; a model on this computer may take minutes, and the job can still be cancelled."""
+    from ..pipeline import llm
+
+    call = _pool.submit(llm.complete, settings, prompt, system=SYSTEM, task="filmcraft_finish",
+                        num_ctx=LOCAL_CONTEXT, timeout=LOCAL_TIMEOUT_S, json_object=True)
+    while True:
+        try:
+            return call.result(timeout=1.0)
+        except concurrent.futures.TimeoutError:
+            if cancelled and cancelled():
+                call.cancel()
+                raise Canceled() from None
 
 
 def parse(raw: str) -> dict:
@@ -171,20 +247,37 @@ def check_steps(steps: object, clip_ids: set) -> tuple[list[dict], list[str]]:
     return ok, refused
 
 
+def usable(settings: dict) -> bool:
+    """An AI service is set up (the built-in AI counts once its engine and a level are downloaded)."""
+    from ..pipeline import llm
+
+    provider = settings.get("ai_provider", "heuristic")
+    if provider not in llm.PROVIDERS:
+        return False
+    if provider == "builtin":
+        from .. import builtin_ai
+
+        return builtin_ai.ready(settings)
+    return True
+
+
 def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict) -> dict:
     """Ask the AI service for finishing steps and shots, check them and run them on the project."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
-    if provider not in llm.PROVIDERS or not settings.get("craft_ai_finish", True):
-        return {"used": False, "why": "no AI service is set up" if provider not in llm.PROVIDERS else "turned off"}
+    if not settings.get("craft_ai_finish", True):
+        return {"used": False, "why": "turned off"}
+    if not usable(settings):
+        return {"used": False, "why": "the built-in AI is not downloaded yet" if provider == "builtin" else
+                "no AI service is set up"}
     try:
         rows = sequence_rows(film, edit, words_by_asset, plan)
         catalog = _catalog(film, edit.project)
         effects = _names(film, edit.project, "effects.list", {"kind": "Video"})
         looks = _names(film, edit.project, "lumetri.presets", {})
-        prompt = build_prompt(plan, edit, rows, catalog, effects, looks)
-        answer = parse(llm.complete(settings, prompt, system=SYSTEM, task="filmcraft_finish"))
+        prompt = build_prompt(plan, edit, rows, catalog, effects, looks, prompt_limit(settings))
+        answer = parse(ask(settings, prompt, getattr(film, "cancelled", None)))
     except Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - the AI's finishing is optional: the FilmCraft edit stands without it
@@ -214,7 +307,8 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
         except (CraftError, OSError, TypeError, ValueError) as exc:
             refused.append(f"shot {n + 1}: {str(exc)[:160]}")
     edit.shots += made
-    return {"used": True, "provider": llm.provider_label(settings), "summary": str(answer.get("summary") or "")[:300],
+    return {"used": True, "provider": llm.provider_label(settings), "prompt_chars": len(prompt),
+            "summary": str(answer.get("summary") or "")[:300],
             "steps": len(steps), "failed": [r["error"] for r in results if not r["ok"]][:20], "refused": refused,
             "shots": len(made)}
 

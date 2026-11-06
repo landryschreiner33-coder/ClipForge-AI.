@@ -21,7 +21,10 @@ come back as new versions. The built-in FFmpeg editor stays as the backup.
   build, FilmCraft only opens a `File` made by its own window, look names with commas (see AI_CHANGELOG.md). Facts read from the released files: the 0.17.1 web
   build has `window.filmcraft` (execute, commands, inspect, screenshot, info, files, readFile, importFiles,
   importUrl, openProject) and saves by anchor download; `effectcraft-cli script --json` prints `result`/`output`.
-- **Waiting on Landry:** merge and release.
+- **Built-in AI (PR #25) joined in:** it does the FilmCraft AI pass once downloaded, with a request shortened to fit
+  its 8,192-token context; `scripts/craft_check.py --builtin-ai` checks it with the real model. Landry approved
+  merging #25 and #26 into the release line once that check passes.
+- **Waiting on Landry:** release.
 - **Next:** EffectCraft's own editor in the page, PhotoCraft (thumbnails), Windows check with the real apps.
 
 ## Finish in FilmCraft — 2026-11-06 (Claude Code, cloud session)

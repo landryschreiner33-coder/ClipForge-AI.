@@ -764,11 +764,13 @@ def _is_our_engine(pid: int, exe: str) -> bool:
 server = Server()
 
 
-def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0) -> str:
-    """One request to the built-in AI; the answer's text."""
+def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, json_object: bool = False) -> str:
+    """One request to the built-in AI; the answer's text (`json_object`: always one JSON object)."""
     base, key = server.ensure(settings)
     body = {"model": ALIAS, "temperature": 0.2,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+    if json_object:
+        body["response_format"] = {"type": "json_object"}
     try:
         r = httpx.post(f"{base}/chat/completions", json=body, headers={"Authorization": f"Bearer {key}"},
                        timeout=timeout, trust_env=False)

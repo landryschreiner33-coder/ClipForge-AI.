@@ -356,7 +356,7 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
     asked = {}
 
     def complete(settings, prompt, *, system=None, task="", **kw):
-        asked.update(prompt=prompt, system=system, task=task)
+        asked.update(prompt=prompt, system=system, task=task, kw=kw)
         rows = json.loads(prompt.split("The sequence (FilmCraft clip ids):\n", 1)[1].split("\n", 1)[0])
         clip = next(r["clip"] for r in rows if r["track"] == "Video 1" and r.get("said"))
         return json.dumps({"summary": "Warmer colour and a lower third.", "steps": [
@@ -378,6 +378,8 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
     assert len(ai["refused"]) == 4 and any("not a finishing tool" in r for r in ai["refused"])
     assert any("file or address" in r for r in ai["refused"]) and any("not in this sequence" in r for r in ai["refused"])
     assert asked["task"] == "filmcraft_finish" and "timeline.razor" not in asked["prompt"]
+    # a model on this computer gets a context that holds the request, minutes to answer, and answers in JSON
+    assert asked["kw"] == {"num_ctx": 8192, "timeout": 600.0, "json_object": True}
     assert "/" + "files" not in asked["prompt"] and str(env) not in asked["prompt"]  # never a path
     # FilmCraft's names have commas in them: the lists are JSON
     looks = asked["prompt"].split("Colour looks (for lumetri.applyPreset name): ", 1)[1].split("\n", 1)[0]
@@ -389,6 +391,105 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
     assert [s["use"] for s in shots] == ["title", "over the video"] and shots[1]["what"] == "Lower third"
     effect = _log(tools["logs"]["effect"])
     assert any("4444" in a and "rgba" in a for a in effect if a[0] == "render")  # laid over with transparency
+
+
+class _Timeline:
+    width, height, fps, frames, counts = 1080, 1920, 30, 30 * 600, {"captions": 3}
+
+
+class _Edit:
+    timeline = _Timeline()
+
+
+def test_the_request_fits_a_model_on_this_computer():
+    from clipfoundry.craft import ai
+
+    said = "and that is why we went to the lake early in the morning before anyone else got there, " * 3
+    rows = []
+    for i in range(200):
+        track, what = (("Video 1", "video") if i % 2 == 0 else ("Music", "sound") if i % 4 == 1 else
+                       ("Pictures over the video", "picture over the video"))
+        rows.append({"clip": i + 1, "track": track, "what": what, "from_s": i * 3.0, "to_s": i * 3.0 + 3,
+                     **({"said": said[:160]} if track == "Video 1" else {})})
+    catalog = [{"id": t, "label": t.split(".")[-1], "params": "p" * 600} for t in sorted(ai.ALLOWED)]
+    effects = [f"Effect number {i}, with a long name" for i in range(120)]
+    looks = [f"Look {i}, Teal Shadows, Warm Skin" for i in range(60)]
+    plan = {"title": {"text": "Lake day"}}
+    full = ai.build_prompt(plan, _Edit(), rows, catalog, effects, looks)
+    assert len(full) > ai.LOCAL_PROMPT_CHARS and "p" * 600 in full  # an online service gets everything
+    short = ai.build_prompt(plan, _Edit(), rows, catalog, effects, looks, ai.LOCAL_PROMPT_CHARS)
+    assert len(short) <= ai.LOCAL_PROMPT_CHARS and short.endswith(ai.ANSWER)
+    lines = short.split("\n")
+    kept = json.loads(lines[lines.index("The sequence (FilmCraft clip ids):") + 1])
+    tools = json.loads(lines[lines.index("Tools you may use (id, parameters):") + 1])
+    assert kept and all(r["track"] == "Video 1" for r in kept)  # the main video's clips come first
+    assert [r["from_s"] for r in kept] == sorted(r["from_s"] for r in kept)  # in their order
+    assert {t["id"] for t in tools} == ai.ALLOWED  # every tool is still offered
+    looks_sent = json.loads(next(x for x in lines if x.startswith("Colour looks")).split(": ", 1)[1])
+    assert looks_sent and looks_sent[0] == looks[0]  # whole names, commas and all
+    # a short request is not changed
+    few = ai.build_prompt(plan, _Edit(), rows[:6], catalog[:3], effects[:3], looks[:3], ai.LOCAL_PROMPT_CHARS)
+    assert few == ai.build_prompt(plan, _Edit(), rows[:6], catalog[:3], effects[:3], looks[:3])
+    assert ai.prompt_limit({"ai_provider": "builtin"}) == ai.LOCAL_PROMPT_CHARS
+    assert ai.prompt_limit({"ai_provider": "ollama"}) == ai.LOCAL_PROMPT_CHARS
+    assert ai.prompt_limit({"ai_provider": "ollama", "ollama_url": "https://ai.example.com"}) == ai.REMOTE_PROMPT_CHARS
+    assert ai.prompt_limit({"ai_provider": "anthropic"}) == ai.REMOTE_PROMPT_CHARS
+
+
+def test_the_built_in_ai_finishes_the_edit_once_it_is_downloaded(monkeypatch):
+    from clipfoundry import builtin_ai
+    from clipfoundry.craft import ai, finish
+    from clipfoundry.pipeline import llm
+
+    def never(*_a, **_k):
+        raise AssertionError("nothing is sent before the built-in AI is downloaded")
+
+    monkeypatch.setattr(llm, "complete", never)
+    monkeypatch.setattr(builtin_ai, "ready", lambda _s: False)
+    s = {"ai_provider": "builtin", "craft_ai_finish": True}
+    got = ai.finish(None, None, None, {}, {}, s)
+    assert got == {"used": False, "why": "the built-in AI is not downloaded yet"}
+    plan = {"version": 3, "clips": []}
+    before = finish.edit_key(plan, s)
+    assert before == finish.edit_key(plan, {"ai_provider": "heuristic"})
+    monkeypatch.setattr(builtin_ai, "ready", lambda _s: True)
+    monkeypatch.setattr(builtin_ai, "chosen_level", lambda _s: "basic")
+    basic = finish.edit_key(plan, s)
+    monkeypatch.setattr(builtin_ai, "chosen_level", lambda _s: "standard")
+    assert len({before, basic, finish.edit_key(plan, s)}) == 3  # downloading it, or another level, edits again
+    assert ai.disclosure(s).startswith("Stays on this computer")
+
+
+def test_a_slow_local_answer_can_be_cancelled(monkeypatch):
+    import threading
+    import time
+
+    from clipfoundry.craft import ai
+    from clipfoundry.pipeline import llm
+    from clipfoundry.studio.jobs import Canceled
+
+    release = threading.Event()
+    monkeypatch.setattr(llm, "complete", lambda *_a, **_k: release.wait(20) and "{}")
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(Canceled):
+            ai.ask({"ai_provider": "builtin"}, "prompt", cancelled=lambda: True)
+        assert time.monotonic() - t0 < 5
+    finally:
+        release.set()
+    monkeypatch.setattr(llm, "complete", lambda *_a, **_k: '{"steps": []}')
+    assert ai.ask({}, "prompt") == '{"steps": []}'
+
+
+def test_the_built_in_ai_gets_the_wait_and_json_answer_it_is_asked_for(monkeypatch):
+    from clipfoundry import builtin_ai
+    from clipfoundry.pipeline import llm
+
+    seen = []
+    monkeypatch.setattr(builtin_ai, "chat", lambda _s, _sys, _p, **kw: seen.append(kw) or "{}")
+    llm.complete({"ai_provider": "builtin"}, "x", task="filmcraft_finish", timeout=600, json_object=True)
+    llm.complete({"ai_provider": "builtin"}, "x")
+    assert seen == [{"timeout": 600.0, "json_object": True}, {"timeout": 180.0, "json_object": False}]
 
 
 def test_shot_scripts_cannot_use_files_programs_or_the_network(tmp_path):

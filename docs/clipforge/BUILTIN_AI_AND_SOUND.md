@@ -34,7 +34,9 @@ worker share the running engine; a leftover engine whose owner died is stopped, 
 installed engine program.
 
 **Use.** `ai_provider = "builtin"` goes through the same `pipeline/llm.py` paths as Ollama (it counts as local, so
-nothing leaves the computer): clip scoring, post text, the full-video AI editor and change requests.
+nothing leaves the computer): clip scoring, post text, the full-video AI editor and change requests, and the AI pass
+that finishes final videos with FilmCraft's tools and EffectCraft shots (`craft/ai.py`, see
+[CRAFT_APPS.md](CRAFT_APPS.md); its request is shortened to fit the 8,192-token context and it answers in JSON mode).
 
 ## Clean up the sound (`clipfoundry/pipeline/cleanup.py`)
 
