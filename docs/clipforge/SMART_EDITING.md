@@ -1,4 +1,4 @@
-# Smart editing and the AI helper
+# Smart editing and ClipForge AI
 
 "Make a YouTube video" can now edit the rough cut instead of only placing the files one after another. The choice
 is the brief field `smart_edit`: `smart` ("Edit it for me", the default in the app), `tight` ("Fast-paced") or
@@ -7,7 +7,7 @@ is the brief field `smart_edit`: `smart` ("Edit it for me", the default in the a
 ## What it does (clipfoundry/studio/smart_edit.py)
 
 1. **Leaves out** sentences the brief asks to avoid, an earlier take of a line said again (a false start, or the same
-   line twice), a stumble inside one sentence ("the water was the water was ..."), sentences the AI helper suggests,
+   line twice), a stumble inside one sentence ("the water was the water was ..."), sentences ClipForge AI suggests,
    and, to fit the asked length, the weakest passages (scored by what is said; the opening, the ending and must-keep
    words stay). Left-out parts stay in the sequence switched off (`include: false`, outline "Left out (why): ..."),
    so Put back restores them.
@@ -22,7 +22,7 @@ is the brief field `smart_edit`: `smart` ("Edit it for me", the default in the a
    bin, or free music made on this computer by `studio/library.py`, in the video's mood) and soft whooshes at
    recording changes and swishes for pictures. Library sounds are synthesized (no samples, no licence questions),
    cached in `data/library/` and added to the project's media like any file.
-5. **Chapters** for the YouTube description (from the AI helper's topic changes, or file names), shown only when
+5. **Chapters** for the YouTube description (from ClipForge AI's topic changes, or file names), shown only when
    YouTube would accept them (three or more, first at 0:00, each at least 10 s).
 
 Every step is written in `plan.notes` and summarized in `plan.smart` (level, options, stats, AI use). "Edit it for
@@ -38,10 +38,10 @@ fill/fit with a blurred background for other shapes). Each overlay is rendered a
 cache and the two-inputs-per-FFmpeg-run rule still hold. Captions count a word that starts inside a clip when most
 of it is inside (speech models often let a word's end run into the pause that gets cut).
 
-## The AI helper (clipfoundry/studio/ai_editor.py, clipfoundry/ai_setup.py)
+## ClipForge AI's model (clipfoundry/studio/ai_editor.py, clipfoundry/ai_setup.py)
 
 Optional; the built-in rules work without it. It is the same AI service as clip scoring and "Tell the editor what
-to change", chosen under **Settings → AI helper** (`#/settings/ai`):
+to change", chosen under **Settings → ClipForge AI** (`#/settings/ai`):
 
 | Choice | Cost | Where it runs |
 | --- | --- | --- |

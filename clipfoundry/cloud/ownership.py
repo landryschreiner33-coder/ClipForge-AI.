@@ -53,6 +53,9 @@ RESOLVERS: dict[str, Callable[[str], str | None]] = {
     "reference_id": lambda v: _one("SELECT workspace_id FROM reference_videos WHERE id = ?", v),
     "import_id": lambda v: _one("SELECT workspace_id FROM media_imports WHERE id = ?", v),
     "request_id": lambda v: _one("SELECT workspace_id FROM edit_requests WHERE id = ?", v),
+    "memory_id": lambda v: _one("SELECT workspace_id FROM brain_memories WHERE id = ?", v),
+    "chat_id": lambda v: _one("SELECT workspace_id FROM brain_chats WHERE id = ?", v),
+    "chat_message_id": lambda v: _one("SELECT workspace_id FROM brain_chat_messages WHERE id = ?", v),
 }
 NOT_FOUND = {"project_id": "Project not found", "clip_id": "Clip not found", "version_id": "Version not found",
              "pub_id": "Publication not found"}

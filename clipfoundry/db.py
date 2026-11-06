@@ -678,6 +678,61 @@ CREATE TABLE IF NOT EXISTS brain_influences ( -- immutable explanations of actua
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_influence_once ON brain_influences(blueprint_id, knowledge_id);
 CREATE INDEX IF NOT EXISTS idx_brain_influence_clip ON brain_influences(clip_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_memories (   -- ClipForge AI's memories (brain/memories.py)
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    kind TEXT NOT NULL,                       -- rule | fact | episode | asset | answer
+    text TEXT NOT NULL,                       -- the memory in plain words (what a model reads)
+    norm TEXT NOT NULL DEFAULT '',            -- the words lower-cased and single-spaced (twins are merged)
+    source TEXT NOT NULL DEFAULT 'said',      -- said | did | guessed | imported
+    confidence REAL DEFAULT 1.0,
+    scope TEXT DEFAULT 'all',                 -- all | project:<id> | platform:<name> | mode:<clips|video>
+    project_id TEXT DEFAULT '',
+    platform TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    data TEXT DEFAULT '{}',                   -- structured details; never sent to a model
+    meaning BLOB,                             -- the embedding (brain/meaning.py)
+    meaning_model TEXT DEFAULT '',            -- which embedder made it
+    enabled INTEGER DEFAULT 1,
+    expires_at REAL,                          -- a guess expires unless confirmed
+    used_count INTEGER DEFAULT 0,
+    last_used_at REAL,
+    revision INTEGER DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_memories_ws ON brain_memories(workspace_id, enabled, kind);
+CREATE INDEX IF NOT EXISTS idx_brain_memories_norm ON brain_memories(workspace_id, kind, norm);
+CREATE TABLE IF NOT EXISTS brain_memory_uses ( -- where an answer used a memory
+    id TEXT PRIMARY KEY,
+    memory_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance
+    ref_id TEXT DEFAULT '',                   -- the request, project or chat message
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_memory_uses ON brain_memory_uses(memory_id, created_at);
+CREATE TABLE IF NOT EXISTS brain_chats (      -- ClipForge AI's chat: one per video, one for everything else
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    project_id TEXT DEFAULT '',               -- '' = the general chat
+    title TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_chats ON brain_chats(workspace_id, project_id);
+CREATE TABLE IF NOT EXISTS brain_chat_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    role TEXT NOT NULL,                       -- owner | ai
+    text TEXT DEFAULT '',
+    data TEXT DEFAULT '{}',                   -- tool, request_id, used (memories), candidates, proposal
+    status TEXT DEFAULT 'done',               -- done | thinking | failed
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brain_chat_messages ON brain_chat_messages(chat_id, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (         -- optional cloud text AI: every request and its budget reservation
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -1127,6 +1182,10 @@ JSON_FIELDS = {
     "brain_strategies": {"params", "evidence"},
     "brain_knowledge": {"tags", "features", "preferences", "media"},
     "brain_influences": {"snapshot", "decisions"},
+    "brain_memories": {"tags", "data"},
+    "brain_memory_uses": set(),
+    "brain_chats": set(),
+    "brain_chat_messages": {"data"},
     "ai_usage": set(),
     "quality_reports": {"checks", "blockers", "warnings", "bindings", "metadata", "coverage"},
     "clip_blueprints": {"blueprint", "issues"},
@@ -1155,7 +1214,7 @@ JSON_FIELDS = {
     "asset_sources": {"terms"},
     "media_imports": set(),
     "media_suggestions": {"queries", "items", "added", "problems"},
-    "edit_requests": {"proposal"},
+    "edit_requests": {"proposal", "memories"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -1181,6 +1240,8 @@ ADDED_COLUMNS = {
     "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
     # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
     "studio_projects": {"media": "TEXT DEFAULT '{}'"},
+    # the memories ClipForge AI read for a proposal (brain/memories.py)
+    "edit_requests": {"memories": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},

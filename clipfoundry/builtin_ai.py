@@ -1,6 +1,6 @@
-"""The built-in AI: a free model that runs on this computer, set up from inside the app.
+"""The built-in model: a free model that runs on this computer, set up from inside the app.
 
-ClipForge downloads two things once, when you choose "Set up the built-in AI" in Settings → AI helper, and checks
+ClipForge downloads two things once, when you choose "Set up the built-in model" in Settings → ClipForge AI, and checks
 every byte against a fixed SHA-256 before using them:
 
 * the engine: llama.cpp's `llama-server` (MIT license), a pinned release built by the llama.cpp project for this
@@ -15,7 +15,7 @@ after some idle minutes so the memory goes back to video work. A server left ove
 stopped at the next start (its process id is recorded), and on Windows the engine runs in a job object that closes
 with the app.
 
-Nothing here is required: without the built-in AI the rules decide alone, exactly as before.
+Nothing here is required: without the built-in model the rules decide alone, exactly as before.
 """
 from __future__ import annotations
 
@@ -259,7 +259,7 @@ def ready(settings: dict) -> bool:
 
 def label(settings: dict) -> str:
     lvl = chosen_level(settings)
-    return f"Built-in AI ({MODELS[lvl]['model']})" if lvl else "Built-in AI (not set up yet)"
+    return f"Built-in model ({MODELS[lvl]['model']})" if lvl else "Built-in model (not set up yet)"
 
 
 # ------------------------------------------------------------------ downloads
@@ -338,7 +338,7 @@ def _install_engine(report: Callable[[str, int, int], None]) -> Path:
     key = platform_key()
     spec = ENGINES.get(key)
     if not spec:
-        raise BuiltinError("The built-in AI needs a Mac with Apple silicon, or a 64-bit Windows or Linux PC.")
+        raise BuiltinError("The built-in model needs a Mac with Apple silicon, or a 64-bit Windows or Linux PC.")
     exe = engine_path()
     if exe:
         return exe
@@ -419,19 +419,19 @@ def install(level: str, on_done: Callable[[str], None] | None = None) -> dict:
     from .cloud import settings as cloud_settings
 
     if cloud_settings.enabled():
-        raise BuiltinError("The built-in AI runs in the desktop app.", 403)
+        raise BuiltinError("The built-in model runs in the desktop app.", 403)
     if level not in MODELS:
         raise BuiltinError("Choose Basic, Standard or Pro.")
     if not platform_key():
-        raise BuiltinError("The built-in AI needs a Mac with Apple silicon, or a 64-bit Windows or Linux PC.")
+        raise BuiltinError("The built-in model needs a Mac with Apple silicon, or a 64-bit Windows or Linux PC.")
     need = needed_bytes(level)
     free = _free_bytes(root())
     if need and free < need + (2 << 30):
-        raise BuiltinError(f"Not enough free disk space: the built-in AI needs about {(need + (2 << 30)) / 1e9:.1f} GB "
+        raise BuiltinError(f"Not enough free disk space: the built-in model needs about {(need + (2 << 30)) / 1e9:.1f} GB "
                            f"and {free / 1e9:.1f} GB is free.", 507)
     with _task_lock:
         if _task.get("state") == "running":
-            raise BuiltinError("The built-in AI is already being set up; wait for it to finish.", 409)
+            raise BuiltinError("The built-in model is already being set up; wait for it to finish.", 409)
         _cancel.clear()
         _task.clear()
         _task.update(level=level, state="running", status="Starting", completed=0, total=0, error="",
@@ -448,13 +448,13 @@ def install(level: str, on_done: Callable[[str], None] | None = None) -> dict:
                 try:
                     on_done(level)
                 except Exception:  # noqa: BLE001 - the AI is installed either way; choosing it can be done by hand
-                    log.exception("choosing the built-in AI after setting it up failed")
+                    log.exception("choosing the built-in model after setting it up failed")
             _set(state="done", status="Ready", completed=0, total=0)
         except (BuiltinError, httpx.HTTPError, OSError, tarfile.TarError, zipfile.BadZipFile) as exc:
             canceled = _cancel.is_set()
             _set(state="canceled" if canceled else "failed", status="Canceled" if canceled else "Failed",
                  error="" if canceled else _why(exc))
-            log.warning("built-in AI setup (%s) stopped: %s", level, exc)
+            log.warning("built-in model setup (%s) stopped: %s", level, exc)
 
     threading.Thread(target=run, daemon=True, name=f"builtin-ai-{level}").start()
     return task()
@@ -588,7 +588,7 @@ class Server:
         if not _is_our_engine(int(rec["pid"]), str(rec.get("exe") or "")):
             return None
         if rec.get("level") != level:
-            raise BuiltinError("The built-in AI is running at another level in another ClipForge window; try again "
+            raise BuiltinError("The built-in model is running at another level in another ClipForge window; try again "
                                "in a few minutes.")
         return f"http://127.0.0.1:{int(rec['port'])}/v1", str(rec.get("key") or "")
 
@@ -611,7 +611,7 @@ class Server:
                 import signal
 
                 os.kill(pid, signal.SIGTERM)
-            log.info("stopped a built-in AI engine left over from an earlier run (pid %s)", pid)
+            log.info("stopped a built-in model engine left over from an earlier run (pid %s)", pid)
         except (OSError, subprocess.SubprocessError):
             pass
 
@@ -620,7 +620,7 @@ class Server:
         level = chosen_level(settings)
         exe = engine_path()
         if not exe or not level:
-            raise BuiltinError("The built-in AI is not set up yet. Set it up in Settings → AI helper.")
+            raise BuiltinError("The built-in model is not set up yet. Set it up in Settings → ClipForge AI.")
         self.idle_s = max(60.0, float(settings.get("builtin_ai_idle_minutes") or DEFAULT_IDLE_MIN) * 60)
         with self._lock:
             if self.running() and self.level == level:
@@ -646,11 +646,11 @@ class Server:
                 self._job = self._job or _win_job()
             elif sys.platform.startswith("linux"):
                 kwargs["preexec_fn"] = _linux_pdeathsig
-            log.info("starting the built-in AI (%s) on port %s", MODELS[level]["model"], port)
+            log.info("starting the built-in model (%s) on port %s", MODELS[level]["model"], port)
             try:
                 proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603 - a verified program, fixed arguments
             except OSError as exc:
-                raise BuiltinError(f"The built-in AI could not start: {exc}") from exc
+                raise BuiltinError(f"The built-in model could not start: {exc}") from exc
             finally:
                 out.close()
             _assign(self._job, proc)
@@ -682,7 +682,7 @@ class Server:
         deadline = time.monotonic() + START_TIMEOUT_S
         while time.monotonic() < deadline:
             if not self.running():
-                raise BuiltinError("The built-in AI stopped while loading its model. Its log is in data/logs/"
+                raise BuiltinError("The built-in model stopped while loading its model. Its log is in data/logs/"
                                    "builtin-ai.log; a computer with too little memory is the usual cause.")
             try:
                 r = httpx.get(f"http://127.0.0.1:{self.port}/health", timeout=2, trust_env=False)
@@ -691,7 +691,7 @@ class Server:
             except httpx.HTTPError:
                 pass
             time.sleep(0.5)
-        raise BuiltinError("The built-in AI took too long to load its model.")
+        raise BuiltinError("The built-in model took too long to load its model.")
 
     def touch(self) -> None:
         self.last_used = time.time()
@@ -703,7 +703,7 @@ class Server:
                 if not self.running():
                     return
                 if time.time() - self.last_used > self.idle_s:
-                    log.info("stopping the idle built-in AI")
+                    log.info("stopping the idle built-in model")
                     self.stop()
                     return
 
@@ -772,7 +772,7 @@ last_answer: dict = {}  # how the last answer went (llama.cpp's timings, why it 
 
 def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, json_object: bool = False,
          max_tokens: int | None = None) -> str:
-    """One request to the built-in AI; the answer's text (`json_object`: always one JSON object; `max_tokens`: the
+    """One request to the built-in model; the answer's text (`json_object`: always one JSON object; `max_tokens`: the
     answer stops there, so a small model repeating itself cannot run until the time-out)."""
     base, key = server.ensure(settings)
     body = {"model": ALIAS, "temperature": 0.2,
@@ -787,16 +787,16 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, js
     finally:
         server.touch()
     if r.status_code != 200:
-        raise BuiltinError(f"The built-in AI answered {r.status_code}: {r.text[:200]}")
+        raise BuiltinError(f"The built-in model answered {r.status_code}: {r.text[:200]}")
     try:
         got = r.json()
         text = got["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise BuiltinError("The built-in AI sent an answer in an unexpected shape.") from exc
+        raise BuiltinError("The built-in model sent an answer in an unexpected shape.") from exc
     last_answer.clear()
     last_answer.update(finish=got["choices"][0].get("finish_reason"), timings=got.get("timings") or {},
                        usage=got.get("usage") or {})
-    log.info("built-in AI answered: %s", last_answer)
+    log.info("built-in model answered: %s", last_answer)
     return text
 
 
@@ -829,7 +829,7 @@ def make_room(kind: str) -> None:
         return
     if sys.platform == "darwin" and memory_mb() >= 24000:
         return
-    log.info("stopping the built-in AI to make room for %s", kind)
+    log.info("stopping the built-in model to make room for %s", kind)
     server.stop()
 
 

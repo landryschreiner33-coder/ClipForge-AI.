@@ -1,7 +1,7 @@
-"""The built-in AI (clipfoundry/builtin_ai.py): choosing the level from the computer, downloading and checking the
+"""The built-in model (clipfoundry/builtin_ai.py): choosing the level from the computer, downloading and checking the
 engine and a model (resume, damaged files, unsafe archives), starting the engine on this computer only with a fresh
 key, sharing it with another ClipForge process, stopping it when idle, when other GPU work needs the memory and when
-it was left over from a killed run, and the AI helper using it like any other provider.
+it was left over from a killed run, and ClipForge AI using it like any other provider.
 
 The engine here is a stand-in program that speaks the same HTTP as llama.cpp's server (tests/fake_llama_server.py);
 the real engine and models are checked by scripts/builtin_ai_check.py on GitHub's Mac, Windows and Linux machines.
@@ -371,11 +371,11 @@ def test_the_ai_helper_uses_the_builtin_ai_like_any_provider(hub):
     with pytest.raises(llm.ProviderError, match="not set up yet"):
         llm.complete(settings, "hi")
     assert llm.check_provider(settings)["ok"] is False
-    assert llm.provider_label(settings) == "Built-in AI (not set up yet)" and llm.is_local(settings)
+    assert llm.provider_label(settings) == "Built-in model (not set up yet)" and llm.is_local(settings)
     _install()
     out = llm.complete(settings, "Score this", system="EDITOR")
     assert json.loads(out) == {"echo": "Score this", "system": "EDITOR"}
-    assert llm.provider_label(settings) == "Built-in AI (Tiny VL)"
+    assert llm.provider_label(settings) == "Built-in model (Tiny VL)"
     check = llm.check_provider(settings)
     assert check["ok"] and "on this computer" in check["detail"]
     from clipfoundry.studio import ai_editor, edit_requests
@@ -401,7 +401,7 @@ def test_routes_set_up_use_and_remove_the_builtin_ai(hub):
         assert r.status_code == 200 and r.json()["state"] == "running"
         assert _wait_task()["state"] == "done"
         s = db.get_settings()
-        assert s["ai_provider"] == "builtin" and s["builtin_ai_level"] == "basic"  # it became the AI helper
+        assert s["ai_provider"] == "builtin" and s["builtin_ai_level"] == "basic"  # it became ClipForge AI's model
         st = api.get("/api/ai/builtin", headers=h).json()
         assert st["level"] == "basic" and st["levels"][0]["installed"] and st["engine"]["installed"]
         r = api.post("/api/ai/builtin/remove", json={"level": "basic"}, headers=h)

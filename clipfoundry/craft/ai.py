@@ -11,7 +11,7 @@ runs in its sandbox). Every step is checked before it runs:
 * clip ids must be clips of this sequence; no parameter may name a file, folder or address;
 * at most 40 steps and 2 shots; a step FilmCraft refuses is reported and the rest still run.
 
-A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
+A model on this computer (the built-in model, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
 made shorter until it fits (shorter tool descriptions and quotes, fewer effect and look names, then fewer clips), it is
 asked for at most 10 steps, and its answer is capped at LOCAL_ANSWER_TOKENS. An answer cut off there still gives the
 steps it finished; a step repeated word for word runs once.
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import re
 
 from ..studio import engine
@@ -27,9 +28,12 @@ from ..studio.jobs import Canceled
 from . import shots
 from .runner import CraftError
 
+log = logging.getLogger("clipfoundry.craft.ai")
+
 MAX_STEPS = 40
 MAX_SHOTS = 2
-LOCAL_CONTEXT = 8192  # tokens: the built-in AI's context (builtin_ai.CONTEXT), also asked of Ollama
+MEMORY_CHARS = 800  # what the owner told ClipForge AI (brain/memories.py), inside the request's limit
+LOCAL_CONTEXT = 8192  # tokens: the built-in model's context (builtin_ai.CONTEXT), also asked of Ollama
 LOCAL_PROMPT_CHARS = 14_000  # about 4,000 tokens, leaving the rest of LOCAL_CONTEXT for the answer
 REMOTE_PROMPT_CHARS = 40_000
 LOCAL_TIMEOUT_S = 600.0  # a model on this computer without a graphics card can take minutes
@@ -134,7 +138,7 @@ def sequence_rows(film, edit, words_by_asset: dict, plan: dict) -> list[dict]:
 
 
 def local_model(settings: dict) -> bool:
-    """The AI runs on this computer (the built-in AI, or Ollama / LM Studio at a local address)."""
+    """The AI runs on this computer (the built-in model, or Ollama / LM Studio at a local address)."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
@@ -164,12 +168,13 @@ def _fewer(rows: list[dict], n: int) -> list[dict]:
 
 
 def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[str], looks: list[str], short: bool,
-            params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int) -> str:
+            params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int, memories: str = "") -> str:
     rows = [{**r, "said": _cut(r["said"], said_n)} if r.get("said") else r for r in _fewer(rows, rows_n)]
     tools = [{"id": c["id"], **({"label": c["label"]} if c.get("label") else {}),
               **({"params": _cut(c["params"], params_n)} if params_n and c.get("params") else {})} for c in catalog]
     return "\n".join([
         "The video: " + json.dumps(brief, ensure_ascii=False),
+        *([memories] if memories else []),
         "The sequence (FilmCraft clip ids):", json.dumps(rows, ensure_ascii=False),
         "Tools you may use (id, parameters):", json.dumps(tools, ensure_ascii=False),
         # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
@@ -179,22 +184,56 @@ def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[st
 
 
 def build_prompt(plan: dict, edit, rows: list[dict], catalog: list[dict], effects: list[str],
-                 looks: list[str], limit: int | None = None, short: bool = False) -> str:
+                 looks: list[str], limit: int | None = None, short: bool = False, memories: str = "") -> str:
     """The request; with `limit`, made shorter step by step (SHORTER, then fewer clips) until it fits. `short` asks a
-    model on this computer for a short answer."""
+    model on this computer for a short answer; `memories` is the brain's block (brain.Recall.prompt)."""
     tl = edit.timeline
     brief = {"title": (plan.get("title") or {}).get("text", ""), "width": tl.width, "height": tl.height,
              "fps": tl.fps, "seconds": round(tl.frames / tl.fps, 2), "captions": bool(tl.counts.get("captions"))}
     text = ""
     for step in SHORTER:
-        text = _prompt(brief, rows, catalog, effects, looks, short, *step)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *step, memories=memories)
         if limit is None or len(text) <= limit:
             return text
     n = SHORTER[-1][-1]
     while len(text) > limit and n > 8:  # a long video: the first clips that fit
         n = max(8, n * 2 // 3)
-        text = _prompt(brief, rows, catalog, effects, looks, short, *SHORTER[-1][:-1], n)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *SHORTER[-1][:-1], n, memories=memories)
     return text
+
+
+def _recall(plan: dict, context: dict | None):
+    """The owner's rules and facts that apply to finishing this video (docs/clipforge/CLIPFORGE_AI.md)."""
+    from .. import brain
+
+    if not context or not context.get("workspace_id"):
+        return brain.Recall()
+    title = str((plan.get("title") or {}).get("text") or "")
+    try:
+        return brain.recall(f"{title} finishing the look and sound: colour, effects, transitions, titles, captions, "
+                            "music".strip(), context["workspace_id"], project_id=context.get("project_id", ""),
+                            mode="video", kinds=("rule", "fact"), limit=5, budget_chars=MEMORY_CHARS)
+    except Exception:  # noqa: BLE001 - the brain is optional for the pass
+        log.exception("recall failed")
+        return brain.Recall()
+
+
+def _remember(context: dict | None, rec, steps: list[dict], results: list[dict], summary: str) -> None:
+    """Record which memories the pass used, and what it did, as an episode of this video."""
+    from .. import brain
+
+    if not context or not context.get("workspace_id"):
+        return
+    try:
+        if rec.ids:
+            brain.record_use(context["workspace_id"], rec.ids, "filmcraft", context.get("project_id", ""))
+        landed = sum(1 for r in results if r.get("ok"))
+        if landed:
+            brain.episode(context["workspace_id"], f"ClipForge AI finished the edit in FilmCraft: {landed} of "
+                          f"{len(steps)} steps landed" + (f" ({summary[:160]})" if summary else ""),
+                          project_id=context.get("project_id", ""), data={"steps": len(steps), "landed": landed})
+    except Exception:  # noqa: BLE001
+        log.exception("the FilmCraft pass was not remembered")
 
 
 def ask(settings: dict, prompt: str, cancelled=None) -> str:
@@ -339,7 +378,7 @@ def run_checked(film, project, steps: list[dict]) -> tuple[list[dict], list[dict
 
 
 def usable(settings: dict) -> bool:
-    """An AI service is set up (the built-in AI counts once its engine and a level are downloaded)."""
+    """An AI service is set up (the built-in model counts once its engine and a level are downloaded)."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
@@ -352,23 +391,25 @@ def usable(settings: dict) -> bool:
     return True
 
 
-def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict) -> dict:
-    """Ask the AI service for finishing steps and shots, check them and run them on the project."""
+def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict, context: dict | None = None) -> dict:
+    """Ask the AI service for finishing steps and shots, check them and run them on the project. `context` names
+    the workspace and project: the owner's memories are read for the request and what happened is remembered."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
     if not settings.get("craft_ai_finish", True):
         return {"used": False, "why": "turned off"}
     if not usable(settings):
-        return {"used": False, "why": "the built-in AI is not downloaded yet" if provider == "builtin" else
+        return {"used": False, "why": "the built-in model is not downloaded yet" if provider == "builtin" else
                 "no AI service is set up"}
+    rec = _recall(plan, context)
     try:
         rows = sequence_rows(film, edit, words_by_asset, plan)
         catalog = _catalog(film, edit.project)
         effects = _names(film, edit.project, "effects.list", {"kind": "Video"})
         looks = _names(film, edit.project, "lumetri.presets", {})
         prompt = build_prompt(plan, edit, rows, catalog, effects, looks, prompt_limit(settings),
-                              short=local_model(settings))
+                              short=local_model(settings), memories=rec.prompt())
         answer = parse(ask(settings, prompt, getattr(film, "cancelled", None)))
     except Canceled:
         raise
@@ -380,6 +421,7 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
     steps, results = run_checked(film, edit.project, steps)
     edit.steps += steps
     edit.results += results
+    _remember(context, rec, steps, results, str(answer.get("summary") or ""))
     made = []
     tl = edit.timeline
     for n, shot in enumerate((answer.get("shots") or [])[:MAX_SHOTS] if effect else []):
@@ -404,7 +446,7 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
     return {"used": True, "provider": llm.provider_label(settings), "prompt_chars": len(prompt),
             "summary": str(answer.get("summary") or "")[:300],
             "steps": len(steps), "failed": [r["error"] for r in results if not r["ok"]][:20], "refused": refused,
-            "shots": len(made)}
+            "shots": len(made), "memories": rec.snapshot()}
 
 
 def disclosure(settings: dict) -> str:

@@ -1,5 +1,36 @@
 # AI changelog
 
+## ClipForge AI phase A: the brain's memories and the chat — 2026-11-06 (Claude Code)
+
+Landry asked for a much better AI ("ClipForge AI"): research the best models, combine them, add its own data and
+training, let them talk to it, keep everything in the brain, find music and pictures, make effects and music. The
+research and plan are in the Claude Doc "ClipForge AI: research and plan"; Landry chose **brain and chat first**.
+Phase A is on `claude/project-thread-605vsm` (from the release line after #25 and #26). No release.
+
+- **The brain's memories** (`clipfoundry/brain/memories.py`, `meaning.py`, tables `brain_memories`,
+  `brain_memory_uses`): rules, facts, episodes (what it did), each with a source (said, did, guessed, imported), a
+  confidence, a scope (every video, one video, a platform, clips or video) and a meaning vector (`hash-v1`: hashed
+  words, stems and pairs, 256 dims, no download; a real embedding model is a later download, tracked by
+  `meaning_model` and recomputed by Rebuild). Recall = standing rules first, then the best few by words and meaning
+  within a character budget, never an unrelated memory. The same words said twice are one memory with the stronger
+  source. Guesses expire after 60 days unless confirmed. Health check, Tidy, Rebuild, export and import
+  (`clipforge.brain-memories/v1`). Routes under `/api/brain/memories`.
+- **Where it is used:** change requests (1,200 characters of memories in the prompt; what was applied or discarded is
+  remembered), the FilmCraft finishing pass (800) and smart-edit advice (500). Every use is recorded against the
+  memory, so "why?" can answer.
+- **The chat** (`clipfoundry/brain/chat.py`, tables `brain_chats`, `brain_chat_messages`, routes under
+  `/api/brain/chats`): teaching, forgetting, listing and explaining without a model; in a video's chat anything else is
+  a change request (rules, then the model; Apply or Discard); in the general chat it is a question the model answers
+  with the recalled memories as one checked JSON object (`{"say": …}`, at most 1,200 characters), counted against the
+  daily AI limit. The model never calls a tool and never sees a file. Answers cut off by a restart are reported.
+- **In the app:** `components/ClipForgeAI.tsx` replaces the change-request form on a video and is Brain → Talk;
+  `components/MemoryTab.tsx` is Brain → Memory. "AI helper" is now **ClipForge AI** and the built-in AI is its
+  **built-in model** everywhere the owner reads it; setting keys and API addresses did not change.
+- **Design:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md). Tests: `tests/test_clipforge_ai_brain.py`
+  (9), `tests/test_clipforge_ai_chat.py` (5), plus new cases in the change-request and craft tests.
+- **Not in phase A:** the embedding model download, finders (music, pictures) and makers (music, effects), settings in
+  words, the taste model and the editing adapter (phases B to D in the plan).
+
 ## The built-in AI finishes the edit with FilmCraft — 2026-11-06 (Claude Code)
 
 Landry chose "Combine, test, then merge": the built-in AI (phase 1, PR #25) and FilmCraft inside ClipForge (PR #26)

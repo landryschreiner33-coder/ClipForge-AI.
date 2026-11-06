@@ -182,7 +182,7 @@ def test_the_handoffs_examples_work_without_any_ai_and_apply_as_undoable_revisio
 
     # "Keep the second story together" needs an AI service; none is set up, so it is explained and nothing is sent
     r = er.ask(pid, "local", "Keep the second story together.")
-    assert r["status"] == "unsupported" and "Settings → AI" in r["message"] and calls == []
+    assert r["status"] == "unsupported" and "Settings → ClipForge AI" in r["message"] and calls == []
     # manual editing is unaffected
     rev = db.fetch("studio_projects", pid)["plan_revision"]
     video_flow.edit(pid, rev, {"op": "remove", "clip_id": "c4"})
@@ -403,3 +403,41 @@ def test_routes_keep_requests_inside_their_workspace(env, monkeypatch):
             r = api.get(path) if path.endswith(elsewhere["id"]) else api.post(path)
             assert r.status_code == 404, path
     assert middleware.SECONDARY_BLOCKED.search(f"/api/studio/requests/{elsewhere['id']}/apply")
+
+
+def test_the_ai_reads_the_owners_memories_and_the_outcome_is_remembered(env, monkeypatch):
+    """ClipForge AI's brain (docs/clipforge/CLIPFORGE_AI.md): the request carries the rules and facts the owner told
+    it, the request records what it used, and what happened becomes an episode of this video."""
+    from clipfoundry import brain
+    from clipfoundry.studio import edit_requests as er
+
+    rule = brain.remember("local", "Never move the summit part", kind="rule")
+    brain.remember("local", "The wedding video needs soft cuts", project_id="another-video")
+    fake = _ai(monkeypatch, json.dumps({"summary": "Lunch before the summit",
+                                        "operations": [{"op": "move", "clip_id": "c4", "after": "c2"}]}))
+    pid = _project(env)["id"]
+    r = er.ask(pid, "local", "Keep the second story together")
+    assert [m["id"] for m in r["memories"]] == [rule["id"]]
+    assert r["memories"][0]["text"] == "Never move the summit part" and r["memories"][0]["kind"] == "rule"
+    assert "the memories ClipForge AI recalled" in r["sent"]
+    r = _wait(r["id"])
+    prompt = fake.prompts[0][0]
+    assert "What the owner has told ClipForge AI" in prompt and "- [rule] Never move the summit part" in prompt
+    assert "wedding" not in prompt and len(prompt) <= er.CONTEXT_CHARS  # another video's fact stays out
+    assert brain.get("local", rule["id"])["used_count"] == 1
+    assert brain.uses("local", rule["id"])[0]["where_used"] == "change_request"
+    er.apply(r["id"], "local")
+    episodes = brain.list_("local", kind="episode")
+    assert len(episodes) == 1 and episodes[0]["source"] == "did" and episodes[0]["project_id"] == pid
+    assert episodes[0]["text"] == ('Asked "Keep the second story together" → applied as version 2: '
+                                   'Lunch before the summit')
+    # the next request for this video can build on it
+    assert episodes[0]["id"] in brain.recall("keep the stories together", "local", project_id=pid).ids
+    # a discarded proposal is remembered too; a request the rules understand reads no memories
+    _ai(monkeypatch, json.dumps({"summary": "Drop the lake", "operations": [{"op": "remove", "clip_id": "c2"}]}))
+    r2 = _wait(er.ask(pid, "local", "Lose the lake bit entirely")["id"])
+    er.cancel(r2["id"], "local")
+    assert any(e["text"].endswith("→ discarded the proposal: Drop the lake")
+               for e in brain.list_("local", kind="episode"))
+    r3 = er.ask(pid, "local", "remove clip 3")
+    assert r3["source"] == "rules" and r3["memories"] == []

@@ -102,7 +102,7 @@ export default function EditingAppsSettings() {
           in FilmCraft&apos;s editor.</p>
         <Toggle on={st.ai_finish} disabled={busy} onChange={(on) => void save({ craft_ai_finish: on })}
           label="Let the AI finish edits with FilmCraft's tools and EffectCraft shots" />
-        <p className="small muted">{st.ai_disclosure || "Needs an AI helper (Settings, AI helper). Without one, FilmCraft " +
+        <p className="small muted">{st.ai_disclosure || "Needs ClipForge AI's model (Settings, ClipForge AI). Without one, FilmCraft " +
           "still makes ClipForge's look and sound and the animated title."} The AI can only use finishing tools (colour,
           effects and keyframes, transitions, speed, titles, caption style, sound) and at most two effect shots; it
           cannot cut, delete or name files.</p>

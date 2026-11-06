@@ -10,7 +10,7 @@
 4. With --browser: FilmCraft's editor on ClipForge's editor page in headless Chrome. The page opens the version with
    its files (no "media not found"), and FilmCraft's Save comes back to ClipForge as version 2, whose saved project
    names only this video's files.
-5. With --builtin-ai: the same AI finishing pass answered by ClipForge's built-in AI (builtin_ai.py: the pinned
+5. With --builtin-ai: the same AI finishing pass answered by ClipForge's built-in model (builtin_ai.py: the pinned
    llama.cpp engine and the Basic model, downloaded and checked the way the app does it). Its request must fit the
    model, its answer must be read, and at least one of its FilmCraft steps or EffectCraft shots must land in the edit
    that FilmCraft renders. What it chose, what FilmCraft refused and how long it took are reported.
@@ -165,7 +165,7 @@ def main() -> int:
     if args.browser:
         report["browser"] = browser_check(out, project, want)
 
-    # 5. the built-in AI finishing the edit with FilmCraft's tools
+    # 5. the built-in model finishing the edit with FilmCraft's tools
     if args.builtin_ai:
         llm.complete = real_complete
         report["builtin_ai"] = builtin_check(out, plan, assets, words, project, settings, want)
@@ -185,7 +185,7 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
         builtin_ai._install_engine(lambda *_a: None)  # noqa: SLF001 - the same code the app runs, without its thread
         builtin_ai._install_level(level, lambda *_a: None)  # noqa: SLF001
     except Exception as exc:  # noqa: BLE001 - reported
-        want(False, f"the built-in AI could not be downloaded: {exc!r}")
+        want(False, f"the built-in model could not be downloaded: {exc!r}")
         return row
     row["download_s"] = round(time.monotonic() - t0, 1)
     s = {**settings, "ai_provider": "builtin", "builtin_ai_level": level, "builtin_ai_idle_minutes": 30,
@@ -194,7 +194,7 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
         # GitHub's Mac machines can't use the graphics chip (about 5 words a second); a real Mac uses it
         craft_ai.LOCAL_TIMEOUT_S = 1500.0
         row["timeout_s"] = craft_ai.LOCAL_TIMEOUT_S
-    want(craft_ai.usable(s), "the built-in AI is downloaded but ClipForge does not see it as set up")
+    want(craft_ai.usable(s), "the built-in model is downloaded but ClipForge does not see it as set up")
     seen: dict = {}
     real = llm.complete
 
@@ -220,13 +220,13 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
         row.update(ai=got, render={k: info[k] for k in ("duration", "expected_duration", "has_audio")})
         landed = (got.get("steps") or 0) - len(got.get("failed") or []) + (got.get("shots") or 0)
         row["landed"] = landed
-        want(bool(got.get("used")), f"the built-in AI's answer was not used: {got.get('why') or got}")
-        want(str(got.get("provider", "")).startswith("Built-in AI"), f"another AI answered: {got.get('provider')}")
+        want(bool(got.get("used")), f"the built-in model's answer was not used: {got.get('why') or got}")
+        want(str(got.get("provider", "")).startswith("Built-in model"), f"another AI answered: {got.get('provider')}")
         want(seen.get("prompt_chars", 0) <= craft_ai.LOCAL_PROMPT_CHARS, f"request too long: {seen.get('prompt_chars')}")
-        want(landed > 0, f"none of the built-in AI's steps or shots landed in the edit: {got}")
-        want(abs(info["duration"] - info["expected_duration"]) <= 0.1, f"built-in AI render length {info['duration']}")
+        want(landed > 0, f"none of the built-in model's steps or shots landed in the edit: {got}")
+        want(abs(info["duration"] - info["expected_duration"]) <= 0.1, f"built-in model render length {info['duration']}")
     except Exception as exc:  # noqa: BLE001 - reported
-        want(False, f"the edit with the built-in AI failed: {exc!r}")
+        want(False, f"the edit with the built-in model failed: {exc!r}")
     finally:
         llm.complete = real
         builtin_ai.server.stop()
@@ -240,9 +240,9 @@ def builtin_check(out: Path, plan: dict, assets: dict, words: dict, project: dic
             tail = (config.data_dir() / "logs" / "builtin-ai.log").read_text(errors="replace").splitlines()[-60:]
         except OSError as exc:
             tail = [f"no engine log: {exc}"]
-        print("built-in AI engine log (end):\n" + "\n".join(tail), flush=True)
-    print("built-in AI:", json.dumps({k: v for k, v in row.items() if k != "raw_answer"})[:2500], flush=True)
-    print("built-in AI answer:", row["raw_answer"], flush=True)
+        print("built-in model engine log (end):\n" + "\n".join(tail), flush=True)
+    print("built-in model:", json.dumps({k: v for k, v in row.items() if k != "raw_answer"})[:2500], flush=True)
+    print("built-in model answer:", row["raw_answer"], flush=True)
     return row
 
 

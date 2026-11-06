@@ -23,14 +23,14 @@ FilmCraft (a video editor) and EffectCraft (motion graphics) are free, open-sour
    reach layer properties through small helpers (`cfProp`, `cfSet`, `cfKeys`, `cfStyle`) that look them up by match
    name first: EffectCraft 0.9 does not know After Effects' `layer.property("Source Text")` shortcut. A script's
    result says whether everything was set (`checks`: "ok" or what was missing).
-4. **With an AI helper set up, the AI finishes the edit** (`craft/ai.py`): it is sent FilmCraft's clip list with
+4. **With a model for ClipForge AI set up, the AI finishes the edit** (`craft/ai.py`): it is sent FilmCraft's clip list with
    times and the words said in each clip, the video's title, size and length, and FilmCraft's tool list (never the
    video, the sound or file paths), and answers with FilmCraft steps and at most two EffectCraft shots. Only
    finishing tools are allowed (effects and keyframes, colour presets, transitions, speed, titles and shapes, caption
    style, Essential Sound, markers), clip ids must belong to the sequence, no parameter may name a file or address,
    at most 40 steps. Shot scripts may not use files, programs, the network, saving or rendering. Settings, Editing
-   apps turns this off. ClipForge's built-in AI (`builtin_ai.py`) does this pass once it is downloaded; until then
-   the pass is skipped. A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens, so
+   apps turns this off. ClipForge's built-in model (`builtin_ai.py`) does this pass once it is downloaded; until then
+   the pass is skipped. A model on this computer (the built-in model, Ollama, LM Studio) reads about 8,000 tokens, so
    its request is shortened to at most 14,000 characters: shorter tool descriptions and quotes, fewer effect and look
    names, then fewer clips (the main video's first). It is asked for at most 10 steps and one JSON object, its answer
    is capped at 1,200 tokens (a cut-off answer still gives the steps it finished; a step that fails only on a
@@ -63,7 +63,7 @@ FilmCraft (a video editor) and EffectCraft (motion graphics) are free, open-sour
 |---|---|---|
 | `edit_engine` | `auto` | `auto` / `filmcraft` / `ffmpeg`: who makes final videos |
 | `craft_auto_install` | on | the desktop app fetches the apps in the background |
-| `craft_ai_finish` | on | with an AI helper, the AI finishes the edit with FilmCraft's tools |
+| `craft_ai_finish` | on | with a model for ClipForge AI, the AI finishes the edit with FilmCraft's tools |
 
 Environment: `CLIPFOUNDRY_FILMCRAFT_CLI` / `CLIPFOUNDRY_EFFECTCRAFT_CLI` use another copy of a command-line tool;
 `CLIPFOUNDRY_CRAFT_GPU=off` renders on the processor (machines without a usable graphics card, CI).
@@ -84,7 +84,7 @@ Environment: `CLIPFOUNDRY_FILMCRAFT_CLI` / `CLIPFOUNDRY_EFFECTCRAFT_CLI` use ano
   ClipForge's own install, the edit (every step must apply), the EffectCraft title, the AI pass with a stand-in
   answer, FilmCraft's render, and FilmCraft's editor on the editor page in headless Chrome (open, then Ctrl/Cmd+S or
   Save to ClipForge back as version 2). It also prints what EffectCraft's scripting model offers on a text layer.
-  With `--builtin-ai` it downloads the built-in AI's engine and Basic model the way the app does and runs the AI pass
+  With `--builtin-ai` it downloads the built-in model's engine and Basic model the way the app does and runs the AI pass
   with them: the request must fit, the answer must be read and at least one step or shot must land in FilmCraft's
   render. It prints the model's answer, what FilmCraft refused and the time it took.
 

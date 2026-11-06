@@ -226,7 +226,7 @@ def edit_key(plan: dict, settings: dict | None, use_ai: bool = True) -> str:
     s = settings or {}
     ai_on = bool(use_ai and s.get("craft_ai_finish", True) and ai.usable(s))
     who = s.get("ai_provider")
-    if ai_on and who == "builtin":  # a newly downloaded built-in AI, or another level, edits again
+    if ai_on and who == "builtin":  # a newly downloaded built-in model, or another level, edits again
         from .. import builtin_ai
 
         who = f"builtin:{builtin_ai.chosen_level(s)}"
@@ -258,8 +258,10 @@ def reuse_edit(folder: Path, key: str, plan: dict, assets: dict[str, dict], word
 
 def build_edit(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[dict]], folder: Path, *,
                name: str, revision: int, use_ai: bool = True, progress: Callable[[float, str], None] | None = None,
-               cancelled: Callable[[], bool] | None = None, settings: dict | None = None) -> Edit:
-    """Make the FilmCraft project of one plan in `folder` (replacing what was there)."""
+               cancelled: Callable[[], bool] | None = None, settings: dict | None = None,
+               context: dict | None = None) -> Edit:
+    """Make the FilmCraft project of one plan in `folder` (replacing what was there). `context` names the
+    workspace and project, so the AI pass can read ClipForge AI's memories and record what it used."""
     from . import ai, shots
 
     report = progress or (lambda _f, _m: None)
@@ -297,7 +299,7 @@ def build_edit(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, li
     edit.results = film.run_steps(project, steps)
     if use_ai:
         report(0.14, "The AI is editing in FilmCraft")
-        edit.ai = ai.finish(film, effect, edit, plan, words_by_asset, settings or {})
+        edit.ai = ai.finish(film, effect, edit, plan, words_by_asset, settings or {}, context=context)
     (folder / "report.json").write_text(json.dumps({**edit.report(), "key": edit_key(plan, settings, use_ai),
                                                     "steps_run": [
         {**{k: v for k, v in s.items()}, "ok": r.get("ok"), "error": r.get("error", "")}
@@ -346,7 +348,8 @@ def _export(film: FilmCraft, project: Path, out_path: Path, *, captions: bool, s
 
 def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[dict]], out_path: Path, *,
            name: str, revision: int, settings: dict | None = None,
-           progress: Callable[[float, str], None] | None = None, cancelled: Callable[[], bool] | None = None) -> dict:
+           progress: Callable[[float, str], None] | None = None, cancelled: Callable[[], bool] | None = None,
+           context: dict | None = None) -> dict:
     """The final video edited and rendered by FilmCraft; the same answer as engine.render (plus `filmcraft`).
     `progress(fraction, message)`; `cancelled()` is asked about once a second while a tool runs."""
     plan = engine.upgrade(plan)
@@ -356,7 +359,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     edit = reuse_edit(folder, edit_key(plan, settings), plan, assets, words_by_asset, name=name,
                       revision=revision) or \
         build_edit(plan, assets, words_by_asset, folder, name=name, revision=revision,
-                   progress=lambda f, m: report(f * 0.5, m), cancelled=cancelled, settings=settings)
+                   progress=lambda f, m: report(f * 0.5, m), cancelled=cancelled, settings=settings, context=context)
     film, _effect = tools(cancelled)
     tl = edit.timeline
     total_s = tl.frames / tl.fps

@@ -3,8 +3,8 @@
 What it does, in this order (each step is written in the plan's notes, and everything stays editable and undoable):
 
 1. **Listens for what to leave out.** Sentences you asked to avoid are removed. A repeated take of the same line (a
-   false start, or saying a sentence twice) keeps only the later take. With the AI helper set up (Settings → AI
-   helper), it also suggests weak or off-topic sentences; the built-in rules work without it.
+   false start, or saying a sentence twice) keeps only the later take. With ClipForge AI's model set up (Settings →
+   ClipForge AI), it also suggests weak or off-topic sentences; the built-in rules work without it.
 2. **Fits your length.** When the footage is longer than the length you asked for, the weakest passages (by what is
    said: how much is said per second, strong or emotional words, a payoff, numbers; filler counts against) are left
    out until it fits. Your must-keep words, the opening and the ending are never left out. Left-out parts stay in the
@@ -187,7 +187,7 @@ def score(s: dict) -> float:
 
 
 def sentence_table(project: dict, assets: dict[str, dict], words: dict[str, list[dict]]) -> list[dict]:
-    """Every sentence of the videos in the media bin, numbered across the whole project (what the AI helper reads)."""
+    """Every sentence of the videos in the media bin, numbered across the whole project (what ClipForge AI reads)."""
     out = []
     n_file = 0
     for aid in project["asset_ids"]:
@@ -342,7 +342,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
         for k, s in enumerate(sents):
             g = by_key.get((aid, k))
             if g in ai_cut and status[k] == "keep" and not any(p in s["text"].lower() for p in keep_words):
-                status[k], why[k] = "ai", ai_cut[g] or "suggested by the AI helper"
+                status[k], why[k] = "ai", ai_cut[g] or "suggested by ClipForge AI"
                 stats["ai_left_out"] += 1
         talks.append({"asset": a, "words": ws, "sents": sents, "status": status, "why": why,
                       "scores": [score(s) for s in sents]})
@@ -492,7 +492,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
         notes.append(f"Cut {stats['stumbles']} word{'s' if stats['stumbles'] != 1 else ''} of stumbles said twice "
                      "in a row (the second time stays).")
     if stats["ai_left_out"]:
-        notes.append(f"The AI helper suggested leaving out {stats['ai_left_out']} weak or off-topic "
+        notes.append(f"ClipForge AI suggested leaving out {stats['ai_left_out']} weak or off-topic "
                      f"sentence{'s' if stats['ai_left_out'] != 1 else ''} (switched off in the sequence).")
     if stats["fit_left_out"]:
         notes.append(f"Left out {stats['fit_left_out']} weaker sentence{'s' if stats['fit_left_out'] != 1 else ''} "
@@ -575,11 +575,11 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
                          {"used": True} if ai else {"used": False, "problem": ctx.get("ai_problem", "")}),
                      "picture_queries": picture_queries[:6]}
     if ai:
-        notes.append(f"The AI helper ({ai.get('provider')}) read what is said and helped choose the cuts"
+        notes.append(f"ClipForge AI ({ai.get('provider')}) read what is said and helped choose the cuts"
                      + (", pictures" if ai.get("pictures") else "") + (" and chapters" if plan["chapters"] else "")
                      + ".")
     elif ctx.get("ai_problem"):
-        notes.append(f"The AI helper was not used ({ctx['ai_problem']}); ClipForge's built-in editor decided.")
+        notes.append(f"ClipForge AI was not used ({ctx['ai_problem']}); ClipForge's built-in editor decided.")
     total = engine.duration_ms(plan) / 1000
     if target and total > target * 1.1 and not opts["fit_length"]:
         notes.append(f"The video is {total / 60:.1f} min; you asked for about {target / 60:.1f} min.")
@@ -619,7 +619,7 @@ def _name_words(filename: str) -> set[str]:
 
 def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict, table: list[dict], feel: str,
                     stats: dict) -> None:
-    """Your images over the video: when their name is said (or where the AI helper suggested a matching picture),
+    """Your images over the video: when their name is said (or where ClipForge AI suggested a matching picture),
     otherwise spread over the longest talking stretches, never in the first 3 s or the last 2 s, 4 s apart."""
     length = OVERLAY_MS.get(feel, 3500)
     segs = {s["clip_id"]: s for s in engine.timeline(plan)}
@@ -664,11 +664,11 @@ def _place_pictures(plan: dict, images: list[dict], talks: list[dict], ai: dict,
                     break
         if not done:
             left.append(img)
-    for p in ai.get("pictures") or []:  # 2. where the AI helper wanted a picture of something this image shows
+    for p in ai.get("pictures") or []:  # 2. where ClipForge AI wanted a picture of something this image shows
         q = {w.rstrip("s") for w in re.split(r"[^a-z]+", p["search"].lower()) if len(w) >= 3}
         img = next((im for im in left if _name_words(im["filename"]) & q), None)
         where = _where_said(plan, talks, table, p["i"])
-        if img and where and put(img, where, f"the AI helper suggested a picture of {p['search']}"):
+        if img and where and put(img, where, f"ClipForge AI suggested a picture of {p['search']}"):
             left.remove(img)
     if not left:
         return
@@ -749,7 +749,7 @@ def _place_effects(plan: dict, library: dict, stats: dict) -> None:
 
 
 def _chapters(plan: dict, talks: list[dict], table: list[dict], ai: dict) -> list[dict]:
-    """Chapters for a YouTube description: from the AI helper's topic changes, else one per recording when its file
+    """Chapters for a YouTube description: from ClipForge AI's topic changes, else one per recording when its file
     name says something. YouTube needs at least three, the first at 0:00, each at least 10 s long."""
     marks: list[dict] = []
     for ch in ai.get("chapters") or []:

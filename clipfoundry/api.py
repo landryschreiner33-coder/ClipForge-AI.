@@ -32,6 +32,7 @@ from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
 from .autopilot import brain_routes, knowledge_routes
+from .brain import routes as memory_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
 from .office import routes as office_routes
@@ -62,9 +63,11 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .brain import chat as brain_chat
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
         edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
+        brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
         link_import.clean_abandoned()  # partial downloads of canceled or failed links
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
@@ -111,6 +114,8 @@ app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(memory_routes.router)  # ClipForge AI's memories
+app.include_router(memory_routes.chats)  # ClipForge AI's chat
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 
@@ -222,7 +227,7 @@ def ai_check() -> dict:
 
 @app.get("/api/ai/setup")
 def ai_setup_view() -> dict:
-    """The AI helper's ready-made choices, Ollama's state on this computer and any download or import running."""
+    """ClipForge AI's ready-made model choices, Ollama's state on this computer and any download or import running."""
     from . import ai_setup
 
     s = db.get_settings()
@@ -240,7 +245,7 @@ def ai_setup_view() -> dict:
 
 
 def _builtin_ready(level: str) -> None:
-    """When the built-in AI finishes downloading, it becomes the AI helper unless you already chose another one."""
+    """When the built-in model finishes downloading, it becomes ClipForge AI's model unless you already chose another one."""
     s = db.get_settings()
     patch: dict[str, Any] = {"builtin_ai_level": level}
     if s.get("ai_provider", "heuristic") in ("heuristic", "builtin"):
@@ -274,14 +279,14 @@ def ai_builtin_cancel() -> dict:
 
 @app.post("/api/ai/builtin/use")
 def ai_builtin_use(body: dict[str, Any]) -> dict:
-    """Use the built-in AI at an installed level (or the best installed one)."""
+    """Use the built-in model at an installed level (or the best installed one)."""
     from . import builtin_ai
 
     level = str(body.get("level") or "auto")
     if level != "auto" and level not in builtin_ai.installed_levels():
         raise HTTPException(409, "Download that level first.")
     if not builtin_ai.installed_levels():
-        raise HTTPException(409, "Set up the built-in AI first.")
+        raise HTTPException(409, "Set up the built-in model first.")
     db.save_settings({"ai_provider": "builtin", "builtin_ai_level": level})
     return builtin_ai.status(db.get_settings())
 

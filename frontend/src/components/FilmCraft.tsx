@@ -279,7 +279,7 @@ export function FilmCraftPanel({ v, onSaved }: { v: Video; onSaved: (v: Video) =
     st.engine === "ffmpeg" ? "Final videos are made with the built-in editor (Settings, Editing apps)." :
     filmReady ? "Final videos are edited and rendered in FilmCraft: ClipForge's cut, with its look and sound made " +
       "with FilmCraft's tools and an animated title from EffectCraft" +
-      (st.ai_finish ? ", and the AI's finishing when an AI helper is set up." : ".") :
+      (st.ai_finish ? ", and the AI's finishing when ClipForge AI has a model." : ".") :
     st.task.state === "running" ? "FilmCraft is being set up; until then final videos are made with the built-in editor." :
     "FilmCraft is not set up yet, so final videos are made with the built-in editor.";
   return (

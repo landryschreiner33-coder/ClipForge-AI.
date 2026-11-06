@@ -79,7 +79,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # "Tell the editor what to change" (studio/edit_requests.py): only used when an AI service above is set up
     "ai_edit_requests_per_day": 40,     # requests sent to the AI service per workspace per day (0: never send)
     "ai_edit_timeout_s": 60.0,          # stop waiting after this; nothing is changed
-    # The built-in AI (builtin_ai.py): llama.cpp and a free model, downloaded once from Settings → AI helper
+    # The built-in model (builtin_ai.py): llama.cpp and a free model, downloaded once from Settings → ClipForge AI
     "builtin_ai_level": "auto",          # auto (the best one installed) | basic | standard | pro
     "builtin_ai_idle_minutes": 10.0,     # the engine stops after this long without work, freeing its memory
     "ollama_url": "http://localhost:11434",

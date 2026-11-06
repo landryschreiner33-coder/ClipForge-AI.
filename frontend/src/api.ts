@@ -160,7 +160,7 @@ export type Settings = Record<string, any>;
 /** The clip's original and cleaned-up sound, matched in loudness (after is null when the sound is left as it is). */
 export type SoundCheck = { mode: string; applied: string | null; summary: string; before: string; after: string | null };
 
-/** A ready-made AI helper choice (Settings → AI helper). */
+/** A ready-made model choice for ClipForge AI (Settings → ClipForge AI). */
 export type AiPreset = { id: string; name: string; provider: "builtin" | "ollama" | "openai_compatible" | "anthropic"; url: string;
   model: string; needs_key: boolean; local: boolean; cost: string; about: string; key_url: string };
 export type AiTask = { kind?: "download" | "import"; model?: string; state?: "running" | "done" | "failed"; status?: string;
@@ -168,7 +168,7 @@ export type AiTask = { kind?: "download" | "import"; model?: string; state?: "ru
 export type AiSetup = { presets: AiPreset[]; ollama_models: { name: string; size_gb: number; about: string }[];
   ollama_download: string; ollama: { running: boolean; version: string; models: { name: string; size_gb: number }[]; problem: string };
   task: AiTask; provider: string; label: string; recommended: string; builtin: BuiltinAi };
-/** The built-in AI (llama.cpp and a free model ClipForge downloads and runs on this computer). */
+/** The built-in model (llama.cpp and a free model ClipForge downloads and runs on this computer). */
 export type BuiltinLevel = { id: "basic" | "standard" | "pro"; name: string; model: string; license: string; about: string;
   memory_gb: number; installed: boolean; download_bytes: number; recommended: boolean; fits: boolean };
 export type BuiltinTask = { level?: string; state?: "running" | "done" | "failed" | "canceled"; status?: string;

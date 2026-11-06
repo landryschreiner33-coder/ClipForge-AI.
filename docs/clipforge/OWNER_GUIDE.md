@@ -25,6 +25,17 @@ introduction*, captions, transitions and music level; every change is a new vers
 makes the full-quality file on the server; **Download** gives you that exact checked version.
 **Remember this style** (beside the brief) saves your editing answers for next time.
 
+## ClipForge AI: talk to it, and its memory
+ClipForge AI is the assistant inside the editor. On a video, the **ClipForge AI** panel under the clips takes what you
+want changed (*move the summit part before lunch*, *make the captions smaller*) and proposes a checked change: nothing
+happens until you press **Apply as a new version** (Undo takes it back) or **Discard**. Teach it in any chat with
+*remember: …*, *always …* or *never …* (add *for this video* to keep it to one video); ask *what do you know?*,
+*why?* or *help*; say *forget …* to remove something. Brain → **Talk to ClipForge AI** is the chat for everything
+else; with a model set up (Settings → **ClipForge AI**; the built-in one is free and stays on this computer) it also
+answers questions. Brain → **Memory** shows everything it remembers, where each memory was used, and lets you edit,
+confirm, turn off or forget it, tidy or rebuild the brain, and export or import it as a file. Only words are ever sent
+to a model, never your videos or their sound.
+
 ## Brain: styles and skills
 Brain → **Styles** lists your saved styles. Brain → **Skills** imports a Markdown or JSON skill: you see what it would
 change, what it ignores and anything it refused (commands, secrets, accounts, publishing), then switch it on. Try

@@ -104,7 +104,7 @@ are untouched.
 
 Landry asked in the project thread to merge both fixes and "update the website with the new fixed versions". Both
 downloads are built from source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45` (PR #20's branch with PR #22, the
-Mac YouTube link fix, and PR #23, smart editing and the AI helper). Listed as ClipForge 2026.11.05.2.
+Mac YouTube link fix, and PR #23, smart editing and ClipForge AI). Listed as ClipForge 2026.11.05.2.
 
 - **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-2e5238e/ClipForge-Mac-Apple-Silicon.dmg
   (237,781,526 bytes, SHA-256 `14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f`). Unsigned personal
@@ -117,7 +117,7 @@ Mac YouTube link fix, and PR #23, smart editing and the AI helper). Listed as Cl
   installed the 2026.11.05 release with a synthetic setting, then this ZIP over it: same data folder and setting,
   this commit's page and icon, all 709 files, close and reopen. No FFmpeg on the runner, so no video was processed.
 - **Download page:** `gh-pages` commit `65f026a` (previous `138c4f7`), pushed directly and deployed by Pages run 42114472648. New: Edit it for me, the
-  optional free AI helper (local Ollama/LM Studio or free Gemini, Groq, OpenRouter keys; Claude marked paid), the
+  optional free model for ClipForge AI (local Ollama/LM Studio or free Gemini, Groq, OpenRouter keys; Claude marked paid), the
   YouTube link fix, updated test counts (1,768 fast, 27 slow) and "not tested" lines for real AI models and keys and
   a real YouTube download. `build.py --check` and `--verify` passed (all eight files); checked at 1440, 390 and
   320 px (no sideways scroll, no errors). The github.io page itself cannot be loaded from this session.

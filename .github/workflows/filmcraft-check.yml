@@ -2,7 +2,7 @@ name: FilmCraft timeline check
 # Does a real FilmCraft (the open-source editor ClipForge hands cuts to) open ClipForge's timelines exactly, and do
 # FilmCraft and EffectCraft work inside ClipForge (fetched by ClipForge itself, the edit with FilmCraft's tools, the
 # EffectCraft title, the AI's finishing, FilmCraft's render, FilmCraft's editor on the editor page, and ClipForge's
-# built-in AI finishing the edit with FilmCraft's tools)?
+# built-in model finishing the edit with FilmCraft's tools)?
 # Uses the apps' official release files, pinned by version and SHA-256; nothing is built from source.
 # See docs/clipforge/FILMCRAFT.md, docs/clipforge/CRAFT_APPS.md, scripts/filmcraft_check.py and scripts/craft_check.py.
 on:
@@ -76,7 +76,7 @@ jobs:
           extra=""
           if [ "$RUNNER_OS" = "macOS" ]; then extra="--expect-app"; fi
           python scripts/filmcraft_check.py --cli "$FILMCRAFT_CLI" --out "$RUNNER_TEMP/filmcraft-check" $extra
-      - name: FilmCraft and EffectCraft inside ClipForge (fetch, edit, title shot, AI pass, render, editor page, built-in AI)
+      - name: FilmCraft and EffectCraft inside ClipForge (fetch, edit, title shot, AI pass, render, editor page, built-in model)
         if: always()
         env:
           CLIPFOUNDRY_CRAFT_GPU: 'off'
