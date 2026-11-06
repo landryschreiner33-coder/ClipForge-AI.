@@ -1,0 +1,137 @@
+"""REST endpoints for ClipForge AI's memories (docs/clipforge/CLIPFORGE_AI.md). Reads need a local or signed-in
+request, writes the app's own header, like the rest of /api/brain."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from ..cloud import principal
+from ..publish.common import app_request, local_only
+from . import memories
+
+router = APIRouter(prefix="/api/brain/memories")
+READ = [Depends(local_only)]
+WRITE = [Depends(app_request)]
+
+
+def _err(exc: memories.Invalid) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class MemoryIn(BaseModel):
+    text: str = Field(max_length=4000)
+    kind: str = "fact"
+    scope: str | None = None
+    project_id: str = ""
+    platform: str = ""
+    mode: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class MemoryPatch(BaseModel):
+    text: str | None = Field(default=None, max_length=4000)
+    kind: str | None = None
+    scope: str | None = None
+    tags: list[str] | None = None
+    enabled: bool | None = None
+
+
+class RecallIn(BaseModel):
+    query: str = Field(default="", max_length=4000)
+    project_id: str = ""
+    platform: str = ""
+    mode: str = ""
+    limit: int = Field(default=6, ge=0, le=50)
+
+
+class ImportIn(BaseModel):
+    data: dict
+
+
+@router.get("", dependencies=READ)
+def list_memories(q: str = "", kind: str = "", project_id: str = "", limit: int = 200) -> list[dict]:
+    return memories.list_(principal.workspace_id(), q[:4000], kind, project_id, limit)
+
+
+@router.post("", dependencies=WRITE)
+def add(body: MemoryIn) -> dict:
+    try:
+        return memories.view(memories.remember(principal.workspace_id(), body.text, kind=body.kind, source="said",
+                                               scope=body.scope, project_id=body.project_id, platform=body.platform,
+                                               mode=body.mode, tags=body.tags))
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/recall", dependencies=READ)
+def recall(body: RecallIn) -> dict:
+    """What ClipForge AI would read for these words, with scores (nothing is recorded as used)."""
+    try:
+        r = memories.recall(body.query, principal.workspace_id(), project_id=body.project_id, platform=body.platform,
+                            mode=body.mode, limit=body.limit)
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+    return {"memories": r.memories, "prompt": r.prompt()}
+
+
+@router.get("/check", dependencies=READ)
+def check() -> dict:
+    return memories.check(principal.workspace_id())
+
+
+@router.post("/rebuild", dependencies=WRITE)
+def rebuild() -> dict:
+    return {"rebuilt": memories.rebuild(principal.workspace_id())}
+
+
+@router.post("/tidy", dependencies=WRITE)
+def tidy() -> dict:
+    return memories.tidy(principal.workspace_id())
+
+
+@router.get("/export", dependencies=READ)
+def export() -> JSONResponse:
+    return JSONResponse(memories.export(principal.workspace_id()),
+                        headers={"Content-Disposition": 'attachment; filename="clipforge-ai-brain.json"'})
+
+
+@router.post("/import", dependencies=WRITE)
+def import_file(body: ImportIn) -> dict:
+    try:
+        return memories.import_(principal.workspace_id(), body.data)
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/{memory_id}/uses", dependencies=READ)
+def uses(memory_id: str) -> list[dict]:
+    try:
+        return memories.uses(principal.workspace_id(), memory_id)
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/{memory_id}/confirm", dependencies=WRITE)
+def confirm(memory_id: str) -> dict:
+    try:
+        return memories.view(memories.confirm(principal.workspace_id(), memory_id))
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
+@router.patch("/{memory_id}", dependencies=WRITE)
+def edit(memory_id: str, body: MemoryPatch) -> dict:
+    try:
+        return memories.view(memories.edit(principal.workspace_id(), memory_id, text=body.text, kind=body.kind,
+                                           scope=body.scope, tags=body.tags, enabled=body.enabled))
+    except memories.Invalid as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/{memory_id}", dependencies=WRITE)
+def forget(memory_id: str) -> dict:
+    try:
+        return {"forgotten": memories.forget(principal.workspace_id(), memory_id)}
+    except memories.Invalid as exc:
+        raise _err(exc) from exc

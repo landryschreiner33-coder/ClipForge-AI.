@@ -22,6 +22,8 @@ version that Undo reverts.
 """
 from __future__ import annotations
 
+import logging
+
 import copy
 import hashlib
 import json
@@ -428,6 +430,23 @@ def build(job: dict, lease: Lease) -> dict:
     return {"revision": rev}
 
 
+def _smart_memories(project: dict, brief: dict) -> str:
+    """What the owner told ClipForge AI that applies to editing this video: rules and facts, briefly
+    (docs/clipforge/CLIPFORGE_AI.md). Never fails the edit."""
+    from .. import brain as ai_brain
+
+    try:
+        asked = " ".join(str(brief.get(k) or "") for k in ("video_type", "goal", "audience", "avoid")).strip()
+        rec = ai_brain.recall(asked or "editing this video", project["workspace_id"], project_id=project["id"],
+                              mode="video", kinds=("rule", "fact"), limit=4, budget_chars=500)
+        if rec.ids:
+            ai_brain.record_use(project["workspace_id"], rec.ids, "smart_edit", project["id"])
+        return rec.prompt()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("clipfoundry.studio.video_flow").exception("recall failed")
+        return ""
+
+
 def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], settings: dict,
                   lease: Lease | None = None) -> dict:
     """What a smart edit needs besides the transcripts: the AI helper's advice (when one is set up and allowed), and
@@ -457,7 +476,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
                                         if k in values and not brief.get(k)}}, settings,
                     protected={s["i"] for s in table if any(p in s["text"].lower() for p in keep)},
                     heartbeat=(lambda m: lease.progress(0.74, m)) if lease else None,
-                    canceled=lease.canceled if lease else None)
+                    canceled=lease.canceled if lease else None, memories=_smart_memories(project, brief))
             except ai_editor.AdviceError as exc:
                 ctx["ai_problem"] = str(exc)[:200]
     elif opts["ai"]:
@@ -1196,7 +1215,8 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
         return finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report), ""
     try:
         return finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
-                             settings=settings, cancelled=stop, progress=report), ""
+                             settings=settings, cancelled=stop, progress=report,
+                             context={"workspace_id": project["workspace_id"], "project_id": project["id"]}), ""
     except Exception as exc:
         if choice == "filmcraft" or lease.canceled():
             raise

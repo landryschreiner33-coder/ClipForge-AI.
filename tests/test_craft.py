@@ -370,12 +370,23 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
                       {"name": "Sneaky", "at_s": 1, "seconds": 1, "script": "system.callSystem('rm -rf /')"}]})
 
     monkeypatch.setattr(llm, "complete", complete)
+    from clipfoundry import brain
+
+    rule = brain.remember(project["workspace_id"], "Always warm colours, never a cold look", kind="rule")
     out = env / "r1" / "final.mp4"
     out.parent.mkdir()
     info = finish.render(plan, assets, words, out, name="Lake day", revision=1,
-                         settings={"ai_provider": "ollama", "craft_ai_finish": True, "ollama_model": "m"})
+                         settings={"ai_provider": "ollama", "craft_ai_finish": True, "ollama_model": "m"},
+                         context={"workspace_id": project["workspace_id"], "project_id": project["id"]})
     ai = info["filmcraft"]["ai"]
     assert ai["used"] and ai["summary"] == "Warmer colour and a lower third." and ai["steps"] == 1 and ai["shots"] == 1
+    # ClipForge AI's brain: the owner's rule went into the request, its use is recorded, the pass is remembered
+    assert "- [rule] Always warm colours, never a cold look" in asked["prompt"]
+    assert [m["id"] for m in ai["memories"]] == [rule["id"]]
+    assert brain.uses(project["workspace_id"], rule["id"])[0]["where_used"] == "filmcraft"
+    episodes = brain.list_(project["workspace_id"], kind="episode")
+    assert len(episodes) == 1 and episodes[0]["project_id"] == project["id"]
+    assert episodes[0]["text"].startswith("ClipForge AI finished the edit in FilmCraft: 1 of 1 steps landed (Warmer")
     assert len(ai["refused"]) == 4 and any("not a finishing tool" in r for r in ai["refused"])
     assert any("file or address" in r for r in ai["refused"]) and any("not in this sequence" in r for r in ai["refused"])
     assert asked["task"] == "filmcraft_finish" and "timeline.razor" not in asked["prompt"]

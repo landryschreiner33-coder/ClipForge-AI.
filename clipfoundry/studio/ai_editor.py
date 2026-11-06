@@ -82,8 +82,8 @@ def windows(sentences: list[dict]) -> list[list[dict]]:
     return [w for w in out if w]
 
 
-def build_prompt(window: list[dict], brief: dict, part: int, parts: int) -> str:
-    want = []
+def build_prompt(window: list[dict], brief: dict, part: int, parts: int, memories: str = "") -> str:
+    want = [memories.strip()] if memories and memories.strip() else []
     for key, label in (("video_type", "Video type"), ("audience", "For"), ("goal", "Goal"),
                        ("must_keep", "Must keep"), ("avoid", "Remove or avoid")):
         if str(brief.get(key) or "").strip():
@@ -158,9 +158,10 @@ def parse(raw: str, window: list[dict], protected: set[int]) -> dict:
 
 def advise(sentences: list[dict], brief: dict, settings: dict, *, protected: set[int] | None = None,
            heartbeat: Callable[[str], None] | None = None, canceled: Callable[[], bool] | None = None,
-           complete: Callable[..., str] | None = None) -> dict:
+           complete: Callable[..., str] | None = None, memories: str = "") -> dict:
     """Advice for the whole video, window by window. Raises AdviceError when no window could be read; a window
-    that fails after others worked is skipped and reported in `problems`."""
+    that fails after others worked is skipped and reported in `problems`. `memories` is what the owner told
+    ClipForge AI that applies here (brain.Recall.prompt), put before the brief of every window."""
     from ..pipeline import llm
 
     provider = configured(settings)
@@ -178,7 +179,7 @@ def advise(sentences: list[dict], brief: dict, settings: dict, *, protected: set
     for k, win in enumerate(used, 1):
         if canceled and canceled():
             break
-        prompt = build_prompt(win, brief, k, len(used))
+        prompt = build_prompt(win, brief, k, len(used), memories)
         call = _pool.submit(complete, settings, prompt, task="smart_edit", system=SYSTEM, num_ctx=8192)
         deadline = time.monotonic() + timeout
         raw = None

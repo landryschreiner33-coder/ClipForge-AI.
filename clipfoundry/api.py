@@ -32,6 +32,7 @@ from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
 from .autopilot import brain_routes, knowledge_routes
+from .brain import routes as memory_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
 from .office import routes as office_routes
@@ -111,6 +112,7 @@ app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(memory_routes.router)  # ClipForge AI's memories
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 
