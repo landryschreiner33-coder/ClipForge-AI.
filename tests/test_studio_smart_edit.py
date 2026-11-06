@@ -608,7 +608,7 @@ def test_presets_and_the_openai_style_client_for_free_services(env, ollama, monk
     from clipfoundry.pipeline import llm
 
     ids = [p["id"] for p in ai_setup.PRESETS]
-    assert ids[:2] == ["ollama", "lmstudio"] and {"gemini", "groq", "openrouter"} <= set(ids)
+    assert ids[:3] == ["builtin", "ollama", "lmstudio"] and {"gemini", "groq", "openrouter"} <= set(ids)
     assert all(p["cost"].startswith("Free") for p in ai_setup.PRESETS if p["id"] != "anthropic")
     assert ai_setup.preset_for_url("https://api.groq.com/openai/v1/")["id"] == "groq"
     assert ai_setup.preset_for_url("http://localhost:1234/v1") is None
@@ -648,7 +648,7 @@ def test_ai_setup_routes(env, ollama, monkeypatch):
     with TestClient(app, base_url="http://127.0.0.1:8765") as api:
         h = {"X-ClipFoundry": "1"}
         view = api.get("/api/ai/setup", headers=h).json()
-        assert view["ollama"]["running"] and view["presets"][0]["id"] == "ollama"
+        assert view["ollama"]["running"] and view["presets"][1]["id"] == "ollama"
         assert view["provider"] == "heuristic" and view["recommended"] in ("qwen2.5:3b", "qwen2.5:7b")
         r = api.post("/api/ai/ollama/pull", json={"model": "../../etc"}, headers=h)
         assert r.status_code == 400

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AiPreset, AiSetup, api, errorText, Settings } from "../api";
+import { AiPreset, AiSetup, api, BuiltinAi, errorText, Settings } from "../api";
 import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, toast } from "./ui";
 
 const SAVED = "********";
@@ -7,6 +7,7 @@ const trim = (u: unknown) => String(u || "").replace(/\/+$/, "").toLowerCase();
 
 /** Which ready-made choice the saved settings are (or "" for none / one typed by hand). */
 function currentPreset(s: Settings, presets: AiPreset[]): string {
+  if (s.ai_provider === "builtin") return "builtin";
   if (s.ai_provider === "ollama") return "ollama";
   if (s.ai_provider === "anthropic") return "anthropic";
   if (s.ai_provider === "openai_compatible") {
@@ -49,15 +50,21 @@ export default function AiHelperSettings() {
   useEffect(() => {
     void load().then((r) => {
       if (!r) return;
-      const id = currentPreset(r.b, r.a.presets) || "ollama";
+      const id = currentPreset(r.b, r.a.presets) || "builtin";
       choose(id, r.a, r.b);
     });
   }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
   // A download or import runs in the background: follow it.
-  const running = setup?.task?.state === "running";
+  const running = setup?.task?.state === "running" || setup?.builtin?.task?.state === "running";
   useEffect(() => {
     if (!running) return;
-    const t = window.setInterval(() => { void api.aiSetup().then(setSetup).catch(() => undefined); }, 1500);
+    const t = window.setInterval(() => {
+      void api.aiSetup().then((a) => {
+        setSetup(a);
+        // The built-in AI becomes the AI helper when its download finishes (unless another one was chosen).
+        if (a.builtin?.task?.state !== "running") void api.settings().then(setS).catch(() => undefined);
+      }).catch(() => undefined);
+    }, 1500);
     return () => window.clearInterval(t);
   }, [running]);
 
@@ -165,7 +172,8 @@ export default function AiHelperSettings() {
         <h2 id="ai-now">AI helper</h2>
         <p>Optional. ClipForge edits your videos without one. With an AI helper it also reads what is said (as text, never the
           video or the sound) to choose better cuts, pictures and chapters, scores clips, and understands more of what you
-          type in “Tell the editor what to change”. Every choice here is free except the Claude API.</p>
+          type in “Tell the editor what to change”. The built-in AI comes with ClipForge and runs on this computer. Every
+          choice here is free except the Claude API.</p>
         <div className="row wrap">
           <Pill tone={on ? "good" : "neutral"} icon={on ? "check" : "info"}>{on ? `Using ${setup.label}` : "Off: built-in editor only"}</Pill>
           {on && <button type="button" className="btn btn-small" disabled={busy} onClick={turnOff}>Turn off</button>}
@@ -184,6 +192,9 @@ export default function AiHelperSettings() {
           <p className="small">{preset.about} {preset.key_url && <a className="textlink" href={preset.key_url} target="_blank" rel="noreferrer">
             {preset.provider === "ollama" ? "Get Ollama" : preset.local ? "Get LM Studio" : preset.needs_key ? "Get a key" : "Website"}<Icon name="external" className="sm" /></a>}</p>
           {!preset.local && preset.id !== "anthropic" && <p className="small muted">Free tiers have daily limits set by the service. When one is used up, ClipForge's built-in editor carries on alone.</p>}
+
+          {preset.provider === "builtin" && <BuiltinSetup b={setup.builtin} inUse={now === "builtin" && !!on}
+            onChange={async () => { await load(); }} />}
 
           {preset.provider === "ollama" && <>
             {setup.ollama.running
@@ -239,14 +250,89 @@ export default function AiHelperSettings() {
             <label className="field"><span>Model</span><input value={model} onChange={(e) => setModel(e.target.value)} /></label>
           </>}
 
-          <div className="row wrap">
+          {preset.provider !== "builtin" && <div className="row wrap">
             <button type="button" className="btn btn-primary" disabled={busy || (preset.provider === "ollama" && !setup.ollama.running)} onClick={() => void useIt()}>
               {busy ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="check" />}{now === pick && on ? "Save and test" : "Use this"}</button>
             {result && <Pill tone={result.ok ? "good" : "bad"} icon={result.ok ? "check" : "alert"}>{result.detail}</Pill>}
-          </div>
+          </div>}
         </div>}
         {now === "custom" && <p className="small muted">You use your own server ({String(s.openai_url)}); its settings are on <a className="textlink" href="#/settings/advanced">Advanced</a>. Choosing one above replaces it.</p>}
       </section>
+    </div>
+  );
+}
+
+const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+
+/**
+ * The built-in AI: pick a level (the one that fits this computer is preselected), download it once, and it becomes
+ * the AI helper. The engine (llama.cpp) and the model run on this computer only; nothing is sent anywhere.
+ */
+function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; onChange: () => Promise<void> }) {
+  const [level, setLevel] = useState(b.level || b.recommended);
+  const [busy, setBusy] = useState(false);
+  if (!b.supported) {
+    return <Banner tone="warn" title="Not available on this computer">The built-in AI needs a Mac with Apple silicon, or a
+      64-bit Windows or Linux PC. Ollama or a free online key below still work.</Banner>;
+  }
+  const t = b.task || {};
+  const running = t.state === "running";
+  const pick = b.levels.find((l) => l.id === level) || b.levels[0];
+  const mem = b.computer.memory_mb ? `${Math.round(b.computer.memory_mb / 1024)} GB of memory` : "memory unknown";
+  const gpu = b.computer.mac ? "Apple silicon" : b.computer.vram_mb ? `a graphics card with ${Math.round(b.computer.vram_mb / 1024)} GB` : "no NVIDIA graphics card found";
+  const act = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      await onChange();
+      if (done) toast(done);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="stack-3">
+      <p className="small">This computer: {mem}, {gpu}. {b.levels.find((l) => l.recommended)?.name} fits it best.</p>
+      <div className="mode-pick" role="radiogroup" aria-label="Built-in AI level">
+        {b.levels.map((l) => (
+          <label key={l.id}><input type="radio" name="builtin-level" checked={level === l.id} onChange={() => setLevel(l.id)} />
+            <b>{l.name}: {l.model}{l.recommended ? " (recommended here)" : ""}{l.installed ? " · downloaded" : ""}</b>
+            <span>{l.about} {l.installed ? "" : `${gb(l.download_bytes)} download, once.`}{!l.fits ? " Needs more memory than this computer has; it may be very slow." : ""}</span></label>
+        ))}
+      </div>
+      {running ? (
+        <div className="stack-2" aria-live="polite">
+          <b className="small">{t.status || "Starting"}{t.total ? `: ${gb(t.completed || 0)} of ${gb(t.total)}` : ""}</b>
+          <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Setting up the built-in AI" />
+          <div className="row wrap"><button type="button" className="btn btn-small" onClick={() => void act(() => api.builtinCancel())}>Cancel</button>
+            <span className="small muted">You can keep working; a stopped download resumes where it stopped.</span></div>
+        </div>
+      ) : (
+        <div className="row wrap">
+          {pick.installed
+            ? <button type="button" className="btn btn-primary" disabled={busy || (inUse && b.level === pick.id)}
+                onClick={() => void act(() => api.builtinUse(pick.id), `Using the built-in AI (${pick.model}).`)}>
+                <Icon name="check" />{inUse && b.level === pick.id ? "In use" : "Use this"}</button>
+            : <button type="button" className="btn btn-primary" disabled={busy}
+                onClick={() => void act(() => api.builtinInstall(pick.id))}>
+                <Icon name="download" />Download {pick.name} ({gb(pick.download_bytes)})</button>}
+          {t.state === "failed" && <Pill tone="bad" icon="alert">{t.error}</Pill>}
+          {t.state === "done" && <Pill tone="good" icon="check">Ready</Pill>}
+        </div>
+      )}
+      {b.server.running && <p className="small muted">Running now ({b.levels.find((l) => l.id === b.server.level)?.model}); it stops after {b.server.idle_minutes} minutes without work so the memory goes back to your videos.</p>}
+      <Disclosure summary="What gets downloaded">
+        <div className="stack-2 small">
+          <p>The engine is llama.cpp ({b.engine.license}), release {b.engine.version}. The models are {Array.from(new Set(b.levels.map((l) => l.license))).join(", ")} licensed.
+            Every file is checked against a fixed checksum before it is used, and the engine only listens on this computer.</p>
+          {b.levels.filter((l) => l.installed).map((l) => (
+            <div key={l.id} className="row wrap"><span>{l.name} ({l.model}) is downloaded.</span>
+              <button type="button" className="btn btn-small" disabled={busy || running}
+                onClick={() => void act(() => api.builtinRemove(l.id), `${l.name} was removed. Download it again any time.`)}>Remove to free {gb(l.download_bytes)}</button></div>
+          ))}
+        </div>
+      </Disclosure>
     </div>
   );
 }

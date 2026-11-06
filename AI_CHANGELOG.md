@@ -1,5 +1,38 @@
 # AI changelog
 
+## Built-in AI and "Clean up the sound" (phase 1 of the smarter editor plan) — 2026-11-06 (Claude Code)
+
+Landry asked for an AI that comes with the app and for smarter editing with better sound; after the plan (Claude Doc
+in the project thread) Landry chose "Start phase 1". Draft PR from `claude/project-thread-4sg7wk` into
+`claude/project-thread-x72wkd`; nothing is merged or released. Design and limits:
+[docs/clipforge/BUILTIN_AI_AND_SOUND.md](docs/clipforge/BUILTIN_AI_AND_SOUND.md).
+
+- **Built-in AI (Settings → AI helper, listed first):** one Download button; llama.cpp `llama-server` b12017 (MIT)
+  with Qwen3-VL 2B (Basic), Gemma 4 E4B (Standard) or Gemma 4 26B A4B (Pro), all Apache 2.0, downloaded on first use
+  from pinned releases and revisions and checked against pinned SHA-256 hashes. The level is recommended from the
+  computer's memory and graphics memory. The engine runs on 127.0.0.1 with a random key, stops when idle, when
+  ClipForge quits and before transcription needs the graphics card, and is shared with the Autopilot worker. It is a
+  local provider (`ai_provider = "builtin"`) for clip scoring, post text and the AI editor.
+- **Clean up the sound (`clean_sound`: Off, Auto, Gentle, Strong; default Auto):** mic balance (a dead or inverted
+  channel is left out), rumble and 50/60 Hz hum, background noise (DeepFilterNet 3 through ONNX Runtime, a pinned 13
+  MB download; a spectral noise gate when it is not available), quiet and loud passages evened out, breaths in pauses
+  softened, de-esser, gentle compression and presence. Auto leaves music and sound that is mostly not speech alone.
+  Used by clip renders and the full-video editor (each file cleaned once and cached); the result lines up with the
+  picture to under a millisecond. Clip editor: the setting, a before/after switch at matched loudness, and a note on
+  what the last render did. Full-video editor: a choice in the Sound panel.
+- **New requirement:** `onnxruntime>=1.20` (Mac, Windows and Linux wheels; about 15 to 20 MB).
+- **Tests run:** `tests/test_builtin_ai.py` 19 passed; `tests/test_clean_sound.py` 15 passed, plus the real-model test
+  (slow) with the model files present locally; full fast suite 1,801 passed (28 slow deselected); slow suite 26 passed and 2 failed: one test measures a pure
+  test tone that Auto cleaned as noise, so it now turns the cleanup off like its other processing, and both pass
+- **Real engine and models on GitHub's test machines** (`builtin-ai-check.yml` run 42160482511, Basic level): Linux
+  answer 2.7 s at 35.7 tokens/s, Windows 2.8 s at 22.9 tokens/s, Mac (a virtual Mac with 3 cores, 7 GB and no graphics
+  access) 19.6 s at 5.0 tokens/s after a 32 s first load; all answered the scoring prompt as JSON and the picture
+  question correctly. Sound cleanup of a minute of speech: 1.5 s on Linux, 6.0 s on the Mac. The pinned catalog
+  matches Hugging Face and the llama.cpp release. The native Mac app built with ONNX Runtime (`macos-desktop.yml` run
+  42160487116); `macos/desktop_media_smoke.py` now also runs the voice model inside the built app.
+- **Not verified:** a physical Mac or graphics card (the Mac runner has no graphics access, so real Macs should be
+  faster); answer quality of each level; listening tests on real recordings; the native apps with these screens.
+
 ## Released ClipForge 2026.11.05.2: smart editing and the Mac link fix — 2026-11-05 (Claude Code)
 
 Landry asked in the project thread to merge both fixes (PR #22, PR #23) and update the website with the new versions.

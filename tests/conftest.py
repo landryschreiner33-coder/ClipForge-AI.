@@ -24,6 +24,17 @@ def _no_real_discovery_services(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_voice_model_download(monkeypatch):
+    """Tests never download the sound cleanup model: its address points at a closed local port, so cleanup uses its
+    built-in noise gate unless a test installs the model itself (tests/test_clean_sound.py)."""
+    from clipfoundry.pipeline import cleanup
+
+    monkeypatch.setattr(cleanup, "MODEL_URL", "http://127.0.0.1:9/{file}")
+    monkeypatch.setattr(cleanup, "_failed_at", 0.0)
+    monkeypatch.setattr(cleanup, "_denoiser", None)
+
+
+@pytest.fixture(autouse=True)
 def _own_videos_folder(monkeypatch, tmp_path):
     """Autopilot's videos folder lives in the user's Videos folder: tests use one of their own instead."""
     monkeypatch.setenv("CLIPFOUNDRY_VIDEOS", str(tmp_path / "videos folder"))

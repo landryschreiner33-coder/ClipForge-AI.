@@ -5,6 +5,7 @@ import {
 import { at, plural } from "../format";
 import { editHash, TimeField, Timeline } from "../components/editorParts";
 import { ExportDialog, useClipPosts } from "../components/libParts";
+import { SoundCompare } from "../components/SoundCompare";
 import { hasPostText, PostDraft, postPatch, PostTextFields, RewritePostDialog } from "../components/postpack";
 import {
   announce, Banner, ConfirmDialog, EmptyState, Icon, LoadingPage, PageHead, Pill, ProgressBar, Segmented, StylePicker,
@@ -30,7 +31,7 @@ const KEYS: Record<Exclude<Group, "post">, Key[]> = {
   captions: ["captions_enabled", "caption_style", "caption_position", "caption_size", "caption_emphasis",
     "highlight_words", "highlight_color", "hook", "hook_overlay", "hook_seconds"],
   layout: ["tracking", "crop_x", "layout", "zoom", "auto_zoom"],
-  audio: ["gain_db", "normalize_audio", "silence", "remove_fillers", "speed"],
+  audio: ["gain_db", "normalize_audio", "clean_sound", "silence", "remove_fillers", "speed"],
 };
 const ALL_KEYS = Object.values(KEYS).flat();
 // What the renderer uses when neither the clip, the video's options nor Settings say otherwise.
@@ -38,7 +39,7 @@ const FALLBACK: Partial<Record<Key, unknown>> = {
   tracking: "auto", crop_x: 0.5, layout: "fill", zoom: 1, auto_zoom: true,
   captions_enabled: true, caption_style: "bold", caption_position: "bottom", caption_size: 1, caption_emphasis: false,
   highlight_words: true, highlight_color: "", hook_overlay: true, hook_seconds: 3,
-  gain_db: 0, normalize_audio: true, silence: "light", remove_fillers: true, speed: 1,
+  gain_db: 0, normalize_audio: true, clean_sound: "auto", silence: "light", remove_fillers: true, speed: 1,
 };
 const TITLE_MAX = 100;
 const CAPTION_MAX = 2200;
@@ -432,6 +433,8 @@ export default function ClipEditor({ id }: { id: string }) {
     { knowledge_id: string; revision: number; snapshot: { title: string } }[];
   const sizePct = Math.round(num("caption_size") * 100);
   const gain = num("gain_db");
+  const cleanNote = String((ri.audio_processing as { clean_sound?: { summary?: string } } | undefined)
+    ?.clean_sound?.summary || "");
 
   const panels: Record<Group, ReactElement> = {
     trim: (
@@ -606,6 +609,19 @@ export default function ClipEditor({ id }: { id: string }) {
         </div>
         <Check label="Normalize loudness (target −14 LUFS; preserve peaks)" on={bool("normalize_audio")}
           onChange={(v) => set({ normalize_audio: v })} />
+        <div className="field">
+          <span className="label" id={`${uid}-clean`}>Clean up the sound</span>
+          <Segmented labelledBy={`${uid}-clean`} value={str("clean_sound") || "auto"}
+            onChange={(v) => set({ clean_sound: v })}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+          <p className="hint">
+            Lowers background noise and hum, softens breaths, evens out quiet and loud parts and polishes the voice.
+            Auto leaves music and clips that are mostly not speech as they are.
+          </p>
+        </div>
+        <SoundCompare clipId={clip.id} mode={str("clean_sound") || "auto"} />
+        {cleanNote && <p className="hint">Last render: {cleanNote}</p>}
         <div className="field">
           <span className="label" id={`${uid}-sil`}>Silence cleanup</span>
           <Segmented labelledBy={`${uid}-sil`} value={str("silence")} onChange={(v) => set({ silence: v })}

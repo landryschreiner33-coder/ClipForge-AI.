@@ -1,5 +1,7 @@
 """Optional Stage 2 AI providers.
 
+* builtin            - the built-in AI (builtin_ai.py): llama.cpp and a free model ClipForge downloads and runs on
+                       this computer (free)
 * ollama             - local LLM via http://localhost:11434 (free)
 * openai_compatible  - any OpenAI-style server: LM Studio, llama.cpp, vLLM on this computer (free), or an online
                        service you have a key for, such as the free tiers of Google Gemini, Groq or OpenRouter
@@ -197,6 +199,15 @@ def _anthropic(settings: dict, prompt: str) -> str:
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
+def _builtin(settings: dict, prompt: str) -> str:
+    from .. import builtin_ai
+
+    try:
+        return builtin_ai.chat(settings, _system(settings), prompt)
+    except builtin_ai.BuiltinError as exc:
+        raise ProviderError(str(exc)) from exc
+
+
 def _nvidia(settings: dict, prompt: str) -> str:
     """Optional NVIDIA-hosted model (pipeline/nvidia.py): its own guards, budget and fallback to local analysis."""
     from . import nvidia
@@ -209,12 +220,17 @@ def _nvidia(settings: dict, prompt: str) -> str:
         raise ProviderError(str(exc)) from exc
 
 
-PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic, "nvidia": _nvidia}
-LOCAL_PROVIDERS = {"ollama", "openai_compatible"}
+PROVIDERS = {"builtin": _builtin, "ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic,
+             "nvidia": _nvidia}
+LOCAL_PROVIDERS = {"builtin", "ollama", "openai_compatible"}
 
 
 def provider_label(settings: dict) -> str:
     p = settings.get("ai_provider", "heuristic")
+    if p == "builtin":
+        from .. import builtin_ai
+
+        return builtin_ai.label(settings)
     if p == "ollama":
         return f"Ollama {settings.get('ollama_model')}"
     if p == "openai_compatible":
@@ -236,6 +252,8 @@ def is_local(settings: dict, provider: str | None = None) -> bool:
     from urllib.parse import urlparse
 
     provider = provider or settings.get("ai_provider", "heuristic")
+    if provider == "builtin":
+        return True  # always 127.0.0.1, started by ClipForge
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
     elif provider == "openai_compatible":
@@ -269,9 +287,9 @@ def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str
             from .. import gpu
 
             try:
-                with gpu.manager.heavy("local AI model", str(settings.get("ollama_model") if provider == "ollama"
-                                                             else settings.get("openai_model") or "local model"),
-                                       max_wait_s=900):
+                with gpu.manager.heavy("local AI model", provider_label(settings) if provider == "builtin" else str(
+                        settings.get("ollama_model") if provider == "ollama" else
+                        settings.get("openai_model") or "local model"), max_wait_s=900):
                     return _strip_thinking(fn(settings, prompt))
             except gpu.GpuBusy as exc:
                 raise ProviderError(str(exc)) from exc
@@ -291,6 +309,14 @@ def check_provider(settings: dict) -> dict:
     """Lightweight availability probe for the Settings page."""
     provider = settings.get("ai_provider", "heuristic")
     try:
+        if provider == "builtin":
+            from .. import builtin_ai
+
+            if not builtin_ai.platform_key():
+                return {"ok": False, "detail": "The built-in AI does not run on this kind of computer", "models": []}
+            if not builtin_ai.ready(settings):
+                return {"ok": False, "detail": "Not set up yet: choose a level and download it", "models": []}
+            return {"ok": True, "detail": f"Ready: {builtin_ai.label(settings)}, on this computer", "models": []}
         if provider == "ollama":
             r = httpx.get(settings.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/tags", timeout=3)
             models = [m.get("name") for m in r.json().get("models", [])]

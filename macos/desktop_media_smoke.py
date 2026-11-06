@@ -113,6 +113,52 @@ def link_import_joins_separate_streams():
         assert joined['has_audio'] and joined['width'] == 320 and 1.8 <= joined['duration'] <= 2.2, joined
     print('Bundled link import: separate picture and sound joined by the bundled ffmpeg.', flush=True)
     youtube_javascript_runtime()
+    sound_cleanup()
+
+
+def sound_cleanup():
+    """"Clean up the sound" inside the app: the bundled ONNX Runtime loads the downloaded, verified voice model, and
+    the bundled FFmpeg has every filter the cleanup uses. Speech comes from macOS's own voice, with room noise and
+    mains hum added."""
+    import numpy as np
+    import onnxruntime  # noqa: F401 - the wheel's native library must load from inside the app
+    from clipfoundry.pipeline import cleanup
+    from clipfoundry.pipeline.ffmpeg_utils import ffmpeg_bin
+
+    sr = 48000
+    with tempfile.TemporaryDirectory(prefix='clipfoundry sound check ') as tmp:
+        folder = Path(tmp)
+        os.environ['CLIPFOUNDRY_DATA'] = str(folder / 'profile')
+        cleanup.ensure_model()
+        assert cleanup.denoiser_kind() == 'deepfilternet', 'The voice model did not load in the bundled runtime'
+        parts, words, t = [], [], 0.0
+        for k, line in enumerate(('Today I want to show you how this works.', 'Then press render and wait.',
+                                  'The clip comes out clean and ready to post.')):
+            said = folder / f'line{k}.aiff'
+            subprocess.run(['say', '-o', str(said), line], check=True, timeout=30)
+            raw = subprocess.check_output([ffmpeg_bin(), '-v', 'error', '-i', str(said), '-f', 'f32le', '-ac', '1',
+                                           '-ar', str(sr), '-'], timeout=30)
+            v = np.frombuffer(raw, np.float32).astype(np.float64)
+            v = v / (np.abs(v).max() + 1e-9) * .4
+            on = np.sqrt(np.convolve(v ** 2, np.ones(960) / 960, 'same')) > .008
+            edges = np.flatnonzero(np.diff(np.concatenate([[0], on.astype(int), [0]])))
+            words += [{'w': 'x', 'start': t + a / sr, 'end': t + b / sr}
+                      for a, b in zip(edges[::2], edges[1::2]) if b - a > .05 * sr]
+            parts += [v, np.zeros(int(.8 * sr))]
+            t += v.size / sr + .8
+        x = np.concatenate(parts)
+        tt = np.arange(x.size) / sr
+        x += .006 * np.random.default_rng(0).standard_normal(x.size) + .004 * np.sin(2 * np.pi * 60 * tt)
+        source = folder / 'noisy speech.wav'
+        subprocess.run([ffmpeg_bin(), '-y', '-v', 'error', '-f', 'f32le', '-ar', str(sr), '-ac', '1', '-i', 'pipe:0',
+                        str(source)], input=x.astype(np.float32).tobytes(), check=True, timeout=30)
+        result = cleanup.clean(source, 0.0, x.size / sr, words, 'gentle')
+        report = result.report
+        assert result.path and report.get('denoiser') == 'deepfilternet', report
+        assert Path(result.path).stat().st_size == 4 * x.size, 'Cleaned sound changed length'
+        before, after = report['noise_below_voice_db_before'], report['noise_below_voice_db_after']
+        assert after >= before + 3, report['summary']
+    print(f'Bundled sound cleanup: the voice model ran in the app; {report["summary"]}', flush=True)
 
 
 def youtube_javascript_runtime():
