@@ -99,7 +99,7 @@ says so when asked.
 - `POST /api/brain/memories/recall` `{query, project_id?, platform?, mode?}`: what it would use, with scores
 - `GET /api/brain/memories/check` · `POST /api/brain/memories/rebuild` · `POST /api/brain/memories/tidy`
 - `GET /api/brain/memories/export` · `POST /api/brain/memories/import` `{data}`
-- `GET /api/brain/chats?project_id=` (opens it) · `GET /api/brain/chats/{chat_id}/messages?after=` · `POST /api/brain/chats/{chat_id}/messages` `{text, base_revision?}` · `POST /api/brain/chats/{chat_id}/messages/{message_id}/apply` · `.../discard`
+- `POST /api/brain/chats` `{project_id?}` (opens the video's chat, or the general one, with its messages) · `GET /api/brain/chats/{chat_id}/messages?after=` · `POST /api/brain/chats/{chat_id}/messages` `{text, base_revision?}` · `POST /api/brain/chats/{chat_id}/messages/{message_id}/apply` · `.../discard` · `DELETE /api/brain/chats/{chat_id}/messages`
 
 Reads need a local (or signed-in) request, writes the app's own header, like the rest of `/api/brain`. Every id in
 an address is checked against the workspace app-wide (`cloud/ownership.py`).

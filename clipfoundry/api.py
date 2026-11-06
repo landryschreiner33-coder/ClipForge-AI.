@@ -63,9 +63,11 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .brain import chat as brain_chat
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
         edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
+        brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
         link_import.clean_abandoned()  # partial downloads of canceled or failed links
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
@@ -113,6 +115,7 @@ app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(memory_routes.router)  # ClipForge AI's memories
+app.include_router(memory_routes.chats)  # ClipForge AI's chat
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 

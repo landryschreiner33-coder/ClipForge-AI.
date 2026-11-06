@@ -135,3 +135,73 @@ def forget(memory_id: str) -> dict:
         return {"forgotten": memories.forget(principal.workspace_id(), memory_id)}
     except memories.Invalid as exc:
         raise _err(exc) from exc
+
+
+# ------------------------------------------------------------------ the chat
+from . import chat as chat_module  # noqa: E402
+
+chats = APIRouter(prefix="/api/brain/chats")
+
+
+def _chat_err(exc: chat_module.ChatError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class OpenChat(BaseModel):
+    project_id: str = ""
+
+
+class Say(BaseModel):
+    text: str = Field(max_length=4000)
+    base_revision: int | None = None
+
+
+@chats.post("", dependencies=WRITE)
+def open_chat(body: OpenChat) -> dict:
+    """The chat of one video, or the general chat, with its last messages."""
+    ws = principal.workspace_id()
+    try:
+        chat = chat_module.open_chat(ws, body.project_id)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+    return {**chat, "messages": chat_module.messages(ws, chat["id"])}
+
+
+@chats.get("/{chat_id}/messages", dependencies=READ)
+def chat_messages(chat_id: str, after: str = "", limit: int = chat_module.KEEP) -> list[dict]:
+    try:
+        return chat_module.messages(principal.workspace_id(), chat_id, after, limit)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/messages", dependencies=WRITE)
+def say(chat_id: str, body: Say) -> dict:
+    try:
+        return chat_module.send(principal.workspace_id(), chat_id, body.text, body.base_revision)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.delete("/{chat_id}/messages", dependencies=WRITE)
+def clear_chat(chat_id: str) -> dict:
+    try:
+        return {"cleared": chat_module.clear(principal.workspace_id(), chat_id)}
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/messages/{chat_message_id}/apply", dependencies=WRITE)
+def apply_change(chat_id: str, chat_message_id: str) -> dict:
+    try:
+        return chat_module.apply(principal.workspace_id(), chat_id, chat_message_id)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/messages/{chat_message_id}/discard", dependencies=WRITE)
+def discard_change(chat_id: str, chat_message_id: str) -> dict:
+    try:
+        return chat_module.discard(principal.workspace_id(), chat_id, chat_message_id)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
