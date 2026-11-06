@@ -43,7 +43,7 @@ _FORGET = re.compile(r"^(?:please\s+)?forget(?:\s+(?:that|about|the|my|what i sa
 _LIST = re.compile(r"^(?:what do you (?:know|remember)|what have you learned|what (?:is|'s) in your brain|"
                    r"(?:show|list)(?: me)?(?: your| my)? memor(?:y|ies))\b\s*(?:about|of|on)?\s*(.*)$", re.I | re.S)
 _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)", re.I)
-_HELP = re.compile(r"^(?:help|what can you do|\?)\s*$", re.I)
+_HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="clipforge-ai-chat")
@@ -227,6 +227,7 @@ def _forget(ws: str, pid: str, query: str) -> dict:
 
 
 def _list(ws: str, pid: str, about: str) -> dict:
+    about = about.strip().strip("?.!,:;").strip()
     found = memories.list_(ws, q=about, project_id=pid, limit=8) if about else \
         [m for m in memories.list_(ws, project_id=pid, limit=200) if m["enabled"] and not m["expired"]][:8]
     if not found:

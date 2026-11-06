@@ -12,10 +12,6 @@ const WORD: Record<ChangeRequest["status"], string> = {
   thinking: "Working on it", ready: "Ready to check", question: "Question", unsupported: "Not done", invalid: "Refused",
   failed: "Failed", canceled: "Discarded", applied: "Applied", stale: "Out of date",
 };
-const fmt = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
 
 /** Plain text from ClipForge AI: paragraphs, and lines that start with "- " as a list. */
 function Lines({ text }: { text: string }) {
@@ -149,7 +145,6 @@ function Answer({ m, busy, onAct, onSend }: {
       </div>}
       {m.status === "thinking" && <p className="row small"><span className="inline-spinner" aria-hidden="true" />{m.text}</p>}
       {m.status !== "thinking" && <Lines text={m.text} />}
-      {r?.status === "ready" && p?.duration_ms && p.duration_ms[0] !== p.duration_ms[1] && <p className="small muted">Length {fmt(p.duration_ms[0])} → {fmt(p.duration_ms[1])}</p>}
       {r?.status === "ready" && <div className="row wrap">
         <button type="button" className="btn btn-primary btn-small" disabled={busy} onClick={() => void onAct(m, "apply")}><Icon name="check" />Apply as a new version</button>
         <button type="button" className="btn btn-small" disabled={busy} onClick={() => void onAct(m, "discard")}>Discard</button>

@@ -76,7 +76,7 @@ def test_teaching_forgetting_listing_and_help_need_no_model(env):
     assert m["data"]["memory"]["kind"] == "fact"
     assert {x["kind"] for x in brain.list_(WS)} == {"rule", "fact"} and len(brain.list_(WS)) == 3
 
-    m = _say(c["id"], "what do you know")
+    m = _say(c["id"], "What do you know?")
     assert m["data"]["tool"] == "list" and len(m["data"]["memories"]) == 3
     assert "[rule] never zoom in on faces" in m["text"] and "Brain → Memory" in m["text"]
     m = _say(c["id"], "what do you know about zooms?")
@@ -90,7 +90,7 @@ def test_teaching_forgetting_listing_and_help_need_no_model(env):
     m = _say(c["id"], "forget about penguins")
     assert m["text"] == "I have nothing like that in my memory." and m["data"]["candidates"] == []
 
-    assert _say(c["id"], "help")["text"] == chat.HELP
+    assert _say(c["id"], "help")["text"] == chat.HELP and _say(c["id"], "Help?")["text"] == chat.HELP
     assert _say(c["id"], "why?")["data"]["tool"] == "explain"
     m = _say(c["id"], "how long should my intros be?")  # a question, with no model set up
     assert m["data"]["tool"] == "answer" and m["status"] == "done" and "Settings → ClipForge AI" in m["text"]
