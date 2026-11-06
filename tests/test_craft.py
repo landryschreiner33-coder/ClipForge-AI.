@@ -598,6 +598,31 @@ def test_a_tool_still_running_when_clipforge_quits_is_stopped(env):  # noqa: F81
         runner._CLOSING.clear()
 
 
+@linux_only
+def test_the_server_stopping_stops_running_tools(env):  # noqa: F811
+    """uvicorn ends a server stopped by a signal by raising the signal again, so atexit never runs: the app's own
+    shutdown stops the tools."""
+    import threading
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+    from clipfoundry.craft import runner
+
+    slow = _program(env / "slow-cli", "import time\ntime.sleep(60)\n")
+    got = {}
+    t = threading.Thread(target=lambda: got.update(done=runner.call(slow, [], timeout=120)))
+    with TestClient(app, base_url="http://127.0.0.1:8765"):
+        t.start()
+        t0 = time.monotonic()
+        while not runner._RUNNING and time.monotonic() - t0 < 10:
+            time.sleep(0.05)
+        assert runner._RUNNING
+    t.join(timeout=10)
+    assert not t.is_alive() and got["done"].returncode != 0 and not runner._CLOSING.is_set()
+
+
 def test_an_effectcraft_without_empty_for_scripts_runs_the_script_in_its_own_project(env):  # noqa: F811
     from clipfoundry.craft import runner
 

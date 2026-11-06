@@ -350,7 +350,19 @@ def browser_check(out: Path, project: dict, want) -> dict:
     return got
 
 
+def left_running() -> list[str]:
+    """FilmCraft or EffectCraft processes still running (none should be once the check is done)."""
+    if sys.platform == "win32":
+        return []
+    time.sleep(3)
+    done = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,etime=,command="], capture_output=True, text=True,
+                          check=False)
+    return [line.strip()[:400] for line in done.stdout.splitlines() if "craft-cli" in line and "ps -A" not in line]
+
+
 def finish_report(out: Path, report: dict, problems: list[str]) -> int:
+    report["left_running"] = left_running()
+    print("left running:", report["left_running"], flush=True)
     report["problems"] = problems
     (out / "report.json").write_text(json.dumps(report, indent=2, default=str))
     print(json.dumps({"problems": problems, "edit": report.get("edit"), "ai": report.get("ai")}, indent=2,

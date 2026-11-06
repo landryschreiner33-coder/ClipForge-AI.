@@ -39,9 +39,12 @@ def _kill(proc: subprocess.Popen) -> None:
 
 
 @atexit.register
-def stop_all() -> None:
-    """ClipForge is quitting: no FilmCraft or EffectCraft render keeps running without it, and none starts."""
-    _CLOSING.set()
+def stop_all(closing: bool = True) -> None:
+    """ClipForge is quitting: no FilmCraft or EffectCraft render keeps running without it, and (`closing`) none
+    starts. The server's shutdown calls this too, because a server stopped by a signal may exit without atexit; its
+    jobs carry on at the next start."""
+    if closing:
+        _CLOSING.set()
     with _RUNNING_LOCK:
         procs = list(_RUNNING)
     for proc in procs:

@@ -78,6 +78,9 @@ async def lifespan(_: FastAPI):
         finally:
             phone.manager.stop()
             autopilot_host.supervisor.stop()
+            from .craft import runner as craft_runner
+
+            craft_runner.stop_all(closing=False)  # FilmCraft/EffectCraft renders stop with the server
 
 
 def _youtube_retention() -> None:
