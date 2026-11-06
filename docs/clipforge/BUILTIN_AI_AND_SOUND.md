@@ -94,9 +94,22 @@ cache, so the next render reuses the cleaning.
   runner, the real engine and the Basic level download, verify, start and answer a clip-scoring prompt as JSON and a
   picture question; load time and speed are reported. Linux also checks the whole catalog against Hugging Face and
   the llama.cpp release; Mac and Linux time the sound cleanup on a minute of synthesized speech.
+- `macos/desktop_media_smoke.py` (run by `macos-desktop.yml`): inside the built Mac app, the bundled ONNX Runtime
+  loads the downloaded voice model and cleans macOS speech with added noise and hum through the bundled FFmpeg.
+
+**First measurements** (2026-11-06, `builtin-ai-check.yml` run 42160482511, Basic level, GitHub's test machines):
+
+| Machine | Download + check | First load | Warm answer | Speed | Sound cleanup, 1 minute |
+|---|---|---|---|---|---|
+| Linux, 4 cores, 16 GB | 6.6 s | 1.6 s | 2.7 s | 35.7 tokens/s | 1.5 s |
+| Windows, 4 cores, 16 GB | 12.9 s | 4.5 s | 2.8 s | 22.9 tokens/s | not run |
+| Mac (virtual, 3 cores, 7 GB, no graphics access) | 14.5 s | 32.4 s | 19.6 s | 5.0 tokens/s | 6.0 s |
+
+Every machine answered the scoring prompt as JSON and named the picture's color. The Mac runner cannot use the
+graphics chip, which llama.cpp uses on a real Mac, so it is a lower bound.
 
 ## Not verified
 
-- Real models on a real Mac, Windows PC or graphics card (only the CI runners, which have no usable GPU).
+- Real models on a physical Mac, Windows PC or graphics card (only GitHub's test machines, which have no usable GPU).
 - Standard and Pro answers' quality; whether Basic's judgments are good enough to be the default for 8 GB computers.
 - Listening tests on real recordings (the checks use synthesized speech and measured noise levels).

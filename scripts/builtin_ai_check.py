@@ -250,8 +250,11 @@ def summary_table(report: dict) -> str:
     if s:
         lines += ["", f"Sound cleanup: {s.get('seconds_of_sound')} s of speech cleaned in {s.get('cleaning_s')} s "
                       f"(real-time factor {s.get('realtime_factor')}), {s.get('summary')}"]
-    lines += ["", "Catalog: " + ("matches its sources" if not report["catalog_problems"] else
-                                 "; ".join(report["catalog_problems"]))]
+    if not report.get("catalog_checked"):
+        lines += ["", "Catalog: not checked on this machine (the Linux job checks it)"]
+    else:
+        lines += ["", "Catalog: " + ("matches its sources" if not report["catalog_problems"] else
+                                     "; ".join(report["catalog_problems"]))]
     if report["problems"]:
         lines += ["", "**Problems:**", *[f"- {p}" for p in report["problems"]]]
     return "\n".join(lines) + "\n"
@@ -274,7 +277,7 @@ def main() -> int:
     report: dict = {"computer": {"platform": f"{platform.system()} {platform.machine()}", "key": builtin_ai.platform_key(),
                                  "memory_mb": mem, "vram_mb": gpu, "cpus": os.cpu_count(),
                                  "recommended": builtin_ai.recommended_level(mem, gpu, sys.platform == "darwin")},
-                    "levels": [], "catalog_problems": [], "problems": []}
+                    "levels": [], "catalog_checked": not args.no_catalog, "catalog_problems": [], "problems": []}
     print(json.dumps(report["computer"]), flush=True)
     if not args.no_catalog:
         report["catalog_problems"] = check_catalog(builtin_ai, httpx)

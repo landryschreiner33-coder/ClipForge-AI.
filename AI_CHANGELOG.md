@@ -22,10 +22,16 @@ in the project thread) Landry chose "Start phase 1". Draft PR from `claude/proje
   what the last render did. Full-video editor: a choice in the Sound panel.
 - **New requirement:** `onnxruntime>=1.20` (Mac, Windows and Linux wheels; about 15 to 20 MB).
 - **Tests run:** `tests/test_builtin_ai.py` 19 passed; `tests/test_clean_sound.py` 15 passed, plus the real-model test
-  (slow) with the model files present locally; full fast suite 1,801 passed (28 slow deselected); SLOW_SUITE_RESULT
-- **Not verified:** the real engine and models (this environment cannot reach Hugging Face and may not run downloaded
-  programs; `.github/workflows/builtin-ai-check.yml` does that on Mac, Windows and Linux runners); a physical Mac or
-  graphics card; listening tests on real recordings; the native apps with these screens.
+  (slow) with the model files present locally; full fast suite 1,801 passed (28 slow deselected); slow suite 26 passed and 2 failed: one test measures a pure
+  test tone that Auto cleaned as noise, so it now turns the cleanup off like its other processing, and both pass
+- **Real engine and models on GitHub's test machines** (`builtin-ai-check.yml` run 42160482511, Basic level): Linux
+  answer 2.7 s at 35.7 tokens/s, Windows 2.8 s at 22.9 tokens/s, Mac (a virtual Mac with 3 cores, 7 GB and no graphics
+  access) 19.6 s at 5.0 tokens/s after a 32 s first load; all answered the scoring prompt as JSON and the picture
+  question correctly. Sound cleanup of a minute of speech: 1.5 s on Linux, 6.0 s on the Mac. The pinned catalog
+  matches Hugging Face and the llama.cpp release. The native Mac app built with ONNX Runtime (`macos-desktop.yml` run
+  42160487116); `macos/desktop_media_smoke.py` now also runs the voice model inside the built app.
+- **Not verified:** a physical Mac or graphics card (the Mac runner has no graphics access, so real Macs should be
+  faster); answer quality of each level; listening tests on real recordings; the native apps with these screens.
 
 ## Released ClipForge 2026.11.05.2: smart editing and the Mac link fix — 2026-11-05 (Claude Code)
 
