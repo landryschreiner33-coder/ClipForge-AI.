@@ -557,24 +557,45 @@ def test_hand_finished_versions_render_from_the_save_and_later_edits_start_again
                                  _Lease(), True)
 
 
+@linux_only
 def test_a_tool_still_running_when_clipforge_quits_is_stopped(env):  # noqa: F811
     import threading
     import time
 
     from clipfoundry.craft import runner
 
-    slow = _program(env / "slow-cli", "import time\ntime.sleep(60)\n")
+    # the tool starts a helper of its own, which must stop too
+    slow = _program(env / "slow-cli", "import subprocess, sys, time\n"
+                    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                    "open(PIDFILE, 'w').write(str(child.pid))\ntime.sleep(60)\n", PIDFILE=str(env / "child.pid"))
     got = {}
     t = threading.Thread(target=lambda: got.update(done=runner.call(slow, [], timeout=120)))
     t0 = time.monotonic()
     t.start()
-    while not runner._RUNNING and time.monotonic() - t0 < 10:
+    while not (env / "child.pid").is_file() and time.monotonic() - t0 < 20:
         time.sleep(0.05)
     assert runner._RUNNING
-    runner.stop_all()  # what ClipForge does when it quits
-    t.join(timeout=10)
-    assert not t.is_alive() and got["done"].returncode != 0 and time.monotonic() - t0 < 30
-    assert not runner._RUNNING
+    child = int((env / "child.pid").read_text())
+    try:
+        runner.stop_all()  # what ClipForge does when it quits
+        t.join(timeout=10)
+        assert not t.is_alive() and got["done"].returncode != 0 and time.monotonic() - t0 < 30
+        assert not runner._RUNNING
+        for _ in range(100):  # the helper is gone too (a zombie until its parent's parent reaps it counts as gone)
+            try:
+                os.kill(child, 0)
+                state = Path(f"/proc/{child}/stat").read_text().split()[2] if Path(f"/proc/{child}").exists() else "Z"
+                if state == "Z":
+                    break
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("the tool's helper kept running")
+        with pytest.raises(runner.CraftError, match="quitting"):  # and nothing new starts
+            runner.call(slow, [], timeout=5)
+    finally:
+        runner._CLOSING.clear()
 
 
 def test_an_effectcraft_without_empty_for_scripts_runs_the_script_in_its_own_project(env):  # noqa: F811

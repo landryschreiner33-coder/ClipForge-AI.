@@ -21,18 +21,31 @@ TICKS = 254_016_000_000  # FilmCraft ticks per second
 
 _RUNNING: set[subprocess.Popen] = set()
 _RUNNING_LOCK = threading.Lock()
+_CLOSING = threading.Event()
 
 
-@atexit.register
-def stop_all() -> None:
-    """ClipForge is quitting: no FilmCraft or EffectCraft render keeps running without it."""
-    with _RUNNING_LOCK:
-        procs = list(_RUNNING)
-    for proc in procs:
+def _kill(proc: subprocess.Popen) -> None:
+    """Stop a tool and anything it started (on macOS and Linux each tool runs in its own process group)."""
+    try:
+        if sys.platform != "win32":
+            os.killpg(proc.pid, 9)
+        else:
+            proc.kill()
+    except OSError:
         try:
             proc.kill()
         except OSError:
             pass
+
+
+@atexit.register
+def stop_all() -> None:
+    """ClipForge is quitting: no FilmCraft or EffectCraft render keeps running without it, and none starts."""
+    _CLOSING.set()
+    with _RUNNING_LOCK:
+        procs = list(_RUNNING)
+    for proc in procs:
+        _kill(proc)
 
 
 class CraftError(RuntimeError):
@@ -47,13 +60,15 @@ def _gpu_args() -> list[str]:
 def call(exe: str, args: list[str], *, timeout: float, cwd: Path | None = None,
          cancelled: Callable[[], bool] | None = None, what: str = "") -> subprocess.CompletedProcess:
     cmd = [exe, *args]
-    try:
-        proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,  # noqa: S603
-                                stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-                                creationflags=NO_WINDOW)
-    except OSError as exc:
-        raise CraftError(f"{what or Path(exe).name} could not start: {exc}") from exc
     with _RUNNING_LOCK:
+        if _CLOSING.is_set():
+            raise CraftError("ClipForge is quitting.")
+        try:
+            proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,  # noqa: S603
+                                    stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                                    creationflags=NO_WINDOW, start_new_session=sys.platform != "win32")
+        except OSError as exc:
+            raise CraftError(f"{what or Path(exe).name} could not start: {exc}") from exc
         _RUNNING.add(proc)
     try:
         return _wait(proc, cmd, timeout, cancelled, what or Path(exe).name)
@@ -77,15 +92,15 @@ def _wait(proc: subprocess.Popen, cmd: list[str], timeout: float, cancelled: Cal
             try:
                 stop = bool(cancelled and cancelled())
             except BaseException:  # the job lost its lease while asking: the tool is stopped too
-                proc.kill()
+                _kill(proc)
                 proc.communicate()
                 raise
             if stop:
-                proc.kill()
+                _kill(proc)
                 proc.communicate()
                 raise CraftError("Stopped.") from None
             if time.monotonic() > deadline:
-                proc.kill()
+                _kill(proc)
                 proc.communicate()
                 raise CraftError(f"{what} took longer than {timeout / 60:.0f} minutes and was "
                                  "stopped.") from None
