@@ -90,8 +90,18 @@ def seed(files: dict[str, Path]) -> dict:
     for v, words in ((a, "Hello and welcome to the lake today."), (b, "Now we swim out to the island.")):
         ws = [{"start": 1.0 + 0.4 * i, "end": 1.3 + 0.4 * i, "w": w} for i, w in enumerate(words.split())]
         (Path(v["path"]).parent / "transcript.json").write_text(json.dumps({"segments": [{"words": ws}]}))
-    project = video_flow.create("local", "local", name="Lake day", asset_ids=[a["id"], pic["id"], b["id"]],
-                                brief={}, style_id="settings", remember={"enabled": False})
+    from clipfoundry.jobs import worker
+
+    # the project's own rough cut is not wanted (version 1 is the plan below): its job is never handed to this
+    # process's worker, where it would race the plan below and could save a rough cut as version 2
+    held, worker.submit_studio = worker.submit_studio, lambda job_id: None
+    try:
+        project = video_flow.create("local", "local", name="Lake day", asset_ids=[a["id"], pic["id"], b["id"]],
+                                    brief={}, style_id="settings", remember={"enabled": False})
+    finally:
+        worker.submit_studio = held
+    for job in db.select("studio_jobs", "target_id = ? AND kind = 'video_build'", (project["id"],)):
+        db.update("studio_jobs", job["id"], status="canceled", message="Not needed by the check")
     plan = video_flow.rough_cut(project, video_flow._assets(project), {})
     plan["output"] = {"aspect": "9:16", "fps": FPS}
     plan["layout"] = "fit"
@@ -126,6 +136,7 @@ def seed(files: dict[str, Path]) -> dict:
                         {"title": "The lake", "clip_id": "c3", "offset_ms": 0}]
     video_flow.save_revision(project["id"], plan, "FilmCraft check", None,
                              {"action": "build", "prev": None, "redo": None})
+    db.update("studio_projects", project["id"], status="ready", message="")
     return db.fetch("studio_projects", project["id"])
 
 

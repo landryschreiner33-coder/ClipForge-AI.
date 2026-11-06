@@ -74,6 +74,8 @@ def main() -> int:
     if problems:
         return finish_report(out, report, problems)
 
+    report["effectcraft_probe"] = effect_probe(out / "probe")
+
     # 2. the edit in FilmCraft and its render
     files = fc_check.make_media(out / "media")
     project = fc_check.seed(files)
@@ -89,7 +91,7 @@ def main() -> int:
         info = finish.render(plan, assets, words, final, name=project["name"], revision=1, settings=settings,
                              progress=lambda f, m: print(f"  {f:.2f} {m}", flush=True))
     except Exception as exc:  # noqa: BLE001 - reported
-        want(False, f"FilmCraft's edit or render failed: {exc}")
+        want(False, f"FilmCraft's edit or render failed: {exc!r}")
         info = None
     if info:
         fc = info["filmcraft"]
@@ -98,6 +100,9 @@ def main() -> int:
         report["render"]["seconds"] = round(time.monotonic() - t0, 1)
         report["edit"] = {"steps": fc["steps"], "failed": fc["failed"], "shots": fc["shots"], "notes": fc["notes"]}
         want(not fc["failed"], f"{len(fc['failed'])} FilmCraft steps did not apply: {fc['failed'][:8]}")
+        print("shots:", json.dumps([{k: v for k, v in x.items() if k != "item"} for x in fc["shots"]]), flush=True)
+        want(all(x.get("checks") == "ok" for x in fc["shots"]),
+             f"EffectCraft's title script could not set everything: {[x.get('checks') for x in fc['shots']]}")
         want(not fc["notes"], f"notes from the edit: {fc['notes']}")
         want([s["use"] for s in fc["shots"]] == ["title"], f"the EffectCraft title is not in the edit: {fc['shots']}")
         want(abs(info["duration"] - info["expected_duration"]) <= 0.1, f"render length {info['duration']}")
@@ -116,7 +121,9 @@ def main() -> int:
     def answer(_settings, prompt, *, system=None, task="", **_kw):
         asked["prompt"] = prompt
         rows = json.loads(prompt.split("The sequence (FilmCraft clip ids):\n", 1)[1].split("\n", 1)[0])
-        clip = next(r for r in rows if r["track"] == "Video 1" and r["what"] == "clip")
+        talk = [r for r in rows if r["track"] == "Video 1" and r["what"] == "video"]
+        asked["rows"] = rows
+        clip = talk[0] if talk else next(r for r in rows if r["track"] == "Video 1")
         effects = re.search(r"Video effects \(for effects.apply\): (.*)", prompt).group(1).split(", ")
         looks = re.search(r"Colour looks \(for lumetri.applyPreset\): (.*)", prompt).group(1).split(", ")
         start = round(clip["from_s"] * fc_check.FPS)
@@ -140,12 +147,13 @@ def main() -> int:
                              settings={**settings, "ai_provider": "ollama", "craft_ai_finish": True})
         ai = info["filmcraft"]["ai"]
         report["ai"] = ai
+        print("ai:", json.dumps(ai)[:1500], flush=True)
         report["ai_catalog"] = asked.get("prompt", "").split("Tools you may use (id, parameters):\n", 1)[-1][:3000]
         want(ai.get("used") and not ai.get("failed") and not ai.get("refused"), f"the AI's steps did not all apply: {ai}")
         want(ai.get("shots") == 1, f"the AI's effects shot was not placed: {ai}")
         want(abs(info["duration"] - info["expected_duration"]) <= 0.1, f"AI render length {info['duration']}")
     except Exception as exc:  # noqa: BLE001 - reported
-        want(False, f"the AI finishing pass failed: {exc}")
+        want(False, f"the AI finishing pass failed: {exc!r} (rows: {asked.get('rows', [])[:6]})")
 
     # 4. FilmCraft's editor on the editor page
     if args.browser:
@@ -155,17 +163,71 @@ def main() -> int:
 
 LOWER_THIRD = """
 var bar = comp.layers.addSolid([0.05, 0.05, 0.08], "Bar", Math.round(W * 0.8), Math.round(H * 0.07), 1, DUR);
-bar.property("Transform").property("Position").setValue([W / 2, H * 0.78]);
-var op = bar.property("Transform").property("Opacity");
-op.setValueAtTime(0, 0);
-op.setValueAtTime(0.4, 85);
+cfSet(bar, "Position", [W / 2, H * 0.78]);
+cfKeys(bar, "Opacity", [[0, 0], [0.4, 85]]);
 var t = comp.layers.addText("Lake day");
-var doc = t.property("Source Text").value;
-doc.fontSize = Math.round(H * 0.035);
-doc.fillColor = [1, 1, 1];
-t.property("Source Text").setValue(doc);
-t.property("Transform").property("Position").setValue([W / 2, H * 0.79]);
+cfStyle(t, Math.round(H * 0.035), [1, 1, 1]);
+cfSet(t, "Position", [W / 2, H * 0.79]);
 """
+
+
+PROBE = r"""
+var comp = app.project.items.addComp("ClipForge Probe", 320, 180, 1, 1, 30);
+var t = comp.layers.addText("Hi");
+var s = comp.layers.addSolid([1, 0, 0], "S", 320, 180, 1, 1);
+var got = [];
+function walk(p, depth, path) {
+  var n = 0;
+  try { n = p.numProperties || 0; } catch (e) { got.push(path + " numProperties! " + e.message); }
+  for (var i = 1; i <= n && got.length < 90; i++) {
+    try {
+      var c = p.property(i);
+      got.push(path + "/" + c.name + " [" + c.matchName + "]");
+      if (depth < 1) walk(c, depth + 1, path + "/" + c.name);
+    } catch (e) { got.push(path + " #" + i + "! " + e.message); }
+  }
+}
+walk(t, 0, "text");
+walk(s, 0, "solid");
+var tries = [["text.sourceText", function () { return t.text.sourceText; }],
+  ["Source Text", function () { return t.property("Source Text"); }],
+  ["ADBE Text Document", function () { return t.property("ADBE Text Properties").property("ADBE Text Document"); }],
+  ["Text/Source Text", function () { return t.property("Text").property("Source Text"); }],
+  ["value.fontSize", function () { return t.property("ADBE Text Properties").property("ADBE Text Document").value.fontSize; }],
+  ["Transform/Position", function () { return s.property("Transform").property("Position").value; }],
+  ["ADBE Position", function () { return s.property("ADBE Transform Group").property("ADBE Position").value; }],
+  ["transform.position", function () { return s.transform.position.value; }]];
+for (var k = 0; k < tries.length; k++) {
+  try { var v = tries[k][1](); got.push(tries[k][0] + " = " + (v === null ? "null" : v === undefined ? "undefined" : String(v))); }
+  catch (e) { got.push(tries[k][0] + " ! " + e.message); }
+}
+got.join("\n");
+"""
+
+
+def effect_probe(folder: Path) -> dict:
+    """What EffectCraft's scripting model offers on a text layer and a solid (printed for whoever reads the log)."""
+    from clipfoundry.craft import apps
+    from clipfoundry.craft.runner import EffectCraft, call
+
+    got: dict = {}
+    cli = apps.find_cli("effectcraft")
+    if not cli:
+        return {"error": "EffectCraft is not set up"}
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        for args in (["--help"], ["script", "--help"]):
+            done = call(cli["path"], args, timeout=60, what="EffectCraft")
+            got[" ".join(args)] = (done.stdout or done.stderr)[:2500]
+        js = folder / "probe.jsx"
+        js.write_text(PROBE)
+        res = EffectCraft(cli["path"]).script(js, folder / "probe.ecproj")
+        got["result"] = res.get("result")
+        got["output"] = res.get("output")
+    except Exception as exc:  # noqa: BLE001 - only a report
+        got["error"] = repr(exc)
+    print("EffectCraft probe:\n" + "\n".join(f"--- {k}\n{v}" for k, v in got.items()), flush=True)
+    return got
 
 
 def browser_check(out: Path, project: dict, want) -> dict:
@@ -189,8 +251,10 @@ def browser_check(out: Path, project: dict, want) -> dict:
                     break
             except httpx.HTTPError:
                 time.sleep(1)
-        session = httpx.get(f"http://127.0.0.1:{port}/api/studio/videos/{project['id']}/filmcraft/editor?revision=1",
-                            headers={"X-ClipFoundry": "1"}).json()
+        rev = (db.fetch("studio_projects", project["id"]) or {}).get("plan_revision") or 1
+        got["revision"] = rev
+        session = httpx.get(f"http://127.0.0.1:{port}/api/studio/videos/{project['id']}/filmcraft/editor"
+                            f"?revision={rev}", headers={"X-ClipFoundry": "1"}).json()
         got["session"] = {k: session.get(k) for k in ("ready", "editor_ready", "cli_ready", "steps", "media")}
         want(session.get("ready"), f"the editor page has no FilmCraft edit to open: {got['session']}")
         with sync_playwright() as p:
@@ -199,30 +263,48 @@ def browser_check(out: Path, project: dict, want) -> dict:
             page = browser.new_page(viewport={"width": 1600, "height": 1000})
             page.on("console", lambda m: got["console"].append(f"{m.type}: {m.text}"[:300]))
             page.goto(f"http://127.0.0.1:{port}/#/video/{project['id']}")
-            page.get_by_role("button", name=re.compile(r"Edit version 1 in FilmCraft")).click(timeout=60000)
+            button = page.get_by_role("button", name=re.compile(rf"Edit version {rev} in FilmCraft"))
+            try:
+                button.click(timeout=60000)
+            except Exception:
+                page.screenshot(path=str(out / "editor-page.png"), full_page=True)
+                panel = page.locator("#vr-filmcraft").locator("xpath=..")
+                print("editor page:", page.url, "\n", (panel.inner_text() if panel.count() else
+                                                       page.locator("body").inner_text())[:3000], flush=True)
+                print("/api/craft:", httpx.get(f"http://127.0.0.1:{port}/api/craft",
+                                               headers={"X-ClipFoundry": "1"}).text[:2000], flush=True)
+                print("console:", got["console"][:30], flush=True)
+                raise
             frame = None
-            for _ in range(180):
-                frame = next((f for f in page.frames if "/craft/filmcraft/" in f.url), None)
-                if frame and frame.evaluate("() => !!window.filmcraft"):
-                    break
-                time.sleep(1)
-            want(frame is not None, "FilmCraft's editor did not load in the page")
-            if frame is None:
-                return got
+            save_button = page.get_by_role("button", name="Save to ClipForge")
             opened = False
-            for _ in range(240):  # the page hands FilmCraft the files, then opens the project
+            for _ in range(300):  # FilmCraft starts, then the page hands it the files and opens the project
+                frame = next((f for f in page.frames if "/craft/filmcraft/" in f.url), None)
                 text = page.locator(".craft-editor").inner_text()
                 if "did not open" in text:
                     break
-                if "Starting FilmCraft" not in text and "Handing FilmCraft" not in text:
+                if save_button.count() and save_button.is_enabled():
                     opened = True
                     break
                 time.sleep(1)
-            got["dialog"] = page.locator(".craft-editor").inner_text()[:600]
+            got["dialog"] = page.locator(".craft-editor").inner_text()[:800]
             page.screenshot(path=str(out / "editor.png"))
-            want(opened and "did not open" not in got["dialog"], f"the project did not open: {got['dialog']}")
-            info = frame.evaluate("() => filmcraft.info()")
-            got["info"] = info
+            if frame is not None:
+                try:
+                    got["load"] = frame.evaluate("() => ({load: window.filmcraftLoad || null, api: !!window.filmcraft,"
+                                                 " url: location.href, gpu: !!navigator.gpu,"
+                                                 " webgl2: !!document.createElement('canvas').getContext('webgl2'),"
+                                                 " text: document.body.innerText.slice(0, 600)})")
+                except Exception as exc:  # noqa: BLE001 - only a report
+                    got["load"] = repr(exc)
+            if not opened:
+                print("editor dialog:", got["dialog"], "\nframe:", got.get("load"), "\nconsole:",
+                      got["console"][-40:], flush=True)
+            want(frame is not None, "FilmCraft's editor did not load in the page")
+            want(opened, f"the project did not open in FilmCraft's editor: {got['dialog']} / {got.get('load')}")
+            if not opened or frame is None:
+                return got
+            got["info"] = frame.evaluate("() => filmcraft.info()")
             seq = frame.evaluate("() => filmcraft.execute('sequence.inspect', {})")
             got["sequence"] = {k: seq.get(k) for k in ("name", "durationFrames", "settings")} if isinstance(seq, dict) \
                 else seq
@@ -231,18 +313,29 @@ def browser_check(out: Path, project: dict, want) -> dict:
             want(sum(got["tracks"].values()) > 5, f"the opened sequence has too few clips: {got['tracks']}")
             files = frame.evaluate("() => filmcraft.files()")
             got["files"] = files[:40] if isinstance(files, list) else files
-            # FilmCraft's Save: the page sends the project back and it becomes version 2
+            print("editor opened:", json.dumps({k: got[k] for k in ("load", "tracks", "files")}, default=str)[:3000],
+                  flush=True)
+
+            def saved_version(seconds: int) -> bool:
+                for _ in range(seconds):
+                    if (db.fetch("studio_projects", project["id"]) or {}).get("plan_revision", 1) > rev:
+                        return True
+                    time.sleep(1)
+                return False
+
+            # FilmCraft's own Save (Ctrl/Cmd+S in the editor), then ClipForge's Save button
             page.locator("iframe.craft-frame").click(position={"x": 400, "y": 300})
             page.keyboard.press("Meta+S" if sys.platform == "darwin" else "Control+S")
-            for _ in range(60):
-                if (db.fetch("studio_projects", project["id"]) or {}).get("plan_revision", 1) >= 2:
-                    break
-                time.sleep(1)
+            got["ctrl_s"] = saved_version(30)
+            if not got["ctrl_s"]:
+                save_button.click()
+                got["button"] = saved_version(60)
             row = db.fetch("studio_projects", project["id"])
             got["after_save"] = {"plan_revision": row["plan_revision"]}
-            want(row["plan_revision"] >= 2, "FilmCraft's Save did not come back to ClipForge as version 2")
-            if row["plan_revision"] >= 2:
-                plan = video_flow.plan_at(project["id"], 2)
+            print("after save:", {k: got.get(k) for k in ("ctrl_s", "button", "after_save")}, flush=True)
+            want(row["plan_revision"] > rev, f"FilmCraft's save did not come back to ClipForge as version {rev + 1}")
+            if row["plan_revision"] > rev:
+                plan = video_flow.plan_at(project["id"], row["plan_revision"])
                 saved = video_flow.filmcraft_saves(project["id"]) / f"{plan['filmcraft']['project']}.fcproj"
                 text = saved.read_text()
                 got["after_save"]["bytes"] = len(text)
@@ -250,7 +343,7 @@ def browser_check(out: Path, project: dict, want) -> dict:
             page.screenshot(path=str(out / "editor-saved.png"))
             browser.close()
     except Exception as exc:  # noqa: BLE001 - reported
-        want(False, f"the editor page check failed: {exc}")
+        want(False, f"the editor page check failed: {exc!r}")
     finally:
         server.terminate()
         server.wait(timeout=30)

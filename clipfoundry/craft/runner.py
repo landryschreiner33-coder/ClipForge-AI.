@@ -157,8 +157,14 @@ class EffectCraft:
     def script(self, script: Path, project: Path, *, timeout: float = 300) -> dict:
         """Build a project with an After Effects-style script (EffectCraft's scripting sandbox: the script reads
         only its own folder and writes nothing)."""
-        done = call(self.cli, ["script", str(script), "--save-as", str(project), "--json"], timeout=timeout,
-                    cwd=script.parent, cancelled=self.cancelled, what="EffectCraft")
+        args = ["script", str(script), "--save-as", str(project), "--json"]
+        done = call(self.cli, [*args, "--empty"], timeout=timeout, cwd=script.parent, cancelled=self.cancelled,
+                    what="EffectCraft")
+        if done.returncode != 0 and not any(isinstance(x, dict) and x.get("error") for x in json_lines(done.stdout)):
+            # an EffectCraft that does not take --empty with a script: it starts from its own demo project, so
+            # the shot's composition has a ClipForge name and is rendered by that name
+            done = call(self.cli, args, timeout=timeout, cwd=script.parent, cancelled=self.cancelled,
+                        what="EffectCraft")
         got = last_json(done, "EffectCraft's script")
         if isinstance(got, dict) and got.get("error"):
             raise CraftError(f"EffectCraft's script failed: {str(got['error'])[:300]}")

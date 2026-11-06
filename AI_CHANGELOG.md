@@ -1,5 +1,20 @@
 # AI changelog
 
+## FilmCraft and EffectCraft inside ClipForge: fixes from the real apps — 2026-11-06 (Claude Code)
+
+The first real-app run (GitHub macOS 15 and Ubuntu, run 42250189370) applied all 29 FilmCraft steps and FilmCraft's
+render passed its checks, and showed three problems, fixed here:
+
+- **EffectCraft's title script** failed on `layer.property("Source Text")` (EffectCraft 0.9.2 has no such shortcut).
+  Shot scripts now use helpers that look properties up by match name first (`craft/shots.py`), run in an empty
+  project (`--empty`, with a retry without it for an EffectCraft that refuses it), use ClipForge comp names, and
+  report what they could not set. The AI is told about the helpers.
+- **FilmCraft's editor on the editor page**: the released web build (0.17.1) has the `window.filmcraft` API but no
+  host messages, so the page never opened the version. The page now opens it when FilmCraft has started, takes
+  `.fcproj` downloads from the frame as saves, and has a Save to ClipForge button (`file.saveAs`).
+- **The check itself**: the seeded project's own rough-cut job raced the check's plan (sometimes saving version 2);
+  the AI stand-in picked a clip kind that does not exist. A failing AI pass no longer stops the FilmCraft edit.
+
 ## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code)
 
 Landry: "I want film craft to actually be in my app and not seperate and the ai uses it to edit and it can use any of

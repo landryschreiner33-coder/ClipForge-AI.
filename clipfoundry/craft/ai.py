@@ -17,6 +17,7 @@ import json
 import re
 
 from ..studio import engine
+from ..studio.jobs import Canceled
 from . import shots
 from .runner import CraftError
 
@@ -51,8 +52,11 @@ ANSWER = """Answer format:
 Rules: use only the tools listed, with clip ids from the sequence; times for keyframes as "frame" (sequence frame) or
 "seconds"; at most 40 steps; no file paths. Leave steps empty when the edit is already good. A shot's script runs in
 After Effects' scripting model with `comp` already made (W x H, FPS, DUR seconds, transparent background): add text,
-shape and solid layers, effects and keyframes to `comp`; do not save, render or touch files. Keep shots short and
-readable; they play at "at_s" seconds over the video."""
+shape and solid layers, effects and keyframes to `comp`; do not save, render or touch files. For a layer's Source Text,
+Position, Scale, Opacity, Rotation and Anchor Point use these helpers (EffectCraft does not know every After Effects
+shortcut): cfProp(layer, name) gives the property, cfSet(layer, name, value), cfKeys(layer, name, [[seconds, value],
+...]), cfStyle(textLayer, sizePx, [r, g, b]) sets the text's size and colour. Keep shots short and readable; they
+play at "at_s" seconds over the video."""
 
 
 def _catalog(film, project) -> list[dict]:
@@ -180,8 +184,10 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict)
         looks = _names(film, edit.project, "lumetri.presets", {})
         prompt = build_prompt(plan, edit, rows, catalog, effects, looks)
         answer = parse(llm.complete(settings, prompt, system=SYSTEM, task="filmcraft_finish"))
-    except (llm.ProviderError, ValueError, CraftError) as exc:
-        return {"used": False, "why": str(exc)[:300]}
+    except Canceled:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the AI's finishing is optional: the FilmCraft edit stands without it
+        return {"used": False, "why": (str(exc) or type(exc).__name__)[:300]}
     steps, refused = check_steps(answer.get("steps"), {r["clip"] for r in rows})
     results = film.run_steps(edit.project, steps) if steps else []
     edit.steps += steps

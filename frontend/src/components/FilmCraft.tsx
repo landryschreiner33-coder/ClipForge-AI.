@@ -23,7 +23,22 @@ type Bridge = {
   importUrl: (url: string, name?: string) => Promise<unknown>;
   openProject: (file: File | string) => Promise<unknown>;
   readFile: (path: string) => Promise<Uint8Array>;
+  execute?: (id: string, params?: unknown) => Promise<unknown>;
 };
+/** The editor's window (same address as ClipForge): its API, how its start went, its own anchor elements. */
+type EditorWindow = Window & {
+  filmcraft?: Bridge;
+  filmcraftLoad?: { fatal?: string; error?: string; readyMs?: number };
+  HTMLAnchorElement: typeof HTMLAnchorElement;
+};
+
+async function digest(bytes: ArrayBuffer): Promise<string> {
+  try {
+    return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return `${bytes.byteLength}`;
+  }
+}
 
 /** FilmCraft's own editor on one version, inside ClipForge: the AI's FilmCraft edit (or the person's earlier save)
  * opens with its files, and Save in FilmCraft makes a new version of the video (FilmCraft renders it). Exports made
@@ -39,6 +54,10 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const base = useRef(v.plan_revision);
   const session = useRef<EditorSession | null>(null);
+  const opened = useRef(false);
+  const poll = useRef<number>(0);
+  const last = useRef<{ digest: string; at: number }>({ digest: "", at: 0 });
+  const saveRef = useRef<(name: string, bytes: ArrayBuffer) => Promise<void>>(async () => undefined);
 
   const load = useCallback(async (prepare: boolean) => {
     try {
@@ -70,7 +89,8 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
   const open = useCallback(async () => {
     const got = session.current;
     const fc = bridge();
-    if (!got?.ready || !fc || !got.project) return;
+    if (!got?.ready || !fc || !got.project || opened.current) return;
+    opened.current = true;
     setPhase("opening");
     try {
       for (const m of got.media || []) {
@@ -87,6 +107,8 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
       setNote(`FilmCraft could not open this version: ${errorText(e)}`);
     }
   }, []);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const save = useCallback(async (name: string, bytes: ArrayBuffer) => {
     if (!name.toLowerCase().endsWith(".fcproj")) {  // an export, captions, a frame: the person's download
@@ -98,6 +120,9 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
       toast(`Saved ${name} to your downloads.`);
       return;
     }
+    const d = await digest(bytes);
+    if (d === last.current.digest && Date.now() - last.current.at < 15000) return;  // the same save, delivered twice
+    last.current = { digest: d, at: Date.now() };
     setSaving(true);
     try {
       const url = `/api/studio/videos/${v.id}/filmcraft/save?revision=${revision}&base=${base.current}`;
@@ -127,12 +152,71 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
     }
     setSaving(false);
   }, [v.id, revision, onSaved]);
+  saveRef.current = save;
+
+  /** The editor's page loaded (again, when it restarts itself on WebGL2): take its project saves, then open the
+   * version once FilmCraft has started. FilmCraft 0.17 offers a saved project as a browser download; ClipForge takes
+   * those instead (exports still download). A FilmCraft with its own hand-over sends the messages below. */
+  const onFrameLoad = useCallback(() => {
+    const w = frame.current?.contentWindow as EditorWindow | null;
+    window.clearInterval(poll.current);
+    if (!w) return;
+    try {
+      const proto = w.HTMLAnchorElement.prototype;
+      const click = proto.click;
+      proto.click = function (this: HTMLAnchorElement) {
+        if (/\.fcproj$/i.test(this.download || "") && this.href.startsWith("blob:")) {
+          const name = this.download;
+          void fetch(this.href).then((r) => r.arrayBuffer()).then((b) => saveRef.current(name, b))
+            .catch((e) => toast(`The FilmCraft save did not reach ClipForge: ${errorText(e)}`, true));
+          return;
+        }
+        click.call(this);
+      };
+    } catch { /* not this address: only the messages below */ }
+    let errors = 0;
+    let waited = 0;
+    poll.current = window.setInterval(() => {
+      waited += 1;
+      const load = w.filmcraftLoad;
+      errors = load?.error && !load.readyMs ? errors + 1 : 0;
+      const failed = load?.fatal || (errors > 10 ? load?.error : "") ||
+        (waited > 240 ? "FilmCraft's editor did not start in this window. It needs WebGPU or WebGL2." : "");
+      if (failed) {
+        window.clearInterval(poll.current);
+        setPhase("failed");
+        setNote(String(failed).split("\n\nStack:")[0].slice(0, 400));
+      } else if (w.filmcraft && session.current?.ready) {
+        window.clearInterval(poll.current);
+        void openRef.current();
+      }
+    }, 500);
+  }, []);
+  useEffect(() => () => window.clearInterval(poll.current), []);
+
+  /** ClipForge's own Save: FilmCraft saves the project under a ClipForge name, and that save comes back (above). */
+  const saveNow = async () => {
+    const fc = bridge();
+    if (!fc?.execute) return;
+    const path = `/projects/clipforge-version-${revision}.fcproj`;
+    const before = last.current.at;
+    try {
+      await fc.execute("file.saveAs", { path });
+      window.setTimeout(() => {  // nothing came back (a FilmCraft that keeps saves to itself): read it
+        if (last.current.at !== before) return;
+        fc.readFile(path).then((b) => saveRef.current(path.split("/").pop()!, b.slice().buffer as ArrayBuffer))
+          .catch((e) => toast(`The FilmCraft save did not reach ClipForge: ${errorText(e)}`, true));
+      }, 4000);
+    } catch (e) {
+      toast(`FilmCraft could not save: ${errorText(e)}`, true);
+    }
+  };
 
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.source !== frame.current?.contentWindow) return;
       const d = (e.data || {}) as { type?: string; dirty?: boolean; error?: string; name?: string; bytes?: ArrayBuffer };
-      if (d.type === "filmcraft:ready") void open();
+      if (d.type === "filmcraft:ready") void open();  // a FilmCraft with its own hand-over
       else if (d.type === "filmcraft:dirty") setDirty(!!d.dirty);
       else if (d.type === "filmcraft:failed") { setPhase("failed"); setNote(d.error || "FilmCraft's editor could not start."); }
       else if (d.type === "filmcraft:save" && d.bytes) void save(d.name || "edit.fcproj", d.bytes);
@@ -159,7 +243,9 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
         <b>FilmCraft</b><span className="small muted">Version {revision}{s?.hand ? " (your FilmCraft save)" : ""}</span>
         {dirty && <Pill tone="warn">Unsaved changes</Pill>}
         {saving && <Pill>Saving…</Pill>}
-        <span className="small muted craft-tip">Save in FilmCraft (Ctrl or Cmd+S) makes a new version here.</span>
+        <span className="small muted craft-tip">Saving in FilmCraft (Ctrl or Cmd+S) makes a new version here.</span>
+        <button type="button" className="btn btn-small btn-primary" disabled={phase !== "open" || saving}
+          onClick={() => void saveNow()}><Icon name="check" />Save to ClipForge</button>
         <button type="button" className="btn btn-small" onClick={close}><Icon name="x" />Close</button>
       </div>
       {phase === "making" && <div className="craft-wait"><p>FilmCraft is editing version {revision}…</p>
@@ -170,7 +256,7 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
         Editing apps.</Banner>}
       {(phase === "starting" || phase === "opening") && <p className="small muted craft-note">{note || "Starting FilmCraft…"}</p>}
       {showFrame && <iframe ref={frame} className="craft-frame" title="FilmCraft editor" src={s!.editor}
-        allow="fullscreen; clipboard-read; clipboard-write" />}
+        onLoad={onFrameLoad} allow="fullscreen; clipboard-read; clipboard-write" />}
     </Modal>
   );
 }

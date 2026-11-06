@@ -121,7 +121,7 @@ with Path(LOG).open("a") as f:
     f.write(json.dumps(args) + "\n")
 if args[0] == "script":
     Path(args[args.index("--save-as") + 1]).write_text(json.dumps({"script": Path(args[1]).read_text()}))
-    print(json.dumps({"ok": True}))
+    print(json.dumps({"ok": True, "result": "ok"}))
 elif args[0] == "render":
     Path(args[args.index("--out") + 1]).write_bytes(b"shot")
     print(json.dumps({"ok": True, "frames": 30}))
@@ -320,7 +320,12 @@ def test_filmcraft_edits_and_renders_the_final_video(env, tools):  # noqa: F811
     steps = json.loads((out.parent / "filmcraft" / "report.json").read_text())["steps_run"]
     assert any(s["id"] == "clip.replaceFromBin" and s["for"] == "animated title (EffectCraft)" for s in steps)
     effect = _log(tools["logs"]["effect"])
-    assert effect[0][0] == "script" and effect[1][:1] == ["render"] and "hq" in effect[1]
+    assert effect[0][0] == "script" and "--empty" in effect[0] and effect[1][:1] == ["render"] and "hq" in effect[1]
+    assert effect[1][effect[1].index("--comp") + 1] == "ClipForge Title" and report["shots"][0]["checks"] == "ok"
+    script = Path(effect[0][1]).read_text()
+    # EffectCraft 0.9 has no layer.property("Source Text"): the title only uses the helpers, which report back
+    assert "cfStyle(t, FS" in script and 'property("Source Text")' not in script.split("TITLE")[-1]
+    assert script.rstrip().endswith('"ok";')
     # the same plan again reuses the edit the person may have seen in the editor
     n = len(film)
     finish.render(plan, assets, words, out, name="Lake day", revision=1, settings={})
@@ -547,6 +552,41 @@ def test_hand_finished_versions_render_from_the_save_and_later_edits_start_again
     with pytest.raises(video_flow.VideoError, match="finished in FilmCraft's editor"):
         video_flow._craft_render(project, {"revision": 4}, p4, {}, {}, env / "x.mp4", {"edit_engine": "ffmpeg"},
                                  _Lease(), True)
+
+
+def test_an_effectcraft_without_empty_for_scripts_runs_the_script_in_its_own_project(env):  # noqa: F811
+    from clipfoundry.craft import runner
+
+    log = env / "old-effect.log"
+    old = _program(env / "old-effectcraft-cli", r'''
+import json, sys
+from pathlib import Path
+args = sys.argv[1:]
+with Path(LOG).open("a") as f:
+    f.write(json.dumps(args) + "\n")
+if "--empty" in args:
+    print("error: unexpected argument --empty", file=sys.stderr)
+    sys.exit(2)
+Path(args[args.index("--save-as") + 1]).write_text("{}")
+print(json.dumps({"result": "ok"}))
+''', LOG=str(log))
+    js = env / "shot.jsx"
+    js.write_text("1;")
+    got = runner.EffectCraft(old).script(js, env / "shot.ecproj")
+    calls = _log(log)
+    assert got["result"] == "ok" and len(calls) == 2 and "--empty" in calls[0] and "--empty" not in calls[1]
+    # a script that fails is reported, never run a second time
+    bad = _program(env / "bad-effectcraft-cli", r'''
+import json, sys
+from pathlib import Path
+with Path(LOG).open("a") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\n")
+print(json.dumps({"error": {"line": 9, "message": "TypeError"}}))
+sys.exit(1)
+''', LOG=str(env / "bad.log"))
+    with pytest.raises(runner.CraftError, match="TypeError"):
+        runner.EffectCraft(bad).script(js, env / "shot.ecproj")
+    assert len(_log(env / "bad.log")) == 1
 
 
 @linux_only
