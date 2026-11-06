@@ -100,7 +100,7 @@ ROLES: list[dict] = [
        kinds=("video_build", "edit_request"), stages={"analyze_source": ("plan",), "regenerate_clip": ("plan",)}),
     _r("splice", "SPLICE", "worker", "editing", "Video Editor",
        "Frames and renders the clips and previews, and reports measured progress.",
-       kinds=("regenerate_clip", "video_preview", "clip_render", "version_render"),
+       kinds=("regenerate_clip", "video_preview", "clip_render", "version_render", "filmcraft_edit"),
        stages={"project": ("render",), "analyze_source": ("render",), "regenerate_clip": ("render",)}),
     _r("glyph", "GLYPH", "worker", "sound", "Caption Agent",
        "Lays out the spoken words as timed captions and keeps them in sync with the sound.",

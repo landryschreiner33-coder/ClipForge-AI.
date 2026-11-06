@@ -91,7 +91,9 @@ export type Plan = { schema: number; output: { aspect: string; fps: number }; la
   audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };
   word_fixes?: Record<string, Record<string, string>>;
   outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[];
-  overlays?: Overlay[]; chapters?: { clip_id: string; offset_ms?: number; title: string }[]; smart?: SmartReport };
+  overlays?: Overlay[]; chapters?: { clip_id: string; offset_ms?: number; title: string }[]; smart?: SmartReport;
+  /** Set on a version finished by hand in FilmCraft's editor (rendered by FilmCraft from that save). */
+  filmcraft?: { project: string; saved_at: number; opened_on: number } };
 export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
   out_start_ms: number; out_end_ms: number };
 export type Placed = { audio_id: string; asset_id: string; role: AudioRole; track: TrackName; out_start_ms: number;
@@ -99,7 +101,8 @@ export type Placed = { audio_id: string; asset_id: string; role: AudioRole; trac
 export type Video = { id: string; name: string; status: string; message: string; asset_ids: string[];
   brief: Record<string, unknown>; plan_revision: number; rendered_revision: number; guidance: Snapshot; plan: Plan | null;
   duration: number; assets: Asset[]; bin: string[]; timeline: Segment[]; audio_timeline: Placed[];
-  artifacts: { id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean }[];
+  artifacts: ({ id: string; revision: number; kind: string; sha256: string; duration: number; audio_ok: boolean } &
+    MadeWith)[];
   preview: { revision: number; stale: boolean } | null;
   jobs: { id: string; kind: string; revision: number; status: string; progress: number; message: string; error: string }[];
   revisions: { revision: number; note: string; name: string; action: string; created_at: number }[];
@@ -144,6 +147,34 @@ export type ChangeRequest = { id: string; project_id: string; base_revision: num
   source: "rules" | "ai"; provider: string; sent: string; message: string; applied_revision: number; created_at: number;
   proposal: { format?: string; summary?: string; operations?: Record<string, unknown>[]; changes?: string[]; notes?: string[];
     question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
+
+/** Which editor made a rendered version, and what FilmCraft, EffectCraft and the AI did in it. */
+export type MadeWith = { engine?: string; fallback?: string; filmcraft?: { hand_edited: boolean; steps: number;
+  failed: number; shots: { what: string; app: string; use: string }[]; notes: string[];
+  ai: { used: boolean; summary: string; provider: string; steps: number; refused: number } | null } };
+
+/** FilmCraft and EffectCraft inside ClipForge (Settings, Editing apps). */
+export type CraftApp = { key: string; label: string; what: string; version: string; page: string;
+  cli: { ready: boolean; source: string; version: string; bytes: number }; web: { ready: boolean; bytes: number } | null };
+export type CraftStatus = { platform: string; supported: boolean; online: boolean; can_install: boolean; apps: CraftApp[];
+  ready: boolean; missing_bytes: number; engine: "auto" | "filmcraft" | "ffmpeg"; ai_finish: boolean; auto_install: boolean;
+  ai_disclosure: string; editor: boolean;
+  task: { state: string; app: string; part: string; done: number; total: number; error: string } };
+/** FilmCraft's editor on one version: its project and the files it uses, or the job making the AI's edit. */
+export type EditorSession = { revision: number; editor: string; editor_ready: boolean; cli_ready: boolean; ready: boolean;
+  hand: boolean; job: { id: string; status: string; progress: number; message: string; error: string } | null;
+  media?: { name: string; url: string; bytes: number }[]; media_query?: string; project?: string; project_name?: string;
+  steps?: number; failed?: string[]; notes?: string[]; shots?: { what: string; app: string; use: string }[];
+  ai?: { used?: boolean; summary?: string; provider?: string; steps?: number; refused?: string[]; why?: string } };
+
+export const craft = {
+  status: () => req<CraftStatus>("GET", "/api/craft"),
+  install: () => req<CraftStatus>("POST", "/api/craft/install", { parts: ["cli", "web"] }),
+  editor: (id: string, revision: number) =>
+    req<EditorSession>("GET", `/api/studio/videos/${id}/filmcraft/editor?revision=${revision}`),
+  prepare: (id: string, revision: number) =>
+    req<EditorSession>("POST", `/api/studio/videos/${id}/filmcraft/prepare`, { revision }),
+};
 
 /** FilmCraft (the free open-source editor from the ArtCraft team) on this computer. */
 export type FilmCraftStatus = { available: boolean; installed: boolean; app?: boolean; cli?: boolean; version?: string;

@@ -41,6 +41,8 @@ VIDEO_TRANSITIONS = {"dissolve": ("Cross Dissolve", "SMPTE_Dissolve"), "fade": (
 AUDIO_TRANSITION = ("Cross Fade (+3dB)", "SMPTE_Dissolve")
 TRACK_NAMES = {"source": "Sound from your videos", "voiceover": "Voiceover", "music": "Music",
                "effects": "Sound effects"}
+BACKGROUND_TRACK = "Blurred background"
+OVERLAY_BACKGROUND_TRACK = "Pictures over the video (background)"
 _UNSAFE = re.compile(r"[^\w\- .()&,'+]+", re.UNICODE)
 
 
@@ -108,6 +110,33 @@ def _frames(ms: float, fps: int) -> int:
     return round(ms * fps / 1000)
 
 
+def cover_ratio(asset: dict, width: int, height: int) -> float:
+    """How much larger a picture has to be to fill the frame than to fit in it (1.0: same shape, or unknown)."""
+    p = asset.get("probe") or {}
+    try:
+        w, h = float(p.get("width") or 0), float(p.get("height") or 0)
+    except (TypeError, ValueError):
+        return 1.0
+    if w <= 0 or h <= 0:
+        return 1.0
+    fit, cover = min(width / w, height / h), max(width / w, height / h)
+    return round(cover / fit, 6)
+
+
+def placements(track: dict) -> list[dict]:
+    """The clips of an OTIO track with their first frame and length on the timeline (transitions take no room)."""
+    pos, out = 0, []
+    for c in track.get("children") or []:
+        schema = c.get("OTIO_SCHEMA", "")
+        if schema.startswith("Transition"):
+            continue
+        n = round(float(c["source_range"]["duration"]["value"]))
+        if schema.startswith("Clip"):
+            out.append({"start": pos, "frames": n, "clip": c})
+        pos += n
+    return out
+
+
 def _length_frames(asset: dict, fps: int) -> float | None:
     seconds = float((asset.get("probe") or {}).get("duration") or 0)
     return seconds * fps if seconds > 0 else None
@@ -159,8 +188,9 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
     right = [c for c, _, _ in cuts] + [total_f]
     ttype = (plan.get("transition") or {}).get("type", "cut")
 
-    # ---- V1: the sequence, A1: the sound of its clips
+    # ---- V1: the sequence, A1: the sound of its clips; under V1 the blurred copies behind fitted pictures
     v1: list[dict] = []
+    bg_slots: dict[int, dict] = {}
     a1_slots: list[dict] = []   # per element: its sound clip, or a gap
     sound_slots: list[bool] = []
     for k, e in enumerate(els):
@@ -191,9 +221,13 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
         asset = assets[e["asset_id"]]
         label = c.get("label") or asset["filename"]
         start = e["src_in_ms"] * fps / 1000 + into if e["kind"] == "video" else into
-        meta_cf = {"clip_id": c["id"], "asset_id": asset["id"], "kind": e["kind"],
-                   "layout": c.get("layout") or plan.get("layout") or "fit", "zoom": float(c.get("zoom") or 1.0)}
+        layout = c.get("layout") or plan.get("layout") or "fit"
+        meta_cf = {"clip_id": c["id"], "asset_id": asset["id"], "kind": e["kind"], "layout": layout,
+                   "zoom": float(c.get("zoom") or 1.0), "cover": cover_ratio(asset, width, height)}
         v1.append(_clip(label, ref(asset), start, frames, fps, {"scale_to_frame": True, "link": link}, meta_cf))
+        if layout not in ("fill", "follow") and meta_cf["cover"] > 1.01:  # bars beside a fitted picture
+            bg_slots[k] = _clip(f"{label} (background)", ref(asset), start, frames, fps, {"scale_to_frame": True},
+                                {**meta_cf, "role": "background"})
         audible = (e["kind"] == "video" and (asset.get("probe") or {}).get("has_audio") and not c.get("mute"))
         if audible:
             a1_slots.append(_clip(label, ref(asset), start, frames, fps,
@@ -204,6 +238,13 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
         else:
             a1_slots.append(_gap(frames, fps))
         sound_slots.append(bool(audible))
+    background: list[dict] = []
+    if bg_slots:
+        for k, e in enumerate(els):
+            if k and sum(cuts[k - 1][1:]) and k in bg_slots and (k - 1) in bg_slots:
+                tname, tkind = VIDEO_TRANSITIONS.get(ttype, VIDEO_TRANSITIONS["dissolve"])
+                background.append(_transition(tname, tkind, cuts[k - 1][1], cuts[k - 1][2], fps))
+            background.append(bg_slots.get(k) or _gap(right[k] - left[k], fps))
     # the same cuts on A1, with a constant-power crossfade wherever at least one side has sound
     a1: list[dict] = []
     for k, item in enumerate(a1_slots):
@@ -217,16 +258,23 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
     flat = sorted((o for items in engine._overlay_frames(plan, els, fps, assets).values() for o in items),
                   key=lambda o: o["start_f"])
     v2: list[dict] = []
+    v2_bg: list[dict] = []
     pos = 0
     for o in flat:
         src = by_overlay[o["id"]]
         asset = assets[src["asset_id"]]
         if o["start_f"] > pos:
             v2.append(_gap(o["start_f"] - pos, fps))
+            v2_bg.append(_gap(o["start_f"] - pos, fps))
         start = o["src_in_ms"] * fps / 1000 if asset["kind"] == "video" else 0
-        v2.append(_clip(src.get("label") or asset["filename"], ref(asset), start, o["end_f"] - o["start_f"], fps,
-                        {"scale_to_frame": True},
-                        {"overlay_id": o["id"], "asset_id": asset["id"], "fit": o["fit"], "motion": o["motion"]}))
+        label = src.get("label") or asset["filename"]
+        meta_cf = {"overlay_id": o["id"], "asset_id": asset["id"], "fit": o["fit"], "motion": o["motion"],
+                   "cover": cover_ratio(asset, width, height)}
+        n = o["end_f"] - o["start_f"]
+        v2.append(_clip(label, ref(asset), start, n, fps, {"scale_to_frame": True}, meta_cf))
+        v2_bg.append(_clip(f"{label} (background)", ref(asset), start, n, fps, {"scale_to_frame": True},
+                           {**meta_cf, "role": "background"}) if o["fit"] == "fit" and meta_cf["cover"] > 1.01
+                     else _gap(n, fps))
         pos = o["end_f"]
 
     # ---- voiceover, music and sound effects, each on its own track (more lanes where items overlap)
@@ -279,8 +327,11 @@ def build(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[di
     # ---- markers (every chapter, also ones YouTube would not show), captions, the whole document
     markers = [_marker(ch["title"], min(total_f - 1, _frames(ch["ms"], fps)), fps, "Chapter")
                for ch in chapter_marks(plan)]
-    stack_tracks = [_track("Video 1", "Video", v1)]
+    stack_tracks = [_track(BACKGROUND_TRACK, "Video", background)] if background else []
+    stack_tracks.append(_track("Video 1", "Video", v1))
     if v2:
+        if any(c["OTIO_SCHEMA"].startswith("Clip") for c in v2_bg):
+            stack_tracks.append(_track(OVERLAY_BACKGROUND_TRACK, "Video", v2_bg))
         stack_tracks.append(_track("Pictures over the video", "Video", v2))
     if any(sound_slots):
         stack_tracks.append(_track(TRACK_NAMES["source"], "Audio", a1, {"volume_db": source_gain,
@@ -351,7 +402,8 @@ def not_carried(plan: dict, title_still: bool) -> list[str]:
     if "fill" in layouts:
         out.append("“Fill the frame” framing: clips are scaled to fit the frame; raise Scale to crop them.")
     if "fit" in layouts:
-        out.append("The blurred background behind clips that do not fill the frame (FilmCraft shows black there).")
+        out.append("The blur and enlargement of the copies on the “Blurred background” track (they sit under "
+                   "pictures that do not fill the frame).")
     if plan.get("overlays"):
         out.append("The slow push-in and the fades of pictures over the video.")
     if (plan.get("captions") or {}).get("enabled"):

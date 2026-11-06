@@ -1,5 +1,30 @@
 # AI changelog
 
+## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code)
+
+Landry: "I want film craft to actually be in my app and not seperate and the ai uses it to edit and it can use any of
+the tools it offers and if it uses one program to do effects it then takes that shot and puts it in the final edit".
+
+- **Fetched by ClipForge** (`craft/apps.py`): FilmCraft 0.17.1 and EffectCraft 0.9.2 release files for macOS, Linux
+  and Windows (and FilmCraft's web build), pinned by SHA-256 and size, downloaded in the background by the desktop
+  app (Settings, Editing apps: set up by hand, turn off), unpacked with path/link checks into `<data>/tools/craft`.
+- **The edit in FilmCraft** (`craft/finish.py`): the timeline imported by `filmcraft-cli`, then ClipForge's look and
+  sound made with FilmCraft commands (Motion scale, Gaussian Blur on new "Blurred background" tracks, Scale/Opacity
+  keyframes, Volume keyframes, Essential Sound ducking, caption style, -14 LUFS export).
+- **EffectCraft shots** (`craft/shots.py`): the animated title replaces the still title card in the edit.
+- **The AI's finishing** (`craft/ai.py`): with an AI helper, FilmCraft steps (finishing tools only, checked clip ids,
+  no paths, at most 40) and up to two EffectCraft shots laid over the video.
+- **FilmCraft renders final videos** (`video_flow._craft_render`, setting `edit_engine` auto/filmcraft/ffmpeg): the
+  built-in editor is the backup with the reason recorded; previews stay built-in.
+- **FilmCraft's editor on the editor page** (`craft/web.py`, `craft/routes.py`, `components/FilmCraft.tsx`): opens
+  the AI's FilmCraft edit (job `filmcraft_edit`) with only this video's files; Save in FilmCraft becomes a new version
+  rendered by FilmCraft (`plan["filmcraft"]`, saves kept by SHA-256). Desktop app only.
+- **Settings → Editing apps** (`components/EditingApps.tsx`), and each version says which editor made it.
+- **Tests:** `tests/test_craft.py` (15, stand-in apps), `tests/test_studio_filmcraft.py` updated for the background
+  tracks (14). Real apps: `scripts/craft_check.py` in `.github/workflows/filmcraft-check.yml` (macOS 15, Ubuntu).
+  Results: see the PR and AI_HANDOFF.md.
+- **Docs:** `docs/clipforge/CRAFT_APPS.md`.
+
 ## Finish in FilmCraft (ArtCraft's open-source editor) — 2026-11-06 (Claude Code)
 
 Landry asked to plug the ArtCraft apps into ClipForge for editing. FilmCraft (the video editor) is first.

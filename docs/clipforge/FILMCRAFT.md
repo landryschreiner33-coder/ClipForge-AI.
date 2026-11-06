@@ -3,6 +3,12 @@
 Checkpoint 2026-11-06. Landry asked to plug the ArtCraft apps (getartcraft.com/apps, open source at
 github.com/storytold) into ClipForge for editing. FilmCraft, the video editor among them, is the first one in.
 
+**Update (same day):** FilmCraft and EffectCraft are now inside ClipForge: ClipForge fetches them itself, the AI edits
+with FilmCraft's tools, EffectCraft's shots go into the edit, FilmCraft renders the final video and FilmCraft's editor
+opens on the editor page. See [CRAFT_APPS.md](CRAFT_APPS.md). This page describes the timeline hand-off, which stays
+under "Other ways to finish it in FilmCraft" (the desktop app, the timeline files, the portable .zip). The timeline
+now also carries "Blurred background" tracks: copies of the clips and pictures that do not fill the frame, under them.
+
 ## What it does
 
 The editor page (`#/video/<id>`, Look tab) has a **Finish in FilmCraft** panel:
@@ -13,8 +19,8 @@ The editor page (`#/video/<id>`, Look tab) has a **Finish in FilmCraft** panel:
 | Show the timeline files | The same files, shown in Finder / File Explorer. |
 | Timeline with media (.zip) | A portable package: the timeline (pointing at `media/...` next to it), captions, title still, README and every file it uses, stored uncompressed. Also works in the online studio. |
 
-If FilmCraft is not installed, the files are still written and the panel links to
-https://getartcraft.com/apps/filmcraft. ClipForge never downloads, ships or builds FilmCraft.
+If the FilmCraft desktop app is not installed, the files are still written. (ClipForge's own copy of FilmCraft, set
+up in Settings, Editing apps, is described in CRAFT_APPS.md; ClipForge never builds FilmCraft from source.)
 
 **How FilmCraft is opened** (`clipfoundry/studio/filmcraft.py`):
 

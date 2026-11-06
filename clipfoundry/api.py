@@ -25,6 +25,7 @@ from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import routes as studio_routes
+from .craft import routes as craft_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
@@ -68,6 +69,10 @@ async def lifespan(_: FastAPI):
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
         if not cloud_settings.enabled():  # the phone listener is a desktop feature; cloud has its own sign-in
             phone.manager.restore()
+        if not cloud_settings.enabled() and os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() != "off":
+            from .craft import apps as craft_apps
+
+            craft_apps.auto_install()  # FilmCraft and EffectCraft, fetched once in the background (Settings: off)
         try:
             yield
         finally:
@@ -94,6 +99,7 @@ app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
+app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)

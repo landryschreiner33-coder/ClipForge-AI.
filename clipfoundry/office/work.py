@@ -18,7 +18,8 @@ ERROR_SECONDS = 30 * 60
 STUDIO_KINDS = {"link_import": "Fetching the video from your link", "video_build": "Building the rough cut",
                 "video_media": "Reading files added to a video", "video_preview": "Rendering a preview",
                 "video_render": "Rendering the final video", "media_import": "Downloading media you picked",
-                "media_suggest": "Searching for supporting media", "reference_analysis": "Measuring an example video"}
+                "media_suggest": "Searching for supporting media", "reference_analysis": "Measuring an example video",
+                "filmcraft_edit": "Editing in FilmCraft"}
 # what a Make clips project's pipeline stage means, in words, when the pipeline left no message
 STAGE_WORDS = {"queued": "Waiting to start", "download": "Getting the video", "probe": "Reading the video",
                "audio": "Extracting the sound", "transcribe": "Transcribing", "candidates": "Finding moments",

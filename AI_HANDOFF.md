@@ -1,5 +1,23 @@
 # AI handoff
 
+## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wants FilmCraft inside ClipForge, not separate, with the AI editing through its
+tools and effect shots from another app put into the final edit. ClipForge now fetches FilmCraft and EffectCraft
+itself, edits each final video in FilmCraft with FilmCraft's own tools (plus EffectCraft's animated title and, with an
+AI helper, the AI's finishing), has FilmCraft render it, and opens FilmCraft's editor on the editor page; saves there
+come back as new versions. The built-in FFmpeg editor stays as the backup.
+
+- **Branch / PR:** `claude/project-thread-605vsm`, draft PR #26 (on top of the timeline hand-off).
+- **Design and limits:** [docs/clipforge/CRAFT_APPS.md](docs/clipforge/CRAFT_APPS.md).
+- **Code:** `clipfoundry/craft/` (apps, runner, finish, shots, ai, web, routes), `studio/video_flow.py`
+  (`_craft_render`, `save_filmcraft`, job `filmcraft_edit`, hand-finished versions in `save_revision`),
+  `studio/interchange.py` (blurred background tracks), `frontend/src/components/FilmCraft.tsx`, `EditingApps.tsx`.
+- **Verify with real apps:** `scripts/craft_check.py` (GitHub's Mac and Linux machines; the cloud session may not run
+  downloaded programs).
+- **Waiting on Landry:** merge and release.
+- **Next:** EffectCraft's own editor in the page, PhotoCraft (thumbnails), Windows check with the real apps.
+
 ## Finish in FilmCraft — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked to plug the ArtCraft apps (getartcraft.com/apps) into ClipForge for editing.

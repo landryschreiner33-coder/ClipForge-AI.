@@ -109,6 +109,10 @@ def _video(env, *, aspect="9:16", fps=30, transition=("dissolve", 500), title=Tr
     return db.fetch("studio_projects", project["id"])
 
 
+def _track(otio: dict, name: str) -> dict:
+    return next(t for t in otio["tracks"]["children"] if t["name"] == name)
+
+
 def _built(project: dict, **kw):
     from clipfoundry import db
     from clipfoundry.studio import interchange, video_flow
@@ -150,8 +154,8 @@ def test_picture_track_is_frame_exact_against_the_render_frame_map(env, fps, tra
     project = _video(env, fps=fps, transition=transition, title=title)
     plan, _assets, tl = _built(project)
     els, _ = engine.frame_map(plan, fps)
-    v1 = tl.otio["tracks"]["children"][0]
-    assert v1["kind"] == "Video" and v1["name"] == "Video 1"
+    v1 = _track(tl.otio, "Video 1")
+    assert v1["kind"] == "Video"
     rows = _layout(v1)
     assert len(rows) == len(els) == (5 if title else 4)  # the left-out clip is not in the timeline
     assert rows[-1]["end"] == els[-1]["end_f"] == tl.frames
@@ -188,7 +192,8 @@ def test_sound_tracks_follow_the_cuts_and_keep_volume_loops_and_overlaps(env):
     project = _video(env)
     plan, _assets, tl = _built(project)
     tracks = {t["name"]: t for t in tl.otio["tracks"]["children"]}
-    assert list(tracks) == ["Video 1", "Pictures over the video", "Sound from your videos", "Voiceover", "Music",
+    assert list(tracks) == ["Blurred background", "Video 1", "Pictures over the video (background)",
+                            "Pictures over the video", "Sound from your videos", "Voiceover", "Music",
                             "Sound effects 1", "Sound effects 2"]
     v1, a1 = _layout(tracks["Video 1"]), _layout(tracks["Sound from your videos"])
     assert [(r["start"], r["end"]) for r in a1] == [(r["start"], r["end"]) for r in v1]  # same cuts
@@ -225,6 +230,30 @@ def test_sound_tracks_follow_the_cuts_and_keep_volume_loops_and_overlaps(env):
     assert tl.counts == {"clips": 4, "title": True, "transitions": 3, "overlays": 1, "audio_items": 4,
                          "audio_tracks": 5, "captions": tl.counts["captions"], "chapters": 3}
     assert [m["name"] for m in tl.otio["tracks"]["markers"]] == ["Welcome", "The lake", "The island"]
+
+
+def test_fitted_pictures_get_a_blurred_background_copy_under_them(env):
+    project = _video(env)
+    _plan, _assets, tl = _built(project)
+    v1 = {r["item"]["name"]: r for r in _layout(_track(tl.otio, "Video 1")) if r["item"]["OTIO_SCHEMA"] == "Clip.2"}
+    bg = [r for r in _layout(_track(tl.otio, "Blurred background")) if r["item"]["OTIO_SCHEMA"] == "Clip.2"]
+    # "fit" clips (the 16:9 talk and the picture) get a copy at the same place; "fill" (Swim) and the title do not
+    assert [r["item"]["name"] for r in bg] == ["Welcome (background)", "Lake (background)", "Island (background)"]
+    for r in bg:
+        twin = v1[r["item"]["name"].removesuffix(" (background)")]
+        assert (r["start"], r["end"]) == (twin["start"], twin["end"])
+        meta = r["item"]["metadata"]["clipforge"]
+        assert meta["role"] == "background" and meta["cover"] > 1.01
+        assert r["item"]["media_references"] == twin["item"]["media_references"]
+    assert v1["Welcome"]["item"]["metadata"]["clipforge"]["cover"] == pytest.approx(bg[0]["item"]["metadata"][
+        "clipforge"]["cover"])
+    over = [r for r in _layout(_track(tl.otio, "Pictures over the video (background)"))
+            if r["item"]["OTIO_SCHEMA"] == "Clip.2"]
+    pics = [r for r in _layout(_track(tl.otio, "Pictures over the video")) if r["item"]["OTIO_SCHEMA"] == "Clip.2"]
+    assert [(r["start"], r["end"]) for r in over] == [(r["start"], r["end"]) for r in pics]
+    names = [t["name"] for t in tl.otio["tracks"]["children"]]
+    assert names.index("Blurred background") < names.index("Video 1") < \
+        names.index("Pictures over the video (background)") < names.index("Pictures over the video")
 
 
 def test_captions_are_srt_on_the_output_timeline(env):
@@ -264,13 +293,13 @@ def test_the_timeline_reads_in_opentimelineio_itself(env):
     _plan, _assets, tl = _built(project)
     t = otio.adapters.read_from_string(json.dumps(tl.otio), "otio_json")
     assert t.duration().rescaled_to(30).value == pytest.approx(tl.frames)
-    v1 = t.tracks[0]
+    v1 = next(tr for tr in t.tracks if tr.name == "Video 1")
     assert [c.name for c in v1.find_clips()] == ["Title: Lake day", "Welcome", "Lake", "Swim", "Island"]
     assert v1.duration().rescaled_to(30).value == pytest.approx(tl.frames)
     for track in t.tracks:
         assert track.duration().rescaled_to(30).value <= tl.frames + 1e-6
     # OTIO's own idea of where each clip sits matches ours
-    for clip, row in zip(v1.find_clips(), _layout(tl.otio["tracks"]["children"][0])):
+    for clip, row in zip(v1.find_clips(), _layout(_track(tl.otio, "Video 1"))):
         assert clip.range_in_parent().start_time.rescaled_to(30).value == pytest.approx(row["start"])
 
 
@@ -293,7 +322,7 @@ def test_package_files_readme_and_portable_zip(env):
         assert words.lower() in readme.lower()
     if pkg.title:  # FFmpeg drew the title card: the timeline uses the picture
         assert any(u.endswith("Title%20card.png") for u in [
-            c["media_references"]["DEFAULT_MEDIA"].get("target_url", "") for c in doc["tracks"]["children"][0]["children"]
+            c["media_references"]["DEFAULT_MEDIA"].get("target_url", "") for c in _track(doc, "Video 1")["children"]
             if c["OTIO_SCHEMA"] == "Clip.2"])
     # the portable package points inside itself and carries every file once
     port = interchange.for_video(project, 1, env / "portable", portable=True)

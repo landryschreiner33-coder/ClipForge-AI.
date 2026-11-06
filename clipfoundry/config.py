@@ -24,6 +24,7 @@ TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
 SILENCE_MODES = ["off", "light", "aggressive"]
 AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic", "nvidia"]
+EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
 NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
 
@@ -223,6 +224,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "autopilot_allow_cpu_fallback": False,  # off (strict GPU): a GPU failure pauses Autopilot transcription
     "autopilot_max_source_gb": 8.0,     # Autopilot never downloads a bigger source file
     "autopilot_max_source_minutes": 240,  # ...nor processes a longer source (manual projects have no limit)
+    # Editing apps (craft/): FilmCraft (video editor) and EffectCraft (motion graphics), fetched by ClipForge itself
+    "edit_engine": "auto",              # auto: FilmCraft edits and renders final videos once it is set up, the
+                                        # built-in engine if it fails | filmcraft: FilmCraft only | ffmpeg: built-in
+    "craft_auto_install": True,         # the desktop app fetches the editing apps in the background
+    "craft_ai_finish": True,            # with an AI service set up, the AI finishes the edit with FilmCraft's tools
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
@@ -267,6 +273,8 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
         elif key == "silence" and v not in SILENCE_MODES:
             continue
         elif key == "ai_provider" and v not in AI_PROVIDERS:
+            continue
+        elif key == "edit_engine" and v not in EDIT_ENGINES:
             continue
         elif key == "crf":
             v = max(10, min(35, v))

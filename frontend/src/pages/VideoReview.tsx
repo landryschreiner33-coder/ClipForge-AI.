@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
 import { AskForChange } from "../components/AskForChange";
-import { FinishInFilmCraft } from "../components/FilmCraft";
+import { FilmCraftPanel, MadeWithLine } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
@@ -521,7 +521,7 @@ export default function VideoReview({ id }: { id: string }) {
           )}
           <section className="panel" aria-labelledby="vr-versions"><h2 id="vr-versions">Versions</h2>
             {finals.length > 0 && <ul className="file-list">{finals.map((a) => (
-              <li key={a.id} className="file-row"><Icon name="check" /><div><b>Version {a.revision}</b><span className="block small muted">{fmtTime(a.duration)} · checked{a.audio_ok ? ", audio timing valid" : ""}</span></div>
+              <li key={a.id} className="file-row"><Icon name="check" /><div><b>Version {a.revision}</b><span className="block small muted">{fmtTime(a.duration)} · checked{a.audio_ok ? ", audio timing valid" : ""}{a.engine === "filmcraft" ? " · made in FilmCraft" : ""}</span>{a.fallback && <span className="block"><MadeWithLine m={a} /></span>}</div>
                 <a className="btn btn-small" href={`/api/studio/videos/${v.id}/media?kind=final&revision=${a.revision}&download=1`}><Icon name="download" />Download</a></li>
             ))}</ul>}
             <ul className="small version-list">{v.revisions.slice(0, 12).map((r) => (
@@ -536,7 +536,7 @@ export default function VideoReview({ id }: { id: string }) {
             ))}</ul>
             <a className="small" href={`/api/studio/videos/${v.id}/export`}>Download the edit plan (JSON)</a>
           </section>
-          <FinishInFilmCraft v={v} />
+          <FilmCraftPanel v={v} onSaved={setV} />
           <Credits v={v} onSaved={setV} /></div>),
       }} />
     </div>
