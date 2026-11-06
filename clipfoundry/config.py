@@ -23,7 +23,9 @@ CAPTION_STYLES = ["clean", "bold", "high_energy", "minimal"]
 TRACKING_MODES = ["auto", "center", "face", "speaker", "screen", "manual"]
 LAYOUTS = ["fill", "fit"]
 SILENCE_MODES = ["off", "light", "aggressive"]
-AI_PROVIDERS = ["heuristic", "ollama", "openai_compatible", "anthropic", "nvidia"]
+CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
+AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
+BUILTIN_AI_LEVELS = ["auto", "basic", "standard", "pro"]
 EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
 NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
@@ -77,6 +79,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # "Tell the editor what to change" (studio/edit_requests.py): only used when an AI service above is set up
     "ai_edit_requests_per_day": 40,     # requests sent to the AI service per workspace per day (0: never send)
     "ai_edit_timeout_s": 60.0,          # stop waiting after this; nothing is changed
+    # The built-in AI (builtin_ai.py): llama.cpp and a free model, downloaded once from Settings → AI helper
+    "builtin_ai_level": "auto",          # auto (the best one installed) | basic | standard | pro
+    "builtin_ai_idle_minutes": 10.0,     # the engine stops after this long without work, freeing its memory
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.1:8b",
     "openai_url": "http://localhost:1234/v1",
@@ -111,6 +116,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_overlay": True,
     "hook_seconds": 3.0,
     "normalize_audio": True,
+    "clean_sound": "auto",            # off | auto | gentle | strong: noise, hum, breaths, levels, voice polish
     "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",
@@ -272,9 +278,13 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "silence" and v not in SILENCE_MODES:
             continue
+        elif key == "clean_sound" and v not in CLEAN_SOUND_MODES:
+            continue
         elif key == "ai_provider" and v not in AI_PROVIDERS:
             continue
         elif key == "edit_engine" and v not in EDIT_ENGINES:
+            continue
+        elif key == "builtin_ai_level" and v not in BUILTIN_AI_LEVELS:
             continue
         elif key == "crf":
             v = max(10, min(35, v))
@@ -337,6 +347,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "discovery_creator_limit": (1, 30),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
     "brain_min_testers": (2, 100), "ai_edit_requests_per_day": (0, 1000), "ai_edit_timeout_s": (5.0, 300.0),
+    "builtin_ai_idle_minutes": (1.0, 120.0),
     "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),

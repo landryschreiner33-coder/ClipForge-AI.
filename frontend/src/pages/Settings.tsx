@@ -506,6 +506,12 @@ function DefaultsTab({ c, autopilotOn, tz }: { c: FieldCtx; autopilotOn: boolean
           <Seg k="layout" c={c}
             options={[{ value: "fill", label: "Fill (crop)" }, { value: "fit", label: "Fit (blurred background)" }]} />
         </SettingRow>
+        <SettingRow k="clean_sound" label="Clean up the sound"
+          hint="Background noise, hum, breaths, uneven levels and voice polish. Auto leaves music alone." group>
+          <Seg k="clean_sound" c={c}
+            options={[{ value: "off", label: "Off" }, { value: "auto", label: "Auto" },
+              { value: "gentle", label: "Gentle" }, { value: "strong", label: "Strong" }]} />
+        </SettingRow>
         <SettingRow k="silence" label="Silence cleanup" hint="Removes long pauses" group>
           <Seg k="silence" c={c}
             options={[{ value: "off", label: "Off" }, { value: "light", label: "Light" },

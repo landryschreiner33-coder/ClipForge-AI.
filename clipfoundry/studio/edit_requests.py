@@ -529,6 +529,8 @@ def _ai_settings() -> tuple[dict, str]:
 
 
 def _local(settings: dict, provider: str) -> bool:
+    if provider == "builtin":
+        return True  # the built-in AI only ever listens on 127.0.0.1
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
     elif provider == "openai_compatible":

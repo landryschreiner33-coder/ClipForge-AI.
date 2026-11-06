@@ -23,6 +23,10 @@ import httpx
 
 OLLAMA_DOWNLOAD = "https://ollama.com/download"
 PRESETS = [
+    {"id": "builtin", "name": "Built-in AI", "provider": "builtin", "url": "", "model": "", "needs_key": False,
+     "local": True, "cost": "Free",
+     "about": "Comes with ClipForge: a free model (Gemma 4 or Qwen3-VL) that runs on this computer. Private, works "
+              "without internet once downloaded, no limits. Download it once below.", "key_url": ""},
     {"id": "ollama", "name": "Ollama on this computer", "provider": "ollama", "url": "http://localhost:11434",
      "model": "qwen2.5:3b", "needs_key": False, "local": True, "cost": "Free",
      "about": "Runs on your own computer: private, works without internet, no limits. Install the free Ollama app, "

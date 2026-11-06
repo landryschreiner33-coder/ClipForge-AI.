@@ -461,6 +461,12 @@ export default function VideoReview({ id }: { id: string }) {
                     <label><input type="checkbox" checked={!!plan.tracks?.[t]?.mute} disabled={busy} onChange={(e) => edit({ op: "track_set", track: t, field: "mute", value: e.target.checked })} /> Mute</label>
                   </div>))}
               </div>
+              <label className="field"><span>Clean up the sound from your videos</span>
+                <select value={plan.clean_sound ?? ""} disabled={busy} onChange={(e) => e.target.value && edit({ op: "set", field: "clean_sound", value: e.target.value })}>
+                  {!plan.clean_sound && <option value="">As in Settings</option>}
+                  <option value="off">Off</option><option value="auto">Auto (leaves music alone)</option>
+                  <option value="gentle">Gentle</option><option value="strong">Strong</option></select>
+                <span className="small muted">Background noise, hum, breaths, uneven levels and voice polish. The preview plays the result; choose Off to hear the original.</span></label>
               {(["voiceover", "music", "effect"] as AudioRole[]).map((role) => {
                 const items = plan.audio.filter((i) => i.role === role);
                 return items.length > 0 && (

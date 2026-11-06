@@ -85,7 +85,7 @@ export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: 
   out_ms: number | null; length_ms: number | null; gain_db: number; mute: boolean; fade_in_ms: number; fade_out_ms: number;
   duck: boolean; loop: boolean; anchor: { clip_id: string; offset_ms: number } | null; auto?: boolean };
 export type TrackName = "source" | "voiceover" | "music" | "effects";
-export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clips: PlanClip[];
+export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clean_sound?: string; clips: PlanClip[];
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
   captions: { enabled: boolean; style: string; position: string; size?: string };
   audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };

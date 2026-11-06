@@ -490,7 +490,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
     return ctx
 
 
-SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks")
+SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound")
 
 
 def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
@@ -973,6 +973,8 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             p["output"]["fps"] = int(value)
         elif field == "layout" and value in engine.LAYOUTS:
             p["layout"] = value
+        elif field == "clean_sound" and value in config.CLEAN_SOUND_MODES:
+            p["clean_sound"] = value
         elif field == "title" and isinstance(value, str) and len(value) <= 120:
             p["title"].update(text=value.strip() or p["title"]["text"], enabled=bool(value.strip()))
         elif field == "title_card" and type(value) is bool:

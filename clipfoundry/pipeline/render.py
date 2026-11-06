@@ -20,7 +20,7 @@ import numpy as np
 
 from .. import config, gpu
 from ..config import OUTPUT_H, OUTPUT_W
-from . import artifact, audio_timing, captions, reframe
+from . import artifact, audio_timing, captions, cleanup, reframe
 from . import blueprint as blueprint_mod
 from .common import Cancelled, JobContext, log, read_json, write_json
 from .ffmpeg_utils import (NO_WINDOW, FFmpegError, MediaWatchdog, ffmpeg_bin, filter_path, thumbnail,
@@ -259,6 +259,17 @@ def _measure_audio(audio_in: list[str], segs: list[tuple[float, float]], start: 
             "peak_limited": math.isfinite(integrated) and -1.5 - peak < -14.0 - integrated}
 
 
+def _clean_sound(src: str, start: float, end: float, words_all: list[dict], opts: dict,
+                 ctx: JobContext) -> "cleanup.Result | None":
+    """The clip's cleaned-up sound (pipeline/cleanup.py), or None to use the source's own. A failure keeps the
+    original sound and says why in the render's notes; it never fails the render."""
+    mode = opts.get("clean_sound") or "off"
+    if mode == "off" or mode not in cleanup.MODES:
+        return None
+    return cleanup.clean_or_keep(src, start, end, words_all, mode, cancelled=ctx.cancelled,
+                                 progress=lambda _f, message: ctx.progress(0.03, message))
+
+
 def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> list[dict]:
     out = []
     for w in words:
@@ -274,7 +285,7 @@ def _map_words(words: list[dict], tl: Timeline, start: float, end: float) -> lis
 
 def effective_options(settings: dict, project_opts: dict, edit: dict) -> dict:
     keys = ["caption_style", "caption_position", "highlight_words", "tracking", "layout", "silence", "auto_zoom",
-            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis"]
+            "hook_overlay", "hook_seconds", "normalize_audio", "remove_fillers", "caption_emphasis", "clean_sound"]
     opts = {k: settings.get(k) for k in keys}
     opts.update({k: v for k, v in (project_opts or {}).items() if k in keys and v is not None})
     opts.update({k: v for k, v in (edit or {}).items() if v is not None})
@@ -434,11 +445,17 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     fonts = filter_path(config.FONTS_DIR, out_dir)
     vf = f"[0:v]ass=captions.ass:fontsdir={fonts},format=yuv420p[v]"
     audio_in: list[str]
-    if info.get("has_audio", True):
+    sound = _clean_sound(src, start, end + 0.2, words_all, opts, ctx) if info.get("has_audio", True) else None
+    if sound is not None and sound.path is not None:
+        # The cleaned sound starts exactly at `start`, so every cut below lines up as it does with the source.
+        audio_in = sound.input_args()
+    elif info.get("has_audio", True):
         audio_in = ["-ss", f"{start:.3f}", "-t", f"{end - start + 0.2:.3f}", "-i", src]
     else:
         audio_in = ["-f", "lavfi", "-t", f"{end - start + 0.2:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
     audio_processing = _measure_audio(audio_in, segs, start, opts, tl.duration, ctx)
+    if sound is not None:
+        audio_processing["clean_sound"] = sound.report
     fc = vf + ";" + _audio_filter(segs, start, opts,
                                 normalization_gain_db=audio_processing["normalization_gain_db"])
     tmp_out = out_dir / "render.tmp.mp4"
