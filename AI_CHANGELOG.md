@@ -19,7 +19,8 @@ Landry asked to plug the ArtCraft apps into ClipForge for editing. FilmCraft (th
   Docs: `docs/clipforge/FILMCRAFT.md`.
 - **Tests:** `tests/test_studio_filmcraft.py` (13, fast; OpenTimelineIO 0.18.1 read the file in the local run);
   `.github/workflows/filmcraft-check.yml` + `scripts/filmcraft_check.py` import and render the timeline with
-  FilmCraft 0.17.1's official release on macOS 15 and Ubuntu (results in the PR).
+  FilmCraft 0.17.1's official release on macOS 15 and Ubuntu: passed on both (PR #26, run 42185369033).
+  Full fast suite: 1781 passed.
 - **Not verified:** the FilmCraft window opening on a real Mac or Windows PC; FilmCraft could not be run in the cloud
   session itself (running a downloaded program there is not allowed), so it runs on GitHub's machines instead.
 
