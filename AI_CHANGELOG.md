@@ -18,6 +18,12 @@ render passed its checks, and showed three problems, fixed here:
   AI pass applied its steps and placed its EffectCraft shot, and FilmCraft's editor started in headless Chrome
   (WebGL2) and took the files. Fixed after it: FilmCraft only opens a project `File` made by its own window, and
   look names contain commas ("Teal Shadows, Warm Skin"), so the AI now gets the effect and look lists as JSON.
+- **Third run (42256808188): passed on macOS 15 and Ubuntu.** FilmCraft edit (30 steps, none failed) with the
+  EffectCraft title placed, FilmCraft's render checked, the AI pass (4 steps and an EffectCraft lower third, none
+  failed), and FilmCraft's editor on the editor page: started on WebGL2, opened version 1 with all 9 tracks and its
+  files, and Ctrl/Cmd+S in FilmCraft came back to ClipForge as version 2.
+- A FilmCraft or EffectCraft process still running when ClipForge quits is now stopped with it (the check's server
+  had left a FilmCraft preview render running).
 
 ## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code)
 

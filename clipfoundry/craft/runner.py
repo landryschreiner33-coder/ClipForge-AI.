@@ -1,21 +1,38 @@
 """Calling FilmCraft's and EffectCraft's command-line tools.
 
 Every call is one process with a fixed argument list (never a shell), a time limit, and a way to stop it when the job
-is canceled. Both tools print JSON; the last JSON line of the output is the answer. FilmCraft's `run` prints one JSON
+is canceled; a tool still running when ClipForge quits is stopped with it. Both tools print JSON; the last JSON line of the output is the answer. FilmCraft's `run` prints one JSON
 line per step: `{"line", "id", "ok", "result" | "error"}`.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable
 
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 TICKS = 254_016_000_000  # FilmCraft ticks per second
+
+_RUNNING: set[subprocess.Popen] = set()
+_RUNNING_LOCK = threading.Lock()
+
+
+@atexit.register
+def stop_all() -> None:
+    """ClipForge is quitting: no FilmCraft or EffectCraft render keeps running without it."""
+    with _RUNNING_LOCK:
+        procs = list(_RUNNING)
+    for proc in procs:
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
 
 class CraftError(RuntimeError):
@@ -36,6 +53,17 @@ def call(exe: str, args: list[str], *, timeout: float, cwd: Path | None = None,
                                 creationflags=NO_WINDOW)
     except OSError as exc:
         raise CraftError(f"{what or Path(exe).name} could not start: {exc}") from exc
+    with _RUNNING_LOCK:
+        _RUNNING.add(proc)
+    try:
+        return _wait(proc, cmd, timeout, cancelled, what or Path(exe).name)
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING.discard(proc)
+
+
+def _wait(proc: subprocess.Popen, cmd: list[str], timeout: float, cancelled: Callable[[], bool] | None,
+          what: str) -> subprocess.CompletedProcess:
     deadline = time.monotonic() + timeout
     out_parts: list[str] = []
     err_parts: list[str] = []
@@ -59,7 +87,7 @@ def call(exe: str, args: list[str], *, timeout: float, cwd: Path | None = None,
             if time.monotonic() > deadline:
                 proc.kill()
                 proc.communicate()
-                raise CraftError(f"{what or Path(exe).name} took longer than {timeout / 60:.0f} minutes and was "
+                raise CraftError(f"{what} took longer than {timeout / 60:.0f} minutes and was "
                                  "stopped.") from None
     return subprocess.CompletedProcess(cmd, proc.returncode, "".join(out_parts), "".join(err_parts))
 

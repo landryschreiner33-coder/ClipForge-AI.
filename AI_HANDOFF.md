@@ -15,9 +15,10 @@ come back as new versions. The built-in FFmpeg editor stays as the backup.
   `studio/interchange.py` (blurred background tracks), `frontend/src/components/FilmCraft.tsx`, `EditingApps.tsx`.
 - **Verify with real apps:** `scripts/craft_check.py` (GitHub's Mac and Linux machines; the cloud session may not run
   downloaded programs).
-- **Real-app results so far:** run 42250189370: FilmCraft applied all 29 steps and rendered on both machines; the
-  EffectCraft title (no `property("Source Text")` in 0.9.2) and the editor page (FilmCraft 0.17.1's web build has no
-  host messages) failed and were reworked (see AI_CHANGELOG.md). Facts read from the released files: the 0.17.1 web
+- **Real-app results:** run 42256808188 passed on macOS 15 and Ubuntu (edit, EffectCraft title, AI pass with an
+  EffectCraft shot, FilmCraft render, the editor page opening version 1 and Ctrl/Cmd+S coming back as version 2).
+  Earlier runs found: no `property("Source Text")` in EffectCraft 0.9.2, no host messages in FilmCraft 0.17.1's web
+  build, FilmCraft only opens a `File` made by its own window, look names with commas (see AI_CHANGELOG.md). Facts read from the released files: the 0.17.1 web
   build has `window.filmcraft` (execute, commands, inspect, screenshot, info, files, readFile, importFiles,
   importUrl, openProject) and saves by anchor download; `effectcraft-cli script --json` prints `result`/`output`.
 - **Waiting on Landry:** merge and release.

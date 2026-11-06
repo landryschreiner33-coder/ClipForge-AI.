@@ -557,6 +557,26 @@ def test_hand_finished_versions_render_from_the_save_and_later_edits_start_again
                                  _Lease(), True)
 
 
+def test_a_tool_still_running_when_clipforge_quits_is_stopped(env):  # noqa: F811
+    import threading
+    import time
+
+    from clipfoundry.craft import runner
+
+    slow = _program(env / "slow-cli", "import time\ntime.sleep(60)\n")
+    got = {}
+    t = threading.Thread(target=lambda: got.update(done=runner.call(slow, [], timeout=120)))
+    t0 = time.monotonic()
+    t.start()
+    while not runner._RUNNING and time.monotonic() - t0 < 10:
+        time.sleep(0.05)
+    assert runner._RUNNING
+    runner.stop_all()  # what ClipForge does when it quits
+    t.join(timeout=10)
+    assert not t.is_alive() and got["done"].returncode != 0 and time.monotonic() - t0 < 30
+    assert not runner._RUNNING
+
+
 def test_an_effectcraft_without_empty_for_scripts_runs_the_script_in_its_own_project(env):  # noqa: F811
     from clipfoundry.craft import runner
 
