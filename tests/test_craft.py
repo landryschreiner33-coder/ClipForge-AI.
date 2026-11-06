@@ -106,7 +106,7 @@ elif rest[0] == "exec":
     elif cmd == "effects.list":
         say({"effects": [{"id": "gaussian_blur"}, {"id": "glow"}]})
     elif cmd == "lumetri.presets":
-        say({"presets": [{"name": "Warm"}]})
+        say({"presets": [{"name": "Warm"}, {"folder": "Cinematic", "name": "Teal Shadows, Warm Skin"}]})
     else:
         say({"ok": True})
 if save:
@@ -379,6 +379,9 @@ def test_the_ai_finishes_with_checked_filmcraft_tools_and_an_effects_shot(env, t
     assert any("file or address" in r for r in ai["refused"]) and any("not in this sequence" in r for r in ai["refused"])
     assert asked["task"] == "filmcraft_finish" and "timeline.razor" not in asked["prompt"]
     assert "/" + "files" not in asked["prompt"] and str(env) not in asked["prompt"]  # never a path
+    # FilmCraft's names have commas in them: the lists are JSON
+    looks = asked["prompt"].split("Colour looks (for lumetri.applyPreset name): ", 1)[1].split("\n", 1)[0]
+    assert json.loads(looks) == ["Warm", "Teal Shadows, Warm Skin"]
     film = _log(tools["logs"]["film"])
     placed = [x for x in film if x["cmd"] == "file.import"]
     assert len(placed) == 2  # the title shot and the AI's lower third

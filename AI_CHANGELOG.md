@@ -14,6 +14,10 @@ render passed its checks, and showed three problems, fixed here:
   `.fcproj` downloads from the frame as saves, and has a Save to ClipForge button (`file.saveAs`).
 - **The check itself**: the seeded project's own rough-cut job raced the check's plan (sometimes saving version 2);
   the AI stand-in picked a clip kind that does not exist. A failing AI pass no longer stops the FilmCraft edit.
+- **Second run (42255291402)**: the EffectCraft title now renders and is placed on both machines (`checks: ok`), the
+  AI pass applied its steps and placed its EffectCraft shot, and FilmCraft's editor started in headless Chrome
+  (WebGL2) and took the files. Fixed after it: FilmCraft only opens a project `File` made by its own window, and
+  look names contain commas ("Teal Shadows, Warm Skin"), so the AI now gets the effect and look lists as JSON.
 
 ## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code)
 

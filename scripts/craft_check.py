@@ -124,16 +124,16 @@ def main() -> int:
         talk = [r for r in rows if r["track"] == "Video 1" and r["what"] == "video"]
         asked["rows"] = rows
         clip = talk[0] if talk else next(r for r in rows if r["track"] == "Video 1")
-        effects = re.search(r"Video effects \(for effects.apply\): (.*)", prompt).group(1).split(", ")
-        looks = re.search(r"Colour looks \(for lumetri.applyPreset\): (.*)", prompt).group(1).split(", ")
+        effects = json.loads(re.search(r"Video effects \(for effects.apply\): (.*)", prompt).group(1))
+        looks = json.loads(re.search(r"Colour looks \(for lumetri.applyPreset name\): (.*)", prompt).group(1))
         start = round(clip["from_s"] * fc_check.FPS)
         steps = [{"id": "effects.setParam", "params": {"clip": clip["clip"], "effect": "motion", "param": "scale",
                                                          "value": 100, "frame": start, "keyframe": True}},
                  {"id": "effects.setParam", "params": {"clip": clip["clip"], "effect": "motion", "param": "scale",
                                                          "value": 108, "frame": start + 45, "keyframe": True}}]
-        if looks and looks[0]:
+        if looks:
             steps.append({"id": "lumetri.applyPreset", "params": {"name": looks[0], "clips": [clip["clip"]]}})
-        pick = next((e for e in effects if "glow" in e.lower()), effects[0] if effects and effects[0] else "")
+        pick = next((e for e in effects if "glow" in e.lower()), effects[0] if effects else "")
         if pick:
             steps.append({"id": "effects.apply", "params": {"clips": [clip["clip"]], "effect": pick}})
         return json.dumps({"summary": "A slow push-in, a colour look and a lower third.", "steps": steps, "shots": [

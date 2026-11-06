@@ -30,6 +30,7 @@ type EditorWindow = Window & {
   filmcraft?: Bridge;
   filmcraftLoad?: { fatal?: string; error?: string; readyMs?: number };
   HTMLAnchorElement: typeof HTMLAnchorElement;
+  File: typeof File;
 };
 
 async function digest(bytes: ArrayBuffer): Promise<string> {
@@ -99,7 +100,9 @@ function FilmCraftEditor({ v, revision, onClose, onSaved }: {
       }
       const res = await fetch(got.project, { headers: { "X-ClipFoundry": "1" } });
       if (!res.ok) throw await responseError(res);
-      await fc.openProject(new File([await res.arrayBuffer()], got.project_name || "edit.fcproj"));
+      // a File made by the editor's own window: FilmCraft does not take one from another window
+      const Made = (frame.current?.contentWindow as EditorWindow | null)?.File || File;
+      await fc.openProject(new Made([await res.arrayBuffer()], got.project_name || "edit.fcproj"));
       setNote("");
       setPhase("open");
     } catch (e) {

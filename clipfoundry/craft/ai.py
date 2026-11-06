@@ -118,8 +118,9 @@ def build_prompt(plan: dict, edit, rows: list[dict], catalog: list[dict], effect
         "The video: " + json.dumps(brief, ensure_ascii=False),
         "The sequence (FilmCraft clip ids):", json.dumps(rows[:120], ensure_ascii=False),
         "Tools you may use (id, parameters):", json.dumps(catalog, ensure_ascii=False),
-        "Video effects (for effects.apply): " + ", ".join(effects[:120]),
-        "Colour looks (for lumetri.applyPreset): " + ", ".join(looks[:60]),
+        # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
+        "Video effects (for effects.apply): " + json.dumps(effects[:120], ensure_ascii=False),
+        "Colour looks (for lumetri.applyPreset name): " + json.dumps(looks[:60], ensure_ascii=False),
         ANSWER])
 
 
