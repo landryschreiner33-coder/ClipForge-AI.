@@ -182,7 +182,7 @@ def test_the_handoffs_examples_work_without_any_ai_and_apply_as_undoable_revisio
 
     # "Keep the second story together" needs an AI service; none is set up, so it is explained and nothing is sent
     r = er.ask(pid, "local", "Keep the second story together.")
-    assert r["status"] == "unsupported" and "Settings → AI" in r["message"] and calls == []
+    assert r["status"] == "unsupported" and "Settings → ClipForge AI" in r["message"] and calls == []
     # manual editing is unaffected
     rev = db.fetch("studio_projects", pid)["plan_revision"]
     video_flow.edit(pid, rev, {"op": "remove", "clip_id": "c4"})

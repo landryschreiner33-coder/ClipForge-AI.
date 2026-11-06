@@ -1,6 +1,6 @@
 """Optional Stage 2 AI providers.
 
-* builtin            - the built-in AI (builtin_ai.py): llama.cpp and a free model ClipForge downloads and runs on
+* builtin            - the built-in model (builtin_ai.py): llama.cpp and a free model ClipForge downloads and runs on
                        this computer (free)
 * ollama             - local LLM via http://localhost:11434 (free)
 * openai_compatible  - any OpenAI-style server: LM Studio, llama.cpp, vLLM on this computer (free), or an online
@@ -159,7 +159,7 @@ def _openai_compatible(settings: dict, prompt: str) -> str:
     if r.status_code == 429:
         raise ProviderError("The AI service's free limit is used up for now (rate limit). Try again later.")
     if r.status_code in (401, 403):
-        raise ProviderError("The AI service refused the API key. Check it in Settings → AI helper.")
+        raise ProviderError("The AI service refused the API key. Check it in Settings → ClipForge AI.")
     if r.status_code != 200:
         raise ProviderError(f"OpenAI-compatible server error {r.status_code}: {r.text[:200]}")
     try:
@@ -284,8 +284,8 @@ def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str
     """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure).
     `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it).
     `system` replaces the clip-scoring instructions; `num_ctx` asks a local Ollama model for a larger context;
-    `timeout` is how long a local model may take; `json_object` makes the built-in AI answer with one JSON object;
-    `max_tokens` caps the answer's length (the built-in AI, Ollama and OpenAI-compatible servers)."""
+    `timeout` is how long a local model may take; `json_object` makes the built-in model answer with one JSON object;
+    `max_tokens` caps the answer's length (the built-in model, Ollama and OpenAI-compatible servers)."""
     provider = settings.get("ai_provider", "heuristic")
     if unattended or task or system or num_ctx or timeout or json_object or max_tokens:
         settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task,
@@ -327,7 +327,7 @@ def check_provider(settings: dict) -> dict:
             from .. import builtin_ai
 
             if not builtin_ai.platform_key():
-                return {"ok": False, "detail": "The built-in AI does not run on this kind of computer", "models": []}
+                return {"ok": False, "detail": "The built-in model does not run on this kind of computer", "models": []}
             if not builtin_ai.ready(settings):
                 return {"ok": False, "detail": "Not set up yet: choose a level and download it", "models": []}
             return {"ok": True, "detail": f"Ready: {builtin_ai.label(settings)}, on this computer", "models": []}

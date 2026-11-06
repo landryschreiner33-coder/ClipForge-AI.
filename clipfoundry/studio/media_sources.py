@@ -1191,7 +1191,7 @@ def suggest_job(job: dict, lease: Lease) -> dict:
     spoken = [w for aid in dict.fromkeys(c["asset_id"] for c in plan["clips"] if c.get("kind") == "video")
               for w in words.get(aid) or []]
     wanted = ((plan.get("smart") or {}).get("picture_queries") or [])[:4]
-    queries = [{"kind": "image", "query": text(q["query"], 40), "why": "The AI helper suggested a picture here.",
+    queries = [{"kind": "image", "query": text(q["query"], 40), "why": "ClipForge AI suggested a picture here.",
                 "at": {"clip_id": q["clip_id"], "offset_ms": int(q.get("offset_ms") or 0)}} for q in wanted
                if q.get("query") and q.get("clip_id")]
     queries += [{"kind": "image", "query": t["word"],

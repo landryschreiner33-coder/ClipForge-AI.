@@ -13,6 +13,8 @@ import {
 import { Banner, Dialog, EmptyState, Icon, LinkTabs, PageHead, toast } from "../components/ui";
 import { SaveStyleDialog, SkillsTab, StylesTab } from "../components/StylesSkills";
 import { ExampleVideosTab } from "../components/ExampleVideos";
+import { MemoryTab } from "../components/MemoryTab";
+import { ClipForgeAI } from "../components/ClipForgeAI";
 import { brainApi } from "../office/api";
 import { BrainMap, studio } from "../studio";
 import BrainGraph from "./BrainGraph";
@@ -74,6 +76,8 @@ const savedView = (tab: string) => {
 
 const BRAIN_TABS = [
   { id: "styles", href: "#/brain/styles", label: "Styles" },
+  { id: "memory", href: "#/brain/memory", label: "Memory" },
+  { id: "talk", href: "#/brain/talk", label: "Talk to ClipForge AI" },
   { id: "example-videos", href: "#/brain/example-videos", label: "Example videos" },
   { id: "knowledge", href: "#/brain", label: "Notes" },
   { id: "examples", href: "#/brain/examples", label: "Example notes" },
@@ -82,14 +86,15 @@ const BRAIN_TABS = [
   { id: "results", href: "#/brain/results", label: "Performance history" },
 ];
 
-/** Brain: Styles, Notes, Examples and Skills (the graph is an optional view inside Notes). */
+/** Brain: Styles, ClipForge AI's Memory and chat, Notes, Examples and Skills (the graph is an optional view inside Notes). */
 export default function Brain({ tab = "knowledge" }: { tab?: string }) {
-  if (tab === "styles" || tab === "skills" || tab === "example-videos") {
+  if (tab === "styles" || tab === "skills" || tab === "example-videos" || tab === "memory" || tab === "talk") {
     return (
       <div className="page">
-        <PageHead kind="Brain" title="Brain" sub="What ClipForge remembers about how you like your videos edited." />
+        <PageHead kind="Brain" title="Brain" sub="What ClipForge AI remembers about you, your channel and how you like your videos edited." />
         <LinkTabs label="Brain sections" current={tab} tabs={BRAIN_TABS} />
-        {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : <ExampleVideosTab />}
+        {tab === "styles" ? <StylesTab /> : tab === "skills" ? <SkillsTab /> : tab === "memory" ? <MemoryTab />
+          : tab === "talk" ? <ClipForgeAI tall /> : <ExampleVideosTab />}
       </div>
     );
   }

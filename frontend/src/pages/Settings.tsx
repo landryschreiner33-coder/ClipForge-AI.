@@ -90,7 +90,7 @@ export default function SettingsPage({ tab }: { tab?: string }) {
 const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
   { id: "media", href: "#/settings/media", label: "Media sources" },
-  { id: "ai", href: "#/settings/ai", label: "AI helper" },
+  { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
   { id: "apps", href: "#/settings/apps", label: "Editing apps" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
@@ -701,7 +701,7 @@ function AdvancedTab({ c, health, st }: {
         </SettingRow>
         <p className="small muted">
           The easiest way to choose a free AI service is{" "}
-          <a className="textlink" href="#/settings/ai">Settings → AI helper</a> (download a model, or paste a free key).
+          <a className="textlink" href="#/settings/ai">Settings → ClipForge AI</a> (download a model, or paste a free key).
           The same service helps the smart video editor.
         </p>
         <SettingRow k="ai_provider" label="AI scoring"

@@ -18,8 +18,8 @@ function currentPreset(s: Settings, presets: AiPreset[]): string {
 }
 
 /**
- * Settings → AI helper: pick a free AI service (a model on this computer, or a free key) for smart editing, clip
- * scoring and "Tell the editor what to change". Each choice is saved and tested in one step; a key is only ever sent
+ * Settings → ClipForge AI: pick the model ClipForge AI uses (the built-in one on this computer, Ollama, LM Studio or a
+ * free key) for smart editing, clip scoring, its chat and the changes you ask for. Each choice is saved and tested in one step; a key is only ever sent
  * to the service it belongs to.
  */
 export default function AiHelperSettings() {
@@ -61,7 +61,7 @@ export default function AiHelperSettings() {
     const t = window.setInterval(() => {
       void api.aiSetup().then((a) => {
         setSetup(a);
-        // The built-in AI becomes the AI helper when its download finishes (unless another one was chosen).
+        // The built-in model becomes ClipForge AI's model when its download finishes (unless another one was chosen).
         if (a.builtin?.task?.state !== "running") void api.settings().then(setS).catch(() => undefined);
       }).catch(() => undefined);
     }, 1500);
@@ -88,8 +88,8 @@ export default function AiHelperSettings() {
     }
   }
 
-  if (problem && !setup) return <Banner tone="bad" title="The AI helper settings could not be loaded">{problem}</Banner>;
-  if (!setup || !s) return <LoadingPage label="Loading the AI helper" />;
+  if (problem && !setup) return <Banner tone="bad" title="ClipForge AI's settings could not be loaded">{problem}</Banner>;
+  if (!setup || !s) return <LoadingPage label="Loading ClipForge AI's settings" />;
   const preset = setup.presets.find((p) => p.id === pick);
   const now = currentPreset(s, setup.presets);
   const on = s.ai_provider && s.ai_provider !== "heuristic";
@@ -143,7 +143,7 @@ export default function AiHelperSettings() {
     try {
       await api.saveSettings({ ai_provider: "heuristic" });
       await load();
-      toast("The AI helper is off. ClipForge's built-in editor decides alone.");
+      toast("ClipForge AI has no model now. ClipForge's built-in editor decides alone; the chat still remembers and explains.");
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -169,20 +169,22 @@ export default function AiHelperSettings() {
   return (
     <div className="stack-4">
       <section className="panel" aria-labelledby="ai-now">
-        <h2 id="ai-now">AI helper</h2>
-        <p>Optional. ClipForge edits your videos without one. With an AI helper it also reads what is said (as text, never the
-          video or the sound) to choose better cuts, pictures and chapters, scores clips, and understands more of what you
-          type in “Tell the editor what to change”. The built-in AI comes with ClipForge and runs on this computer. Every
-          choice here is free except the Claude API.</p>
+        <h2 id="ai-now">ClipForge AI</h2>
+        <p>ClipForge AI is the editor's assistant: it remembers what you tell it (Brain → Memory), proposes the changes you
+          ask for on a video, and answers questions (Brain → Talk). It needs a model to read and write. Without one, ClipForge
+          still edits your videos and ClipForge AI still remembers, forgets, lists and explains. With one it also reads what is
+          said (as text, never the video or the sound) to choose better cuts, pictures and chapters, scores clips, understands
+          more of what you ask, and answers questions. The built-in model comes with ClipForge and runs on this computer.
+          Every choice here is free except the Claude API.</p>
         <div className="row wrap">
-          <Pill tone={on ? "good" : "neutral"} icon={on ? "check" : "info"}>{on ? `Using ${setup.label}` : "Off: built-in editor only"}</Pill>
+          <Pill tone={on ? "good" : "neutral"} icon={on ? "check" : "info"}>{on ? `Using ${setup.label}` : "No model: built-in editor only"}</Pill>
           {on && <button type="button" className="btn btn-small" disabled={busy} onClick={turnOff}>Turn off</button>}
         </div>
       </section>
 
       <section className="panel" aria-labelledby="ai-pick">
-        <h2 id="ai-pick">Choose one</h2>
-        <div className="mode-pick" role="radiogroup" aria-label="AI helper">
+        <h2 id="ai-pick">Choose its model</h2>
+        <div className="mode-pick" role="radiogroup" aria-label="ClipForge AI's model">
           {setup.presets.map((p) => (
             <label key={p.id}><input type="radio" name="ai-preset" checked={pick === p.id} onChange={() => choose(p.id)} />
               <b>{p.name}{now === p.id && on ? " (in use)" : ""}</b><span>{p.cost}{p.local ? " · on this computer" : " · online"}</span></label>
@@ -265,14 +267,14 @@ export default function AiHelperSettings() {
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 
 /**
- * The built-in AI: pick a level (the one that fits this computer is preselected), download it once, and it becomes
- * the AI helper. The engine (llama.cpp) and the model run on this computer only; nothing is sent anywhere.
+ * The built-in model: pick a level (the one that fits this computer is preselected), download it once, and it becomes
+ * ClipForge AI's model. The engine (llama.cpp) and the model run on this computer only; nothing is sent anywhere.
  */
 function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; onChange: () => Promise<void> }) {
   const [level, setLevel] = useState(b.level || b.recommended);
   const [busy, setBusy] = useState(false);
   if (!b.supported) {
-    return <Banner tone="warn" title="Not available on this computer">The built-in AI needs a Mac with Apple silicon, or a
+    return <Banner tone="warn" title="Not available on this computer">The built-in model needs a Mac with Apple silicon, or a
       64-bit Windows or Linux PC. Ollama or a free online key below still work.</Banner>;
   }
   const t = b.task || {};
@@ -294,7 +296,7 @@ function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; on
   return (
     <div className="stack-3">
       <p className="small">This computer: {mem}, {gpu}. {b.levels.find((l) => l.recommended)?.name} fits it best.</p>
-      <div className="mode-pick" role="radiogroup" aria-label="Built-in AI level">
+      <div className="mode-pick" role="radiogroup" aria-label="Built-in model level">
         {b.levels.map((l) => (
           <label key={l.id}><input type="radio" name="builtin-level" checked={level === l.id} onChange={() => setLevel(l.id)} />
             <b>{l.name}: {l.model}{l.recommended ? " (recommended here)" : ""}{l.installed ? " · downloaded" : ""}</b>
@@ -304,7 +306,7 @@ function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; on
       {running ? (
         <div className="stack-2" aria-live="polite">
           <b className="small">{t.status || "Starting"}{t.total ? `: ${gb(t.completed || 0)} of ${gb(t.total)}` : ""}</b>
-          <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Setting up the built-in AI" />
+          <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Setting up the built-in model" />
           <div className="row wrap"><button type="button" className="btn btn-small" onClick={() => void act(() => api.builtinCancel())}>Cancel</button>
             <span className="small muted">You can keep working; a stopped download resumes where it stopped.</span></div>
         </div>
@@ -312,7 +314,7 @@ function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; on
         <div className="row wrap">
           {pick.installed
             ? <button type="button" className="btn btn-primary" disabled={busy || (inUse && b.level === pick.id)}
-                onClick={() => void act(() => api.builtinUse(pick.id), `Using the built-in AI (${pick.model}).`)}>
+                onClick={() => void act(() => api.builtinUse(pick.id), `Using the built-in model (${pick.model}).`)}>
                 <Icon name="check" />{inUse && b.level === pick.id ? "In use" : "Use this"}</button>
             : <button type="button" className="btn btn-primary" disabled={busy}
                 onClick={() => void act(() => api.builtinInstall(pick.id))}>

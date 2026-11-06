@@ -2,8 +2,8 @@
 
 What you say is understood by rules first, without a model: teaching ("remember …", "always …", "never …"),
 forgetting, listing what it knows, explaining the last answer. Anything else in a video's chat is a change request
-(studio/edit_requests: rules, then the AI helper, always a checked proposal you apply or discard); anything else in
-the general chat is a question to the AI helper, answered with the memories recalled for it, as one checked JSON
+(studio/edit_requests: rules, then the model, always a checked proposal you apply or discard); anything else in
+the general chat is a question to the model, answered with the memories recalled for it, as one checked JSON
 object. The model never calls a tool itself and never sees a file; every answer records the memories it used.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ SYSTEM = ("You are ClipForge AI, the editor's assistant inside ClipForge, a vide
 HELP = ("I can remember what you tell me (\"remember: …\", \"always …\", \"never …\"), forget it (\"forget …\"), "
         "list what I know (\"what do you know about …\"), and explain my last answer (\"why …\"). In a video's "
         "chat, anything else is a change I propose for you to apply or discard. In this chat, anything else is a "
-        "question for the AI helper from Settings. Finding music and pictures and making them come next.")
+        "question I answer with my model from Settings → ClipForge AI. Finding music and pictures and making them come next.")
 _REMEMBER = re.compile(r"^(?:please\s+)?(?:remember|note|keep in mind)(?:\s+that)?\s*[:,\-]?\s*(.+)$", re.I | re.S)
 _STANDING = re.compile(r"^(?:from now on|always|never|i (?:like|love|want|prefer|hate|don't want|do not want|"
                        r"never want|always want))\b", re.I)
@@ -300,14 +300,14 @@ def _today_start() -> float:
 
 
 def _question(ws: str, text: str) -> dict:
-    """A question for the AI helper, answered with the memories recalled for it, in the background."""
+    """A question for the model, answered with the memories recalled for it, in the background."""
     from ..pipeline import llm
 
     settings = db.get_settings()
     provider = settings.get("ai_provider", "heuristic")
     if provider not in llm.PROVIDERS:
-        return {"text": "Without an AI helper I can still remember, forget, list and explain. Set one up in "
-                        "Settings → AI helper (the built-in one is free), and I will answer questions here too.",
+        return {"text": "Without a model I can still remember, forget, list and explain. Set one up in "
+                        "Settings → ClipForge AI (the built-in one is free), and I will answer questions here too.",
                 "data": {"tool": "answer", "used": []}}
     limit = int(settings.get("ai_edit_requests_per_day", 40))
     with _lock:
@@ -318,7 +318,7 @@ def _question(ws: str, text: str) -> dict:
         used_requests = int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' "
                                       "AND created_at >= ?", (ws, _today_start())) or 0)
         if asked + used_requests >= limit:
-            return {"text": f"Today's limit of {limit} AI requests is reached (Settings → AI). Nothing was sent.",
+            return {"text": f"Today's limit of {limit} AI requests is reached (Settings → ClipForge AI). Nothing was sent.",
                     "data": {"tool": "answer", "used": []}, "status": "failed"}
     rec = memories.recall(text, ws, limit=8, budget_chars=MEMORY_CHARS, rules=True)
     prompt = (rec.prompt() + "\n\n" if not rec.empty else "") + \
@@ -352,14 +352,14 @@ def parse_answer(raw: str) -> str:
     s = (raw or "").strip()
     a, b = s.find("{"), s.rfind("}")
     if a < 0 or b <= a:
-        raise ChatError("The AI helper did not answer with JSON.")
+        raise ChatError("My model did not answer with JSON.")
     try:
         obj = json.loads(s[a:b + 1])
     except json.JSONDecodeError as exc:
-        raise ChatError(f"The AI helper's JSON could not be read ({exc.msg}).") from exc
+        raise ChatError(f"My model's JSON could not be read ({exc.msg}).") from exc
     say = obj.get("say") if isinstance(obj, dict) else None
     if not isinstance(say, str) or not say.strip():
-        raise ChatError("The AI helper's answer had nothing to say.")
+        raise ChatError("My model's answer had nothing to say.")
     return " ".join(say.split())[:ANSWER_CHARS]
 
 
@@ -374,16 +374,16 @@ def _think(message_id: str, prompt: str, settings: dict) -> None:
     except ChatError as exc:
         _finish(message_id, status="failed", text=f"{exc} Ask again, or ask differently.")
     except llm.ProviderError as exc:
-        _finish(message_id, status="failed", text=f"The AI helper could not answer: {_text(exc, 300)}.")
+        _finish(message_id, status="failed", text=f"My model could not answer: {_text(exc, 300)}.")
     except Exception as exc:  # noqa: BLE001
         log.exception("chat answer %s failed", message_id)
         _finish(message_id, status="failed", text=f"The answer failed ({exc.__class__.__name__}).")
 
 
 def recover() -> int:
-    """After a restart: an answer that was waiting for the AI helper is not asked again."""
+    """After a restart: an answer that was waiting for the model is not asked again."""
     return db.execute("UPDATE brain_chat_messages SET status = 'failed', text = 'ClipForge restarted while this was "
-                      "waiting for the AI helper. Ask again if you still want it.', updated_at = ? "
+                      "waiting for its model. Ask again if you still want it.', updated_at = ? "
                       "WHERE status = 'thinking'", (time.time(),))
 
 

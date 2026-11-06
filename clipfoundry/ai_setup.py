@@ -1,4 +1,4 @@
-"""Setting up the optional AI helper: ready-made choices, and Ollama on this computer (check, download a model,
+"""Setting up ClipForge AI's model (optional): ready-made choices, and Ollama on this computer (check, download a model,
 or import a model file you already have).
 
 Every choice here is free to use: a model running on this computer through Ollama or LM Studio (private, works
@@ -23,7 +23,7 @@ import httpx
 
 OLLAMA_DOWNLOAD = "https://ollama.com/download"
 PRESETS = [
-    {"id": "builtin", "name": "Built-in AI", "provider": "builtin", "url": "", "model": "", "needs_key": False,
+    {"id": "builtin", "name": "Built-in model", "provider": "builtin", "url": "", "model": "", "needs_key": False,
      "local": True, "cost": "Free",
      "about": "Comes with ClipForge: a free model (Gemma 4 or Qwen3-VL) that runs on this computer. Private, works "
               "without internet once downloaded, no limits. Download it once below.", "key_url": ""},

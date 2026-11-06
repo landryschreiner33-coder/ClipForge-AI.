@@ -1,14 +1,14 @@
-# Built-in AI and sound cleanup (phase 1 of the smarter editor plan)
+# Built-in model and sound cleanup (phase 1 of the smarter editor plan)
 
 Phase 1 of the plan Landry approved on 2026-11-06 ("Start phase 1"): an AI that comes with ClipForge and runs on the
 computer, and a "Clean up the sound" step for every clip and full video. The plan itself (all four phases) is the
 Claude Doc linked from the project thread.
 
-## Built-in AI (`clipfoundry/builtin_ai.py`)
+## Built-in model (`clipfoundry/builtin_ai.py`)
 
-**What the user sees.** Settings → AI helper lists "Built-in AI" first (and picks it by default). It shows the
+**What the user sees.** Settings → ClipForge AI lists "Built-in model" first (and picks it by default). It shows the
 computer's memory and graphics memory, the recommended level, and one Download button. Nothing is downloaded until
-then; the installer does not grow. After the download the built-in AI becomes the helper (only if the helper was
+then; the installer does not grow. After the download the built-in model becomes ClipForge AI's model (only if the model was
 "None" or already built-in; a chosen Ollama, LM Studio or key is never replaced). "What gets downloaded" lists every
 file and has Remove buttons.
 

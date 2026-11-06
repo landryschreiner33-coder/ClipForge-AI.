@@ -356,6 +356,26 @@ input:not([type]) {
 .change-list { margin: 0; padding-left: 1.2em; }
 .change-list li + li { margin-top: 2px; }
 .ask-choice { white-space: normal; text-align: left; height: auto; max-width: 100%; overflow-wrap: anywhere; }
+/* ClipForge AI's chat (components/ClipForgeAI.tsx) and its Memory tab (components/MemoryTab.tsx) */
+.cfai { border: 1px solid var(--border); border-radius: var(--r-control); padding: var(--s3); background: var(--raised); display: grid; gap: var(--s3); min-width: 0; }
+.cfai-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.cfai-head h3 { margin: 0; gap: var(--s2); }
+.cfai-log { display: grid; gap: var(--s2); max-height: 420px; overflow-y: auto; padding-right: 4px; align-content: start; }
+.cfai.tall .cfai-log { max-height: 60vh; min-height: 240px; }
+.cfai-msg { max-width: 92%; border-radius: var(--r-control); padding: var(--s2) var(--s3); display: grid; gap: var(--s2); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.cfai-msg.owner { justify-self: end; background: var(--info-tint); }
+.cfai-msg.ai { justify-self: start; background: var(--surface); }
+.cfai-msg.failed { border-color: var(--bad); }
+.cfai-msg p, .cfai-msg ul { margin: 0; }
+.cfai-row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: flex-end; }
+.cfai-row .field.grow { flex: 1 1 260px; min-width: 0; }
+.cfai-row input { width: 100%; min-height: 36px; }
+.cfai-chips { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.mem-list { display: grid; gap: var(--s2); }
+.mem-row { border: 1px solid var(--border); border-radius: var(--r-control); background: var(--raised); padding: var(--s3); display: grid; gap: var(--s2); min-width: 0; }
+.mem-row.off { opacity: 0.7; }
+.mem-row textarea { width: 100%; min-height: 64px; }
+.mem-meta { display: flex; gap: var(--s3); flex-wrap: wrap; color: var(--text-3); font-size: var(--fs-small); }
 
 /* Customize studio: a side panel, so the page behind it shows each change as a live preview */
 .customize { position: fixed; top: 0; right: 0; bottom: 0; z-index: 50; width: min(420px, 100vw); display: grid;

@@ -226,7 +226,7 @@ def edit_key(plan: dict, settings: dict | None, use_ai: bool = True) -> str:
     s = settings or {}
     ai_on = bool(use_ai and s.get("craft_ai_finish", True) and ai.usable(s))
     who = s.get("ai_provider")
-    if ai_on and who == "builtin":  # a newly downloaded built-in AI, or another level, edits again
+    if ai_on and who == "builtin":  # a newly downloaded built-in model, or another level, edits again
         from .. import builtin_ai
 
         who = f"builtin:{builtin_ai.chosen_level(s)}"

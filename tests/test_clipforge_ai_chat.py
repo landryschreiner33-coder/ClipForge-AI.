@@ -1,6 +1,6 @@
 """ClipForge AI's chat (docs/clipforge/CLIPFORGE_AI.md, "The chat"): teaching, forgetting, listing and explaining
-work without a model; a video's chat makes checked proposals; the general chat asks the AI helper with the memories
-it recalled, and every answer records what it used. A fake AI helper stands in; nothing leaves the machine."""
+work without a model; a video's chat makes checked proposals; the general chat asks the model with the memories
+it recalled, and every answer records what it used. A fake model stands in; nothing leaves the machine."""
 from __future__ import annotations
 
 import json
@@ -92,8 +92,8 @@ def test_teaching_forgetting_listing_and_help_need_no_model(env):
 
     assert _say(c["id"], "help")["text"] == chat.HELP
     assert _say(c["id"], "why?")["data"]["tool"] == "explain"
-    m = _say(c["id"], "how long should my intros be?")  # a question, with no AI helper set up
-    assert m["data"]["tool"] == "answer" and m["status"] == "done" and "Settings → AI helper" in m["text"]
+    m = _say(c["id"], "how long should my intros be?")  # a question, with no model set up
+    assert m["data"]["tool"] == "answer" and m["status"] == "done" and "Settings → ClipForge AI" in m["text"]
     with pytest.raises(chat.ChatError):
         chat.send(WS, c["id"], "   ")
     with pytest.raises(chat.ChatError):
@@ -163,7 +163,7 @@ def test_a_videos_chat_proposes_checked_changes_that_apply_as_versions_and_expla
     assert m["data"]["request"]["status"] == "canceled" and m["text"] == "Canceled; nothing was changed."
     m = _say(c["id"], "remove clip 9")
     assert m["status"] == "done" and m["data"]["request"]["status"] in ("question", "unsupported", "invalid")
-    m = _say(c["id"], "paint the sky green")  # the rules do not understand it and there is no AI helper
+    m = _say(c["id"], "paint the sky green")  # the rules do not understand it and there is no model
     assert m["data"]["request"]["status"] == "unsupported" and "none is set up" in m["text"]
     m = _say(c["id"], "remove clip 3", base_revision=1)
     assert m["status"] == "failed" and "This video changed (now version 2)" in m["text"]
@@ -221,7 +221,7 @@ def test_the_general_chat_asks_the_ai_helper_with_its_memories_and_checks_the_an
     assert [u["where_used"] for u in db.select("brain_memory_uses", "ref_id = ?", (m["id"],))] == ["chat", "chat"]
 
     m = _settled(c["id"], _say(c["id"], "and the outro?")["id"])
-    assert m["status"] == "failed" and m["text"].startswith("The AI helper did not answer with JSON.")
+    assert m["status"] == "failed" and m["text"].startswith("My model did not answer with JSON.")
     m = _settled(c["id"], _say(c["id"], "and the music?")["id"])
     assert m["status"] == "failed" and "could not answer: the helper is down" in m["text"]
     m = _settled(c["id"], _say(c["id"], "and the captions?")["id"])

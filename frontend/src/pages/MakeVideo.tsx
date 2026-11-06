@@ -159,10 +159,10 @@ export default function MakeVideo() {
               <label><input type="checkbox" checked={brief.broll_images} onChange={(e) => set("broll_images", e.target.checked)} /> Show my images over the video while people talk (an image whose file name is said appears right then)</label>
               <label><input type="checkbox" checked={brief.sound_effects} onChange={(e) => set("sound_effects", e.target.checked)} /> Soft sound effects at scene changes and as pictures appear</label>
               <label><input type="checkbox" checked={brief.punch_in ? brief.punch_in === "on" : brief.smart_edit === "tight"} onChange={(e) => set("punch_in", e.target.checked ? "on" : "off")} /> Zoom in a little on every other cut</label>
-              <label><input type="checkbox" checked={brief.ai_edit && aiOn} disabled={!aiOn} onChange={(e) => set("ai_edit", e.target.checked)} /> Let the AI helper read what is said to choose better cuts, pictures and chapters</label>
+              <label><input type="checkbox" checked={brief.ai_edit && aiOn} disabled={!aiOn} onChange={(e) => set("ai_edit", e.target.checked)} /> Let ClipForge AI read what is said to choose better cuts, pictures and chapters</label>
               <p className="small muted">{aiOn
-                ? <>AI helper: {ai!.label}. Only the words said, as text, are sent to it. <a href="#/settings/ai">Change</a></>
-                : <>No AI helper is set up, so ClipForge's built-in editor decides alone (it works well without one). <a href="#/settings/ai">Set up a free AI helper</a> (a model on your computer, or a free key).</>}</p>
+                ? <>ClipForge AI's model: {ai!.label}. Only the words said, as text, are sent to it. <a href="#/settings/ai">Change</a></>
+                : <>ClipForge AI has no model yet, so ClipForge's built-in editor decides alone (it works well without one). <a href="#/settings/ai">Set up a free model</a> (a model on your computer, or a free key).</>}</p>
               <p className="small muted">Everything it cuts stays in the sequence, switched off, so you can put any part back. Each choice is a version you can undo.</p>
             </div>}
           </section>

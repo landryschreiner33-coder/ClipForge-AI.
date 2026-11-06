@@ -11,7 +11,7 @@ runs in its sandbox). Every step is checked before it runs:
 * clip ids must be clips of this sequence; no parameter may name a file, folder or address;
 * at most 40 steps and 2 shots; a step FilmCraft refuses is reported and the rest still run.
 
-A model on this computer (the built-in AI, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
+A model on this computer (the built-in model, Ollama, LM Studio) reads about 8,000 tokens at a time, so its request is
 made shorter until it fits (shorter tool descriptions and quotes, fewer effect and look names, then fewer clips), it is
 asked for at most 10 steps, and its answer is capped at LOCAL_ANSWER_TOKENS. An answer cut off there still gives the
 steps it finished; a step repeated word for word runs once.
@@ -33,7 +33,7 @@ log = logging.getLogger("clipfoundry.craft.ai")
 MAX_STEPS = 40
 MAX_SHOTS = 2
 MEMORY_CHARS = 800  # what the owner told ClipForge AI (brain/memories.py), inside the request's limit
-LOCAL_CONTEXT = 8192  # tokens: the built-in AI's context (builtin_ai.CONTEXT), also asked of Ollama
+LOCAL_CONTEXT = 8192  # tokens: the built-in model's context (builtin_ai.CONTEXT), also asked of Ollama
 LOCAL_PROMPT_CHARS = 14_000  # about 4,000 tokens, leaving the rest of LOCAL_CONTEXT for the answer
 REMOTE_PROMPT_CHARS = 40_000
 LOCAL_TIMEOUT_S = 600.0  # a model on this computer without a graphics card can take minutes
@@ -138,7 +138,7 @@ def sequence_rows(film, edit, words_by_asset: dict, plan: dict) -> list[dict]:
 
 
 def local_model(settings: dict) -> bool:
-    """The AI runs on this computer (the built-in AI, or Ollama / LM Studio at a local address)."""
+    """The AI runs on this computer (the built-in model, or Ollama / LM Studio at a local address)."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
@@ -378,7 +378,7 @@ def run_checked(film, project, steps: list[dict]) -> tuple[list[dict], list[dict
 
 
 def usable(settings: dict) -> bool:
-    """An AI service is set up (the built-in AI counts once its engine and a level are downloaded)."""
+    """An AI service is set up (the built-in model counts once its engine and a level are downloaded)."""
     from ..pipeline import llm
 
     provider = settings.get("ai_provider", "heuristic")
@@ -400,7 +400,7 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict,
     if not settings.get("craft_ai_finish", True):
         return {"used": False, "why": "turned off"}
     if not usable(settings):
-        return {"used": False, "why": "the built-in AI is not downloaded yet" if provider == "builtin" else
+        return {"used": False, "why": "the built-in model is not downloaded yet" if provider == "builtin" else
                 "no AI service is set up"}
     rec = _recall(plan, context)
     try:

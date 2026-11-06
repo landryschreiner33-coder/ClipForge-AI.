@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
-import { AskForChange } from "../components/AskForChange";
+import { ClipForgeAI } from "../components/ClipForgeAI";
 import { FilmCraftPanel, MadeWithLine } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
@@ -179,7 +179,7 @@ function smartDone(r: SmartReport): string {
   if (s.pauses_cut) parts.push(`cut ${plural(s.pauses_cut, "pause")} (${Math.round(s.seconds_saved)} s)`);
   if (s.retakes) parts.push(`left out ${plural(s.retakes, "repeated take")}`);
   if (s.stumbles) parts.push(`cut ${plural(s.stumbles, "stumbled word")}`);
-  if (s.ai_left_out) parts.push(`left out ${plural(s.ai_left_out, "weak part")} the AI helper found`);
+  if (s.ai_left_out) parts.push(`left out ${plural(s.ai_left_out, "weak part")} ClipForge AI found`);
   if (s.fit_left_out) parts.push(`left out ${plural(s.fit_left_out, "weaker sentence")} to fit your length`);
   if (s.overlays) parts.push(`showed ${plural(s.overlays, "picture")}`);
   if (s.music) parts.push("added music");
@@ -236,7 +236,7 @@ function SmartPanel({ v, plan, busy, onStarted }: { v: Video; plan: Plan; busy: 
       {report && report.level !== "off" ? <p>{smartDone(report)}</p>
         : <p className="muted">ClipForge can cut the pauses, repeated takes and weak parts, fit your length, and add your pictures, music and soft sound effects. It makes a new version you can undo.</p>}
       {report?.ai?.used ? <p className="small muted">{report.ai.sent}{report.ai.problems?.length ? ` Some parts were decided without it: ${report.ai.problems[0]}` : ""}</p>
-        : report?.ai?.problem ? <p className="small muted">The AI helper was not used ({report.ai.problem}). <a href="#/settings/ai">AI helper settings</a></p> : null}
+        : report?.ai?.problem ? <p className="small muted">ClipForge AI was not used ({report.ai.problem}). <a href="#/settings/ai">ClipForge AI settings</a></p> : null}
       <Disclosure summary={report && report.level !== "off" ? "Edit it again with other choices" : "Choose how"}>
         <div className="stack-3">
           <div className="mode-pick">
@@ -257,8 +257,8 @@ function SmartPanel({ v, plan, busy, onStarted }: { v: Video; plan: Plan; busy: 
             <label><input type="checkbox" checked={broll} onChange={(e) => setBroll(e.target.checked)} /> Show my images over the video while people talk</label>
             <label><input type="checkbox" checked={fx} onChange={(e) => setFx(e.target.checked)} /> Soft sound effects at scene changes and pictures</label>
             <label><input type="checkbox" checked={punch ?? level === "tight"} onChange={(e) => setPunch(e.target.checked)} /> Zoom in a little on every other cut</label>
-            <label><input type="checkbox" checked={ai && !!helper?.configured} disabled={!helper?.configured} onChange={(e) => setAi(e.target.checked)} /> Use the AI helper{helper?.configured ? ` (${helper.label}${helper.local ? ", on this computer" : ", online"})` : ""}</label>
-            {!helper?.configured && <p className="small muted">No AI helper is set up; the built-in editor works without one. <a href="#/settings/ai">Set up a free AI helper</a></p>}
+            <label><input type="checkbox" checked={ai && !!helper?.configured} disabled={!helper?.configured} onChange={(e) => setAi(e.target.checked)} /> Let ClipForge AI help{helper?.configured ? ` (${helper.label}${helper.local ? ", on this computer" : ", online"})` : ""}</label>
+            {!helper?.configured && <p className="small muted">ClipForge AI has no model yet; the built-in editor works without one. <a href="#/settings/ai">Set up a free model</a></p>}
           </div>}
           <p className="small muted">Your look, captions, word fixes and the sounds and pictures you placed yourself stay. What it cuts stays in the sequence, switched off.</p>
           <button type="button" className="btn btn-primary" disabled={busy || starting || running} onClick={start}>
@@ -448,7 +448,7 @@ export default function VideoReview({ id }: { id: string }) {
                   {plan.clips.slice(0, -1).map((c, i) => <option key={c.id} value={i + 1}>After clip {i + 1} ({c.label})</option>)}</select>
                 <button type="button" className="btn btn-small" disabled={busy || !insert.asset} onClick={() => edit({ op: "insert", asset_id: insert.asset, at: insert.at < 0 ? plan.clips.length : insert.at })}><Icon name="plus" />Insert</button>
               </div>}
-              <AskForChange v={v} busy={busy} onApplied={() => void load()} />
+              <ClipForgeAI projectId={v.id} v={v} busy={busy} onApplied={() => void load()} />
               {plan.notes.length > 0 && <ul className="small">{plan.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
             </section>
             <Pictures v={v} plan={plan} edit={edit} busy={busy} />

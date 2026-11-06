@@ -128,7 +128,7 @@ def test_edit_it_for_me_trims_adds_pictures_music_and_effects_and_renders_that(e
     assert any(i["label"].startswith("Whoosh") for i in fx) and any(i["label"].startswith("Soft swish") for i in fx)
     names = {a["filename"] for a in v["assets"]}
     assert any(n.startswith("ClipForge music - ") for n in names)
-    assert smart["ai"]["used"] is False and "AI helper" in " ".join(plan["notes"])
+    assert smart["ai"]["used"] is False and "ClipForge AI" in " ".join(plan["notes"])
     assert engine.validate(plan, {a["id"]: a for a in db.select("assets")}) == []
 
     # the final render plays exactly this plan

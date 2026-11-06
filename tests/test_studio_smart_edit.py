@@ -1,6 +1,6 @@
 """Smart editing (the plan side; nothing here encodes video): dead air, lone fillers and repeated takes cut, the
 length fitted with the opening, ending and must-keeps protected, images shown over the video when they are named,
-music and sound effects chosen and attached, the AI helper's advice checked and bounded, "Edit it for me" again as
+music and sound effects chosen and attached, ClipForge AI's advice checked and bounded, "Edit it for me" again as
 an undoable version that keeps your look and your own sounds, the engine's joins/zoom/overlay rules, and the AI
 helper setup (presets, a fake Ollama for download/import, free online services through the OpenAI-style client).
 """
@@ -372,7 +372,7 @@ def test_edit_it_for_me_again_is_an_undoable_version_that_keeps_your_choices(env
     assert len({i["id"] for i in new["audio"]}) == len(new["audio"])
     assert any(a.startswith("as-ClipForge music") for a in p["asset_ids"])  # the music is in Your media
     assert any("free background music" in n for n in new["notes"])
-    assert any("AI helper was not used" in n for n in new["notes"])
+    assert any("ClipForge AI was not used" in n for n in new["notes"])
     # a stale job (the video changed after it was queued) changes nothing
     with pytest.raises(video_flow.VideoError):
         video_flow.smart_job({"target_id": project["id"], "revision": 3}, _Lease())
@@ -487,7 +487,7 @@ def test_creating_with_smart_choices_is_checked(env):
     assert values["smart_edit"] == "tight" and values["music"] == "library" and values["sound_effects"] is False
 
 
-# ------------------------------------------------------------------ the AI helper setup
+# ------------------------------------------------------------------ ClipForge AI's model setup
 class _FakeOllama(BaseHTTPRequestHandler):
     blobs: dict = {}
     created: list = []

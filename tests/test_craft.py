@@ -455,13 +455,13 @@ def test_the_built_in_ai_finishes_the_edit_once_it_is_downloaded(monkeypatch):
     from clipfoundry.pipeline import llm
 
     def never(*_a, **_k):
-        raise AssertionError("nothing is sent before the built-in AI is downloaded")
+        raise AssertionError("nothing is sent before the built-in model is downloaded")
 
     monkeypatch.setattr(llm, "complete", never)
     monkeypatch.setattr(builtin_ai, "ready", lambda _s: False)
     s = {"ai_provider": "builtin", "craft_ai_finish": True}
     got = ai.finish(None, None, None, {}, {}, s)
-    assert got == {"used": False, "why": "the built-in AI is not downloaded yet"}
+    assert got == {"used": False, "why": "the built-in model is not downloaded yet"}
     plan = {"version": 3, "clips": []}
     before = finish.edit_key(plan, s)
     assert before == finish.edit_key(plan, {"ai_provider": "heuristic"})

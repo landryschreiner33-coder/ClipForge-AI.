@@ -566,7 +566,7 @@ def _ai_settings() -> tuple[dict, str]:
 
 def _local(settings: dict, provider: str) -> bool:
     if provider == "builtin":
-        return True  # the built-in AI only ever listens on 127.0.0.1
+        return True  # the built-in model only ever listens on 127.0.0.1
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
     elif provider == "openai_compatible":
@@ -752,7 +752,7 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
     settings, provider = _ai_settings()
     if not provider:
         row.update(status="unsupported", message=(
-            "ClipForge did not understand this without an AI service, and none is set up in Settings → AI. "
+            "ClipForge did not understand this without an AI service, and none is set up in Settings → ClipForge AI. "
             "Requests it understands on its own include: " + "; ".join(f"“{x}”" for x in RULE_EXAMPLES) +
             ". Every change can also be made with the editor's controls."))
         return _view(db.insert("edit_requests", row))
@@ -764,7 +764,7 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
                              "created_at >= ?", (ws, _today_start())) or 0)
         if used >= limit:
             row.update(status="failed", message=(
-                f"Today's limit of {limit} AI requests is reached (Settings → AI). Nothing was sent; the "
+                f"Today's limit of {limit} AI requests is reached (Settings → ClipForge AI). Nothing was sent; the "
                 "editor's controls and the requests ClipForge understands on its own still work."))
             return _view(db.insert("edit_requests", row))
         guidance = (project.get("guidance") or {}).get("values") or {}

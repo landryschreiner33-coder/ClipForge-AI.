@@ -16,7 +16,7 @@ explained, not filled.
 
 With smart editing on (the brief's "How much should ClipForge edit?"), the rough cut is made by smart_edit.py: it
 cuts dead air and repeated takes, fits the length, shows your images over the video, and adds music and soft sound
-effects (your own, or free ones ClipForge makes on this computer, library.py), optionally helped by the AI helper
+effects (your own, or free ones ClipForge makes on this computer, library.py), optionally helped by ClipForge AI
 from Settings (ai_editor.py). "Edit it for me" on the editor page runs the same edit again on any project, as a new
 version that Undo reverts.
 """
@@ -237,7 +237,7 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
     """Revision 1: the videos and images in the order of the media bin, each trimmed to its speech (measured silence
     kept short), avoid-requests cut out at sentence boundaries, the brief's music and voiceovers on their tracks,
     and the brief/style choices applied. With smart editing on, smart_edit.build makes it instead (`smart`: what
-    prepare_smart got ready: the AI helper's advice and the music and effects to use)."""
+    prepare_smart got ready: ClipForge AI's advice and the music and effects to use)."""
     values = (project.get("guidance") or {}).get("values") or {}
     brief = project.get("brief") or {}
     from . import smart_edit
@@ -449,7 +449,7 @@ def _smart_memories(project: dict, brief: dict) -> str:
 
 def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], settings: dict,
                   lease: Lease | None = None) -> dict:
-    """What a smart edit needs besides the transcripts: the AI helper's advice (when one is set up and allowed), and
+    """What a smart edit needs besides the transcripts: ClipForge AI's advice (when one is set up and allowed), and
     the music and sound effects it will use, stored as assets and added to the project's media (`assets` is
     updated in place). Empty when smart editing is off."""
     from . import ai_editor, library, smart_edit
@@ -469,7 +469,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
                 if len(p.strip()) >= 3]
         if table:
             if lease:
-                lease.progress(0.72, "The AI helper is reading what is said")
+                lease.progress(0.72, "ClipForge AI is reading what is said")
             try:
                 ctx["ai"] = ai_editor.advise(
                     table, {**brief, **{k: values[k] for k in ("video_type", "audience", "target_duration_s")
@@ -480,7 +480,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
             except ai_editor.AdviceError as exc:
                 ctx["ai_problem"] = str(exc)[:200]
     elif opts["ai"]:
-        ctx["ai_problem"] = "none is set up; Settings → AI helper has free choices"
+        ctx["ai_problem"] = "no model is set up; Settings → ClipForge AI has free choices"
     music = smart_edit.choose_music(project, assets, values, (ctx.get("ai") or {}).get("music", ""))
     added: list[dict] = []
     lib: dict[str, dict] = {}

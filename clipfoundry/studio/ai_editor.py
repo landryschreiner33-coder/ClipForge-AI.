@@ -1,7 +1,7 @@
-"""The optional AI helper for smart editing: reads what is said and suggests what to leave out, where a picture
+"""ClipForge AI's smart-editing advice (optional): reads what is said and suggests what to leave out, where a picture
 would help, chapter titles and the music's mood.
 
-It uses the AI service from Settings → AI helper (a free local model through Ollama or LM Studio, or a service the
+It uses the AI service from Settings → ClipForge AI (a free local model through Ollama or LM Studio, or a service the
 owner has a key for) and is never required: without one, or when it fails, the built-in editor decides alone and the
 plan says so. It is sent text only: the brief and the sentences said in the videos with their times (bounded,
 in a few windows). Never the video, the sound or file paths. Its answer is data: only a fixed JSON shape is read,
@@ -42,7 +42,7 @@ def configured(settings: dict) -> str:
 
 def is_local(settings: dict, provider: str) -> bool:
     if provider == "builtin":
-        return True  # the built-in AI only ever listens on 127.0.0.1
+        return True  # the built-in model only ever listens on 127.0.0.1
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
     elif provider == "openai_compatible":
@@ -111,13 +111,13 @@ def parse(raw: str, window: list[dict], protected: set[int]) -> dict:
     raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S)
     m = re.search(r"\{.*\}", raw, re.S)
     if not m:
-        raise AdviceError("The AI helper did not answer with JSON.")
+        raise AdviceError("ClipForge AI's model did not answer with JSON.")
     try:
         data = json.loads(m.group(0))
     except ValueError as exc:
-        raise AdviceError("The AI helper's answer was not valid JSON.") from exc
+        raise AdviceError("ClipForge AI's model answered with invalid JSON.") from exc
     if not isinstance(data, dict):
-        raise AdviceError("The AI helper's answer was not a JSON object.")
+        raise AdviceError("ClipForge AI's model did not answer with a JSON object.")
     ids = {s["i"] for s in window}
 
     def idx(v) -> int | None:
@@ -166,7 +166,7 @@ def advise(sentences: list[dict], brief: dict, settings: dict, *, protected: set
 
     provider = configured(settings)
     if not provider:
-        raise AdviceError("No AI helper is set up.")
+        raise AdviceError("ClipForge AI has no model set up.")
     complete = complete or llm.complete
     wins = windows(sentences)
     used, skipped = wins[:MAX_WINDOWS], wins[MAX_WINDOWS:]
@@ -188,7 +188,7 @@ def advise(sentences: list[dict], brief: dict, settings: dict, *, protected: set
                 raw = call.result(timeout=1.0)
             except concurrent.futures.TimeoutError:
                 if heartbeat:
-                    heartbeat(f"The AI helper is reading part {k} of {len(used)}")
+                    heartbeat(f"ClipForge AI is reading part {k} of {len(used)}")
                 if (canceled and canceled()) or time.monotonic() > deadline:
                     out["problems"].append(f"Part {k}: no answer within {timeout:g} s.")
                     raw = ""
@@ -213,7 +213,7 @@ def advise(sentences: list[dict], brief: dict, settings: dict, *, protected: set
         if got["music"]:
             moods.append(got["music"])
     if not ok:
-        raise AdviceError(out["problems"][0] if out["problems"] else "The AI helper did not answer.")
+        raise AdviceError(out["problems"][0] if out["problems"] else "ClipForge AI's model did not answer.")
     if moods:
         out["music"] = max(set(moods), key=moods.count)
     return out
