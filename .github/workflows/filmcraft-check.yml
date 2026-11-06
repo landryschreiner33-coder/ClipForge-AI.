@@ -52,6 +52,9 @@ jobs:
             mkdir -p "$HOME/Applications"
             cp -R "$RUNNER_TEMP/filmcraft/dmg/FilmCraft.app" "$HOME/Applications/"
             hdiutil detach "$RUNNER_TEMP/filmcraft/dmg"
+            # The disk image carries Finder info on some resource files; it is not part of the signature but
+            # --strict refuses it, so clear it before checking that the app's signed code is intact.
+            xattr -cr "$HOME/Applications/FilmCraft.app"
             codesign --verify --deep --strict --verbose=2 "$HOME/Applications/FilmCraft.app"
             spctl --assess --type execute --verbose=4 "$HOME/Applications/FilmCraft.app" || true
           else
