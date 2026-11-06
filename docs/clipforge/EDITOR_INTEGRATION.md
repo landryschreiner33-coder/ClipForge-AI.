@@ -1,5 +1,10 @@
 # Editor integration: FilmCraft evaluation and the engine adapter
 
+> **2026-11-06:** FilmCraft is now plugged in as a hand-off, not as the render engine: "Open in FilmCraft" writes the
+> cut as an OpenTimelineIO timeline with captions and opens it in a FilmCraft the person installed, and a GitHub
+> check imports and renders that timeline with FilmCraft's official release. See [FILMCRAFT.md](FILMCRAFT.md).
+> Rendering through FilmCraft (below) is still not done.
+
 Checkpoint: 2026-11-04. Status: **FilmCraft integration Blocked; FFmpeg engine adapter Implemented** for the
 operations listed in the capability table below.
 

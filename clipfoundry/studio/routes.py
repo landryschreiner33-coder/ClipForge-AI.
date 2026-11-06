@@ -781,6 +781,87 @@ def video_export(video_id: str, revision: int = 0) -> JSONResponse:
         "Content-Disposition": f'attachment; filename="{video_id}-v{rev}.plan.json"'})
 
 
+# ------------------------------------------------------------------ finishing in another editor (FilmCraft)
+@router.get("/api/studio/filmcraft")
+def filmcraft_status() -> dict:
+    """Whether FilmCraft is installed on this computer (never in the online studio)."""
+    from . import filmcraft
+
+    return filmcraft.status()
+
+
+class HandoffBody(BaseModel):
+    revision: int = 0
+    reveal: bool = False
+
+
+@router.post("/api/studio/videos/{video_id}/filmcraft")
+def open_in_filmcraft(video_id: str, body: HandoffBody) -> dict:
+    """Write this version as a timeline with captions next to the video, then open it in FilmCraft (or, with
+    `reveal`, show the folder). Nothing is uploaded; FilmCraft reads the original files where they are."""
+    import shutil
+
+    from ..cloud import settings as cloud_settings
+    from . import filmcraft, interchange
+
+    v = _video(video_id)
+    if cloud_settings.enabled():
+        raise HTTPException(409, filmcraft.status()["message"])
+    rev = body.revision or v["plan_revision"]
+    if not rev:
+        raise HTTPException(409, "The rough cut is not ready yet.")
+    folder = interchange.local_folder(v, rev)
+    try:
+        shutil.rmtree(folder, ignore_errors=True)  # a fresh copy of exactly this version
+        pkg = interchange.for_video(v, rev, folder, portable=False)
+        if body.reveal:
+            result = {"revealed": filmcraft.reveal(folder), "opened": False, "how": "", "warnings": []}
+        else:
+            result = filmcraft.open_package(pkg)
+    except video_flow.VideoError as exc:
+        raise _bad(exc, 404) from exc
+    except (interchange.HandoffError, filmcraft.FilmCraftError) as exc:
+        raise _bad(exc) from exc
+    return {**result, "revision": rev, "folder": str(folder), "timeline": pkg.timeline.name,
+            "captions": pkg.captions.name if pkg.captions else "", "counts": pkg.built.counts,
+            "not_carried": interchange.not_carried_text(pkg.built), "page": filmcraft.PAGE}
+
+
+@router.get("/api/studio/videos/{video_id}/timeline.zip")
+def timeline_zip(video_id: str, revision: int = 0, media: int = 1) -> FileResponse:
+    """This version as a portable package for FilmCraft or another editor: the .otio timeline, .srt captions, a
+    README and (unless media=0) every file it uses under media/. Built in a scratch folder removed after sending."""
+    import os
+    import shutil
+
+    from starlette.background import BackgroundTask
+
+    from . import interchange
+
+    v = _video(video_id)
+    rev = revision or v["plan_revision"]
+    if not rev:
+        raise HTTPException(409, "The rough cut is not ready yet.")
+    work = video_flow.video_dir(video_id) / f"handoff-{os.urandom(4).hex()}"
+    try:
+        pkg = interchange.for_video(v, rev, work / "package", portable=True)
+        if not media:
+            pkg.media = {}
+        out = interchange.zip_package(pkg, work / "timeline.zip")
+    except video_flow.VideoError as exc:
+        shutil.rmtree(work, ignore_errors=True)
+        raise _bad(exc, 404) from exc
+    except interchange.HandoffError as exc:
+        shutil.rmtree(work, ignore_errors=True)
+        raise _bad(exc) from exc
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    name = f"{interchange.safe_name(v['name'])} v{rev} timeline.zip"
+    return FileResponse(out, media_type="application/zip", filename=name,
+                        background=BackgroundTask(shutil.rmtree, work, True))
+
+
 # ------------------------------------------------------------------ example videos (Brain)
 class ReferenceCreate(BaseModel):
     asset_id: str

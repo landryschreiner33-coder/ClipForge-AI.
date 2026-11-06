@@ -1,0 +1,79 @@
+name: FilmCraft timeline check
+# Does a real FilmCraft (the open-source editor ClipForge hands cuts to) open ClipForge's timelines exactly?
+# Uses FilmCraft's official signed release files, pinned by version and SHA-256; nothing is built from source.
+# See docs/clipforge/FILMCRAFT.md and scripts/filmcraft_check.py.
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['clipfoundry/studio/interchange.py', 'clipfoundry/studio/filmcraft.py', 'clipfoundry/studio/engine.py',
+            'scripts/filmcraft_check.py', '.github/workflows/filmcraft-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: filmcraft-check-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  FILMCRAFT_VERSION: '0.17.1'
+  LINUX_TARBALL_SHA256: '397ae9fece559b37863b4b076af46a63b6e4387c35f781709e4efad14fe71ebe'
+  MAC_CLI_ZIP_SHA256: 'ca0749fecd44c51caee419d90938d24ce322340d7af1d1660605166f1ecd2755'
+  MAC_DMG_SHA256: 'ca01efef41f1e57bb5a19d70c5f94e64dd3a35d65152c54d127f8a8f701a241d'
+jobs:
+  check:
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg and ClipForge's Python packages
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; else sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+          python -m pip install -r requirements-dev.txt
+      - name: Download FilmCraft ${{ env.FILMCRAFT_VERSION }} (official release, checked against pinned SHA-256)
+        run: |
+          base="https://github.com/storytold/filmcraft/releases/download/v${FILMCRAFT_VERSION}"
+          mkdir -p "$RUNNER_TEMP/filmcraft" && cd "$RUNNER_TEMP/filmcraft"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            curl -fsSL -o cli.zip "$base/filmcraft-cli-${FILMCRAFT_VERSION}-macos-universal.zip"
+            curl -fsSL -o app.dmg "$base/filmcraft-${FILMCRAFT_VERSION}-macos-universal.dmg"
+            echo "$MAC_CLI_ZIP_SHA256  cli.zip" | shasum -a 256 -c -
+            echo "$MAC_DMG_SHA256  app.dmg" | shasum -a 256 -c -
+            unzip -q cli.zip
+            cli="$(find "$PWD" -name filmcraft-cli -type f | head -1)"
+            codesign --verify --strict --verbose=2 "$cli"
+            hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/filmcraft/dmg" app.dmg
+            mkdir -p "$HOME/Applications"
+            cp -R "$RUNNER_TEMP/filmcraft/dmg/FilmCraft.app" "$HOME/Applications/"
+            hdiutil detach "$RUNNER_TEMP/filmcraft/dmg"
+            codesign --verify --deep --strict --verbose=2 "$HOME/Applications/FilmCraft.app"
+            spctl --assess --type execute --verbose=4 "$HOME/Applications/FilmCraft.app" || true
+          else
+            curl -fsSL -o fc.tar.gz "$base/filmcraft-${FILMCRAFT_VERSION}-linux-x86_64.tar.gz"
+            echo "$LINUX_TARBALL_SHA256  fc.tar.gz" | sha256sum -c -
+            tar -xzf fc.tar.gz
+            cli="$(find "$PWD" -path '*/bin/filmcraft-cli' -type f | head -1)"
+          fi
+          chmod +x "$cli"
+          "$cli" --version
+          echo "FILMCRAFT_CLI=$cli" >> "$GITHUB_ENV"
+      - name: ClipForge's timeline in FilmCraft (import, compare, render)
+        run: |
+          extra=""
+          if [ "$RUNNER_OS" = "macOS" ]; then extra="--expect-app"; fi
+          python scripts/filmcraft_check.py --cli "$FILMCRAFT_CLI" --out "$RUNNER_TEMP/filmcraft-check" $extra
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: filmcraft-check-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/filmcraft-check/report.json
+            ${{ runner.temp }}/filmcraft-check/local
+            ${{ runner.temp }}/filmcraft-check/*.mp4
+          retention-days: 7

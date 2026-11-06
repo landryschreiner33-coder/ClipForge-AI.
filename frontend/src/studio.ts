@@ -145,7 +145,18 @@ export type ChangeRequest = { id: string; project_id: string; base_revision: num
   proposal: { format?: string; summary?: string; operations?: Record<string, unknown>[]; changes?: string[]; notes?: string[];
     question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
 
+/** FilmCraft (the free open-source editor from the ArtCraft team) on this computer. */
+export type FilmCraftStatus = { available: boolean; installed: boolean; app?: boolean; cli?: boolean; version?: string;
+  page: string; releases?: string; reason?: string; message?: string };
+export type FilmCraftOpen = { installed: boolean; opened: boolean; how: "" | "project" | "timeline"; project?: string;
+  revealed?: boolean; warnings: string[]; revision: number; folder: string; timeline: string; captions: string;
+  counts: Record<string, number | boolean>; not_carried: string[]; page: string };
+
 export const studio = {
+  filmcraft: () => req<FilmCraftStatus>("GET", "/api/studio/filmcraft"),
+  /** Write this version as a timeline with captions and open it in FilmCraft (`reveal`: show the folder instead). */
+  openInFilmCraft: (id: string, revision: number, reveal = false) =>
+    req<FilmCraftOpen>("POST", `/api/studio/videos/${id}/filmcraft`, { revision, reveal }),
   askForChange: (id: string, text: string, base_revision: number) =>
     req<ChangeRequest>("POST", `/api/studio/videos/${id}/requests`, { text, base_revision }),
   changeRequest: (rid: string) => req<ChangeRequest>("GET", `/api/studio/requests/${rid}`),

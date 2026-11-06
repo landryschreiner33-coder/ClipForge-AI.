@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../api";
 import { LayoutFlow } from "../components/AppearanceSettings";
 import { AskForChange } from "../components/AskForChange";
+import { FinishInFilmCraft } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
@@ -535,6 +536,7 @@ export default function VideoReview({ id }: { id: string }) {
             ))}</ul>
             <a className="small" href={`/api/studio/videos/${v.id}/export`}>Download the edit plan (JSON)</a>
           </section>
+          <FinishInFilmCraft v={v} />
           <Credits v={v} onSaved={setV} /></div>),
       }} />
     </div>

@@ -1,5 +1,28 @@
 # AI changelog
 
+## Finish in FilmCraft (ArtCraft's open-source editor) — 2026-11-06 (Claude Code)
+
+Landry asked to plug the ArtCraft apps into ClipForge for editing. FilmCraft (the video editor) is first.
+
+- **Editor page → Finish in FilmCraft:** "Open in FilmCraft" writes the current version as an OpenTimelineIO
+  timeline with SRT captions, a title-card still and a README next to the video, then opens the FilmCraft you
+  installed (with its command-line tool, as a ready FilmCraft project). "Show the timeline files" and "Timeline with
+  media (.zip)" (portable, also in the online studio). Not installed: the files are still written and the panel
+  links to getartcraft.com/apps/filmcraft. ClipForge never downloads or bundles FilmCraft.
+- **The timeline** is made from the FFmpeg engine's frame map (frame-exact): clips, images, dissolves/dips as centred
+  OTIO transitions, straight cuts, the title still, pictures over the video (V2), clip sound with volume and mutes
+  (A1, linked), voiceover/music/effects tracks (loops repeated, overlaps on extra lanes), chapters as markers, frame
+  size and rate for FilmCraft. What cannot carry over (ducking, fades, punch-ins, fill framing, blurred background,
+  overlay motion, caption look, loudness leveling) is listed in the README and the panel.
+- **Code:** `studio/interchange.py`, `studio/filmcraft.py`, routes `GET /api/studio/filmcraft`,
+  `POST /api/studio/videos/{id}/filmcraft`, `GET /api/studio/videos/{id}/timeline.zip`, `components/FilmCraft.tsx`.
+  Docs: `docs/clipforge/FILMCRAFT.md`.
+- **Tests:** `tests/test_studio_filmcraft.py` (13, fast; OpenTimelineIO 0.18.1 read the file in the local run);
+  `.github/workflows/filmcraft-check.yml` + `scripts/filmcraft_check.py` import and render the timeline with
+  FilmCraft 0.17.1's official release on macOS 15 and Ubuntu (results in the PR).
+- **Not verified:** the FilmCraft window opening on a real Mac or Windows PC; FilmCraft could not be run in the cloud
+  session itself (running a downloaded program there is not allowed), so it runs on GitHub's machines instead.
+
 ## Released ClipForge 2026.11.05.2: smart editing and the Mac link fix — 2026-11-05 (Claude Code)
 
 Landry asked in the project thread to merge both fixes (PR #22, PR #23) and update the website with the new versions.

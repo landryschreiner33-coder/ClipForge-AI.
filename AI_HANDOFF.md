@@ -1,5 +1,20 @@
 # AI handoff
 
+## Finish in FilmCraft — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to plug the ArtCraft apps (getartcraft.com/apps) into ClipForge for editing.
+FilmCraft, their open-source video editor, is plugged in as a hand-off: the editor page writes the cut as a timeline
+with captions and opens it in FilmCraft for hand finishing (colour, keyframes, titles, mixing). FFmpeg stays the
+engine for automatic editing and rendering.
+
+- **Branch:** `claude/project-thread-605vsm`, from `claude/project-thread-x72wkd` (separate from phase 1, PR #25).
+- **Design, limits and how it is verified:** [docs/clipforge/FILMCRAFT.md](docs/clipforge/FILMCRAFT.md).
+- **Code:** `studio/interchange.py` (OTIO + SRT + package/zip), `studio/filmcraft.py` (find, import with
+  `filmcraft-cli`, open), three routes in `studio/routes.py`, `frontend/src/components/FilmCraft.tsx` (rebuilt dist).
+- **Real FilmCraft:** `.github/workflows/filmcraft-check.yml` (push to `claude/**` touching these files, or by hand)
+  runs `scripts/filmcraft_check.py` against FilmCraft 0.17.1 pinned by SHA-256 on macOS 15 and Ubuntu.
+- **Next ArtCraft apps:** PhotoCraft (thumbnails), EffectCraft (titles), SoundCraft (voice): same "open in" pattern.
+
 ## Release ClipForge 2026.11.05.2 (smart editing + Mac link fix) — 2026-11-05 (Claude Code, cloud session)
 
 Landry asked to merge both fixes and update the website. PR #22 was merged into `claude/project-thread-x72wkd`
