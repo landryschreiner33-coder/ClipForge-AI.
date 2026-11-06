@@ -31,10 +31,14 @@ want changed (*move the summit part before lunch*, *make the captions smaller*) 
 happens until you press **Apply as a new version** (Undo takes it back) or **Discard**. Teach it in any chat with
 *remember: …*, *always …* or *never …* (add *for this video* to keep it to one video); ask *what do you know?*,
 *why?* or *help*; say *forget …* to remove something. Brain → **Talk to ClipForge AI** is the chat for everything
-else; with a model set up (Settings → **ClipForge AI**; the built-in one is free and stays on this computer) it also
-answers questions. Brain → **Memory** shows everything it remembers, where each memory was used, and lets you edit,
-confirm, turn off or forget it, tidy or rebuild the brain, and export or import it as a file. Only words are ever sent
-to a model, never your videos or their sound.
+else. Ask it how to edit (*how loud should my video be?*, *where do captions go on TikTok?*, *what music fits a sad
+scene?*) and it answers from its built-in know-how, with no model; with a model set up (Settings → **ClipForge AI**;
+the built-in one is free and stays on this computer) it answers anything, with your memories and that know-how.
+Brain → **Memory** shows everything it remembers, where each memory was used, and lets you edit, confirm, turn off or
+forget it, tidy or rebuild the brain, and export or import it as a file; below that, **What it knows about editing**
+lists the twelve playbooks it edits by (hooks, endings, pacing, captions, sound, music, colour, effects, picking
+clips, platforms, retention, talking heads). What you teach it always wins over them. Only words are ever sent to a
+model, never your videos or their sound.
 
 ## Brain: styles and skills
 Brain → **Styles** lists your saved styles. Brain → **Skills** imports a Markdown or JSON skill: you see what it would

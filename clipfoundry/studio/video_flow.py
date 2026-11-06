@@ -430,6 +430,22 @@ def build(job: dict, lease: Lease) -> dict:
     return {"revision": rev}
 
 
+SMART_KNOWHOW_CHARS = 700  # built-in know-how (brain/knowhow.py) read by smart-edit advice, per window
+
+
+def _smart_knowhow(brief: dict) -> str:
+    """The built-in playbooks that fit this video's brief (talking heads, endings, pacing by default). Never fails
+    the edit."""
+    from ..brain import knowhow
+
+    try:
+        asked = " ".join(str(brief.get(k) or "") for k in ("video_type", "goal", "audience", "avoid")).strip()
+        return knowhow.select(asked, "smart_edit", limit=2, budget_chars=SMART_KNOWHOW_CHARS).prompt()
+    except Exception:  # noqa: BLE001
+        logging.getLogger("clipfoundry.studio.video_flow").exception("know-how failed")
+        return ""
+
+
 def _smart_memories(project: dict, brief: dict) -> str:
     """What the owner told ClipForge AI that applies to editing this video: rules and facts, briefly
     (docs/clipforge/CLIPFORGE_AI.md). Never fails the edit."""
@@ -476,7 +492,8 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
                                         if k in values and not brief.get(k)}}, settings,
                     protected={s["i"] for s in table if any(p in s["text"].lower() for p in keep)},
                     heartbeat=(lambda m: lease.progress(0.74, m)) if lease else None,
-                    canceled=lease.canceled if lease else None, memories=_smart_memories(project, brief))
+                    canceled=lease.canceled if lease else None, memories=_smart_memories(project, brief),
+                    knowhow=_smart_knowhow(brief))
             except ai_editor.AdviceError as exc:
                 ctx["ai_problem"] = str(exc)[:200]
     elif opts["ai"]:

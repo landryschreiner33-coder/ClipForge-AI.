@@ -48,8 +48,10 @@ def build_prompt(video_name: str, sentences: list[str], context_before: str, dur
     guidance = ("Saved editing priorities: " + ", ".join(selected) + ". Favor ranges that satisfy these priorities "
                 "while preserving complete context and the payoff. Keep scores honest; these are editing "
                 "preferences, never source facts.\n") if selected else ""
+    from ..brain import knowhow
+
     return (
-        guidance + f"Source video: {video_name}\n"
+        guidance + knowhow.principles("clips") + "\n" + f"Source video: {video_name}\n"
         f"Candidate clip, about {duration:.0f} seconds. Sentences are numbered.\n{ctx}"
         f"CLIP TRANSCRIPT:\n{numbered}\n\n"
         "Score each factor from 0 to 10 (be strict; 5 is an average clip):\n"

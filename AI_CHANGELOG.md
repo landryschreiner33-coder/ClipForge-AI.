@@ -1,5 +1,43 @@
 # AI changelog
 
+## ClipForge AI know-how: the research turned into playbooks, and editors that apply its numbers — 2026-11-06 (Claude Code)
+
+Landry gave ClipForge AI two research guides (a cinematic filmmaking and post-production guide, a viral short-form
+video strategy guide) and asked to use them to make the AI smarter at its job, plus "your own stuff". Branch
+`claude/project-thread-605vsm` (restarted from the release line at 936d7fc, after phase A merged). No release.
+
+- **Know-how** (`clipfoundry/brain/knowhow.py`): twelve playbooks in plain words with numbers (hooks and openings,
+  endings and loops, pacing and cuts, captions and safe zones, voice and sound mix, music by mood, colour by mood,
+  effects that earn their place, picking a clip, platforms and export, reading a retention graph, talking-head
+  edits), distilled from the guides and ClipForge's own rules. `select(query, task)` picks the few that fit a question
+  or a job (rarer words count more; the words a playbook is about count double; a task's defaults fill in) inside a
+  character budget; `answer(query)` is the one playbook that answers a question alone; `principles(task)` the
+  one-line reminder for a task's instructions. The owner's memories always win over it, and the prompt block says so.
+- **Where it is read:** the general chat (1,400 characters after the memories; without a model it now answers
+  editing questions from the playbook that fits, e.g. "how loud should my video be?"), change requests (900, after the
+  memories, dropped first when a long video needs the room; the request's new `knowhow` column records what it read;
+  the principles line is in the instructions), smart-edit advice (700, before the brief of every window; the system
+  text now says to keep the strongest line first and leave out outro lines), the FilmCraft pass (1,500: colour,
+  effects, sound by default; the system text says correct before grade, effects with their sound, voice first), clip
+  scoring and post packages (the principles line). "Why?" names the playbooks a request read. Brain → Memory lists
+  every playbook (`GET /api/brain/memories/knowhow`; `POST …/knowhow/select` shows what a question would read).
+- **The editors apply the numbers:** outro lines ("to recap", "thanks for watching", "follow for part two",
+  `text_utils.OUTRO_PHRASES`) are a warned flag, lower the payoff and make a poor opener, so the ending before them
+  wins; loss or warning framing (`LOSS_WORDS`, `LOSS_PHRASES`) and starting in the middle of a story score higher as
+  openers and hooks; hook lines prefer plain words and 4-12 words (best under 8); the hook headline starts below the
+  apps' top bar (15% instead of 11%) and shrinks for long text (68 / 58 / 50 px); "bottom" captions sit 36% up,
+  above the 35% the apps cover (was 23%, inside it); the voice clean-up uses the dialogue chain (high-pass 80/100 Hz,
+  2/3.5 dB out of the mud at 300 Hz, 2/3 dB of presence at 3.5 kHz, 2.5:1/3.5:1 with a 20 ms attack and a 90 ms
+  release); clips are converted to YUV with the BT.709 matrix and tagged BT.709 (FFmpeg used BT.601 for the RGB
+  frames before, a visible shift of reds and greens on every clip), delivered with a closed GOP and a keyframe every
+  half second, and AAC at 256 kbps (full videos: keyframes every half second, 256 kbps too).
+- **In the app:** the chat shows "From its know-how: …" under answers and proposals; Brain → Memory has "What it
+  knows about editing (built in)" with every playbook expandable; the chat's example chip asks "How loud should my
+  video be?". `frontend/dist` rebuilt.
+- **Tests:** `tests/test_clipforge_ai_knowhow.py` (12). The chat's answer is now returned as written before the model
+  starts (the page polls), which also removes a timing race in the chat tests.
+- **Design:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Know-how".
+
 ## ClipForge AI phase A: the brain's memories and the chat — 2026-11-06 (Claude Code)
 
 Landry asked for a much better AI ("ClipForge AI"): research the best models, combine them, add its own data and

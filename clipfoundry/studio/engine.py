@@ -626,10 +626,12 @@ def _overlay_input(ov: dict, frames: int, fps: int, width: int, height: int, idx
     return args, lines
 
 
-def _encode_args(preview: bool, settings: dict | None) -> list[str]:
-    # no B-frames: every piece is a closed, self-contained stream that joins by plain concatenation
+def _encode_args(preview: bool, settings: dict | None, fps: int = 30) -> list[str]:
+    # no B-frames: every piece is a closed, self-contained stream that joins by plain concatenation; a keyframe
+    # every half second is what the platforms ask of an upload
     return ["-c:v", "libx264", "-preset", "ultrafast" if preview else (settings or {}).get("video_preset")
-            or "veryfast", "-crf", "30" if preview else "20", "-bf", "0", "-pix_fmt", "yuv420p"]
+            or "veryfast", "-crf", "30" if preview else "20", "-bf", "0", "-g", str(max(1, round(fps / 2))),
+            "-pix_fmt", "yuv420p"]
 
 
 def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layout: str, kind: str | None,
@@ -908,7 +910,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     events = caption_events(words, captions) if captions.get("enabled") and words else []
     trans = TRANSITIONS.get((plan.get("transition") or {}).get("type", "cut"))
     layout = plan.get("layout") or "fit"
-    encode = _encode_args(preview, settings)
+    encode = _encode_args(preview, settings, fps)
     try:
         # ---- picture: bodies and joins, each a separate small FFmpeg run, cached by content
         specs = []
@@ -1024,7 +1026,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         tmp_out = out_path.with_suffix(".tmp.mp4")
         run(["-f", "h264", "-framerate", str(fps), "-i", str(joined), *_raw_input(mixed), "-filter_complex",
              f"[1:a]{_post(gain, False)}[aout]", "-map", "0:v", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac",
-             "-profile:a", "aac_low", "-b:a", "128k" if preview else "192k", "-ac", "2", "-ar", "48000",
+             "-profile:a", "aac_low", "-b:a", "128k" if preview else "256k", "-ac", "2", "-ar", "48000",
              "-movflags", "+faststart", "-t", f"{total_s:.6f}", str(tmp_out)],
             duration=total_s, progress=lambda f: report(0.88 + 0.12 * f), cancel=cancelled, cwd=work)
         tmp_out.replace(out_path)

@@ -1214,7 +1214,7 @@ JSON_FIELDS = {
     "asset_sources": {"terms"},
     "media_imports": set(),
     "media_suggestions": {"queries", "items", "added", "problems"},
-    "edit_requests": {"proposal", "memories"},
+    "edit_requests": {"proposal", "memories", "knowhow"},
 }
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS does not touch an existing database, so these
@@ -1241,7 +1241,7 @@ ADDED_COLUMNS = {
     # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
     "studio_projects": {"media": "TEXT DEFAULT '{}'"},
     # the memories ClipForge AI read for a proposal (brain/memories.py)
-    "edit_requests": {"memories": "TEXT DEFAULT '[]'"},
+    "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},

@@ -33,6 +33,7 @@ log = logging.getLogger("clipfoundry.craft.ai")
 MAX_STEPS = 40
 MAX_SHOTS = 2
 MEMORY_CHARS = 800  # what the owner told ClipForge AI (brain/memories.py), inside the request's limit
+KNOWHOW_CHARS = 1500  # the built-in playbooks for finishing (brain/knowhow.py: colour, effects, sound), inside the limit
 LOCAL_CONTEXT = 8192  # tokens: the built-in model's context (builtin_ai.CONTEXT), also asked of Ollama
 LOCAL_PROMPT_CHARS = 14_000  # about 4,000 tokens, leaving the rest of LOCAL_CONTEXT for the answer
 REMOTE_PROMPT_CHARS = 40_000
@@ -64,7 +65,9 @@ _PATHISH = re.compile(r"^(?:/|~|\\\\|[A-Za-z]:[\\/]|file:|[a-z][a-z0-9+.-]*://)"
 SYSTEM = """You finish video edits in FilmCraft, a professional video editor, by choosing its tools. The cut (which
 clips, in which order, how long) is final; you only improve how it looks and sounds: colour, effects with keyframes,
 transitions, speed ramps, titles and shapes, caption style, sound clean-up. You can also ask EffectCraft (motion
-graphics) for up to two effects shots, which are laid over the video. Answer with one JSON object and nothing else."""
+graphics) for up to two effects shots, which are laid over the video. Correct before you grade, pick the look by
+the mood, keep only effects that serve the story and give each its sound, and keep the voice first in the mix.
+Answer with one JSON object and nothing else."""
 
 ANSWER = """Answer format:
 {"summary": "one sentence for the person: what you did",
@@ -168,13 +171,15 @@ def _fewer(rows: list[dict], n: int) -> list[dict]:
 
 
 def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[str], looks: list[str], short: bool,
-            params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int, memories: str = "") -> str:
+            params_n: int, said_n: int, effects_n: int, looks_n: int, rows_n: int, memories: str = "",
+            knowhow: str = "") -> str:
     rows = [{**r, "said": _cut(r["said"], said_n)} if r.get("said") else r for r in _fewer(rows, rows_n)]
     tools = [{"id": c["id"], **({"label": c["label"]} if c.get("label") else {}),
               **({"params": _cut(c["params"], params_n)} if params_n and c.get("params") else {})} for c in catalog]
     return "\n".join([
         "The video: " + json.dumps(brief, ensure_ascii=False),
         *([memories] if memories else []),
+        *([knowhow] if knowhow else []),
         "The sequence (FilmCraft clip ids):", json.dumps(rows, ensure_ascii=False),
         "Tools you may use (id, parameters):", json.dumps(tools, ensure_ascii=False),
         # JSON lists: FilmCraft's names have commas in them ("Teal Shadows, Warm Skin")
@@ -184,22 +189,38 @@ def _prompt(brief: dict, rows: list[dict], catalog: list[dict], effects: list[st
 
 
 def build_prompt(plan: dict, edit, rows: list[dict], catalog: list[dict], effects: list[str],
-                 looks: list[str], limit: int | None = None, short: bool = False, memories: str = "") -> str:
+                 looks: list[str], limit: int | None = None, short: bool = False, memories: str = "",
+                 knowhow: str = "") -> str:
     """The request; with `limit`, made shorter step by step (SHORTER, then fewer clips) until it fits. `short` asks a
-    model on this computer for a short answer; `memories` is the brain's block (brain.Recall.prompt)."""
+    model on this computer for a short answer; `memories` is the brain's block (brain.Recall.prompt) and `knowhow`
+    the built-in playbooks for finishing (brain.knowhow.Picked.prompt)."""
     tl = edit.timeline
     brief = {"title": (plan.get("title") or {}).get("text", ""), "width": tl.width, "height": tl.height,
              "fps": tl.fps, "seconds": round(tl.frames / tl.fps, 2), "captions": bool(tl.counts.get("captions"))}
     text = ""
     for step in SHORTER:
-        text = _prompt(brief, rows, catalog, effects, looks, short, *step, memories=memories)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *step, memories=memories, knowhow=knowhow)
         if limit is None or len(text) <= limit:
             return text
     n = SHORTER[-1][-1]
     while len(text) > limit and n > 8:  # a long video: the first clips that fit
         n = max(8, n * 2 // 3)
-        text = _prompt(brief, rows, catalog, effects, looks, short, *SHORTER[-1][:-1], n, memories=memories)
+        text = _prompt(brief, rows, catalog, effects, looks, short, *SHORTER[-1][:-1], n, memories=memories,
+                       knowhow=knowhow)
     return text
+
+
+def _knowhow(plan: dict):
+    """The built-in playbooks for finishing this video (brain/knowhow.py): colour, effects and sound by default,
+    or what the title's words pick. Never fails the pass."""
+    from ..brain import knowhow
+
+    try:
+        title = str((plan.get("title") or {}).get("text") or "")
+        return knowhow.select(title, "finish", limit=2, budget_chars=KNOWHOW_CHARS)
+    except Exception:  # noqa: BLE001
+        log.exception("know-how failed")
+        return knowhow.Picked()
 
 
 def _recall(plan: dict, context: dict | None):
@@ -403,13 +424,14 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict,
         return {"used": False, "why": "the built-in model is not downloaded yet" if provider == "builtin" else
                 "no AI service is set up"}
     rec = _recall(plan, context)
+    know = _knowhow(plan)
     try:
         rows = sequence_rows(film, edit, words_by_asset, plan)
         catalog = _catalog(film, edit.project)
         effects = _names(film, edit.project, "effects.list", {"kind": "Video"})
         looks = _names(film, edit.project, "lumetri.presets", {})
         prompt = build_prompt(plan, edit, rows, catalog, effects, looks, prompt_limit(settings),
-                              short=local_model(settings), memories=rec.prompt())
+                              short=local_model(settings), memories=rec.prompt(), knowhow=know.prompt())
         answer = parse(ask(settings, prompt, getattr(film, "cancelled", None)))
     except Canceled:
         raise
@@ -446,7 +468,7 @@ def finish(film, effect, edit, plan: dict, words_by_asset: dict, settings: dict,
     return {"used": True, "provider": llm.provider_label(settings), "prompt_chars": len(prompt),
             "summary": str(answer.get("summary") or "")[:300],
             "steps": len(steps), "failed": [r["error"] for r in results if not r["ok"]][:20], "refused": refused,
-            "shots": len(made), "memories": rec.snapshot()}
+            "shots": len(made), "memories": rec.snapshot(), "knowhow": know.snapshot()}
 
 
 def disclosure(settings: dict) -> str:

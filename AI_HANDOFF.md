@@ -1,5 +1,34 @@
 # AI handoff
 
+## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry gave ClipForge AI two research guides (cinematic filmmaking and post-production;
+viral short-form video strategy) to make it smarter at editing, and asked for my own improvements too. The guides
+are now twelve built-in playbooks (`clipfoundry/brain/knowhow.py`) that the chat, change requests, smart edits, the
+FilmCraft pass, clip scoring and post packages read, inside budgets, after the owner's memories (which always win);
+the chat answers editing questions from them without a model; and the deterministic editors apply the numbers
+(outros, loss-framing hooks, caption safe zones, the voice chain, BT.709 colour, delivery settings).
+
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), draft PR into
+  `claude/project-thread-x72wkd`. No release.
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Know-how";
+  [AI_CHANGELOG.md](AI_CHANGELOG.md) lists every number that changed.
+- **Code:** `clipfoundry/brain/knowhow.py` (new), `brain/chat.py`, `brain/routes.py`, `db.py` (`edit_requests.knowhow`),
+  `studio/edit_requests.py`, `studio/ai_editor.py`, `studio/video_flow.py`, `craft/ai.py`, `pipeline/llm.py`,
+  `pipeline/postpack.py`, `pipeline/text_utils.py`, `pipeline/candidates.py`, `pipeline/virality.py`,
+  `pipeline/hooks.py`, `pipeline/captions.py`, `pipeline/cleanup.py`, `pipeline/render.py`, `pipeline/ffmpeg_utils.py`,
+  `studio/engine.py`; `frontend/src/brain.ts`, `studio.ts`, `components/ClipForgeAI.tsx`, `components/MemoryTab.tsx`.
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_knowhow.py tests/test_clipforge_ai_chat.py
+  tests/test_virality.py tests/test_core.py tests/test_editing.py`; the FilmCraft check workflow for the real apps
+  (the pass's request now carries the know-how block).
+- **Judgement calls to know about:** "bottom" captions moved from 23% to 36% up the frame (the apps cover the bottom
+  35%); the hook headline from 11% to 15% down; the clip renderer now converts RGB → YUV with BT.709 (it was BT.601,
+  a colour shift on every clip) and adds `-g fps/2 -flags +cgop` and BT.709 tags; AAC 192 → 256 kbps. Music levels
+  and ducking were left as they are (no way to listen here).
+- **Not done:** vision (static frames, pattern interrupts from the picture), the retention-graph reader on real
+  analytics, music ducking with the 150-250 ms release in the engine, a use counter for playbooks.
+- **Waiting on Landry:** review of the PR; the release (needs an explicit OK); the nine plan questions.
+
 ## ClipForge AI phase A: the brain and the chat — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry wants the AI to be much better and called ClipForge AI: researched models combined
@@ -10,8 +39,8 @@ memory (rules, facts and what it did, with sources, scopes and a meaning search,
 change requests, the FilmCraft pass and smart edits, and adds a chat on every video and in the Brain, plus a Memory
 tab. The old "AI helper" is now ClipForge AI's model.
 
-- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), draft PR into
-  `claude/project-thread-x72wkd`.
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), PR #27,
+  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Not released.
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md).
 - **Code:** `clipfoundry/brain/` (`memories.py`, `meaning.py`, `chat.py`, `routes.py`), `db.py` (four tables, the
   `memories` column on `edit_requests`), `studio/edit_requests.py`, `studio/video_flow.py`, `studio/ai_editor.py`,
@@ -23,7 +52,7 @@ tab. The old "AI helper" is now ClipForge AI's model.
   licences only), the computer (plan for a plain laptop), internet for the finders (finders online, brain offline),
   consent to learn (locally), where the brain lives (this computer, export/import), music find-first, the name,
   where to train (free Colab), anything missing.
-- **Waiting on Landry:** review of the PR; no release.
+- **Waiting on Landry:** the release (needs an explicit OK); the nine plan questions.
 - **Next (phase B):** the embedding model download (Qwen3-Embedding-0.6B) behind `meaning_model`, the finders
   (Pixabay, Freesound, Jamendo under their licences) and the first maker (ACE-Step music), each as a checked tool the
   chat can use.

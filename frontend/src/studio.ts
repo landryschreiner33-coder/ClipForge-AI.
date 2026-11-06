@@ -145,6 +145,7 @@ export type Suggestions = { rules: MediaRules; latest: null | { round: number; m
 export type ChangeRequest = { id: string; project_id: string; base_revision: number; text: string;
   status: "thinking" | "ready" | "question" | "unsupported" | "invalid" | "failed" | "canceled" | "applied" | "stale";
   source: "rules" | "ai"; provider: string; sent: string; message: string; applied_revision: number; created_at: number;
+  memories?: { id: string; kind: string; text: string; score?: number }[]; knowhow?: { id: string; title: string; score?: number }[];
   proposal: { format?: string; summary?: string; operations?: Record<string, unknown>[]; changes?: string[]; notes?: string[];
     question?: string; choices?: { label: string; request: string }[]; duration_ms?: [number, number] } };
 

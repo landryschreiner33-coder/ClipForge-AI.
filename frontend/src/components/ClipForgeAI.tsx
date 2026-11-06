@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
-import { Chat, chatApi, ChatMessage, UsedMemory } from "../brain";
+import { Chat, chatApi, ChatMessage, UsedKnowHow, UsedMemory } from "../brain";
 import { ChangeRequest, Video } from "../studio";
 import { Icon, Pill, toast } from "./ui";
 
@@ -29,6 +29,8 @@ function Lines({ text }: { text: string }) {
 
 const Used = ({ used }: { used?: UsedMemory[] }) => used && used.length
   ? <p className="small muted">From your brain: {used.map((m) => `[${m.kind}] ${m.text}`).join("; ")}</p> : null;
+const KnowHow = ({ knowhow }: { knowhow?: UsedKnowHow[] }) => knowhow && knowhow.length
+  ? <p className="small muted">From its know-how: {knowhow.map((k) => k.title.toLowerCase()).join("; ")} (Brain → Memory)</p> : null;
 
 /**
  * ClipForge AI's chat. On a video: say what to change, and it proposes a checked change you apply as a new version
@@ -100,7 +102,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   };
 
   const examples = v ? ["Move the summit part before lunch", "Remember: my intro is 3 seconds", "What do you know?"]
-    : ["Remember: my videos are about hiking", "Never zoom in on faces", "What do you know?"];
+    : ["Remember: my videos are about hiking", "Never zoom in on faces", "How loud should my video be?"];
   return (
     <section className={`cfai${tall ? " tall" : ""}`} aria-labelledby={`cfai-${projectId || "all"}`}>
       <div className="cfai-head">
@@ -109,7 +111,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
       </div>
       <p className="small muted">{v ? "Say what to change and it proposes a checked change; nothing changes until you press Apply. "
         : "Ask it anything about your videos and your channel. "}
-        Teach it with “remember: …”, “always …” or “never …”; ask “what do you know?” or “why?”. Say “help” for more.
+        Teach it with “remember: …”, “always …” or “never …”; ask “what do you know?” or “why?”; ask how to edit
+        (hooks, pacing, captions, sound, music, colour, export) and it answers from its built-in know-how. Say “help” for more.
         {" "}What it needs a model for is sent as text only, never the video or the sound.</p>
       {problem && <p className="error-text"><Icon name="alert" />{problem}</p>}
       <div ref={log} className="cfai-log" aria-live="polite" aria-label="Conversation">
@@ -156,7 +159,8 @@ function Answer({ m, busy, onAct, onSend }: {
       {d.tool === "forget" && (d.candidates || []).length > 0 && <div className="row wrap" role="group" aria-label="Forget one">
         {(d.candidates || []).map((c) => <button key={c.id} type="button" className="btn btn-small ask-choice" disabled={busy} onClick={() => void onSend(`forget ${c.text}`)}><Icon name="trash" />Forget “{c.text}”</button>)}
       </div>}
-      {(d.tool === "change" || d.tool === "answer") && <Used used={d.used} />}
+      {(d.tool === "change" || d.tool === "answer" || d.tool === "explain") && <Used used={d.used} />}
+      {(d.tool === "change" || d.tool === "answer" || d.tool === "explain") && <KnowHow knowhow={d.knowhow} />}
       {(r?.sent || (d.tool === "answer" && d.sent)) && m.status !== "failed" && <p className="small muted">{r?.sent || d.sent}</p>}
     </div>
   );

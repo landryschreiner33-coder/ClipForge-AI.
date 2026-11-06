@@ -52,7 +52,7 @@ Otherwise it uses Gentle.
 
 1. Mic balance: when one channel is more than 15 dB quieter than the other, or the two cancel out (correlation below
    -0.3), only the live channel is used; otherwise both are mixed to mono.
-2. Rumble and hum: a high-pass at 70 Hz (Strong: 80 Hz); 50 or 60 Hz mains hum is found in the pauses and each of its
+2. Rumble and hum: a high-pass at 80 Hz (Strong: 100 Hz); 50 or 60 Hz mains hum is found in the pauses and each of its
    multiples that stands out gets a narrow notch.
 3. Background noise: DeepFilterNet 3 (MIT or Apache-2.0), a 13 MB speech model, through ONNX Runtime, in 30-second
    blocks that run side by side (each starts 1 s early to settle; blocks meet with a 10 ms crossfade; the model's
@@ -64,8 +64,9 @@ Otherwise it uses Gentle.
 4. Levels: a slow gain that ignores pauses evens out quiet and loud passages (Gentle: half of the difference, -4 to
    +6 dB; Strong: 80%, -6 to +9 dB), and speech is brought to about -20 dBFS.
 5. Breaths: sounds of 0.1 to 1 s in a pause, 12 to 40 dB under the voice, are turned down 6 dB (Strong: 12 dB).
-6. Voice polish: de-esser, a compressor that only presses the louder syllables (above -18 dBFS, 2:1 or 3:1), a little
-   presence at 4 kHz (and less mud at 300 Hz on Strong).
+6. Voice polish: de-esser, a compressor that only presses the louder syllables (above -18 dBFS, 2.5:1 or 3.5:1,
+   20 ms attack, 90 ms release), 2 or 3 dB of presence at 3.5 kHz and 2 or 3.5 dB less mud at 300 Hz (the dialogue
+   chain from the post-production research in docs/clipforge/CLIPFORGE_AI.md, "Know-how").
 
 The result is a raw 48 kHz mono float file of exactly the range's length, so every cut, caption and frame stays where
 it was (the filters' phase shift is under a millisecond). The renderer's own loudness normalization still sets the
