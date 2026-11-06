@@ -751,10 +751,9 @@ def test_a_tool_still_running_when_clipforge_quits_is_stopped(env):  # noqa: F81
         for _ in range(100):  # the helper is gone too (a zombie until its parent's parent reaps it counts as gone)
             try:
                 os.kill(child, 0)
-                state = Path(f"/proc/{child}/stat").read_text().split()[2] if Path(f"/proc/{child}").exists() else "Z"
-                if state == "Z":
+                if Path(f"/proc/{child}/stat").read_text().split()[2] == "Z":
                     break
-            except ProcessLookupError:
+            except (ProcessLookupError, FileNotFoundError):  # gone, or reaped between the two checks
                 break
             time.sleep(0.05)
         else:
