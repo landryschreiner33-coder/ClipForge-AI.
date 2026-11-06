@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-06: ClipForge AI and FilmCraft inside the app (ClipForge 2026.11.06)
+
+The setup ZIP now installs source commit `32485bd8c36b5f889bff565d15bd15828bc6aadf`: the release line with PR #25
+(the built-in model and "Clean up the sound"), PR #26 (FilmCraft and EffectCraft inside ClipForge), PR #27 (ClipForge
+AI's memory and chat) and PR #28 (editing know-how from two filmmaking guides, with the outro, hook, caption,
+voice-chain and BT.709 colour numbers in the editors). start.bat is unchanged, so its pin and upgrade fixtures are
+the same. 77 launcher tests passed. All 748 app files equal the Git tree except the six declared BAT CRLF exports.
+The Windows install check now installs the 2e5238e release (raw/d60445f) first, then this one over it.
+
 ## 2026-11-05: smart editing and the video link fix (ClipForge 2026.11.05.2)
 
 The setup ZIP now installs source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45`: the studio upgrade (PR #20)

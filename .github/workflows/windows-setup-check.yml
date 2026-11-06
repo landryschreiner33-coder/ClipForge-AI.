@@ -18,8 +18,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 75
     env:
-      PREVIOUS_URL: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/69a930ec49561dbbb35d886f380160d752c4366b/ClipForge-Windows-Setup.zip
-      PREVIOUS_SHA256: 89df9b2db92d0e276ca843d0026b4b81d14a50bb7b5c8b6d9f3e94c7abe5ea84
+      PREVIOUS_URL: https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip
+      PREVIOUS_SHA256: 531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d
     # Windows cannot create the usual checkout folder: the repository name ends with a dot. Each step runs in the
     # runner's temporary folder, and the files come from this commit's public download URLs instead, which are also
     # the links people use.

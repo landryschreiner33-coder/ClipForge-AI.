@@ -1,26 +1,33 @@
 # ClipForge downloads
 
-## Windows setup (ClipForge 2026.11.05.2: smart editing and the AI helper, November 5, 2026)
+## Windows setup (ClipForge 2026.11.06: ClipForge AI and FilmCraft inside the app, November 6, 2026)
 
 Download **ClipForge-Windows-Setup.zip**, close older ClipFoundry/ClipForge windows, right-click the ZIP and choose
 **Extract All**. In the extracted folder, double-click **Open-ClipFoundry.cmd** and keep its window open. The file
 keeps its ClipFoundry name so an existing setup and its data are found and kept; its messages say ClipForge. It
 needs 64-bit Python 3.12 (or 3.11) from python.org and FFmpeg; see the details below, which still apply.
 
-It installs ClipForge from source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45`: the studio upgrade (PR #20)
-with the video link fix (PR #22) and smart editing (PR #23). "Make a YouTube video" can now edit for you: it cuts
-long pauses, "um"s and repeated takes, fits the length you ask for, shows your pictures when you mention them and
-adds free music and sound effects made on your computer. Settings → AI helper connects an optional free AI (a local
-Ollama or LM Studio model, or a free Gemini, Groq or OpenRouter key). The 77 setup tests passed, and all 709 app
-files were compared with that commit (six `.bat` files differ only by the declared CRLF export). [Windows setup check run 42109581700](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700)
-installed the previous release (6ecdafc) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
-ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 709
-installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
-was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance, GPUs,
-real AI models and keys, and real uploads are not tested.
+It installs ClipForge from source commit `32485bd8c36b5f889bff565d15bd15828bc6aadf`: the release line with the
+built-in model and "Clean up the sound" (PR #25), FilmCraft and EffectCraft inside ClipForge (PR #26), ClipForge
+AI's memory and chat (PR #27) and its editing know-how with the editors' new numbers (PR #28). Settings → ClipForge
+AI → Built-in model downloads a free model on first use (nothing leaves the computer); Brain → Talk and every
+video's chat take "remember: …", "what do you know?" and "why?"; Brain → Memory lists what it remembers and the
+twelve built-in playbooks; final videos can be edited and rendered in FilmCraft, with the AI applying looks,
+transitions, motion and EffectCraft titles; clips, hooks and captions follow the guides' numbers, and rendered
+clips carry BT.709 colours. The 77 setup tests passed, and all 748 app files were compared with that commit (six
+`.bat` files differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once
+it has run. FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11
+desktops, Windows security acceptance, GPUs, real AI keys and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
+
+### Previous Windows setup (smart editing and the video link fix, November 5, 2026)
+
+Source commit `2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45`, kept at
+https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip
+(47,042,861 bytes, SHA-256 `531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d`), checked by
+[Windows setup check run 42109581700](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700).
 
 ### Previous Windows setup (studio upgrade, November 5, 2026)
 
