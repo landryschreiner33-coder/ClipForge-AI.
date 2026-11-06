@@ -235,6 +235,22 @@ export async function req<T>(method: string, url: string, body?: unknown): Promi
   return res.json() as Promise<T>;
 }
 
+/** Send raw bytes (a file) to ClipForge; returns the response for the caller to read (it handles errors). */
+export function sendBytes(url: string, bytes: ArrayBuffer | Uint8Array): Promise<Response> {
+  return fetch(url, { method: "POST", headers: { "Content-Type": "application/octet-stream", ...APP_HEADER },
+    body: bytes as BodyInit });
+}
+
+/** The error a response carries, as an ApiError. */
+export async function responseError(res: Response): Promise<ApiError> {
+  try {
+    const j = await res.json();
+    return new ApiError(typeof j.detail === "string" ? j.detail : `Request failed (${res.status})`, j.fix || "", j.code || "");
+  } catch {
+    return new ApiError(`Request failed (${res.status})`, "", "");
+  }
+}
+
 /** Message plus fix, for toasts. */
 export const errorText = (e: unknown) =>
   e instanceof ApiError && e.fix ? `${e.message} ${e.fix}` : (e as Error).message;

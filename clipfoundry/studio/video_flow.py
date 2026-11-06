@@ -64,6 +64,14 @@ class Conflict(VideoError):
     pass
 
 
+HAND_KEEPS = ("filmcraft", "undo", "redo", "restore")
+
+
+def filmcraft_saves(project_id: str) -> Path:
+    """Where the projects saved in FilmCraft's editor are kept (by content hash; one never changes)."""
+    return video_dir(project_id) / "filmcraft" / "saves"
+
+
 def video_dir(project_id: str) -> Path:
     d = config.data_dir() / "videos" / project_id
     d.mkdir(parents=True, exist_ok=True)
@@ -364,6 +372,11 @@ def _meta(row: dict) -> dict:
 
 
 def save_revision(project_id: str, plan: dict, note: str, base: int | None, meta: dict | None = None) -> int:
+    """Save `plan` as the next version. A version finished by hand in FilmCraft (`plan["filmcraft"]`) stays so only
+    when it is saved from FilmCraft or reopened as it was (undo, redo, going back); any other edit starts again from
+    ClipForge's own cut, and the FilmCraft version stays in the history."""
+    if (meta or {}).get("action") not in HAND_KEEPS and "filmcraft" in plan:
+        plan = {k: v for k, v in plan.items() if k != "filmcraft"}
     row = db.fetch("studio_projects", project_id)
     if base is not None and base != row["plan_revision"]:
         raise Conflict(f"This video was changed elsewhere (now revision {row['plan_revision']}). Reload it to see "
@@ -1051,6 +1064,64 @@ def name_revision(project_id: str, revision: int, name: str) -> None:
     db.execute("UPDATE edit_plans SET name = ? WHERE project_id = ? AND revision = ?", (clean, project_id, revision))
 
 
+def save_filmcraft(project_id: str, opened_on: int, digest: str, base_revision: int) -> dict:
+    """A project saved in FilmCraft's editor becomes the next version: the plan of the version it was opened on,
+    naming the saved project (its preview and final video are rendered by FilmCraft from that file).
+    `base_revision` is the video's version when the editor was opened (a newer one means a conflict)."""
+    project = db.fetch("studio_projects", project_id)
+    if not project or not project["plan_revision"]:
+        raise VideoError("The rough cut is not ready yet.")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest) or not (filmcraft_saves(project_id) / f"{digest}.fcproj").is_file():
+        raise VideoError("The saved FilmCraft project is missing.")
+    plan = copy.deepcopy(plan_at(project_id, opened_on))
+    if (plan.get("filmcraft") or {}).get("project") == digest and opened_on == project["plan_revision"]:
+        return {"revision": opened_on, "note": "Nothing changed in FilmCraft", "unchanged": True}
+    plan["filmcraft"] = {"project": digest, "saved_at": round(time.time(), 3), "opened_on": opened_on}
+    note = "Finished by hand in FilmCraft's editor"
+    rev = save_revision(project_id, plan, note, base_revision,
+                        {"action": "filmcraft", "prev": base_revision, "redo": None})
+    enqueue(project["workspace_id"], "video_preview", project_id, rev)
+    return {"revision": rev, "note": note}
+
+
+@handler("filmcraft_edit")
+def filmcraft_edit_job(job: dict, lease: Lease) -> dict:
+    """The AI's FilmCraft edit of one version, made for FilmCraft's editor on the editor page (the final render
+    uses the same edit when the plan has not changed since)."""
+    from ..craft import finish
+
+    project = db.fetch("studio_projects", job["target_id"])
+    if not project:
+        raise VideoError("The project was deleted.")
+    plan = plan_at(project["id"], job["revision"])
+    if plan.get("filmcraft"):
+        return {"ready": True, "hand": True}
+    assets = _assets(project, plan)
+    settings = db.get_settings()
+    used = {c["asset_id"] for c in plan["clips"] if c.get("include", True)}
+    words = {aid: transcript_words(a, settings) for aid, a in assets.items() if a["kind"] == "video" and aid in used}
+    folder = video_dir(project["id"]) / f"r{job['revision']}" / "filmcraft"
+    name = project.get("name") or "Video"
+    key = finish.edit_key(plan, settings)
+    if finish.reuse_edit(folder, key, plan, assets, words, name=name, revision=job["revision"]):
+        return {"ready": True}
+    state = {"t": time.monotonic(), "f": 0.0, "m": "Editing in FilmCraft"}
+
+    def report(frac: float, message: str) -> None:
+        state.update(f=frac, m=message or state["m"], t=time.monotonic())
+        lease.progress(frac, state["m"])
+
+    def stop() -> bool:
+        if time.monotonic() - state["t"] > 15:
+            state["t"] = time.monotonic()
+            lease.progress(state["f"], state["m"])
+        return lease.canceled()
+
+    edit = finish.build_edit(plan, assets, words, folder, name=name, revision=job["revision"], settings=settings,
+                             progress=report, cancelled=stop)
+    return {"ready": True, "steps": len(edit.steps), "failed": len(edit.failed()), "shots": len(edit.shots)}
+
+
 # ------------------------------------------------------------------ renders
 def plan_hash(plan: dict) -> str:
     """What decides a render's pixels and sound: the plan without its notes, outline, chapters and edit report."""
@@ -1083,6 +1154,57 @@ def _reuse(project: dict, revision: int, kind: str, digest: str, folder: Path) -
     return None
 
 
+def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dict, out: Path, settings: dict,
+                  lease: Lease, preview: bool) -> tuple[dict | None, str]:
+    """The final video edited and rendered in FilmCraft (craft/finish.py: ClipForge's look and sound with
+    FilmCraft's tools, EffectCraft's animated title and, with an AI service set up, the AI's own finishing) when
+    FilmCraft is set up and chosen (setting `edit_engine`). Returns (None, why) when the built-in engine renders it
+    instead: FilmCraft is not set up or not chosen, or (with "auto") FilmCraft's render failed; `why` is kept with
+    the video. With "filmcraft" a failure fails the render. Previews stay with the built-in engine (quick), except
+    a version finished by hand in FilmCraft's editor: only FilmCraft can render that, so both come from FilmCraft
+    and a failure is reported instead of rendering something else."""
+    from ..craft import apps, finish
+
+    hand = plan.get("filmcraft") or {}
+    choice = settings.get("edit_engine", "auto")
+    if not hand and (preview or choice == "ffmpeg"):
+        return None, ""
+    if not apps.find_cli("filmcraft"):
+        if hand:
+            raise VideoError("This version was finished in FilmCraft's editor, and FilmCraft is not set up here to "
+                             "render it. Set it up in Settings, Editing apps, or go back to the version before.")
+        if choice == "filmcraft":
+            raise VideoError("FilmCraft is chosen for final videos but is not set up yet: set it up in Settings, "
+                             "Editing apps, or choose the built-in editor there.")
+        return None, ""
+    state = {"f": 0.0, "m": "Editing in FilmCraft", "t": time.monotonic()}
+
+    def report(frac: float, message: str) -> None:
+        state.update(f=frac * 0.95, m=message or state["m"], t=time.monotonic())
+        lease.progress(state["f"], state["m"])
+
+    def stop() -> bool:  # asked once a second while FilmCraft or EffectCraft runs; keeps the lease alive meanwhile
+        if time.monotonic() - state["t"] > 15:
+            state["t"] = time.monotonic()
+            lease.progress(state["f"], state["m"])
+        return lease.canceled()
+
+    if hand:
+        saved = filmcraft_saves(project["id"]) / f"{hand.get('project', '')}.fcproj"
+        if not re.fullmatch(r"[0-9a-f]{64}", str(hand.get("project", ""))) or not saved.is_file():
+            raise VideoError("The FilmCraft edit of this version is missing; go back to the version before.")
+        return finish.render_saved(saved, plan, words, out, preview=preview, cancelled=stop, progress=report), ""
+    try:
+        return finish.render(plan, assets, words, out, name=project.get("name") or "Video", revision=job["revision"],
+                             settings=settings, cancelled=stop, progress=report), ""
+    except Exception as exc:
+        if choice == "filmcraft" or lease.canceled():
+            raise
+        why = f"FilmCraft could not make this version ({str(exc)[:240]}); the built-in editor rendered it."
+        lease.progress(0.0, "FilmCraft could not render it; rendering with the built-in editor")
+        return None, why
+
+
 def _render(job: dict, lease: Lease, preview: bool) -> dict:
     project = db.fetch("studio_projects", job["target_id"])
     if not project:
@@ -1107,10 +1229,14 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
         sha, info = reused["sha256"], reused["info"]
     else:
         try:
-            info = engine.render(plan, assets, words, out, preview=preview, settings=settings,
-                                 progress=lambda f: lease.progress(f * 0.95, "Rendering preview" if preview else
-                                                                   "Rendering"),
-                                 cancelled=lease.canceled, cache_dir=video_dir(project["id"]) / f"pieces-{kind}")
+            info, fallback = _craft_render(project, job, plan, assets, words, out, settings, lease, preview)
+            if info is None:
+                info = engine.render(plan, assets, words, out, preview=preview, settings=settings,
+                                     progress=lambda f: lease.progress(f * 0.95, "Rendering preview" if preview else
+                                                                       "Rendering"),
+                                     cancelled=lease.canceled, cache_dir=video_dir(project["id"]) / f"pieces-{kind}")
+            if fallback:
+                info["filmcraft_fallback"] = fallback
         except BaseException as exc:
             if not preview:  # the plan and any earlier finished version stay as they were
                 canceled = lease.canceled()
@@ -1152,6 +1278,25 @@ def render_job(job: dict, lease: Lease) -> dict:
     return _render(job, lease, False)
 
 
+def _made_with(info: dict) -> dict:
+    """Which editor made a rendered version, and what FilmCraft, EffectCraft and the AI did in it (for the page)."""
+    fc = info.get("filmcraft") or {}
+    out = {"engine": info.get("engine") or "ffmpeg"}
+    if info.get("filmcraft_fallback"):
+        out["fallback"] = info["filmcraft_fallback"]
+    if fc:
+        ai = fc.get("ai") or {}
+        out["filmcraft"] = {"hand_edited": bool(fc.get("hand_edited")), "steps": fc.get("steps", 0),
+                            "failed": len(fc.get("failed") or []),
+                            "shots": [{"what": s.get("what", ""), "app": s.get("app", ""), "use": s.get("use", "")}
+                                      for s in fc.get("shots") or []],
+                            "ai": {"used": bool(ai.get("used")), "summary": ai.get("summary", ""),
+                                   "provider": ai.get("provider", ""), "steps": ai.get("steps", 0),
+                                   "refused": len(ai.get("refused") or [])} if ai else None,
+                            "notes": (fc.get("notes") or [])[:5]}
+    return out
+
+
 def view(project: dict) -> dict:
     rev = project["plan_revision"]
     plan = plan_at(project["id"], rev) if rev else None
@@ -1177,7 +1322,8 @@ def view(project: dict) -> dict:
             "bin": [aid for aid in project["asset_ids"] if aid in assets],
             "artifacts": [{"id": a["id"], "revision": a["revision"], "kind": a["kind"], "sha256": a["sha256"],
                            "duration": (a.get("info") or {}).get("duration"),
-                           "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid")}
+                           "audio_ok": ((a.get("info") or {}).get("audio_timing") or {}).get("valid"),
+                           **_made_with(a.get("info") or {})}
                           for a in arts],
             "preview": {"revision": shown["revision"], "stale": stale} if shown else None,
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}

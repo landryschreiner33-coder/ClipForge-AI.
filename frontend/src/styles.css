@@ -581,6 +581,17 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .dialog.wide { width: min(720px, 100%); }
 .dialog-actions { display: flex; gap: var(--s2); justify-content: flex-end; flex-wrap: wrap; }
 
+/* FilmCraft's editor on the editor page (components/FilmCraft.tsx): nearly the whole window */
+.dialog-bg:has(> .craft-editor) { padding: var(--s2); }
+.dialog.craft-editor { width: min(1800px, 100%); height: calc(100vh - 16px); max-height: none; padding: 0; gap: 0;
+  display: flex; flex-direction: column; overflow: hidden; }
+.craft-bar { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--border); }
+.craft-bar .craft-tip { margin-left: auto; }
+.craft-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #000; }
+.craft-wait, .craft-note { padding: var(--s4); display: grid; gap: var(--s3); }
+@media (max-width: 640px) { .craft-bar .craft-tip { display: none; } }
+
 /* toast */
 .toast {
   position: fixed; left: 50%; bottom: var(--s5); transform: translateX(-50%); z-index: 70; max-width: min(560px, calc(100vw - 32px));

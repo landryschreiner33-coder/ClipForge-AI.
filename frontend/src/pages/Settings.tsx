@@ -1,5 +1,6 @@
 import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
+import EditingAppsSettings from "../components/EditingApps";
 import MediaSourcesSettings from "../components/MediaSources";
 import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
@@ -65,6 +66,15 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       </div>
     );
   }
+  if (tab === "apps") {
+    return (
+      <div className="page narrow">
+        <PageHead kind="Settings" title="Settings" sub="FilmCraft and EffectCraft inside ClipForge: the AI edits with them and FilmCraft renders the final video." />
+        <LinkTabs label="Settings sections" current="apps" tabs={SETTINGS_TABS} />
+        <EditingAppsSettings />
+      </div>
+    );
+  }
   if (tab === "appearance") {
     return (
       <div className="page">
@@ -81,6 +91,7 @@ const SETTINGS_TABS = [
   { id: "appearance", href: "#/settings/appearance", label: "Appearance" },
   { id: "media", href: "#/settings/media", label: "Media sources" },
   { id: "ai", href: "#/settings/ai", label: "AI helper" },
+  { id: "apps", href: "#/settings/apps", label: "Editing apps" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },

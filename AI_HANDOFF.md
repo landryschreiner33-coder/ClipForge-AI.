@@ -1,5 +1,47 @@
 # AI handoff
 
+## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wants FilmCraft inside ClipForge, not separate, with the AI editing through its
+tools and effect shots from another app put into the final edit. ClipForge now fetches FilmCraft and EffectCraft
+itself, edits each final video in FilmCraft with FilmCraft's own tools (plus EffectCraft's animated title and, with an
+AI helper, the AI's finishing), has FilmCraft render it, and opens FilmCraft's editor on the editor page; saves there
+come back as new versions. The built-in FFmpeg editor stays as the backup.
+
+- **Branch / PR:** `claude/project-thread-605vsm`, draft PR #26 (on top of the timeline hand-off).
+- **Design and limits:** [docs/clipforge/CRAFT_APPS.md](docs/clipforge/CRAFT_APPS.md).
+- **Code:** `clipfoundry/craft/` (apps, runner, finish, shots, ai, web, routes), `studio/video_flow.py`
+  (`_craft_render`, `save_filmcraft`, job `filmcraft_edit`, hand-finished versions in `save_revision`),
+  `studio/interchange.py` (blurred background tracks), `frontend/src/components/FilmCraft.tsx`, `EditingApps.tsx`.
+- **Verify with real apps:** `scripts/craft_check.py` (GitHub's Mac and Linux machines; the cloud session may not run
+  downloaded programs).
+- **Real-app results:** run 42256808188 passed on macOS 15 and Ubuntu (edit, EffectCraft title, AI pass with an
+  EffectCraft shot, FilmCraft render, the editor page opening version 1 and Ctrl/Cmd+S coming back as version 2).
+  Earlier runs found: no `property("Source Text")` in EffectCraft 0.9.2, no host messages in FilmCraft 0.17.1's web
+  build, FilmCraft only opens a `File` made by its own window, look names with commas (see AI_CHANGELOG.md). Facts read from the released files: the 0.17.1 web
+  build has `window.filmcraft` (execute, commands, inspect, screenshot, info, files, readFile, importFiles,
+  importUrl, openProject) and saves by anchor download; `effectcraft-cli script --json` prints `result`/`output`.
+- **Built-in AI (PR #25) joined in:** it does the FilmCraft AI pass once downloaded, with a request shortened to fit
+  its 8,192-token context; `scripts/craft_check.py --builtin-ai` checks it with the real model. Landry approved
+  merging #25 and #26 into the release line once that check passes.
+- **Waiting on Landry:** release.
+- **Next:** EffectCraft's own editor in the page, PhotoCraft (thumbnails), Windows check with the real apps.
+
+## Finish in FilmCraft — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to plug the ArtCraft apps (getartcraft.com/apps) into ClipForge for editing.
+FilmCraft, their open-source video editor, is plugged in as a hand-off: the editor page writes the cut as a timeline
+with captions and opens it in FilmCraft for hand finishing (colour, keyframes, titles, mixing). FFmpeg stays the
+engine for automatic editing and rendering.
+
+- **Branch:** `claude/project-thread-605vsm`, from `claude/project-thread-x72wkd` (separate from phase 1, PR #25).
+- **Design, limits and how it is verified:** [docs/clipforge/FILMCRAFT.md](docs/clipforge/FILMCRAFT.md).
+- **Code:** `studio/interchange.py` (OTIO + SRT + package/zip), `studio/filmcraft.py` (find, import with
+  `filmcraft-cli`, open), three routes in `studio/routes.py`, `frontend/src/components/FilmCraft.tsx` (rebuilt dist).
+- **Real FilmCraft:** `.github/workflows/filmcraft-check.yml` (push to `claude/**` touching these files, or by hand)
+  runs `scripts/filmcraft_check.py` against FilmCraft 0.17.1 pinned by SHA-256 on macOS 15 and Ubuntu.
+- **Next ArtCraft apps:** PhotoCraft (thumbnails), EffectCraft (titles), SoundCraft (voice): same "open in" pattern.
+
 ## Built-in AI and sound cleanup (phase 1) — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for a plan to make clipping and editing smarter with an AI that ships with

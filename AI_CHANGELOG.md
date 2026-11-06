@@ -1,5 +1,116 @@
 # AI changelog
 
+## The built-in AI finishes the edit with FilmCraft — 2026-11-06 (Claude Code)
+
+Landry chose "Combine, test, then merge": the built-in AI (phase 1, PR #25) and FilmCraft inside ClipForge (PR #26)
+are joined on `claude/project-thread-605vsm`, and both go into the release line once the real check passes. No
+release.
+
+- **Joined:** PR #25's branch merged in. Overlaps fixed by keeping both sides: the server's shutdown stops running
+  FilmCraft/EffectCraft tools and the built-in AI's engine; `config.py` has both setting lists; change logs kept;
+  `frontend/dist` rebuilt from the merged sources.
+- **The built-in AI does the FilmCraft pass** (`craft/ai.py`): it counts once downloaded (`ai.usable`), and
+  `finish.edit_key` includes its level, so downloading it or switching level edits again. Its request is shortened
+  to 14,000 characters for a model on this computer (`SHORTER`: tool descriptions, quotes, effect and look names,
+  then clips, the main video's first); online services get up to 40,000. Ollama is now asked for an 8,192-token
+  context for this pass (it defaulted to 4,096, which cut the request short).
+- **Waiting for a local model:** `ai.ask` runs the request in its own thread so the job can be cancelled while the
+  model thinks; local models get up to 10 minutes (`llm.complete(timeout=...)`, also used by Ollama and LM Studio)
+  and the built-in AI answers in JSON mode (`json_object=True`, llama.cpp's `response_format`).
+- **Real check:** `scripts/craft_check.py --builtin-ai` (in `filmcraft-check.yml`) downloads the engine and the Basic
+  model the way the app does and runs the AI pass with them on the real apps.
+- **First real run (42269267394):** on both machines the built-in AI was still answering at the 10-minute limit
+  (no length cap, so a small model can go on until the time-out). Now a local model's answer is capped at 1,200
+  tokens and it is asked for at most 10 steps; an answer cut off at the cap still gives the steps it finished; a step
+  repeated word for word runs once. The check prints llama.cpp's timings and the engine's log when nothing lands, and
+  gives GitHub's Mac machine (no graphics chip) 25 minutes.
+- **Second real run (42274107689):** Ubuntu passed. The built-in AI answered in 164 s (4,359-token request at 73
+  tokens/s, 844-token answer at 8 tokens/s) with 10 steps, and 6 landed in FilmCraft's render: a blur, brightness and
+  contrast, a push-in keyframe, a "Lake Day" title and a box. 4 used names FilmCraft lacks. On GitHub's Mac (1.5
+  tokens/s, 1,019 s) all 11 of its steps were transitions with a `duration` FilmCraft's transitions don't have, and
+  the final screenshot after the save timed out (the save itself came back as version 2). Now a step that fails only
+  on a parameter FilmCraft says it lacks runs once more without it (FilmCraft checks parameters before changing
+  anything), the request shows a transition example, and the check's screenshots are pictures only.
+- **Fixed in the built-in AI's setup:** it was marked done before it was chosen as the AI helper, so Settings (and a
+  test, about one run in five) could read the old helper. It is chosen first now.
+- **Tests:** six new in `tests/test_craft.py` (the shortened request, the built-in AI before and after download,
+  cancelling a slow answer, the timeout, JSON mode and answer cap reaching the engine, a cut-off answer). The request now shows three example
+  steps that real FilmCraft accepts (a look, an effect, a keyframed push-in), which small models need.
+
+## FilmCraft and EffectCraft inside ClipForge: fixes from the real apps — 2026-11-06 (Claude Code)
+
+The first real-app run (GitHub macOS 15 and Ubuntu, run 42250189370) applied all 29 FilmCraft steps and FilmCraft's
+render passed its checks, and showed three problems, fixed here:
+
+- **EffectCraft's title script** failed on `layer.property("Source Text")` (EffectCraft 0.9.2 has no such shortcut).
+  Shot scripts now use helpers that look properties up by match name first (`craft/shots.py`), run in an empty
+  project (`--empty`, with a retry without it for an EffectCraft that refuses it), use ClipForge comp names, and
+  report what they could not set. The AI is told about the helpers.
+- **FilmCraft's editor on the editor page**: the released web build (0.17.1) has the `window.filmcraft` API but no
+  host messages, so the page never opened the version. The page now opens it when FilmCraft has started, takes
+  `.fcproj` downloads from the frame as saves, and has a Save to ClipForge button (`file.saveAs`).
+- **The check itself**: the seeded project's own rough-cut job raced the check's plan (sometimes saving version 2);
+  the AI stand-in picked a clip kind that does not exist. A failing AI pass no longer stops the FilmCraft edit.
+- **Second run (42255291402)**: the EffectCraft title now renders and is placed on both machines (`checks: ok`), the
+  AI pass applied its steps and placed its EffectCraft shot, and FilmCraft's editor started in headless Chrome
+  (WebGL2) and took the files. Fixed after it: FilmCraft only opens a project `File` made by its own window, and
+  look names contain commas ("Teal Shadows, Warm Skin"), so the AI now gets the effect and look lists as JSON.
+- **Third run (42256808188): passed on macOS 15 and Ubuntu.** FilmCraft edit (30 steps, none failed) with the
+  EffectCraft title placed, FilmCraft's render checked, the AI pass (4 steps and an EffectCraft lower third, none
+  failed), and FilmCraft's editor on the editor page: started on WebGL2, opened version 1 with all 9 tracks and its
+  files, and Ctrl/Cmd+S in FilmCraft came back to ClipForge as version 2.
+- A FilmCraft or EffectCraft process still running when ClipForge quits is now stopped with it (the check's server
+  had left a FilmCraft preview render running).
+
+## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code)
+
+Landry: "I want film craft to actually be in my app and not seperate and the ai uses it to edit and it can use any of
+the tools it offers and if it uses one program to do effects it then takes that shot and puts it in the final edit".
+
+- **Fetched by ClipForge** (`craft/apps.py`): FilmCraft 0.17.1 and EffectCraft 0.9.2 release files for macOS, Linux
+  and Windows (and FilmCraft's web build), pinned by SHA-256 and size, downloaded in the background by the desktop
+  app (Settings, Editing apps: set up by hand, turn off), unpacked with path/link checks into `<data>/tools/craft`.
+- **The edit in FilmCraft** (`craft/finish.py`): the timeline imported by `filmcraft-cli`, then ClipForge's look and
+  sound made with FilmCraft commands (Motion scale, Gaussian Blur on new "Blurred background" tracks, Scale/Opacity
+  keyframes, Volume keyframes, Essential Sound ducking, caption style, -14 LUFS export).
+- **EffectCraft shots** (`craft/shots.py`): the animated title replaces the still title card in the edit.
+- **The AI's finishing** (`craft/ai.py`): with an AI helper, FilmCraft steps (finishing tools only, checked clip ids,
+  no paths, at most 40) and up to two EffectCraft shots laid over the video.
+- **FilmCraft renders final videos** (`video_flow._craft_render`, setting `edit_engine` auto/filmcraft/ffmpeg): the
+  built-in editor is the backup with the reason recorded; previews stay built-in.
+- **FilmCraft's editor on the editor page** (`craft/web.py`, `craft/routes.py`, `components/FilmCraft.tsx`): opens
+  the AI's FilmCraft edit (job `filmcraft_edit`) with only this video's files; Save in FilmCraft becomes a new version
+  rendered by FilmCraft (`plan["filmcraft"]`, saves kept by SHA-256). Desktop app only.
+- **Settings → Editing apps** (`components/EditingApps.tsx`), and each version says which editor made it.
+- **Tests:** `tests/test_craft.py` (15, stand-in apps), `tests/test_studio_filmcraft.py` updated for the background
+  tracks (14). Real apps: `scripts/craft_check.py` in `.github/workflows/filmcraft-check.yml` (macOS 15, Ubuntu).
+  Results: see the PR and AI_HANDOFF.md.
+- **Docs:** `docs/clipforge/CRAFT_APPS.md`.
+
+## Finish in FilmCraft (ArtCraft's open-source editor) — 2026-11-06 (Claude Code)
+
+Landry asked to plug the ArtCraft apps into ClipForge for editing. FilmCraft (the video editor) is first.
+
+- **Editor page → Finish in FilmCraft:** "Open in FilmCraft" writes the current version as an OpenTimelineIO
+  timeline with SRT captions, a title-card still and a README next to the video, then opens the FilmCraft you
+  installed (with its command-line tool, as a ready FilmCraft project). "Show the timeline files" and "Timeline with
+  media (.zip)" (portable, also in the online studio). Not installed: the files are still written and the panel
+  links to getartcraft.com/apps/filmcraft. ClipForge never downloads or bundles FilmCraft.
+- **The timeline** is made from the FFmpeg engine's frame map (frame-exact): clips, images, dissolves/dips as centred
+  OTIO transitions, straight cuts, the title still, pictures over the video (V2), clip sound with volume and mutes
+  (A1, linked), voiceover/music/effects tracks (loops repeated, overlaps on extra lanes), chapters as markers, frame
+  size and rate for FilmCraft. What cannot carry over (ducking, fades, punch-ins, fill framing, blurred background,
+  overlay motion, caption look, loudness leveling) is listed in the README and the panel.
+- **Code:** `studio/interchange.py`, `studio/filmcraft.py`, routes `GET /api/studio/filmcraft`,
+  `POST /api/studio/videos/{id}/filmcraft`, `GET /api/studio/videos/{id}/timeline.zip`, `components/FilmCraft.tsx`.
+  Docs: `docs/clipforge/FILMCRAFT.md`.
+- **Tests:** `tests/test_studio_filmcraft.py` (13, fast; OpenTimelineIO 0.18.1 read the file in the local run);
+  `.github/workflows/filmcraft-check.yml` + `scripts/filmcraft_check.py` import and render the timeline with
+  FilmCraft 0.17.1's official release on macOS 15 and Ubuntu: passed on both (PR #26, run 42185369033).
+  Full fast suite: 1781 passed.
+- **Not verified:** the FilmCraft window opening on a real Mac or Windows PC; FilmCraft could not be run in the cloud
+  session itself (running a downloaded program there is not allowed), so it runs on GitHub's machines instead.
+
 ## Built-in AI and "Clean up the sound" (phase 1 of the smarter editor plan) — 2026-11-06 (Claude Code)
 
 Landry asked for an AI that comes with the app and for smarter editing with better sound; after the plan (Claude Doc

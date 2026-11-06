@@ -444,9 +444,12 @@ def install(level: str, on_done: Callable[[str], None] | None = None) -> dict:
         try:
             _install_engine(report)
             _install_level(level, report)
+            if on_done:  # before "done": whoever sees it done (Settings, a check) also sees it chosen
+                try:
+                    on_done(level)
+                except Exception:  # noqa: BLE001 - the AI is installed either way; choosing it can be done by hand
+                    log.exception("choosing the built-in AI after setting it up failed")
             _set(state="done", status="Ready", completed=0, total=0)
-            if on_done:
-                on_done(level)
         except (BuiltinError, httpx.HTTPError, OSError, tarfile.TarError, zipfile.BadZipFile) as exc:
             canceled = _cancel.is_set()
             _set(state="canceled" if canceled else "failed", status="Canceled" if canceled else "Failed",
@@ -764,11 +767,20 @@ def _is_our_engine(pid: int, exe: str) -> bool:
 server = Server()
 
 
-def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0) -> str:
-    """One request to the built-in AI; the answer's text."""
+last_answer: dict = {}  # how the last answer went (llama.cpp's timings, why it stopped), for checks and logs
+
+
+def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, json_object: bool = False,
+         max_tokens: int | None = None) -> str:
+    """One request to the built-in AI; the answer's text (`json_object`: always one JSON object; `max_tokens`: the
+    answer stops there, so a small model repeating itself cannot run until the time-out)."""
     base, key = server.ensure(settings)
     body = {"model": ALIAS, "temperature": 0.2,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+    if json_object:
+        body["response_format"] = {"type": "json_object"}
+    if max_tokens:
+        body["max_tokens"] = int(max_tokens)
     try:
         r = httpx.post(f"{base}/chat/completions", json=body, headers={"Authorization": f"Bearer {key}"},
                        timeout=timeout, trust_env=False)
@@ -777,9 +789,15 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0) ->
     if r.status_code != 200:
         raise BuiltinError(f"The built-in AI answered {r.status_code}: {r.text[:200]}")
     try:
-        return r.json()["choices"][0]["message"]["content"] or ""
+        got = r.json()
+        text = got["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise BuiltinError("The built-in AI sent an answer in an unexpected shape.") from exc
+    last_answer.clear()
+    last_answer.update(finish=got["choices"][0].get("finish_reason"), timings=got.get("timings") or {},
+                       usage=got.get("usage") or {})
+    log.info("built-in AI answered: %s", last_answer)
+    return text
 
 
 def status(settings: dict) -> dict:
