@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import config
-from ..pipeline import audio_timing
+from ..pipeline import audio_timing, cleanup
 from ..pipeline.captions import STYLE_PRESETS, chunk_words, hex_to_ass
 from ..pipeline.common import Cancelled
 from ..pipeline.ffmpeg_utils import FFmpegError, ffmpeg_bin, filter_path, probe, run, run_process
@@ -74,7 +74,7 @@ DUCK_FRAME = 480              # 10 ms analysis frames
 DUCK_ATTACK_S, DUCK_HOLD_S, DUCK_RELEASE_S = 0.06, 0.25, 0.45
 SUPPORTED = {"clips", "trim", "reorder", "include", "image", "transition", "title", "captions", "audio_tracks",
              "voiceover", "music", "effects", "gain", "mute", "fades", "ducking", "aspect", "layout", "insert",
-             "replace", "split", "word_fixes", "joins", "zoom", "overlays"}
+             "replace", "split", "word_fixes", "joins", "zoom", "overlays", "clean_sound"}
 ZOOM_RANGE = (1.0, 1.5)       # a clip's punch-in
 OVERLAY_KINDS = ("image", "video")
 OVERLAY_MOTIONS = ("still", "zoom")
@@ -98,7 +98,7 @@ def capabilities() -> dict:
             "gain_range_db": list(GAIN_RANGE), "duck_depth_db": {"default": DUCK_DEPTH_DB, "range": list(DUCK_RANGE)},
             "zoom_range": list(ZOOM_RANGE), "overlays": {"kinds": list(OVERLAY_KINDS), "motions": list(OVERLAY_MOTIONS),
                                                          "min_ms": OVERLAY_MIN_MS},
-            "unsupported": UNSUPPORTED,
+            "clean_sound": list(config.CLEAN_SOUND_MODES), "unsupported": UNSUPPORTED,
             "limits": "No fixed number of files, clips or audio items. Free disk space is checked before a "
                       "render; each step opens at most two media files.",
             "notes": "Renders from the full original files on the server; previews use the same plan at 360p."}
@@ -211,6 +211,8 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
         out.append("Choose 24, 25, 30, 50 or 60 frames per second.")
     if plan.get("layout", "fit") not in LAYOUTS:
         out.append("Unknown framing.")
+    if plan.get("clean_sound") not in (None, *config.CLEAN_SOUND_MODES):
+        out.append("Unknown sound cleanup choice.")
     clips = [c for c in plan.get("clips") or [] if c.get("include", True)]
     if not clips:
         out.append("Every clip is removed; keep at least one.")
@@ -944,6 +946,19 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         total_n = total_f * spf
         speech, ducked, free = [], [], []
         src_track = tracks["source"]
+        clean_mode = plan.get("clean_sound") or (settings or {}).get("clean_sound") or "off"
+        cleaned: dict[str, cleanup.Result] = {}
+
+        def source_sound(e: dict, a: dict) -> list[str]:
+            """Input options for an element's own sound: the asset's cleaned-up sound when there is one."""
+            if clean_mode == "off" or clean_mode not in cleanup.MODES:
+                return ["-i", e["path"]]
+            aid = e["asset_id"]
+            if aid not in cleaned:  # the whole file once (cached), so every cut and preview reuses it
+                cleaned[aid] = cleanup.clean_or_keep(e["path"], 0.0, _length(a) / 1000,
+                                                     words_by_asset.get(aid) or [], clean_mode, cancelled=cancelled)
+            r = cleaned[aid]
+            return r.input_args() if r.path is not None else ["-i", e["path"]]
         for k, e in enumerate(els):
             clip = e.get("clip") or {}
             a = assets.get(e["asset_id"]) if e["kind"] == "video" else None
@@ -952,7 +967,7 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             _check(cancelled)
             n = e["frames"] * spf
             gain = float(clip.get("gain_db") or 0) + float(src_track.get("gain_db") or 0)
-            raw = _raw_audio(["-ss", f"{e['src_in_ms'] / 1000:.6f}", "-t", f"{n / SR + 0.5:.6f}", "-i", e["path"]],
+            raw = _raw_audio(["-ss", f"{e['src_in_ms'] / 1000:.6f}", "-t", f"{n / SR + 0.5:.6f}", *source_sound(e, a)],
                              f"{NORMALISE},volume={gain:.2f}dB" + _fades(int(clip.get("fade_in_ms") or 0),
                                                                         int(clip.get("fade_out_ms") or 0), n / SR),
                              n, tmp / f"el{k}.raw", cancelled)
@@ -1027,5 +1042,5 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "timeline": segs, "audio_timeline": placed, "ducking": ducking, "words": words,
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
                          for k in sorted(overlays) for o in overlays[k]],
-            "captions": bool(events),
+            "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
             "pieces": len(used), "frames": total_f}

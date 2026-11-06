@@ -1,5 +1,24 @@
 # AI handoff
 
+## Built-in AI and sound cleanup (phase 1) — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a plan to make clipping and editing smarter with an AI that ships with
+the app (plan: Claude Doc in the project thread), then chose "Start phase 1". Phase 1 is built: a built-in AI that
+downloads on first use (level picked from the computer) and becomes the default helper, and "Clean up the sound"
+(noise, hum, breaths, mic balance, even levels, voice polish) with a before/after switch. Draft PR, not merged.
+
+- **Branch:** `claude/project-thread-4sg7wk`, from `claude/project-thread-x72wkd` @ `e7f7919` (PR #20's branch with
+  #22 and #23); the PR targets that branch.
+- **Design and limits:** [docs/clipforge/BUILTIN_AI_AND_SOUND.md](docs/clipforge/BUILTIN_AI_AND_SOUND.md).
+- **Code:** `clipfoundry/builtin_ai.py`, `clipfoundry/pipeline/cleanup.py`; wiring in `pipeline/llm.py`, `gpu.py`,
+  `api.py` (`/api/ai/builtin*`, `/api/clips/{id}/sound-check`), `pipeline/render.py` (`_clean_sound`),
+  `studio/engine.py` (`source_sound`), `studio/video_flow.py`; frontend `AiHelperSettings.tsx`,
+  `components/SoundCompare.tsx`, ClipEditor, Settings, VideoReview.
+- **Real-machine check:** `.github/workflows/builtin-ai-check.yml` runs on pushes to this branch (Mac, Linux,
+  Windows; Windows fetches only the four files it needs because this repository's folder name cannot be checked out
+  there). Its summary has load time, words per second and the sound cleanup's real-time factor.
+- **Next phases (not started):** smarter clips, styles and finishing, YouTube videos and short films (see the plan).
+
 ## Release ClipForge 2026.11.05.2 (smart editing + Mac link fix) — 2026-11-05 (Claude Code, cloud session)
 
 Landry asked to merge both fixes and update the website. PR #22 was merged into `claude/project-thread-x72wkd`
