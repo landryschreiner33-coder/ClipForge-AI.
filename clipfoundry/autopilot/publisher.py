@@ -22,6 +22,7 @@ import time
 import httpx
 
 from .. import db
+from .. import taste
 from ..office import feed
 from ..pipeline import fingerprint
 from ..publish import audience
@@ -135,6 +136,7 @@ def _record_found_youtube(pub: dict, found: dict, message: str) -> bool:
                                 "locked_private": pub.get("requested_privacy") == "public" and privacy == "private"},
                           delivery=audience.delivery_after_upload("youtube", pub.get("audience") or {}, privacy,
                                                                   "api"))
+    taste.published(pub["clip_id"])
     return True
 
 

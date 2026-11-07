@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, config, db, phone
+from . import __version__, config, db, embedder, phone, taste
 from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
 from .pipeline import cleanup, cuda, export, llm, postpack, render, transcribe, versions
@@ -252,6 +252,45 @@ def _builtin_ready(level: str) -> None:
     if s.get("ai_provider", "heuristic") in ("heuristic", "builtin"):
         patch["ai_provider"] = "builtin"
     db.save_settings(patch)
+
+
+@app.get("/api/ai/meaning")
+def ai_meaning_view() -> dict:
+    """The meaning model (embedder.py): ready, on, downloading, or why not."""
+    return embedder.status(db.get_settings())
+
+
+@app.post("/api/ai/meaning/install")
+def ai_meaning_install() -> dict:
+    try:
+        embedder.install()
+    except embedder.MeaningError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return embedder.status(db.get_settings())
+
+
+@app.post("/api/ai/meaning/cancel")
+def ai_meaning_cancel() -> dict:
+    embedder.cancel()
+    return embedder.status(db.get_settings())
+
+
+@app.post("/api/ai/meaning/remove")
+def ai_meaning_remove() -> dict:
+    embedder.remove()
+    return embedder.status(db.get_settings())
+
+
+@app.get("/api/taste")
+def taste_view() -> dict:
+    """What ClipForge AI learned from your choices (taste.py)."""
+    return taste.status(taste.default_workspace())
+
+
+@app.delete("/api/taste")
+def taste_forget() -> dict:
+    taste.forget(taste.default_workspace())
+    return taste.status(taste.default_workspace())
 
 
 @app.get("/api/ai/builtin")
@@ -514,6 +553,8 @@ def export_zip(project_id: str, body: ExportBody) -> FileResponse:
     if not clips:
         raise HTTPException(400, "No rendered clips selected")
     zpath = export.build_zip(p, [with_active_version(c) for c in clips], project_dir(p) / "exports")
+    for c in clips:
+        taste.record(c, "exported", str(p.get("workspace_id") or "local"))
     return FileResponse(zpath, media_type="application/zip", filename=zpath.name)
 
 
@@ -572,6 +613,8 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
         fields["caption_text"] = body.caption_text
     if body.selected is not None:
         fields["selected"] = 1 if body.selected else 0
+        if bool(clip.get("selected", 1)) != bool(body.selected):  # a lesson for ClipForge AI's taste (taste.py)
+            taste.record(clip, "reselected" if body.selected else "deselected")
     if body.edit is not None:
         edit = dict(clip.get("edit") or {})
         for k, v in body.edit.items():

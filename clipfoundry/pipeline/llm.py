@@ -212,9 +212,10 @@ def _builtin(settings: dict, prompt: str) -> str:
     from .. import builtin_ai
 
     try:
+        extra = {k[1:]: settings[k] for k in ("_json_schema", "_images") if settings.get(k)}
         return builtin_ai.chat(settings, _system(settings), prompt, timeout=_timeout(settings),
                                json_object=bool(settings.get("_json_object")),
-                               max_tokens=int(settings.get("_max_tokens") or 0) or None)
+                               max_tokens=int(settings.get("_max_tokens") or 0) or None, **extra)
     except builtin_ai.BuiltinError as exc:
         raise ProviderError(str(exc)) from exc
 
@@ -282,18 +283,21 @@ def _strip_thinking(text: str) -> str:
 
 def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str = "", system: str | None = None,
              num_ctx: int | None = None, timeout: float | None = None, json_object: bool = False,
-             max_tokens: int | None = None) -> str:
+             max_tokens: int | None = None, json_schema: dict | None = None, images: list[str] | None = None) -> str:
     """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure).
     `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it).
     `system` replaces the clip-scoring instructions; `num_ctx` asks a local Ollama model for a larger context;
     `timeout` is how long a local model may take; `json_object` makes the built-in model answer with one JSON object;
-    `max_tokens` caps the answer's length (the built-in model, Ollama and OpenAI-compatible servers)."""
+    `max_tokens` caps the answer's length (the built-in model, Ollama and OpenAI-compatible servers); `json_schema`
+    makes the built-in model's answer follow a JSON schema exactly (other providers get the prompt's instructions);
+    `images` are base64 data URLs the built-in model looks at (its vision part; other providers ignore them)."""
     provider = settings.get("ai_provider", "heuristic")
-    if unattended or task or system or num_ctx or timeout or json_object or max_tokens:
+    if unattended or task or system or num_ctx or timeout or json_object or max_tokens or json_schema or images:
         settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task,
                     **({"_system": system} if system else {}), **({"_num_ctx": int(num_ctx)} if num_ctx else {}),
                     **({"_timeout": float(timeout)} if timeout else {}), **({"_json_object": True} if json_object else {}),
-                    **({"_max_tokens": int(max_tokens)} if max_tokens else {})}
+                    **({"_max_tokens": int(max_tokens)} if max_tokens else {}),
+                    **({"_json_schema": json_schema} if json_schema else {}), **({"_images": images} if images else {})}
     fn = PROVIDERS.get(provider)
     if fn is None:
         raise ProviderError("heuristic mode")

@@ -76,6 +76,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Stage 2 AI evaluation (all optional; heuristic works fully offline)
     "ai_provider": "heuristic",
     "ai_max_candidates": 12,
+    "deep_analysis": True,              # staged analysis for every "Make clips" (pipeline/deep.py), not only Autopilot
+    "ai_scout": True,                   # the model reads the whole video and ranks the finalists (pipeline/scout.py)
+    "ai_eyes": True,                    # the model looks at frames of the finalists (pipeline/eyes.py)
     # "Tell the editor what to change" (studio/edit_requests.py): only used when an AI service above is set up
     "ai_edit_requests_per_day": 40,     # requests sent to the AI service per workspace per day (0: never send)
     "ai_edit_timeout_s": 60.0,          # stop waiting after this; nothing is changed
@@ -117,6 +120,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hook_seconds": 3.0,
     "normalize_audio": True,
     "clean_sound": "auto",            # off | auto | gentle | strong: noise, hum, breaths, levels, voice polish
+    "meaning_model": True,            # the small sentence-meaning model (embedder.py): downloaded once (90 MB)
     "encoder": "auto",                # auto | nvenc | videotoolbox | x264
     "crf": 20,
     "x264_preset": "veryfast",

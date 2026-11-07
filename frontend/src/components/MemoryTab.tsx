@@ -1,5 +1,5 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
-import { errorText } from "../api";
+import { api, errorText, Taste } from "../api";
 import { KnowHow, Memory, memoryApi, MemoryCheck, MemoryKind, MemoryUse } from "../brain";
 import { ConfirmDialog, EmptyState, Icon, Pill, toast } from "./ui";
 
@@ -29,8 +29,11 @@ export function MemoryTab() {
   const [problem, setProblem] = useState("");
   const [knowhow, setKnowhow] = useState<KnowHow | null>(null);
   const [open, setOpen] = useState<string>("");
+  const [taste, setTaste] = useState<Taste | null>(null);
+  const [forgetTaste, setForgetTaste] = useState(false);
   useEffect(() => {
     memoryApi.knowhow().then(setKnowhow).catch(() => setKnowhow({ topics: [], source: "", tasks: [] }));
+    api.taste().then(setTaste).catch(() => setTaste(null));
   }, []);
 
   const load = useCallback(async () => {
@@ -100,6 +103,20 @@ export function MemoryTab() {
         </div>
       </section>
 
+      <section className="panel tight" aria-labelledby="mem-taste">
+        <div className="panel-head"><h3 id="mem-taste">What it learned from your choices</h3>
+          {taste && <Pill tone={taste.ready ? "good" : "info"}>{taste.ready ? "Learning your taste" : `${taste.events} lesson${taste.events === 1 ? "" : "s"}`}</Pill>}</div>
+        <p className="small muted">Every clip you leave out, put back, export or publish teaches ClipForge AI your taste. Once it has 12 lessons with at
+          least 4 kept and 4 left out, each new clip's score moves by up to {taste?.weight ?? 6} points your way, and the clip says why. It stays on this computer.</p>
+        {taste && taste.ready && taste.preferences.length > 0 && <p className="small">So far you tend to keep clips with {taste.preferences.join(", ")}.</p>}
+        {taste && !taste.ready && <p className="small">{taste.events} lesson{taste.events === 1 ? "" : "s"} so far ({taste.kept} kept, {taste.left_out} left out).
+          {taste.needed.events > 0 || taste.needed.kept > 0 || taste.needed.left_out > 0
+            ? ` It needs ${Math.max(taste.needed.events, taste.needed.kept + taste.needed.left_out)} more${taste.needed.kept > 0 ? `, ${taste.needed.kept} kept` : ""}${taste.needed.left_out > 0 ? `, ${taste.needed.left_out} left out` : ""}.`
+            : ""}</p>}
+        {taste && taste.events > 0 && <div className="row wrap">
+          <button type="button" className="btn btn-small" disabled={busy} onClick={() => setForgetTaste(true)}><Icon name="x" />Forget my choices</button></div>}
+      </section>
+
       <form className="panel tight mem-add" aria-labelledby="mem-teach" onSubmit={(e) => { e.preventDefault();
         void run(() => memoryApi.create({ text: add.text.trim(), kind: add.kind }), () => "Remembered.").then(() => setAdd({ ...add, text: "" })); }}>
         <h3 id="mem-teach">Teach it something</h3>
@@ -166,6 +183,9 @@ export function MemoryTab() {
             {open === t.id && <ul>{t.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
           </li>))}</ul>}
       </section>
+      {forgetTaste && <ConfirmDialog title="Forget what it learned from your choices?" danger confirmLabel="Forget" onClose={() => setForgetTaste(false)}
+        onConfirm={async () => { try { setTaste(await api.tasteForget()); toast("Forgotten. It learns again from your next choices."); } catch (e) { toast(errorText(e), true); } setForgetTaste(false); }}>
+        <p>Every lesson from clips you left out, put back, exported or published is removed. Clips already scored keep their scores.</p></ConfirmDialog>}
       {del && <ConfirmDialog title={`Forget “${del.text.slice(0, 80)}${del.text.length > 80 ? "…" : ""}”?`} danger confirmLabel="Forget" onClose={() => setDel(null)}
         onConfirm={async () => { await memoryApi.forget(del.id); setDel(null); await load(); }}>
         <p>ClipForge AI will not use it again. Versions it already helped make keep their edits.</p></ConfirmDialog>}

@@ -21,10 +21,13 @@ import concurrent.futures
 import json
 import re
 import statistics
+
+import numpy as np
 import time
 from collections import defaultdict
 from typing import Callable
 
+from . import semantic
 from .text_utils import STOPWORDS, cosine, tf_vector
 
 METHOD = "local estimate from pauses, wording, the narrator's own separators and topic change"
@@ -205,9 +208,30 @@ def _cohesion(sents: list[dict], i: int, lo: int, hi: int) -> float:
     return cosine(tf_vector(before), tf_vector(after))
 
 
-def _boundary(sents: list[dict], i: int, lo: int, hi: int, marks: dict[int, str], baseline: float = 0.0) -> dict:
+def meaning_shifts(sents: list[dict], emb) -> tuple[np.ndarray, np.ndarray] | None:
+    """With the meaning model: for every gap between sentences, how much the six sentences after it still talk
+    about what the six before it talked about (calibrated cosine), and how unusual that is for this recording (a
+    robust z-score). None with word-based vectors (the word cohesion above already covers those)."""
+    if emb is None or getattr(emb, "model", "lexical") == "lexical" or len(sents) < 8 or not len(emb):
+        return None
+    n = len(sents)
+    arr = np.asarray(emb, dtype=np.float32)
+    sums = np.cumsum(np.vstack([np.zeros((1, arr.shape[1]), dtype=np.float32), arr]), axis=0)
+    shifts = np.zeros(n - 1, dtype=np.float32)
+    for i in range(n - 1):
+        a = sums[i + 1] - sums[max(0, i - 5)]
+        b = sums[min(n, i + 7)] - sums[i + 1]
+        shifts[i] = semantic.cos_cal(emb, a, b)
+    med = float(np.median(shifts))
+    mad = float(np.median(np.abs(shifts - med))) * 1.4826 or float(np.std(shifts)) or 1e-6
+    return shifts, (shifts - med) / mad
+
+
+def _boundary(sents: list[dict], i: int, lo: int, hi: int, marks: dict[int, str], baseline: float = 0.0,
+              meaning: tuple[float, float] | None = None) -> dict:
     """Evidence for a boundary between sentence i and i+1, using only sentences lo..hi (one chunk's context).
-    `baseline` is the chunk's usual cohesion, so a dip below it counts as a change of topic too."""
+    `baseline` is the chunk's usual cohesion, so a dip below it counts as a change of topic too. `meaning` is the
+    meaning model's (shift, z) for this gap when it is available (meaning_shifts)."""
     a, b = sents[i], sents[i + 1]
     gap = max(0.0, b["start"] - a["end"])
     cohesion = _cohesion(sents, i, lo, hi)
@@ -254,6 +278,12 @@ def _boundary(sents: list[dict], i: int, lo: int, hi: int, marks: dict[int, str]
     topic = 0.20 if cohesion < 0.08 else 0.08 if cohesion < 0.15 else 0.0
     if baseline > 0 and cohesion < 0.5 * baseline and cohesion < 0.2:
         topic = max(topic, 0.10)
+    if meaning is not None:  # the meaning model: the subject changes even when the words do not say so
+        shift, z = meaning
+        if z <= -2.5 and shift <= 0.25:
+            topic = max(topic, 0.22)
+        elif z <= -1.8 and shift <= 0.35:
+            topic = max(topic, 0.12)
     if topic >= 0.10:
         why.append("a change of topic")
     score += topic
@@ -280,11 +310,17 @@ def _chunks(duration: float) -> list[dict]:
     return chunks
 
 
-def candidates(sents: list[dict], duration: float) -> tuple[list[dict], list[dict], list[dict], dict[int, str]]:
+def candidates(sents: list[dict], duration: float, emb=None
+               ) -> tuple[list[dict], list[dict], list[dict], dict[int, str]]:
     """Accepted boundaries (reconciled across chunks), near misses worth a second opinion, the chunks analysed and
     the separator/number marks. Once the narrator's separators are known (three or more), a boundary elsewhere needs
-    much stronger evidence: the narrator says where the stories change."""
+    much stronger evidence: the narrator says where the stories change. `emb` (semantic.embed_sentences) adds the
+    meaning model's view of where the subject changes."""
     marks = marks_of(sents)
+    shifts = meaning_shifts(sents, emb)
+
+    def meaning_at(i: int) -> tuple[float, float] | None:
+        return (float(shifts[0][i]), float(shifts[1][i])) if shifts is not None and i < len(shifts[0]) else None
     templated = sum(1 for v in marks.values()) >= 3
     chunks = _chunks(duration)
     found: list[dict] = []
@@ -295,7 +331,7 @@ def candidates(sents: list[dict], duration: float) -> tuple[list[dict], list[dic
         lo, hi = idx[0], idx[-1]
         baseline = statistics.median(_cohesion(sents, i, lo, hi) for i in range(lo, hi)) if hi - lo >= 4 else 0.0
         for i in range(lo, hi):
-            b = _boundary(sents, i, lo, hi, marks, baseline)
+            b = _boundary(sents, i, lo, hi, marks, baseline, meaning_at(i))
             if b["score"] < NEAR:
                 continue
             near_edge = (b["time"] - c["start"] < EDGE_S and c["start"] > 0) or \
@@ -310,7 +346,7 @@ def candidates(sents: list[dict], duration: float) -> tuple[list[dict], list[dic
     for b in sorted(merged.values(), key=lambda x: x["time"]):
         if b["edge"]:
             # Seen only with truncated context: recompute with full context before trusting it.
-            full = _boundary(sents, b["after"], 0, len(sents) - 1, marks)
+            full = _boundary(sents, b["after"], 0, len(sents) - 1, marks, 0.0, meaning_at(b["after"]))
             b = {**full, "chunk": b["chunk"], "edge": False}
         need = STRONG if templated and not b["sure"] else THRESHOLD
         if b["score"] >= need:
@@ -468,20 +504,30 @@ def _assemble(sents: list[dict], accepted: list[dict], duration: float) -> list[
     return _absorb(merged)
 
 
-def propose(words: list[dict], sents: list[dict], duration: float, judge: "Judge | None" = None) -> dict:
+def propose(words: list[dict], sents: list[dict], duration: float, judge: "Judge | None" = None,
+            opts: dict | None = None) -> dict:
     """Stories and gaps in source order. Times are seconds; callers store integer milliseconds. `judge` (optional)
-    is asked about the boundaries the rules are not sure of; its answers are recorded, and the rules stand when it
-    has none."""
+    first reads the recording through and names where new stories begin, then is asked about the boundaries the
+    rules are not sure of; its answers are recorded, and the rules stand when it has none. `opts` (the settings)
+    decides whether the meaning model is used for the change-of-subject signal."""
     if not sents:
         return {"items": [], "chunks": [], "method": METHOD,
                 "note": "No speech was found, so no story boundaries can be estimated. Add the stories by hand."}
-    accepted, near, chunks, marks = candidates(sents, duration)
+    emb = semantic.embed_sentences(sents, opts) if len(sents) >= 8 else None
+    accepted, near, chunks, marks = candidates(sents, duration, emb)
     ai: dict = {}
     if judge is not None:
+        scan = getattr(judge, "scan", None)
+        if scan is not None:
+            accepted, near = scan(accepted, near, marks)
         accepted, ai = judge.review(accepted, near)
+    if emb is not None and getattr(emb, "model", "lexical") != "lexical":
+        ai = {**ai, "meaning_model": emb.model}
     items = _assemble(sents, accepted, duration)
     phrases = sorted({v for v in separators(sents).values()})
-    return {"items": items, "chunks": chunks, "method": METHOD + (", checked by ClipForge AI" if ai.get("answered") else ""),
+    method = METHOD + (" and the meaning model" if ai.get("meaning_model") else "") + \
+        (", checked by ClipForge AI" if ai.get("answered") or ai.get("scanned") else "")
+    return {"items": items, "chunks": chunks, "method": method,
             "boundaries": [{k: b[k] for k in ("time", "gap", "score", "why")} for b in accepted],
             "separators": phrases, "numbered": sum(1 for v in marks.values() if v == "number"), "ai": ai}
 
@@ -491,6 +537,8 @@ SYSTEM = ("You split a long recording of someone reading or telling several sepa
           "Use only the words given; never invent anything. Reply with one JSON object and nothing else.")
 MAX_QUESTIONS = 60
 BATCH = 6
+SCAN_SCHEMA = {"type": "object", "properties": {"starts": {"type": "array", "maxItems": 12, "items": {"type": "integer"}}},
+               "required": ["starts"]}
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="stories-ai")
 
 
@@ -511,11 +559,11 @@ class Judge:
         self.report = {"provider": llm.provider_label(settings), "asked": 0, "answered": 0, "changed": 0,
                        "problems": []}
 
-    def _ask(self, prompt: str, label: str) -> str:
+    def _ask(self, prompt: str, label: str, schema: dict | None = None) -> str:
         from . import llm
 
         call = _pool.submit(self.complete, self.settings, prompt, task="stories", system=SYSTEM, num_ctx=8192,
-                            json_object=True)
+                            json_object=True, **({"json_schema": schema} if schema else {}))
         deadline = time.monotonic() + self.timeout
         while True:
             try:
@@ -549,6 +597,81 @@ class Judge:
                 f"{places}\n\n"
                 'Answer with {"new_story": [the place numbers where a new story begins]} (an empty list when none).')
 
+    def scan(self, accepted: list[dict], near: list[dict], marks: dict[int, str]) -> tuple[list[dict], list[dict]]:
+        """Read the recording through, part by part, and ask where new stories begin (a table of contents). A start
+        the rules already found is confirmed; a near miss it names is promoted; a place nobody suspected becomes a
+        boundary when the rules' own evidence there, plus the model's word, reaches the threshold, otherwise a near
+        miss for review(). Uses at most half the budget; the rest is left for review()."""
+        from . import scout
+
+        parts = scout.windows(self.sents)
+        started = time.monotonic()
+        half = self.budget_s / 2
+        self.report.setdefault("scanned", 0)
+        self.report.setdefault("parts", len(parts))
+        starts: set[int] = set()
+        for k, (first, last) in enumerate(parts):
+            if time.monotonic() - started > half or (self.canceled and self.canceled()):
+                self.report["problems"].append(f"Out of time reading the recording after {k} of {len(parts)} parts.")
+                break
+            lines = "\n".join(f'{i} [{scout._stamp(self.sents[i]["start"])}] {self.sents[i]["text"][:240]}'
+                              for i in range(first, last + 1))
+            prompt = (f"Part {k + 1} of {len(parts)} of a recording with several separate stories. Each line is one "
+                      f"sentence: its number, start time and words.\n\n{lines}\n\nList the numbers of the sentences "
+                      "that BEGIN A NEW STORY (a different story than the sentences before it). The same story going "
+                      "on (a detail, an update, a comment read out) is not a new story; a greeting, a sponsor read or a "
+                      'goodbye is not a story. An empty list is a fine answer.\nAnswer: {"starts": [numbers]}')
+            raw = self._ask(prompt, f"part {k + 1} of {len(parts)}", SCAN_SCHEMA)
+            if not raw:
+                continue
+            m = re.search(r"\{.*\}", raw, re.S)
+            try:
+                data = json.loads(m.group(0)) if m else None
+                found = {int(x) for x in (data.get("starts") or []) if str(x).strip().lstrip("-").isdigit()}
+            except (ValueError, TypeError, AttributeError):
+                data = None
+            if data is None:
+                self.report["problems"].append("An answer was not readable; that part was left to the rules.")
+                continue
+            self.report["scanned"] += 1
+            starts |= {i for i in found if first < i <= last}  # the first sentence of a part is never a new start
+        if not starts:
+            return accepted, near
+        by_after = {b["after"]: b for b in accepted}
+        near_by = {b["after"]: b for b in near}
+        kept = []
+        for b in accepted:
+            if b["after"] + 1 in starts:
+                b = {**b, "why": b["why"] + ["ClipForge AI read a new story beginning here"], "sure": True}
+            kept.append(b)
+        rest = []
+        for b in near:
+            if b["after"] + 1 in starts:
+                self.report["changed"] += 1
+                kept.append({**b, "score": max(b["score"], THRESHOLD),
+                             "why": b["why"] + ["ClipForge AI read a new story beginning here"]})
+            else:
+                rest.append(b)
+        for i in sorted(starts):
+            after = i - 1
+            if after in by_after or after in near_by or after < 0 or after >= len(self.sents) - 1:
+                continue
+            b = _boundary(self.sents, after, 0, len(self.sents) - 1, marks)
+            b = {**b, "score": round(min(1.0, b["score"] + 0.35), 3),
+                 "why": b["why"] + ["ClipForge AI read a new story beginning here"], "chunk": 0, "edge": False}
+            if b["score"] >= THRESHOLD:
+                self.report["changed"] += 1
+                kept.append(b)
+            else:
+                rest.append(b)
+        kept.sort(key=lambda x: x["time"])
+        out: list[dict] = []
+        for b in kept:
+            if out and _too_close(self.sents, out[-1], b):
+                continue
+            out.append(b)
+        return out, sorted(rest, key=lambda x: x["time"])
+
     def review(self, accepted: list[dict], near: list[dict]) -> tuple[list[dict], dict]:
         """The rules' boundaries after the model's answers: confirmed near misses join, denied weak ones leave."""
         weak = [b for b in accepted if b["score"] < 0.7 and not b["mark"]]
@@ -569,9 +692,11 @@ class Judge:
                 continue
             m = re.search(r"\{.*\}", raw, re.S)
             try:
-                data = json.loads(m.group(0)) if m else {}
+                data = json.loads(m.group(0)) if m else None
                 starts = {int(x) for x in (data.get("new_story") or []) if str(x).strip().lstrip("-").isdigit()}
             except (ValueError, TypeError, AttributeError):
+                data = None
+            if data is None:  # an answer without JSON is no answer: it must not read as "no new story anywhere"
                 self.report["problems"].append("An answer was not readable; those places were left to the rules.")
                 continue
             self.report["answered"] += len(batch)

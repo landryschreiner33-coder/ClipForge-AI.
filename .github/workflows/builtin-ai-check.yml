@@ -3,9 +3,9 @@ name: Built-in AI and sound cleanup check
 # starts the engine and measures its speed, and times the sound cleanup's voice model (scripts/builtin_ai_check.py).
 on:
   push:
-    branches: ['claude/project-thread-4sg7wk']
-    paths: ['clipfoundry/builtin_ai.py', 'clipfoundry/pipeline/cleanup.py', 'scripts/builtin_ai_check.py',
-            '.github/workflows/builtin-ai-check.yml']
+    branches: ['claude/project-thread-4sg7wk', 'claude/project-thread-hud5t5']
+    paths: ['clipfoundry/builtin_ai.py', 'clipfoundry/pipeline/cleanup.py', 'clipfoundry/embedder.py',
+            'clipfoundry/pipeline/eyes.py', 'scripts/builtin_ai_check.py', '.github/workflows/builtin-ai-check.yml']
   workflow_dispatch:
     inputs:
       standard:
@@ -25,9 +25,9 @@ jobs:
       matrix:
         include:
           - os: macos-15
-            flags: '--sound --no-catalog'
+            flags: '--sound --meaning --eyes --no-catalog'
           - os: ubuntu-latest
-            flags: '--sound'
+            flags: '--sound --meaning --eyes'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -63,10 +63,10 @@ jobs:
         run: |
           $base = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}"
           New-Item -ItemType Directory -Force check/clipfoundry, check/scripts | Out-Null
-          foreach ($f in 'clipfoundry/__init__.py', 'clipfoundry/config.py', 'clipfoundry/builtin_ai.py', 'scripts/builtin_ai_check.py') {
+          foreach ($f in 'clipfoundry/__init__.py', 'clipfoundry/config.py', 'clipfoundry/builtin_ai.py', 'clipfoundry/embedder.py', 'scripts/builtin_ai_check.py') {
             Invoke-WebRequest -Uri "$base/$f" -OutFile "check/$f"
           }
-          python -m pip install httpx
+          python -m pip install httpx numpy onnxruntime
       - name: Check
         shell: pwsh
         working-directory: ${{ runner.temp }}

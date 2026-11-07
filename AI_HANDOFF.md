@@ -1,5 +1,44 @@
 # AI handoff
 
+## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,
+and asked whether his two research guides were used. ClipForge now understands what is said (a small meaning model,
+downloaded once and checked against pinned hashes), reads the whole video and names moments the word lists miss, ranks
+the finalists side by side with verdicts, looks at frames of the best clips and picks their thumbnails, listens to the
+voice (emphasis, laughter, flat delivery) for the score and for where punch-ins go, learns Landry's taste from the
+clips he keeps and drops, finds story changes in long videos that the words hide, and applies three more rules from
+the guides (the causal "but / which meant" engine, the constrained-experiment hook, chapter fillers). Every new signal
+is bounded and explained next to the clip, and everything falls back to the old behaviour when a part is missing.
+
+- **Branch / PR:** `claude/project-thread-hud5t5` from the release line at 7723696, draft PR into
+  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Design and limits:** [docs/clipforge/SMARTER_AI.md](docs/clipforge/SMARTER_AI.md) (the research table, every
+  number and bound, how the guides were used, what was deliberately not automated); [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/embedder.py`, `taste.py`, `pipeline/scout.py`, `eyes.py`, `ears.py`; changed
+  `pipeline/semantic.py`, `deep.py`, `process.py`, `candidates.py`, `diversity.py`, `stories.py`, `render.py`,
+  `virality.py`, `text_utils.py`, `llm.py`; `builtin_ai.py` (schema + images), `brain/meaning.py`, `memories.py`,
+  `db.py`, `api.py`, `config.py`, `studio/smart_edit.py`, `story_review.py`, `publish/jobs.py`,
+  `autopilot/publisher.py`; `frontend/src/api.ts`, `components/AiHelperSettings.tsx` (MeaningSetup),
+  `MemoryTab.tsx` (taste panel), `viral.tsx` (AiNotes); `frontend/dist` rebuilt; `scripts/builtin_ai_check.py`,
+  `.github/workflows/builtin-ai-check.yml`; `tests/test_smarter_ai.py`, `tests/conftest.py`.
+- **Verify:** `python -m pytest -q tests -p no:cacheprovider --ignore=tests/test_studio_smart_render.py` (the
+  render tests need espeak-ng); `cd frontend && npm ci && npm run build`; on a runner, the "Built-in AI check"
+  workflow with `--meaning --eyes` (Linux and Mac jobs). With a local copy of the model,
+  `CLIPFORGE_MEANING_MODEL_DIR=<dir> python -m pytest tests/test_smarter_ai.py -k real_meaning_model`. On Landry's
+  computer: Make clips on a real video with the built-in model and read the clip's "Why" lines (scout, rank, saw,
+  voice); untick and re-tick a dozen clips and watch Brain → Memory → "What it learned from your choices".
+- **Judgement calls to know about:** `deep_analysis`, `ai_scout`, `ai_eyes` and `meaning_model` are on by default
+  (each bounded, each with an off switch); the meaning model is all-MiniLM-L6-v2 and not a Qwen embedding (90 MB,
+  CPU, Apache-2.0, no PyTorch); the model never adds or removes a clip on its own; the judge moves scores only by its
+  disagreement with the local ranking; taste needs 12 lessons with 4 on each side before it does anything; the
+  "and_then" flag has severity "warn" because the penalty table knows only warn and block.
+- **Not done:** real downloads and the built-in model cannot be exercised from the cloud computer (the model hub is
+  blocked); the runner workflow must be run after the push and its result read; the slow drift zoom on static shots
+  and sculpted silence before a payoff from the filmmaking guide (recorded as follow-ups in SMARTER_AI.md); the
+  Qwen3-Embedding model through the built-in engine (the plan's later phase).
+- **Waiting on Landry:** a look at the PR; a real-footage test on his computer; the merge; the release (explicit OK).
+
 ## The ClipForge look: one design system and every page restyled — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the whole UI to look very, very good. The app now has one design system

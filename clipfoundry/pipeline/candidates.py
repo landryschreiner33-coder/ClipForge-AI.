@@ -162,6 +162,49 @@ def _window_scores(sentences, feats, i, j, agg, loud: Loudness, opts) -> dict:
     }
 
 
+def window(sentences: list[dict], feats: list[dict], i: int, j: int, loud: Loudness, opts: dict,
+           global_top: Counter | None = None) -> dict:
+    """One sentence range [i, j] scored exactly like find_candidates scores its windows, for moments named by other
+    means (ClipForge AI's scout, a person). `global_top` (the video's commonest content words) adds the relevance
+    term the shortlist gets; without it, density stands in."""
+    agg = {"n": 0, "content": 0, "emo": 0, "hookw": 0, "questions": 0, "max_gap": 0.0,
+           "story_first_half": 0, "last_payoff": -1, "internal_transition": 0, "internal_boundary": 0.0, "promo": 0}
+    start = sentences[i]["start"]
+    for k in range(i, j + 1):
+        f = feats[k]
+        dur = sentences[k]["end"] - start
+        agg["n"] += f["n"]
+        agg["content"] += f["content"]
+        agg["emo"] += f["emo"]
+        agg["hookw"] += f["hookw"]
+        agg["questions"] += f["question"]
+        agg["promo"] += f["promo"]
+        if f["payoff"]:
+            agg["last_payoff"] = k
+        if k > i:
+            agg["max_gap"] = max(agg["max_gap"], f["gap_before"])
+            agg["internal_transition"] += f["transition"]
+            agg["internal_boundary"] = max(agg["internal_boundary"], f["boundary"])
+        if sentences[k]["start"] - start < max(8.0, dur * 0.5):
+            agg["story_first_half"] += f["story"]
+    w = _window_scores(sentences, feats, i, j, agg, loud, opts)
+    text = " ".join(sentences[k]["text"] for k in range(i, j + 1))
+    w["text"] = text
+    rel = cosine(tf_vector(text), global_top) if global_top else w["criteria"]["density"]
+    w["criteria"]["relevance"] = rel
+    w["criteria"]["context"] = 0.6 * rel + 0.4 * w["criteria"]["density"]
+    w["stage1"] = 0.92 * w["stage1"] + 0.08 * w["criteria"]["context"]
+    return w
+
+
+def common_words(sentences: list[dict]) -> Counter:
+    """The video's 40 commonest content words (the relevance reference find_candidates uses)."""
+    global_tf: Counter = Counter()
+    for s in sentences:
+        global_tf.update(content_tokens(s["text"]))
+    return Counter(dict(global_tf.most_common(40)))
+
+
 def _overlap(a: dict, b: dict) -> float:
     inter = min(a["end"], b["end"]) - max(a["start"], b["start"])
     return max(0.0, inter) / max(0.1, min(a["dur"], b["dur"]))

@@ -316,6 +316,20 @@ def snap_to_cuts(src: str, start: float, end: float, words_all: list[dict], edit
     return start, end, snapped
 
 
+def thumbnail_time(clip: dict, duration: float) -> float:
+    """Where the thumbnail is taken: the frame ClipForge AI picked when it looked at the clip (pipeline/eyes.py), if
+    it falls inside the rendered clip, else a moment near the start."""
+    default = min(1.2, duration / 3)
+    seen = ((clip.get("analysis") or {}).get("deep") or {}).get("seen") or {}
+    try:
+        rel = float(seen["thumbnail_t"]) - float(clip.get("start") or 0.0)
+    except (KeyError, TypeError, ValueError):
+        return default
+    speed = float((clip.get("edit") or {}).get("speed") or 1.0) or 1.0
+    rel = rel / speed
+    return rel if 0.2 <= rel <= max(0.2, duration - 0.2) else default
+
+
 def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict, ctx: JobContext,
                 out_dir: Path | None = None, blueprint: "blueprint_mod.Blueprint | None" = None) -> dict:
     """Render `clip` (with its edit) to a new MP4 in `out_dir` (default: the clip's folder; versions use a
@@ -537,7 +551,7 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
     os.replace(tmp_out, out_path)
     thumb = out_dir / f"thumb-{stamp}.jpg"
     try:
-        thumbnail(out_path, min(1.2, tl.duration / 3), thumb, 360, cancel=ctx.cancelled)
+        thumbnail(out_path, thumbnail_time(clip, tl.duration), thumb, 360, cancel=ctx.cancelled)
     except FFmpegError as exc:
         log.warning("thumbnail failed: %s", exc)
     for old in list(out_dir.glob("clip*.mp4")) + list(out_dir.glob("thumb*.jpg")):
