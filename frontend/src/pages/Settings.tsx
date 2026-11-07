@@ -2,7 +2,7 @@ import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
 import EditingAppsSettings from "../components/EditingApps";
 import MediaSourcesSettings from "../components/MediaSources";
-import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
 import { navigate, useLeaveGuard } from "../router";
 import { useStatus } from "../status";
@@ -50,38 +50,30 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export default function SettingsPage({ tab }: { tab?: string }) {
   if (tab === "media") {
     return (
-      <div className="page narrow">
-        <PageHead kind="Settings" title="Settings" sub="Where Find media looks for images, footage, music and sound effects." />
-        <LinkTabs label="Settings sections" current="media" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="media" sub="Where Find media looks for images, footage, music and sound effects.">
         <MediaSourcesSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   if (tab === "ai") {
     return (
-      <div className="page narrow">
-        <PageHead kind="Settings" title="Settings" sub="An optional AI that helps edit your videos: free on your own computer, or with a free key." />
-        <LinkTabs label="Settings sections" current="ai" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="ai" sub="An optional AI that helps edit your videos: free on your own computer, or with a free key.">
         <AiHelperSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   if (tab === "apps") {
     return (
-      <div className="page narrow">
-        <PageHead kind="Settings" title="Settings" sub="FilmCraft and EffectCraft inside ClipForge: the AI edits with them and FilmCraft renders the final video." />
-        <LinkTabs label="Settings sections" current="apps" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="apps" sub="FilmCraft and EffectCraft inside ClipForge: the AI edits with them and FilmCraft renders the final video.">
         <EditingAppsSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   if (tab === "appearance") {
     return (
-      <div className="page">
-        <PageHead kind="Settings" title="Settings" sub="How ClipForge looks. Customize studio changes it and says where each choice is kept." />
-        <LinkTabs label="Settings sections" current="appearance" tabs={SETTINGS_TABS} />
+      <SettingsFrame current="appearance" wide sub="How ClipForge looks. Customize studio changes it and says where each choice is kept.">
         <AppearanceSettings />
-      </div>
+      </SettingsFrame>
     );
   }
   return <SettingsForm tab={tab} />;
@@ -97,6 +89,24 @@ const SETTINGS_TABS = [
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
   { id: "advanced", href: "#/settings/advanced", label: "Advanced" },
 ];
+
+/** Every Settings page in one frame: the title, any banner, the section list down the side and the section itself. */
+function SettingsFrame({ current, sub, before, wide = false, onTabClick, children }: {
+  current: string; sub?: ReactNode; before?: ReactNode; wide?: boolean; onTabClick?: (e: MouseEvent) => void; children: ReactNode;
+}) {
+  return (
+    <div className="page">
+      <PageHead title="Settings" sub={sub} />
+      {before}
+      <div className="settings-layout">
+        <div className="settings-nav" onClickCapture={onTabClick}>
+          <LinkTabs label="Settings sections" current={current} tabs={SETTINGS_TABS} vertical />
+        </div>
+        <div className={`settings-body${wide ? " wide" : ""}`}>{children}</div>
+      </div>
+    </div>
+  );
+}
 
 function SettingsForm({ tab }: { tab?: string }) {
   const t: SettingsTab = tab === "defaults" || tab === "integrations" || tab === "advanced" ? tab : "accounts";
@@ -231,12 +241,12 @@ function SettingsForm({ tab }: { tab?: string }) {
   const gpuFix = st?.gpu?.fix || health?.whisper.fix || "";
   const firstError = errorKeys[0];
   return (
-    <div className="page narrow">
-      <PageHead title="Settings"
-        sub={<>
-          Stored on this computer, in ClipForge's data folder
-          {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
-        </>} />
+    <SettingsFrame current={t} onTabClick={tabClick}
+      sub={<>
+        Stored on this computer, in ClipForge's data folder
+        {health?.data_dir ? <>: <code className="break">{health.data_dir}</code></> : ""}.
+      </>}
+      before={<>
       {expired.length > 0 && t !== "accounts" && (
         <Banner tone="bad" icon="link"
           title={`${expired.map((p) => PLATFORM_NAME[p]).join(" and ")} ${expired.length > 1 ? "need" : "needs"} you `
@@ -251,9 +261,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {gpuProblem}{gpuFix ? <> <b>What to do:</b> {gpuFix}</> : null}
         </Banner>
       )}
-      <div onClickCapture={tabClick}>
-        <LinkTabs label="Settings sections" current={t} tabs={SETTINGS_TABS} />
-      </div>
+      </>}>
       {notes.length > 0 && (
         <Banner tone="warn" title="Some values were adjusted when saving">
           {notes.join(" ")}
@@ -306,7 +314,7 @@ function SettingsForm({ tab }: { tab?: string }) {
           {saving && <span className="inline-spinner" aria-hidden="true" />}Save settings
         </button>
       </section>
-    </div>
+    </SettingsFrame>
   );
 }
 

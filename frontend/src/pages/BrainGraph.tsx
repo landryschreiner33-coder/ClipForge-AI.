@@ -140,7 +140,7 @@ export default function BrainGraph({
       <div className="brain-graph-heading">
         <span>
           <i />
-          LOCAL KNOWLEDGE MAP
+          Local knowledge map
         </span>
         <span className="brain-graph-motion" role="status">
           {applied ? `${applied} used in the last 15 minutes` : "Still: nothing applied just now"}

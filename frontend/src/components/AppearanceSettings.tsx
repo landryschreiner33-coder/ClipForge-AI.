@@ -38,15 +38,55 @@ export default function AppearanceSettings() {
   );
 }
 
+type Column = { x: number; width: number; cells: Panel[] };
+
+/**
+ * Packs sized panels into columns. A panel goes under the earlier panel that starts at the same place with the same
+ * width, so a short panel beside a tall one is not followed by a hole: in the editor the player sits above the look
+ * settings while the long sequence runs down the other column. A panel whose width does not match any column of the
+ * current band starts a new band (its own row of columns). Panels without a width (phones) all stack in one column.
+ */
+export function packColumns(cells: Panel[]): Column[][] {
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.02;
+  const bands: Column[][] = [];
+  let band: Column[] = [];
+  let cursor = 0;
+  let extent = 0;
+  for (const p of cells) {
+    const w = p.size && p.size > 0 && p.size < 1 ? p.size : 1;
+    if (cursor + w > 1.02) cursor = 0;
+    let col = band.find((c) => near(c.x, cursor) && near(c.width, w));
+    if (!col) {
+      if (cursor < extent - 0.02) {  // it would overlap a column of this band: start a new band
+        bands.push(band);
+        band = []; cursor = 0; extent = 0;
+      }
+      col = { x: cursor, width: w, cells: [] };
+      band.push(col);
+      extent = cursor + w;
+    }
+    col.cells.push(p);
+    cursor = col.x + col.width;
+  }
+  if (band.length) bands.push(band);
+  return bands;
+}
+
 /** Panels of one screen in the saved order, hidden ones left out, desktop/tablet widths applied (phones stack). */
 export function LayoutFlow({ screen, sections }: { screen: string; sections: Record<string, React.ReactNode> }) {
   const { panels } = useLayout(screen);
   const order = panels.length ? panels : Object.keys(sections).map((id) => ({ id, visible: true } as Panel));
+  const bands = packColumns(order.filter((p) => p.visible && sections[p.id]));
   return (
-    <div className="layout-flow">
-      {order.filter((p) => p.visible && sections[p.id]).map((p) => (
-        <div key={p.id} className="layout-cell" style={p.size ? { flexBasis: `calc(${(p.size * 100).toFixed(1)}% - var(--s5))` } : undefined}>
-          {sections[p.id]}
+    <div className="layout-bands">
+      {bands.map((band, i) => (
+        <div key={i} className="layout-flow">
+          {band.map((col) => (
+            <div key={col.cells[0].id} className="layout-col"
+              style={col.width < 1 ? { flexBasis: `calc(${(col.width * 100).toFixed(1)}% - var(--s5))` } : undefined}>
+              {col.cells.map((p) => <div key={p.id} className="layout-cell">{sections[p.id]}</div>)}
+            </div>
+          ))}
         </div>
       ))}
     </div>

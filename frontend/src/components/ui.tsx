@@ -233,7 +233,7 @@ export function EmptyState({ icon = "film", title, children, actions, level = 2 
   const H = level === 2 ? "h2" : "h3";
   return (
     <div className="empty">
-      <Icon name={icon} className="lg" />
+      <span className="empty-icon" aria-hidden="true"><Icon name={icon} /></span>
       <H>{title}</H>
       {children && <div className="muted">{children}</div>}
       {actions && <div className="row wrap">{actions}</div>}
@@ -273,9 +273,11 @@ export function PageHead({ kind, title, sub, actions, crumbs }: {
 export type LinkTab = { id: string; href: string; label: ReactNode; count?: number; countTone?: "warn" | "bad" };
 
 /** Page sections as links: they change the address, so Back works and a section can be bookmarked. */
-export function LinkTabs({ label, tabs, current }: { label: string; tabs: LinkTab[]; current: string }) {
+export function LinkTabs({ label, tabs, current, vertical = false }: {
+  label: string; tabs: LinkTab[]; current: string; vertical?: boolean;
+}) {
   return (
-    <nav className="tabs" aria-label={label}>
+    <nav className={`tabs${vertical ? " tabs-side" : ""}`} aria-label={label}>
       {tabs.map((t) => (
         <a key={t.id} href={t.href} aria-current={t.id === current ? "page" : undefined}>
           {t.label}
@@ -329,10 +331,19 @@ export function LoadingPage({ label = "Loading" }: { label?: string }) {
   return (
     <div className="page" aria-busy="true">
       <span className="sr-only" role="status">{label}…</span>
-      <Skel className="skel-title" />
-      <Skel className="skel-line" style={{ width: "40%" }} />
-      <Skel className="skel-block" />
-      <Skel className="skel-block" />
+      <div className="skel-head">
+        <Skel className="skel-title" />
+        <Skel className="skel-line" style={{ width: "40%" }} />
+      </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "28%" }} />
+        <Skel className="skel-block" />
+      </div>
+      <div className="skel-panel">
+        <Skel className="skel-line" style={{ width: "22%" }} />
+        <Skel className="skel-line" style={{ width: "70%" }} />
+        <Skel className="skel-line" style={{ width: "55%" }} />
+      </div>
     </div>
   );
 }

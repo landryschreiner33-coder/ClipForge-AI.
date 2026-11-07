@@ -25,9 +25,12 @@ export const PANELS: Record<string, string[]> = {
   studio: ["needs_you", "pinned", "current", "office", "recent", "publishing"],
   review: ["preview", "outputs", "transcript", "guidance"],
 };
+// the editor's default widths (clipfoundry/studio/prefs.py REVIEW_SIZE): the player and the transcript take the wider column
+const REVIEW_SIZE: Record<string, number> = { preview: 0.6, outputs: 0.4, transcript: 0.6, guidance: 0.4 };
 export function defaultLayout(device = deviceClass()): Layout {
   return { screens: Object.fromEntries(Object.entries(PANELS).map(([screen, ids]) => [screen, ids.map((id) => ({
-    id, visible: true, ...(screen === "review" && device !== "phone" ? { size: Math.round(1000 / ids.length) / 1000 } : {}),
+    id, visible: true,
+    ...(screen === "review" && device !== "phone" ? { size: REVIEW_SIZE[id] ?? Math.round(1000 / ids.length) / 1000 } : {}),
   }))])) };
 }
 

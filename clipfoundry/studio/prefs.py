@@ -34,6 +34,8 @@ CLIP_MODES = ("highlights", "full_stories")
 PANELS = {"studio": ("needs_you", "pinned", "current", "office", "recent", "publishing"),
           "review": ("preview", "outputs", "transcript", "guidance")}
 SIZED = ("review",)
+# the editor's default widths (frontend/src/prefs.tsx REVIEW_SIZE): the player and the transcript take the wider column
+REVIEW_SIZE = {"preview": 0.6, "outputs": 0.4, "transcript": 0.6, "guidance": 0.4}
 DEFAULT_APPEARANCE = {"palette": "studio", "accent": "violet", "density": "comfortable", "text_size": "standard",
                       "motion": "system", "office_size": "expanded", "pinned": [], "clips_mode": "highlights",
                       "remember_style": True}
@@ -53,7 +55,7 @@ def default_layout(device: str) -> dict:
         return device != "phone" and screen in SIZED
 
     return {"screens": {screen: [{"id": p, "visible": True,
-                                  **({"size": round(1 / len(panels), 3)} if sized(screen) else {})}
+                                  **({"size": REVIEW_SIZE.get(p, round(1 / len(panels), 3))} if sized(screen) else {})}
                                  for p in panels] for screen, panels in PANELS.items()}}
 
 
