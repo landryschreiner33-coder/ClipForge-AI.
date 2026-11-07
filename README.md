@@ -15,9 +15,12 @@ video's chat take "remember: …", "what do you know?" and "why?"; Brain → Mem
 twelve built-in playbooks; final videos can be edited and rendered in FilmCraft, with the AI applying looks,
 transitions, motion and EffectCraft titles; clips, hooks and captions follow the guides' numbers, and rendered
 clips carry BT.709 colours. The 77 setup tests passed, and all 748 app files were compared with that commit (six
-`.bat` files differ only by the declared CRLF export). The Windows install check for this ZIP is recorded here once
-it has run. FFmpeg is not installed on the check machine, so no video is processed on Windows there; Windows 10/11
-desktops, Windows security acceptance, GPUs, real AI keys and real uploads are not tested.
+`.bat` files differ only by the declared CRLF export). [Windows setup check run 42312199587](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587)
+installed the previous release (2e5238e) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 748
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model and real AI keys on a PC, and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
