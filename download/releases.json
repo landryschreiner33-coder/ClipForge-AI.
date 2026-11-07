@@ -2,33 +2,52 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.05.2",
-    "date": "2026-11-05",
-    "source_commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
-    "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac.",
+    "version": "2026.11.06",
+    "date": "2026-11-06",
+    "source_commit": "32485bd8c36b5f889bff565d15bd15828bc6aadf",
+    "summary": "ClipForge AI: a built-in model, a memory and a chat, editing know-how from two filmmaking guides, and FilmCraft inside the app.",
     "changes": [
       {
-        "title": "Edit it for me",
-        "text": "ClipForge edits the video instead of only lining up your files: it cuts long pauses, lone “um”s and the first take of a line you said twice, and fits the length you ask for. Pictures appear over the video when you mention them, and free music and soft sound effects made on your computer are added. Every cut is listed, and anything left out can be put back. Pick **Fast-paced** for tighter cuts with punch-in zooms, or **Keep my clips as they are**."
+        "title": "ClipForge AI knows how to edit",
+        "text": "Twelve built-in playbooks distilled from two filmmaking and short-form video guides: hooks and openings, endings, pacing, captions, voice and sound, music and colour by mood, effects, picking a clip, platforms, retention and talking heads. ClipForge AI reads the ones that fit when it answers you, proposes a change, edits for you or finishes in FilmCraft, and what you teach it always wins. Brain › Memory lists them under **What it knows about editing**, and Brain › Talk answers editing questions from them even without a model."
       },
       {
-        "title": "A free AI helper, if you want one",
-        "text": "ClipForge edits well on its own. To let an AI help choose what to cut and where pictures go, open **Settings › AI helper**: download a free model that runs on your computer (Ollama or LM Studio, or import a `.gguf` file you have), or paste a free key from Google Gemini, Groq or OpenRouter. It is sent the words said in your videos as text and your answers to the questions, never the video or the sound."
+        "title": "Clips, hooks and captions follow the numbers",
+        "text": "Endings that announce the end (“to recap”, “thanks for watching”) rank lower, so the point before them wins; warnings and mistakes to avoid rank higher as hooks; the hook headline starts below the apps’ top bar and shrinks to fit; bottom captions now sit above the bar the phone apps draw over the video."
       },
       {
-        "title": "YouTube links on the Mac",
-        "text": "Fixed: a YouTube link could end with “No downloadable video was found”. The Mac app now uses its built-in video tools to join YouTube’s picture and sound, and includes the helper YouTube needs."
+        "title": "Colours in rendered clips",
+        "text": "Fixed: clips were converted with the wrong colour matrix (BT.601), a visible shift of reds and greens in every clip. They are now converted and tagged the way phones and players expect (BT.709), with a keyframe every half second and 256 kbps sound."
+      },
+      {
+        "title": "Talk to ClipForge AI",
+        "text": "Every video has a chat, and Brain › Talk is the general one. Say “remember: always keep my intro” and it keeps a rule (“for this video” keeps it to one video); ask “what do you know?”, “why?” or “forget that”. Brain › Memory shows what it remembers (rules, facts, what it did) with a health check, Tidy, export and import. The AI helper is now called ClipForge AI."
+      },
+      {
+        "title": "A model that comes with the app",
+        "text": "Settings › ClipForge AI › **Built-in model** downloads a free model on first use (Basic, Standard or Pro), checked against a pinned hash: no key, no account, and nothing leaves your computer. A free key or a local Ollama or LM Studio model still works. With a model, ClipForge AI can advise the edit, answer anything in the chat and finish in FilmCraft."
+      },
+      {
+        "title": "Clean up the sound",
+        "text": "One button cleans a noisy voice recording (a small noise model downloaded on first use) and polishes it with the dialogue chain: less rumble and mud, more presence and gentle compression."
+      },
+      {
+        "title": "FilmCraft and EffectCraft inside ClipForge",
+        "text": "Final videos can be edited and rendered in FilmCraft, ArtCraft’s open-source editor, inside ClipForge (Settings › Editing apps): ClipForge AI finishes the edit with FilmCraft’s tools (looks, transitions, motion, titles) and with animated titles made in EffectCraft, rendered as shots and put into the final video, and **Edit version … in FilmCraft** opens the result in FilmCraft’s own editor page so you can keep working and save a new version. Both apps are downloaded on first use and checked against pinned hashes; the built-in editor stays as backup."
       }
     ],
     "checked": [
-      "1,768 automatic checks, plus 27 checks that render real video and audio, on made-up test videos with stand-in YouTube and TikTok accounts. One of them records real computer speech with pauses and a false start, lets Edit it for me cut it, and checks the finished video frame by frame: the picture appears when it is mentioned, music plays under the pauses, and every kept word is captioned in time.",
-      "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service, including joining a video link’s separate picture and sound with its built-in video tools.",
+      "1,866 automatic checks on made-up test videos with stand-in YouTube and TikTok accounts, 12 of them for the new know-how: the chat answers editing questions from it, change requests read it after your own rules, endings that announce the end rank lower, bottom captions sit above the phone bar, the voice chain has the guide’s numbers, and a red frame renders with the BT.709 value. The 27 checks that render real video and audio ran on GitHub’s Linux machine.",
+      "The built-in model (Basic) was downloaded on GitHub’s Linux and Mac machines and finished an edit in FilmCraft with the new know-how in its request: FilmCraft 0.17.1 and EffectCraft 0.9.2 were fetched and checked against their pinned hashes, the AI’s steps were applied (on Linux 7 of 9; the two others named settings FilmCraft lacks, and its animated title did not render), the video rendered, and the editor page opened the result and saved a new version. An earlier run of the same check, before the know-how was added, did place an animated EffectCraft title in the video.",
+      "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
       "Your own computer, its graphics card, and real uploads to your accounts.",
-      "Real AI models and keys. The AI helper was tested with a stand-in local AI; ClipForge edits without one.",
-      "A real YouTube download: YouTube asks test machines to sign in, so the Mac link fix was tested with a stand-in video page that, like YouTube, sends picture and sound separately.",
+      "A real model reading the know-how in the chat; that was tested with a stand-in. The built-in model ran only on GitHub’s machines, which have no graphics card: a Basic answer took about three minutes there.",
+      "How the new caption position and the hook headline look on a real phone, and the sound clean-up by ear.",
+      "Real AI keys (Gemini, Groq, OpenRouter, Claude); that flow was tested with a stand-in service.",
+      "A real YouTube download: YouTube asks test machines to sign in, so links were tested with a stand-in video page.",
       "Live answers from YouTube, Openverse, Wikimedia Commons and Pexels; those were tested with recorded answers.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
@@ -36,27 +55,70 @@
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip",
-        "bytes": 47042861,
-        "sha256": "531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/9ddbd62ed93d775ea1bbb3d12060859530c07549/ClipForge-Windows-Setup.zip",
+        "bytes": 47304093,
+        "sha256": "2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-2e5238e/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 237781526,
-        "sha256": "14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-06-32485bd/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 237930523,
+        "sha256": "ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.05.2",
+      "date": "2026-11-05",
+      "source_commit": "2e5238eb38e2e2f11f5c349b0ee8fee0b40a8d45",
+      "summary": "Edit it for me, a free AI helper, and YouTube links fixed on the Mac.",
+      "changes": [
+        {
+          "title": "Edit it for me",
+          "text": "ClipForge edits the video instead of only lining up your files: it cuts long pauses, lone “um”s and the first take of a line you said twice, and fits the length you ask for. Pictures appear over the video when you mention them, and free music and soft sound effects made on your computer are added. Every cut is listed, and anything left out can be put back. Pick **Fast-paced** for tighter cuts with punch-in zooms, or **Keep my clips as they are**."
+        },
+        {
+          "title": "A free AI helper, if you want one",
+          "text": "ClipForge edits well on its own. To let an AI help choose what to cut and where pictures go, open **Settings › AI helper**: download a free model that runs on your computer (Ollama or LM Studio, or import a `.gguf` file you have), or paste a free key from Google Gemini, Groq or OpenRouter. It is sent the words said in your videos as text and your answers to the questions, never the video or the sound."
+        },
+        {
+          "title": "YouTube links on the Mac",
+          "text": "Fixed: a YouTube link could end with “No downloadable video was found”. The Mac app now uses its built-in video tools to join YouTube’s picture and sound, and includes the helper YouTube needs."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/d60445fb08b4f705448bddfef6e1a36e53fa7aa2/ClipForge-Windows-Setup.zip",
+          "bytes": 47042861,
+          "sha256": "531e9ef012eb27705f7ed66b82325c9f2b048b854d4206c260541e9e0d63eb0d",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42109581700",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-05-2e5238e/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 237781526,
+          "sha256": "14c78abe948634cc92a7c786aac0916534ef0f88cc52e7b5e9cc55af29c2169f",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42106643196",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.05",
