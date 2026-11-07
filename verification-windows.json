@@ -1,12 +1,12 @@
 {
-  "source_commit": "d1547e30c8b3a871aacd954499d5a866c5f603d5",
-  "app_archive_sha256": "8f9c32585dd26bba060d3fb061e5958cbb0370ea09ee034179eafeadf4937640",
-  "zip_bytes": 49198626,
-  "zip_sha256": "2c53d47ffbd8cf9c1284b091e74c967fb8d4c47a92cf4887f4e1fdaa05fed49d",
+  "source_commit": "8593947e1e5bbabeec66c81527a858b71bc81102",
+  "app_archive_sha256": "7bac5dfb98d4f18a3fda1a3f86d53f1445d61c13df82a92e7d1c82905aa85765",
+  "zip_bytes": 49199526,
+  "zip_sha256": "3cf76b9221c697fedaf90ad61e1c39ffe967634bddd48e4bbb2961bd813a2e24",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "fe3599af41cc7126ddeab9fa5d185b16b1a1665a8fbbb876a3331d9b236293f4",
-    "app.zip": "8f9c32585dd26bba060d3fb061e5958cbb0370ea09ee034179eafeadf4937640",
+    "setup.py": "ec29d6802b96cf544f9c83b6745ae9b2b01a4af89ea6ea8ecc56e29144298ea8",
+    "app.zip": "7bac5dfb98d4f18a3fda1a3f86d53f1445d61c13df82a92e7d1c82905aa85765",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
   "app_files": 788,
@@ -32,14 +32,13 @@
     "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-x72wkd at d1547e3 (PR #31 long videos: full stories, big footage, your script, a smarter cut; #30 the new look; #32 ClipForge AI far smarter: meaning model, scout and judge, eyes, ears, your taste)",
-    "github_run": "pending: the Native Mac desktop app run on d1547e3 is recorded here once it has passed",
+    "branch": "claude/project-thread-x72wkd at 8593947 (PR #31 long videos: full stories, big footage, your script, a smarter cut; #30 the new look; #32 ClipForge AI far smarter: meaning model, scout and judge, eyes, ears, your taste; #33 punch in on every other cut when the voice stays even)",
+    "github_run": "pending: the Native Mac desktop app run on 8593947 is recorded here once it has passed",
     "local": {
-      "commit": "7ec0bac (same tree as d1547e3)",
-      "passed": 1984,
-      "note": "python -m pytest tests, without the render tests that need espeak-ng (absent on the build computer)"
+      "commit": "8593947",
+      "note": "python -m pytest -m slow (27 render tests passed, 1 skipped, with espeak-ng installed) and the 84 editor tests (brain, know-how, smarter AI, script cut, smart edit, smart render); the fast suite ran on GitHub"
     },
-    "builtin_ai_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42402011931 (Basic model on Linux, Mac and Windows runners; the meaning model downloaded and verified; the eyes answered; passed)",
+    "builtin_ai_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42402011931 (d1547e3's tree before the punch-in fix: Basic model on Linux, Mac and Windows runners; the meaning model downloaded and verified; the eyes answered; passed)",
     "filmcraft_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42402011877 (passed)"
   }
 }

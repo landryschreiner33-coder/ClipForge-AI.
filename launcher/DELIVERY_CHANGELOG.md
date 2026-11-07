@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-07, second build: the punch-in fix for an even voice (ClipForge 2026.11.07)
+
+The setup ZIP now installs source commit `8593947e1e5bbabeec66c81527a858b71bc81102`: d1547e3 plus PR #33, the
+fix found by the release line's slow render test (the fast-paced "Edit it for me" punches in on every other cut
+again when the voice stays even after the cuts) and the Mac release-notes text. The d1547e3 build below passed
+its Windows setup check (run 42404028631) but was never listed on the download page. start.bat is unchanged. 77
+launcher tests passed. All 788 app files equal the Git tree except the six declared BAT CRLF exports. The
+Windows install check still installs the 32485bd release (raw/9ddbd62) first.
+
 ## 2026-11-07: a far smarter ClipForge AI, long videos and the new look (ClipForge 2026.11.07)
 
 The setup ZIP now installs source commit `d1547e30c8b3a871aacd954499d5a866c5f603d5`: the release line with PR #31
