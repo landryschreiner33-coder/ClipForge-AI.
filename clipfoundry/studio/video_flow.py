@@ -18,7 +18,12 @@ With smart editing on (the brief's "How much should ClipForge edit?"), the rough
 cuts dead air and repeated takes, fits the length, shows your images over the video, and adds music and soft sound
 effects (your own, or free ones ClipForge makes on this computer, library.py), optionally helped by ClipForge AI
 from Settings (ai_editor.py). "Edit it for me" on the editor page runs the same edit again on any project, as a new
-version that Undo reverts.
+version that Undo reverts. With a script (`script`, read by script.py), script_cut.py makes the cut instead: one
+clip per script line in script order, the best take of each, the other takes behind it to swap in (`use_take`).
+
+Every video is listened to once per file content (`listen`): its 16 kHz sound and transcript live in the asset's
+work folder (uploads.work_dir), a long file is transcribed in pieces that survive a restart, and the speech model
+is released when the batch is done so the local AI model has the memory.
 """
 from __future__ import annotations
 
@@ -44,11 +49,12 @@ BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_r
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
                 "title_card", "music_level_db", "layout", "caption_size", "frame_rate", "duck_music",
                 "voiceover_asset_ids", "duck_depth_db", "shot_length_s", "find_media", "smart_edit", "cut_pauses",
-                "cut_retakes", "fit_length", "punch_in", "sound_effects", "broll_images", "ai_edit"}
+                "cut_retakes", "fit_length", "punch_in", "sound_effects", "broll_images", "ai_edit", "cold_open"}
 SMART_OPTIONS = {"smart_edit": ("off", "smart", "tight"), "music": ("none", "supplied", "find", "auto", "library"),
                  "cut_pauses": (True, False), "cut_retakes": (True, False), "fit_length": (True, False),
                  "punch_in": (True, False), "sound_effects": (True, False), "broll_images": (True, False),
-                 "ai_edit": (True, False)}
+                 "ai_edit": (True, False), "cold_open": (True, False)}
+SCRIPT_KINDS = ("line", "heading", "direction")
 STYLE_CHOICES = {"aspect_ratio", "feel", "captions", "music", "caption_style", "caption_position", "transition",
                  "title_card", "music_level_db", "layout", "target_duration_s", "video_type", "audience",
                  "caption_size", "frame_rate", "duck_music", "duck_depth_db", "shot_length_s", "smart_edit",
@@ -81,15 +87,19 @@ def video_dir(project_id: str) -> Path:
 
 
 # ------------------------------------------------------------------ transcripts (cached per asset content)
-def transcript_words(asset: dict, settings: dict, lease: Lease | None = None, cached_only: bool = False) -> list[dict]:
-    """Timed words of a video asset, transcribed once per file content and reused by every project.
-    `cached_only`: never transcribe (request handlers read what the build job already made)."""
+def transcript_words(asset: dict, settings: dict, lease: Lease | None = None, cached_only: bool = False,
+                     lo: float = 0.05, hi: float = 0.45) -> list[dict]:
+    """Timed words of a video asset, transcribed once per file content and reused by every project. The 16 kHz
+    sound and the transcript live in the asset's work folder (uploads.work_dir: never beside a linked file); a
+    long file is transcribed in pieces saved as they finish, so a crash or a closed app loses at most one piece.
+    Progress goes to lo..hi of the lease. `cached_only`: never transcribe (request handlers read what the build job
+    already made). The speech model stays loaded for the next file; `listen` releases it after a batch."""
     from ..pipeline import transcribe
     from ..pipeline.common import JobContext, read_json, write_json
 
     if asset["kind"] != "video" or not (asset.get("probe") or {}).get("has_audio"):
         return []
-    folder = Path(asset["path"]).parent
+    folder = uploads.work_dir(asset)
     cache = folder / "transcript.json"
     data = read_json(cache, None)
     if data is None and cached_only:
@@ -97,13 +107,38 @@ def transcript_words(asset: dict, settings: dict, lease: Lease | None = None, ca
     if data is None:
         wav = folder / "audio.wav"
         duration = float(asset["probe"].get("duration") or 0)
+        name = asset.get("filename") or "the file"
         if not wav.exists():
-            extract_audio(Path(asset["path"]), wav, duration)
-        ctx = JobContext((lambda f, m: lease.progress(0.05 + 0.4 * f, m)) if lease else None,
+            extract_audio(Path(asset["path"]), wav, duration,
+                          progress=(lambda f: lease.progress(lo + (hi - lo) * 0.1 * f, f"Reading the sound of {name}"))
+                          if lease else None, cancel=lease.canceled if lease else None)
+        ctx = JobContext((lambda f, m: lease.progress(f, m)) if lease else None,
                          (lambda: lease.canceled()) if lease else None)
-        data = transcribe.transcribe(wav, duration, settings, ctx)
+        data = transcribe.transcribe_long(wav, duration, settings, ctx, parts_dir=folder / "transcript.parts",
+                                          lo=lo + (hi - lo) * 0.1, hi=hi, label=f"Listening to {name}")
         write_json(cache, data)
     return transcribe.flatten_words(data)
+
+
+def listen(assets: dict[str, dict], ids, settings: dict, lease: Lease | None = None, lo: float = 0.05,
+           hi: float = 0.65) -> dict[str, list[dict]]:
+    """The words of these assets ({asset id: words}; [] for anything that is not a video with sound), each
+    transcribed once and cached; progress for the batch goes to lo..hi of the lease, file by file. The speech
+    model is held across the files and released when the batch is done, whatever happened."""
+    from ..pipeline import transcribe
+
+    ids = [aid for aid in dict.fromkeys(ids) if aid in assets]
+    videos = [aid for aid in ids if assets[aid]["kind"] == "video"]
+    words: dict[str, list[dict]] = {aid: [] for aid in ids}
+    try:
+        span = (hi - lo) / max(1, len(videos))
+        for k, aid in enumerate(videos):
+            if lease:
+                lease.progress(lo + span * k, f"Listening to {assets[aid]['filename']}")
+            words[aid] = transcript_words(assets[aid], settings, lease, lo=lo + span * k, hi=lo + span * (k + 1))
+    finally:
+        transcribe.release_model()
+    return words
 
 
 # ------------------------------------------------------------------ creating a project
@@ -114,13 +149,56 @@ def _owned(workspace_id: str, aid: str) -> dict:
         raise VideoError(str(exc)) from exc
 
 
+def script_payload(script) -> dict:
+    """The script a project follows, checked: script.parse's result from the Script panel ({"filename", "format",
+    "text", "lines", "counts"}) or just {"text": ...} (read here), trimmed to what the cut needs and numbered
+    again; the words each line is matched on are always worked out here. {} for no script."""
+    from . import script as script_mod
+
+    if script in (None, "", {}):
+        return {}
+    if not isinstance(script, dict):
+        raise VideoError("The script must be a script file as ClipForge read it, or its text.")
+    lines = script.get("lines")
+    if not lines and isinstance(script.get("text"), str) and script["text"].strip():
+        try:
+            lines = script_mod.parse(str(script.get("filename") or "script.txt"), script["text"])["lines"]
+        except script_mod.ScriptError as exc:
+            raise VideoError(str(exc)) from exc
+    if not isinstance(lines, list) or not lines:
+        raise VideoError("The script has no lines.")
+    if len(lines) > script_mod.MAX_LINES:
+        raise VideoError(f"The script has more than {script_mod.MAX_LINES:,} lines; give only the part this video "
+                         "follows.")
+    out: list[dict] = []
+    for ln in lines:
+        if not isinstance(ln, dict) or not isinstance(ln.get("text"), str):
+            raise VideoError("Each script line needs its text.")
+        text = " ".join(ln["text"].split())[:2000]
+        if not text:
+            continue
+        kind = ln.get("kind") if ln.get("kind") in SCRIPT_KINDS else "line"
+        out.append({"n": len(out) + 1, "text": text, "kind": kind, "speaker": str(ln.get("speaker") or "")[:60],
+                    "section": str(ln.get("section") or "")[:200], "tokens": script_mod.normalize(text)})
+    if not out:
+        raise VideoError("The script has no text.")
+    text = str(script.get("text") or "")[:script_mod.MAX_CHARS] or "\n".join(ln["text"] for ln in out)
+    return {"filename": str(script.get("filename") or "script.txt")[:200],
+            "format": str(script.get("format") or "txt")[:10], "text": text, "lines": out,
+            "counts": {"lines": sum(1 for ln in out if ln["kind"] == "line"),
+                       "headings": sum(1 for ln in out if ln["kind"] == "heading"),
+                       "directions": sum(1 for ln in out if ln["kind"] == "direction"),
+                       "words": sum(len(ln["text"].split()) for ln in out if ln["kind"] == "line")}}
+
+
 def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], brief: dict, style_id: str = "saved",
-           remember: dict | None = None, reference_id: str = "") -> dict:
+           remember: dict | None = None, reference_id: str = "", script=None) -> dict:
     """A new project. `asset_ids` is the media bin in order (any number of videos, images and audio files; the rough
     cut uses the videos and images, audio stays in the bin until you place it, apart from the music and voiceovers
-    the brief names)."""
+    the brief names). `script`: the script the video follows (script_payload), when there is one."""
     if not asset_ids:
         raise VideoError("Add at least one video or image.")
+    script = script_payload(script)
     unknown = set(brief) - BRIEF_FIELDS
     if unknown:
         raise VideoError("Unknown brief fields: " + ", ".join(sorted(unknown)))
@@ -167,7 +245,7 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
         "id": "vid-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": (name or "My video")[:120],
         "status": "building", "message": "Reading your files", "asset_ids": asset_ids,
         "brief": {k: v for k, v in brief.items() if k in BRIEF_FIELDS}, "style_id": (style or {}).get("id", ""),
-        "guidance": snapshot,
+        "guidance": snapshot, "script": script,
         "media": {"mode": "auto" if brief.get("find_media") == "auto" else "suggest",
                   "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
     remember = remember or {}
@@ -242,6 +320,10 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
     brief = project.get("brief") or {}
     from . import smart_edit
 
+    if (project.get("script") or {}).get("lines"):
+        from . import script_cut
+
+        return script_cut.assemble(project, assets, words, values, project["script"], ctx=smart)
     if smart_edit.options(values, brief)["level"] != "off":
         return smart_edit.build(project, assets, words, values, ctx=smart)
     feel = values.get("feel", "balanced")
@@ -410,10 +492,7 @@ def build(job: dict, lease: Lease) -> dict:
     missing = [aid for aid in project["asset_ids"] if aid not in assets]
     if missing:
         raise VideoError("A file of this project is missing; upload it again.")
-    words = {}
-    for k, aid in enumerate(project["asset_ids"]):
-        lease.progress(0.05 + 0.6 * k / len(project["asset_ids"]), f"Listening to {assets[aid]['filename']}")
-        words[aid] = transcript_words(assets[aid], settings, lease)
+    words = listen(assets, project["asset_ids"], settings, lease, 0.05, 0.65)
     lease.progress(0.7, "Building the rough cut")
     smart = prepare_smart(project, assets, words, settings, lease)
     plan = rough_cut(db.fetch("studio_projects", project["id"]), assets, words, smart)
@@ -477,7 +556,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
     if off and (brief.get("music") or values.get("music")) not in ("auto", "library"):
         return {}  # clips kept as they are get music only when it was asked for
     ctx: dict = {}
-    if off:  # clips kept as they are, with background music picked for you
+    if off or (project.get("script") or {}).get("lines"):  # clips as they are, or the script decides: no advice
         pass
     elif opts["ai"] and ai_editor.configured(settings):
         table = smart_edit.sentence_table(project, assets, words)
@@ -486,6 +565,8 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
         if table:
             if lease:
                 lease.progress(0.72, "ClipForge AI is reading what is said")
+            # what the rules already leave out (retakes, warm-ups, chatter) is not sent
+            skip = smart_edit.dropped_by_rules(smart_edit.judge_sentences(project, assets, words, values), table)
             try:
                 ctx["ai"] = ai_editor.advise(
                     table, {**brief, **{k: values[k] for k in ("video_type", "audience", "target_duration_s")
@@ -493,7 +574,7 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
                     protected={s["i"] for s in table if any(p in s["text"].lower() for p in keep)},
                     heartbeat=(lambda m: lease.progress(0.74, m)) if lease else None,
                     canceled=lease.canceled if lease else None, memories=_smart_memories(project, brief),
-                    knowhow=_smart_knowhow(brief))
+                    knowhow=_smart_knowhow(brief), skip=skip)
             except ai_editor.AdviceError as exc:
                 ctx["ai_problem"] = str(exc)[:200]
     elif opts["ai"]:
@@ -556,6 +637,20 @@ def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
     return {"job": job["id"]}
 
 
+def set_script(project_id: str, base_revision: int, script) -> dict:
+    """Give the project a script (or take it away with None) and cut the video again to follow it, as a
+    background job that saves a new version (Undo returns to the current one)."""
+    project = db.fetch("studio_projects", project_id)
+    if not project or not project["plan_revision"]:
+        raise VideoError("The rough cut is not ready yet.")
+    if base_revision != project["plan_revision"]:
+        raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
+    payload = script_payload(script)
+    db.update("studio_projects", project_id, script=payload, updated_at=time.time())
+    job = enqueue(project["workspace_id"], "video_smart", project_id, base_revision)
+    return {"job": job["id"], "script": bool(payload)}
+
+
 @handler("video_smart")
 def smart_job(job: dict, lease: Lease) -> dict:
     project = db.fetch("studio_projects", job["target_id"])
@@ -568,11 +663,7 @@ def smart_job(job: dict, lease: Lease) -> dict:
     settings = db.get_settings()
     current = plan_at(project["id"], base)
     assets = _assets(project, current)
-    words = {}
-    videos = [aid for aid in project["asset_ids"] if (assets.get(aid) or {}).get("kind") == "video"]
-    for k, aid in enumerate(videos):
-        lease.progress(0.05 + 0.5 * k / max(1, len(videos)), f"Listening to {assets[aid]['filename']}")
-        words[aid] = transcript_words(assets[aid], settings, lease)
+    words = listen(assets, project["asset_ids"], settings, lease, 0.05, 0.55)
     lease.progress(0.6, "Editing")
     ctx = prepare_smart(project, assets, words, settings, lease)
     project = db.fetch("studio_projects", project["id"])
@@ -602,6 +693,8 @@ def smart_job(job: dict, lease: Lease) -> dict:
         raise VideoError("; ".join(problems))
     level = (new.get("smart") or {}).get("level", "off")
     note = {"smart": "Edited for you", "tight": "Edited for you (fast-paced)"}.get(level, "Rebuilt the rough cut")
+    if new.get("script"):
+        note = "Followed your script"
     try:
         rev = save_revision(project["id"], new, note, base)
     except Conflict as exc:
@@ -637,10 +730,9 @@ def prepare_media(job: dict, lease: Lease) -> dict:
     if not project:
         raise VideoError("The project was deleted.")
     settings = db.get_settings()
-    videos = [a for a in _assets(project).values() if a["kind"] == "video"]
-    for k, a in enumerate(videos):
-        lease.progress(k / max(1, len(videos)), f"Listening to {a['filename']}")
-        transcript_words(a, settings, lease)
+    assets = _assets(project)
+    videos = [aid for aid, a in assets.items() if a["kind"] == "video"]
+    listen(assets, videos, settings, lease, 0.0, 1.0)
     return {"videos": len(videos)}
 
 
@@ -967,8 +1059,11 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         p.setdefault("word_fixes", {}).setdefault(aid, {})[str(start)] = text.strip()
         return p, f"Changed the caption “{heard[0]['w'].strip()}” to “{text.strip()}”" if text.strip() else \
             f"Removed “{heard[0]['w'].strip()}” from the captions"
+    if op == "use_take":  # another take of a script line plays instead of the one that does now
+        return _use_take(p, edit)
     if op == "shorten_intro":
-        first = next((c for c in p["clips"] if c.get("include", True) and c.get("kind") == "video"), None)
+        first = next((c for c in p["clips"] if c.get("include", True) and c.get("kind") == "video"
+                      and not c.get("hook")), None)
         if first is None:
             raise VideoError("There is no video clip to shorten.")
         if first.get("must_keep"):
@@ -1022,6 +1117,125 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
         label = engine.UNSUPPORTED.get(op, "effects")
         raise VideoError(f"{label.capitalize()} is not supported by this editor yet.")
     raise VideoError("Unknown edit.")
+
+
+def _use_take(p: dict, edit: dict) -> tuple[dict, str]:
+    """Swap the take of a script line: the chosen (switched-off) take plays where the line plays now, and the take
+    that played is kept behind it, switched off, so the swap can be undone or made again. The clip that held the
+    line is split around it when it holds other lines too; every piece keeps its lines (`take_of`)."""
+    from .smart_edit import FADE_MS
+
+    alt = _find(p, edit.get("clip_id", ""))
+    info = alt.get("take_of") or {}
+    n = info.get("line")
+    if not isinstance(n, int):
+        raise VideoError("Choose another take of a script line (one listed under the line).")
+    if alt.get("include", True):
+        raise VideoError("That take plays already.")
+    outline = p.setdefault("outline", [])
+    chain = next((c for c in p["clips"] if c.get("include", True) and c is not alt and
+                  str(n) in ((c.get("take_of") or {}).get("takes") or {})), None)
+    playing_take = {"in_ms": alt["in_ms"], "out_ms": alt["out_ms"], "coverage": info.get("coverage"),
+                    "quality": info.get("quality")}
+    if chain is None:  # no take of this line plays yet: this one plays where it is
+        alt["include"] = True
+        alt["take_of"] = {"lines": [n], "takes": {str(n): playing_take}}
+        for o in outline:
+            if o.get("clip_id") == alt["id"]:
+                o["summary"] = f"Line {n}: {o['summary'].split(': ', 1)[-1]}"
+        return p, f"Line {n} now plays from {alt['label']}"
+    takes, lines = chain["take_of"]["takes"], list(chain["take_of"]["lines"])
+    old = takes[str(n)]
+    before, after = [m for m in lines if m < n], [m for m in lines if m > n]
+    pos = p["clips"].index(chain)
+    p["clips"].remove(chain)
+    at = p["clips"].index(alt)
+    p["clips"].remove(alt)
+    if at < pos:
+        pos -= 1
+    taken = {c["id"] for c in p["clips"]}
+    base = {k: v for k, v in chain.items() if k not in ("id", "in_ms", "out_ms", "take_of", "zoom", "join",
+                                                          "fade_in_ms", "fade_out_ms", "asset_id", "label")}
+    label_of = {o["clip_id"]: o for o in outline if o.get("clip_id") in (chain["id"], alt["id"])}
+
+    def fresh() -> str:
+        cid = _new_id("c", taken)
+        taken.add(cid)
+        return cid
+
+    pieces: list[dict] = []
+    if before:
+        pieces.append({**base, "id": chain["id"], "asset_id": chain["asset_id"], "label": chain["label"],
+                       "in_ms": chain["in_ms"], "out_ms": takes[str(before[-1])]["out_ms"],
+                       "take_of": {"lines": before, "takes": {str(m): takes[str(m)] for m in before}},
+                       **({"join": "cut", "fade_in_ms": FADE_MS} if chain.get("join") == "cut" else {})})
+    playing = {**base, "id": chain["id"] if not before else fresh(), "asset_id": alt["asset_id"],
+               "label": alt["label"], "in_ms": alt["in_ms"], "out_ms": alt["out_ms"], "include": True,
+               "take_of": {"lines": [n], "takes": {str(n): playing_take}}}
+    pieces.append(playing)
+    if after:
+        pieces.append({**base, "id": fresh(), "asset_id": chain["asset_id"], "label": chain["label"],
+                       "in_ms": takes[str(after[0])]["in_ms"], "out_ms": chain["out_ms"],
+                       "take_of": {"lines": after, "takes": {str(m): takes[str(m)] for m in after}}})
+    retired = {**base, "id": alt["id"] if alt["id"] not in taken else fresh(), "asset_id": chain["asset_id"],
+               "label": chain["label"], "in_ms": old["in_ms"], "out_ms": old["out_ms"], "include": False,
+               "take_of": {"line": n, "coverage": old.get("coverage"), "quality": old.get("quality")}}
+    prev = next((c for c in reversed(p["clips"][:pos]) if c.get("include", True)), None)
+    for piece in pieces:  # inside one recording a join is a straight cut with a tiny fade; between two, a transition
+        if prev is not None and prev["asset_id"] == piece["asset_id"] and prev.get("kind") == "video":
+            piece.update(join="cut", fade_in_ms=FADE_MS)
+            prev["fade_out_ms"] = FADE_MS
+        else:
+            piece.pop("join", None)
+            piece.pop("fade_in_ms", None)
+        prev = piece
+    p["clips"][pos:pos] = pieces + [retired]
+    following = next((c for c in p["clips"][pos + len(pieces) + 1:] if c.get("include", True)), None)
+    if following is not None and following.get("kind") == "video":
+        if following["asset_id"] == pieces[-1]["asset_id"]:
+            following.update(join="cut", fade_in_ms=FADE_MS)
+            pieces[-1]["fade_out_ms"] = FADE_MS
+        else:
+            following.pop("join", None)
+            following.pop("fade_in_ms", None)
+    rows = [o for o in outline if o.get("clip_id") not in (chain["id"], alt["id"])]
+    where = next((i for i, o in enumerate(outline) if o.get("clip_id") == chain["id"]), len(rows))
+    chain_words = (label_of.get(chain["id"]) or {}).get("summary", "")
+    alt_words = (label_of.get(alt["id"]) or {}).get("summary", "")
+    fresh_rows = []
+    for piece in pieces:
+        ls = piece["take_of"]["lines"]
+        which = f"Line {ls[0]}" if len(ls) == 1 else f"Lines {ls[0]} to {ls[-1]}"
+        said = alt_words.split("): ", 1)[-1] if piece is playing else chain_words.split(": ", 1)[-1]
+        fresh_rows.append({"clip_id": piece["id"], "label": piece["label"],
+                           "duration": round((piece["out_ms"] - piece["in_ms"]) / 1000, 1),
+                           "summary": f"{which}: {said[:140]}"})
+    fresh_rows.append({"clip_id": retired["id"], "label": retired["label"],
+                       "duration": round((old["out_ms"] - old["in_ms"]) / 1000, 1),
+                       "summary": f"Another take of line {n} (the one that played before): "
+                                  f"{chain_words.split(': ', 1)[-1][:120]}"})
+    rows[where:where] = fresh_rows
+    p["outline"] = rows
+    if p.get("script"):
+        for row in p["script"].get("lines") or []:
+            if row.get("n") == n:
+                row["clip_id"] = playing["id"]
+                row["takes"] = [{**t, "clip_id": retired["id"]} if t.get("clip_id") == alt["id"] else t
+                                for t in row.get("takes") or []]
+                for t in row["takes"]:
+                    if t.get("clip_id") == retired["id"]:
+                        t.update(coverage=old.get("coverage"), quality=old.get("quality"))
+            elif row.get("clip_id") == chain["id"] and row.get("n") in after:
+                row["clip_id"] = pieces[-1]["id"]
+    for ch in p.get("chapters") or []:
+        if ch.get("clip_id") == chain["id"]:
+            for piece in pieces:
+                t = (piece["take_of"]["takes"] or {})
+                inside = [v for v in t.values() if v["in_ms"] - piece["in_ms"] <= int(ch.get("offset_ms") or 0)]
+                if piece is pieces[0] or inside:
+                    ch["clip_id"] = piece["id"]
+                    ch["offset_ms"] = max(0, min(int(ch.get("offset_ms") or 0), piece["out_ms"] - piece["in_ms"] - 1))
+    return p, f"Line {n} now plays from {alt['label']} (the take that played is kept behind it, switched off)"
 
 
 def _words(assets: dict[str, dict]) -> dict[str, list[dict]]:
@@ -1135,7 +1349,7 @@ def filmcraft_edit_job(job: dict, lease: Lease) -> dict:
     assets = _assets(project, plan)
     settings = db.get_settings()
     used = {c["asset_id"] for c in plan["clips"] if c.get("include", True)}
-    words = {aid: transcript_words(a, settings) for aid, a in assets.items() if a["kind"] == "video" and aid in used}
+    words = listen(assets, [aid for aid, a in assets.items() if a["kind"] == "video" and aid in used], settings)
     folder = video_dir(project["id"]) / f"r{job['revision']}" / "filmcraft"
     name = project.get("name") or "Video"
     key = finish.edit_key(plan, settings)
@@ -1255,7 +1469,7 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
     assets = _assets(project, plan)
     settings = db.get_settings()
     used = {c["asset_id"] for c in plan["clips"] if c.get("include", True)}
-    words = {aid: transcript_words(a, settings) for aid, a in assets.items() if a["kind"] == "video" and aid in used}
+    words = listen(assets, [aid for aid, a in assets.items() if a["kind"] == "video" and aid in used], settings)
     folder = video_dir(project["id"]) / f"r{job['revision']}"
     out = folder / f"{kind}.mp4"
     digest = plan_hash(plan)
@@ -1366,7 +1580,17 @@ def view(project: dict) -> dict:
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
+            "script": script_view(project.get("script") or {}),
             "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+
+
+def script_view(script: dict) -> dict | None:
+    """The project's script for the Script panel: its lines with their text (the matching lives in the plan's
+    `script`, by line number), or None when the project has none."""
+    if not script or not script.get("lines"):
+        return None
+    return {"filename": script.get("filename") or "", "format": script.get("format") or "", "counts": script.get("counts") or {},
+            "lines": [{k: ln.get(k, "") for k in ("n", "text", "kind", "speaker", "section")} for ln in script["lines"]]}
 
 
 def _smart_view(plan: dict | None) -> dict:

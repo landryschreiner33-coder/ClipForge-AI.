@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../api";
-import { ExampleSelect, FileDrop, Picked, StyleSelect, UploadRow, UsedFromBrain } from "../components/studioParts";
+import { LocalFiles } from "../components/LocalFiles";
+import { ScriptDrop } from "../components/ScriptDrop";
+import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, PageHead } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { navigate } from "../router";
-import { SmartLevel, Snapshot, studio } from "../studio";
+import { Script, SmartLevel, Snapshot, studio } from "../studio";
 
 /** Answers left empty come from the chosen example, style, skills and Brain (shown in "Used from your Brain"). */
 type Brief = { video_type: string; audience: string; goal: string; target_min: string; aspect_ratio: string; feel: string;
   captions: "" | "on" | "off"; music: string; must_keep: string; avoid: string; frame_rate: number; caption_size: string;
   caption_position: string; duck_music: "" | "on" | "off"; smart_edit: SmartLevel; broll_images: boolean;
-  sound_effects: boolean; punch_in: "" | "on" | "off"; ai_edit: boolean };
+  sound_effects: boolean; punch_in: "" | "on" | "off"; ai_edit: boolean; cold_open: boolean };
 const LEVELS: [SmartLevel, string, string][] = [
-  ["smart", "Edit it for me", "Cuts long pauses, repeated takes and weak parts, fits your length, adds your pictures, music and soft sound effects"],
+  ["smart", "Edit it for me", "Cuts long pauses, repeated takes (across all your files), warm-ups and camera chatter and weak parts, fits your length, opens with your strongest line, adds your pictures, music and soft sound effects"],
   ["tight", "Fast-paced", "The same with shorter pauses and a small zoom on every other cut"],
   ["off", "Keep my clips as they are", "Only trims silence at the start and end of each clip"]];
 const DEFAULTS: Record<string, unknown> = { aspect_ratio: "16:9", feel: "balanced", captions: true, frame_rate: 30,
@@ -25,6 +27,10 @@ const WORDS: Record<string, string> = { "16:9": "16:9 widescreen", "9:16": "9:16
 export default function MakeVideo() {
   const { appearance } = useAppearance();
   const [files, setFiles] = useState<Picked[]>([]);
+  const [linked, setLinked] = useState<Picked[]>([]);
+  const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
+  const [browsing, setBrowsing] = useState(false);
+  const [script, setScript] = useState<Script | null>(null);
   const [order, setOrder] = useState<string[]>([]);
   const [music, setMusic] = useState<Picked | null>(null);
   const [findMedia, setFindMedia] = useState("off");
@@ -36,7 +42,7 @@ export default function MakeVideo() {
   const [brief, setBrief] = useState<Brief>({ video_type: "General YouTube video", audience: "", goal: "", target_min: "",
     aspect_ratio: "", feel: "", captions: "", music: "auto", must_keep: "", avoid: "",
     frame_rate: 0, caption_size: "", caption_position: "", duck_music: "", smart_edit: "smart", broll_images: true,
-    sound_effects: true, punch_in: "", ai_edit: true });
+    sound_effects: true, punch_in: "", ai_edit: true, cold_open: true });
   const [ai, setAi] = useState<{ provider: string; label: string } | null>(null);
   const [remember, setRemember] = useState(appearance.remember_style);
   const [styleName, setStyleName] = useState("");
@@ -44,7 +50,7 @@ export default function MakeVideo() {
   const [problem, setProblem] = useState("");
   const [dragging, setDragging] = useState<string | null>(null);
 
-  const byKey = Object.fromEntries(files.map((f) => [f.key, f]));
+  const byKey = Object.fromEntries([...files, ...linked].map((f) => [f.key, f]));
   const ordered = order.map((k) => byKey[k]).filter(Boolean);
   const ready = ordered.length > 0 && ordered.every((f) => f.asset) && ordered.some((f) => f.asset?.kind === "video")
     && (brief.music !== "supplied" || !!music?.asset) && voices.every((f) => f.asset);
@@ -72,6 +78,7 @@ export default function MakeVideo() {
       out.broll_images = brief.broll_images;
       out.sound_effects = brief.sound_effects;
       if (brief.punch_in) out.punch_in = brief.punch_in === "on";
+      out.cold_open = brief.cold_open;
     }
     return out;
   }, [brief]);
@@ -89,8 +96,15 @@ export default function MakeVideo() {
   useEffect(() => {
     let alive = true;
     api.aiSetup().then((s) => alive && setAi({ provider: s.provider, label: s.label })).catch(() => alive && setAi(null));
+    // "Add from this computer" exists on the desktop only (the cloud answers 403)
+    studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
     return () => { alive = false; };
   }, []);
+  const addLinked = (assets: import("../studio").Asset[]) => {
+    const rows = assets.map(linkedRow);
+    setLinked((l) => [...l, ...rows.filter((r) => !l.some((x) => x.key === r.key))]);
+    setOrder((o) => [...o, ...rows.map((r) => r.key).filter((k) => !o.includes(k))]);
+  };
   const aiOn = !!ai && ai.provider !== "heuristic";
   const smart = brief.smart_edit !== "off";
   const eff = (k: string) => {
@@ -114,6 +128,7 @@ export default function MakeVideo() {
           must_keep: brief.must_keep, avoid: brief.avoid,
           find_media: brief.music === "find" && findMedia === "off" ? "suggest" : findMedia },
         remember: { enabled: remember, name: styleName.trim() },
+        ...(script ? { script } : {}),
       });
       navigate(`video/${v.id}`);
     } catch (e) {
@@ -133,6 +148,8 @@ export default function MakeVideo() {
             <FileDrop accept="video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg" multiple label="Drop videos, images and sounds here (as many as you like)"
               onAssets={(rows) => { setFiles(rows); setOrder((o) => [...o.filter((k) => rows.some((r) => r.key === k)),
                 ...rows.map((r) => r.key).filter((k) => !o.includes(k))]); }} />
+            {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
+            {browsing && <LocalFiles onLinked={addLinked} onClose={() => setBrowsing(false)} />}
             {ordered.length > 1 && <p className="small muted">Videos and images start in this order; you can change it any time. Sounds wait in your media until you place them on a track.</p>}
             <ol className="file-list" aria-label="Order of your clips">
               {ordered.map((f, i) => (
@@ -159,12 +176,18 @@ export default function MakeVideo() {
               <label><input type="checkbox" checked={brief.broll_images} onChange={(e) => set("broll_images", e.target.checked)} /> Show my images over the video while people talk (an image whose file name is said appears right then)</label>
               <label><input type="checkbox" checked={brief.sound_effects} onChange={(e) => set("sound_effects", e.target.checked)} /> Soft sound effects at scene changes and as pictures appear</label>
               <label><input type="checkbox" checked={brief.punch_in ? brief.punch_in === "on" : brief.smart_edit === "tight"} onChange={(e) => set("punch_in", e.target.checked ? "on" : "off")} /> Zoom in a little on every other cut</label>
+              <label><input type="checkbox" checked={brief.cold_open} onChange={(e) => set("cold_open", e.target.checked)} /> Open with the strongest line (a video of two minutes or more starts with its best sentence, then plays from the beginning)</label>
               <label><input type="checkbox" checked={brief.ai_edit && aiOn} disabled={!aiOn} onChange={(e) => set("ai_edit", e.target.checked)} /> Let ClipForge AI read what is said to choose better cuts, pictures and chapters</label>
               <p className="small muted">{aiOn
                 ? <>ClipForge AI's model: {ai!.label}. Only the words said, as text, are sent to it. <a href="#/settings/ai">Change</a></>
                 : <>ClipForge AI has no model yet, so ClipForge's built-in editor decides alone (it works well without one). <a href="#/settings/ai">Set up a free model</a> (a model on your computer, or a free key).</>}</p>
               <p className="small muted">Everything it cuts stays in the sequence, switched off, so you can put any part back. Each choice is a version you can undo.</p>
             </div>}
+          </section>
+          <section className="panel" aria-labelledby="mv-script">
+            <h2 id="mv-script">Your script (optional)</h2>
+            <p className="small muted">If you read from a script, give it here: ClipForge finds every line in your footage and cuts one clip per line in script order, using the take you said most cleanly. Other takes stay behind each line to swap in. Lines starting with # become chapters.</p>
+            <ScriptDrop value={script} onChange={setScript} />
           </section>
           <section className="panel" aria-labelledby="mv-brief">
             <h2 id="mv-brief">Four questions</h2>

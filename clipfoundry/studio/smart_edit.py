@@ -2,9 +2,14 @@
 
 What it does, in this order (each step is written in the plan's notes, and everything stays editable and undoable):
 
-1. **Listens for what to leave out.** Sentences you asked to avoid are removed. A repeated take of the same line (a
-   false start, or saying a sentence twice) keeps only the later take. With ClipForge AI's model set up (Settings →
-   ClipForge AI), it also suggests weak or off-topic sentences; the built-in rules work without it.
+1. **Listens for what to leave out.** Sentences you asked to avoid are removed. A repeated take of the same line
+   keeps one take: said again right away (a false start, the same sentence twice) the later take plays; said again
+   anywhere else in the footage, in another recording or minutes later, the take said most cleanly plays (fewest
+   fillers, stumbles and pauses, the later one on a tie). Production chatter in the first 20 s of a recording ("is
+   this on", "take two", "let me start again", a lone "okay so") and in its last stretch ("did we get that", "cut")
+   is left out, and so is a sign-off ("thanks for watching") in a recording that is not the last one. With ClipForge
+   AI's model set up (Settings → ClipForge AI), it also suggests weak or off-topic sentences; the built-in rules
+   work without it.
 2. **Fits your length.** When the footage is longer than the length you asked for, the weakest passages (by what is
    said: how much is said per second, strong or emotional words, a payoff, numbers; filler counts against) are left
    out until it fits. Your must-keep words, the opening and the ending are never left out. Left-out parts stay in the
@@ -20,6 +25,14 @@ What it does, in this order (each step is written in the plan's notes, and every
 5. **Adds sound.** Background music under the whole video that dips under speech and fades in and out: your own
    music file, or free music made by ClipForge on this computer (studio/library.py) in the video's mood. Soft
    whooshes mark the changes from one recording to the next and a soft swish each picture.
+6. **Opens cold.** A video of two minutes or more opens with its strongest line (ClipForge AI's choice, or the
+   sentence that carries most: a question, a number, a strong word, said in one breath) as a short clip before
+   everything else; the line still plays where it was said. The clip is marked as the cold open in the sequence and
+   one Remove takes it out; "cold_open" in the brief switches it off.
+
+With a script (studio/script.py) the cut is made by script_cut.py instead: one clip per script line in script
+order, the best take of each, other takes switched off behind it; this module lends it the plan skeleton, the
+sound and the pictures.
 
 Nothing is invented: no narration, no statements, no fake footage. A length the footage cannot reach is explained.
 """
@@ -48,6 +61,41 @@ JUNK_NAME = {"img", "dsc", "dscn", "image", "photo", "pic", "picture", "screensh
              "final", "edit", "edited", "jpg", "jpeg", "png", "webp", "clipforge", "effect", "music", "untitled",
              "whatsapp", "export", "file", "new", "version"}
 MUSIC_CHOICES = ("none", "supplied", "find", "auto", "library")
+TAKE_SIMILAR = 0.8           # two sentences this alike (by their words) are takes of one line
+TAKE_MIN_WORDS = 4
+TAKE_COMMON = 200            # a word said in more sentences than this is no clue that two are the same take
+REFRAIN = 3                  # a line said more often than this is a catchphrase, and every time stays
+WARMUP_S = 20.0              # production chatter this close to a recording's first word is left out...
+OUTRO_S = 45.0               # ...and this close to its last word (or in its last tenth, whichever is longer)
+# said when the camera has just started: never meant for the viewer
+WARMUP_PHRASES = ("is this on", "is it on", "is this thing on", "is it recording", "are we recording", "are we rolling",
+                  "we're rolling", "we are rolling", "mic check", "can you hear me", "can you see me", "take two",
+                  "take three", "take 2", "take 3", "let me start again", "let me start over", "let me try that again",
+                  "let me do that again", "do that again", "start again", "start over", "from the top", "one more time",
+                  "scratch that", "where was i", "what was i saying", "let me think", "hold on", "hang on", "wait wait",
+                  "sorry sorry", "let's try that again", "try that again", "i'll start again", "let me go again")
+# a lone "okay", "alright so", "um okay let's go": a throat-clearer, not a sentence
+DISCOURSE = {"okay", "ok", "alright", "all", "right", "so", "um", "uh", "yeah", "yes", "well", "let's", "lets", "go",
+             "cool", "perfect", "good", "great", "ready", "and", "now", "then", "here", "we", "are", "is", "it", "this",
+             "that", "the", "a", "oh", "ah", "hmm", "mm", "like", "just", "start", "begin", "do", "again", "i", "think"}
+# said to the camera operator, never to the viewer: left out wherever it is in the last stretch
+PRODUCTION_PHRASES = ("and cut", "okay cut", "ok cut", "cut cut", "did we get that", "did you get that", "did that work",
+                      "was that good", "was that okay", "was that ok", "that was good", "we got it", "i think we got it",
+                      "got it", "stop recording", "you can stop", "stop the recording", "stop it there", "end recording",
+                      "how was that", "is that good", "that's a wrap", "that is a wrap", "let's do another",
+                      "let's do that again", "one more", "should i do it again", "do it again")
+# a sign-off: the real ending of the last recording stays; in an earlier recording it is a leftover
+SIGNOFF_PHRASES = ("thanks for watching", "thank you for watching", "thanks for listening", "see you in the next",
+                   "see you next time", "see you guys", "see you later", "see you soon", "don't forget to subscribe",
+                   "like and subscribe", "hit the like", "smash that", "hit subscribe", "subscribe button",
+                   "that's it for today", "that's all for today", "that's it for this video", "that is it for today",
+                   "that's all for this video", "that's it from me", "until next time", "till next time", "catch you later",
+                   "peace out", "bye bye", "bye guys", "bye everyone", "take care", "have a good one", "signing off")
+HOOK_MIN_VIDEO_S = 120.0     # a cold open only for a video at least this long
+HOOK_MIN_S, HOOK_MAX_S = 2.5, 12.0
+HOOK_SKIP_S = 15.0           # the first 15 s of the video already open it: the hook comes from later
+HOOK_SHARE = 0.6             # ... and from the first part of the video, so it teases what comes
+HOOK_SCORE = 0.55            # a line weaker than this is no hook: the video then simply starts
 
 
 # ------------------------------------------------------------------ options
@@ -64,7 +112,7 @@ def options(values: dict, brief: dict) -> dict:
             "fit_length": bool(pick("fit_length", True)), "punch_in": bool(pick("punch_in", level == "tight")),
             "sound_effects": bool(pick("sound_effects", True)), "broll": bool(pick("broll_images", True)),
             "music": pick("music", "auto") if pick("music", "auto") in MUSIC_CHOICES else "auto",
-            "ai": bool(pick("ai_edit", True))}
+            "ai": bool(pick("ai_edit", True)), "cold_open": bool(pick("cold_open", True))}
 
 
 # ------------------------------------------------------------------ measuring the sound
@@ -75,7 +123,9 @@ def levels(asset: dict) -> "object | None":
 
     import numpy as np
 
-    wav = Path(asset["path"]).parent / "audio.wav"
+    from . import uploads  # the 16 kHz copy lives in the asset's work folder (never beside a linked file)
+
+    wav = uploads.work_dir(asset) / "audio.wav"
     if not wav.is_file():
         return None
     try:
@@ -144,6 +194,111 @@ def retakes(sents: list[dict]) -> dict[int, int]:
         repeated = len(a) >= 4 and similar >= 0.8
         if false_start or repeated:
             out[k] = k + 1
+    return out
+
+
+def best_takes(talks: list[dict]) -> dict[tuple[int, int], tuple[int, int]]:
+    """{(recording, sentence): (recording, sentence) of the take that plays instead}: the same line said again
+    anywhere in the footage, in another recording or later in the same one (the sentence right after is a false
+    start or a repeat, which `retakes` handles; a line said more than REFRAIN times is a catchphrase and every time
+    stays). Of all the takes of a line the one said most cleanly plays
+    (script.take_quality: fillers, stumbles, pauses, word confidence), the later one on a tie, because that is the
+    one the speaker was happy with. Candidates come from an index of the words said, so a long project is not
+    compared sentence by sentence."""
+    from .script import take_quality  # script imports this module; the import is made here
+
+    items = []
+    for ti, t in enumerate(talks):
+        for k, s in enumerate(t["sents"]):
+            toks = _toks(s["text"])
+            if len(toks) >= TAKE_MIN_WORDS:
+                items.append((ti, k, toks, set(content_tokens(s["text"])) or set(toks)))
+    index: dict[str, list[int]] = {}
+    for n, (_ti, _k, _tk, words) in enumerate(items):
+        for w in words:
+            index.setdefault(w, []).append(n)
+    quality: dict[int, float] = {}
+
+    def q(n: int) -> float:
+        if n not in quality:
+            ti, k = items[n][0], items[n][1]
+            s = talks[ti]["sents"][k]
+            quality[n] = take_quality(talks[ti]["words"][s["i0"]:s["i1"] + 1])
+        return quality[n]
+
+    loser: dict[int, int] = {}
+    for n, (ti, k, toks, words) in enumerate(items):
+        shared: dict[int, int] = {}
+        for w in words:
+            hits = index.get(w) or []
+            if len(hits) > TAKE_COMMON:
+                continue
+            for m in hits:
+                if m > n:
+                    shared[m] = shared.get(m, 0) + 1
+        for m, count in shared.items():
+            tj, kj, toks_j, words_j = items[m]
+            if count < 0.6 * min(len(words), len(words_j)):
+                continue
+            if tj == ti and kj == k + 1:
+                continue  # the next sentence: retakes() decides, the later one plays
+            if difflib.SequenceMatcher(None, toks, toks_j).ratio() < TAKE_SIMILAR:
+                continue
+            a, b = (n, m) if q(n) > q(m) else (m, n)  # the cleaner take wins; later (m) on a tie
+            if b in loser and loser[b] != a:
+                continue
+            loser[b] = a
+
+    def winner(n: int) -> int:
+        seen = set()
+        while n in loser and n not in seen:
+            seen.add(n)
+            n = loser[n]
+        return n
+
+    members: dict[int, int] = {}  # a line said more than REFRAIN times is a refrain (a catchphrase), not retakes
+    for b in loser:
+        members[winner(b)] = members.get(winner(b), 1) + 1
+    return {(items[b][0], items[b][1]): (items[winner(b)][0], items[winner(b)][1]) for b in loser
+            if members[winner(b)] <= REFRAIN}
+
+
+def _matches(text: str, phrases) -> str:
+    low = " " + re.sub(r"[^a-z0-9' ]+", " ", text.lower()) + " "
+    low = re.sub(r"\s+", " ", low)
+    return next((p for p in phrases if f" {p} " in low), "")
+
+
+def chatter(sents: list[dict], last_recording: bool) -> dict[int, str]:
+    """{sentence: why}: what a recording holds that was never meant for the viewer. In its first WARMUP_S: a
+    warm-up phrase ("is this on", "take two", "let me start again") or a throat-clearer of discourse words only
+    ("okay so", "alright, let's go"). In its last OUTRO_S (or last tenth): words to the camera operator ("did we
+    get that", "cut"), and a sign-off ("thanks for watching") unless this is the last recording, whose ending is
+    the video's ending and stays."""
+    if not sents:
+        return {}
+    first, last = sents[0]["start"], sents[-1]["end"]
+    tail = max(OUTRO_S, 0.1 * (last - first))
+    out: dict[int, str] = {}
+    for k, s in enumerate(sents):
+        text = s["text"]
+        toks = tokens(text)
+        if s["start"] - first <= WARMUP_S:
+            hit = _matches(text, WARMUP_PHRASES)
+            if hit:
+                out[k] = f"a warm-up (“{hit}”)"
+                continue
+            if toks and len(toks) <= 5 and all(t in DISCOURSE or t in PURE_FILLERS for t in toks):
+                out[k] = "a throat-clearer before the real start"
+                continue
+        if last - s["end"] <= tail:
+            hit = _matches(text, PRODUCTION_PHRASES)
+            if hit and len(toks) <= 12:
+                out[k] = f"said to whoever is recording (“{hit}”)"
+                continue
+            hit = _matches(text, SIGNOFF_PHRASES)
+            if hit and not last_recording:
+                out[k] = f"a sign-off in the middle of the video (“{hit}”)"
     return out
 
 
@@ -289,6 +444,91 @@ def _span(ws: list[dict], s: dict, pad_s: float, length_ms: int) -> tuple[int, i
     return max(0, int(a * 1000)), min(length_ms, int(b * 1000))
 
 
+def judge_sentences(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], values: dict,
+                    ai: dict | None = None) -> dict:
+    """Step 1 of the smart edit on its own: every sentence of every recording in the media bin with its verdict.
+    Returns {"talks": [{"asset", "words", "sents", "status", "why", "scores"}], "notes", "stats"}; a status is
+    keep, avoid, retake (`retakes`, `best_takes`), chatter (`chatter`) or ai (ClipForge AI's advice). The build job
+    calls it before asking ClipForge AI, so what the rules already left out is not sent to the model."""
+    ai = ai or {}
+    brief = project.get("brief") or {}
+    opts = options(values, brief)
+    avoid, keep_words = _phrases(brief.get("avoid", "")), _phrases(brief.get("must_keep", ""))
+    table = sentence_table(project, assets, words)
+    by_key = {(s["asset_id"], s["k"]): s["i"] for s in table}
+    ai_cut = {int(k): v for k, v in (ai.get("cut") or {}).items()}
+    notes: list[str] = []
+    stats = {"retakes": 0, "takes": 0, "chatter": 0, "ai_left_out": 0}
+    talks: list[dict] = []
+    for aid in project["asset_ids"]:
+        a = assets.get(aid)
+        if not a or a["kind"] != "video":
+            continue
+        ws = words.get(aid) or []
+        sents = build_sentences(ws) if ws else []
+        talks.append({"asset": a, "words": ws, "sents": sents, "status": ["keep"] * len(sents),
+                      "why": [""] * len(sents), "scores": [score(s) for s in sents]})
+
+    def protected(s: dict) -> bool:
+        return any(p in s["text"].lower() for p in keep_words)
+
+    for t in talks:
+        a, sents, status, why = t["asset"], t["sents"], t["status"], t["why"]
+        for k, s in enumerate(sents):
+            hit = next((p for p in avoid if p in s["text"].lower()), None)
+            if hit and not protected(s):
+                status[k], why[k] = "avoid", hit
+                notes.append(f"Removed “{s['text'][:80]}” from {a['filename']} because you asked to avoid “{hit}”.")
+        if opts["cut_retakes"]:
+            for k in retakes(sents):
+                if status[k] == "keep" and not protected(sents[k]):
+                    status[k], why[k] = "retake", "an earlier take of the next line"
+                    stats["retakes"] += 1
+    last_talking = next((t for t in reversed(talks) if t["sents"]), None)
+    for t in talks:
+        for k, hit in chatter(t["sents"], t is last_talking).items():
+            if t["status"][k] == "keep" and not protected(t["sents"][k]):
+                t["status"][k], t["why"][k] = "chatter", hit
+                stats["chatter"] += 1
+    if opts["cut_retakes"]:
+        for (ti, k), (tj, kj) in best_takes(talks).items():
+            t, other = talks[ti], talks[tj]
+            if t["status"][k] != "keep" or other["status"][kj] != "keep" or protected(t["sents"][k]):
+                continue
+            where = "later in the same recording" if ti == tj else f"in {other['asset']['filename']}"
+            if (tj, kj) < (ti, k):
+                where = "earlier in the same recording" if ti == tj else f"in {other['asset']['filename']}"
+            t["status"][k], t["why"][k] = "retake", f"another take of this line, said more cleanly {where}"
+            stats["takes"] += 1
+    for t in talks:
+        aid = t["asset"]["id"]
+        for k, s in enumerate(t["sents"]):
+            g = by_key.get((aid, k))
+            if g in ai_cut and t["status"][k] == "keep" and not protected(s):
+                t["status"][k], t["why"][k] = "ai", ai_cut[g] or "suggested by ClipForge AI"
+                stats["ai_left_out"] += 1
+    if stats["takes"]:
+        notes.append(f"Left out {stats['takes']} take{'s' if stats['takes'] != 1 else ''} of a line you said again "
+                     "elsewhere in your footage; the take said most cleanly plays (the others are switched off in "
+                     "the sequence).")
+    if stats["chatter"]:
+        notes.append(f"Left out {stats['chatter']} line{'s' if stats['chatter'] != 1 else ''} never meant for the "
+                     "viewer: warm-ups at the start of a recording, words to whoever is recording, a sign-off "
+                     "before the video is over (switched off in the sequence).")
+    return {"talks": talks, "notes": notes, "stats": stats}
+
+
+def dropped_by_rules(judged: dict, table: list[dict]) -> set[int]:
+    """The sentence numbers (as `sentence_table` counts them) the rules left out, which ClipForge AI need not read."""
+    by_key = {(s["asset_id"], s["k"]): s["i"] for s in table}
+    out: set[int] = set()
+    for t in judged["talks"]:
+        for k, status in enumerate(t["status"]):
+            if status != "keep" and (t["asset"]["id"], k) in by_key:
+                out.add(by_key[(t["asset"]["id"], k)])
+    return out
+
+
 # ------------------------------------------------------------------ the plan
 def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], values: dict, *,
           ctx: dict | None = None) -> dict:
@@ -302,50 +542,22 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     feel = (ctx.get("ai") or {}).get("music") if (ctx.get("ai") or {}).get("music") in ("calm", "balanced",
                                                                                          "energetic") else None
     feel = values.get("feel", "balanced") if values.get("feel") else (feel or "balanced")
-    from .video_flow import FEEL_TRANSITIONS, IMAGE_MS, _audio_item  # noqa: PLC0415 - shared rough-cut helpers
+    from .video_flow import IMAGE_MS  # noqa: PLC0415 - shared rough-cut helpers
 
-    t_type, t_ms = FEEL_TRANSITIONS.get(feel, FEEL_TRANSITIONS["balanced"])
-    if values.get("transition"):
-        t_type = values["transition"]
-        t_ms = 0 if t_type == "cut" else (t_ms or 400)
-    avoid, keep_words = _phrases(brief.get("avoid", "")), _phrases(brief.get("must_keep", ""))
+    t_type, t_ms = transition_for(values, feel)
+    keep_words = _phrases(brief.get("must_keep", ""))
     ai = ctx.get("ai") or {}
     table = sentence_table(project, assets, words)
-    by_key = {(s["asset_id"], s["k"]): s["i"] for s in table}
-    ai_cut = {int(k): v for k, v in (ai.get("cut") or {}).items()}
     notes: list[str] = []
-    stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "stumbles": 0, "ai_left_out": 0, "fit_left_out": 0,
-             "fillers": 0, "overlays": 0, "effects": 0, "music": ""}
+    stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "takes": 0, "chatter": 0,
+             "stumbles": 0, "ai_left_out": 0, "fit_left_out": 0, "fillers": 0, "overlays": 0, "effects": 0,
+             "music": "", "cold_open": ""}
 
     # ---- 1. what is said, per recording; what to leave out
-    talks: list[dict] = []
-    for aid in project["asset_ids"]:
-        a = assets.get(aid)
-        if not a or a["kind"] != "video":
-            continue
-        ws = words.get(aid) or []
-        sents = build_sentences(ws) if ws else []
-        status = ["keep"] * len(sents)
-        why = [""] * len(sents)
-        for k, s in enumerate(sents):
-            text = s["text"].lower()
-            hit = next((p for p in avoid if p in text), None)
-            protected = any(p in text for p in keep_words)
-            if hit and not protected:
-                status[k], why[k] = "avoid", hit
-                notes.append(f"Removed “{s['text'][:80]}” from {a['filename']} because you asked to avoid “{hit}”.")
-        if opts["cut_retakes"]:
-            for k in retakes(sents):
-                if status[k] == "keep" and not any(p in sents[k]["text"].lower() for p in keep_words):
-                    status[k], why[k] = "retake", "an earlier take of the next line"
-                    stats["retakes"] += 1
-        for k, s in enumerate(sents):
-            g = by_key.get((aid, k))
-            if g in ai_cut and status[k] == "keep" and not any(p in s["text"].lower() for p in keep_words):
-                status[k], why[k] = "ai", ai_cut[g] or "suggested by ClipForge AI"
-                stats["ai_left_out"] += 1
-        talks.append({"asset": a, "words": ws, "sents": sents, "status": status, "why": why,
-                      "scores": [score(s) for s in sents]})
+    judged = judge_sentences(project, assets, words, values, ai)
+    talks = judged["talks"]
+    notes += judged["notes"]
+    stats.update(judged["stats"])
     talking = [t for t in talks if t["sents"]]
 
     # ---- 2. fit the length (whole passages, weakest first; opening, ending and must-keeps stay)
@@ -506,27 +718,15 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
                      "of your recordings.")
     if not any(c["include"] for c in clips) and clips:
         clips[0]["include"] = True  # never an empty video
-    audio = []
-    if opts["music"] == "supplied" and brief.get("music_asset_id") in assets:
-        audio.append(_audio_item("a1", assets[brief["music_asset_id"]], "music",
-                                 gain_db=float(values.get("music_level_db", -18)),
-                                 duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500))
-    at = 0
-    for aid in brief.get("voiceover_asset_ids") or []:
-        if aid in assets:
-            item = _audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at)
-            audio.append(item)
-            at += engine.item_length(item) or 0
-    plan = {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
-            "output": {"aspect": values.get("aspect_ratio", "16:9"), "fps": int(values.get("frame_rate") or 30)},
-            "layout": values.get("layout", "fit"), "clips": clips, "transition": {"type": t_type, "ms": t_ms},
-            "title": {"enabled": bool(values.get("title_card")), "text": project["name"], "ms": 2500},
-            "captions": {"enabled": values.get("captions", True), "style": values.get("caption_style", "clean"),
-                         "position": values.get("caption_position", "bottom"),
-                         "size": values.get("caption_size", "medium")},
-            "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
-            "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
-            "overlays": [], "outline": outline, "notes": notes}
+    # ---- 3b. the cold open: the strongest line first, when the video is long enough to need one
+    if opts["cold_open"] and talking:
+        hook = cold_open(clips, talks, table, ai, pad)
+        if hook:
+            clips.insert(0, hook["clip"])
+            outline.insert(0, hook["outline"])
+            notes.append(hook["note"])
+            stats["cold_open"] = hook["said"]
+    plan = plan_skeleton(project, values, assets, clips, outline, notes, t_type, t_ms)
 
     # ---- 4. pictures over the video
     if images_for_overlay:
@@ -547,25 +747,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
         if where:
             picture_queries.append({"query": p["search"], **where})
     # ---- 5. sound: music and effects
-    library = ctx.get("library") or {}
-    music = ctx.get("music") or {}
-    if not any(i["role"] == "music" for i in audio) and music.get("asset_id") in assets:
-        m = assets[music["asset_id"]]
-        gain = float(values.get("music_level_db", -20 if music.get("how") == "library" else -18))
-        audio.append({**_audio_item(f"a{len(audio) + 1}", m, "music", gain_db=gain,
-                                    duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
-                      "auto": True})
-        stats["music"] = m["filename"]
-        notes.append({"library": f"Added free background music “{m['filename']}” (made by ClipForge on this "
-                                 f"computer, free to use) in a {music.get('mood') or feel} mood; it dips while "
-                                 "people speak.",
-                      "bin": f"Added your music file “{m['filename']}” under the whole video; it dips while "
-                             "people speak."}.get(music.get("how"), f"Added music “{m['filename']}”."))
-    if opts["sound_effects"] and library:
-        _place_effects(plan, library, stats)
-        if stats["effects"]:
-            notes.append(f"Added {stats['effects']} soft sound effect{'s' if stats['effects'] != 1 else ''} at scene "
-                         "changes and pictures (made by ClipForge, free to use).")
+    add_sound(plan, assets, values, ctx, opts, feel, stats, notes)
     plan["chapters"] = _chapters(plan, talks, table, ai)
     plan["smart"] = {"level": opts["level"], "options": opts,
                      "stats": {**stats, "seconds_saved": round(stats["seconds_saved"], 1),
@@ -586,6 +768,147 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     return plan
 
 
+def transition_for(values: dict, feel: str) -> tuple[str, int]:
+    """The transition between recordings: the brief's own, else the one that fits the feel."""
+    from .video_flow import FEEL_TRANSITIONS  # noqa: PLC0415
+
+    t_type, t_ms = FEEL_TRANSITIONS.get(feel, FEEL_TRANSITIONS["balanced"])
+    if values.get("transition"):
+        t_type = values["transition"]
+        t_ms = 0 if t_type == "cut" else (t_ms or 400)
+    return t_type, t_ms
+
+
+def plan_skeleton(project: dict, values: dict, assets: dict[str, dict], clips: list[dict], outline: list[dict],
+                  notes: list, t_type: str, t_ms: int) -> dict:
+    """A complete plan in the engine's schema around these clips: the brief's look (output, layout, captions,
+    title card), the music file the brief supplied and its voiceovers on their tracks, no overlays yet."""
+    from .video_flow import _audio_item  # noqa: PLC0415
+
+    brief = project.get("brief") or {}
+    audio = []
+    if brief.get("music") == "supplied" and brief.get("music_asset_id") in assets:
+        audio.append(_audio_item("a1", assets[brief["music_asset_id"]], "music",
+                                 gain_db=float(values.get("music_level_db", -18)),
+                                 duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500))
+    at = 0
+    for aid in brief.get("voiceover_asset_ids") or []:
+        if aid in assets:
+            item = _audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at)
+            audio.append(item)
+            at += engine.item_length(item) or 0
+    return {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
+            "output": {"aspect": values.get("aspect_ratio", "16:9"), "fps": int(values.get("frame_rate") or 30)},
+            "layout": values.get("layout", "fit"), "clips": clips, "transition": {"type": t_type, "ms": t_ms},
+            "title": {"enabled": bool(values.get("title_card")), "text": project["name"], "ms": 2500},
+            "captions": {"enabled": values.get("captions", True), "style": values.get("caption_style", "clean"),
+                         "position": values.get("caption_position", "bottom"),
+                         "size": values.get("caption_size", "medium")},
+            "audio": audio, "tracks": engine.default_tracks(), "word_fixes": {},
+            "ducking": {"depth_db": float(values.get("duck_depth_db", engine.DUCK_DEPTH_DB))},
+            "overlays": [], "outline": outline, "notes": notes}
+
+
+def add_sound(plan: dict, assets: dict[str, dict], values: dict, ctx: dict, opts: dict, feel: str, stats: dict,
+              notes: list) -> None:
+    """The music prepare_smart chose (unless the brief's own music file is already there) and the soft sound
+    effects, attached to the plan and written in the notes."""
+    from .video_flow import _audio_item  # noqa: PLC0415
+
+    audio = plan["audio"]
+    library = ctx.get("library") or {}
+    music = ctx.get("music") or {}
+    if not any(i["role"] == "music" for i in audio) and music.get("asset_id") in assets:
+        m = assets[music["asset_id"]]
+        gain = float(values.get("music_level_db", -20 if music.get("how") == "library" else -18))
+        audio.append({**_audio_item(f"a{len(audio) + 1}", m, "music", gain_db=gain,
+                                    duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
+                      "auto": True})
+        stats["music"] = m["filename"]
+        notes.append({"library": f"Added free background music “{m['filename']}” (made by ClipForge on this "
+                                 f"computer, free to use) in a {music.get('mood') or feel} mood; it dips while "
+                                 "people speak.",
+                      "bin": f"Added your music file “{m['filename']}” under the whole video; it dips while "
+                             "people speak."}.get(music.get("how"), f"Added music “{m['filename']}”."))
+    if opts["sound_effects"] and library:
+        _place_effects(plan, library, stats)
+        if stats["effects"]:
+            notes.append(f"Added {stats['effects']} soft sound effect{'s' if stats['effects'] != 1 else ''} at scene "
+                         "changes and pictures (made by ClipForge, free to use).")
+
+
+def hook_score(s: dict) -> float:
+    """How well a sentence would open the video: what it carries (`score`), a question, a number, a hook or
+    emotion word, said in one breath (2.5 to 12 s)."""
+    dur = s["end"] - s["start"]
+    if not HOOK_MIN_S <= dur <= HOOK_MAX_S:
+        return 0.0
+    text = s["text"].lower()
+    toks = tokens(text)
+    value = score(s)
+    value += 0.12 if text.rstrip().endswith("?") else 0.0
+    value += 0.1 * min(2, sum(1 for t in toks if t in HOOK_WORDS)) / 2
+    value += 0.05 if any(t in EMOTION_WORDS for t in toks) else 0.0
+    value += 0.05 if re.search(r"\d", text) else 0.0
+    value -= 0.15 if len(toks) < 6 else 0.0
+    return round(value, 4)
+
+
+def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict, pad_s: float) -> dict | None:
+    """The cold open for a video of HOOK_MIN_VIDEO_S or more: ClipForge AI's hook sentence when it named one that
+    plays, else the kept sentence with the best `hook_score` after the first HOOK_SKIP_S of the video and inside
+    its first HOOK_SHARE (so it teases what comes), at least HOOK_SCORE. Returns {"clip", "outline", "note",
+    "said"} or None; the line still plays where it was said."""
+    played = sum(c["out_ms"] - c["in_ms"] for c in clips if c.get("include", True) and c.get("kind") == "video")
+    if played < HOOK_MIN_VIDEO_S * 1000:
+        return None
+    kept: list[tuple[float, dict, dict]] = []  # (output position, talk, sentence)
+    at = 0
+    for c in clips:
+        if not c.get("include", True):
+            continue
+        length = c["out_ms"] - c["in_ms"]
+        t = next((t for t in talks if t["asset"]["id"] == c["asset_id"]), None) if c.get("kind") == "video" else None
+        if t:
+            for k, s in enumerate(t["sents"]):
+                if t["status"][k] == "keep" and c["in_ms"] <= s["start"] * 1000 and s["end"] * 1000 <= c["out_ms"]:
+                    kept.append(((at + s["start"] * 1000 - c["in_ms"]) / 1000, t, s))
+        at += length
+    if not kept:
+        return None
+    pick = None
+    want = (ai.get("hook") or {}).get("i") if isinstance(ai.get("hook"), dict) else None
+    if want is not None and 0 <= int(want) < len(table):
+        row = table[int(want)]
+        pick = next(((pos, t, s) for pos, t, s in kept if t["asset"]["id"] == row["asset_id"]
+                     and abs(s["start"] - row["start"]) < 0.05 and HOOK_MIN_S <= s["end"] - s["start"] <= HOOK_MAX_S),
+                    None)
+        why = "chosen by ClipForge AI"
+    if pick is None:
+        window = [(pos, t, s) for pos, t, s in kept if HOOK_SKIP_S <= pos <= HOOK_SHARE * played / 1000]
+        scored = sorted(((hook_score(s), pos, t, s) for pos, t, s in window), key=lambda x: -x[0])
+        if not scored or scored[0][0] < HOOK_SCORE:
+            return None
+        _v, pos, t, s = scored[0]
+        pick = (pos, t, s)
+        why = "the line that carries most"
+    pos, t, s = pick
+    a_ms, b_ms = _span(t["words"], s, pad_s, engine._length(t["asset"]))  # noqa: SLF001
+    said = s["text"].strip()[:120]
+    clip = {"id": "hook", "asset_id": t["asset"]["id"], "kind": "video", "in_ms": a_ms, "out_ms": b_ms,
+            "label": t["asset"]["filename"], "gain_db": 0.0, "include": True, "hook": True, "fade_out_ms": FADE_MS}
+    return {"clip": clip, "said": said,
+            "outline": {"clip_id": "hook", "label": t["asset"]["filename"], "duration": round((b_ms - a_ms) / 1000, 1),
+                        "summary": f"Cold open: “{said}” (it plays again where it was said, at {_mmss(pos)})"},
+            "note": f"Opened with the strongest line, “{said}”, {why}; it plays again where it was said. Remove the "
+                    "first clip if you would rather start at the beginning."}
+
+
+def _mmss(seconds: float) -> str:
+    s = max(0, int(seconds))
+    return f"{s // 60}:{s % 60:02d}"
+
+
 def _merge_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
     out: list[list[int]] = []
     for a, b in sorted(spans):
@@ -599,7 +922,8 @@ def _merge_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
 def _locate(plan: dict, asset_id: str, src_ms: int) -> dict | None:
     """The included clip that plays `src_ms` of `asset_id`, with the offset into it."""
     for c in plan["clips"]:
-        if c.get("include", True) and c["asset_id"] == asset_id and c["in_ms"] <= src_ms < c["out_ms"]:
+        if c.get("include", True) and not c.get("hook") and c["asset_id"] == asset_id and \
+                c["in_ms"] <= src_ms < c["out_ms"]:
             return {"clip_id": c["id"], "offset_ms": max(0, src_ms - c["in_ms"])}
     return None
 

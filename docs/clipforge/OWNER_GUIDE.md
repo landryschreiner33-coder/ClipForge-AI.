@@ -29,6 +29,21 @@ introduction*, captions, transitions and music level; every change is a new vers
 makes the full-quality file on the server; **Download** gives you that exact checked version.
 **Remember this style** (beside the brief) saves your editing answers for next time.
 
+**Big footage.** On the desktop, **Add from this computer** uses files where they are: nothing is copied or
+uploaded, so a 17 GB recording is added in a moment (keep it where it is while the project exists). Long files are
+listened to in pieces and a closed app carries on where it stopped; previews of big videos read a small copy, the
+final render always your original.
+
+**Your script.** Drop the script you read from (text, Word, PDF or Final Draft) or paste it. ClipForge finds every
+line in your footage and cuts one clip per line in script order, using the take you said most cleanly; the other
+takes stay behind each line, and **Use this take** in the Script panel swaps one in. Lines starting with # become
+chapters. A script can also be added or changed later from the editor page.
+
+**Edit it for me** now also keeps the cleanest take of a line you said again in another file, leaves out warm-ups
+("is this on?", "take two") and words to whoever is recording ("did we get that?"), and opens a video of two minutes
+or more with its strongest line (a cold open; Remove the first clip if you would rather not). With a model set up,
+ClipForge AI reads the whole video, as long as its time budget allows.
+
 ## ClipForge AI: talk to it, and its memory
 ClipForge AI is the assistant inside the editor. On a video, the **ClipForge AI** panel under the clips takes what you
 want changed (*move the summit part before lunch*, *make the captions smaller*) and proposes a checked change: nothing

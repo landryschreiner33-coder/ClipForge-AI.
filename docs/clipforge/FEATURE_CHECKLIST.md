@@ -51,6 +51,9 @@ real account, server, footage or speech model is listed under "Not verified".
 | 40 | Capacity benchmark | **Blocked** | `scripts/benchmark_batch.py` | Smoke run (reports "unverified") | No server or representative footage here |
 | 41 | Owner-only deployment configuration | **Partial** | `deploy/` (Caddy, systemd, example env), `deploy/README.md` | Config reviewed; app refuses unsafe config | Not deployed: owner must create the VM and OIDC client |
 | 42 | Privacy/storage disclosure | Implemented | `docs/legal/privacy.html` (cloud, sessions, uploads, styles, skills, names) | — | Not published |
+| 43 | Big footage: files used where they are (desktop), chunked resumable listening, background preparation, preview proxies | Implemented | `studio/local_files.py`, `studio/local_routes.py`, `studio/proxies.py`, `studio/uploads.py` (link, work folder), `pipeline/transcribe.transcribe_long`, `components/LocalFiles.tsx` | `test_studio_local_files.py`, `test_transcribe_long.py`, `test_studio_proxies.py`, `test_studio_script_cut.py` | A real 17 GB file and the real speech model not tried here |
+| 44 | Script: read .txt/.md/.docx/.pdf/.fdx, match lines to footage, cut in script order, Use this take, add or change later | Implemented | `studio/script.py`, `studio/script_cut.py`, `video_flow.set_script`, `components/ScriptDrop.tsx`, `components/ScriptPanel.tsx` | `test_studio_script.py`, `test_studio_script_cut.py` | Real speech not tried here; matching is by words, not meaning |
+| 45 | Smarter edit: best take across files, warm-ups and camera chatter out, cold open, AI reads all of it inside a time budget | Implemented | `studio/smart_edit.py` (`judge_sentences`, `best_takes`, `chatter`, `cold_open`), `studio/ai_editor.py` | `test_studio_smart_edit.py` | Real footage and a real model not tried here |
 
 ## Acceptance scenarios
 
