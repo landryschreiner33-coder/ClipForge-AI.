@@ -1,15 +1,16 @@
 """Full stories inside Clips: proposals, owner adjustments and one clip per story.
 
-Confident, complete stories become clips automatically (no new per-clip ceremony). Uncertain or cut-off ones are
-held as proposals until the owner adjusts or confirms them. Every manual change increments the story's boundary
-revision, keeps times in integer milliseconds and never changes a clip that is already rendered: a changed boundary
-makes a new clip, and the old one stays until it is removed.
+Every story becomes a clip as soon as it is found; nothing waits for the owner. How sure ClipForge is about a
+story's boundaries (complete, uncertain, cut off) is shown on its card so the owner can check it afterwards, and
+never holds a clip back. Every manual change increments the story's boundary revision, keeps times in integer
+milliseconds and never changes a clip that is already rendered: a changed boundary makes a new clip, and the old one
+stays until it is removed.
 """
 from __future__ import annotations
 
 from .. import db
 from ..pipeline import postpack, scoring, stories
-from . import eligibility
+from . import ai_editor, eligibility
 
 # A whole story is one continuous source interval: no silence removal, no filler cuts, no teaser hook overlay.
 STORY_EDIT = {"silence": "off", "remove_fillers": False, "hook_overlay": False}
@@ -96,21 +97,32 @@ def create_clip(project: dict, row: dict, words: list[dict], settings: dict, fro
 
 
 def auto_clips(project: dict, words: list[dict], settings: dict) -> list[dict]:
-    """Clips for every included, complete story that has none yet (uncertain ones wait for the owner)."""
-    rows = db.select("story_proposals", "project_id = ? AND kind = 'story' AND included = 1 AND clip_id = '' "
-                                        "AND completeness = 'complete'", (project["id"],), "position")
+    """Clips for every included story that has none yet, however sure ClipForge is about its boundaries."""
+    rows = db.select("story_proposals", "project_id = ? AND kind = 'story' AND included = 1 AND clip_id = ''",
+                     (project["id"],), "position")
     return [create_clip(project, r, words, settings, from_pipeline=True) for r in rows]
 
 
 def analyze(p, ctx) -> list[dict]:
-    """The Full stories stage of the pipeline: propose, store and create the confident clips."""
-    p.stage("stories", 0.46, "Finding complete stories")
-    result = stories.propose(p.words, p.sentences, float(p.meta["duration"] or 0))
+    """The Full stories stage of the pipeline: find the stories, store them and make every clip. With a model set
+    up, ClipForge AI checks the boundaries the rules are least sure of and names the stories, inside a time budget;
+    without one, or when it does not answer, the rules decide."""
+    p.stage("stories", 0.46, "Finding the stories")
+    judge = None
+    if ai_editor.configured(p.settings):
+        budget = min(600.0, max(60.0, float(p.settings.get("ai_edit_timeout_s", 60)) * 5))
+        judge = stories.Judge(p.settings, p.sentences, budget_s=budget, canceled=ctx.cancelled,
+                              heartbeat=lambda m: p.stage("stories", 0.47, m))
+    result = stories.propose(p.words, p.sentences, float(p.meta["duration"] or 0), judge=judge)
+    if judge is not None and not ctx.cancelled():
+        for k, title in judge.titles(result["items"]).items():
+            result["items"][k]["title"] = title
     rows = save(p.project, result)
     p.info["stories"] = {"method": result["method"], "chunks": len(result.get("chunks") or []),
                          "stories": sum(1 for r in rows if r["kind"] == "story"),
-                         "held": sum(1 for r in rows if r["kind"] == "story" and r["completeness"] != "complete"),
-                         "gaps": sum(1 for r in rows if r["kind"] == "gap"), "note": result.get("note", "")}
+                         "unsure": sum(1 for r in rows if r["kind"] == "story" and r["completeness"] != "complete"),
+                         "gaps": sum(1 for r in rows if r["kind"] == "gap"), "note": result.get("note", ""),
+                         "separators": result.get("separators") or [], "ai": result.get("ai") or {}}
     p.save_info()
     ctx.check()
     return auto_clips(db.get_project(p.id) or p.project, p.words, p.settings)
@@ -205,8 +217,8 @@ def reorder(project_id: str, ids: list[str]) -> list[dict]:
 
 
 def create_selected(project_id: str, ids: list[str] | None = None) -> list[dict]:
-    """Batch create: clips for the chosen (or all included) stories. Uncertain stories need the owner's confirm,
-    which listing them here is."""
+    """Batch create: clips for the chosen stories, or for every included story without one. A story the owner
+    names is confirmed by that; the others keep their label."""
     from ..pipeline.process import load_words
 
     project = db.get_project(project_id)
@@ -217,12 +229,12 @@ def create_selected(project_id: str, ids: list[str] | None = None) -> list[dict]
     if ids is not None:
         rows = [r for r in rows if r["id"] in ids]
     else:
-        rows = [r for r in rows if r["included"] and r["completeness"] == "complete"]
+        rows = [r for r in rows if r["included"]]
     words = load_words(project)
     settings = db.get_settings()
     made = []
     for r in rows:
-        if r["completeness"] != "complete":
+        if ids is not None and r["completeness"] != "complete":
             r = patch(r["id"], confirm=True)
         made.append(create_clip(project, r, words, settings))
     return made

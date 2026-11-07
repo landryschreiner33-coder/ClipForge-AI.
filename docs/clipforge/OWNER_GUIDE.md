@@ -14,9 +14,13 @@ or note decides each choice before you start.
 - **Make & upload clips**: tick the exact channels. YouTube uploads happen once per channel after each clip passes
   its final check; TikTok posts wait for your OK on each one. You can close the page once the file has uploaded.
 
-Full stories shows each story as a card: start, end, length and whether ClipForge is sure. Confident stories are made
-right away; uncertain ones wait for you. Use *Start 2 s earlier*, *End 2 s later*, *Split*, *Merge* or *Leave out*,
-then *Make this clip*. A story longer than an account allows is kept whole; the card says which accounts can take it.
+Full stories finds where each story starts (a pause and a new subject, the narrator's own words such as *next story*
+or *story number three*, a post's title read out) and makes one clip per story, running until the next story starts,
+however long it is. Every clip is made right away; nothing waits for you. Each card shows the start, the end, the
+length and how sure ClipForge is. If a boundary is off, use *Start 2 s earlier*, *End 2 s later*, *Split*, *Merge* or
+*Leave out*, then *Remake this clip*. A story longer than an account allows is kept whole; the card says which
+accounts can take it. With ClipForge AI's model set up, it double-checks the boundaries the rules are least sure of
+and names the stories.
 
 ## Making a YouTube video
 Home → **Make a YouTube video**. Drop your clips and images, put them in order, answer the four questions and press
