@@ -111,9 +111,11 @@ strength ≥ 0.45), loudness in dB, and from them
 
 A prosody score (0.45 variation + 0.25 emphasis rate + 0.20 laughter + 0.10 not monotone) joins the deep stage's
 extras; a flat voice is named in the clip's "Why". The smart editor (`studio/smart_edit.py`) puts its punch-ins
-(zoom 1.1) on the parts where the voice leans on a word instead of on every other cut; the emphasis moments of a
-recording are computed in one-minute blocks and cached in `prosody.json` next to the audio. Every number is labelled
-as an estimate from the sound alone.
+(zoom 1.1) on the parts where the voice leans on a word instead of on every other cut; when a recording's voice
+stays even after every cut (a flat delivery, a synthetic voice), the old rhythm takes over for that recording so
+the fast-paced level never leaves its jump cuts bare, and the note says which rule was used. The emphasis moments
+of a recording are computed in one-minute blocks and cached in `prosody.json` next to the audio. Every number is
+labelled as an estimate from the sound alone.
 
 ## Your taste (`clipfoundry/taste.py`)
 

@@ -705,10 +705,15 @@ def test_punch_ins_land_where_the_voice_leans_on_a_word(env, monkeypatch):  # no
     assert zooms == [1.0, 1.0, smart_edit.PUNCH_IN]
     assert any("1 punch-in where your voice leans on a word" in n for n in plan["notes"])
     assert engine.validate(plan, video_flow._assets(project, plan)) == []
-    monkeypatch.setattr(smart_edit, "emphasis_points", lambda asset, ws: [])  # a flat delivery: no punch-ins at all
+    # an even voice must not leave the jump cuts bare: the old rhythm takes over, and the note says so
+    monkeypatch.setattr(smart_edit, "emphasis_points", lambda asset, ws: [])
     plan = _cut(_project([v], {"smart_edit": "tight", "music": "none", "punch_in": True}, "Flat"), words)
-    assert [c.get("zoom", 1.0) for c in plan["clips"]] == [1.0, 1.0, 1.0]
-    assert any("0 punch-ins where your voice leans on a word" in n for n in plan["notes"])
+    assert [c.get("zoom", 1.0) for c in plan["clips"]] == [1.0, smart_edit.PUNCH_IN, 1.0]
+    assert any("1 punch-in: your voice stays even after the cuts, so every other cut zooms in a little" in n
+               for n in plan["notes"])
+    monkeypatch.setattr(smart_edit, "emphasis_points", lambda asset, ws: [1.2])  # rises only before the first cut
+    plan = _cut(_project([v], {"smart_edit": "tight", "music": "none", "punch_in": True}, "Early"), words)
+    assert [c.get("zoom", 1.0) for c in plan["clips"]] == [1.0, smart_edit.PUNCH_IN, 1.0]
     monkeypatch.setattr(smart_edit, "emphasis_points", lambda asset, ws: None)  # no sound copy yet: the old rule
     plan = _cut(_project([v], {"smart_edit": "tight", "music": "none", "punch_in": True}, "Old"), words)
     assert [c.get("zoom", 1.0) for c in plan["clips"]] == [1.0, smart_edit.PUNCH_IN, 1.0]
