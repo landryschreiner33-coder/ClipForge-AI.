@@ -38,7 +38,8 @@ HOOK_PHRASES = ["here's", "here is", "the truth", "the problem", "the reason", "
                 "the biggest", "the most", "i never", "i remember", "the first time", "this is why",
                 "this is how", "stop doing", "the key", "the one thing", "number one", "most people",
                 "you won't believe", "the thing is", "let me explain", "i'll tell you", "here's why",
-                "here's how", "the moment", "turns out", "what nobody"]
+                "here's how", "the moment", "turns out", "what nobody", "i spent", "i tried", "i tested",
+                "here's what happened", "here is what happened"]
 
 EMOTION_WORDS = {"love", "hate", "scared", "afraid", "fear", "angry", "happy", "sad", "cried", "cry", "crying",
                  "hurt", "pain", "amazing", "incredible", "unbelievable", "insane", "crazy", "terrible",
@@ -59,7 +60,8 @@ PAYOFF_PHRASES = ["that's why", "that is why", "which means", "the point is", "t
 TRANSITION_PHRASES = ["anyway", "moving on", "move on", "let's move", "next week", "next time", "that's all",
                       "that is all", "on another note", "speaking of which", "by the way", "let's talk about",
                       "next up", "switching gears", "one more thing", "last thing", "before we get into",
-                      "before we start", "let's get into", "let's jump", "back to"]
+                      "before we start", "let's get into", "let's jump", "back to", "furthermore", "my next point",
+                      "the next point", "on to the next"]
 
 # Sentences that set something up (great openers, weak endings).
 SETUP_PHRASES = ["let me tell you", "here's", "here is", "what if", "i'll tell you", "let me explain", "let me show",
@@ -79,10 +81,20 @@ OPEN_LOOP_PHRASES = ["here's why", "here is why", "here's how", "here is how", "
                      "the truth", "the problem is", "the problem with", "most people", "the mistake", "the one thing",
                      "the biggest", "what happened", "wait for it", "let me tell you", "i'll tell you",
                      "here's the thing", "here's what", "what if", "did you know", "the key", "the craziest",
-                     "you need to know", "stop doing"]
+                     "you need to know", "stop doing", "i spent", "i tried", "i tested", "we tested", "for 30 days",
+                     "for a week", "for a month", "for a year", "here's what happened", "here is what happened",
+                     "on a budget", "with only"]
 
 CONTRAST_WORDS = {"but", "actually", "instead", "however", "wrong", "except", "although", "yet", "surprisingly",
                   "unexpected", "opposite", "myth", "mistake", "wasn't", "isn't", "didn't", "doesn't"}
+
+# The causal engine (the short-form retention guide): beats joined by "but" and "therefore" keep a viewer guessing
+# where the story goes; a chain of "and then... and then" lets them see it coming.
+CAUSAL_WORDS = {"but", "because", "except", "until", "instead", "however", "therefore", "unless", "although"}
+CAUSAL_PHRASES = ["which meant", "which means", "that's why", "that is why", "turns out", "it turned out", "the catch",
+                  "the problem was", "which is why", "little did", "then suddenly", "out of nowhere", "so that"]
+EPISODIC_PHRASES = ["and then", "after that", "then we", "then i", "then he", "then she", "then they", "and after",
+                    "and later", "the next day", "and also", "and next"]
 
 INTENSIFIERS = {"so", "really", "literally", "absolutely", "completely", "totally", "never", "always", "insane",
                 "crazy", "extremely", "incredibly", "seriously", "honestly", "massive", "huge", "every", "nothing",

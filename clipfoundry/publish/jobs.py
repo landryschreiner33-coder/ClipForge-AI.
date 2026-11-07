@@ -11,6 +11,7 @@ from typing import Callable
 import httpx
 
 from .. import db
+from .. import taste
 from ..pipeline.common import log
 from . import audience, tiktok, youtube
 from .common import SHORT_WAIT, Cancelled, PublishError, asked_to_wait, sleep_exactly, wait_text
@@ -193,6 +194,7 @@ def run_youtube(pub: dict, cancelled: Callable[[], bool]) -> None:
     db.update_publication(pub["id"], status="done", progress=1.0, remote_id=vid, url=youtube.video_url(vid),
                           privacy=privacy, message=message, info={**info, "locked_private": locked_private},
                           delivery=delivery)
+    taste.published(pub["clip_id"])
 
 
 def _tiktok_outcome(pub: dict, st: dict, username: str) -> dict:
@@ -336,6 +338,7 @@ def _refresh_manual_unknown(pub: dict) -> dict:
     db.update_publication(pub["id"], status="done", remote_id=video_id, url=youtube.video_url(video_id),
                           privacy=status.get("privacy") or "", progress=1.0, error="", fix="", info=info,
                           delivery=delivery, message="The upload was found on YouTube; only its final reply was lost.")
+    taste.published(pub["clip_id"])
     return refresh(db.get_publication(pub["id"]) or pub)
 
 

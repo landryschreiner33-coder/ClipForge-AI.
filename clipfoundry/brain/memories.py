@@ -99,7 +99,7 @@ def view(row: dict) -> dict:
     """A memory for the API: no vector, no normalised words."""
     out = {k: v for k, v in row.items() if k not in ("meaning", "norm")}
     out["expired"] = bool(row.get("expires_at") and row["expires_at"] <= time.time())
-    out["has_meaning"] = bool(row.get("meaning")) and row.get("meaning_model") == meaning.MODEL
+    out["has_meaning"] = bool(row.get("meaning")) and row.get("meaning_model") == meaning.model()
     return out
 
 
@@ -138,14 +138,15 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
                   "revision": int(old.get("revision") or 1) + 1}
         if fields["scope"] == "all":
             fields["project_id"], fields["platform"] = "", ""
-        if fields["text"] != old["text"] or old.get("meaning_model") != meaning.MODEL:
-            fields["meaning"], fields["meaning_model"] = meaning.pack(meaning.embed(fields["text"])), meaning.MODEL
+        if fields["text"] != old["text"] or old.get("meaning_model") != meaning.model():
+            fields["meaning"], fields["meaning_model"] = meaning.make(fields["text"])
         db.update("brain_memories", old["id"], **fields)
         return db.fetch("brain_memories", old["id"])
+    vec, vec_model = meaning.make(text)
     row = {"workspace_id": ws, "kind": kind, "text": text, "norm": norm, "source": source, "confidence": conf,
            "scope": scope, "project_id": project_id if scope.startswith("project:") else "",
            "platform": platform if scope.startswith("platform:") else "", "tags": _tags(tags), "data": data or {},
-           "meaning": meaning.pack(meaning.embed(text)), "meaning_model": meaning.MODEL, "enabled": 1,
+           "meaning": vec, "meaning_model": vec_model, "enabled": 1,
            "expires_at": expires_at, "revision": 1}
     return db.insert("brain_memories", row)
 
@@ -170,8 +171,8 @@ def edit(ws: str, memory_id: str, *, text: object = None, kind: str | None = Non
     if text is not None:
         new = _clean(text)
         if new != row["text"]:
-            fields.update(text=new, norm=_norm(new), meaning=meaning.pack(meaning.embed(new)),
-                          meaning_model=meaning.MODEL)
+            vec, vec_model = meaning.make(new)
+            fields.update(text=new, norm=_norm(new), meaning=vec, meaning_model=vec_model)
     if kind is not None:
         if kind not in KINDS:
             raise Invalid(f"A memory is one of: {', '.join(KINDS)}.")
@@ -221,7 +222,8 @@ def _scores(query: str, rows: list[dict], project_id: str = "") -> list[tuple[fl
     """(score, words, meaning) per row: the share of the question's words found in the memory, weighted by how
     rare each word is in this brain, blended with the cosine of the meanings, plus the source and recency boosts."""
     q_terms = set(_query_terms(query))
-    q_vec = meaning.embed(query)
+    which = meaning.model()
+    q_vec = meaning.embed(query, which)
     now = time.time()
     docs = [set(_query_terms(r["text"])) for r in rows]
     n = len(rows)
@@ -230,7 +232,7 @@ def _scores(query: str, rows: list[dict], project_id: str = "") -> list[tuple[fl
     out = []
     for r, d in zip(rows, docs):
         words = sum(idf[t] for t in q_terms if t in d) / total if q_terms else 0.0
-        vec = meaning.unpack(r.get("meaning")) if r.get("meaning_model") == meaning.MODEL else None
+        vec = meaning.unpack(r.get("meaning")) if r.get("meaning_model") == which else None
         sim = max(0.0, meaning.cosine(q_vec, vec))
         score = 0.55 * words + 0.45 * sim + BOOST.get(r["source"], 0.0)
         if project_id and r.get("project_id") == project_id:
@@ -298,7 +300,8 @@ def recall(query: str, ws: str, *, project_id: str = "", platform: str = "", mod
         standing.sort(key=lambda m: (-m["score"], -float(m.get("confidence") or 0), -m["created_at"]))
         chosen += standing[:MAX_RULES]
     others = [m for m in scored if m["kind"] != "rule" or not rules]
-    others = [m for m in others if m["score"] >= MIN_SCORE and (m["words"] > 0 or m["meaning"] >= MIN_MEANING)]
+    floor = meaning.min_similar()
+    others = [m for m in others if m["score"] >= MIN_SCORE and (m["words"] > 0 or m["meaning"] >= floor)]
     others.sort(key=lambda m: (-m["score"], -m["created_at"]))
     chosen += others[:max(0, limit)]
     out, used = [], 0
@@ -346,7 +349,8 @@ def list_(ws: str, q: str = "", kind: str = "", project_id: str = "", limit: int
     rows = db.select("brain_memories", " AND ".join(where), args, "created_at DESC")
     if not q.strip():
         return [view(r) for r in rows[:max(1, min(int(limit), 1000))]]
-    scored = [(s[0], r) for r, s in zip(rows, _scores(q, rows, project_id)) if s[1] > 0 or s[2] >= MIN_MEANING]
+    floor = meaning.min_similar()
+    scored = [(s[0], r) for r, s in zip(rows, _scores(q, rows, project_id)) if s[1] > 0 or s[2] >= floor]
     scored.sort(key=lambda x: (-x[0], -x[1]["created_at"]))
     return [{**view(r), "score": round(s, 4)} for s, r in scored[:max(1, min(int(limit), 1000))]]
 
@@ -363,14 +367,15 @@ def check(ws: str) -> dict:
         counts[r["kind"]] = counts.get(r["kind"], 0) + 1
         sources[r["source"]] = sources.get(r["source"], 0) + 1
     missing = [r["id"] for r in rows if not r.get("meaning")]
-    old = [r["id"] for r in rows if r.get("meaning") and r.get("meaning_model") != meaning.MODEL]
+    which = meaning.model()
+    old = [r["id"] for r in rows if r.get("meaning") and r.get("meaning_model") != which]
     expired = [r["id"] for r in rows if r.get("expires_at") and r["expires_at"] <= now]
     stale = [r["id"] for r in rows if r["source"] == "guessed" and r.get("enabled") and
              max(r.get("last_used_at") or 0, r["created_at"]) < now - STALE_DAYS * 86400]
     pairs: list[list[str]] = []
     truncated = False
     for kind in KINDS:
-        same = [r for r in rows if r["kind"] == kind and r.get("enabled") and r.get("meaning_model") == meaning.MODEL
+        same = [r for r in rows if r["kind"] == kind and r.get("enabled") and r.get("meaning_model") == which
                 and r.get("meaning")]
         if len(same) > CHECK_ROWS:
             same, truncated = same[:CHECK_ROWS], True
@@ -393,7 +398,7 @@ def check(ws: str) -> dict:
             problems.append({"code": code, "count": len(ids), "text": f"{len(ids)} {text}", "ids": ids[:20]})
     size = sum(len(r["text"]) + len(r.get("meaning") or b"") + 200 for r in rows)
     return {"ok": not problems, "total": len(rows), "enabled": sum(1 for r in rows if r.get("enabled")),
-            "counts": counts, "sources": sources, "meaning_model": meaning.MODEL, "problems": problems,
+            "counts": counts, "sources": sources, "meaning_model": which, "problems": problems,
             "duplicates": pairs[:50], "duplicates_truncated": truncated, "size_bytes": size,
             "uses": int(db.scalar("SELECT COUNT(*) FROM brain_memory_uses WHERE workspace_id = ?", (ws,)) or 0),
             "checked_at": now}
@@ -402,11 +407,12 @@ def check(ws: str) -> dict:
 def rebuild(ws: str) -> int:
     """Recompute the meaning of every memory made by another embedder (or none)."""
     n = 0
+    which = meaning.model()
     for r in db.select("brain_memories", "workspace_id = ?", (ws,)):
-        if r.get("meaning") and r.get("meaning_model") == meaning.MODEL:
+        if r.get("meaning") and r.get("meaning_model") == which:
             continue
-        db.update("brain_memories", r["id"], meaning=meaning.pack(meaning.embed(r["text"])),
-                  meaning_model=meaning.MODEL)
+        vec, vec_model = meaning.make(r["text"])
+        db.update("brain_memories", r["id"], meaning=vec, meaning_model=vec_model)
         n += 1
     return n
 
@@ -469,6 +475,7 @@ def import_(ws: str, data: object) -> dict:
             out["invalid"] += 1
             continue
         source = m.get("source") if m.get("source") in SOURCES else "imported"
+        vec, vec_model = meaning.make(text)
         fields = {"kind": m["kind"], "text": text, "norm": _norm(text), "source": source,
                   "confidence": max(0.0, min(1.0, float(m.get("confidence") or CONFIDENCE[source]))),
                   "scope": scope, "project_id": scope[8:] if scope.startswith("project:") else "",
@@ -477,7 +484,7 @@ def import_(ws: str, data: object) -> dict:
                   "enabled": 1 if m.get("enabled", 1) else 0,
                   "expires_at": float(m["expires_at"]) if m.get("expires_at") else None,
                   "revision": max(1, int(m.get("revision") or 1)),
-                  "meaning": meaning.pack(meaning.embed(text)), "meaning_model": meaning.MODEL}
+                  "meaning": vec, "meaning_model": vec_model}
         existing = db.fetch("brain_memories", str(m.get("id") or "")) if m.get("id") else None
         if existing and existing["workspace_id"] == ws:
             if fields["revision"] > int(existing.get("revision") or 1):

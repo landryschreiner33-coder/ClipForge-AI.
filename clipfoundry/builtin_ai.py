@@ -771,13 +771,20 @@ last_answer: dict = {}  # how the last answer went (llama.cpp's timings, why it 
 
 
 def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, json_object: bool = False,
-         max_tokens: int | None = None) -> str:
-    """One request to the built-in model; the answer's text (`json_object`: always one JSON object; `max_tokens`: the
-    answer stops there, so a small model repeating itself cannot run until the time-out)."""
+         max_tokens: int | None = None, json_schema: dict | None = None, images: list[str] | None = None) -> str:
+    """One request to the built-in model; the answer's text (`json_object`: always one JSON object; `json_schema`:
+    the answer follows this JSON schema exactly, enforced while the model writes, so a small model cannot answer in
+    the wrong shape; `max_tokens`: the answer stops there, so a small model repeating itself cannot run until the
+    time-out; `images`: PNG or JPEG bytes as base64 data URLs the model looks at along with the prompt)."""
     base, key = server.ensure(settings)
+    content: object = prompt
+    if images:
+        content = [{"type": "image_url", "image_url": {"url": u}} for u in images] + [{"type": "text", "text": prompt}]
     body = {"model": ALIAS, "temperature": 0.2,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
-    if json_object:
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+    if json_schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": json_schema}}
+    elif json_object:
         body["response_format"] = {"type": "json_object"}
     if max_tokens:
         body["max_tokens"] = int(max_tokens)

@@ -74,7 +74,30 @@ export interface ClipAnalysis {
   flags: ClipFlag[];
   viral_potential: number;
   note: string;
+  /** From the deeper analysis (pipeline/deep.py) when it ran: the Clip Score, how it came about, and what ClipForge AI
+   * added: its ranking of the finalists (scout.py), what it saw (eyes.py), the voice (ears.py), your taste (taste.py). */
+  clip_score?: number;
+  explanation?: string[];
+  judge?: { rank: number; of: number; verdict: "green" | "yellow" | "red" | ""; note: string; adjust: number; provider: string };
+  scout?: { kind: string; why: string; part: number };
+  taste?: { p: number; adjust: number; why: string[] };
+  deep?: {
+    seen?: { kind: string; people: number; text_on_screen: string; description: string; problem: string; appeal: number;
+      thumbnail_t: number; adjust: number; provider: string };
+    prosody?: { pitch_variation: number; pitch_semitones_std: number; emphasis_per_30s: number; laughter_like: number;
+      monotone: boolean; score: number; emphasis_times?: number[] };
+    [k: string]: any;
+  };
 }
+
+/** The meaning model (clipfoundry/embedder.py): a small sentence-meaning network, downloaded once, on this computer. */
+export type MeaningModel = { model: string; name: string; license: string; download_bytes: number; ready: boolean; enabled: boolean;
+  usable: boolean; problem: string; folder: string;
+  task: { state?: "running" | "done" | "error"; status?: string; completed?: number; total?: number; error?: string } };
+
+/** What ClipForge AI learned from your choices about clips (clipfoundry/taste.py). */
+export type Taste = { events: number; by_kind: Record<string, number>; kept: number; left_out: number; ready: boolean;
+  needed: { events: number; kept: number; left_out: number }; preferences: string[]; trained_at: number | null; weight: number };
 
 export interface QualityReport {
   evaluated: number;
@@ -370,6 +393,12 @@ export const api = {
   checkAi: () => req<{ ok: boolean; detail: string; models?: string[] }>("POST", "/api/ai/check"),
   aiSetup: () => req<AiSetup>("GET", "/api/ai/setup"),
   ollamaPull: (model: string) => req<AiTask>("POST", "/api/ai/ollama/pull", { model }),
+  meaningModel: () => req<MeaningModel>("GET", "/api/ai/meaning"),
+  meaningInstall: () => req<MeaningModel>("POST", "/api/ai/meaning/install"),
+  meaningCancel: () => req<MeaningModel>("POST", "/api/ai/meaning/cancel"),
+  meaningRemove: () => req<MeaningModel>("POST", "/api/ai/meaning/remove"),
+  taste: () => req<Taste>("GET", "/api/taste"),
+  tasteForget: () => req<Taste>("DELETE", "/api/taste"),
   builtinAi: () => req<BuiltinAi>("GET", "/api/ai/builtin"),
   builtinInstall: (level: string) => req<BuiltinTask>("POST", "/api/ai/builtin/install", { level }),
   builtinCancel: () => req<BuiltinTask>("POST", "/api/ai/builtin/cancel"),

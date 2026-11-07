@@ -508,6 +508,23 @@ CREATE TABLE IF NOT EXISTS learning_metrics (
     data TEXT DEFAULT '{}',
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS taste_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    project_id TEXT DEFAULT '',
+    clip_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value REAL NOT NULL,
+    features TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_taste_events_ws ON taste_events (workspace_id, created_at);
+CREATE TABLE IF NOT EXISTS taste_models (
+    workspace_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    n INTEGER DEFAULT 0,
+    trained_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS quota_usage (
     day TEXT NOT NULL,
     bucket TEXT NOT NULL,
@@ -1145,6 +1162,8 @@ CREATE TABLE IF NOT EXISTS robot_names (
 
 JSON_FIELDS = {
     "phone_devices": set(),
+    "taste_events": set(),
+    "taste_models": set(),
     "projects": {"options", "info", "guidance", "destinations"},
     "clips": {"hooks_alt", "hashtags", "scores", "edit", "render_info", "analysis", "post"},
     "accounts": {"scopes", "info"},

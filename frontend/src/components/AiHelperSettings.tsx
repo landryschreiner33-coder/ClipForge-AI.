@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AiPreset, AiSetup, api, BuiltinAi, errorText, Settings } from "../api";
+import { AiPreset, AiSetup, api, BuiltinAi, errorText, MeaningModel, Settings } from "../api";
 import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, toast } from "./ui";
 
 const SAVED = "********";
@@ -260,11 +260,78 @@ export default function AiHelperSettings() {
         </div>}
         {now === "custom" && <p className="small muted">You use your own server ({String(s.openai_url)}); its settings are on <a className="textlink" href="#/settings/advanced">Advanced</a>. Choosing one above replaces it.</p>}
       </section>
+
+      <MeaningSetup s={s} onSaved={async () => { await load(); }} />
     </div>
   );
 }
 
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
+
+/**
+ * The meaning model: a small sentence-meaning network (all-MiniLM-L6-v2) that lets ClipForge compare what is said rather
+ * than which words are used. Downloaded once (about 90 MB), checked against fixed checksums, run on this computer with
+ * any model choice above or none. Off: words alone are compared, as before.
+ */
+function MeaningSetup({ s, onSaved }: { s: Settings; onSaved: () => Promise<void> }) {
+  const [m, setM] = useState<MeaningModel | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(() => api.meaningModel().then(setM).catch(() => undefined), []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const running = m?.task?.state === "running";
+  useEffect(() => {
+    if (!running) return;
+    const t = window.setInterval(() => void refresh(), 1500);
+    return () => window.clearInterval(t);
+  }, [running, refresh]);
+  const act = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      await refresh();
+      await onSaved();
+      if (done) toast(done);
+    } catch (e) {
+      toast(errorText(e), true);
+    }
+    setBusy(false);
+  };
+  const on = s.meaning_model !== false;
+  const t = m?.task || {};
+  return (
+    <section className="panel" aria-labelledby="ai-meaning">
+      <div className="panel-head"><h2 id="ai-meaning">Understanding meaning</h2>
+        {m && <Pill tone={m.usable ? "good" : on ? "warn" : "info"} icon={m.usable ? "check" : undefined}>
+          {m.usable ? "On" : !on ? "Off" : running ? "Downloading" : m.ready ? "Not usable here" : "Not downloaded yet"}</Pill>}</div>
+      <p className="small">A small meaning model ({m?.name || "all-MiniLM-L6-v2"}, {m?.license || "Apache-2.0"}, a {m ? mb(m.download_bytes) : "90 MB"} download, once)
+        lets ClipForge compare what is said, not only which words are used: clips that repeat each other, a story that changes subject,
+        a memory that means the same as your question. It runs on this computer whatever model you chose above, even none, and is
+        downloaded the first time it is needed.</p>
+      {m?.problem && !running && <p className="small muted">{m.problem}</p>}
+      {running && (
+        <div className="stack-2" aria-live="polite">
+          <b className="small">{t.status || "Starting"}{t.total ? `: ${mb(t.completed || 0)} of ${mb(t.total)}` : ""}</b>
+          <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Downloading the meaning model" />
+          <button type="button" className="btn btn-small" onClick={() => void act(() => api.meaningCancel())}>Cancel</button>
+        </div>
+      )}
+      <div className="row wrap">
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={on} disabled={busy}
+            onChange={(e) => void act(() => api.saveSettings({ meaning_model: e.target.checked }),
+              e.target.checked ? "The meaning model is on." : "The meaning model is off: words alone are compared.")} />
+          Use the meaning model
+        </label>
+        {m && on && !m.ready && !running && <button type="button" className="btn" disabled={busy} onClick={() => void act(() => api.meaningInstall())}>
+          <Icon name="download" />Download now ({mb(m.download_bytes)})</button>}
+        {m && m.ready && !running && <button type="button" className="btn btn-small" disabled={busy}
+          onClick={() => void act(() => api.meaningRemove(), "Removed. It is downloaded again the next time it is needed, when it is on.")}>Remove to free {mb(m.download_bytes)}</button>}
+        {t.state === "error" && <Pill tone="bad" icon="alert">{t.error}</Pill>}
+      </div>
+    </section>
+  );
+}
 
 /**
  * The built-in model: pick a level (the one that fits this computer is preselected), download it once, and it becomes

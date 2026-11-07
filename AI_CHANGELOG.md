@@ -1,5 +1,63 @@
 # AI changelog
 
+## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
+
+Landry asked to make the built-in AI and the editing "100 times smarter", with research first and anything useful
+plugged in, and asked that his two research guides be used. Branch `claude/project-thread-hud5t5` from the release line
+at 7723696 (PRs #30 and #31 merged). No release. Design, numbers and the research table:
+[docs/clipforge/SMARTER_AI.md](docs/clipforge/SMARTER_AI.md).
+
+- **The meaning model** (`clipfoundry/embedder.py`, new): all-MiniLM-L6-v2 (Apache-2.0) on the CPU through ONNX
+  Runtime; two files downloaded once at a pinned revision and checked against pinned SHA-256 hashes (a tampered file is
+  deleted); a word-piece tokenizer in the module; a 40,000-vector cache; setting `meaning_model` (on); Settings → AI
+  helper → "Understanding meaning" (state, progress, Cancel, Download now, Remove); `GET /api/ai/meaning`,
+  `POST /api/ai/meaning/install|cancel|remove`. Without it everything falls back to the word-based vectors.
+- **One scale for two spaces** (`pipeline/semantic.py`): `Embeddings` carry the model and the video's own baseline
+  similarity; `cos_cal` removes it, novelty is rank-based; `diversity.py` uses the calibrated cosine. The brain's
+  memories use the meaning model when present (`brain/meaning.py` `model()`, `make()`, `min_similar()`;
+  `brain/memories.py` never compares vectors from different embedders).
+- **Scout and judge** (`pipeline/scout.py`, new): the model reads the transcript in 8,000-character windows and names
+  up to 12 moments, each snapped to sentences and scored by `candidates.window` (new) like any other; four deep-stage
+  places are kept for them. The finalists are ranked side by side with green/yellow/red verdicts; the ranking moves a
+  Clip Score by at most ±10 (percentile against percentile), green +2, red −6 with the reason as a warning. Both passes
+  read one brief (title, picking playbooks, the owner's rules, wanted length, taste) inside a budget of
+  `ai_edit_timeout_s × 10` (at most 10 min); the built-in model answers inside a JSON schema. Setting `ai_scout` (on).
+- **Eyes** (`pipeline/eyes.py`, new): three frames of the six strongest finalists go to the built-in model's vision
+  part with the clip's first words; it answers in a schema (kind, people, text on screen, best thumbnail, description,
+  appeal 1–10); at most ±4 on the Clip Score; the chosen frame becomes the thumbnail (`render.thumbnail_time`).
+  `builtin_ai.chat` gained `json_schema` and `images`; `llm.complete` passes them through. Setting `ai_eyes` (on).
+- **Ears** (`pipeline/ears.py`, new): pitch every 20 ms by autocorrelation, pitch variation, emphasis moments (pitch
+  +3 semitones and loudness +0.8 σ together), laughter-like bursts (word-free, 3–8 Hz pulsing), the pause before the
+  end, monotone; a prosody score joins the deep extras and a flat voice is named in the "Why". The smart editor's
+  punch-ins land where the voice leans on a word (`studio/smart_edit.py`, cached `prosody.json`); the note says how
+  many.
+- **Your taste** (`clipfoundry/taste.py`, new; tables `taste_events`, `taste_models`): lessons from unticking,
+  re-ticking, exporting, publishing and deleting clips with the clip's 16-number profile; after 12 lessons (4 each
+  side) a logistic regression gives each finalist at most ±6 with the reason in words, also read by the scout's brief;
+  `GET/DELETE /api/taste`; PATCH `/api/clips/{id}` records choices; export and publish call `taste.published`;
+  Brain → Memory shows what was learned and can forget it.
+- **Full stories** (`pipeline/stories.py`): meaning shifts between the six sentences before and after each gap (robust
+  z-score; z ≤ −2.5 and shift ≤ 0.25 → topic 0.22, z ≤ −1.8 and shift ≤ 0.35 → 0.12) when the meaning model is on
+  (`propose(..., opts)`, `story_review.py` passes the settings); `Judge.scan` reads the recording through and names
+  where stories begin before the unsure boundaries are reviewed; an unreadable answer no longer counts as "no new
+  story here" (a real bug: it dropped weak accepted boundaries).
+- **Deep analysis for every "Make clips"** (`pipeline/process.py`, `deep.py`): `deep_analysis` on by default with a
+  pool of 4 × clips (24–40); the clip's stored analysis carries `clip_score`, `explanation`, `judge`, `scout`, `taste`
+  and a small `deep` summary; the app shows them (`components/viral.tsx` `AiNotes`: scout line, rank and verdict,
+  "ClipForge AI saw", "The voice", "Your taste", "How the Clip Score came about"). `frontend/src/api.ts` has the types
+  and routes; `frontend/dist` rebuilt.
+- **The guides' rules** (`pipeline/text_utils.py`, `virality.py`): the causal engine (pivots "but", "because", "which
+  meant", "turns out" raise curiosity by up to 0.06; an "and then" chain with no turn costs 0.10 and shows the warning
+  "\"And then\" chain"; `signals.causal_pivots`, `signals.episodic`); constrained-experiment hooks ("I spent 30 days",
+  "I tried", "here's what happened", "on a budget", "with only") as hook and open-loop phrases; chapter-cliff fillers
+  ("furthermore", "my next point", "on to the next") as transitions.
+- **Fix:** `taste.predict` could return NaN when a feature never varied (standard deviations floored at 1e-4, z-scores
+  clipped at ±4).
+- **Checks:** `tests/test_smarter_ai.py` (39 tests; one runs the real model when `CLIPFORGE_MEANING_MODEL_DIR` is set);
+  `tests/conftest.py` points the model hub at a closed port so no test downloads; `tests/test_review_creation_fixes.py` compares the unrounded ranking value (the one-decimal score can coincide when the prioritised factor sits at the mean, which the new curiosity term made happen for its passage); `scripts/builtin_ai_check.py
+  --meaning --eyes` and `.github/workflows/builtin-ai-check.yml` check the real download, hashes, similarities, speed,
+  a schema-bound ranking and the eyes on a GitHub runner (the model hub is blocked from the cloud computer).
+
 ## The ClipForge look: one design system and every page restyled — 2026-11-07 (Claude Code)
 
 Landry asked to "improve the entire UI for the app, make it look very very good". Branch `claude/project-thread-89ew66`

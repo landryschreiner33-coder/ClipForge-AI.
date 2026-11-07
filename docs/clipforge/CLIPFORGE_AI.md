@@ -5,6 +5,8 @@ the AI helper you set up, plus a **brain** that remembers what you tell it, what
 **know-how** (what good editors know, as playbooks), and a **chat** where you ask for changes, ask questions and
 teach it. The full plan (models, finders, makers, training) is
 the Claude Doc "ClipForge AI: research and plan"; this file is the design of phase A, which this code implements.
+The work that followed (the meaning model, the scout and judge, the eyes, the ears, your taste, Full stories with
+meaning) is in [SMARTER_AI.md](SMARTER_AI.md).
 
 Two rules hold everywhere:
 
@@ -28,11 +30,13 @@ A memory is one row of `brain_memories`, in plain words, with what the model nee
 | `meaning` | Its embedding (`meaning.py`), with `meaning_model` naming the embedder that made it. |
 | `used_count`, `last_used_at` | Bumped every time an answer used it; `brain_memory_uses` records where (`change_request`, `filmcraft`, `smart_edit`, `chat`) and the id of that answer. |
 
-**Meaning.** Phase A embeds with `hash-v1`: content words, stems and word pairs hashed into 256 numbers (feature
-hashing with a stable hash, so a vector made today still matches one made last year), unit length, cosine
-similarity. No download, no network, a few microseconds a memory. The plan's embedding model (Qwen3-Embedding
-through the built-in engine) replaces it later; `meaning_model` records which embedder made each vector, the brain
-check reports vectors made by another embedder, and **Rebuild** recomputes them.
+**Meaning.** With the meaning model on and present (`clipfoundry/embedder.py`, all-MiniLM-L6-v2 on the CPU, see
+[SMARTER_AI.md](SMARTER_AI.md)) a memory's vector is the model's 384 numbers, so a question finds the memory that
+means the same thing in other words. Without it, `hash-v1`: content words, stems and word pairs hashed into 256
+numbers (feature hashing with a stable hash, so a vector made today still matches one made last year), unit length,
+cosine similarity; no download, no network, a few microseconds a memory. `meaning_model` records which embedder
+made each vector; vectors from different embedders are never compared, the brain check reports vectors made by
+another embedder, and **Rebuild** recomputes them with the embedder in use.
 
 **Recall** (`brain.recall(query, ws, project_id, platform, mode, limit, budget_chars)`):
 

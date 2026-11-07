@@ -35,6 +35,18 @@ def _no_voice_model_download(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_meaning_model_download(monkeypatch):
+    """Tests never download the meaning model (clipfoundry/embedder.py): its address points at a closed local port, so
+    the word-based vectors are used unless a test installs a model itself (tests/test_meaning_model.py)."""
+    from clipfoundry import embedder
+
+    monkeypatch.setattr(embedder, "hub_url", lambda name: f"http://127.0.0.1:9/{name}")
+    embedder.reset_for_tests()
+    yield
+    embedder.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _own_videos_folder(monkeypatch, tmp_path):
     """Autopilot's videos folder lives in the user's Videos folder: tests use one of their own instead."""
     monkeypatch.setenv("CLIPFOUNDRY_VIDEOS", str(tmp_path / "videos folder"))

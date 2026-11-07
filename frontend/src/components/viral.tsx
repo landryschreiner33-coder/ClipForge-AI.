@@ -104,6 +104,7 @@ export function ViralPanel({ c }: { c: Clip }) {
           ))}
         </ul>
       )}
+      <AiNotes a={a} />
       <Disclosure plain summary="All 11 factors">
         <div className="scorebars">
           {FACTOR_LABELS.map(([k, label]) => (
@@ -116,6 +117,40 @@ export function ViralPanel({ c }: { c: Clip }) {
         </div>
       </Disclosure>
       <p className="tiny faint">{a.note || ESTIMATE_NOTE}</p>
+    </div>
+  );
+}
+
+const kindWord = (k: string) => k.replace(/_/g, " ");
+
+/** What ClipForge AI added to the local analysis: its ranking of the finalists, what it saw, how the voice sounds, your
+ * taste, and how the Clip Score came about. Only the parts that ran are shown; every line says what made it. */
+export function AiNotes({ a }: { a: Partial<NonNullable<Clip["analysis"]>> }) {
+  const seen = a.deep?.seen;
+  const voice = a.deep?.prosody;
+  const any = a.scout || a.judge || seen || voice || a.taste;
+  const explanation = a.explanation || [];
+  if (!any && !explanation.length) return null;
+  return (
+    <div className="stack">
+      {any && (
+        <ul className="flags ai-notes">
+          {a.scout && <li className="info"><b>ClipForge AI picked this while reading the whole video</b> ({kindWord(a.scout.kind)}): {a.scout.why}</li>}
+          {a.judge && <li className={a.judge.verdict === "red" ? "warn" : "info"}>
+            <b>ClipForge AI ranked it {a.judge.rank} of {a.judge.of}{a.judge.verdict ? ` (${a.judge.verdict})` : ""}.</b> {a.judge.note}</li>}
+          {seen && <li className="info"><b>ClipForge AI saw:</b> {seen.description || kindWord(seen.kind)}
+            {seen.text_on_screen ? ` · on screen: “${seen.text_on_screen}”` : ""} (picture appeal {seen.appeal}/10{seen.problem ? `; ${seen.problem}` : ""})</li>}
+          {voice && <li className="info"><b>The voice:</b> {voice.monotone ? "stays flat here" : `${voice.pitch_variation >= 0.5 ? "lively" : "steady"}, ${voice.emphasis_per_30s} emphasis moments per 30 s`}
+            {voice.laughter_like ? `, ${voice.laughter_like} laugh-like burst${voice.laughter_like === 1 ? "" : "s"}` : ""} (estimated from the sound)</li>}
+          {a.taste && <li className="info"><b>Your taste:</b> {a.taste.adjust >= 0 ? "+" : ""}{a.taste.adjust} points
+            {a.taste.why && a.taste.why.length ? ` (you tend to keep clips with ${a.taste.why.join(" and ")})` : ""}</li>}
+        </ul>
+      )}
+      {explanation.length > 0 && (
+        <Disclosure plain summary={`How the Clip Score${a.clip_score !== undefined ? ` of ${Math.round(a.clip_score)}` : ""} came about`}>
+          <ul className="small">{explanation.map((l, i) => <li key={i}>{l}</li>)}</ul>
+        </Disclosure>
+      )}
     </div>
   );
 }

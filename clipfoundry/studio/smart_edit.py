@@ -167,6 +167,21 @@ def quiet_spans(db_levels, min_s: float) -> list[tuple[int, int]]:
     return spans
 
 
+def emphasis_points(asset: dict, words: list[dict]) -> list[float] | None:
+    """The moments (seconds) where the speaker's voice rises and strengthens together (pipeline/ears.py), from the
+    16 kHz copy made for transcription; cached next to it. None when there is no copy."""
+    from ..pipeline import ears
+    from . import uploads
+
+    wav = uploads.work_dir(asset) / "audio.wav"
+    if not wav.is_file():
+        return None
+    try:
+        return ears.emphasis_points(wav, words, cache=uploads.work_dir(asset) / "prosody.json")
+    except Exception:  # noqa: BLE001 - a bonus, never a blocker
+        return None
+
+
 # ------------------------------------------------------------------ reading what is said
 def _toks(text: str) -> list[str]:
     return [t for t in tokens(text) if t not in PURE_FILLERS]
@@ -551,7 +566,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     notes: list[str] = []
     stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "takes": 0, "chatter": 0,
              "stumbles": 0, "ai_left_out": 0, "fit_left_out": 0, "fillers": 0, "overlays": 0, "effects": 0,
-             "music": "", "cold_open": ""}
+             "music": "", "cold_open": "", "punch_ins": 0, "emphasis_known": False}
 
     # ---- 1. what is said, per recording; what to leave out
     judged = judge_sentences(project, assets, words, values, ai)
@@ -642,6 +657,9 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
             continue
         keep_mask = [s == "keep" for s in t["status"]]
         quiet = quiet_spans(levels(a), level["pause_s"]) if opts["cut_pauses"] else []
+        emphasis = emphasis_points(a, ws) if opts["punch_in"] else None  # None: unknown, the old rule applies
+        if emphasis is not None:
+            stats["emphasis_known"] = True
         drop: set[int] = set()
         if opts["cut_retakes"]:
             for k, s in enumerate(sents):
@@ -690,8 +708,14 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
             if j + 1 < len(parts):
                 clip["fade_out_ms"] = FADE_MS
             if kind == "keep":
-                if j and opts["punch_in"] and kept_index % 2 == 1:
-                    clip["zoom"] = PUNCH_IN
+                if j and opts["punch_in"]:
+                    if emphasis is None:
+                        leaned = kept_index % 2 == 1
+                    else:  # the voice leans on a word in this part: that is where a punch-in belongs
+                        leaned = any(a_ms <= e * 1000 < b_ms for e in emphasis)
+                    if leaned:
+                        clip["zoom"] = PUNCH_IN
+                        stats["punch_ins"] += 1
                 kept_index += 1
             clips.append(clip)
             outline.append({"clip_id": cid, "label": a["filename"], "duration": round((b_ms - a_ms) / 1000, 1),
@@ -712,7 +736,9 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     if stats["pauses_cut"]:
         notes.append(f"Cut {stats['pauses_cut']} pause{'s' if stats['pauses_cut'] != 1 else ''} longer than "
                      f"{level['pause_s']:g} s, saving {stats['seconds_saved']:.0f} s"
-                     + (" (every other cut zooms in a little)" if opts["punch_in"] else "") + ".")
+                     + ((f" ({stats['punch_ins']} punch-in{'s' if stats['punch_ins'] != 1 else ''} where your voice "
+                         "leans on a word)" if stats.get("emphasis_known") else " (every other cut zooms in a little)")
+                        if opts["punch_in"] else "") + ".")
     if stats["trimmed_s"] >= 1:
         notes.append(f"Trimmed {stats['trimmed_s']:.0f} s of silence before the first and after the last words "
                      "of your recordings.")

@@ -113,7 +113,7 @@ def analyze(p, ctx) -> list[dict]:
         budget = min(600.0, max(60.0, float(p.settings.get("ai_edit_timeout_s", 60)) * 5))
         judge = stories.Judge(p.settings, p.sentences, budget_s=budget, canceled=ctx.cancelled,
                               heartbeat=lambda m: p.stage("stories", 0.47, m))
-    result = stories.propose(p.words, p.sentences, float(p.meta["duration"] or 0), judge=judge)
+    result = stories.propose(p.words, p.sentences, float(p.meta["duration"] or 0), judge=judge, opts=p.settings)
     if judge is not None and not ctx.cancelled():
         for k, title in judge.titles(result["items"]).items():
             result["items"][k]["title"] = title

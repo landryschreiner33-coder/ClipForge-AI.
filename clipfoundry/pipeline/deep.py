@@ -19,9 +19,12 @@ amount. Scores are estimates for ranking, never a prediction of views.
 from __future__ import annotations
 
 import numpy as np
+import time
+from pathlib import Path
 
 from . import candidates as cand_mod
-from . import diversity, hooks, reframe, scoring, semantic, virality
+from .. import taste
+from . import diversity, ears, eyes, hooks, reframe, scoring, scout, semantic, virality
 from .audio import Loudness
 from .common import Cancelled, JobContext, log
 from .text_utils import CONTRAST_WORDS, EMOTION_WORDS, PAYOFF_PHRASES, content_tokens, count_phrases, tokens
@@ -181,23 +184,44 @@ def clip_score(r: dict) -> tuple[float, list[str]]:
     extras.append(d["audio"]["score"])
     if d.get("visual"):
         extras.append(d["visual"]["quality"])
+    if d.get("prosody"):
+        extras.append(d["prosody"]["score"])
     adj_x = max(-8.0, min(8.0, 16 * (sum(extras) / len(extras) - 0.5)))
     adj_s = max(-6.0, min(6.0, 10 * (d["semantic"]["score"] - 0.5)))
     adj_t = 4 * d["extras"]["trend_relevance"] if d["extras"].get("trend_relevance") is not None else 0.0
     adj_v = -4.0 if d.get("visual") and d["visual"]["quality"] < 0.25 else 0.0
+    seen = d.get("seen") or {}
+    adj_e = float(seen.get("adjust") or 0.0)
+    e_label = f"ClipForge AI looked at the picture ({seen.get('description') or seen.get('kind', '')}, appeal " \
+              f"{seen.get('appeal', '?')}/10)" if seen else ""
+    t = r.get("taste") or {}
+    adj_y = float(t.get("adjust") or 0.0)
+    y_label = ("your taste (you tend to keep clips with " + ", ".join(t["why"]) + ")") if t.get("why") else \
+        "your taste (your earlier choices)"
+    j = r.get("judge") or {}
+    adj_j = float(j.get("adjust") or 0.0)
+    j_label = (f"ClipForge AI ranked it {j['rank']} of {j['of']}" + (f" ({j['verdict']})" if j.get("verdict") else "")) \
+        if j else ""
     for label, v in (("shareability, quotes, debate, titles, loops, audio/visual", adj_x),
                      ("semantic shape (one topic, closure, standalone, distinct)", adj_s),
-                     ("matches the source's trending topic", adj_t), ("weak picture", adj_v)):
+                     ("matches the source's trending topic", adj_t), ("weak picture", adj_v), (e_label, adj_e),
+                     (j_label, adj_j), (y_label, adj_y)):
         if abs(v) >= 0.5:
             why.append(f"{v:+.1f} {label}")
-    return round(max(0.0, min(100.0, base + adj_x + adj_s + adj_t + adj_v)), 1), why
+    if r.get("scout"):
+        why.append(f"named by ClipForge AI while reading the video ({r['scout'].get('kind', 'moment')})")
+    if d.get("prosody") and d["prosody"].get("monotone"):
+        why.append("the voice stays flat here (estimated from the sound)")
+    return round(max(0.0, min(100.0, base + adj_x + adj_s + adj_t + adj_v + adj_e + adj_j + adj_y)), 1), why
 
 
 def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, opts: dict, ctx: JobContext,
                     video_name: str, cands: list[dict], video_path: str = "", meta: dict | None = None,
                     lo: float = 0.5, hi: float = 0.58, trend_keywords: list[str] | None = None,
-                    prior: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
-    """(chosen, evaluated results, notes). `notes["candidates"]` records how far each pool candidate got."""
+                    prior: list[dict] | None = None, brief: "scout.Brief | None" = None,
+                    wav_path: "str | Path | None" = None) -> tuple[list[dict], list[dict], dict]:
+    """(chosen, evaluated results, notes). `notes["candidates"]` records how far each pool candidate got. `brief` is
+    the scout's brief (scout.brief) when a model is set up: the finalists are then ranked by the model too."""
     from ..autopilot import knowledge
 
     meta = meta or {}
@@ -215,7 +239,7 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         return chosen, results, {**notes, "candidates": list(track.values()), "stages": {"pool": len(cands)}}
 
     feats = cand_mod.sentence_features(sentences, words)
-    emb = semantic.embed_sentences(sentences)
+    emb = semantic.embed_sentences(sentences, opts)
     # 1. fast filter
     ctx.progress(lo, f"Fast filter: {len(cands)} candidates")
     fast = []
@@ -235,7 +259,7 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         if r["viral_potential"] < min_score - 25:
             track[c["cid"]]["reasons"].append(f"Fast filter: Viral Potential {r['viral_potential']:.0f} is far below "
                                               f"the minimum")
-        elif len(kept) >= keep_n:
+        elif len(kept) >= keep_n and not c.get("scout"):
             track[c["cid"]]["reasons"].append("Fast filter: not among the strongest candidates")
         else:
             kept.append((c, r))
@@ -249,18 +273,31 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
         track[c["cid"]]["stage"] = "semantic"
     ranked.sort(key=lambda x: x[0], reverse=True)
     deep_cands = [c for _, c in ranked[:DEEP_KEEP]]
+    # a few places are kept for the moments the model named while reading the video (the best of them first)
+    missing = [c for _, c in ranked[DEEP_KEEP:] if c.get("scout")][:scout.RESERVED]
+    if missing:
+        keep = [c for c in deep_cands if not c.get("scout")]
+        drop = keep[len(keep) - len(missing):] if len(keep) >= len(missing) else []
+        deep_cands = [c for c in deep_cands if c not in drop] + missing
+        for c in drop:
+            track[c["cid"]]["reasons"].append("Semantic stage: gave its place to a moment ClipForge AI named")
     for _, c in ranked[DEEP_KEEP:]:
-        track[c["cid"]]["reasons"].append("Semantic stage: not among the strongest candidates")
+        if c not in deep_cands:
+            track[c["cid"]]["reasons"].append("Semantic stage: not among the strongest candidates")
     # 3. deep rerank (full evaluation incl. nearby ranges and the optional AI provider)
     results, notes = scoring.evaluate(deep_cands, sentences, opts, ctx, video_name, lo + (hi - lo) * 0.15,
                                       lo + (hi - lo) * 0.7, words=words, loud=loud)
+    by_cid = {c["cid"]: c for c in deep_cands}
     for r in results:
         ctx.check()
         track[r["cid"]]["stage"] = "deep"
+        if by_cid.get(r["cid"], {}).get("scout"):
+            r["scout"] = by_cid[r["cid"]]["scout"]
         sents = [sentences[k]["text"] for k in range(r["s0"], r["s1"] + 1)] if r["s0"] >= 0 else []
         sem = semantic.features(emb, r["s0"], r["s1"])
         r["deep"] = {"semantic": sem, "audio": audio_features(r["start"], r["end"], words, loud),
-                     "extras": text_extras(sents, sem, r["end"] - r["start"], trend_keywords), "visual": None}
+                     "extras": text_extras(sents, sem, r["end"] - r["start"], trend_keywords), "visual": None,
+                     "prosody": ears.clip_prosody(wav_path, r["start"], r["end"], words), "seen": None}
         r["clip_score"], r["explanation"] = clip_score(r)
     order = sorted(results, key=lambda r: r["clip_score"], reverse=True)
     visual_n = 0
@@ -272,20 +309,51 @@ def evaluate_select(sentences: list[dict], words: list[dict], loud: Loudness, op
             r["deep"]["visual"] = vis
             r["clip_score"], r["explanation"] = clip_score(r)
             visual_n += 1
+    # 3b. the model looks at the picture of the strongest finalists (built-in model only; bounded, explained)
+    seen_n = 0
+    if video_path and eyes.configured(opts, meta):
+        deadline = time.monotonic() + eyes.budget_s(opts)
+        for k, r in enumerate(order[:VISUAL_KEEP]):
+            if time.monotonic() > deadline:
+                break
+            frac = lo + (hi - lo) * (0.95 + 0.01 * k / VISUAL_KEEP)
+            ctx.progress(frac, f"ClipForge AI is looking at clip {k + 1} of {min(VISUAL_KEEP, len(order))}")
+            first_words = " ".join(sentences[j]["text"] for j in range(r["s0"], min(r["s1"], r["s0"] + 1) + 1)) \
+                if r["s0"] >= 0 else ""
+            seen = eyes.look(video_path, r["start"], r["end"], first_words, opts, ctx, deadline=deadline,
+                             beat=lambda m, f=frac: ctx.progress(f, m))
+            if seen:
+                r["deep"]["seen"] = seen
+                r["clip_score"], r["explanation"] = clip_score(r)
+                seen_n += 1
     # 4. boundaries
     duration = float(meta.get("duration") or sentences[-1]["end"] + 1.0)
     for r in results:
         if r["s0"] >= 0:
             r["bounds"] = optimize_bounds(r, sentences, loud, duration)
         track[r["cid"]]["score"] = r["clip_score"]
-    # 5. diversity
+    # 5. the model ranks the finalists side by side (bounded, explained; nothing without a model)
+    if scout.configured(opts):
+        notes["judge"] = scout.judge(results, sentences, opts, ctx, brief, frac=lo + (hi - lo) * 0.96)
+        for r in results:
+            if r.get("judge"):
+                r["clip_score"], r["explanation"] = clip_score(r)
+                track[r["cid"]]["score"] = r["clip_score"]
+    # 5b. your taste: what you kept and left out before (bounded, explained)
+    if taste.apply(results, opts):
+        for r in results:
+            if r.get("taste"):
+                r["clip_score"], r["explanation"] = clip_score(r)
+                track[r["cid"]]["score"] = r["clip_score"]
+    # 6. diversity
     chosen, rejected = diversity.select(results, count, min_score, sentences, emb, min_quality, prior)
     for r in rejected:
         track[r["cid"]]["reasons"] += r["reasons"]
     for r in chosen:
         track[r["cid"]]["stage"] = "selected"
     notes["stages"] = {"pool": len(cands), "fast": len(kept), "semantic": len(ranked), "deep": len(results),
-                       "visual": visual_n, "selected": len(chosen)}
+                       "visual": visual_n, "seen": seen_n, "selected": len(chosen),
+                       "scouted": sum(1 for c in cands if c.get("scout"))}
     notes["candidates"] = list(track.values())
     notes["rejected"] = [{"start": r["start"], "end": r["end"], "score": r.get("clip_score"), "reasons": r["reasons"],
                           "text": (r.get("caption_text") or "")[:160]} for r in rejected]

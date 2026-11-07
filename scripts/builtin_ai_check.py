@@ -6,6 +6,10 @@
 3. Speed: how long the model takes to load, and words per second for a clip-scoring answer that must be JSON; a
    picture question checks that the vision part loaded too.
 4. Sound cleanup (--sound): the voice model downloads and verifies, and how fast a minute of speech is cleaned.
+5. The meaning model (--meaning, clipfoundry/embedder.py): the pinned files download and verify, paraphrases end
+   up closer than strangers, and how many sentences a second it embeds.
+6. The eyes (--eyes, with a level): the model answers a JSON-schema question about three frames of a small test
+   video through the app's own eyes.look, and a schema-bound ranking question through builtin_ai.chat.
 
 Writes a JSON report (--out) and, on GitHub, a summary table. Exits 1 when anything does not match or fails.
 Everything goes into a fresh data folder (--data), never the user's own.
@@ -201,6 +205,89 @@ def speech(seconds: float, folder: Path):
     return out, x.size / sr, words
 
 
+def check_meaning(report: dict) -> list[str]:
+    """The meaning model: pinned download, checksums, sensible similarities, speed."""
+    from clipfoundry import embedder
+    from clipfoundry.pipeline import semantic
+
+    row: dict = {"model": embedder.MODEL, "download_mb": round(embedder.download_bytes() / 1e6, 1)}
+    report["meaning"] = row
+    t0 = time.monotonic()
+    try:
+        embedder.ensure_model()
+    except embedder.MeaningError as exc:
+        return [f"meaning: the model could not be downloaded and verified: {exc}"]
+    row["download_and_check_s"] = round(time.monotonic() - t0, 1)
+    if not embedder.runtime_ok():
+        return ["meaning: onnxruntime is not installed, so the model cannot be loaded"]
+    t0 = time.monotonic()
+    texts = ["The cat sat on the mat.", "A kitten rested on the rug.", "Quarterly tax returns are due in April.",
+             "Boil the pasta in plenty of salted water."]
+    emb = semantic.embed_texts(texts, opts={"meaning_model": True})
+    row["load_and_first_s"] = round(time.monotonic() - t0, 2)
+    problems = []
+    if emb.model != embedder.MODEL:
+        return [f"meaning: the vectors came from {emb.model!r}, not the meaning model"]
+    same = semantic.cos_cal(emb, emb[0], emb[1])
+    other = max(semantic.cos_cal(emb, emb[0], emb[2]), semantic.cos_cal(emb, emb[0], emb[3]),
+                semantic.cos_cal(emb, emb[1], emb[3]))
+    row.update(paraphrase=round(same, 3), strangers=round(other, 3), baseline=round(emb.baseline, 3))
+    if not (same > 0.4 and same > other + 0.2):
+        problems.append(f"meaning: paraphrases scored {same:.2f} and strangers {other:.2f}; the model is not behaving")
+    many = [f"Sentence number {k} talks about {w} and a few other things." for k, w in
+            enumerate(["cats", "taxes", "pasta", "rain", "music", "cars", "sleep", "coffee", "maps", "shoes"] * 20)]
+    t0 = time.monotonic()
+    embedder.embed(many, {"meaning_model": True})
+    took = time.monotonic() - t0
+    row.update(sentences=len(many), embed_s=round(took, 2), sentences_per_s=round(len(many) / max(took, 1e-6), 1))
+    if took > 120:
+        problems.append(f"meaning: {len(many)} sentences took {took:.0f} s; too slow to be useful")
+    return problems
+
+
+def check_eyes(builtin_ai, level: str, report: dict) -> list[str]:
+    """The eyes and the schema-bound answers, through the app's own code paths (needs ffmpeg for the test video)."""
+    from clipfoundry.pipeline import eyes, scout
+
+    row: dict = {"level": level}
+    report["eyes"] = row
+    settings = {"ai_provider": "builtin", "builtin_ai_level": level, "builtin_ai_idle_minutes": 30,
+                "ai_edit_timeout_s": 120}
+    problems = []
+    try:
+        builtin_ai._install_engine(lambda *a: None)  # noqa: SLF001 - already present after check_level
+        builtin_ai._install_level(level, lambda *a: None)  # noqa: SLF001
+        t0 = time.monotonic()
+        text = builtin_ai.chat(settings, scout.SYSTEM, 'Two finalists: 1 "Stop doing this with your key light." and '
+                               '2 "Hi everyone, welcome back to the channel." Rank them, best first, with a verdict each.',
+                               json_schema=scout.JUDGE_SCHEMA, json_object=True, max_tokens=300, timeout=600)
+        row["schema_answer"], row["schema_s"] = text[:300], round(time.monotonic() - t0, 2)
+        data = json.loads(text)
+        if not (isinstance(data.get("ranking"), list) and data["ranking"] and int(data["ranking"][0]) == 1):
+            problems.append(f"eyes: the schema-bound ranking was {text[:200]!r} (expected finalist 1 first)")
+        if not shutil.which("ffmpeg"):
+            row["frames"] = "no ffmpeg on this computer: the picture question was skipped"
+            return problems
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "test.mp4"
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                            "color=c=red:s=320x568:r=25:d=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
+                           check=True)
+            t0 = time.monotonic()
+            seen = eyes.look(str(video), 0.0, 3.0, "a plain red test picture", settings, None, deadline=time.monotonic() + 600)
+        row["look_s"] = round(time.monotonic() - t0, 2)
+        row["seen"] = seen
+        if not seen:
+            problems.append("eyes: eyes.look returned nothing for the test video")
+        elif seen["kind"] not in eyes.KINDS or not 1 <= seen["appeal"] <= 10:
+            problems.append(f"eyes: an answer outside the schema: {seen}")
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"eyes: {type(exc).__name__}: {exc}")
+    finally:
+        builtin_ai.server.stop()
+    return problems
+
+
 def check_sound(report: dict) -> list[str]:
     from clipfoundry.pipeline import cleanup
 
@@ -250,6 +337,15 @@ def summary_table(report: dict) -> str:
     if s:
         lines += ["", f"Sound cleanup: {s.get('seconds_of_sound')} s of speech cleaned in {s.get('cleaning_s')} s "
                       f"(real-time factor {s.get('realtime_factor')}), {s.get('summary')}"]
+    m = report.get("meaning")
+    if m:
+        lines += ["", f"Meaning model: {m.get('download_mb')} MB downloaded and checked in {m.get('download_and_check_s')} s; "
+                      f"paraphrase {m.get('paraphrase')} vs strangers {m.get('strangers')}; "
+                      f"{m.get('sentences_per_s')} sentences/s"]
+    e = report.get("eyes")
+    if e:
+        lines += ["", f"Eyes ({e.get('level')}): schema ranking in {e.get('schema_s')} s; "
+                      f"picture: {json.dumps(e.get('seen'))[:200]} in {e.get('look_s')} s"]
     if not report.get("catalog_checked"):
         lines += ["", "Catalog: not checked on this machine (the Linux job checks it)"]
     else:
@@ -266,6 +362,8 @@ def main() -> int:
     ap.add_argument("--out", default="builtin-ai-check.json")
     ap.add_argument("--standard", action="store_true", help="also check the Standard level (about 5 GB)")
     ap.add_argument("--sound", action="store_true", help="also check the sound cleanup's voice model and speed")
+    ap.add_argument("--meaning", action="store_true", help="also check the meaning model (a 90 MB download)")
+    ap.add_argument("--eyes", action="store_true", help="also check the eyes and schema-bound answers (Basic level)")
     ap.add_argument("--no-catalog", action="store_true")
     args = ap.parse_args()
     os.environ["CLIPFOUNDRY_DATA"] = args.data or tempfile.mkdtemp(prefix="clipforge-ai-check-")
@@ -288,7 +386,19 @@ def main() -> int:
             report["problems"] += check_level(builtin_ai, httpx, level, report)
         except Exception as exc:  # noqa: BLE001
             report["problems"].append(f"{level}: {type(exc).__name__}: {exc}")
+        if args.eyes and level == "basic":
+            print("checking the eyes", flush=True)
+            try:
+                report["problems"] += check_eyes(builtin_ai, level, report)
+            except Exception as exc:  # noqa: BLE001
+                report["problems"].append(f"eyes: {type(exc).__name__}: {exc}")
         shutil.rmtree(builtin_ai.level_dir(level), ignore_errors=True)  # runners have little disk
+    if args.meaning:
+        print("checking the meaning model", flush=True)
+        try:
+            report["problems"] += check_meaning(report)
+        except Exception as exc:  # noqa: BLE001
+            report["problems"].append(f"meaning: {type(exc).__name__}: {exc}")
     if args.sound:
         print("checking the sound cleanup", flush=True)
         try:
