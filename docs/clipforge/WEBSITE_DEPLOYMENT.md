@@ -123,3 +123,26 @@ Mac YouTube link fix, and PR #23, smart editing and ClipForge AI). Listed as Cli
   320 px (no sideways scroll, no errors). The github.io page itself cannot be loaded from this session.
 
 Rollback: revert `65f026a` on `gh-pages` with a normal commit. The 2026.11.05 files stay under Older versions.
+
+## ClipForge AI and FilmCraft inside the app — November 6, 2026 (Claude Code)
+
+Landry chose "Merge and release" on the decision card for PR #28. Both downloads are built from source commit
+`32485bd8c36b5f889bff565d15bd15828bc6aadf` (the release line `claude/project-thread-x72wkd` with PR #25, #26, #27 and
+#28; the same tree as the tested head `ae2d5f5`). Listed as ClipForge 2026.11.06.
+
+- **Mac:** https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-06-32485bd/ClipForge-Mac-Apple-Silicon.dmg
+  (237,930,523 bytes, SHA-256 `ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1`). Unsigned personal preview, published unchanged from
+  [build and test run 42311548798](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798)
+  by [publish run 42316848534](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42316848534).
+- **Windows:** https://github.com/landryschreiner33-coder/ClipForge-AI./raw/9ddbd62ed93d775ea1bbb3d12060859530c07549/ClipForge-Windows-Setup.zip
+  (47,304,093 bytes, SHA-256 `2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888`).
+  [Windows setup check run 42312199587](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587)
+  installed the 2026.11.05.2 release with a synthetic setting, then this ZIP over it: same data folder and setting,
+  this commit's page and icon, all 748 files, close and reopen. No FFmpeg on the runner, so no video was processed.
+- **Download page:** `gh-pages` commit `eaa92df` (previous `b5afbd3`), pushed directly; Download page run
+  42317711666 and Pages run 42317710696. New: ClipForge AI (the built-in model, its memory and chat, the twelve
+  playbooks), Clean up the sound, FilmCraft and EffectCraft inside ClipForge, the editors' numbers and the BT.709
+  colour fix, with the checked / not checked lists for this version. `build.py --check` and `--verify` passed. The
+  github.io page itself cannot be loaded from this session.
+
+Rollback: revert `eaa92df` on `gh-pages` with a normal commit. The 2026.11.05.2 files stay under All versions.
