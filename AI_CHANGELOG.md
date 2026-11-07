@@ -1,5 +1,48 @@
 # AI changelog
 
+## The ClipForge look: one design system and every page restyled — 2026-11-07 (Claude Code)
+
+Landry asked to "improve the entire UI for the app, make it look very very good". Branch `claude/project-thread-89ew66`
+from the release line at 3c6b980 (the long-video work runs in its own branch beside it). No release.
+
+- **The design** ("the edit bay", [docs/clipforge/DESIGN_SPEC.md](docs/clipforge/DESIGN_SPEC.md)): dark layered
+  surfaces lit from their top edge, sunken wells for the places media goes (drop zones, timelines, chats, lists),
+  lifted buttons, the footage on the darkest stage so it is the brightest thing on the page, and one accent for the
+  action that moves work forward and the place you are in. Dark only, as before. Poppins SemiBold (the caption face,
+  bundled) for titles, the system font for everything else; 15/13/12 px text, 17 px section titles, 28 px page
+  titles; sentence case everywhere, no all-caps labels. Radii 8/12/16 px; controls 36 px (32 compact, 44 on touch);
+  sidebar 236 px, top bar 56 px, content up to 1280 px.
+- **The design system** (`frontend/src/styles.css`, rewritten): fonts, scale, spacing, shape, light and depth
+  (`--lift`, `--lift-sm`, `--sink`, `--well`, `--frame`, `--glow`) and every shared component: the shell (the rail
+  marks the current place with the accent tint and a 3 px bar; blurred top bar; drawer under 1024 px), page heads,
+  buttons, pills, tags, panels, forms (inputs in wells, a custom select, choice cards, segmented controls, switches,
+  chips), drop zones and file rows, tabs and the Settings side list, the editors (stage, timeline, words, desk, save
+  bar, versions, sequence, the ClipForge AI chat), tables, sign-in, dialogs, menus, toasts, loading skeletons, empty
+  states and the robot office. Every class the pages use kept its name, so the look changed without touching how
+  the pages work.
+- **Palettes and accents** (`frontend/src/theme.css`, tokens only): Studio, Midnight, Graphite and Plum retuned
+  (deeper canvas, clearer steps between layers) and the six accents with hover and tint; quiet text never below 6:1;
+  `tests/test_theme_contrast.py` still checks every pair, and the spec lists the measured ratios.
+- **Pages:** the Studio's two big choices glow with the accent; a project's clips are lifted cards; the clip and
+  video editors have a framed stage, a sunken timeline and a desk head with a mark; Review packs its panels into two
+  columns, preview above look and outputs above guidance (`LayoutFlow` in `components/AppearanceSettings.tsx` packs
+  sized panels into columns so no hole is left beside a tall one; default widths in `prefs.py` and `prefs.tsx`
+  `REVIEW_SIZE`); Settings has a side list of sections (`SettingsFrame` in `pages/Settings.tsx`, a tab row under
+  900 px) with Appearance at full width; Brain → Memory shows its summary as tiles and the playbooks as a quiet list;
+  the knowledge map sits on the canvas with a faint grid; the office keeps its pixel titles and room colours on the
+  shared surfaces with the map as a framed window; Posts and the TikTok setup use the tokens instead of their own
+  colours.
+- **States:** loading pages show a title block and panel-shaped skeletons (a shimmer once per 1.6 s, paused when the
+  tab is hidden) instead of a spinner; empty states have an accent disc with the icon, one sentence and one action;
+  the ClipForge AI chat says what will appear in it; the sidebar's collapse button says what it does.
+- **Also:** the long-video thread's new wrappers (`.script-drop`, `.script-panel`, `.script-line.matched/.weak/
+  .missing`, `.script-takes`, `.local-browser`, `.local-list`, `.local-pick`) are styled ahead of their arrival;
+  `index.html` paints the new canvas colour before the app loads; before/after pictures in
+  `docs/clipforge/ui-redesign/`.
+- **Checks:** `cd frontend && npm run build`; `python -m pytest -q tests -m "not slow"`; the browser checks for the
+  shell, library, Settings and the office against a throwaway app: 32 pass, and the 5 that fail (three office map and
+  bar checks, two Settings checks) fail the same way on the release line with the same data.
+
 ## ClipForge AI know-how: the research turned into playbooks, and editors that apply its numbers — 2026-11-06 (Claude Code)
 
 Landry gave ClipForge AI two research guides (a cinematic filmmaking and post-production guide, a viral short-form

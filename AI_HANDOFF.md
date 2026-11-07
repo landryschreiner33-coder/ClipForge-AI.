@@ -1,5 +1,43 @@
 # AI handoff
 
+## The ClipForge look: one design system and every page restyled — 2026-11-07 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for the whole UI to look very, very good. The app now has one design system
+("the edit bay": layered dark surfaces lit from the top edge, sunken wells for media, lifted controls, the footage the
+brightest thing on the page, one accent for the way forward) and every page is restyled on it: the shell, Studio,
+projects, the clip and video editors, Review, Brain, Settings (now a side list of sections), publishing, accounts,
+sign-in, the robot office, and the loading and empty states. How the pages work is untouched: class names and markup
+stayed, so the TSX changed only where a state needed a line (skeleton pages, the empty-state disc, the chat's empty
+line, the Settings frame, the Review column packing).
+
+- **Branch / PR:** `claude/project-thread-89ew66` from the release line at 3c6b980, draft PR into
+  `claude/project-thread-x72wkd`. No release. The long-video work (`claude/project-thread-6ouxbx`) runs beside it:
+  its new wrapper classes are styled here and its pages (MakeVideo, VideoReview, MakeClips, StoryReview) were not
+  touched, so the two merge without conflicts in the TSX.
+- **Design and limits:** [docs/clipforge/DESIGN_SPEC.md](docs/clipforge/DESIGN_SPEC.md) (tokens, measured contrast,
+  layout rules); before/after pictures in [docs/clipforge/ui-redesign/](docs/clipforge/ui-redesign/).
+- **Code:** `frontend/src/styles.css` (the system, rewritten), `theme.css` (palettes and accents, tokens only),
+  `pages/editor.css`, `library.css`, `posts.css`, `Brain.css`, `BrainGraph.css`, `office/studio.css`,
+  `components/TikTokSetup.css`; `components/ui.tsx` (skeleton page, empty-state disc, side tabs), `pages/Settings.tsx`
+  (`SettingsFrame`), `components/AppearanceSettings.tsx` (`LayoutFlow` column packing), `components/ClipForgeAI.tsx`,
+  `App.tsx`, `pages/Brain.tsx`, `BrainGraph.tsx` (sentence-case titles), `prefs.tsx` and
+  `clipfoundry/studio/prefs.py` (`REVIEW_SIZE`), `index.html`; `frontend/dist` rebuilt.
+- **Verify:** `cd frontend && npm run build`; `python -m pytest -q tests -m "not slow"` (at least
+  `tests/test_theme_contrast.py tests/test_studio_prefs.py`); `cd e2e && npx playwright test tests/app-shell.spec.ts
+  tests/library.spec.ts tests/settings.spec.ts tests/office.spec.ts` against a running app. Then look: the pages at
+  1440 and 390 px wide have no sideways scroll, the save bar sits at the bottom, the kind label sits above each title,
+  and the four palettes and six accents in Customize studio all read well.
+- **Judgement calls to know about:** dark only stays (no light theme); the Settings tabs became a side list on wide
+  windows (the same links, `.tabs.tabs-side`); the kind label stays visible because a browser check reads it; the
+  Review page's default panel widths went from equal to 0.6/0.4/0.6/0.4 (saved layouts keep their own sizes); the
+  Brain's upper-case labels became sentence case ("My knowledge", "Saved items", "Local knowledge map"); the office
+  keeps the pixel face for titles and names only.
+- **Not done:** a light theme (dark only by design); the five browser checks that fail on the release line with the
+  demo data (three office map and bar checks that need the real job system; two Settings checks: five newer settings
+  without a place on the page, and the daily-target field error); a "before" picture for every page (nine pages have
+  pairs).
+- **Waiting on Landry:** a look at the pictures and the PR; the merge; the release (needs an explicit OK).
+
 ## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry gave ClipForge AI two research guides (cinematic filmmaking and post-production;

@@ -116,9 +116,12 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
         {" "}What it needs a model for is sent as text only, never the video or the sound.</p>
       {problem && <p className="error-text"><Icon name="alert" />{problem}</p>}
       <div ref={log} className="cfai-log" aria-live="polite" aria-label="Conversation">
-        {msgs.length === 0 && !problem && <div className="cfai-chips" aria-label="Examples">
-          {examples.map((x) => <button key={x} type="button" className="btn btn-small ask-choice" disabled={!chat || working} onClick={() => void send(x)}>{x}</button>)}
-        </div>}
+        {msgs.length === 0 && !problem && <>
+          <div className="cfai-chips" aria-label="Examples">
+            {examples.map((x) => <button key={x} type="button" className="btn btn-small ask-choice" disabled={!chat || working} onClick={() => void send(x)}>{x}</button>)}
+          </div>
+          <p className="cfai-empty">Your conversation with ClipForge AI shows here.</p>
+        </>}
         {msgs.map((m) => m.role === "owner"
           ? <div key={m.id} className="cfai-msg owner"><p>{m.text}</p></div>
           : <Answer key={m.id} m={m} busy={busy || working} onAct={act} onSend={send} />)}
