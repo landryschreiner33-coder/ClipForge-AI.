@@ -1,20 +1,20 @@
 {
-  "source_commit": "32485bd8c36b5f889bff565d15bd15828bc6aadf",
-  "app_archive_sha256": "066ddb1af23dfb5ade0ae02857287396e0ac662f004642117a64bf6ba65b542d",
-  "zip_bytes": 47304093,
-  "zip_sha256": "2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888",
+  "source_commit": "d1547e30c8b3a871aacd954499d5a866c5f603d5",
+  "app_archive_sha256": "8f9c32585dd26bba060d3fb061e5958cbb0370ea09ee034179eafeadf4937640",
+  "zip_bytes": 49198626,
+  "zip_sha256": "2c53d47ffbd8cf9c1284b091e74c967fb8d4c47a92cf4887f4e1fdaa05fed49d",
   "members_sha256": {
     "Open-ClipFoundry.cmd": "10778696e4094d459f7d96c798dfbd1f708785b058edb8701b0367ab3a92e7fb",
-    "setup.py": "0a8df49a554439628a5753dd2680803c2b819182a67370bf2056e080cfee4701",
-    "app.zip": "066ddb1af23dfb5ade0ae02857287396e0ac662f004642117a64bf6ba65b542d",
+    "setup.py": "fe3599af41cc7126ddeab9fa5d185b16b1a1665a8fbbb876a3331d9b236293f4",
+    "app.zip": "8f9c32585dd26bba060d3fb061e5958cbb0370ea09ee034179eafeadf4937640",
     "README.txt": "11d07ebb8e21a03849261cf55030c210ec9bc069122d3127a17730be5609e88e"
   },
-  "app_files": 748,
+  "app_files": 788,
   "no_custom_exe": true,
   "defender_acceptance_verified": false,
-  "native_windows_verified": true,
+  "native_windows_verified": false,
   "file": "ClipForge-Windows-Setup.zip",
-  "date": "2026-11-06",
+  "date": "2026-11-07",
   "timezone": "UTC",
   "product": "ClipForge",
   "launcher_tests": {
@@ -25,36 +25,21 @@
       "pin_bundle_test"
     ]
   },
-  "payload_review": "All 748 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
+  "payload_review": "All 788 app files equal the Git tree at the source commit; six .bat files differ only by the declared CRLF export",
   "native_windows_check": {
     "workflow": ".github/workflows/windows-setup-check.yml",
-    "status": "passed",
-    "run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587",
-    "commit": "9ddbd62ed93d775ea1bbb3d12060859530c07549",
-    "runner": "GitHub windows-2025 (Windows Server 2025), CPython 3.12.10 64-bit",
-    "downloaded_from": "this branch's public raw URL; SHA-256 matched",
-    "steps": [
-      "previous release (2e5238e, raw/d60445f) installed to C:\\CF14 with a synthetic setting, then closed",
-      "this ZIP installed over it to C:\\CF14-Open, keeping data folder C:\\CF14\\data and the setting",
-      "marker records source commit 32485bd; all 748 installed app files equal app.zip",
-      "the running app served this commit's index.html and app-icon.png byte for byte",
-      "closed and reopened: same folder, no second extraction, setting still there"
-    ],
-    "not_covered": [
-      "FFmpeg is not installed on the runner, so no video was processed on Windows",
-      "Windows 10/11 desktop, Defender/SmartScreen acceptance, GPUs, the built-in model and real AI keys on a PC, real accounts and uploads"
-    ]
+    "status": "pending",
+    "note": "runs on this push; the result is recorded here once it has passed"
   },
   "app_tests": {
-    "branch": "claude/project-thread-x72wkd at 32485bd (PR #25 built-in model and Clean up the sound, #26 FilmCraft and EffectCraft inside ClipForge, #27 ClipForge AI's memory and chat, #28 the know-how and the editors' numbers)",
-    "github_run": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798",
+    "branch": "claude/project-thread-x72wkd at d1547e3 (PR #31 long videos: full stories, big footage, your script, a smarter cut; #30 the new look; #32 ClipForge AI far smarter: meaning model, scout and judge, eyes, ears, your taste)",
+    "github_run": "pending: the Native Mac desktop app run on d1547e3 is recorded here once it has passed",
     "local": {
-      "commit": "ae2d5f5fd6431dbeea2637c1f6caf45abdcc4b7a (same tree as 32485bd)",
-      "fast": 1866
+      "commit": "7ec0bac (same tree as d1547e3)",
+      "passed": 1984,
+      "note": "python -m pytest tests, without the render tests that need espeak-ng (absent on the build computer)"
     },
-    "github_run_result": "native Mac build and bundled-app smoke passed; slow suite 27 passed; fast suite 1,866 passed on the second attempt of its job, after a timing race inside tests/test_craft.py (test-only fix 3c6b980 on the release line)",
-    "github_fast": 1866,
-    "github_slow": 27,
-    "filmcraft_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42307942878 (built-in model pass with the know-how, Ubuntu and macOS, passed)"
+    "builtin_ai_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42402011931 (Basic model on Linux, Mac and Windows runners; the meaning model downloaded and verified; the eyes answered; passed)",
+    "filmcraft_check": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42402011877 (passed)"
   }
 }

@@ -1,5 +1,14 @@
 # Delivery checkpoint: readable Windows source setup
 
+## 2026-11-07: a far smarter ClipForge AI, long videos and the new look (ClipForge 2026.11.07)
+
+The setup ZIP now installs source commit `d1547e30c8b3a871aacd954499d5a866c5f603d5`: the release line with PR #31
+(long videos: Full stories as one clip per story, footage used where it is, your script matched to the footage, a
+smarter cut), PR #30 (the new look) and PR #32 (ClipForge AI far smarter: the meaning model, the scout and judge,
+the eyes, the ears, the taste learner). start.bat is unchanged, so its pin and upgrade fixtures are the same. 77
+launcher tests passed. All 788 app files equal the Git tree except the six declared BAT CRLF exports. The Windows
+install check now installs the 32485bd release (raw/9ddbd62) first, then this one over it.
+
 ## 2026-11-06: ClipForge AI and FilmCraft inside the app (ClipForge 2026.11.06)
 
 The setup ZIP now installs source commit `32485bd8c36b5f889bff565d15bd15828bc6aadf`: the release line with PR #25
