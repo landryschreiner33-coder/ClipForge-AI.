@@ -29,8 +29,10 @@ at 7723696 (PRs #30 and #31 merged). No release. Design, numbers and the researc
 - **Ears** (`pipeline/ears.py`, new): pitch every 20 ms by autocorrelation, pitch variation, emphasis moments (pitch
   +3 semitones and loudness +0.8 σ together), laughter-like bursts (word-free, 3–8 Hz pulsing), the pause before the
   end, monotone; a prosody score joins the deep extras and a flat voice is named in the "Why". The smart editor's
-  punch-ins land where the voice leans on a word (`studio/smart_edit.py`, cached `prosody.json`); the note says how
-  many.
+  punch-ins land where the voice leans on a word (`studio/smart_edit.py`, cached `prosody.json`); when a recording's
+  voice stays even after every cut, the old every-other-cut rhythm takes over for it (found by the release line's
+  slow render test on a synthetic voice, fixed before the 2026.11.07 release); the note says how many and which
+  rule.
 - **Your taste** (`clipfoundry/taste.py`, new; tables `taste_events`, `taste_models`): lessons from unticking,
   re-ticking, exporting, publishing and deleting clips with the clip's 16-number profile; after 12 lessons (4 each
   side) a logistic regression gives each finalist at most ±6 with the reason in words, also read by the scout's brief;

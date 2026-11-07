@@ -19,7 +19,8 @@ is the brief field `smart_edit`: `smart` ("Edit it for me", the default in the a
 2. **Cuts dead air:** pauses longer than 0.7 s (0.4 s fast-paced) and lone "um"/"uh", found from word timings and
    confirmed in the sound (`audio.wav`, 10 ms levels, 30 dB under the speaker). A cut never lands inside a word.
    Joins inside one recording are straight cuts (`join: "cut"`) with 10 ms sound fades; fast-paced punches in
-   (`zoom: 1.1`) on every other cut. Silence before the first and after the last word is trimmed.
+   (`zoom: 1.1`) where the voice leans on a word (`pipeline/ears.py`), or on every other cut when the voice stays
+   even after the cuts or has not been measured. Silence before the first and after the last word is trimmed.
 3. **Pictures over the video** (`plan.overlays`): an image whose file name is said appears then (or just after, at a
    jump cut); others are spread over long talking stretches, never in the first 3 s or last 2 s, 4 s apart, with a
    slow push-in and fades. Without speech, images stay in the sequence as before.

@@ -182,6 +182,19 @@ def emphasis_points(asset: dict, words: list[dict]) -> list[float] | None:
         return None
 
 
+def _punch_note(stats: dict) -> str:
+    """The bracket after the pauses note that says where the punch-ins went."""
+    n = stats["punch_ins"]
+    plural = "s" if n != 1 else ""
+    if not stats.get("emphasis_known"):
+        return " (every other cut zooms in a little)"
+    if stats["even_voice"] and stats["even_voice"] == stats["heard"]:
+        return f" ({n} punch-in{plural}: your voice stays even after the cuts, so every other cut zooms in a little)"
+    if stats["even_voice"]:
+        return f" ({n} punch-in{plural} where your voice leans on a word, or on every other cut where it stays even)"
+    return f" ({n} punch-in{plural} where your voice leans on a word)"
+
+
 # ------------------------------------------------------------------ reading what is said
 def _toks(text: str) -> list[str]:
     return [t for t in tokens(text) if t not in PURE_FILLERS]
@@ -566,7 +579,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     notes: list[str] = []
     stats = {"pauses_cut": 0, "seconds_saved": 0.0, "trimmed_s": 0.0, "retakes": 0, "takes": 0, "chatter": 0,
              "stumbles": 0, "ai_left_out": 0, "fit_left_out": 0, "fillers": 0, "overlays": 0, "effects": 0,
-             "music": "", "cold_open": "", "punch_ins": 0, "emphasis_known": False}
+             "music": "", "cold_open": "", "punch_ins": 0, "emphasis_known": False, "heard": 0, "even_voice": 0}
 
     # ---- 1. what is said, per recording; what to leave out
     judged = judge_sentences(project, assets, words, values, ai)
@@ -660,6 +673,8 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
         emphasis = emphasis_points(a, ws) if opts["punch_in"] else None  # None: unknown, the old rule applies
         if emphasis is not None:
             stats["emphasis_known"] = True
+            stats["heard"] += 1
+        punch_ins_before, later_kept = stats["punch_ins"], []  # the kept parts after a cut, for the even-voice rule
         drop: set[int] = set()
         if opts["cut_retakes"]:
             for k, s in enumerate(sents):
@@ -716,11 +731,20 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
                     if leaned:
                         clip["zoom"] = PUNCH_IN
                         stats["punch_ins"] += 1
+                    later_kept.append((kept_index, clip))
                 kept_index += 1
             clips.append(clip)
             outline.append({"clip_id": cid, "label": a["filename"], "duration": round((b_ms - a_ms) / 1000, 1),
                             "summary": (said or "No speech") if kind == "keep" else
                             f"Left out ({part[3]}): {said}", **({"keeps": kept} if kept else {})})
+        if emphasis is not None and later_kept and stats["punch_ins"] == punch_ins_before:
+            # An even voice (or one that never rises after a cut) must not leave the jump cuts bare: the fast-paced
+            # level promises punch-ins, so the old rhythm takes over for this recording.
+            stats["even_voice"] += 1
+            for k, clip in later_kept:
+                if k % 2 == 1:
+                    clip["zoom"] = PUNCH_IN
+                    stats["punch_ins"] += 1
     if stats["retakes"]:
         notes.append(f"Left out {stats['retakes']} earlier take{'s' if stats['retakes'] != 1 else ''} of a line "
                      "you said again (switched off in the sequence; Put back restores one).")
@@ -736,9 +760,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
     if stats["pauses_cut"]:
         notes.append(f"Cut {stats['pauses_cut']} pause{'s' if stats['pauses_cut'] != 1 else ''} longer than "
                      f"{level['pause_s']:g} s, saving {stats['seconds_saved']:.0f} s"
-                     + ((f" ({stats['punch_ins']} punch-in{'s' if stats['punch_ins'] != 1 else ''} where your voice "
-                         "leans on a word)" if stats.get("emphasis_known") else " (every other cut zooms in a little)")
-                        if opts["punch_in"] else "") + ".")
+                     + (_punch_note(stats) if opts["punch_in"] else "") + ".")
     if stats["trimmed_s"] >= 1:
         notes.append(f"Trimmed {stats['trimmed_s']:.0f} s of silence before the first and after the last words "
                      "of your recordings.")
