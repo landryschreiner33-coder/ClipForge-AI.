@@ -54,7 +54,7 @@ at 7723696 (PRs #30 and #31 merged). No release. Design, numbers and the researc
 - **Fix:** `taste.predict` could return NaN when a feature never varied (standard deviations floored at 1e-4, z-scores
   clipped at ±4).
 - **Checks:** `tests/test_smarter_ai.py` (39 tests; one runs the real model when `CLIPFORGE_MEANING_MODEL_DIR` is set);
-  `tests/conftest.py` points the model hub at a closed port so no test downloads; `scripts/builtin_ai_check.py
+  `tests/conftest.py` points the model hub at a closed port so no test downloads; `tests/test_review_creation_fixes.py` compares the unrounded ranking value (the one-decimal score can coincide when the prioritised factor sits at the mean, which the new curiosity term made happen for its passage); `scripts/builtin_ai_check.py
   --meaning --eyes` and `.github/workflows/builtin-ai-check.yml` check the real download, hashes, similarities, speed,
   a schema-bound ranking and the eyes on a GitHub runner (the model hub is blocked from the cloud computer).
 

@@ -60,7 +60,8 @@ def test_manual_creation_keeps_real_ranking_guidance_with_the_selected_clip(data
     baseline, _ = scoring.evaluate(candidates, sentences, prepared.opts, JobContext(), project["name"], 0, 1,
                                    words=words, loud=loud)
     assert baseline[0]["analysis"]["brain_priorities"] == []
-    assert ranked[0]["score"] != baseline[0]["score"]
+    # the unrounded ranking value: the one-decimal score can coincide when the prioritised factor sits at the mean
+    assert ranked[0]["analysis"]["raw"] != baseline[0]["analysis"]["raw"]
     clip = process.create_clips(prepared, ranked, JobContext())[0]
     stored = db.get_clip(clip["id"])["analysis"]["brain_knowledge"]
     assert stored[0]["knowledge_id"] == lesson["id"]
