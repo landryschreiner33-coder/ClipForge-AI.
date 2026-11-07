@@ -372,7 +372,7 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
               <aside className="brain-vault-sidebar" aria-label="Saved knowledge">
                 <div className="brain-vault-name">
                   <Icon name="folder" />
-                  <span>MY KNOWLEDGE</span>
+                  <span>My knowledge</span>
                   <span>{rows.length}</span>
                 </div>
                 <label className="brain-vault-search">
@@ -412,7 +412,7 @@ function BrainNotes({ tab = "knowledge" }: { tab?: string }) {
                   ))}
                 </nav>
                 <div className="brain-vault-divider">
-                  <span>SAVED ITEMS</span>
+                  <span>Saved items</span>
                 </div>
                 <div className="brain-vault-notes" role="group" aria-label="Saved items: arrow keys move"
                   onKeyDown={listKeys}>
@@ -732,7 +732,7 @@ function GraphInspector({
     <aside className="brain-inspector" aria-label="Selected connection">
       <div className="brain-inspector-eyebrow">
         <span style={{ background: node.color }} />
-        {node.kind === "brain" ? "YOUR KNOWLEDGE" : node.kind === "knowledge" ? node.category
+        {node.kind === "brain" ? "Your knowledge" : node.kind === "knowledge" ? node.category
           : RECORD_WORD[node.kind as RecordKind] || node.kind}
       </div>
       <h2>{node.title}</h2>

@@ -198,7 +198,8 @@ function Shell({ me }: { me: Me }) {
         <aside className="cf-side" aria-label="ClipForge">
           {brand}
           <nav className="nav" aria-label="Main">{nav}</nav>
-          <button type="button" className="btn btn-small btn-quiet" onClick={toggleSide} aria-pressed={collapsed}>
+          <button type="button" className="btn btn-small btn-quiet" onClick={toggleSide} aria-pressed={collapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
             <Icon name="menu" /><span className="side-foot-label">{collapsed ? "" : "Collapse sidebar"}</span></button>
           {foot}
         </aside>
