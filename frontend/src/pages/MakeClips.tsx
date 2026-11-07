@@ -8,7 +8,7 @@ import { Connection, LinkCheck, Snapshot, studio } from "../studio";
 
 const MODES = [
   { id: "highlights", name: "Highlights", text: "Pick the strongest short moments" },
-  { id: "full_stories", name: "Full stories", text: "Make one complete clip for each story" },
+  { id: "full_stories", name: "Full stories", text: "One clip per story, from its start to the next story" },
 ] as const;
 
 const newRequestId = () => (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, "");
@@ -110,8 +110,9 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
                 </label>
               ))}
             </div>
-            {mode === "full_stories" && <p className="small muted">Each story keeps its setup and ending, however long it is.
-              Stories ClipForge is not sure about wait for you to check them; nothing is cut short to fit a platform.</p>}
+            {mode === "full_stories" && <p className="small muted">ClipForge finds where each story starts and makes one clip per story,
+              running until the next one starts, however long it is. Nothing waits for you: every clip is made right away, and you can
+              still move a boundary afterwards. Nothing is cut short to fit a platform.</p>}
           </section>
           <section className="panel" aria-labelledby="mc-file">
             <h2 id="mc-file">Your video</h2>

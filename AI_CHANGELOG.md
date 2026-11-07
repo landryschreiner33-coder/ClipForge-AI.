@@ -43,6 +43,66 @@ from the release line at 3c6b980 (the long-video work runs in its own branch bes
   shell, library, Settings and the office against a throwaway app: 32 pass, and the 5 that fail (three office map and
   bar checks, two Settings checks) fail the same way on the release line with the same data.
 
+## Long videos: full stories found right, big footage, your script, and a smarter cut — 2026-11-07 (Claude Code)
+
+Landry could not get 17 GB of footage into "Make a YouTube video", found the cut it made weak, wanted to give it the
+script to compare with the footage, and asked first for the Full stories section to find every story in a video of
+someone reading posts and make one long clip per story without asking anything. Branch
+`claude/project-thread-6ouxbx` (from the release line at 32485bd), draft PR into `claude/project-thread-x72wkd`. No
+release.
+
+- **Full stories** (`pipeline/stories.py`, `studio/story_review.py`, `jobs.py`): the finder learns the narrator's own
+  separators from the recording ("next story", "story number three", "this one is from r slash…", a post title read
+  out, numbering in order), knows the strong and weak openers and the Reddit title patterns, never splits an update
+  or a top comment from its story, labels intro, sponsor and outro blocks, and looks at a topic dip against the
+  chunk's own median rather than silence alone. Every story runs until the next one starts (the transition words go
+  with the story before them), nothing waits for a check, and each clip is made at once. With ClipForge AI's model
+  set up it gives a second opinion on the least certain boundaries inside a time budget and names the stories from
+  the post title. Text-to-speech narration (no pauses) is handled.
+- **Big footage** (`studio/local_files.py`, `studio/local_routes.py`, `studio/uploads.py`, `studio/proxies.py`,
+  `pipeline/transcribe.py`, `pipeline/audio.py`): on the desktop, **Add from this computer** browses the owner's
+  folders and drives (`GET /api/local/browse`) and uses files where they are (`POST /api/uploads/link`; nothing
+  copied, the file never changed, found again if moved within the allowed folders); the upload limit is the free
+  space less 2 GB (at most 512 GB) instead of a fixed size. Each asset has a work folder (`uploads.work_dir`) for
+  its sound, transcript pieces and preview copy. Long files are listened to in pieces (`transcribe.transcribe_long`,
+  resumable from `transcript.parts`, the model held across the pieces of one batch and released after it,
+  `release_model`), and a closed app carries on where it stopped. `POST /api/assets/{id}/prepare` does the sound,
+  the transcript and a small preview copy in the background (`preview_proxies` setting); previews read the copy,
+  the final render always the original (`assets.proxy_path`).
+- **Your script** (`studio/script.py`, `studio/script_cut.py`, `video_flow.set_script`, `db.py`
+  `studio_projects.script`): `.txt`, `.md`, `.docx`, `.pdf`, `.fdx` or pasted text (`POST /api/studio/scripts/parse`;
+  `pypdf` and `python-docx` added to the requirements) become numbered lines, headings and directions. Every spoken
+  line is matched to the transcribed words of every recording, each time it was said is a take, the take said most
+  cleanly plays (`take_quality`), the others follow it switched off ("Another take of line 12"), neighbouring lines
+  said in one go are one clip, what is in no line waits at the end switched off, a heading is a chapter, missing
+  lines are named. `use_take` swaps a take in (the clip is split around the line, the old take kept behind it). A
+  script goes with the new video (`POST /api/studio/videos` `script`) or later (`PUT /api/studio/videos/{id}/script`,
+  a new version in the background; `null` takes it away). With a script the model is not asked anything; pictures,
+  music and effects come from the smart edit as before.
+- **A smarter cut without a script** (`studio/smart_edit.py` `judge_sentences`): the cleanest take of a line said
+  again anywhere in the footage plays and the rest are switched off in place (`best_takes`: content-word index,
+  similarity ≥ 0.8 on four or more words; a line said more than three times is a catchphrase and stays); warm-ups
+  and throat-clearers in a recording's first 20 s, words to whoever is recording in its last 45 s or tenth, and a
+  sign-off before the last recording are left out (`chatter`); a video of two minutes or more opens with its
+  strongest line and then plays from the start (`cold_open`: the model's `hook` or the best `hook_score` after 15 s
+  inside the first 60%; brief `cold_open`, on by default; Shorten the introduction skips it).
+- **ClipForge AI reads the whole video** (`studio/ai_editor.py`): what the rules left out is not sent (`skip`),
+  windows carry the story so far (the chapters found earlier), up to 64 windows are read inside a time budget
+  (`ai_edit_timeout_s` × 15, between 2 and 15 minutes, `budget_for`), the first window always; a `hook` it names is
+  only ever a sentence that plays; the report says how many sentences it read and how many were not sent.
+- **In the app** (`components/ScriptDrop.tsx`, `ScriptPanel.tsx`, `LocalFiles.tsx`, `longVideo.css`,
+  `pages/MakeVideo.tsx`, `pages/VideoReview.tsx`, `studioParts.tsx`, `studio.ts`): "Your script" on the Make a
+  YouTube video page (drop, choose or paste), "Add from this computer" on the desktop, the cold-open choice in the
+  brief; on the editor page a **Script** panel (every line with where it plays, Use this take, add, change or take
+  away the script), "Cold open" and "Line N" pills in the sequence, "Use this take" on the other takes, Add from
+  this computer under Your media. `frontend/dist` rebuilt.
+- **Tests:** `tests/test_full_stories.py` (13), `tests/test_studio_script.py` (23), `tests/test_studio_script_cut.py`
+  (4), `tests/test_transcribe_long.py` (17), `tests/test_studio_local_files.py` (9), `tests/test_studio_proxies.py`
+  (3, needs ffmpeg), `tests/test_studio_smart_edit.py` (21). No speech model, no real footage and no built-in model
+  in the cloud: the words are given.
+- **Design:** [docs/clipforge/LONG_VIDEOS.md](docs/clipforge/LONG_VIDEOS.md) (new); `SMART_EDITING.md`,
+  `OWNER_GUIDE.md`, `ROUTE_MAP.md`, `FEATURE_CHECKLIST.md` (rows 43 to 45) updated.
+
 ## ClipForge AI know-how: the research turned into playbooks, and editors that apply its numbers — 2026-11-06 (Claude Code)
 
 Landry gave ClipForge AI two research guides (a cinematic filmmaking and post-production guide, a viral short-form

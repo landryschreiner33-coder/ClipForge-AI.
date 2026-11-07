@@ -1198,7 +1198,7 @@ JSON_FIELDS = {
     "oauth_connects": set(),
     "uploads": set(),
     "assets": {"probe"},
-    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script"},
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
@@ -1239,7 +1239,7 @@ ADDED_COLUMNS = {
     "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
     "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
     # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
-    "studio_projects": {"media": "TEXT DEFAULT '{}'"},
+    "studio_projects": {"media": "TEXT DEFAULT '{}'", "script": "TEXT DEFAULT '{}'"},
     # the memories ClipForge AI read for a proposal (brain/memories.py)
     "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},

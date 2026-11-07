@@ -141,6 +141,7 @@ def prepare(project_id: str, ctx: JobContext, gpu_policy: dict | None = None) ->
                 transcript = transcribe.transcribe(wav, meta["duration"], settings, ctx, P_AUDIO, P_TRANSCRIBE,
                                                    allow_cpu_fallback=policy.get("allow_cpu_fallback", True))
             gpu.manager.record_transcription(transcript.get("runtime") or {}, project["name"])
+            transcribe.release_model()  # one file per project: give the GPU back to the local AI model
         write_json(tpath, transcript)
     words = transcribe.flatten_words(transcript)
     info["transcript_source"] = transcript.get("source", "")

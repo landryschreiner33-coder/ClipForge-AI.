@@ -4,6 +4,8 @@ import { LayoutFlow } from "../components/AppearanceSettings";
 import { ClipForgeAI } from "../components/ClipForgeAI";
 import { FilmCraftPanel, MadeWithLine } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
+import { LocalFiles } from "../components/LocalFiles";
+import { ScriptPanel } from "../components/ScriptPanel";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, Video } from "../studio";
@@ -178,12 +180,16 @@ function smartDone(r: SmartReport): string {
   const parts: string[] = [];
   if (s.pauses_cut) parts.push(`cut ${plural(s.pauses_cut, "pause")} (${Math.round(s.seconds_saved)} s)`);
   if (s.retakes) parts.push(`left out ${plural(s.retakes, "repeated take")}`);
+  if (s.takes) parts.push(`kept the cleanest take of ${plural(s.takes, "line said again elsewhere")}`);
+  if (s.chatter) parts.push(`left out ${plural(s.chatter, "warm-up or camera remark")}`);
   if (s.stumbles) parts.push(`cut ${plural(s.stumbles, "stumbled word")}`);
   if (s.ai_left_out) parts.push(`left out ${plural(s.ai_left_out, "weak part")} ClipForge AI found`);
   if (s.fit_left_out) parts.push(`left out ${plural(s.fit_left_out, "weaker sentence")} to fit your length`);
   if (s.overlays) parts.push(`showed ${plural(s.overlays, "picture")}`);
   if (s.music) parts.push("added music");
   if (s.effects) parts.push(`added ${plural(s.effects, "sound effect")}`);
+  if (s.cold_open) parts.push(`opened with “${s.cold_open}”`);
+  if (r.script) parts.unshift(`followed your script (${s.lines_found ?? 0} line${s.lines_found === 1 ? "" : "s"} found${s.lines_missing ? `, ${s.lines_missing} missing` : ""})`);
   if (!parts.length) return "Nothing needed cutting.";
   const text = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
   return text.charAt(0).toUpperCase() + text.slice(1) + ".";
@@ -232,10 +238,11 @@ function SmartPanel({ v, plan, busy, onStarted }: { v: Video; plan: Plan; busy: 
   return (
     <section className="panel" aria-labelledby="vr-smart">
       <div className="panel-head"><h2 id="vr-smart">Edit it for me</h2>
-        {report && report.level !== "off" && <span className="pill">{report.level === "tight" ? "Fast-paced" : "Smart edit"}</span>}</div>
-      {report && report.level !== "off" ? <p>{smartDone(report)}</p>
+        {report?.script ? <span className="pill good">Follows your script</span>
+          : report && report.level !== "off" && <span className="pill">{report.level === "tight" ? "Fast-paced" : "Smart edit"}</span>}</div>
+      {report && (report.level !== "off" || report.script) ? <p>{smartDone(report)}</p>
         : <p className="muted">ClipForge can cut the pauses, repeated takes and weak parts, fit your length, and add your pictures, music and soft sound effects. It makes a new version you can undo.</p>}
-      {report?.ai?.used ? <p className="small muted">{report.ai.sent}{report.ai.problems?.length ? ` Some parts were decided without it: ${report.ai.problems[0]}` : ""}</p>
+      {report?.ai?.used ? <p className="small muted">{report.ai.sent}{report.ai.read ? ` It read ${report.ai.read} sentences${report.ai.not_sent ? ` (${report.ai.not_sent} the rules had already left out were not sent)` : ""}.` : ""}{report.ai.problems?.length ? ` Some parts were decided without it: ${report.ai.problems[0]}` : ""}</p>
         : report?.ai?.problem ? <p className="small muted">ClipForge AI was not used ({report.ai.problem}). <a href="#/settings/ai">ClipForge AI settings</a></p> : null}
       <Disclosure summary={report && report.level !== "off" ? "Edit it again with other choices" : "Choose how"}>
         <div className="stack-3">
@@ -326,7 +333,14 @@ export default function VideoReview({ id }: { id: string }) {
   const [insert, setInsert] = useState({ asset: "", at: -1 });
   const [place, setPlace] = useState<{ asset: string; role: AudioRole; at: string }>({ asset: "", role: "effect", at: "" });
   const [naming, setNaming] = useState<{ rev: number; name: string } | null>(null);
+  const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
+  const [browsing, setBrowsing] = useState(false);
   const sent = useRef(new Set<string>());
+  useEffect(() => {
+    let alive = true;
+    studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
+    return () => { alive = false; };
+  }, []);
 
   const load = useCallback(() => studio.video(id).then(setV).catch((e) => setProblem(errorText(e))), [id]);
   useEffect(() => {
@@ -413,6 +427,8 @@ export default function VideoReview({ id }: { id: string }) {
         outputs: plan && (
           <div className="stack-5">
             <SmartPanel key={v.plan_revision} v={v} plan={plan} busy={busy} onStarted={() => void load()} />
+            <ScriptPanel key={`script-${v.plan_revision}`} v={v} plan={plan} busy={busy} edit={edit} onStarted={() => void load()}
+              onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />
             <section className="panel" aria-labelledby="vr-seq">
               <div className="panel-head"><h2 id="vr-seq">Sequence ({plan.clips.length})</h2>
                 <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "shorten_intro", seconds: 5 })}>Shorten the introduction</button></div>
@@ -423,7 +439,7 @@ export default function VideoReview({ id }: { id: string }) {
                     <li key={c.id} id={`clip-${c.id}`} className={`${c.include ? "" : "off"} ${selected === c.id ? "on" : ""}`}>
                       <span className="idx">{i + 1}</span>
                       <div className="break">
-                        <b className="clamp-1">{c.label}</b>
+                        <b className="clamp-1">{c.label}{c.hook ? <> <span className="pill accent">Cold open</span></> : null}{c.take_of?.lines?.length ? <> <span className="pill plain small">{c.take_of.lines.length === 1 ? `Line ${c.take_of.lines[0]}` : `Lines ${c.take_of.lines[0]}–${c.take_of.lines[c.take_of.lines.length - 1]}`}</span></> : null}</b>
                         <span className="block small muted">{fmtEdit(c.in_ms)}–{fmtEdit(c.out_ms)} · {((c.out_ms - c.in_ms) / 1000).toFixed(1)} s{c.mute ? " · muted" : ""}{o?.summary ? ` · “${o.summary}”` : ""}</span>
                         {c.must_keep?.length ? <span className="block small">Keeps: {c.must_keep.join(", ")}</span> : null}
                       </div>
@@ -431,6 +447,7 @@ export default function VideoReview({ id }: { id: string }) {
                         <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${c.label} earlier`} disabled={busy || i === 0} onClick={() => edit({ op: "move", clip_id: c.id, to: i - 1 })}><Icon name="chev" className="rot-up" /></button>
                         <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${c.label} later`} disabled={busy || i === plan.clips.length - 1} onClick={() => edit({ op: "move", clip_id: c.id, to: i + 1 })}><Icon name="chev" /></button>
                         {c.include ? <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "remove", clip_id: c.id })}>Remove</button>
+                          : typeof c.take_of?.line === "number" ? <button type="button" className="btn btn-small" disabled={busy} title={`Play this take of line ${c.take_of.line} instead`} onClick={() => edit({ op: "use_take", clip_id: c.id })}>Use this take</button>
                           : <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "include", clip_id: c.id })}>Put back</button>}
                         <button type="button" className="btn btn-small" aria-expanded={selected === c.id} onClick={() => setSelected(selected === c.id ? "" : c.id)}>{selected === c.id ? "Close" : "Edit"}</button>
                       </div>
@@ -491,6 +508,12 @@ export default function VideoReview({ id }: { id: string }) {
             <section className="panel" aria-labelledby="vr-media">
               <h2 id="vr-media">Your media ({bin.length})</h2>
               <FileDrop accept="video/*,image/png,image/jpeg,image/webp,audio/*,.mkv,.m4v,.flac,.opus,.ogg" multiple label="Add more videos, images or sounds" onAssets={addFiles} />
+              {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
+              {browsing && <LocalFiles onClose={() => setBrowsing(false)} onLinked={(assets) => {
+                const fresh = assets.map((a) => a.id).filter((aid) => !sent.current.has(aid));
+                fresh.forEach((a) => sent.current.add(a));
+                if (fresh.length) void act(() => studio.addVideoMedia(v.id, fresh).then((r) => ({ ...r, note: `Added ${r.added.length} file${r.added.length === 1 ? "" : "s"} to your media, used where they are` })));
+              }} />}
               <p className="small muted">New files wait here until you insert them or add them to a track. Nothing is cut or deleted from your originals.</p>
               <Disclosure summary={`Files in this project (${bin.length})`}>
                 <ul className="file-list">{bin.map((a) => (

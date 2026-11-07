@@ -3,7 +3,9 @@
 An edit plan is engine-independent JSON with integer-millisecond times (timebase 1000). This adapter declares what it
 supports, validates a plan against it (anything else is reported before rendering, never silently dropped), builds
 the exact output time map, and renders from the full originals on the server. A preview is the same plan at a small
-size and a fast preset, so preview and export follow one code path.
+size and a fast preset, so preview and export follow one code path; a preview's picture may come from a small proxy
+copy of a big video when one has been made (studio/proxies.py), its sound still comes from the original, and a final
+render never reads a proxy.
 
 Scale: a render never opens every file at once. The sequence is cut into pieces (the body of each element and the
 short join between two neighbours), each made by its own FFmpeg process with at most two inputs, encoded once and
@@ -101,7 +103,8 @@ def capabilities() -> dict:
             "clean_sound": list(config.CLEAN_SOUND_MODES), "unsupported": UNSUPPORTED,
             "limits": "No fixed number of files, clips or audio items. Free disk space is checked before a "
                       "render; each step opens at most two media files.",
-            "notes": "Renders from the full original files on the server; previews use the same plan at 360p."}
+            "notes": "Renders from the full original files on the server; previews use the same plan at 360p and "
+                     "read a small proxy copy of a big video when one has been made (never a final render)."}
 
 
 def default_tracks() -> dict:
@@ -431,8 +434,19 @@ def overlay_timeline(plan: dict, segs: list[dict] | None = None) -> list[dict]:
     return sorted(out, key=lambda x: x["out_start_ms"])
 
 
-def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dict]) -> dict[int, list[dict]]:
-    """The overlays of each element in whole output frames, inside the element's body (as overlay_timeline)."""
+def _picture_source(a: dict, use_proxies: bool) -> str:
+    """The file an element's picture is read from: the asset's proxy for a preview when one exists, else the
+    original. A final render never reads a proxy."""
+    proxy = a.get("proxy_path") or ""
+    if use_proxies and a.get("kind") == "video" and proxy and Path(proxy).is_file():
+        return proxy
+    return a["path"]
+
+
+def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dict],
+                    use_proxies: bool = False) -> dict[int, list[dict]]:
+    """The overlays of each element in whole output frames, inside the element's body (as overlay_timeline). With
+    `use_proxies` (previews) a video overlay's picture comes from its proxy when one exists (`src` says which)."""
     index = {e["clip_id"]: k for k, e in enumerate(els) if e["kind"] != "title"}
     out: dict[int, list[dict]] = {}
     last_end: dict[int, int] = {}
@@ -457,8 +471,10 @@ def _overlay_frames(plan: dict, els: list[dict], fps: int, assets: dict[str, dic
             if w and h:
                 ow, oh = ASPECTS[plan["output"]["aspect"]]
                 fit = "fit" if abs(math.log((w / h) / (ow / oh))) > 0.35 else "fill"
-        out.setdefault(k, []).append({"id": o["id"], "kind": a["kind"], "path": a["path"], "sha": a.get("sha256", ""),
-                                      "start_f": start, "end_f": end, "fit": fit,
+        picture = _picture_source(a, use_proxies)
+        out.setdefault(k, []).append({"id": o["id"], "kind": a["kind"], "asset_id": o["asset_id"], "path": picture,
+                                      "src": "proxy" if picture != a["path"] else "original",
+                                      "sha": a.get("sha256", ""), "start_f": start, "end_f": end, "fit": fit,
                                       "motion": o.get("motion", "still") if a["kind"] == "image" else "still",
                                       "src_in_ms": int(o.get("in_ms") or 0)})
     return out
@@ -643,11 +659,15 @@ def _piece(spec: dict, els: list[dict], fps: int, width: int, height: int, layou
                            "title": els[k].get("title", ""),
                            "layout": (els[k].get("clip") or {}).get("layout"),
                            **({"zoom": (els[k].get("clip") or {}).get("zoom")}
-                              if float((els[k].get("clip") or {}).get("zoom") or 1.0) > 1.001 else {})}
+                              if float((els[k].get("clip") or {}).get("zoom") or 1.0) > 1.001 else {}),
+                           # a piece read from a proxy is never reused for the original, or the other way round
+                           **({"src": "proxy"} if els[k].get("src") == "proxy" else {})}
                           for k in spec["els"]]}
     if spec.get("ov"):
         ov = spec["ov"]
         key_src["overlay"] = {k: ov[k] for k in ("kind", "sha", "fit", "motion", "src_in_ms")}
+        if ov.get("src") == "proxy":
+            key_src["overlay"]["src"] = "proxy"
     key = hashlib.sha256(json.dumps(key_src, sort_keys=True).encode()).hexdigest()[:32]
     out = cache / f"{key}.h264"
     if out.is_file() and out.stat().st_size > 0:
@@ -895,13 +915,22 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     width, height = _size(plan, preview)
     fps = int((plan.get("output") or {}).get("fps") or 30)
     els, _overlap = frame_map(plan, fps)
+    use_proxies = preview and bool((settings or {}).get("preview_proxies", True))
+    proxied: list[str] = []  # the assets whose proxy stood in for the original (previews only)
     for e in els:
         if e["kind"] == "title":
             e["title"] = plan["title"]["text"]
         else:
             a = assets[e["asset_id"]]
-            e.update(path=a["path"], sha256=a.get("sha256", ""))
-    overlays = _overlay_frames(plan, els, fps, assets)
+            picture = _picture_source(a, use_proxies)
+            # the picture may come from the proxy; the sound always comes from the original
+            e.update(path=picture, sound_path=a["path"], sha256=a.get("sha256", ""),
+                     src="proxy" if picture != a["path"] else "original")
+    overlays = _overlay_frames(plan, els, fps, assets, use_proxies)
+    for aid in [e["asset_id"] for e in els if e.get("src") == "proxy"] + \
+            [o["asset_id"] for items in overlays.values() for o in items if o["src"] == "proxy"]:
+        if aid not in proxied:
+            proxied.append(aid)
     total_f = els[-1]["end_f"]
     total_s = total_f / fps
     segs = render_timeline(plan, fps)
@@ -952,15 +981,17 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
         cleaned: dict[str, cleanup.Result] = {}
 
         def source_sound(e: dict, a: dict) -> list[str]:
-            """Input options for an element's own sound: the asset's cleaned-up sound when there is one."""
+            """Input options for an element's own sound, always from the original file (a preview's picture may
+            come from a proxy): the asset's cleaned-up sound when there is one."""
+            sound = e.get("sound_path") or e["path"]
             if clean_mode == "off" or clean_mode not in cleanup.MODES:
-                return ["-i", e["path"]]
+                return ["-i", sound]
             aid = e["asset_id"]
             if aid not in cleaned:  # the whole file once (cached), so every cut and preview reuses it
-                cleaned[aid] = cleanup.clean_or_keep(e["path"], 0.0, _length(a) / 1000,
+                cleaned[aid] = cleanup.clean_or_keep(sound, 0.0, _length(a) / 1000,
                                                      words_by_asset.get(aid) or [], clean_mode, cancelled=cancelled)
             r = cleaned[aid]
-            return r.input_args() if r.path is not None else ["-i", e["path"]]
+            return r.input_args() if r.path is not None else ["-i", sound]
         for k, e in enumerate(els):
             clip = e.get("clip") or {}
             a = assets.get(e["asset_id"]) if e["kind"] == "video" else None
@@ -1045,4 +1076,4 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
             "overlays": [{"overlay_id": o["id"], "start_f": o["start_f"], "end_f": o["end_f"]}
                          for k in sorted(overlays) for o in overlays[k]],
             "captions": bool(events), "clean_sound": {aid: r.report for aid, r in cleaned.items()},
-            "pieces": len(used), "frames": total_f}
+            "pieces": len(used), "frames": total_f, "proxied": proxied}

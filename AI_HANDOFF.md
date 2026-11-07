@@ -38,6 +38,46 @@ line, the Settings frame, the Review column packing).
   pairs).
 - **Waiting on Landry:** a look at the pictures and the PR; the merge; the release (needs an explicit OK).
 
+## Long videos: full stories, big footage, the script and a smarter cut — 2026-11-07 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wanted the long-video editing much better and smarter: 17 GB of footage would not
+go in, the cut was weak, the script should be compared with the footage, and first the Full stories section had to
+find every story in a video of someone reading posts and make one long clip per story without asking. The stories
+finder now learns the narrator's own separators and never asks (committed first, e6681ed). Big files are used where
+they are on the desktop, listened to in pieces that resume, and previewed from a small copy. A script in any common
+format is matched line by line to the footage and cut in script order with the cleanest take of each line, the
+other takes a click away. Without a script, the cut keeps the best take across files, drops warm-ups and camera
+chatter, opens with the strongest line, and ClipForge AI reads the whole video inside a time budget.
+
+- **Branch / PR:** `claude/project-thread-6ouxbx` (from the release line at 32485bd), draft PR into
+  `claude/project-thread-x72wkd`. No release. The UI redesign thread (`claude/project-thread-89ew66`) styles the new
+  screens; my styles are in `frontend/src/components/longVideo.css` so the two do not collide.
+- **Design and limits:** [docs/clipforge/LONG_VIDEOS.md](docs/clipforge/LONG_VIDEOS.md) (as built, with the numbers);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md) lists every change.
+- **Code:** `clipfoundry/pipeline/stories.py`, `studio/story_review.py`; `studio/local_files.py`, `local_routes.py`,
+  `proxies.py` (new), `uploads.py`, `api.py`, `config.py`, `engine.py`, `reference.py`; `pipeline/transcribe.py`,
+  `audio.py`, `process.py`; `studio/script.py`, `script_cut.py` (new), `video_flow.py`, `routes.py`, `db.py`;
+  `studio/smart_edit.py`, `ai_editor.py`; `frontend/src/studio.ts`, `components/ScriptDrop.tsx`, `ScriptPanel.tsx`,
+  `LocalFiles.tsx`, `longVideo.css` (new), `studioParts.tsx`, `pages/MakeVideo.tsx`, `pages/VideoReview.tsx`;
+  `requirements.txt` (`pypdf`, `python-docx`).
+- **Verify:** `python -m pytest -q tests/test_full_stories.py tests/test_studio_script.py
+  tests/test_studio_script_cut.py tests/test_transcribe_long.py tests/test_studio_local_files.py
+  tests/test_studio_proxies.py tests/test_studio_smart_edit.py tests/test_studio_editor.py tests/test_studio_jobs.py`
+  (all green here); `cd frontend && npm run build`. On a real computer: add a 17 GB file with Add from this computer,
+  watch it listen in pieces and resume after a quit, give a script and check the takes, build without a script and
+  check the cold open and the takes across files, and the Full stories section on a real Reddit-reader video.
+- **Judgement calls to know about:** with a script ClipForge AI's model is not asked at all and the pauses inside a
+  take are not cut (a line plays as it was said); a line said more than three times is a catchphrase and every time
+  stays; greetings and "in this video…" are not chatter; a sign-off is left out only in a recording that is not the
+  last; the cold open is on by default from two minutes and needs a score of 0.55 (a weaker video just starts);
+  the desktop upload limit is the free space less 2 GB; linked files are never changed and everything made for them
+  lives in ClipForge's data folder; the speech model is held across the pieces of one batch and released after it
+  (`transcribe.release_model`; the live loop in `pipeline/live.py` is unchanged).
+- **Not done:** a real 17 GB file, the real speech model, the built-in model and espeak-ng renders could not be
+  tried in the cloud; script matching is by words, not meaning (a paraphrased line counts as missing); the local
+  browser was tried on Linux paths only; the look of the new panels is the UI thread's.
+- **Waiting on Landry:** review of the PR and a try with his own footage; the release (needs an explicit OK).
+
 ## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry gave ClipForge AI two research guides (cinematic filmmaking and post-production;

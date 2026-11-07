@@ -43,7 +43,8 @@ signed-in owner and Sign out. Below 1024 px the sidebar becomes a drawer opened 
 | --- | --- |
 | Sign-in | `GET /api/auth/me`, `GET /api/auth/login`, `GET /api/auth/callback`, `POST /api/auth/logout`, `POST /api/auth/logout-all` |
 | Uploads and assets | `POST /api/uploads`, `GET/PUT /api/uploads/{id}`, `POST /api/uploads/{id}/complete`, `GET /api/assets/{id}`, `GET /api/assets/{id}/media`, `GET /api/assets/{id}/thumbnail` |
-| Studio projects | `POST /api/studio/clips`, `POST /api/studio/videos`, `GET /api/studio/projects`, `GET/PATCH /api/studio/videos/{id}`, `POST /api/studio/videos/{id}/{build,edits,render,cancel}`, `GET /api/studio/videos/{id}/media` |
+| Studio projects | `POST /api/studio/clips`, `POST /api/studio/videos` (with `script`), `GET /api/studio/projects`, `GET/PATCH /api/studio/videos/{id}`, `POST /api/studio/videos/{id}/{build,edits,render,cancel,smart}`, `PUT /api/studio/videos/{id}/script`, `POST /api/studio/scripts/parse`, `GET /api/studio/videos/{id}/media` |
+| Big footage (desktop) | `GET /api/local/browse`, `POST /api/uploads/link`, `POST/GET /api/assets/{id}/prepare` |
 | Full stories | `GET /api/projects/{id}/stories`, `PATCH /api/stories/{id}`, `POST /api/projects/{id}/stories/{split,merge,create}` |
 | Styles and skills | `/api/studio/styles…`, `/api/studio/skills…` (import, preview, enable, export, delete) |
 | Connections | `GET /api/connections`, `POST /api/connections/{platform}/add`, `POST /api/connections/{id}/reconnect`, `POST /api/connections/{id}/disconnect`, `PATCH /api/connections/{id}` |

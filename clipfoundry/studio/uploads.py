@@ -1,9 +1,15 @@
-"""Resumable uploads that become immutable, private assets.
+"""Resumable uploads that become immutable, private assets, and files used where they are.
 
 The browser sends a file in chunks at the exact offset the server reports, so an interrupted transfer resumes where
 the last complete chunk ended (a partly received chunk is cut off again). Completion re-hashes the whole file,
 compares it with the hash the browser computed, probes it, and stores it once per workspace and content hash. An
 upload that has not completed is never shown as ready. Originals are kept until an explicit retention choice.
+
+On the desktop a file can also be *linked* (`link_local`): it stays where it is, nothing is copied or uploaded, and
+the asset's `path` is the file itself. Everything ClipForge makes for an asset (its 16 kHz sound, transcript,
+preview proxy and thumbnail) lives in `work_dir(asset)`: the asset's own folder under the data folder, never next
+to the owner's file, which is never changed or made read-only. A linked file's content id is a quick hash ("quick:"
+plus a SHA-256 of its size and three 1 MB samples), so adding a 17 GB file twice is one asset without reading it.
 """
 from __future__ import annotations
 
@@ -23,6 +29,12 @@ CHUNK_MAX = 16 * 1024 * 1024
 STALE_SECONDS = 3 * 86400  # unfinished uploads are kept this long, so a transfer can resume the next day
 KINDS = {"video": config.VIDEO_EXTENSIONS, "audio": {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"},
          "image": {".png", ".jpg", ".jpeg", ".webp"}}
+UNSUPPORTED = ("Unsupported file type. Use a video (MP4, MOV, MKV, WEBM, M4V), audio (MP3, M4A, WAV, FLAC) or image "
+               "(PNG, JPG, WEBP) file.")
+LINK_PREFIX = "quick:"            # the content id of a linked file starts with this; a full SHA-256 never does
+QUICK_SAMPLE = 1 << 20            # each of the three samples a quick hash reads
+DESKTOP_UPLOAD_CAP = 512 << 30    # the desktop copies a file into the data folder: free space is the limit...
+DISK_RESERVE = 2 << 30            # ...less this reserve, so the computer keeps working
 
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
@@ -62,8 +74,32 @@ def kind_of(filename: str) -> str | None:
     return next((k for k, exts in KINDS.items() if ext in exts), None)
 
 
+def is_linked(asset: dict) -> bool:
+    """Whether the asset is the owner's own file used where it is (not a copy ClipForge keeps)."""
+    return str(asset.get("sha256") or "").startswith(LINK_PREFIX)
+
+
+def work_dir(asset: dict) -> Path:
+    """Where ClipForge keeps what it makes for an asset: its 16 kHz `audio.wav`, `transcript.json`, `proxy.mp4` and
+    `thumb.jpg`. A stored upload's own folder (the original is there too); for a linked file, the asset's own
+    folder under the data folder, made when first needed. Never a folder that holds the owner's own file."""
+    if is_linked(asset):
+        d = assets_dir(asset.get("workspace_id") or "") / asset["id"]
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return Path(asset["path"]).parent
+
+
+def _inside(path: Path, base: Path) -> bool:
+    return path == base or base in path.parents
+
+
 def max_upload_bytes() -> int:
-    return cloud_settings.current().max_upload_bytes if cloud_settings.enabled() else 8 * (1 << 30)
+    """The largest file an upload may announce: the cloud's configured limit; on the desktop the free space where
+    ClipForge keeps its files less a 2 GB reserve (at most 512 GB), because an upload is a copy into that folder."""
+    if cloud_settings.enabled():
+        return cloud_settings.current().max_upload_bytes
+    return min(DESKTOP_UPLOAD_CAP, max(0, shutil.disk_usage(config.data_dir()).free - DISK_RESERVE))
 
 
 def storage_limit_bytes() -> int | None:
@@ -97,12 +133,20 @@ def start(workspace_id: str, filename: str, size: int, sha256: str = "", fingerp
     name = Path(filename or "").name[:200]
     kind = kind_of(name)
     if not name or kind is None:
-        raise UploadError("Unsupported file type. Use a video (MP4, MOV, MKV, WEBM, M4V), audio (MP3, M4A, WAV, FLAC) "
-                          "or image (PNG, JPG, WEBP) file.")
+        raise UploadError(UNSUPPORTED)
     if not isinstance(size, int) or size <= 0:
         raise UploadError("The file is empty.")
-    if size > max_upload_bytes():
-        raise UploadError(f"The file is {size / 1e9:.1f} GB; the limit is {max_upload_bytes() / 1e9:.1f} GB.", 413)
+    limit = max_upload_bytes()
+    if size > limit:
+        if cloud_settings.enabled():
+            raise UploadError(f"The file is {size / 1e9:.1f} GB; the limit is {limit / 1e9:.1f} GB.", 413)
+        free = shutil.disk_usage(config.data_dir()).free
+        hint = "use Add from this computer, which uses the file where it is without copying it."
+        if size > free - DISK_RESERVE:
+            raise UploadError(f"The file is {size / 1e9:.1f} GB and only {free / 1e9:.1f} GB is free where ClipForge "
+                              f"keeps its files. Free some space, or {hint}", 413, free=free)
+        raise UploadError(f"The file is {size / 1e9:.1f} GB; at most {DESKTOP_UPLOAD_CAP >> 30} GB can be copied in. "
+                          f"Instead, {hint}", 413, free=free)
     sha256 = (sha256 or "").lower()
     if sha256 and (len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256)):
         raise UploadError("The file hash is not a SHA-256 hex string.")
@@ -188,6 +232,22 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def quick_hash(path: Path, size: int | None = None) -> str:
+    """The content id of a linked file: "quick:" plus a SHA-256 of its size (8 bytes) and three 1 MB samples (the
+    start, the middle and the end; the whole file when it is 3 MB or less). It reads at most 3 MB whatever the
+    size, so linking a 17 GB file takes a moment; a full hash of an upload can never start with "quick:"."""
+    size = path.stat().st_size if size is None else size
+    h = hashlib.sha256(size.to_bytes(8, "big"))
+    with open(path, "rb") as f:
+        if size <= 3 * QUICK_SAMPLE:
+            h.update(f.read())
+        else:
+            for offset in (0, (size - QUICK_SAMPLE) // 2, size - QUICK_SAMPLE):
+                f.seek(offset)
+                h.update(f.read(QUICK_SAMPLE))
+    return LINK_PREFIX + h.hexdigest()
+
+
 def complete(upload_id: str) -> dict:
     """Verify, probe and store the finished file as an asset (the same bytes are stored once per workspace)."""
     with _lock(upload_id):
@@ -215,6 +275,26 @@ def complete(upload_id: str) -> dict:
         return asset_view(stored)
 
 
+def _inspect(file: Path, kind: str, folder: Path, label: str = "This file") -> tuple[dict, str]:
+    """Probe a media file and make its thumbnail in `folder`: (probe, thumbnail path or ""). A file ffmpeg cannot
+    read is refused (422), except an image, which is kept without a probe."""
+    info: dict = {}
+    thumb = ""
+    try:
+        info = probe_audio(file) if kind == "audio" else probe(file)
+    except (FFmpegError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        if kind != "image":
+            raise UploadError(f"{label} is not a readable {kind} file ({str(exc)[:120]}).", 422) from exc
+    if kind in ("video", "image"):
+        try:
+            t = min(float(info.get("duration") or 0) * 0.1, 5.0) if kind == "video" else 0.0
+            thumbnail(file, t, folder / "thumb.jpg", 480)
+            thumb = str(folder / "thumb.jpg") if (folder / "thumb.jpg").is_file() else ""  # ffmpeg may write none
+        except Exception:  # noqa: BLE001 - a missing thumbnail never fails the upload
+            thumb = ""
+    return info, thumb
+
+
 def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: str, size: int) -> dict:
     """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it."""
     existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
@@ -227,23 +307,65 @@ def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: st
     dest = folder / ("original" + Path(filename).suffix.lower())
     shutil.move(str(source), dest)
     os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
-    info: dict = {}
-    thumb = ""
     try:
-        info = probe_audio(dest) if kind == "audio" else probe(dest)
-    except (FFmpegError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        if kind != "image":
-            shutil.rmtree(folder, ignore_errors=True)
-            raise UploadError(f"This file is not a readable {kind} file ({str(exc)[:120]}).", 422) from exc
-    if kind in ("video", "image"):
-        try:
-            t = min(float(info.get("duration") or 0) * 0.1, 5.0) if kind == "video" else 0.0
-            thumbnail(dest, t, folder / "thumb.jpg", 480)
-            thumb = str(folder / "thumb.jpg") if (folder / "thumb.jpg").is_file() else ""  # ffmpeg may write none
-        except Exception:  # noqa: BLE001 - a missing thumbnail never fails the upload
-            thumb = ""
+        info, thumb = _inspect(dest, kind, folder)
+    except UploadError:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": filename,
                                 "sha256": digest, "size": size, "path": str(dest), "thumb_path": thumb,
+                                "probe": info})
+
+
+def link_local(workspace_id: str, path: str) -> dict:
+    """Use a file on this computer where it is (desktop only): no copy, no upload. Returns the asset row (the same
+    one when the file was linked before; a linked file that moved is found again by its content). Refused in the
+    cloud, outside the folders ClipForge may read (local_files.roots), inside the data folder, and when the file
+    is not a readable media file; the owner's file is never changed."""
+    from . import local_files  # local_files lists media files with kind_of, so the import is made here
+
+    if cloud_settings.enabled():
+        raise UploadError("Files cannot be used where they are in the cloud; upload the file instead.", 403)
+    raw = Path(str(path or "").strip())
+    if not str(raw) or not raw.is_absolute():
+        raise UploadError("Give the full path of the file, starting at the root folder or the drive.", 400)
+    try:
+        file = raw.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise UploadError(f"There is no file at {raw}.", 404) from exc
+    if not file.is_file():
+        raise UploadError(f"{raw} is not a file.", 400)
+    if not os.access(file, os.R_OK):
+        raise UploadError(f"ClipForge is not allowed to read {raw}.", 403)
+    if not local_files.allowed(file):
+        raise UploadError(f"{raw} is outside the folders ClipForge may read (your home folder and external drives).",
+                          403)
+    if _inside(file, config.data_dir().resolve()):
+        raise UploadError("That file is inside ClipForge's own data folder; it is already here.", 400)
+    name = file.name[:200]
+    kind = kind_of(name)
+    if kind is None:
+        raise UploadError(UNSUPPORTED)
+    size = file.stat().st_size
+    if size <= 0:
+        raise UploadError("The file is empty.")
+    digest = quick_hash(file, size)
+    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
+    if existing:
+        if not Path(existing[0]["path"]).is_file():  # the same file, found again after it was moved
+            db.update("assets", existing[0]["id"], path=str(file))
+            return db.fetch("assets", existing[0]["id"]) or existing[0]
+        return existing[0]
+    asset_id = "as-" + os.urandom(8).hex()
+    folder = assets_dir(workspace_id) / asset_id
+    folder.mkdir(parents=True)
+    try:
+        info, thumb = _inspect(file, kind, folder, file.name)
+    except UploadError:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": name,
+                                "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
                                 "probe": info})
 
 
@@ -277,7 +399,8 @@ def asset_view(a: dict) -> dict:
     return {"id": a["id"], "kind": a["kind"], "filename": a["filename"], "sha256": a["sha256"], "size": a["size"],
             "duration": p.get("duration"), "width": p.get("width"), "height": p.get("height"), "fps": p.get("fps"),
             "has_audio": p.get("has_audio"), "has_video": p.get("has_video"),
-            "has_thumbnail": bool(a.get("thumb_path")), "created_at": a.get("created_at")}
+            "has_thumbnail": bool(a.get("thumb_path")), "linked": is_linked(a),
+            "proxy": bool(a.get("proxy_path")) and Path(a["proxy_path"]).is_file(), "created_at": a.get("created_at")}
 
 
 def asset(asset_id: str, workspace_id: str) -> dict:
