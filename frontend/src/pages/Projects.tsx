@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { errorText } from "../api";
 import { Banner, EmptyState, PageHead, Segmented } from "../components/ui";
 import { LibraryItem, studio } from "../studio";
-import { LibraryCard } from "./Home";
+import { LibraryCard } from "./Studio";
 
 /** One library: clips projects (Highlights and Full stories) and full videos, with filters and search. */
 export default function Projects() {

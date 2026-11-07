@@ -166,7 +166,7 @@ test("the graph exposes saved notes, shared topics and actual decision/result pr
   await expect(
     page
       .getByRole("navigation", { name: "Knowledge collections", exact: true })
-      .getByRole("button", { name: "Your examples", exact: true }),
+      .getByRole("button", { name: "Example notes", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(graph.getByRole("button", { name: "Example: Cooking story", exact: true })).toBeVisible();
   await expect(graph.getByRole("button", { name: "Note: The science of sleep", exact: true })).toHaveCount(0);
@@ -241,7 +241,7 @@ test("simple notes derive a title; saved preferences activate without a separate
   );
 });
 
-test("a populated graph fits mobile and pauses decorative motion for reduced or hidden views", async ({
+test("a populated graph fits mobile and stays still unless something was just used", async ({
   page,
 }, info) => {
   const rows = Array.from({ length: 60 }, (_, index) =>
@@ -256,34 +256,25 @@ test("a populated graph fits mobile and pauses decorative motion for reduced or 
   await page.goto("/#/brain");
   // 60 items + 8 tags + 4 groups + core + 2 evidence leaves.
   await expect(page.locator("[data-brain-node]")).toHaveCount(75);
-  await expect(page.getByRole("region", { name: "Knowledge graph", exact: true })).toHaveAttribute(
-    "data-animation",
-    "decorative-glow",
-  );
-  await page.getByRole("button", { name: "Pause glow", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Knowledge graph", exact: true })).toHaveAttribute(
-    "data-animation",
-    "still",
-  );
-  await page.getByRole("button", { name: "Resume glow", exact: true }).click();
+  // The map is still when idle (studio upgrade, Brain map): no decorative glow suggests learning that is not
+  // happening, so nothing animates unless a project applied a record in the last few minutes (none here).
+  const region = page.getByRole("region", { name: "Knowledge graph", exact: true });
+  const running = () => page.evaluate(() => document.getAnimations().filter((a) => {
+    const target = (a.effect as KeyframeEffect | null)?.target;
+    return a.playState === "running" && !!target && !!(target as Element).closest?.("section.brain-graph");
+  }).length);
+  await expect(region).toHaveAttribute("data-animation", "still");
+  await expect(page.getByRole("button", { name: "Pause glow", exact: true })).toHaveCount(0);
+  expect(await running(), "animations running on an idle map").toBe(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(page.getByRole("region", { name: "Knowledge graph", exact: true })).toHaveAttribute(
-    "data-animation",
-    "still",
-  );
+  await expect(region).toHaveAttribute("data-animation", "still");
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(page.getByRole("region", { name: "Knowledge graph", exact: true })).toHaveAttribute(
-    "data-animation",
-    "still",
-  );
-  const paused = await page
-    .locator(".brain-node-aura")
-    .evaluateAll((nodes) => nodes.every((node) => getComputedStyle(node).animationPlayState === "paused"));
-  expect(paused).toBe(true);
+  await expect(region).toHaveAttribute("data-animation", "still");
+  expect(await running(), "animations running in a hidden tab").toBe(0);
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
     document.dispatchEvent(new Event("visibilitychange"));

@@ -13,9 +13,10 @@ from collections import Counter
 from .audio import Loudness
 import numpy as np
 
-from .text_utils import (DANGLING_STARTS, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, PAYOFF_PHRASES, PROMO_PHRASES,
-                         RESPONSE_STARTS, SETUP_PHRASES, SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_PHRASES,
-                         content_tokens, cosine, count_phrases, ends_sentence, tf_vector, tokens)
+from .text_utils import (DANGLING_STARTS, EMOTION_WORDS, HOOK_PHRASES, HOOK_WORDS, LOSS_PHRASES, LOSS_WORDS,
+                         OUTRO_PHRASES, PAYOFF_PHRASES, PROMO_PHRASES, RESPONSE_STARTS, SETUP_PHRASES,
+                         SLOW_OPEN_PHRASES, STORY_MARKERS, TRANSITION_PHRASES, content_tokens, cosine, count_phrases,
+                         ends_sentence, tf_vector, tokens)
 
 FILLER_TOKENS = {"um", "uh", "erm", "hmm", "mm"}
 
@@ -54,11 +55,16 @@ def sentence_features(sentences: list[dict], words: list[dict]) -> list[dict]:
             "promo": count_phrases(low, PROMO_PHRASES),
             "slow_open": count_phrases(low[:60], SLOW_OPEN_PHRASES) > 0,  # "so today I want to talk about..."
             "response": first in RESPONSE_STARTS,  # "Exactly." / "No, ..." answers someone outside the clip
+            "outro": count_phrases(low, OUTRO_PHRASES) > 0,  # "to recap", "thanks for watching": the video is ending
+            # "stop doing this", "the mistake that costs you": a loss or a warning hooks better than a promise
+            "loss": sum(1 for t in toks if t in LOSS_WORDS) + count_phrases(low, LOSS_PHRASES),
         }
         h = 0.30 * f["question"] + 0.12 * min(hookw, 3) + 0.10 * (f["you"] > 0) + 0.10 * (f["nums"] > 0)
-        h += 0.06 * min(f["emo"], 2)
+        h += 0.06 * min(f["emo"], 2) + 0.06 * min(f["loss"], 2)
+        h += 0.06 if f["story"] and not f["dangling"] else 0.0  # in the middle of the action beats an introduction
         h += 0.12 if 4 <= f["n"] <= 18 else (-0.05 if f["n"] > 18 else 0.0)
         h -= 0.35 * f["dangling"] + 0.10 * min(f["filler"], 2) + 0.30 * f["slow_open"] + 0.25 * f["response"]
+        h -= 0.30 * f["outro"]
         f["opener"] = max(0.0, min(1.0, h + 0.15))
         feats.append(f)
     for f, depth in zip(feats, topic_boundaries(sentences)):

@@ -22,8 +22,8 @@ export interface SceneHandoff { id: number; from: Pt; to: Pt; progress: number }
 type RobotArt = ReturnType<typeof createRobot>;
 const INK = "#101925", WOOD = "#b89570", WOOD_EDGE = "#80644d";
 const FLOOR: Record<RoomId, string> = {
-  lounge: "#343e42", boss: "#343b49", brain: "#353448", discover: "#30423e", workspace: "#35424a",
-  analyze: "#354256", studio: "#423644", system: "#3a403f", caption: "#3c394e", schedule: "#464039", dock: "#34433f",
+  lounge: "#343e42", control: "#343b49", brain: "#353448", intake: "#30423e", research: "#464039",
+  story: "#354256", editing: "#423644", quality: "#3a403f", sound: "#3c394e", publishing: "#34433f",
 };
 const px = (g: Graphics, x: number, y: number, w: number, h: number, color: string, alpha = 1) => {
   g.rect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)).fill({ color, alpha });
@@ -213,7 +213,7 @@ export class StudioScene {
       pulse.rect(x + 2, y + 2, r.w - 4, r.h - 4).stroke({ color: accent, width: 1, alpha: .7 });
       pulse.visible = false; this.roomHighlights.set(r.id, pulse); this.app.stage.addChild(pulse);
 
-      if (r.id === "boss") rug(g, x + 43, y + 65, 108, 52, "#525040");
+      if (r.id === "control") rug(g, x + 43, y + 65, 108, 52, "#525040");
 
       if (r.id === "lounge") {
         this.lounge = createLoungeDecor(g, this.actors, this.skyline, chairBack);
@@ -229,7 +229,7 @@ export class StudioScene {
       if (r.id !== "lounge") cachedLightPool(g, x + r.w / 2, y + r.h * .55,
         r.w * .36, r.h * .2, r.id === "brain" ? "#b6a0da" : "#e6d3ac", .04);
       switch (r.id) {
-        case "boss":
+        case "control":
           this.window(g, x + 55, y + 19, 78);
           shelf(g, x + 10, y + 23, 25, 35); plant(g, x + 165, y + 61, true);
           box(g, x + 152, y + 21, 22, 21, "#66594d");
@@ -250,17 +250,15 @@ export class StudioScene {
           }
           this.core.container.position.set(CORE_AT.x, CORE_AT.y);
           break;
-        case "workspace": {
-          rug(g, x + 24, y + 26, r.w - 48, 62, "#43616a");
-          for (const dy of [42, 76]) for (const dx of [58, 90, 122]) {
-            box(g, x + dx, y + dy, 16, 11, "#63838b"); px(g, x + dx + 2, y + dy + 1, 12, 2, "#95b0b3", .4);
+        case "research":
+          // a media wall: picture, footage and sound tiles (decoration; it never shows search results)
+          for (let j = 0; j < 4; j++) {
+            box(g, x + 22 + j * 38, y + 14, 30, 13, "#6d6253");
+            px(g, x + 24 + j * 38, y + 16, 26, 9, ["#2c4a5c", "#4a3b5c", "#2f5246", "#5c4a2c"][j]);
+            px(g, x + 28 + j * 38, y + 19, 8, 3, "#d9c9a8", .45);
           }
-          box(g, x + 43, y + 51, 105, 22, WOOD); px(g, x + 45, y + 52, 101, 2, "#e0bd95");
-          box(g, x + 68, y + 57, 12, 7, "#d8d3c3"); box(g, x + 112, y + 59, 5, 5, "#ddd4bb");
-          this.window(g, x + 51, y + 16, 91); plant(g, x + 13, y + 44); plant(g, x + r.w - 20, y + 43);
-          break;
-        }
-        case "system":
+          plant(g, x + r.w - 20, y + 66); break;
+        case "quality":
           for (const dx of [14, 65]) {
             box(g, x + dx, y + 23, 42, 39, "#465261");
             px(g, x + dx + 2, y + 25, 38, 2, "#91a0a8", .5);
@@ -271,21 +269,21 @@ export class StudioScene {
             }
           }
           shelf(g, x + 146, y + 22, 43, 34); break;
-        case "schedule":
+        case "publishing":
+          // the posting calendar (decoration only: planned posts are listed in the room panel)
           box(g, x + 32, y + 26, 144, 36, "#beaf8e"); px(g, x + 35, y + 29, 138, 5, "#877464");
           for (let row = 0; row < 2; row++) for (let col = 0; col < 9; col++)
             box(g, x + 39 + col * 14, y + 39 + row * 10, 10, 7, "#e0d2b4", "#a49880");
-          plant(g, x + 21, y + 88, true); plant(g, x + r.w - 31, y + 91, true); break;
-        case "dock":
-          for (const [dx, dy, w] of [[13, 28, 21], [40, 36, 24], [17, 48, 23]]) {
+          this.window(g, x + 290, y + 24, 72);
+          for (const [dx, dy, w] of [[408, 28, 21], [418, 46, 22], [386, 38, 18]]) {
             box(g, x + dx, y + dy, w, 18, "#ae8e69"); px(g, x + dx + Math.floor(w / 2), y + dy + 1, 2, 15, "#dac396");
             box(g, x + dx + 3, y + dy + 4, 6, 5, "#d6cfb5");
           }
-          this.window(g, x + 86, y + 26, 79); break;
-        case "discover":
+          plant(g, x + 21, y + 88, true); break;
+        case "intake":
           this.window(g, x + 67, y + 22, 65); this.window(g, x + 170, y + 22, 65);
           plant(g, x + 16, y + 59, true); shelf(g, x + r.w - 36, y + 22, 25, 30); break;
-        case "analyze":
+        case "story":
           for (let j = 0; j < 3; j++) {
             box(g, x + 38 + j * 73, y + 23, 51, 20, "#738491");
             px(g, x + 41 + j * 73, y + 26, 45, 14, "#273d51");
@@ -293,7 +291,7 @@ export class StudioScene {
             px(g, x + 62 + j * 73, y + 30, 18, 1, "#a3b5bc", .45);
           }
           break;
-        case "studio":
+        case "editing":
           shelf(g, x + 11, y + 20, 35, 30);
           for (let j = 0; j < 3; j++) {
             box(g, x + 82 + j * 62, y + 23, 43, 21, "#666077");
@@ -301,7 +299,7 @@ export class StudioScene {
             for (const dx of [0, 5, 10]) px(g, x + 88 + j * 62 + dx, y + 28, 3, 2, "#bc94b0", .65);
           }
           break;
-        case "caption":
+        case "sound":
           shelf(g, x + 16, y + 23, 40, 34); shelf(g, x + 152, y + 23, 40, 34);
           box(g, x + 78, y + 24, 48, 26, "#88758a"); px(g, x + 81, y + 27, 42, 20, "#dbd0bd");
           for (const dy of [32, 38, 43]) px(g, x + 87, y + dy, dy === 43 ? 22 : 30, 1, "#726579");

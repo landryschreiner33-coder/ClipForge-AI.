@@ -10,7 +10,7 @@ import { ConfirmDialog, Icon, MenuItem, Pill, Segmented, toast } from "./ui";
 export type LibProject = Project & { origin?: "manual" | "autopilot" | "live" | string; source_id?: string };
 
 /** Still copying, waiting or making clips: deleting is not possible yet. */
-export const isWorking = (p: Project) => ["created", "uploading", "queued", "processing"].includes(p.status);
+export const isWorking = (p: Project) => ["created", "uploading", "importing", "queued", "processing"].includes(p.status);
 
 /** Autopilot made it, so Autopilot (not this page) runs its processing. */
 export const byAutopilot = (p: LibProject) => p.origin === "autopilot" || p.origin === "live";
@@ -28,6 +28,8 @@ export function ProjectStatus({ p, clipCount }: { p: Project; clipCount?: number
   switch (p.status) {
     case "uploading":
       return <Pill tone="info" icon="upload">Copying into ClipForge</Pill>;
+    case "importing":
+      return <Pill tone="info" icon="download">{p.message || "Downloading the video"}</Pill>;
     case "created":
     case "queued":
       return <Pill tone="neutral" icon="clock">Waiting to start</Pill>;

@@ -1,11 +1,13 @@
 """FastAPI application: REST API + the built React UI."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shutil
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -18,17 +20,19 @@ from pydantic import BaseModel
 from . import __version__, config, db, phone
 from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
-from .pipeline import cuda, export, llm, postpack, render, transcribe, versions
+from .pipeline import cleanup, cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, videotoolbox_available
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import routes as studio_routes
+from .craft import routes as craft_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
 from .autopilot import brain_routes, knowledge_routes
+from .brain import routes as memory_routes
 from .autopilot import routes as autopilot_routes
 from .office import integrations as integration_routes
 from .office import routes as office_routes
@@ -58,19 +62,32 @@ async def lifespan(_: FastAPI):
         _youtube_retention()
         worker.resume(db.interrupted_work())
         worker.start()
-        from .studio import jobs as studio_jobs, video_flow  # noqa: F401 - video_flow registers its job handlers
+        from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .brain import chat as brain_chat
 
-        studio_jobs.recover()  # builds and renders that were waiting or running continue
+        studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
+        edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
+        brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
+        link_import.clean_abandoned()  # partial downloads of canceled or failed links
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
         if not cloud_settings.enabled():  # the phone listener is a desktop feature; cloud has its own sign-in
             phone.manager.restore()
+        if not cloud_settings.enabled() and os.environ.get("CLIPFOUNDRY_WORKERS", "").lower() != "off":
+            from .craft import apps as craft_apps
+
+            craft_apps.auto_install()  # FilmCraft and EffectCraft, fetched once in the background (Settings: off)
         try:
             yield
         finally:
             phone.manager.stop()
             autopilot_host.supervisor.stop()
+            from . import builtin_ai
+            from .craft import runner as craft_runner
+
+            craft_runner.stop_all(closing=False)  # FilmCraft/EffectCraft renders stop with the server
+            builtin_ai.shutdown()  # the engine's memory goes back to the computer
 
 
 def _youtube_retention() -> None:
@@ -92,10 +109,13 @@ app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
+app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(memory_routes.router)  # ClipForge AI's memories
+app.include_router(memory_routes.chats)  # ClipForge AI's chat
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 
@@ -118,6 +138,10 @@ def _clip_or_404(clip_id: str) -> dict:
 def _public_project(p: dict) -> dict:
     out = {k: v for k, v in p.items() if k not in {"source_path"}}
     out["has_thumbnail"] = (Path(p["source_path"]).parent / "thumb.jpg").exists() if p.get("source_path") else False
+    if (p.get("info") or {}).get("link"):  # made from a supplied video link
+        from .studio import link_import
+
+        out["link_import"] = link_import.view(p)
     return out
 
 
@@ -199,6 +223,108 @@ def put_settings(patch: dict[str, Any]) -> dict:
 @app.post("/api/ai/check")
 def ai_check() -> dict:
     return llm.check_provider(db.get_settings())
+
+
+@app.get("/api/ai/setup")
+def ai_setup_view() -> dict:
+    """ClipForge AI's ready-made model choices, Ollama's state on this computer and any download or import running."""
+    from . import ai_setup
+
+    s = db.get_settings()
+    try:
+        gpus = cuda.probe().get("gpus") or []
+        vram = int((gpus[0] if gpus else {}).get("vram_mb") or 0)
+    except Exception:  # noqa: BLE001 - only a hint for the recommended model
+        vram = 0
+    from . import builtin_ai
+
+    return {**ai_setup.presets(), "ollama": ai_setup.ollama_status(s.get("ollama_url") or ""),
+            "task": ai_setup.task(), "provider": s.get("ai_provider", "heuristic"),
+            "label": llm.provider_label(s), "recommended": ai_setup.recommended_model(vram, sys.platform == "darwin"),
+            "builtin": builtin_ai.status(s)}
+
+
+def _builtin_ready(level: str) -> None:
+    """When the built-in model finishes downloading, it becomes ClipForge AI's model unless you already chose another one."""
+    s = db.get_settings()
+    patch: dict[str, Any] = {"builtin_ai_level": level}
+    if s.get("ai_provider", "heuristic") in ("heuristic", "builtin"):
+        patch["ai_provider"] = "builtin"
+    db.save_settings(patch)
+
+
+@app.get("/api/ai/builtin")
+def ai_builtin_view() -> dict:
+    from . import builtin_ai
+
+    return builtin_ai.status(db.get_settings())
+
+
+@app.post("/api/ai/builtin/install")
+def ai_builtin_install(body: dict[str, Any]) -> dict:
+    from . import builtin_ai
+
+    try:
+        return builtin_ai.install(str(body.get("level") or ""), on_done=_builtin_ready)
+    except builtin_ai.BuiltinError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.post("/api/ai/builtin/cancel")
+def ai_builtin_cancel() -> dict:
+    from . import builtin_ai
+
+    return builtin_ai.cancel()
+
+
+@app.post("/api/ai/builtin/use")
+def ai_builtin_use(body: dict[str, Any]) -> dict:
+    """Use the built-in model at an installed level (or the best installed one)."""
+    from . import builtin_ai
+
+    level = str(body.get("level") or "auto")
+    if level != "auto" and level not in builtin_ai.installed_levels():
+        raise HTTPException(409, "Download that level first.")
+    if not builtin_ai.installed_levels():
+        raise HTTPException(409, "Set up the built-in model first.")
+    db.save_settings({"ai_provider": "builtin", "builtin_ai_level": level})
+    return builtin_ai.status(db.get_settings())
+
+
+@app.post("/api/ai/builtin/remove")
+def ai_builtin_remove(body: dict[str, Any]) -> dict:
+    """Delete a downloaded level to free disk space (download it again any time)."""
+    from . import builtin_ai
+
+    try:
+        builtin_ai.remove(str(body.get("level") or ""))
+    except builtin_ai.BuiltinError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    s = db.get_settings()
+    if s.get("ai_provider") == "builtin" and not builtin_ai.installed_levels():
+        db.save_settings({"ai_provider": "heuristic"})
+    return builtin_ai.status(db.get_settings())
+
+
+@app.post("/api/ai/ollama/pull")
+def ai_ollama_pull(body: dict[str, Any]) -> dict:
+    from . import ai_setup
+
+    try:
+        return ai_setup.pull(db.get_settings().get("ollama_url") or "", str(body.get("model") or ""))
+    except ai_setup.SetupError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@app.post("/api/ai/ollama/import")
+def ai_ollama_import(body: dict[str, Any]) -> dict:
+    from . import ai_setup
+
+    try:
+        return ai_setup.import_gguf(db.get_settings().get("ollama_url") or "", str(body.get("path") or ""),
+                                    str(body.get("name") or ""))
+    except ai_setup.SetupError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
 
 
 def _my_projects() -> list[dict]:
@@ -309,8 +435,13 @@ class ProcessBody(BaseModel):
 @app.post("/api/projects/{project_id}/process")
 def reprocess(project_id: str, body: ProcessBody) -> dict:
     p = _project_or_404(project_id)
-    if p["status"] in {"queued", "processing"}:
+    if p["status"] in {"queued", "processing", "importing"}:
         raise HTTPException(409, "Project is already processing")
+    if (p.get("info") or {}).get("link") and not p.get("asset_id"):  # the supplied link was never downloaded: try it again
+        from .studio import link_import
+
+        link_import.retry(project_id)
+        return get_project(project_id)
     opts = {**(p.get("options") or {}), **_clean_options(body.options)}
     db.update_project(project_id, options=opts)
     worker.submit_project(project_id, url=p.get("source_url") if not Path(p["source_path"]).exists() else None)
@@ -319,7 +450,12 @@ def reprocess(project_id: str, body: ProcessBody) -> dict:
 
 @app.post("/api/projects/{project_id}/cancel")
 def cancel(project_id: str) -> dict:
-    _project_or_404(project_id)
+    p = _project_or_404(project_id)
+    if p["status"] == "importing":
+        from .studio import link_import
+
+        link_import.cancel(project_id)
+        return {"ok": True}
     worker.cancel(project_id)
     return {"ok": True}
 
@@ -341,8 +477,9 @@ def delete_project(project_id: str) -> dict:
 @app.get("/api/projects/{project_id}/thumbnail")
 def project_thumbnail(project_id: str) -> FileResponse:
     p = _project_or_404(project_id)
-    thumb = project_dir(p) / "thumb.jpg"
-    if not thumb.exists():
+    # a project made from a link has no source file until its download finishes
+    thumb = project_dir(p) / "thumb.jpg" if p.get("source_path") else None
+    if thumb is None or not thumb.exists():
         raise HTTPException(404, "No thumbnail")
     return FileResponse(thumb, media_type="image/jpeg")
 
@@ -350,8 +487,8 @@ def project_thumbnail(project_id: str) -> FileResponse:
 @app.get("/api/projects/{project_id}/source")
 def project_source(project_id: str) -> FileResponse:
     p = _project_or_404(project_id)
-    src = Path(p["source_path"])
-    if not src.exists():
+    src = Path(p["source_path"]) if p.get("source_path") else None
+    if src is None or not src.exists():
         raise HTTPException(404, "Source video missing")
     return FileResponse(src)
 
@@ -407,7 +544,7 @@ class ClipPatch(BaseModel):
 EDIT_KEYS = {"start", "end", "tracking", "layout", "crop_x", "zoom", "caption_style", "caption_position",
              "caption_size", "highlight_color", "highlight_words", "captions_enabled", "caption_words", "hook",
              "hook_overlay", "hook_seconds", "silence", "auto_zoom", "gain_db", "normalize_audio", "speed",
-             "remove_fillers", "caption_emphasis"}
+             "remove_fillers", "caption_emphasis", "clean_sound"}
 
 
 @app.patch("/api/clips/{clip_id}")
@@ -437,7 +574,7 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
     if body.edit is not None:
         edit = dict(clip.get("edit") or {})
         for k, v in body.edit.items():
-            if k not in EDIT_KEYS:
+            if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES):
                 continue
             if v is None:
                 edit.pop(k, None)
@@ -461,6 +598,54 @@ def regenerate_post_package(clip_id: str, body: PostPackageBody) -> dict:
     post = postpack.for_clip(clip, load_words(project), db.get_settings(), use_ai=body.use_ai)
     db.update_clip(clip_id, post=post, title=post["title"] or clip["title"], hashtags=post["hashtags"])
     return get_clip(clip_id)
+
+
+class SoundCheckBody(BaseModel):
+    mode: str = "auto"
+
+
+def _sound_check_dir() -> Path:
+    return cleanup.cache_dir() / "compare"
+
+
+def _sound_check_name(clip_id: str) -> str:
+    return hashlib.sha256(clip_id.encode()).hexdigest()[:24]
+
+
+@app.post("/api/clips/{clip_id}/sound-check")
+def sound_check(clip_id: str, body: SoundCheckBody) -> dict:
+    """Before/after for the clip editor: the clip's original sound and its cleaned-up sound at this level, matched in
+    loudness. Uses the render's own cache, so the next render reuses the cleaning."""
+    if body.mode not in config.CLEAN_SOUND_MODES or body.mode == "off":
+        raise HTTPException(400, "Choose Auto, Gentle or Strong to compare.")
+    clip = _clip_or_404(clip_id)
+    project = db.get_project(clip["project_id"])
+    if not project or not project.get("source_path") or not Path(project["source_path"]).exists():
+        raise HTTPException(404, "The original video is no longer on this computer.")
+    if not (project.get("info") or {}).get("has_audio", True):
+        raise HTTPException(400, "This video has no sound.")
+    edit = clip.get("edit") or {}
+    start, end = float(edit.get("start", clip["start"])), float(edit.get("end", clip["end"]))
+    try:
+        out = cleanup.compare(project["source_path"], start, end + 0.2, load_words(project), body.mode,
+                              _sound_check_dir(), _sound_check_name(clip["id"]))
+    except cleanup.CleanupError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    stamp = str(int(time.time() * 1000))
+    url = lambda which: f"/api/clips/{clip_id}/sound-check/{which}?v={stamp}"  # noqa: E731
+    report = out["report"]
+    return {"mode": body.mode, "applied": report.get("applied"), "summary": report.get("summary", ""),
+            "before": url("before"), "after": url("after") if out["after"] else None}
+
+
+@app.get("/api/clips/{clip_id}/sound-check/{which}")
+def sound_check_file(clip_id: str, which: str) -> FileResponse:
+    if which not in ("before", "after"):
+        raise HTTPException(404, "Not found")
+    path = _sound_check_dir() / f"{_sound_check_name(_clip_or_404(clip_id)['id'])}-{which}.wav"
+    if not path.exists():
+        raise HTTPException(404, "Compare again to hear it.")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/clips/{clip_id}/render")

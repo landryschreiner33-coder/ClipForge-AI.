@@ -141,6 +141,9 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     # "Exactly. And that's what he told me too." near the end: the clip drifts into a back-and-forth after its point
     late_reply = ns > 2 and any(f["response"] for f in fs[max(1, ns - max(2, ns // 3)):])
     payoff -= 0.2 if late_reply else 0.0
+    # "To recap..." / "Thanks for watching": the video announces its end instead of stopping on the payoff
+    outro = bool(fj["outro"] or (ns > 1 and fs[-2]["outro"]))
+    payoff -= 0.2 if outro else 0.0
     payoff = _clamp(payoff)
 
     # --- standalone context: no dependence on what came before, no topic change inside
@@ -196,7 +199,7 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
     middle = fs[1:-1]
     has_context = (ns >= 3 and sum(f["content"] for f in middle) >= 4 and not internal_transition
                    and standalone >= 0.5)
-    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and (
+    has_payoff = ns > 1 and fj["complete"] and not fj["question"] and not fj["setup"] and not outro and (
         end_hits > 0 or payoff >= 0.55)
     parts = [p for p, ok in (("Hook", has_hook), ("Context", has_context), ("Payoff", has_payoff)) if ok]
     structure = {"hook": bool(has_hook), "context": bool(has_context), "payoff": bool(has_payoff),
@@ -244,10 +247,14 @@ def analyze(s0: int, s1: int, sentences: list[dict], feats: list[dict], words: l
                "drifts into a back-and-forth after the point" if late_reply else
                "ends on a transition to another topic" if fj["transition"] else "ends without a clear payoff")
         flags.append(_flag("weak_ending", "Weak ending", "warn", why))
+    if outro:
+        flags.append(_flag("outro", "Ends with an outro", "warn",
+                           "announces the end (\"to recap\", \"thanks for watching\") instead of stopping on the point"))
 
     result = {"s0": s0, "s1": s1, "start": start, "end": end, "dur": dur, "factors": factors,
               "structure": structure, "flags": flags, "brain_priorities": list(opts.get("brain_priorities") or []),
               "signals": {"wps": round(wps, 2), "dead_air": round(dead_air, 3), "to_content_s": round(to_content, 2),
+                          "outro": outro,
                           "repetition": round(rep, 3), "mean_confidence": round(sum(probs) / len(probs), 3)
                           if probs else None, "internal_uniqueness": round(internal_unique, 3)},
               "tf": tf_vector(low)}

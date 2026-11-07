@@ -3,19 +3,22 @@ import { errorText } from "../api";
 import { Banner, ConfirmDialog, Icon, toast } from "../components/ui";
 import { AnimationMode, useMotion } from "../motion";
 import { useStatus } from "../status";
+import { useAppearance } from "../prefs";
 import { BY_ID, RoomId, ROOM_NAMES } from "../office/cast";
 import { Control, office, Snapshot, staleHealth } from "../office/api";
-import { useOffice } from "../office/useOffice";
+import { OfficeFeed, useOffice } from "../office/useOffice";
 import OfficeMap, { Card } from "../office/OfficeMap";
 import { ActivityPanel, DepartmentCards, HealthBadge, OverviewPanel, RobotPanel, RoomPanel } from "../office/panels";
 import { ROOM_ACCENT } from "../office/draw";
 import "../office/studio.css";
 
 /**
- * Office: the robot office (layout of reference image A) over the real job system. The map shows where work is,
- * the right panel explains a selected robot or room, and the bottom bar has the controls that fit the current state.
+ * Office: the robot office over the real work (yours and Autopilot's). The map shows where work is, the right panel
+ * explains a selected robot or room, and the bottom bar has the controls that fit the current state. The Studio page
+ * embeds the same view; #/office is its expanded form.
  */
-type Sel = { type: "robot"; id: string; card: Card | null } | { type: "room"; id: RoomId } | { type: "activity" } | null;
+export type Sel = { type: "robot"; id: string; card: Card | null } | { type: "room"; id: RoomId } | { type: "activity" }
+  | null;
 const VIEW_KEY = "clipfoundry.officeView";
 
 function storedView(): "map" | "list" {
@@ -28,11 +31,44 @@ function storedView(): "map" | "list" {
   return window.matchMedia?.("(max-width: 760px)").matches ? "list" : "map";
 }
 
+// Renaming a robot re-mounts the page so every label shows the new name; this keeps the robot or room that was open.
+// React renders the new page before the old one is cleaned up, so the open item is recorded as it changes, and a
+// normal exit (going to another page) forgets it.
+let kept: { scope: string; sel: Sel; version: number } | null = null;
+export function useOfficeSelection(scope: string): [Sel, (s: Sel) => void] {
+  const { namesVersion } = useAppearance();
+  const [sel, setSel] = useState<Sel>(() => kept && kept.scope === scope && kept.version !== namesVersion ? kept.sel : null);
+  useEffect(() => {
+    kept = { scope, sel, version: namesVersion };
+  }, [scope, sel, namesVersion]);
+  useEffect(() => () => {
+    kept = null;
+  }, []);
+  return [sel, setSel];
+}
+
 export default function Office() {
   const feed = useOffice();
+  const [sel, setSel] = useOfficeSelection("office");
+  return (
+    <div className="office-page office-studio">
+      <h1 className="sr-only" tabIndex={-1}>Office</h1>
+      <StudioHeading connected={!!feed.snap && !feed.lost && !feed.error && feed.lastOk !== null}
+        loading={!feed.snap && !feed.error} count={feed.snap?.roles.length} />
+      <OfficeView feed={feed} sel={sel} setSel={setSel} />
+    </div>
+  );
+}
+
+/** The office itself (map or list, the details panel and the controls), fed by the caller's feed. */
+export function OfficeView({ feed, sel, setSel, embedded = false, compact = false }: {
+  feed: OfficeFeed; sel: Sel; setSel: (s: Sel) => void; embedded?: boolean;
+  /** Customize studio → Office on the Studio page: Compact (no overview panel or Autopilot bar until you pick a robot
+   * or room; the expanded office keeps them) */
+  compact?: boolean;
+}) {
   const { st } = useStatus();
-  const { reduceMotion, animationMode, setAnimationMode } = useMotion();
-  const [sel, setSel] = useState<Sel>(null);
+  const { reduceMotion, animationMode, setAnimationMode, officeActivity } = useMotion();
   const [view, setViewState] = useState<"map" | "list">(storedView);
   const setView = (v: "map" | "list") => {
     setViewState(v);
@@ -56,37 +92,30 @@ export default function Office() {
     };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [sel]);
+  }, [sel, setSel]);
 
   if (!snap) {
-    return (
-      <div className="office-page office-studio">
-        <h1 className="sr-only" tabIndex={-1}>Office</h1>
-        <StudioHeading connected={false} loading={!feed.error} />
-        {feed.error ? (
-          <Banner tone="warn" title="The office could not load" actions={<button type="button" className="btn btn-small" onClick={() => feed.reload().catch(() => {})}><Icon name="refresh" />Try again</button>}>
-            {feed.error}
-          </Banner>
-        ) : <p className="muted">Opening the office…</p>}
-      </div>
-    );
+    return feed.error ? (
+      <Banner tone="warn" title="The office could not load" actions={<button type="button" className="btn btn-small" onClick={() => feed.reload().catch(() => {})}><Icon name="refresh" />Try again</button>}>
+        {feed.error}
+      </Banner>
+    ) : <p className="muted">Opening the office…</p>;
   }
 
   const title = sel?.type === "robot" ? BY_ID[sel.id]?.name : sel?.type === "room" ? ROOM_NAMES[sel.id]
     : sel?.type === "activity" ? "Activity" : "Today";
   const accent = sel?.type === "room" ? ROOM_ACCENT[sel.id] : sel?.type === "robot" ? BY_ID[sel.id]?.palette.trim : undefined;
-  const setupNeeded = !!st && !st.home.setup.started && snap.run.state === "stopped";
+  // the Studio page leaves Autopilot's setup out of the way: making clips or a video needs none of it
+  const setupNeeded = !embedded && !!st && !st.home.setup.started && snap.run.state === "stopped";
 
   return (
-    <div className="office-page office-studio">
-      <h1 className="sr-only" tabIndex={-1}>Office</h1>
-      <StudioHeading connected={!feed.lost && !feed.error && feed.lastOk !== null} count={snap.roles.length} />
+    <>
       {feed.lost && (
         <Banner tone="warn" icon="offline" title="The office is not updating">
           What you see is the last known state{feed.lastOk ? `, from ${new Date(feed.lastOk).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. It catches up as soon as ClipForge answers again.
         </Banner>
       )}
-      <div className={`office-body${sel ? "" : " overview"}`}>
+      <div className={`office-body${sel ? "" : " overview"}${compact && !sel ? " no-panel" : ""}`}>
         <section className="office-stage" aria-label="The office">
           <div className="office-tools">
             <div className="seg" role="group" aria-label="Show the office as">
@@ -105,16 +134,17 @@ export default function Office() {
             <span className="spacer" />
             <button type="button" className="btn btn-small btn-quiet" aria-pressed={sel?.type === "activity"} onClick={() => setSel(sel?.type === "activity" ? null : { type: "activity" })}><Icon name="clock" />Activity</button>
             <a className="btn btn-small btn-quiet" href="#/office/team"><Icon name="user" />Team</a>
+            {embedded && <a className="btn btn-small btn-quiet" href="#/office"><Icon name="external" />Expand</a>}
           </div>
           {view === "map" ? (
-            <OfficeMap snap={snap} subscribe={feed.subscribe} skew={feed.skew} reduce={reduceMotion}
+            <OfficeMap snap={snap} subscribe={feed.subscribe} skew={feed.skew} reduce={reduceMotion || officeActivity === "low_power"}
               selected={sel?.type === "robot" ? sel.id : null} room={sel?.type === "room" ? sel.id : null}
               onRobot={onRobot} onRoom={onRoom} stale={feed.lost} />
           ) : (
             <DepartmentCards snap={snap} onRobot={(id) => onRobot(id)} onRoom={onRoom} />
           )}
         </section>
-        <aside className="office-panel" aria-label="Details" style={accent ? { ["--accent" as string]: accent } as React.CSSProperties : undefined}>
+        {(!compact || sel) && <aside className="office-panel" aria-label="Details" style={accent ? { ["--accent" as string]: accent } as React.CSSProperties : undefined}>
           <div className="op-head">
             <div className="studio-panel-title">
               <span className="studio-eyebrow">{sel?.type === "robot" ? "Robot details" : sel?.type === "room" ? "Department" : sel?.type === "activity" ? "Event feed" : "Studio overview"}</span>
@@ -125,7 +155,8 @@ export default function Office() {
             {sel && <button type="button" className="btn btn-small btn-icon btn-quiet" aria-label="Close details" onClick={() => setSel(null)}><Icon name="x" /></button>}
           </div>
           {sel?.type === "robot" ? (
-            <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={(id) => onRobot(id)} />
+            <RobotPanel key={sel.id} id={sel.id} row={snap.roles.find((r) => r.id === sel.id)} card={sel.card} onRobot={(id) => onRobot(id)}
+              events={feed.events} skew={feed.skew} />
           ) : sel?.type === "room" ? (
             <RoomPanel key={sel.id} id={sel.id} snap={snap} onRobot={(id) => onRobot(id)} stale={feed.lost} />
           ) : sel?.type === "activity" ? (
@@ -133,10 +164,10 @@ export default function Office() {
           ) : (
             <OverviewPanel snap={snap} skew={feed.skew} events={feed.events} onRobot={(id) => onRobot(id)} onRoom={onRoom} setupNeeded={setupNeeded} />
           )}
-        </aside>
+        </aside>}
       </div>
-      <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />
-    </div>
+      {!compact && <ControlBar snap={snap} onSnap={feed.setSnap} onRoom={onRoom} />}
+    </>
   );
 }
 
@@ -144,12 +175,12 @@ function StudioHeading({ connected, loading = false, count }: { connected: boole
   return (
     <header className="studio-heading">
       <div>
-        <p className="studio-eyebrow">Live production studio</p>
+        <p className="studio-eyebrow"><a href="#/">Studio</a> · expanded</p>
         <h2 className="studio-title">Your robot office</h2>
         <p className="studio-description">A little studio. Real work behind every robot.</p>
       </div>
       <div className="studio-status" aria-label="Office connection">
-        <a className="btn btn-primary btn-small" href="#/missions"><Icon name="plus" />Add a video</a>
+        <a className="btn btn-primary btn-small" href="#/create/clips"><Icon name="plus" />Add a video</a>
         <span className={`studio-connection${connected ? " connected" : ""}`}>
           <Icon name={connected ? "dot" : loading ? "clock" : "offline"} size={14} />
           {connected ? "Live connection" : loading ? "Connecting" : "Not updating"}
@@ -198,7 +229,7 @@ export function ControlBar({ snap, onSnap, onRoom }: { snap: Snapshot; onSnap: (
           <span className="small">{mission ? `${BY_ID[mission.id].name}: ${mission.task!.message || "working"}` : "Nothing running"}</span></span>
       </div>
       <div className="cb-group">
-        <button type="button" className="link-btn small" onClick={() => onRoom("system")} title={gpu?.reason}>
+        <button type="button" className="link-btn small" onClick={() => onRoom("quality")} title={gpu?.reason}>
           <Icon name="cpu" /> GPU: {gpu ? <HealthBadge status={gpu.status} label={gpu.status === "healthy" ? "Ready" : gpu.status_label} /> : "—"}
         </button>
         <button type="button" className="btn btn-small btn-quiet" disabled={busy}

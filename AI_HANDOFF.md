@@ -1,5 +1,316 @@
 # AI handoff
 
+## ClipForge AI know-how from the research — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry gave ClipForge AI two research guides (cinematic filmmaking and post-production;
+viral short-form video strategy) to make it smarter at editing, and asked for my own improvements too. The guides
+are now twelve built-in playbooks (`clipfoundry/brain/knowhow.py`) that the chat, change requests, smart edits, the
+FilmCraft pass, clip scoring and post packages read, inside budgets, after the owner's memories (which always win);
+the chat answers editing questions from them without a model; and the deterministic editors apply the numbers
+(outros, loss-framing hooks, caption safe zones, the voice chain, BT.709 colour, delivery settings).
+
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line at 936d7fc), draft PR into
+  `claude/project-thread-x72wkd`. No release.
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "Know-how";
+  [AI_CHANGELOG.md](AI_CHANGELOG.md) lists every number that changed.
+- **Code:** `clipfoundry/brain/knowhow.py` (new), `brain/chat.py`, `brain/routes.py`, `db.py` (`edit_requests.knowhow`),
+  `studio/edit_requests.py`, `studio/ai_editor.py`, `studio/video_flow.py`, `craft/ai.py`, `pipeline/llm.py`,
+  `pipeline/postpack.py`, `pipeline/text_utils.py`, `pipeline/candidates.py`, `pipeline/virality.py`,
+  `pipeline/hooks.py`, `pipeline/captions.py`, `pipeline/cleanup.py`, `pipeline/render.py`, `pipeline/ffmpeg_utils.py`,
+  `studio/engine.py`; `frontend/src/brain.ts`, `studio.ts`, `components/ClipForgeAI.tsx`, `components/MemoryTab.tsx`.
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_knowhow.py tests/test_clipforge_ai_chat.py
+  tests/test_virality.py tests/test_core.py tests/test_editing.py`; the FilmCraft check workflow for the real apps
+  (the pass's request now carries the know-how block).
+- **Judgement calls to know about:** "bottom" captions moved from 23% to 36% up the frame (the apps cover the bottom
+  35%); the hook headline from 11% to 15% down; the clip renderer now converts RGB → YUV with BT.709 (it was BT.601,
+  a colour shift on every clip) and adds `-g fps/2 -flags +cgop` and BT.709 tags; AAC 192 → 256 kbps. Music levels
+  and ducking were left as they are (no way to listen here).
+- **Not done:** vision (static frames, pattern interrupts from the picture), the retention-graph reader on real
+  analytics, music ducking with the 150-250 ms release in the engine, a use counter for playbooks.
+- **Waiting on Landry:** review of the PR; the release (needs an explicit OK); the nine plan questions.
+
+## ClipForge AI phase A: the brain and the chat — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wants the AI to be much better and called ClipForge AI: researched models combined
+with its own data and training, a chat to ask for changes, everything kept in the brain, finding music and pictures,
+making effects and music. The research and the four-phase plan are in the Claude Doc "ClipForge AI: research and
+plan" (link in the project memory); Landry chose to start with the brain and the chat. Phase A gives ClipForge AI a
+memory (rules, facts and what it did, with sources, scopes and a meaning search, no download needed), uses it in
+change requests, the FilmCraft pass and smart edits, and adds a chat on every video and in the Brain, plus a Memory
+tab. The old "AI helper" is now ClipForge AI's model.
+
+- **Branch / PR:** `claude/project-thread-605vsm` (restarted from the release line after #25 and #26), PR #27,
+  merged into `claude/project-thread-x72wkd` as 936d7fc on 2026-11-06. Not released.
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md).
+- **Code:** `clipfoundry/brain/` (`memories.py`, `meaning.py`, `chat.py`, `routes.py`), `db.py` (four tables, the
+  `memories` column on `edit_requests`), `studio/edit_requests.py`, `studio/video_flow.py`, `studio/ai_editor.py`,
+  `craft/ai.py`, `craft/finish.py`; `frontend/src/brain.ts`, `components/ClipForgeAI.tsx`, `components/MemoryTab.tsx`,
+  `pages/Brain.tsx`, `pages/VideoReview.tsx`.
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_brain.py tests/test_clipforge_ai_chat.py
+  tests/test_studio_edit_requests.py tests/test_craft.py`; the FilmCraft check workflow for the real apps.
+- **Open questions for Landry** (my picks apply until answered, see the plan doc): monetised use (commercial-safe
+  licences only), the computer (plan for a plain laptop), internet for the finders (finders online, brain offline),
+  consent to learn (locally), where the brain lives (this computer, export/import), music find-first, the name,
+  where to train (free Colab), anything missing.
+- **Waiting on Landry:** the release (needs an explicit OK); the nine plan questions.
+- **Next (phase B):** the embedding model download (Qwen3-Embedding-0.6B) behind `meaning_model`, the finders
+  (Pixabay, Freesound, Jamendo under their licences) and the first maker (ACE-Step music), each as a checked tool the
+  chat can use.
+
+## FilmCraft and EffectCraft inside ClipForge — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry wants FilmCraft inside ClipForge, not separate, with the AI editing through its
+tools and effect shots from another app put into the final edit. ClipForge now fetches FilmCraft and EffectCraft
+itself, edits each final video in FilmCraft with FilmCraft's own tools (plus EffectCraft's animated title and, with an
+AI helper, the AI's finishing), has FilmCraft render it, and opens FilmCraft's editor on the editor page; saves there
+come back as new versions. The built-in FFmpeg editor stays as the backup.
+
+- **Branch / PR:** `claude/project-thread-605vsm`, draft PR #26 (on top of the timeline hand-off).
+- **Design and limits:** [docs/clipforge/CRAFT_APPS.md](docs/clipforge/CRAFT_APPS.md).
+- **Code:** `clipfoundry/craft/` (apps, runner, finish, shots, ai, web, routes), `studio/video_flow.py`
+  (`_craft_render`, `save_filmcraft`, job `filmcraft_edit`, hand-finished versions in `save_revision`),
+  `studio/interchange.py` (blurred background tracks), `frontend/src/components/FilmCraft.tsx`, `EditingApps.tsx`.
+- **Verify with real apps:** `scripts/craft_check.py` (GitHub's Mac and Linux machines; the cloud session may not run
+  downloaded programs).
+- **Real-app results:** run 42256808188 passed on macOS 15 and Ubuntu (edit, EffectCraft title, AI pass with an
+  EffectCraft shot, FilmCraft render, the editor page opening version 1 and Ctrl/Cmd+S coming back as version 2).
+  Earlier runs found: no `property("Source Text")` in EffectCraft 0.9.2, no host messages in FilmCraft 0.17.1's web
+  build, FilmCraft only opens a `File` made by its own window, look names with commas (see AI_CHANGELOG.md). Facts read from the released files: the 0.17.1 web
+  build has `window.filmcraft` (execute, commands, inspect, screenshot, info, files, readFile, importFiles,
+  importUrl, openProject) and saves by anchor download; `effectcraft-cli script --json` prints `result`/`output`.
+- **Built-in AI (PR #25) joined in:** it does the FilmCraft AI pass once downloaded, with a request shortened to fit
+  its 8,192-token context; `scripts/craft_check.py --builtin-ai` checks it with the real model. Landry approved
+  merging #25 and #26 into the release line once that check passes.
+- **Waiting on Landry:** release.
+- **Next:** EffectCraft's own editor in the page, PhotoCraft (thumbnails), Windows check with the real apps.
+
+## Finish in FilmCraft — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to plug the ArtCraft apps (getartcraft.com/apps) into ClipForge for editing.
+FilmCraft, their open-source video editor, is plugged in as a hand-off: the editor page writes the cut as a timeline
+with captions and opens it in FilmCraft for hand finishing (colour, keyframes, titles, mixing). FFmpeg stays the
+engine for automatic editing and rendering.
+
+- **Branch:** `claude/project-thread-605vsm`, from `claude/project-thread-x72wkd` (separate from phase 1, PR #25).
+- **Design, limits and how it is verified:** [docs/clipforge/FILMCRAFT.md](docs/clipforge/FILMCRAFT.md).
+- **Code:** `studio/interchange.py` (OTIO + SRT + package/zip), `studio/filmcraft.py` (find, import with
+  `filmcraft-cli`, open), three routes in `studio/routes.py`, `frontend/src/components/FilmCraft.tsx` (rebuilt dist).
+- **Real FilmCraft:** `.github/workflows/filmcraft-check.yml` (push to `claude/**` touching these files, or by hand)
+  runs `scripts/filmcraft_check.py` against FilmCraft 0.17.1 pinned by SHA-256 on macOS 15 and Ubuntu.
+- **Next ArtCraft apps:** PhotoCraft (thumbnails), EffectCraft (titles), SoundCraft (voice): same "open in" pattern.
+
+## Built-in AI and sound cleanup (phase 1) — 2026-11-06 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a plan to make clipping and editing smarter with an AI that ships with
+the app (plan: Claude Doc in the project thread), then chose "Start phase 1". Phase 1 is built: a built-in AI that
+downloads on first use (level picked from the computer) and becomes the default helper, and "Clean up the sound"
+(noise, hum, breaths, mic balance, even levels, voice polish) with a before/after switch. Draft PR, not merged.
+
+- **Branch:** `claude/project-thread-4sg7wk`, from `claude/project-thread-x72wkd` @ `e7f7919` (PR #20's branch with
+  #22 and #23); the PR targets that branch.
+- **Design and limits:** [docs/clipforge/BUILTIN_AI_AND_SOUND.md](docs/clipforge/BUILTIN_AI_AND_SOUND.md).
+- **Code:** `clipfoundry/builtin_ai.py`, `clipfoundry/pipeline/cleanup.py`; wiring in `pipeline/llm.py`, `gpu.py`,
+  `api.py` (`/api/ai/builtin*`, `/api/clips/{id}/sound-check`), `pipeline/render.py` (`_clean_sound`),
+  `studio/engine.py` (`source_sound`), `studio/video_flow.py`; frontend `AiHelperSettings.tsx`,
+  `components/SoundCompare.tsx`, ClipEditor, Settings, VideoReview.
+- **Real-machine check:** `.github/workflows/builtin-ai-check.yml` runs on pushes to this branch (Mac, Linux,
+  Windows; Windows fetches only the four files it needs because this repository's folder name cannot be checked out
+  there). Its summary has load time, words per second and the sound cleanup's real-time factor.
+- **Next phases (not started):** smarter clips, styles and finishing, YouTube videos and short films (see the plan).
+
+## Release ClipForge 2026.11.05.2 (smart editing + Mac link fix) — 2026-11-05 (Claude Code, cloud session)
+
+Landry asked to merge both fixes and update the website. PR #22 was merged into `claude/project-thread-x72wkd`
+(`a6b17b1`), then merged into PR #23's branch (`2e5238e`, conflicts only in the changelog files). Both downloads
+come from `2e5238e`; PR #23 was merged after the release with this record. Details: the top entry of
+[AI_CHANGELOG.md](AI_CHANGELOG.md) and `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
+
+- Mac: release `clipforge-mac-2026-11-05-2e5238e`, from tested run 42106643196. Windows: `raw/d60445f` on
+  `claude/clipforge-downloads`, Windows setup check run 42109581700. Page: `gh-pages` `65f026a`.
+- Rollback: revert `65f026a` on `gh-pages` with a normal commit; the 2026.11.05 files (6ecdafc) stay listed under
+  Older versions and their URLs never change.
+- Pushing straight to `gh-pages` worked this time (it was refused earlier the same day).
+- PR #20 (the studio upgrade branch these PRs merge into) is still not merged into the default branch.
+
+## Smart video editing and the AI helper — 2026-11-05 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a video editor that actually edits (trims, adds sound and pictures when
+it helps) and for a free way to plug in an AI (a key or a local model). "Make a YouTube video" now defaults to
+"Edit it for me": pauses, lone fillers, earlier takes and stumbles are cut, the length is fitted, images are shown
+over the video when they are named, and free music and soft effects made on the computer are added. Settings → AI
+helper sets up Ollama (download or .gguf import), LM Studio or a free Gemini/Groq/OpenRouter key. Draft PR #23,
+not merged.
+
+- **Branch:** `claude/project-thread-k49gua`, from `claude/project-thread-x72wkd` (#20, unmerged), PR #23 targets it.
+- **Design and limits:** [docs/clipforge/SMART_EDITING.md](docs/clipforge/SMART_EDITING.md).
+- **Code:** `studio/smart_edit.py` (the plan), `studio/ai_editor.py` (AI advice, windowed and validated),
+  `studio/library.py` (synthesized music/effects), `ai_setup.py` (presets, Ollama pull/import), engine `join`,
+  `zoom`, `overlays`; `video_flow.prepare_smart`, `smart_again`, job `video_smart`; frontend MakeVideo, VideoReview
+  (SmartPanel, Pictures), `components/AiHelperSettings.tsx` at `#/settings/ai`.
+- **Compatibility:** API callers without `smart_edit` get the old rough cut; music is added to unedited clips only
+  when `music` is `auto`/`library`. Captions now keep a word that starts in a clip and is mostly inside it.
+- **Tests:** `tests/test_studio_smart_edit.py` (fast), `tests/test_studio_smart_render.py` (slow, needs espeak-ng).
+- **Not verified:** a real Ollama/LM Studio model, real free-tier keys, the native apps with these screens.
+
+## Mac YouTube link fix — 2026-11-05 (Claude Code, cloud session)
+
+Landry reported that the released Mac app (2026.11.05) failed every YouTube link with "No downloadable video was found
+on this page". The fix is on branch `claude/project-thread-8zldhx`, in draft PR #22, which is stacked on PR #20 (its
+base is `claude/project-thread-x72wkd`). See the top entry of [AI_CHANGELOG.md](AI_CHANGELOG.md) for the cause, the
+fix and the checks. It is not merged and not released; a new Mac DMG needs Landry's OK (release flow: the
+`macos-desktop.yml` run, then `macos-personal-preview.yml`). YouTube itself cannot be tested from the cloud
+environment or from GitHub runners (bot check), so only a real Mac confirms it.
+
+## ClipForge studio upgrade, released — 2026-11-05 (Claude Code, cloud session)
+
+**Plain-English summary:** work on the studio upgrade handoff
+([CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md](docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md)) was carried out in its own
+order. Steps 1–7 are done: video links, discovery retired, the full-video editor, example videos, Find media, change
+requests, Studio and the office, dark design and Customize studio, the Brain map, the ClipForge name in the native
+apps and the full checks. Step 8, the release Landry approved, is done: the Mac DMG preview release and the Windows
+setup ZIP, both from `6ecdafc`, and the new download page on GitHub Pages (`gh-pages` `138c4f7`, PR #21, merged at
+Landry's request "update the website"). Merging PR #20 is a separate decision. No real account or video was touched;
+there is no cloud deployment.
+
+- **Branch:** `claude/project-thread-x72wkd`, started from the default branch `claude/wonderful-ritchie-909tq3` @
+  `12afd01` and merged with `codex/review-clipforge-pr16` @ `0b723c0` (renderer repair `fc0664c`) as `6c3f8d9`.
+  Other remote branches were compared; none has newer app source.
+- **Requirement matrix (kept current):** [docs/clipforge/STUDIO_UPGRADE_MATRIX.md](docs/clipforge/STUDIO_UPGRADE_MATRIX.md).
+- **Baseline on `6c3f8d9`:** fast suite 1,630 passed; slow suite 21 passed (clean worktree), including the two tests
+  the 2026-11-04 entry below lists as failing. They did not reproduce here, so they were left as they are.
+- **Done so far:**
+  - `cc89a87` Video link in Make clips: `studio/link_import.py`, `jobs.fetch_public_video`, `uploads.store_file`;
+    29 tests in `tests/test_studio_links.py`.
+  - `d3abd6e` Discovery retired: `config.DISCOVERY_RETIRED`, `db._migrate_discovery_retired`, screens cleaned;
+    `tests/test_discovery_retired.py`. Older discovery suites run with the retirement patched off (dormant-engine
+    coverage, documented in `tests/conftest.py` and the matrix).
+  - Full-video editor (handoff section 8): engine `ffmpeg-v2` renders in pieces (any number of clips; ≤2 inputs per
+    FFmpeg run; audio mixed in 10 s blocks; disk space checked first), plan schema 2 with voiceover/music/effects
+    tracks, insert/replace/add media after the rough cut, undo/redo/restore/named versions as new revisions, caption
+    word fixes, and a rebuilt editor screen. **Ducking now works at normal speech levels** (the old sidechain setting
+    did nothing below loud speech; measured). Tests: `tests/test_studio_editor.py` (fast),
+    `tests/test_studio_editor_render.py` (slow). Details: `docs/clipforge/EDITOR_INTEGRATION.md`.
+  - Example videos (handoff section 6): `studio/reference_analysis.py` measures cuts/dissolves/fades, framing,
+    on-screen caption lines, speech, pauses and the music dip under speech locally (no AI model; labelled Measured
+    or Estimate with playable timestamps); `studio/reference.py` runs it as a durable job cached by content hash +
+    ranges + analyzer version, saves an Example style with provenance and corrections, and feeds guidance (a chosen
+    example ranks right after project choices). New fields `shot_length_s`, `duck_depth_db` are applied by the rough
+    cut. Make a video stopped sending pre-filled answers as project choices (they overrode every style). Tests:
+    `tests/test_studio_reference.py` (fast), `tests/test_studio_reference_render.py` (slow).
+  - Find media (handoff section 6, web media library): `studio/media_sources.py` searches Openverse, Wikimedia
+    Commons and Pexels (key sealed in Settings → Media sources), proxies previews per workspace, imports through a
+    durable job with `netguard` downloads, size/type/decode checks and a provenance row (`asset_sources`, kept apart
+    from the Brain), and keeps an editable credits list (render info, `credits.txt`, automatic upload descriptions).
+    Unknown or unfit terms need the owner's written reason and hold automatic posting. Supporting media per project
+    (suggest by default, or add automatically as one undoable version). Editor panel, Settings tab and Make a video
+    choices built. Tests: `tests/test_studio_media_sources.py` (fast), `tests/test_studio_media_render.py` (slow).
+    **Provider APIs not live-verified** (hosts unreachable here).
+  - Tell the editor what to change (handoff section 9): `studio/edit_requests.py` turns a request into a
+    `clipforge.edit-proposal/v1` proposal (stable clip ids, source times), checked on its own revision by the same
+    edits as the manual controls and applied only on Apply as a new revision (Undo reverts; stale proposals are
+    refused). Rules understand the handoff's examples without AI; anything else goes text-only to the AI service in
+    Settings → AI when one is set up, with a timeout, cancel, a daily limit, a cache and no automatic retries.
+    Tests: `tests/test_studio_edit_requests.py` (fake AI service; no real model was called).
+  - Studio and the office (handoff sections 4 and 5): `pages/Studio.tsx` replaces Home (two choices, video link,
+    Needs you, current project with its real step and team, the embedded office, recent projects, publishing);
+    navigation is Studio, Projects, Brain, Publishing, Accounts, Settings. `office/work.py` feeds your own work into
+    the robots (queued, working, waiting for you, error, with a per-robot log of the last day), filtered by
+    workspace; `office/roles.py` has the new rooms with `OLD_ROOMS` for old ids. Every robot including the Brain
+    Core can be renamed (`office/RobotName.tsx`; `POST /api/robots/names/reset` needs `confirm`). Tests:
+    `tests/test_office_owner_work.py`, `tests/test_office.py`, `tests/test_office_manager_handoffs.py`,
+    `tests/test_studio_prefs.py`. Fast suite 1,733 passed on `c80bcb8`.
+  - Dark design, Customize studio and accessibility (handoff section 3): dark only (`theme.css` has one set of
+    tokens and four dark palettes; `public/appearance-boot.js` applies the saved choice before the first paint; a
+    saved Light or System theme is dropped by `studio/prefs.py`, appearance schema 2, and every other choice kept).
+    **Customize studio** (`components/Customize.tsx`) previews live and saves palette, accent, spacing, text size,
+    motion and office animation, Studio panels (order, visibility, presets), editor panels, compact or expanded
+    office and pinned projects; layouts are per device class (`layout:{desktop,tablet,phone}`, schema 2, older
+    editor layouts kept). The office map stops drawing off screen; Calm and Low power office options. Keyboard fixes:
+    the Make menu (shared `useMenu`) and the colour pickers (native radios). Also fixed: the editor crashed on
+    videos made before guidance was recorded, and full videos starting with a sound file asked for a missing
+    picture. Tests: `tests/test_theme_contrast.py` (11), `tests/test_studio_prefs.py`, `tests/test_studio_uploads.py`.
+    Browser checks (scripted, Chromium, disposable data): 16 screens at 320–1440 px with two text sizes, and
+    keyboard-only runs at 320, 390 and 1440 px with reduced motion. Fast suite 1,747 passed on `61492d0` (the code of this step; the last commits rebuild the app and add docs).
+  - Brain map (handoff section 6, "Interface"): Brain → Notes now maps styles, skills, example videos and the
+    projects that used them next to the notes, linked only by recorded facts (`studio/brain_map.py`,
+    `GET /api/studio/brain/map`; project guidance snapshots and Example style provenance). Graph and List show the
+    same records with filters, arrow keys and an inspector (effects, on/off, revision, projects that used it).
+    **Save a style** is a new form (Brain toolbar and Styles tab). The idle glow is gone; only records applied in the
+    last 15 minutes pulse. Tests: `tests/test_brain_map.py` (2); browser checks at 1440, 390 and 320 px.
+  - Product name (handoff section 11): the Mac app's window, menus and messages, its Finder name and DMG volume, the
+    Mac and Windows launchers and the phone page say ClipForge (`44647c5`). Bundle id, data folders, Keychain and
+    DPAPI names, the `X-ClipFoundry` header and `CLIPFOUNDRY_*` keys are kept (no tested migration).
+  - Step 7 checks (details in the matrix): fast 1,749 passed and slow 26/26 (audio, uploads, renders, restart and
+    recovery), here and on GitHub's Linux runner. Mac app compiled, smoke-tested and packaged on a GitHub Mac runner
+    (`macos-desktop.yml` run 8, artifact `ClipFoundry-Development-NOT-NOTARIZED`, 7 days; not a release). Browser
+    suites compared with the starting commit: read-only 52 passed / 7 failed (the start's own failures), sandbox 84
+    passed / 2 failed (both failing at the start). The comparison found three regressions, fixed in `e6e9380`: the
+    office fallback map stopped drawing when a robot was queued, the Brain's Saved items lost their button role, and
+    Missions claimed automatic uploads in review mode. Stale specs were updated (`5dca810`, `d3241f3`); discovery's
+    retired setup specs are kept but not run, and `discovery-retired.spec.ts` checks those screens stay gone.
+  - Step 8 release (details in the matrix and `docs/clipforge/WEBSITE_DEPLOYMENT.md`): Mac release
+    `clipforge-mac-2026-11-05-6ecdafc` (192,306,837 bytes, SHA-256 `198706f3…3e6c5d`) from tested run 42050818316,
+    published by run 42060598566;
+    Windows `ClipForge-Windows-Setup.zip` at `raw/69a930e` (46,962,928 bytes, SHA-256 `89df9b2d…5ea84`) on
+    `claude/clipforge-downloads`, with a new Windows install check (`windows-setup-check.yml`, run 42052332032:
+    previous release, then this one over it, data and settings kept, close and reopen). Download page: `gh-pages`
+    `138c4f7` (squash of PR #21 from `claude/download-page-2026-11-05`; same tree as the checked commit `89c922b`;
+    previous `414ef86`), deployed by Pages run 42062766514. Rollback: revert `138c4f7` on `gh-pages`. The ChatGPT Sites
+    page is unchanged (no access here).
+- **Plan (handoff order):** ~~scalable media and multi-track audio editing with revisions~~ → ~~example-video
+  analysis, applied Brain styles~~ → ~~Find media providers, bounded AI corrections~~ → ~~Studio/Home/Office and
+  all-robot names~~ → ~~dark-only design and Customize studio~~ → ~~full checks (fast, slow, browser, recovery,
+  audio) and native packages~~ → ~~release downloads and the download page (step 8)~~. Merging PR #20 and any real
+  post still need the owner's OK in the project thread.
+- **Not verified:** installing the DMG over an older copy on a real Mac and Gatekeeper, Windows 10/11 desktops and
+  Defender/SmartScreen, video processing on Windows (the runner had no FFmpeg), a screen reader pass, live media
+  provider APIs, real accounts and uploads.
+- **Environment limits here:** no access to YouTube, Openverse, Wikimedia, Freesound or other media hosts (the proxy
+  refuses them), so provider integrations are tested against fake transports only. GitHub artifact storage is
+  unreachable too, so the Mac build's files were not downloaded here (release downloads and raw URLs do work).
+  GitHub's hosted Windows runners work (the repository is public); actions/checkout cannot create the checkout folder
+  there because the repository name ends with a dot, so the Windows check downloads its files from raw URLs instead.
+  Git pushes from this session are accepted only for existing `claude/` branches, not for `gh-pages` or a new branch;
+  the page went through a branch created with the GitHub tools and a PR into `gh-pages`. `*.github.io` is
+  unreachable from here, so the live page was not loaded; the Pages run and the merged files were checked instead.
+
+## Latest Claude handoff and media-review result — 2026-11-04 (Codex)
+
+The owner's latest request is a detailed implementation prompt, including example-video learning and web media
+sourcing. Delivered `docs/CLIPFORGE_STUDIO_UPGRADE_CLAUDE_PROMPT.md`: dark-only Studio/Home/Office redesign,
+all-bot naming/customization, real Brain influence and analyzed reference videos, supplied YouTube URLs,
+scalable multi-asset/audio editing, complete editable projects, bounded AI corrections, project-specific stock
+media/sounds/images, removal of unrelated automatic source discovery, complete visible rename, website/releases,
+and 31 acceptance scenarios. These new features are requirements, not implementation claims.
+
+The full media review finished **18 passed / 3 failed**. Diagnosed the new full-video renderer's failure:
+FFmpeg xfade received invalid 1/0 frame-rate metadata after timestamp/filter operations. Restored CFR metadata
+and the common time base at clip/title and transition boundaries. The offline speech fixture also selected its
+transcript by approximate container duration, which varies with encoder padding; it now matches the actual
+source asset. No assertion was removed. The complete focused full-video test then **passed (85.12 seconds)**,
+including mixed media, preview/final render, edits, restore, cancellation, captions and stored AAC clock checks.
+
+**Repository sync correction:** GitHub reports PR #16 was merged separately at 18:24 UTC on November 4,
+merge commit `883913c84e5cb621d70093b2692083962c1580c6`. The renderer repair and this handoff were created later
+on `codex/review-clipforge-pr16`; do not assume they are included in that merge or its packages. Two failures
+from this broader media run remain unresolved:
+- `test_worker_host_runs_complete_loop_and_repeats_after_restart[public]`: later source classified weak;
+  expected second post did not arrive.
+- `test_added_upcoming_stream_waits_survives_restart_and_finishes_real_post_live`: live transcription timeout;
+  media-process timeouts also logged.
+Do not assume these are pre-existing without a baseline comparison. Fix them or deliberately replace obsolete
+discovery coverage with equivalent submitted-input recovery checks as part of the requested feature retirement.
+The full slow suite has not been rerun after the focused renderer repair. Evidence:
+`/workspace/work/clipfoundry/pr16-slow-complete.log`, `pr16-video-ffmpeg-error.log`, `pr16-video-fixed-final.log`.
+
+The public website version 3 is live at https://clipfoundry-studio.landryschreiner33.chatgpt.site.
+The Sites downloads were unchanged by this review. New remote work added the shared download page at
+https://landryschreiner33-coder.github.io/ClipForge-AI./download/ and lists November 4 packages from source
+`06f459eb185b87ac344ad14e8dbd3f8e03be58d1`; their manifest was inspected, but those newer binaries were not
+retested here. The latest prompt targets that shared site and optionally synchronizes Sites. No application
+cloud deployment, real account upload, real AI/media-provider connection or native hardware validation was
+performed in this review. Preserve the remote Mac release workflow changes pulled during final sync.
+
 ## ClipForge merged and released for Windows and Mac — 2026-11-04 (Claude Code)
 
 The owner asked to merge the changes, publish Windows and Mac downloads, and build a website that both Claude and
@@ -58,8 +369,9 @@ Review fixes:
   the same request is now refused. The primary owner workflow remains available.
 
 Verification so far: 1,628 fast tests passed; eight focused full-story tests and 70 targeted cloud/studio/account regressions passed after the review fixes;
-production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. Slow media tests are in progress with the
-existing local espeak-ng helper on PATH. No real account sign-in, video upload or owner-machine data was used.
+production frontend build passed; 12 app-shell browser tests passed in a throwaway sandbox. The full slow-media run finished
+18 passed / 3 failed; the renderer subsequently passed its focused regression, with two failures unresolved (see latest checkpoint).
+No real account sign-in, video upload or owner-machine data was used.
 
 The existing Sites project `appgprj_6ae8b76d68108191bc36af565f138bed` was redesigned and published as version 3 from
 `/workspace/sites/clipfoundry-downloads`: ClipForge branding, both creation flows, Brain/styles/skills, robot office,
@@ -71,8 +383,9 @@ preview/install keyboard tabs, FAQ, legal/version links and no-JavaScript downlo
 
 Website deployment succeeded: `appgdep_6aeb6be63940819185f90f2769de8ce2` (source `626295c6e31b0120043483e21aceda2718d57a14`);
 full publication/rollback evidence is in `docs/clipforge/WEBSITE_DEPLOYMENT.md`.
-Outstanding before finishing this checkpoint: complete slow tests, push the final reviewed PR head and merge with the exact
-head SHA. Do not describe cloud hosting, public signup,
+Outstanding before merging: resolve the remaining media failures, complete the relevant verification and merge only the tested
+head SHA. The requested updated Claude prompt is delivered. This review did not merge PR #16; a final sync discovered
+it was merged separately while this review was running. See the latest checkpoint for the follow-up branch. Do not describe cloud hosting, public signup,
 per-account scheduling or full-video publishing as complete. Claude's remaining partial features are recorded in
 `docs/clipforge/FEATURE_CHECKLIST.md`. The earlier FilmCraft build-policy refusal describes that historical session;
 it is not a newly required owner approval for this session.

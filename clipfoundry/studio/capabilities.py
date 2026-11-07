@@ -50,6 +50,10 @@ class Field:
             return f"{self.label}: {'on' if value else 'off'}"
         if self.name == "target_duration_s":
             return "Length: use your judgment" if not value else f"Length: about {round(value / 60, 1):g} min"
+        if self.name == "shot_length_s":
+            return "Shots: keep each file whole" if not value else f"Shots: about {value:g} s, pauses cut out"
+        if self.name == "duck_depth_db":
+            return f"Music dips {value:g} dB under speech"
         return f"{self.label}: {self.words.get(value, value)}"
 
 
@@ -77,11 +81,36 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
           applies="output frame size"),
     Field("target_duration_s", "Length", "number", ("full_video",), minimum=0, maximum=4 * 3600,
           applies="the rough cut's length (0 = use your judgment)"),
-    Field("music", "Music", "choice", ("full_video",), ("none", "supplied"),
-          applies="a music bed you supplied", words={"none": "no added music", "supplied": "your supplied track"}),
+    Field("music", "Music", "choice", ("full_video",), ("none", "supplied", "find", "auto", "library"),
+          applies="a music bed you supplied, free music made by ClipForge, or one found in Media sources",
+          words={"none": "no added music", "supplied": "your supplied track",
+                 "find": "music found in Media sources (suggested or added under this project's license rules)",
+                 "auto": "picked for you (your music file, or free music made by ClipForge)",
+                 "library": "free music made by ClipForge on this computer"}),
+    Field("smart_edit", "Editing", "choice", ("full_video",), ("off", "smart", "tight"),
+          applies="how much the rough cut is edited: pauses, repeated takes and weak parts cut, length fitted",
+          words={"off": "keep my clips as they are", "smart": "edit it for me", "tight": "fast-paced"}),
+    Field("sound_effects", "Sound effects", "bool", ("full_video",),
+          applies="soft whooshes at scene changes and as pictures appear"),
+    Field("broll_images", "Pictures over the video", "bool", ("full_video",),
+          applies="your images shown over the video while the talking goes on"),
+    Field("punch_in", "Zoom on cuts", "bool", ("full_video",),
+          applies="a small zoom on every other jump cut"),
     Field("music_level_db", "Music level", "number", ("full_video",), minimum=-36, maximum=-6,
           applies="music volume under speech (it ducks further while someone speaks)"),
     Field("title_card", "Title card", "bool", ("full_video",), applies="an opening title"),
+    Field("caption_size", "Caption size", "choice", ("full_video",), ("small", "medium", "large"),
+          applies="how large burned-in captions are"),
+    Field("frame_rate", "Frame rate", "choice", ("full_video",), (24, 25, 30, 50, 60),
+          applies="frames per second of the video", words={24: "24 fps", 25: "25 fps", 30: "30 fps", 50: "50 fps",
+                                                            60: "60 fps"}),
+    Field("duck_music", "Music under speech", "bool", ("full_video",),
+          applies="music dips while someone speaks"),
+    Field("duck_depth_db", "Music dip under speech", "number", ("full_video",), minimum=0, maximum=30,
+          applies="how many dB music and effects dip while someone speaks"),
+    Field("shot_length_s", "Shot length", "number", ("full_video",), minimum=0, maximum=60,
+          applies="the rough cut cuts speech into shots of about this length at sentence ends and leaves out the "
+                  "pauses between them (0 keeps each file whole)"),
     Field("video_type", "Video type", "text", ("full_video",), max_length=80, applies="the brief's starting answer"),
     Field("audience", "Audience", "text", ("full_video",), max_length=120, applies="the brief's starting answer"),
 )}

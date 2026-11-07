@@ -98,6 +98,26 @@ BACKREF_PHRASES = ["as i said", "like i said", "as i mentioned", "like i mention
 RESPONSE_STARTS = {"exactly", "yes", "yeah", "yep", "no", "nope", "right", "absolutely", "true", "correct",
                    "definitely", "totally", "agreed", "sure", "mhm", "precisely"}
 
+# Lines that announce the end of a video ("to recap", "follow for part two"): the retention cliff at the end. A
+# short stops on its payoff instead.
+OUTRO_PHRASES = ["to recap", "in conclusion", "to sum up", "to summarize", "to summarise", "in summary",
+                 "let me know in the comments", "comment below", "in the comments below", "follow for part",
+                 "follow for more", "thanks for watching", "thank you for watching", "see you next time",
+                 "see you in the next", "see you guys", "that's it for today", "that's all for today",
+                 "that is all for today", "don't forget to subscribe", "like and subscribe", "hit the like",
+                 "until next time", "catch you next time", "peace out", "that's a wrap", "stay tuned",
+                 "link in my bio", "link in bio"]
+
+# Loss or warning framing ("stop doing this", "the mistake that costs you") hooks better than a promise.
+LOSS_WORDS = {"stop", "never", "mistake", "mistakes", "wrong", "lose", "losing", "lost", "loses", "ruin", "ruins",
+              "ruined", "ruining", "kill", "kills", "killing", "waste", "wasting", "wasted", "danger", "dangerous",
+              "warning", "fail", "fails", "failing", "cost", "costs", "costing", "avoid", "worst", "trap", "scam",
+              "broke", "quit", "hurt", "hurts", "destroy", "destroys", "destroying", "miss", "missing", "regret"}
+LOSS_PHRASES = ["stop doing", "don't do", "do not do", "never do", "the mistake", "this mistake", "you're losing",
+                "you are losing", "costs you", "cost me", "is killing", "is ruining", "will ruin", "the worst",
+                "biggest mistake", "wasting your", "before it's too late", "you'll regret", "nobody warns",
+                "no one warns", "a warning", "stop wasting", "you're wasting", "don't make", "do not make"]
+
 # Promotional housekeeping that rarely works in a short.
 PROMO_PHRASES = ["subscribe", "sponsor", "link in the description", "in the description", "patreon",
                  "promo code", "discount code", "hit the bell", "smash that like", "check out my"]

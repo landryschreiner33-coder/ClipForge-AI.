@@ -77,7 +77,7 @@ test("a robot opens its card: role, manager and the next stage", async ({ page }
   await page.locator(".dept-robot", { hasText: "CLOCK" }).click();
   const panel = page.getByRole("complementary", { name: "Details" });
   await expect(panel.getByRole("heading", { level: 2 })).toHaveText("CLOCK");
-  await expect(panel).toContainText("Schedule Manager");
+  await expect(panel).toContainText("Media Research Manager");  // the rooms changed with the studio upgrade (section 5)
   await expect(panel).toContainText("COMMAND");
   await page.keyboard.press("Escape");
   await expect(panel.getByRole("heading", { level: 2 })).toHaveText("Today");
@@ -86,9 +86,10 @@ test("a robot opens its card: role, manager and the next stage", async ({ page }
 
 test("a room opens its details", async ({ page }) => {
   await page.getByRole("button", { name: "Map", exact: true }).click();
-  await page.locator(".office-world").getByRole("button", { name: /^System\b/ }).click();
+  // System health and the Dev Log moved into Quality & export with the studio upgrade (section 5)
+  await page.locator(".office-world").getByRole("button", { name: /^Quality & export\b/ }).click();
   const panel = page.getByRole("complementary", { name: "Details" });
-  await expect(panel.getByRole("heading", { level: 2 })).toHaveText("System");
+  await expect(panel.getByRole("heading", { level: 2 })).toHaveText("Quality & export");
   await expect(panel).toContainText("Dev Log");
   await panel.getByRole("button", { name: "Close details" }).click();
   await expect(panel.getByRole("heading", { level: 2 })).toHaveText("Today");

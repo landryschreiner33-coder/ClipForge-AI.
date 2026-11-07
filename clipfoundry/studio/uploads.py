@@ -206,38 +206,62 @@ def complete(upload_id: str) -> dict:
             part.unlink(missing_ok=True)
             db.update("uploads", upload_id, status="failed", error="The file changed or was damaged in transfer.")
             raise UploadError("The file arrived damaged (its fingerprint does not match). Upload it again.", 422)
-        existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (row["workspace_id"], digest))
-        if existing:
-            part.unlink(missing_ok=True)
-            db.update("uploads", upload_id, status="complete", asset_id=existing[0]["id"])
-            return asset_view(existing[0])
-        asset_id = "as-" + os.urandom(8).hex()
-        folder = assets_dir(row["workspace_id"]) / asset_id
-        folder.mkdir(parents=True)
-        dest = folder / ("original" + Path(row["filename"]).suffix.lower())
-        shutil.move(str(part), dest)
-        os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
-        info: dict = {}
-        thumb = ""
         try:
-            info = probe_audio(dest) if row["kind"] == "audio" else probe(dest)
-        except (FFmpegError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
-            if row["kind"] != "image":
-                shutil.rmtree(folder, ignore_errors=True)
-                db.update("uploads", upload_id, status="failed", error=f"Not a readable {row['kind']} file.")
-                raise UploadError(f"This file is not a readable {row['kind']} file ({str(exc)[:120]}).", 422) from exc
-        if row["kind"] in ("video", "image"):
-            try:
-                t = min(float(info.get("duration") or 0) * 0.1, 5.0) if row["kind"] == "video" else 0.0
-                thumbnail(dest, t, folder / "thumb.jpg", 480)
-                thumb = str(folder / "thumb.jpg")
-            except Exception:  # noqa: BLE001 - a missing thumbnail never fails the upload
-                thumb = ""
-        asset = db.insert("assets", {"id": asset_id, "workspace_id": row["workspace_id"], "kind": row["kind"],
-                                     "filename": row["filename"], "sha256": digest, "size": row["size"],
-                                     "path": str(dest), "thumb_path": thumb, "probe": info})
-        db.update("uploads", upload_id, status="complete", asset_id=asset_id)
-        return asset_view(asset)
+            stored = _store(row["workspace_id"], part, row["filename"], row["kind"], digest, row["size"])
+        except UploadError:
+            db.update("uploads", upload_id, status="failed", error=f"Not a readable {row['kind']} file.")
+            raise
+        db.update("uploads", upload_id, status="complete", asset_id=stored["id"])
+        return asset_view(stored)
+
+
+def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: str, size: int) -> dict:
+    """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it."""
+    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
+    if existing:
+        source.unlink(missing_ok=True)
+        return existing[0]
+    asset_id = "as-" + os.urandom(8).hex()
+    folder = assets_dir(workspace_id) / asset_id
+    folder.mkdir(parents=True)
+    dest = folder / ("original" + Path(filename).suffix.lower())
+    shutil.move(str(source), dest)
+    os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
+    info: dict = {}
+    thumb = ""
+    try:
+        info = probe_audio(dest) if kind == "audio" else probe(dest)
+    except (FFmpegError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        if kind != "image":
+            shutil.rmtree(folder, ignore_errors=True)
+            raise UploadError(f"This file is not a readable {kind} file ({str(exc)[:120]}).", 422) from exc
+    if kind in ("video", "image"):
+        try:
+            t = min(float(info.get("duration") or 0) * 0.1, 5.0) if kind == "video" else 0.0
+            thumbnail(dest, t, folder / "thumb.jpg", 480)
+            thumb = str(folder / "thumb.jpg") if (folder / "thumb.jpg").is_file() else ""  # ffmpeg may write none
+        except Exception:  # noqa: BLE001 - a missing thumbnail never fails the upload
+            thumb = ""
+    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": filename,
+                                "sha256": digest, "size": size, "path": str(dest), "thumb_path": thumb,
+                                "probe": info})
+
+
+def store_file(workspace_id: str, path: Path, filename: str) -> dict:
+    """A file ClipForge obtained itself (a supplied link's download, an imported library item) becomes a private
+    asset exactly like an upload: hashed, probed, stored once per workspace and content hash. `path` is moved."""
+    name = Path(filename or path.name).name[:200]
+    kind = kind_of(name)
+    if kind is None:
+        raise UploadError("Unsupported file type.")
+    size = path.stat().st_size
+    if size <= 0:
+        raise UploadError("The file is empty.")
+    limit = storage_limit_bytes()
+    if limit is not None and storage_used(workspace_id) + size > limit:
+        raise UploadError("Storage is full. Nothing was deleted. Free space in Settings → Storage, then try again.",
+                          507)
+    return _store(workspace_id, path, name, kind, _sha256(path), size)
 
 
 def cancel(upload_id: str) -> None:

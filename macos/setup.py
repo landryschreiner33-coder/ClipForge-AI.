@@ -84,7 +84,7 @@ def check_port(port: int = 8765) -> None:
             sock.bind(("127.0.0.1", port))
         except OSError as exc:
             raise RuntimeError(
-                "Port 8765 is already in use. Close the other ClipFoundry window before reopening this setup. "
+                "Port 8765 is already in use. Close the other ClipForge window before reopening this setup. "
                 "No process was stopped."
             ) from exc
 
@@ -101,14 +101,14 @@ def main(*, launch: bool = True) -> int:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print("ClipFoundry is already running or setting up. Use its existing Terminal window.")
+            print("ClipForge is already running or setting up. Use its existing Terminal window.")
             webbrowser.open("http://127.0.0.1:8765")
             return 0
         check_port()
         app = install_release(bundle, BASE, manifest)
         python = app / ".venv/bin/python"
         if not python.exists():
-            print("Creating ClipFoundry's private Python environment…", flush=True)
+            print("Creating ClipForge's private Python environment…", flush=True)
             subprocess.run([sys.executable, "-m", "venv", str(app / ".venv")], check=True)
         ready = app / ".setup-complete"
         if not ready.exists():
@@ -148,7 +148,7 @@ def main(*, launch: bool = True) -> int:
         if not launch:
             print("Setup and native diagnostics finished.", flush=True)
             return 0
-        print("Opening ClipFoundry. Your data lives in ~/Library/Application Support/ClipFoundry/data.", flush=True)
+        print("Opening ClipForge. Your data lives in ~/Library/Application Support/ClipFoundry/data.", flush=True)
         print("Keep this window open. Press Control+C here to stop the app before updating.", flush=True)
         return subprocess.call([str(python), "-m", "clipfoundry", "--unattended", "--open"], cwd=app, env=env)
 
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
-        print("\nClipFoundry stopped.")
+        print("\nClipForge stopped.")
     except Exception as exc:
         print(f"\nSetup could not finish: {exc}\nReopen the launcher to retry. Saved data is preserved.")
         raise SystemExit(1)

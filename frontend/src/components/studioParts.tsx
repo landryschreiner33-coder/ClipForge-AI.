@@ -1,17 +1,26 @@
 import { DragEvent, useEffect, useRef, useState } from "react";
-import { Connection, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
+import { Connection, ExampleVideo, fmtBytes, Snapshot, Style, studio, uploadFile, UploadProgress, Asset } from "../studio";
 import { Icon } from "./ui";
 
-export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string };
+export type Picked = { key: string; file: File; progress: UploadProgress | null; asset: Asset | null; error: string;
+  /** Resume this file's upload where the server says it stopped. */
+  retry?: () => void;
+  /** Stop this file's upload (or take it out of the waiting line); it can be resumed later. */
+  cancel?: () => void };
 
-/** File drop + picker. Each file uploads in resumable chunks; the row shows bytes received, never a guess. */
+/** Uploads that run at the same time; the rest wait their turn (each one reads its file in chunks). */
+const PARALLEL = 3;
+
+/** File drop + picker. Any number of files, in as many batches as you like: each uploads in resumable chunks, a few
+ * at a time, and each row shows bytes received (never a guess), with cancel and resume. */
 export function FileDrop({ accept, multiple, label, onAssets }: { accept: string; multiple?: boolean; label: string;
   onAssets: (rows: Picked[]) => void }) {
   const [rows, setRows] = useState<Picked[]>([]);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const rowsRef = useRef<Picked[]>([]);
-  rowsRef.current = rows;
+  const files = useRef(new Map<string, File>());
+  const waiting = useRef<string[]>([]);
+  const running = useRef(new Map<string, AbortController>());
 
   const update = (key: string, patch: Partial<Picked>) => {
     setRows((rs) => {
@@ -20,31 +29,53 @@ export function FileDrop({ accept, multiple, label, onAssets }: { accept: string
       return next;
     });
   };
-  const send = async (row: Picked) => {
-    update(row.key, { error: "" });
-    try {
-      const asset = await uploadFile(row.file, (p) => update(row.key, { progress: p }));
-      update(row.key, { asset });
-    } catch (e) {
-      update(row.key, { error: (e as Error).message });
+  const pump = () => {
+    while (running.current.size < PARALLEL && waiting.current.length) {
+      const key = waiting.current.shift()!;
+      const file = files.current.get(key);
+      if (!file || running.current.has(key)) continue;
+      const ctl = new AbortController();
+      running.current.set(key, ctl);
+      update(key, { error: "" });
+      uploadFile(file, (p) => update(key, { progress: p }), ctl.signal)
+        .then((asset) => update(key, { asset }))
+        .catch((e) => update(key, { error: ctl.signal.aborted ? "Stopped. Resume upload to continue where it left off."
+          : (e as Error).message }))
+        .finally(() => { running.current.delete(key); pump(); });
     }
   };
-  const add = (files: FileList | null) => {
-    if (!files?.length) return;
-    const fresh = Array.from(multiple ? files : [files[0]]).map((file) => ({
-      key: `${file.name}|${file.size}|${file.lastModified}`, file, progress: null, asset: null, error: "" }));
+  const start = (key: string) => {
+    if (!waiting.current.includes(key) && !running.current.has(key)) waiting.current.push(key);
+    update(key, { error: "" });
+    pump();
+  };
+  const stop = (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    const ctl = running.current.get(key);
+    if (ctl) ctl.abort();
+    else update(key, { error: "Not started. Resume upload when you want it." });
+  };
+  const add = (list: FileList | null) => {
+    if (!list?.length) return;
+    const fresh: Picked[] = Array.from(multiple ? list : [list[0]]).map((file) => {
+      const key = `${file.name}|${file.size}|${file.lastModified}`;
+      return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key) };
+    });
+    fresh.forEach((r) => files.current.set(r.key, r.file));
     setRows((rs) => {
       const next = multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh;
       onAssets(next);
       return next;
     });
-    fresh.forEach((r) => void send(r));
+    fresh.forEach((r) => start(r.key));
   };
   const drop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
     add(e.dataTransfer.files);
   };
+  useEffect(() => () => running.current.forEach((c) => c.abort()), []);
+  const done = rows.filter((r) => r.asset).length;
   return (
     <div className="stack-3">
       <div className={`drop ${over ? "over" : ""}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }}
@@ -52,20 +83,22 @@ export function FileDrop({ accept, multiple, label, onAssets }: { accept: string
         <Icon name="upload" size={28} />
         <span>{label}</span>
         <button type="button" className="btn" onClick={() => input.current?.click()}>Choose {multiple ? "files" : "a file"}</button>
-        <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => add(e.target.files)} />
+        <input ref={input} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
       </div>
-      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => void send(r)} />)}
+      {rows.length > 0 && !multiple && rows.map((r) => <UploadRow key={r.key} row={r} onRetry={() => start(r.key)} />)}
       {multiple && rows.length > 0 && <p className="small muted" aria-live="polite">
-        {rows.filter((r) => r.asset).length} of {rows.length} uploaded</p>}
-      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => void send(r)} />)}
+        {done} of {rows.length} uploaded{rows.length - done > PARALLEL ? ` · ${PARALLEL} at a time, the rest wait their turn` : ""}</p>}
+      {multiple && rows.map((r) => r.error && <UploadRow key={r.key} row={r} onRetry={() => start(r.key)} />)}
     </div>
   );
 }
 
-export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry: () => void; extra?: React.ReactNode }) {
+export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry?: () => void; extra?: React.ReactNode }) {
   const p = row.progress;
+  const retry = onRetry || row.retry;
+  const sending = !row.asset && !row.error && p && p.state !== "done";
   const words = row.error ? row.error : row.asset ? `Uploaded · ${fmtBytes(row.file.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
-    : !p ? "Waiting" : p.state === "hashing" ? "Preparing the file" : p.state === "checking" ? "Checking the file"
+    : !p ? "Waiting its turn" : p.state === "hashing" ? "Preparing the file" : p.state === "checking" ? "Checking the file"
       : `${fmtBytes(p.received)} of ${fmtBytes(p.size)} received`;
   return (
     <div className="file-row" aria-live="polite">
@@ -76,7 +109,12 @@ export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry: () =>
         <span className={`block small ${row.error ? "error-text" : "muted"}`}>{words}</span>
         {p && !row.asset && !row.error && <progress max={p.size} value={p.received} aria-label={`${row.file.name} upload`} />}
       </div>
-      <div className="row-actions">{row.error && <button type="button" className="btn btn-small" onClick={onRetry}>Resume upload</button>}{extra}</div>
+      <div className="row-actions">
+        {row.error && retry && <button type="button" className="btn btn-small" onClick={retry}>Resume upload</button>}
+        {!row.asset && !row.error && row.cancel && <button type="button" className="btn btn-small"
+          aria-label={`Stop uploading ${row.file.name}`} onClick={row.cancel}>{sending ? "Stop" : "Skip"}</button>}
+        {extra}
+      </div>
     </div>
   );
 }
@@ -134,21 +172,51 @@ export function StyleSelect({ value, onChange, mode }: { value: string; onChange
   );
 }
 
-const LEVEL_WORDS: Record<string, string> = { project: "This project", style: "Style", skill: "Skill", brain: "Brain note", settings: "Settings" };
+const LEVEL_WORDS: Record<string, string> = { project: "This project", reference: "Example chosen for this project",
+  style: "Style", skill: "Skill", example: "Example video", brain: "Brain note", settings: "Settings" };
+
+/** "Use an example": an analyzed example video whose saved choices this project should follow. */
+export function ExampleSelect({ value, onChange, mode }: { value: string; onChange: (v: string) => void; mode: string }) {
+  const [rows, setRows] = useState<ExampleVideo[] | null>(null);
+  useEffect(() => {
+    studio.examples(true).then(setRows).catch(() => setRows([]));
+  }, []);
+  const usable = (rows || []).filter((r) => r.style && r.enabled && !r.avoid && r.status !== "queued");
+  const chosen = usable.find((r) => r.id === value);
+  const fields = chosen?.style ? Object.keys(chosen.style.values) : [];
+  return (
+    <div className="stack-2">
+      <label className="field">
+        <span>Use an example</span>
+        <select value={value} onChange={(e) => onChange(e.target.value)} disabled={rows === null}>
+          <option value="">No example</option>
+          {usable.map((r) => <option key={r.id} value={r.id}>{r.title}{r.project_only ? " (this project only)" : ""}</option>)}
+        </select>
+      </label>
+      {chosen && <p className="small muted">Follows {fields.length} saved choice{fields.length === 1 ? "" : "s"} learned from “{chosen.title}”
+        {mode === "full_video" ? "" : " that apply to clips"}. Choices you make below still win. The example's own footage and sound are never used.</p>}
+      {rows !== null && !usable.length && <p className="small muted">No example videos yet. <a className="textlink" href="#/brain/example-videos">Add one in Brain</a>: ClipForge measures its cuts, captions, framing and sound, and you choose what to reuse.</p>}
+    </div>
+  );
+}
 
 /** "Used from your Brain": each decided choice with the entry (and revision) that decided it, and what it beat. */
 export function UsedFromBrain({ snapshot, compact }: { snapshot: Snapshot | null; compact?: boolean }) {
   if (!snapshot) return <p className="muted small">Working out what your style and Brain decide…</p>;
+  // a video made before ClipForge recorded its guidance has an empty record
+  if (!Array.isArray(snapshot.decisions)) return <p className="muted small">This video was made before ClipForge recorded which saved choices decided it.</p>;
   const shown = snapshot.decisions.filter((d) => d.text && (!compact || d.from.level !== "settings"));
   return (
     <div className="stack-3">
-      {snapshot.problems.length > 0 && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
+      {!!snapshot.problems?.length && <p className="error-text small">{snapshot.problems.join(" ")}</p>}
       <ul className="used-list">
         {shown.map((d) => (
           <li key={d.field} className={d.from.level === "settings" ? "settings" : ""}>
             <span>{d.text}</span>
-            <span className="src">from {LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
-              ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}
+            <span className="src">from {d.from.level === "reference" || d.from.level === "example"
+              ? `${d.from.name}${d.from.level === "reference" ? ", chosen for this project" : ""}${d.from.revision ? ` (style revision ${d.from.revision})` : ""}`
+              : <>{LEVEL_WORDS[d.from.level] || d.from.level}{d.from.name && d.from.level !== "settings" && d.from.level !== "project"
+                ? `: ${d.from.name}${d.from.revision ? ` (revision ${d.from.revision})` : ""}` : ""}</>}
               {d.overridden.length > 0 && ` · instead of ${d.overridden.map((o) => `${String(o.value)} from ${o.name}`).join(", ")}`}</span>
           </li>
         ))}

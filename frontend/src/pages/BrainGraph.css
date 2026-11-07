@@ -35,22 +35,16 @@
   box-shadow: 0 0 10px #64e1e070;
 }
 .brain-graph-motion {
-  border: 0;
-  background: transparent;
-  color: #879eb5;
-  font-size: 10px;
-  cursor: pointer;
+  color: #9fb3c8;
+  font-size: 0.75rem;
   padding: 5px;
-}
-.brain-graph-motion:hover {
-  color: #d6eafa;
 }
 .brain-graph-canvas {
   display: block;
   width: 100%;
-  height: 525px;
-  flex: 1;
-  min-height: 360px;
+  /* a fixed share of the window: a long list beside it must not stretch the map into a tall, mostly empty box */
+  height: clamp(360px, 62vh, 620px);
+  flex: 0 0 auto;
   touch-action: none;
   cursor: grab;
 }
@@ -91,11 +85,29 @@
   stroke-width: 0.75;
   opacity: 0.25;
 }
+/* The idle map is still: a glow that breathes on its own would suggest learning that is not happening. */
 .brain-node-aura {
   fill: currentColor;
-  opacity: 0.065;
+  opacity: 0.08;
+}
+/* Something a project really applied in the last few minutes: a few rings, then a steady outline. */
+.brain-node-applied {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.85;
   transform-origin: center;
-  animation: brain-map-glow 7s ease-in-out infinite;
+  transform-box: fill-box;
+  animation: brain-applied 1.6s ease-out 5;
+}
+.brain-graph.is-still .brain-node-applied {
+  animation: none;
+}
+.brain-graph-edges .edge-use {
+  opacity: 0.3;
+}
+.brain-graph-edges .edge-provenance {
+  opacity: 0.45;
 }
 .brain-graph-node .brain-node-core {
   filter: drop-shadow(0 0 3px currentColor);
@@ -106,12 +118,7 @@
 .brain-graph-node.node-collection .brain-node-core {
   filter: drop-shadow(0 0 8px currentColor);
 }
-.brain-graph-node.node-collection .brain-node-aura {
-  animation-delay: -2s;
-}
-.brain-graph-node.node-brain .brain-node-aura {
-  animation-duration: 9s;
-}
+
 .brain-node-label {
   fill: #9eafc3;
   font-family: inherit;
@@ -162,10 +169,9 @@
 .brain-graph-node:has(.brain-node-disabled) .brain-node-core {
   opacity: 0.45;
 }
-.brain-graph.is-still .brain-node-aura {
-  animation-play-state: paused;
-}
+
 .brain-graph-bottom {
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -225,15 +231,14 @@
   color: #819bb4;
   line-height: 1.6;
 }
-@keyframes brain-map-glow {
-  0%,
-  100% {
-    opacity: 0.05;
-    transform: scale(0.92);
+@keyframes brain-applied {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.8);
   }
-  50% {
-    opacity: 0.12;
-    transform: scale(1.12);
+  100% {
+    opacity: 0.25;
+    transform: scale(1.6);
   }
 }
 @media (max-width: 700px) {
@@ -249,7 +254,26 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion="full"]) .brain-node-aura {
+  html:not([data-motion="full"]) .brain-node-applied {
     animation: none;
   }
+}
+
+/* "Just used" in the list and the inspector: a word, not only the pulse */
+.brain-just-used {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--good);
+  color: var(--good);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+.brain-just-used-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--text-2);
 }

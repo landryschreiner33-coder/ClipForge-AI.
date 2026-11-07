@@ -160,17 +160,20 @@ def test_bound_source_grant_stops_on_current_source_or_destination_changes(data,
     assert not db.select("publications")
 
 
-def test_approval_survives_review_default_but_never_spreads_to_another_input_or_old_backlog(data):
-    from clipfoundry import db
+def test_approval_survives_review_default_but_never_spreads_to_another_input_or_old_backlog(data, monkeypatch):
+    from clipfoundry import config, db
     from clipfoundry.autopilot import scheduler, submissions
 
-    # A legacy draft exists before the new source-specific automation decision.
+    # A legacy draft exists before the new source-specific automation decision (made by an older version, while
+    # discovery still existed; it is retired now).
+    monkeypatch.setattr(config, "DISCOVERY_RETIRED", False)
     db.save_settings({"autopilot_input_mode": "discovery"})
     old_clip = make_clip(data, "An earlier completed draft still needs review", 88)
     assert scheduler.plan_new(db.get_settings(), time.time())["created"] == 1
     old = db.select("scheduled_publications", "clip_id = ?", (old_clip["id"],))[0]
     before = db.fetch("scheduled_publications", old["id"])
     db.save_settings({"autopilot_input_mode": "submitted"})
+    monkeypatch.setattr(config, "DISCOVERY_RETIRED", True)
     source = add_file()
     item, _clip = ready_item(data, source)
     approved = db.fetch("scheduled_publications", item["id"])

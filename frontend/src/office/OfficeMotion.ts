@@ -1,6 +1,6 @@
 /** Visual choreography only. Durable jobs are never delayed or changed by a walk or a document transfer. */
 import { BY_ID, CAST, Dir } from "./cast";
-import { OfficeEvent, RoleRow, Snapshot } from "./api";
+import { OfficeEvent, RoleRow, RoleState, Snapshot } from "./api";
 import { BreakActivity, Pt, REST_SEAT, roomOf, route, STATION, SUPERVISE } from "./world";
 import { LoungeLife } from "./LoungeLife";
 import { departmentAttendance, OfficeDuty } from "./DepartmentDuty";
@@ -25,8 +25,9 @@ interface HandoffRoute {
 }
 interface Owner { role: string; job: string; kind: string; ref: string; at: number; cursor: number }
 const SPEED = 130;
-const POSE: Record<string, Pose> = {
-  idle: "idle", working: "work", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
+// every robot state needs a pose: a missing one left the fallback map unable to draw (a "queued" robot)
+const POSE: Record<RoleState, Pose> = {
+  idle: "idle", working: "work", queued: "wait", waiting: "wait", retrying: "retry", error: "error", reviewing: "review",
   paused: "paused", unavailable: "unavailable",
 };
 const CROSS_JOB: Record<string, string[]> = {
@@ -145,9 +146,11 @@ export class OfficeMotion {
     this.trim(this.jobOwners); this.trim(this.refOwners);
   }
 
-  tick(dt: number, now: number, reduced: boolean, frozen: boolean) {
+  /** decorative = lounge break activities (Customize studio → Office animation: Calm turns them off) */
+  tick(dt: number, now: number, reduced: boolean, frozen: boolean, decorative = true) {
     if (frozen) return;
-    if (!reduced) this.lounge.tick(dt, this.actors.values());
+    if (!reduced && decorative) this.lounge.tick(dt, this.actors.values());
+    else if (!decorative) this.lounge.reset();
     for (const a of this.actors.values()) {
       if (a.reaction && a.reaction.until < now) a.reaction = null;
       // Individually paused/unavailable workers may finish returning to a reserved resting place,
@@ -338,7 +341,8 @@ export class OfficeMotion {
   }
   private canBreak(id: string) {
     const state = this.rows.get(id)?.state;
-    return state === "idle" || state === "waiting" || state === "retrying" || (state === "paused" && this.stopped);
+    return state === "idle" || state === "queued" || state === "waiting" || state === "retrying"
+      || (state === "paused" && this.stopped);
   }
   private destination(id: string): Pt {
     return this.targets[id]?.lounge ? this.lounge.target(id) : this.targets[id].at;

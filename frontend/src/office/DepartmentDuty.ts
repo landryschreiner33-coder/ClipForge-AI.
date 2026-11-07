@@ -8,7 +8,7 @@ const ROUTINE = new Set(["schedule_tick", "feed_scan", "live_watch", "maintenanc
 
 function assignedWork(row: RoleRow): boolean {
   const task = row.task;
-  const pending = ["waiting", "retrying"].includes(row.state)
+  const pending = ["queued", "waiting", "retrying"].includes(row.state)
     && task && ["queued", "waiting", "retrying"].includes(task.status);
   const attention = row.state === "error" && task && ["failed", "blocked"].includes(task.status);
   if (!task?.job_id || !(pending || attention)) return false;

@@ -1,22 +1,29 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../api";
-import { DestinationPicker, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
+import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
 import { Banner, CAPTION_STYLES, Disclosure, Icon, PageHead, TRACKING } from "../components/ui";
 import { useAppearance } from "../prefs";
 import { navigate } from "../router";
-import { Connection, Snapshot, studio } from "../studio";
+import { Connection, LinkCheck, Snapshot, studio } from "../studio";
 
 const MODES = [
   { id: "highlights", name: "Highlights", text: "Pick the strongest short moments" },
   { id: "full_stories", name: "Full stories", text: "Make one complete clip for each story" },
 ] as const;
 
-/** Make clips: one video in, vertical clips out. The full-video questionnaire is never asked here. */
-export default function MakeClips() {
+const newRequestId = () => (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, "");
+
+/** Make clips: one video in (a file or a link), vertical clips out. The full-video questionnaire is never asked here. */
+export default function MakeClips({ initialInput = "file" }: { initialInput?: "file" | "link" }) {
   const { appearance, set } = useAppearance();
   const [mode, setMode] = useState<string>(appearance.clips_mode);
+  const [input, setInput] = useState<"file" | "link">(initialInput);
   const [file, setFile] = useState<Picked | null>(null);
+  const [link, setLink] = useState("");
+  const [checked, setChecked] = useState<LinkCheck | null>(null);
+  const [requestId, setRequestId] = useState(newRequestId);
   const [style, setStyle] = useState("saved");
+  const [example, setExample] = useState("");
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [upload, setUpload] = useState(false);
@@ -33,23 +40,39 @@ export default function MakeClips() {
   useEffect(() => {
     let alive = true;
     setSnapshot(null);
-    studio.preview({ mode, style_id: style, choices, title: file?.file.name || "" })
+    studio.preview({ mode, style_id: style, choices, title: input === "file" ? file?.file.name || "" : "", reference_id: example })
       .then((s) => alive && setSnapshot(s)).catch(() => alive && setSnapshot(null));
     return () => {
       alive = false;
     };
-  }, [mode, style, choices, file?.file.name]);
+  }, [mode, style, choices, file?.file.name, input, example]);
+  // The link is checked as it is typed, without fetching anything; the download starts only on Make clips.
+  useEffect(() => {
+    const value = link.trim();
+    setChecked(null);
+    if (!value) return;
+    let alive = true;
+    const t = window.setTimeout(() => {
+      studio.linkCheck(value).then((r) => alive && setChecked(r)).catch(() => alive && setChecked(null));
+    }, 300);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [link]);
 
   const youtube = accounts.filter((a) => a.platform === "youtube");
   const tiktok = accounts.filter((a) => a.platform === "tiktok");
-  const ready = !!file?.asset && (!upload || (dest.length > 0 && (!youtube.length || (kids && basis && agreed))));
+  const haveInput = input === "file" ? !!file?.asset : !!checked?.ok;
+  const ready = haveInput && (!upload || (dest.length > 0 && (!youtube.length || (kids && basis && agreed))));
 
   const submit = async () => {
-    if (!file?.asset) return;
+    if (!haveInput) return;
     setBusy(true);
     setProblem("");
     try {
-      const body: Record<string, unknown> = { asset_id: file.asset.id, mode, style_id: style, choices };
+      const source = input === "file" ? { asset_id: file!.asset!.id } : { url: link.trim(), request_id: requestId };
+      const body: Record<string, unknown> = { ...source, mode, style_id: style, choices, reference_id: example };
       if (upload) {
         body.upload = { intent: "make_and_upload", destinations: dest, privacy, made_for_kids: kids === "yes",
           reuse_basis: basis, agreed };
@@ -59,6 +82,7 @@ export default function MakeClips() {
       navigate(`project/${project.id}`);
     } catch (e) {
       setProblem(errorText(e));
+      setRequestId(newRequestId());  // a corrected request is a new one
       setBusy(false);
     }
   };
@@ -91,12 +115,40 @@ export default function MakeClips() {
           </section>
           <section className="panel" aria-labelledby="mc-file">
             <h2 id="mc-file">Your video</h2>
-            <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => setFile(rows[0] || null)} />
-            <p className="small muted">Have a link to the video, or its own transcript file? <a className="textlink" href="#/create/link">Add it from a link instead</a>.</p>
+            <div className="seg" role="radiogroup" aria-label="Where the video comes from">
+              <label className={input === "file" ? "on" : ""}>
+                <input type="radio" name="input" value="file" checked={input === "file"} onChange={() => setInput("file")} />
+                <Icon name="upload" />Video file
+              </label>
+              <label className={input === "link" ? "on" : ""}>
+                <input type="radio" name="input" value="link" checked={input === "link"} onChange={() => setInput("link")} />
+                <Icon name="link" />Video link
+              </label>
+            </div>
+            {input === "file" ? (
+              <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => setFile(rows[0] || null)} />
+            ) : (
+              <div className="stack-3">
+                <label className="field"><span>Link to one video</span>
+                  <input type="url" inputMode="url" autoComplete="off" spellCheck={false} value={link}
+                    placeholder="https://www.youtube.com/watch?v=…" aria-describedby="mc-link-help"
+                    aria-invalid={checked ? !checked.ok : undefined} onChange={(e) => setLink(e.target.value)} /></label>
+                <p id="mc-link-help" className="small muted" aria-live="polite">
+                  {checked?.ok ? (checked.platform === "youtube"
+                    ? `YouTube video ${checked.video_id}. Only this video is downloaded, even if the link names a playlist.`
+                    : "ClipForge downloads this one video when you press Make clips.")
+                    : checked?.problem ? <><b>{checked.problem.label}.</b> {checked.problem.why} {checked.problem.fix}</>
+                    : "YouTube watch, Shorts and youtu.be links work, and other public video pages ClipForge can read. No search key is needed."}
+                </p>
+                <p className="tiny faint">ClipForge never signs in or uses your browser's cookies. For a private or members-only video, use Video file with your own copy.</p>
+              </div>
+            )}
+            <p className="small muted">Have the video's own transcript file? <a className="textlink" href="#/create/transcript">Add the video with its transcript</a>.</p>
           </section>
           <section className="panel" aria-labelledby="mc-style">
             <h2 id="mc-style">Style</h2>
             <StyleSelect value={style} onChange={setStyle} mode={mode} />
+            <ExampleSelect value={example} onChange={setExample} mode={mode} />
             <Disclosure summary="Customize captions and framing">
               <div className="grid-2">
                 <label className="field"><span>Caption position</span>
@@ -166,7 +218,7 @@ export default function MakeClips() {
           <button type="button" className="btn btn-primary btn-large" disabled={!ready || busy} onClick={submit}>
             <Icon name="film" />{busy ? "Starting…" : upload ? "Make & upload clips" : "Make clips"}
           </button>
-          {!file?.asset && <p className="small muted">Upload a video first.</p>}
+          {!haveInput && <p className="small muted">{input === "file" ? "Upload a video first." : "Paste a link to one video first."}</p>}
         </div>
       </div>
     </div>

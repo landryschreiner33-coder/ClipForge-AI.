@@ -1,7 +1,11 @@
 """Optional Stage 2 AI providers.
 
+* builtin            - the built-in model (builtin_ai.py): llama.cpp and a free model ClipForge downloads and runs on
+                       this computer (free)
 * ollama             - local LLM via http://localhost:11434 (free)
-* openai_compatible  - any local OpenAI-style server: LM Studio, llama.cpp, vLLM (free)
+* openai_compatible  - any OpenAI-style server: LM Studio, llama.cpp, vLLM on this computer (free), or an online
+                       service you have a key for, such as the free tiers of Google Gemini, Groq or OpenRouter
+                       (ai_setup.PRESETS)
 * anthropic          - Claude API (paid, needs an API key; strictly optional)
 
 Only the handful of strongest Stage 1 candidates are sent, never the full
@@ -44,8 +48,10 @@ def build_prompt(video_name: str, sentences: list[str], context_before: str, dur
     guidance = ("Saved editing priorities: " + ", ".join(selected) + ". Favor ranges that satisfy these priorities "
                 "while preserving complete context and the payoff. Keep scores honest; these are editing "
                 "preferences, never source facts.\n") if selected else ""
+    from ..brain import knowhow
+
     return (
-        guidance + f"Source video: {video_name}\n"
+        guidance + knowhow.principles("clips") + "\n" + f"Source video: {video_name}\n"
         f"Candidate clip, about {duration:.0f} seconds. Sentences are numbered.\n{ctx}"
         f"CLIP TRANSCRIPT:\n{numbered}\n\n"
         "Score each factor from 0 to 10 (be strict; 5 is an average clip):\n"
@@ -115,16 +121,26 @@ def parse_response(text: str, n_sentences: int) -> dict:
     return out
 
 
+def _system(settings: dict) -> str:
+    return str(settings.get("_system") or SYSTEM_PROMPT)
+
+
+def _timeout(settings: dict) -> float:
+    """Seconds to wait for a local model's answer (`complete(timeout=...)`; 180 by default)."""
+    return float(settings.get("_timeout") or 180)
+
+
 def _ollama(settings: dict, prompt: str) -> str:
     url = settings.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/chat"
     body = {
         "model": settings.get("ollama_model") or "llama3.1:8b",
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+        "messages": [{"role": "system", "content": _system(settings)}, {"role": "user", "content": prompt}],
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.2, "num_ctx": 4096},
+        "options": {"temperature": 0.2, "num_ctx": int(settings.get("_num_ctx") or 4096),
+                    **({"num_predict": int(settings["_max_tokens"])} if settings.get("_max_tokens") else {})},
     }
-    r = httpx.post(url, json=body, timeout=180)
+    r = httpx.post(url, json=body, timeout=_timeout(settings))
     if r.status_code != 200:
         raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
     return r.json().get("message", {}).get("content", "")
@@ -137,13 +153,21 @@ def _openai_compatible(settings: dict, prompt: str) -> str:
         headers["Authorization"] = f"Bearer {settings['openai_api_key']}"
     body = {
         "model": settings.get("openai_model") or "local-model",
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+        "messages": [{"role": "system", "content": _system(settings)}, {"role": "user", "content": prompt}],
         "temperature": 0.2,
+        **({"max_tokens": int(settings["_max_tokens"])} if settings.get("_max_tokens") else {}),
     }
-    r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=180)
+    r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=_timeout(settings))
+    if r.status_code == 429:
+        raise ProviderError("The AI service's free limit is used up for now (rate limit). Try again later.")
+    if r.status_code in (401, 403):
+        raise ProviderError("The AI service refused the API key. Check it in Settings → ClipForge AI.")
     if r.status_code != 200:
         raise ProviderError(f"OpenAI-compatible server error {r.status_code}: {r.text[:200]}")
-    return r.json()["choices"][0]["message"]["content"]
+    try:
+        return r.json()["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise ProviderError("The AI service sent an answer in an unexpected shape.") from exc
 
 
 def _anthropic(settings: dict, prompt: str) -> str:
@@ -157,7 +181,7 @@ def _anthropic(settings: dict, prompt: str) -> str:
     kwargs = dict(
         model=model,
         max_tokens=4000,
-        system=SYSTEM_PROMPT,
+        system=_system(settings),
         messages=[{"role": "user", "content": prompt}],
     )
     if not model.startswith("claude-haiku"):
@@ -184,27 +208,48 @@ def _anthropic(settings: dict, prompt: str) -> str:
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
+def _builtin(settings: dict, prompt: str) -> str:
+    from .. import builtin_ai
+
+    try:
+        return builtin_ai.chat(settings, _system(settings), prompt, timeout=_timeout(settings),
+                               json_object=bool(settings.get("_json_object")),
+                               max_tokens=int(settings.get("_max_tokens") or 0) or None)
+    except builtin_ai.BuiltinError as exc:
+        raise ProviderError(str(exc)) from exc
+
+
 def _nvidia(settings: dict, prompt: str) -> str:
     """Optional NVIDIA-hosted model (pipeline/nvidia.py): its own guards, budget and fallback to local analysis."""
     from . import nvidia
 
     try:
-        return nvidia.complete(settings, SYSTEM_PROMPT, prompt, task=str(settings.get("_ai_task") or "clip_scoring"),
+        return nvidia.complete(settings, _system(settings), prompt,
+                               task=str(settings.get("_ai_task") or "clip_scoring"),
                                unattended=settings.get("origin") == "autopilot" or bool(settings.get("_unattended")))
     except nvidia.NvidiaUnavailable as exc:
         raise ProviderError(str(exc)) from exc
 
 
-PROVIDERS = {"ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic, "nvidia": _nvidia}
-LOCAL_PROVIDERS = {"ollama", "openai_compatible"}
+PROVIDERS = {"builtin": _builtin, "ollama": _ollama, "openai_compatible": _openai_compatible, "anthropic": _anthropic,
+             "nvidia": _nvidia}
+LOCAL_PROVIDERS = {"builtin", "ollama", "openai_compatible"}
 
 
 def provider_label(settings: dict) -> str:
     p = settings.get("ai_provider", "heuristic")
+    if p == "builtin":
+        from .. import builtin_ai
+
+        return builtin_ai.label(settings)
     if p == "ollama":
         return f"Ollama {settings.get('ollama_model')}"
     if p == "openai_compatible":
-        return f"Local server {settings.get('openai_model') or ''}".strip()
+        from .. import ai_setup
+
+        preset = ai_setup.preset_for_url(settings.get("openai_url") or "")
+        name = preset["name"] if preset else "Local server"
+        return f"{name} {settings.get('openai_model') or ''}".strip()
     if p == "anthropic":
         return f"Claude {settings.get('anthropic_model')}"
     if p == "nvidia":
@@ -213,27 +258,58 @@ def provider_label(settings: dict) -> str:
     return "Local heuristic"
 
 
-def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str = "") -> str:
+def is_local(settings: dict, provider: str | None = None) -> bool:
+    """True when the provider runs on this computer (a localhost address)."""
+    from urllib.parse import urlparse
+
+    provider = provider or settings.get("ai_provider", "heuristic")
+    if provider == "builtin":
+        return True  # always 127.0.0.1, started by ClipForge
+    if provider == "ollama":
+        url = settings.get("ollama_url") or "http://localhost:11434"
+    elif provider == "openai_compatible":
+        url = settings.get("openai_url") or "http://localhost:1234/v1"
+    else:
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+
+
+def _strip_thinking(text: str) -> str:
+    """Some local models write their reasoning in <think> tags before the answer; only the answer is read."""
+    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+
+
+def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str = "", system: str | None = None,
+             num_ctx: int | None = None, timeout: float | None = None, json_object: bool = False,
+             max_tokens: int | None = None) -> str:
     """One JSON-answer request to the configured provider (raises ProviderError in heuristic mode or on failure).
-    `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it)."""
+    `unattended`: Autopilot work nobody started by hand (a development-only cloud provider is not used for it).
+    `system` replaces the clip-scoring instructions; `num_ctx` asks a local Ollama model for a larger context;
+    `timeout` is how long a local model may take; `json_object` makes the built-in model answer with one JSON object;
+    `max_tokens` caps the answer's length (the built-in model, Ollama and OpenAI-compatible servers)."""
     provider = settings.get("ai_provider", "heuristic")
-    if unattended or task:
-        settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task}
+    if unattended or task or system or num_ctx or timeout or json_object or max_tokens:
+        settings = {**settings, "_unattended": unattended or bool(settings.get("_unattended")), "_ai_task": task,
+                    **({"_system": system} if system else {}), **({"_num_ctx": int(num_ctx)} if num_ctx else {}),
+                    **({"_timeout": float(timeout)} if timeout else {}), **({"_json_object": True} if json_object else {}),
+                    **({"_max_tokens": int(max_tokens)} if max_tokens else {})}
     fn = PROVIDERS.get(provider)
     if fn is None:
         raise ProviderError("heuristic mode")
     try:
-        if provider in LOCAL_PROVIDERS:  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+        if provider in LOCAL_PROVIDERS and is_local(settings, provider):
+            # a local model shares the GPU with Whisper: one heavy GPU job at a time
             from .. import gpu
 
             try:
-                with gpu.manager.heavy("local AI model", str(settings.get("ollama_model") if provider == "ollama"
-                                                             else settings.get("openai_model") or "local model"),
-                                       max_wait_s=900):
-                    return fn(settings, prompt)
+                with gpu.manager.heavy("local AI model", provider_label(settings) if provider == "builtin" else str(
+                        settings.get("ollama_model") if provider == "ollama" else
+                        settings.get("openai_model") or "local model"), max_wait_s=900):
+                    return _strip_thinking(fn(settings, prompt))
             except gpu.GpuBusy as exc:
                 raise ProviderError(str(exc)) from exc
-        return fn(settings, prompt)
+        return _strip_thinking(fn(settings, prompt))
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
 
@@ -249,6 +325,14 @@ def check_provider(settings: dict) -> dict:
     """Lightweight availability probe for the Settings page."""
     provider = settings.get("ai_provider", "heuristic")
     try:
+        if provider == "builtin":
+            from .. import builtin_ai
+
+            if not builtin_ai.platform_key():
+                return {"ok": False, "detail": "The built-in model does not run on this kind of computer", "models": []}
+            if not builtin_ai.ready(settings):
+                return {"ok": False, "detail": "Not set up yet: choose a level and download it", "models": []}
+            return {"ok": True, "detail": f"Ready: {builtin_ai.label(settings)}, on this computer", "models": []}
         if provider == "ollama":
             r = httpx.get(settings.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/tags", timeout=3)
             models = [m.get("name") for m in r.json().get("models", [])]
@@ -258,9 +342,21 @@ def check_provider(settings: dict) -> dict:
                     f"Ollama is running but '{settings.get('ollama_model')}' is not pulled", "models": models}
         if provider == "openai_compatible":
             base = (settings.get("openai_url") or "").rstrip("/")
-            r = httpx.get(f"{base}/models", timeout=3)
-            models = [m.get("id") for m in r.json().get("data", [])]
-            return {"ok": r.status_code == 200, "detail": "server reachable", "models": models}
+            headers = {"Authorization": f"Bearer {settings['openai_api_key']}"} if settings.get("openai_api_key") \
+                else {}
+            r = httpx.get(f"{base}/models", headers=headers, timeout=8 if not is_local(settings, provider) else 3)
+            if r.status_code in (401, 403):
+                return {"ok": False, "detail": "The service refused the API key", "models": []}
+            models = [str(m.get("id") or "").removeprefix("models/") for m in (r.json().get("data") or [])
+                      if isinstance(m, dict)] if r.status_code == 200 else []
+            model = str(settings.get("openai_model") or "")
+            if r.status_code != 200:
+                return {"ok": False, "detail": f"The server answered {r.status_code}", "models": []}
+            if model and models and model.removeprefix("models/") not in models:
+                return {"ok": False, "detail": f"Reachable, but “{model}” is not one of its models; pick one",
+                        "models": models}
+            return {"ok": True, "detail": "Reachable" + (f"; using {model}" if model else "; pick a model"),
+                    "models": models}
         if provider == "nvidia":
             from . import nvidia
 

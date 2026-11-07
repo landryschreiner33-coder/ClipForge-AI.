@@ -2,6 +2,8 @@
 address is also checked app-wide (cloud/ownership.py)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -106,7 +108,7 @@ def asset_media(asset_id: str, download: int = 0) -> FileResponse:
 @router.get("/api/assets/{asset_id}/thumbnail")
 def asset_thumbnail(asset_id: str) -> FileResponse:
     a = _asset(asset_id)
-    if not a.get("thumb_path"):
+    if not a.get("thumb_path") or not Path(a["thumb_path"]).is_file():
         raise HTTPException(404, "No thumbnail")
     return FileResponse(a["thumb_path"], media_type="image/jpeg")
 
@@ -123,7 +125,7 @@ from fastapi import File, Form, UploadFile  # noqa: E402
 
 from .. import db  # noqa: E402
 from ..jobs import worker  # noqa: E402
-from . import capabilities, clips_flow, guidance, prefs, skills, story_review, styles  # noqa: E402
+from . import capabilities, clips_flow, guidance, prefs, reference, skills, story_review, styles  # noqa: E402
 
 
 def _bad(exc: Exception, status: int = 422) -> HTTPException:
@@ -142,6 +144,7 @@ class GuidanceRequest(BaseModel):
     skills_on: list[str] = []
     skills_off: list[str] = []
     title: str = ""
+    reference_id: str = ""
 
 
 def _snapshot(body: GuidanceRequest) -> dict:
@@ -150,9 +153,11 @@ def _snapshot(body: GuidanceRequest) -> dict:
         style = clips_flow._style(ws, body.style_id)  # noqa: SLF001
         enabled = skills.enabled_skills(ws)
         on = [s for s in (db.fetch("skills", i) for i in body.skills_on) if s and s["workspace_id"] == ws]
+        examples = reference.guidance_inputs(ws, body.mode, body.reference_id)
         return guidance.resolve(body.mode, project_choices=body.choices, style=style, project_skills=on,
                                 global_skills=[s for s in enabled if s["id"] not in set(body.skills_off) and
-                                               s not in on], context={"title": body.title, "caption_text": ""})
+                                               s not in on], context={"title": body.title, "caption_text": ""},
+                                **examples)
     except (ValueError, styles.StyleError) as exc:
         raise _bad(exc) from exc
 
@@ -165,7 +170,7 @@ def guidance_preview(body: GuidanceRequest) -> dict:
 
 @router.get("/api/studio/guidance/preview")
 def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}", skills_on: str = "",
-                          skills_off: str = "", title: str = "") -> dict:
+                          skills_off: str = "", title: str = "", reference_id: str = "") -> dict:
     """The same preview as a plain read: opening Make clips must not send a request that could change anything
     (the read-only browser checks against the owner's real app block every non-GET)."""
     import json
@@ -178,30 +183,59 @@ def guidance_preview_read(mode: str, style_id: str = "saved", choices: str = "{}
         raise HTTPException(422, "The choices must be a JSON object.")
     ids = lambda v: [x for x in v.split(",") if x][:50]  # noqa: E731
     return _snapshot(GuidanceRequest(mode=mode, style_id=style_id, choices=parsed, skills_on=ids(skills_on),
-                                     skills_off=ids(skills_off), title=title[:300]))
+                                     skills_off=ids(skills_off), title=title[:300],
+                                     reference_id=reference_id[:40]))
 
 
 # ------------------------------------------------------------------ Make clips
 class ClipsRequest(BaseModel):
-    asset_id: str
+    asset_id: str = ""
+    url: str = Field(default="", max_length=4096)  # Video link: the same flow, downloaded first
+    request_id: str = Field(default="", max_length=64)
     mode: str = "highlights"
     style_id: str = "saved"
     choices: dict = {}
     skills_on: list[str] = []
     skills_off: list[str] = []
     upload: dict = {}
+    reference_id: str = ""
 
 
 @router.post("/api/studio/clips")
 def make_clips(body: ClipsRequest) -> dict:
+    """Make clips from an uploaded file (asset_id) or a supplied video link (url): one request, one flow."""
+    from . import link_import
+
     p = principal.current()
+    if bool(body.asset_id) == bool(body.url.strip()):
+        raise HTTPException(422, "Choose either a video file or a video link.")
     try:
-        project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
-                                    style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
-                                    skills_off=body.skills_off, upload=body.upload)
+        if body.url.strip():
+            project = link_import.start(p.workspace_id, p.user_id, url=body.url, request_id=body.request_id,
+                                        mode=body.mode, style_id=body.style_id, choices=body.choices,
+                                        skills_on=body.skills_on, skills_off=body.skills_off, upload=body.upload,
+                                        reference_id=body.reference_id)
+        else:
+            project = clips_flow.create(p.workspace_id, p.user_id, asset_id=body.asset_id, mode=body.mode,
+                                        style_id=body.style_id, choices=body.choices, skills_on=body.skills_on,
+                                        skills_off=body.skills_off, upload=body.upload,
+                                        reference_id=body.reference_id)
+    except link_import.LinkError as exc:
+        return JSONResponse({"detail": f"{exc.why} {exc.fix}", "problem": exc.view()}, status_code=422)
     except clips_flow.FlowError as exc:
         raise _bad(exc) from exc
     return {k: v for k, v in project.items() if k != "source_path"}
+
+
+@router.get("/api/studio/link-check")
+def link_check(url: str = "") -> dict:
+    """Is this a usable video link? Answered without any network access (nothing is fetched or searched)."""
+    from . import link_import
+
+    try:
+        return {"ok": True, **link_import.normalize(url[:4096])}
+    except link_import.LinkError as exc:
+        return {"ok": False, "problem": exc.view()}
 
 
 @router.get("/api/projects/{project_id}/guidance")
@@ -314,6 +348,14 @@ class StylePatch(BaseModel):
     revision: int
     name: str | None = Field(default=None, max_length=200)
     values: dict | None = None
+
+
+@router.get("/api/studio/brain/map")
+def brain_map_view() -> dict:
+    """Every style, skill and example video in this workspace, and the projects whose guidance used them."""
+    from . import brain_map
+
+    return brain_map.build(principal.workspace_id())
 
 
 @router.get("/api/studio/styles")
@@ -494,6 +536,18 @@ def reset_robot(role_id: str) -> dict:
     return _pref_call(prefs.reset_robot, principal.workspace_id(), role_id)
 
 
+class ResetAll(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/api/robots/names/reset")
+def reset_all_robots(body: ResetAll) -> dict:
+    """Every name back to the original. The screen asks first; the request must say it was confirmed."""
+    if not body.confirm:
+        raise HTTPException(422, "Confirm resetting every robot's name.")
+    return prefs.reset_all_robots(principal.workspace_id())
+
+
 # ------------------------------------------------------------------ one library
 @router.get("/api/studio/projects")
 def library(kind: str = "", q: str = "") -> list[dict]:
@@ -508,13 +562,17 @@ def library(kind: str = "", q: str = "") -> list[dict]:
                         "name": p["name"], "status": p["status"], "stage": p.get("stage"),
                         "progress": p.get("progress"), "message": p.get("message"), "error": p.get("error"),
                         "clip_count": p.get("clip_count") or 0, "updated_at": p["updated_at"],
-                        "thumbnail": f"/api/projects/{p['id']}/thumbnail", "href": f"#/project/{p['id']}"})
+                        "thumbnail": f"/api/projects/{p['id']}/thumbnail" if p.get("source_path") else "",
+                        "href": f"#/project/{p['id']}"})
     if kind in ("", "full_video"):
         for v in db.select("studio_projects", "workspace_id = ?", (ws,), "updated_at DESC"):
             first = (v.get("asset_ids") or [""])[0]
+            # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
+            asset = db.fetch("assets", first) if first else None
+            pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
             out.append({"id": v["id"], "kind": "full_video", "mode": "full_video", "name": v["name"],
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
-                        "thumbnail": f"/api/assets/{first}/thumbnail" if first else "", "href": f"#/video/{v['id']}"})
+                        "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "", "href": f"#/video/{v['id']}"})
     if q:
         out = [x for x in out if q.lower() in x["name"].lower()]
     return sorted(out, key=lambda x: -x["updated_at"])
@@ -531,6 +589,7 @@ class VideoRequest(BaseModel):
     brief: dict = {}
     style_id: str = "saved"
     remember: dict = {}
+    reference_id: str = ""
 
 
 def _video(video_id: str) -> dict:
@@ -545,7 +604,7 @@ def make_video(body: VideoRequest) -> dict:
     p = principal.current()
     try:
         v = video_flow.create(p.workspace_id, p.user_id, name=body.name, asset_ids=body.asset_ids, brief=body.brief,
-                              style_id=body.style_id, remember=body.remember)
+                              style_id=body.style_id, remember=body.remember, reference_id=body.reference_id)
     except (video_flow.VideoError, styles.StyleError) as exc:
         raise _bad(exc) from exc
     return video_flow.view(v)
@@ -573,6 +632,32 @@ def edit_video(video_id: str, body: VideoEdit) -> dict:
     return {**out, **video_flow.view(_video(video_id))}
 
 
+class SmartBody(BaseModel):
+    base_revision: int
+    choices: dict = Field(default_factory=dict)
+
+
+@router.post("/api/studio/videos/{video_id}/smart")
+def smart_edit_video(video_id: str, body: SmartBody) -> dict:
+    """Edit it for me (again): the smart edit with these choices, as a new version made in the background."""
+    _video(video_id)
+    try:
+        out = video_flow.smart_again(video_id, body.base_revision, body.choices)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+@router.get("/api/studio/sound-library")
+def sound_library() -> dict:
+    """ClipForge's own free music and sound effects (made on this computer, free to use)."""
+    from . import library
+
+    return library.catalog()
+
+
 class RevisionBody(BaseModel):
     revision: int
 
@@ -580,14 +665,72 @@ class RevisionBody(BaseModel):
 @router.post("/api/studio/videos/{video_id}/restore")
 def restore_revision(video_id: str, body: RevisionBody) -> dict:
     """Reopen an earlier version exactly, as a new revision (nothing in between is lost)."""
-    v = _video(video_id)
+    _video(video_id)
     try:
-        plan = video_flow.plan_at(video_id, body.revision)
-        rev = video_flow.save_revision(video_id, plan, f"Back to version {body.revision}", v["plan_revision"])
+        video_flow.restore(video_id, body.revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
-    enqueue(v["workspace_id"], "video_preview", video_id, rev)
     return video_flow.view(_video(video_id))
+
+
+class BaseBody(BaseModel):
+    base_revision: int
+
+
+@router.post("/api/studio/videos/{video_id}/undo")
+def undo_edit(video_id: str, body: BaseBody) -> dict:
+    """Undo the last change (saved as a new version, so a stale tab cannot overwrite it)."""
+    _video(video_id)
+    try:
+        out = video_flow.undo(video_id, body.base_revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+@router.post("/api/studio/videos/{video_id}/redo")
+def redo_edit(video_id: str, body: BaseBody) -> dict:
+    _video(video_id)
+    try:
+        out = video_flow.redo(video_id, body.base_revision)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+class NameBody(BaseModel):
+    name: str = Field(default="", max_length=60)
+
+
+@router.put("/api/studio/videos/{video_id}/revisions/{revision}/name")
+def name_revision(video_id: str, revision: int, body: NameBody) -> dict:
+    _video(video_id)
+    try:
+        video_flow.name_revision(video_id, revision, body.name)
+    except video_flow.VideoError as exc:
+        raise _bad(exc, 404) from exc
+    return video_flow.view(_video(video_id))
+
+
+class MediaBody(BaseModel):
+    asset_ids: list[str]
+
+
+@router.post("/api/studio/videos/{video_id}/media")
+def add_video_media(video_id: str, body: MediaBody) -> dict:
+    """Add files to the project's media bin (also after the rough cut); place them with an insert or audio edit."""
+    _video(video_id)
+    try:
+        out = video_flow.add_media(video_id, body.asset_ids)
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
 
 
 @router.post("/api/studio/videos/{video_id}/render")
@@ -633,6 +776,427 @@ def video_export(video_id: str, revision: int = 0) -> JSONResponse:
         raise _bad(exc, 404) from exc
     from . import engine as engine_mod
 
-    return JSONResponse({"format": "clipforge.edit-plan/v1", "revision": rev, "plan": plan,
+    return JSONResponse({"format": f"clipforge.edit-plan/v{engine_mod.SCHEMA}", "revision": rev, "plan": plan,
                          "timeline": engine_mod.timeline(plan)}, headers={
         "Content-Disposition": f'attachment; filename="{video_id}-v{rev}.plan.json"'})
+
+
+# ------------------------------------------------------------------ finishing in another editor (FilmCraft)
+@router.get("/api/studio/filmcraft")
+def filmcraft_status() -> dict:
+    """Whether FilmCraft is installed on this computer (never in the online studio)."""
+    from . import filmcraft
+
+    return filmcraft.status()
+
+
+class HandoffBody(BaseModel):
+    revision: int = 0
+    reveal: bool = False
+
+
+@router.post("/api/studio/videos/{video_id}/filmcraft")
+def open_in_filmcraft(video_id: str, body: HandoffBody) -> dict:
+    """Write this version as a timeline with captions next to the video, then open it in FilmCraft (or, with
+    `reveal`, show the folder). Nothing is uploaded; FilmCraft reads the original files where they are."""
+    import shutil
+
+    from ..cloud import settings as cloud_settings
+    from . import filmcraft, interchange
+
+    v = _video(video_id)
+    if cloud_settings.enabled():
+        raise HTTPException(409, filmcraft.status()["message"])
+    rev = body.revision or v["plan_revision"]
+    if not rev:
+        raise HTTPException(409, "The rough cut is not ready yet.")
+    folder = interchange.local_folder(v, rev)
+    try:
+        shutil.rmtree(folder, ignore_errors=True)  # a fresh copy of exactly this version
+        pkg = interchange.for_video(v, rev, folder, portable=False)
+        if body.reveal:
+            result = {"revealed": filmcraft.reveal(folder), "opened": False, "how": "", "warnings": []}
+        else:
+            result = filmcraft.open_package(pkg)
+    except video_flow.VideoError as exc:
+        raise _bad(exc, 404) from exc
+    except (interchange.HandoffError, filmcraft.FilmCraftError) as exc:
+        raise _bad(exc) from exc
+    return {**result, "revision": rev, "folder": str(folder), "timeline": pkg.timeline.name,
+            "captions": pkg.captions.name if pkg.captions else "", "counts": pkg.built.counts,
+            "not_carried": interchange.not_carried_text(pkg.built), "page": filmcraft.PAGE}
+
+
+@router.get("/api/studio/videos/{video_id}/timeline.zip")
+def timeline_zip(video_id: str, revision: int = 0, media: int = 1) -> FileResponse:
+    """This version as a portable package for FilmCraft or another editor: the .otio timeline, .srt captions, a
+    README and (unless media=0) every file it uses under media/. Built in a scratch folder removed after sending."""
+    import os
+    import shutil
+
+    from starlette.background import BackgroundTask
+
+    from . import interchange
+
+    v = _video(video_id)
+    rev = revision or v["plan_revision"]
+    if not rev:
+        raise HTTPException(409, "The rough cut is not ready yet.")
+    work = video_flow.video_dir(video_id) / f"handoff-{os.urandom(4).hex()}"
+    try:
+        pkg = interchange.for_video(v, rev, work / "package", portable=True)
+        if not media:
+            pkg.media = {}
+        out = interchange.zip_package(pkg, work / "timeline.zip")
+    except video_flow.VideoError as exc:
+        shutil.rmtree(work, ignore_errors=True)
+        raise _bad(exc, 404) from exc
+    except interchange.HandoffError as exc:
+        shutil.rmtree(work, ignore_errors=True)
+        raise _bad(exc) from exc
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    name = f"{interchange.safe_name(v['name'])} v{rev} timeline.zip"
+    return FileResponse(out, media_type="application/zip", filename=name,
+                        background=BackgroundTask(shutil.rmtree, work, True))
+
+
+# ------------------------------------------------------------------ example videos (Brain)
+class ReferenceCreate(BaseModel):
+    asset_id: str
+    title: str = Field(default="", max_length=120)
+    likes: list[str] = []
+    note: str = Field(default="", max_length=2000)
+    ranges: list[dict] = []
+    avoid: bool = False
+    scope: str = "chosen"
+    modes: list[str] = []
+    project_only: bool = False
+
+
+class ReferencePatch(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    likes: list[str] | None = None
+    note: str | None = Field(default=None, max_length=2000)
+    avoid: bool | None = None
+    scope: str | None = None
+    modes: list[str] | None = None
+    project_only: bool | None = None
+    enabled: bool | None = None
+
+
+class ReferenceAgain(BaseModel):
+    ranges: list[dict] | None = None
+
+
+class ReferenceStyle(BaseModel):
+    values: dict
+    analysis_revision: int
+    name: str = Field(default="", max_length=60)
+    style_revision: int | None = None
+
+
+def _ref_error(exc: reference.ReferenceError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+@router.get("/api/studio/references")
+def list_references(all: int = 0) -> list[dict]:  # noqa: A002 - the query parameter's name
+    return reference.list_for(principal.workspace_id(), include_project_only=bool(all))
+
+
+@router.post("/api/studio/references")
+def add_reference(body: ReferenceCreate) -> dict:
+    data = body.model_dump(exclude={"asset_id", "ranges"})
+    if not data.get("title"):
+        data.pop("title")
+    try:
+        return reference.create(principal.workspace_id(), body.asset_id, data, body.ranges or None)
+    except (reference.ReferenceError, ValueError) as exc:
+        raise HTTPException(getattr(exc, "status", 422), str(exc)) from exc
+
+
+@router.get("/api/studio/references/{reference_id}")
+def get_reference(reference_id: str) -> dict:
+    try:
+        return reference.view(reference.get(reference_id, principal.workspace_id()))
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.patch("/api/studio/references/{reference_id}")
+def patch_reference(reference_id: str, body: ReferencePatch) -> dict:
+    try:
+        return reference.update(reference_id, principal.workspace_id(),
+                                {k: v for k, v in body.model_dump().items() if v is not None})
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.post("/api/studio/references/{reference_id}/analyze")
+def reanalyze_reference(reference_id: str, body: ReferenceAgain) -> dict:
+    try:
+        return reference.reanalyze(reference_id, principal.workspace_id(), body.ranges)
+    except (reference.ReferenceError, ValueError) as exc:
+        raise HTTPException(getattr(exc, "status", 422), str(exc)) from exc
+
+
+@router.post("/api/studio/references/{reference_id}/cancel")
+def cancel_reference(reference_id: str) -> dict:
+    try:
+        return reference.cancel(reference_id, principal.workspace_id())
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.put("/api/studio/references/{reference_id}/style")
+def save_reference_style(reference_id: str, body: ReferenceStyle) -> dict:
+    try:
+        return reference.save_style(reference_id, principal.workspace_id(), values=body.values,
+                                    analysis_revision=body.analysis_revision, name=body.name,
+                                    style_revision=body.style_revision)
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+@router.delete("/api/studio/references/{reference_id}")
+def delete_reference(reference_id: str, keep_style: int = 1, delete_file: int = 0) -> dict:
+    try:
+        return reference.delete(reference_id, principal.workspace_id(), keep_style=bool(keep_style),
+                                delete_file=bool(delete_file))
+    except reference.ReferenceError as exc:
+        raise _ref_error(exc) from exc
+
+
+# ------------------------------------------------------------------ Find media (Media sources)
+from fastapi.responses import PlainTextResponse, StreamingResponse
+
+from . import media_sources
+
+
+def _media_error(exc: media_sources.MediaError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class MediaSearch(BaseModel):
+    kind: str
+    query: str = Field(max_length=200)
+    providers: list[str] = []
+    filters: dict = {}
+    page: int = 1
+    project_id: str = ""
+
+
+class MediaImport(BaseModel):
+    result_id: str = Field(max_length=200)
+    project_id: str = ""
+    basis: str = Field(default="", max_length=500)
+
+
+class MediaProviderPatch(BaseModel):
+    enabled: bool | None = None
+    key: str | None = Field(default=None, max_length=4096)
+
+
+class MediaRules(BaseModel):
+    mode: str | None = None
+    commercial: bool | None = None
+    share_alike: bool | None = None
+
+
+class CreditEdit(BaseModel):
+    key: str = Field(max_length=300)
+    text: str = Field(default="", max_length=600)
+
+
+@router.get("/api/studio/media/providers")
+def media_providers() -> list[dict]:
+    return media_sources.providers_view()
+
+
+@router.put("/api/studio/media/providers/{provider_id}")
+def set_media_provider(provider_id: str, body: MediaProviderPatch) -> list[dict]:
+    p = media_sources.PROVIDERS.get(provider_id)
+    if not p:
+        raise HTTPException(404, "Unknown media source.")
+    patch: dict = {}
+    if body.enabled is not None:
+        patch[p.enabled_setting] = body.enabled
+    if body.key is not None:
+        if not p.key_setting:
+            raise HTTPException(422, f"{p.name} does not use a key.")
+        key = body.key.strip()
+        if len(key) > 512 or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key):
+            raise HTTPException(422, "Paste only the API key, without spaces, headers or extra lines.")
+        patch[p.key_setting] = key  # sealed at rest by db.save_settings; never sent back to the page
+    if patch:
+        db.save_settings(patch)
+    return media_sources.providers_view()
+
+
+@router.post("/api/studio/media/providers/{provider_id}/test")
+def test_media_provider(provider_id: str) -> dict:
+    try:
+        return media_sources.check_provider(provider_id)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.post("/api/studio/media/search")
+def search_media(body: MediaSearch) -> dict:
+    ws = principal.workspace_id()
+    rules = None
+    if body.project_id:
+        rules = media_sources.rules_for(_video(body.project_id))
+    try:
+        return media_sources.search(ws, body.kind, body.query, providers=body.providers or None,
+                                    filters=body.filters, page=body.page, rules=rules)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/media/preview/{token}")
+def media_preview(token: str) -> StreamingResponse:
+    try:
+        body, ctype = media_sources.open_preview(token, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return StreamingResponse(body, media_type=ctype, headers={
+        "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
+@router.post("/api/studio/media/imports")
+def import_media(body: MediaImport) -> dict:
+    if body.project_id:
+        _video(body.project_id)
+    try:
+        return media_sources.start_import(principal.workspace_id(), body.result_id, project_id=body.project_id,
+                                          basis=body.basis)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/media/imports/{import_id}")
+def media_import_status(import_id: str) -> dict:
+    try:
+        return media_sources.get_import(import_id, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.post("/api/studio/media/imports/{import_id}/cancel")
+def cancel_media_import(import_id: str) -> dict:
+    try:
+        return media_sources.cancel_import(import_id, principal.workspace_id())
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/assets/{asset_id}/source")
+def asset_source(asset_id: str) -> list[dict]:
+    """Where a file came from and on what terms (empty for your own uploads)."""
+    uploads.asset(asset_id, principal.workspace_id())
+    rows = media_sources.provenance([asset_id], principal.workspace_id()).get(asset_id) or []
+    return [media_sources.source_view(r) for r in rows]
+
+
+@router.put("/api/studio/videos/{video_id}/media-rules")
+def set_media_rules(video_id: str, body: MediaRules) -> dict:
+    _video(video_id)
+    try:
+        media_sources.set_rules(video_id, body.model_dump(exclude_none=True))
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return video_flow.view(_video(video_id))
+
+
+@router.post("/api/studio/videos/{video_id}/supporting-media")
+def find_supporting_media(video_id: str) -> dict:
+    v = _video(video_id)
+    try:
+        return media_sources.find_for_project(video_id, v["workspace_id"])
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+
+
+@router.get("/api/studio/videos/{video_id}/supporting-media")
+def supporting_media(video_id: str) -> dict:
+    _video(video_id)
+    return media_sources.suggestions_view(video_id)
+
+
+@router.put("/api/studio/videos/{video_id}/credits")
+def edit_video_credit(video_id: str, body: CreditEdit) -> dict:
+    _video(video_id)
+    try:
+        media_sources.edit_credit(video_id, body.key, body.text)
+    except media_sources.MediaError as exc:
+        raise _media_error(exc) from exc
+    return video_flow.view(_video(video_id))
+
+
+@router.get("/api/studio/videos/{video_id}/credits.txt")
+def video_credits(video_id: str, revision: int = 0) -> PlainTextResponse:
+    v = _video(video_id)
+    rev = revision or v["plan_revision"]
+    try:
+        plan = video_flow.plan_at(video_id, rev) if rev else None
+    except video_flow.VideoError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    body = media_sources.credits_text(v, plan) or "This version uses no media from Media sources.\n"
+    return PlainTextResponse(body, headers={
+        "Content-Disposition": f'attachment; filename="{video_id}-v{rev}-credits.txt"'})
+
+
+# ------------------------------------------------------------------ "Tell the editor what to change" (section 9)
+from . import edit_requests
+
+
+class ChangeRequest(BaseModel):
+    text: str
+    base_revision: int | None = None
+
+
+def _request_error(exc: edit_requests.RequestError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+@router.post("/api/studio/videos/{video_id}/requests")
+def ask_for_change(video_id: str, body: ChangeRequest) -> dict:
+    v = _video(video_id)
+    try:
+        return edit_requests.ask(video_id, v["workspace_id"], body.text, body.base_revision)
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.get("/api/studio/videos/{video_id}/requests")
+def change_requests(video_id: str) -> list[dict]:
+    _video(video_id)
+    return edit_requests.recent(video_id)
+
+
+@router.get("/api/studio/requests/{request_id}")
+def change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.view(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.post("/api/studio/requests/{request_id}/apply")
+def apply_change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.apply(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
+
+
+@router.post("/api/studio/requests/{request_id}/cancel")
+def cancel_change_request(request_id: str) -> dict:
+    try:
+        return edit_requests.cancel(request_id, principal.workspace_id())
+    except edit_requests.RequestError as exc:
+        raise _request_error(exc) from exc
