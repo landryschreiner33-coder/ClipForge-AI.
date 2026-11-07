@@ -20,10 +20,11 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 
-from .. import db
+from .. import config, db
 from . import capabilities, reference_analysis as ra, styles, uploads
 from .jobs import Canceled, Lease, cancel as cancel_job, enqueue, handler
 
@@ -185,19 +186,18 @@ def _drop_file(asset_id: str, workspace_id: str) -> str:
     if users:
         return "The video file stays because a project or another example uses it."
     asset = db.fetch("assets", asset_id)
+    note = "The video file was deleted."
     if asset and asset["workspace_id"] == workspace_id:
-        folder = Path(asset["path"]).parent
+        # what ClipForge made for the file (and a stored upload's original beside it); a linked file is the owner's
+        # own and stays where it is: nothing outside the data folder is ever deleted
+        folder = uploads.work_dir(asset).resolve()
+        data = config.data_dir().resolve()
         db.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
-        for f in folder.glob("*"):
-            try:
-                f.unlink()
-            except OSError:
-                pass
-        try:
-            folder.rmdir()
-        except OSError:
-            pass
-    return "The video file was deleted."
+        if folder == data or data in folder.parents:
+            shutil.rmtree(folder, ignore_errors=True)
+        if uploads.is_linked(asset):
+            note = "What ClipForge made for the file was deleted; the file itself stays where it is on this computer."
+    return note
 
 
 # ------------------------------------------------------------------ the analysis job

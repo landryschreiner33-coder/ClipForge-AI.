@@ -14,9 +14,13 @@ or note decides each choice before you start.
 - **Make & upload clips**: tick the exact channels. YouTube uploads happen once per channel after each clip passes
   its final check; TikTok posts wait for your OK on each one. You can close the page once the file has uploaded.
 
-Full stories shows each story as a card: start, end, length and whether ClipForge is sure. Confident stories are made
-right away; uncertain ones wait for you. Use *Start 2 s earlier*, *End 2 s later*, *Split*, *Merge* or *Leave out*,
-then *Make this clip*. A story longer than an account allows is kept whole; the card says which accounts can take it.
+Full stories finds where each story starts (a pause and a new subject, the narrator's own words such as *next story*
+or *story number three*, a post's title read out) and makes one clip per story, running until the next story starts,
+however long it is. Every clip is made right away; nothing waits for you. Each card shows the start, the end, the
+length and how sure ClipForge is. If a boundary is off, use *Start 2 s earlier*, *End 2 s later*, *Split*, *Merge* or
+*Leave out*, then *Remake this clip*. A story longer than an account allows is kept whole; the card says which
+accounts can take it. With ClipForge AI's model set up, it double-checks the boundaries the rules are least sure of
+and names the stories.
 
 ## Making a YouTube video
 Home → **Make a YouTube video**. Drop your clips and images, put them in order, answer the four questions and press
@@ -24,6 +28,21 @@ Home → **Make a YouTube video**. Drop your clips and images, put them in order
 introduction*, captions, transitions and music level; every change is a new version you can go back to. **Render**
 makes the full-quality file on the server; **Download** gives you that exact checked version.
 **Remember this style** (beside the brief) saves your editing answers for next time.
+
+**Big footage.** On the desktop, **Add from this computer** uses files where they are: nothing is copied or
+uploaded, so a 17 GB recording is added in a moment (keep it where it is while the project exists). Long files are
+listened to in pieces and a closed app carries on where it stopped; previews of big videos read a small copy, the
+final render always your original.
+
+**Your script.** Drop the script you read from (text, Word, PDF or Final Draft) or paste it. ClipForge finds every
+line in your footage and cuts one clip per line in script order, using the take you said most cleanly; the other
+takes stay behind each line, and **Use this take** in the Script panel swaps one in. Lines starting with # become
+chapters. A script can also be added or changed later from the editor page.
+
+**Edit it for me** now also keeps the cleanest take of a line you said again in another file, leaves out warm-ups
+("is this on?", "take two") and words to whoever is recording ("did we get that?"), and opens a video of two minutes
+or more with its strongest line (a cold open; Remove the first clip if you would rather not). With a model set up,
+ClipForge AI reads the whole video, as long as its time budget allows.
 
 ## ClipForge AI: talk to it, and its memory
 ClipForge AI is the assistant inside the editor. On a video, the **ClipForge AI** panel under the clips takes what you

@@ -161,9 +161,9 @@ class Worker:
             msg = f"{ready} clip{'s' if ready != 1 else ''} ready" if clips else "No strong moments found"
             info = (db.get_project(project_id) or {}).get("info") or {}
             if (db.get_project(project_id) or {}).get("clip_mode") == "full_stories":
-                held = int((info.get("stories") or {}).get("held") or 0)
+                unsure = int((info.get("stories") or {}).get("unsure") or 0)
                 msg = (f"{ready} story clip{'s' if ready != 1 else ''} ready" if clips else
-                       "No complete story found yet") + (f"; {held} waiting for your check" if held else "")
+                       "No story found; add the stories by hand") + (f"; {unsure} worth a look" if unsure else "")
             info.pop("resume_count", None)
             db.update_project(project_id, status="ready", progress=1.0, stage="done", message=msg, info=info)
         except Cancelled:

@@ -114,6 +114,77 @@ def cut_off_and_ambiguous() -> tuple[dict, dict]:
     return t, {"labels": {"first": (0, 90), "second": (90, 170.4)}}
 
 
+def read_aloud(parts: list[tuple[str, list[str]]], pause: float = 0.15, pauses: dict[str, float] | None = None,
+               tail: float = 2.0) -> tuple[dict, dict]:
+    """A recording read at one steady pace, like a text-to-speech voice or a narrator reading posts: `pause`
+    seconds after every sentence and no longer silence anywhere, so wording alone has to tell the stories apart.
+    `pauses` maps a sentence's text to a longer pause after it. Returns the transcript and the labels:
+    {"parts": [(kind, first word start, last word end), ...]}."""
+    out, labels, t = [], [], 0.6
+    for kind, sentences in parts:
+        first = None
+        for text in sentences:
+            words, t_end = _sentence_words(text, t)
+            out.append({"start": words[0]["start"], "end": words[-1]["end"], "text": text, "words": words})
+            first = words[0]["start"] if first is None else first
+            t = t_end + (pauses or {}).get(text, pause)
+        labels.append((kind, first, out[-1]["end"]))
+    duration = round(t + tail, 3)
+    return {"language": "en", "duration": duration, "source": "fixture", "segments": out}, {"parts": labels}
+
+
+REDDIT_TITLES = ["AITA for refusing to let my sister bring her kids to my wedding?",
+                 "TIFU by locking myself out on the balcony in the middle of winter.",
+                 "My husband keeps inviting his mother on our date nights and I am done.",
+                 "WIBTA if I told my roommate's girlfriend about the smell in the fridge?",
+                 "Am I wrong for selling the car my dad left me?"]
+REDDIT_VOCAB = {
+    "wedding": ["venue", "bridesmaids", "invitations", "reception", "sister", "nephews", "seating", "toddlers",
+                "ceremony", "caterer", "dress", "vows", "flowers", "photographer", "cake"],
+    "balcony": ["balcony", "sliding", "door", "snow", "neighbour", "ladder", "phone", "socks", "landlord",
+                "shivering", "lighter", "gutter", "blanket", "keys", "frost"],
+    "inlaws": ["husband", "mother", "restaurant", "dinner", "reservation", "anniversary", "menu", "therapist",
+               "boundaries", "cinema", "wine", "babysitter", "weekend", "texts", "apology"],
+    "roommate": ["fridge", "roommate", "girlfriend", "lease", "kitchen", "tupperware", "smell", "chores",
+                 "rent", "bathroom", "groceries", "sponge", "trash", "landlady", "hallway"],
+    "car": ["car", "garage", "brother", "will", "mechanic", "dealership", "inheritance", "keys", "mileage",
+            "title", "lawyer", "funeral", "cousin", "paint", "engine"],
+}
+
+
+def reddit_reader() -> tuple[dict, dict]:
+    """A narrator reading five posts straight through, the way a text-to-speech channel does: no pauses, a short
+    separator before each post ("Story one.", "Next story."), the post's title, an update and read-out comments
+    inside the posts, a remark after one of them, a greeting first and a goodbye last."""
+    rng = random.Random(7)
+    stories: list[list[str]] = []
+    for topic, title in zip(REDDIT_VOCAB, REDDIT_TITLES):
+        vocab = REDDIT_VOCAB[topic]
+        cycle = itertools.cycle(TEMPLATES)
+        body = []
+        for _ in range(14):
+            a, b, c = rng.sample(vocab, 3)
+            body.append(next(cycle).format(a=a, b=b, c=c) + ".")
+        stories.append([title, *body])
+    stories[1].insert(9, "Update: the landlord finally called me back the next morning.")
+    stories[1].insert(10, "Edit: thanks for the advice everyone, the keys were in the gutter.")
+    stories[2].insert(8, "Top comment: your husband needs to pick a side, and it is not hers.")
+    stories[2].insert(9, "Someone replied that the mother is the real problem in this story.")
+    parts = [
+        ("intro", ["Hey everyone, welcome back to the channel.", "Today I have five stories for you."]),
+        ("story", ["Story one.", *stories[0]]),
+        ("remark", ["Man, that one still gets me every time."]),
+        ("story", ["Story two.", *stories[1]]),
+        ("story", ["Next story.", *stories[2]]),
+        ("story", ["This one is from r slash relationships.", *stories[3]]),
+        ("story", ["Story five.", *stories[4], "So, am I the asshole here?"]),
+        ("outro", ["Thanks for watching, everyone.", "Like and subscribe, and see you next time."]),
+    ]
+    pauses = {stories[1][5]: 3.5, stories[3][6]: 3.2}  # long breaths inside two stories: never a split
+    transcript, labels = read_aloud(parts, pauses=pauses)
+    return transcript, {**labels, "titles": REDDIT_TITLES}
+
+
 def speech_script(transcript: dict) -> list[tuple[float, str]]:
     return [(s["start"], s["text"]) for s in transcript["segments"]]
 

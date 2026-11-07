@@ -6,7 +6,13 @@ export type Picked = { key: string; file: File; progress: UploadProgress | null;
   /** Resume this file's upload where the server says it stopped. */
   retry?: () => void;
   /** Stop this file's upload (or take it out of the waiting line); it can be resumed later. */
-  cancel?: () => void };
+  cancel?: () => void;
+  /** The owner's own file used where it is on this computer (Add from this computer): nothing was uploaded. */
+  linked?: boolean };
+
+/** A row for a file used where it is (no upload): the asset stands in for the file. */
+export const linkedRow = (asset: Asset): Picked => ({ key: `linked|${asset.id}`, file: new File([], asset.filename, { type: `${asset.kind}/*` }),
+  progress: null, asset, error: "", linked: true });
 
 /** Uploads that run at the same time; the rest wait their turn (each one reads its file in chunks). */
 const PARALLEL = 3;
@@ -97,7 +103,8 @@ export function UploadRow({ row, onRetry, extra }: { row: Picked; onRetry?: () =
   const p = row.progress;
   const retry = onRetry || row.retry;
   const sending = !row.asset && !row.error && p && p.state !== "done";
-  const words = row.error ? row.error : row.asset ? `Uploaded · ${fmtBytes(row.file.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
+  const words = row.error ? row.error : row.linked && row.asset ? `Used where it is · ${fmtBytes(row.asset.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
+    : row.asset ? `Uploaded · ${fmtBytes(row.file.size)}${row.asset.duration ? ` · ${Math.round(row.asset.duration)} s` : ""}`
     : !p ? "Waiting its turn" : p.state === "hashing" ? "Preparing the file" : p.state === "checking" ? "Checking the file"
       : `${fmtBytes(p.received)} of ${fmtBytes(p.size)} received`;
   return (

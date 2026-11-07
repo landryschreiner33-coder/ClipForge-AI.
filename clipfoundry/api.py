@@ -26,7 +26,7 @@ from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, vi
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
-from .studio import routes as studio_routes
+from .studio import local_routes, routes as studio_routes
 from .craft import routes as craft_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
@@ -109,6 +109,7 @@ app.include_router(auth_routes.router)
 app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
+app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
