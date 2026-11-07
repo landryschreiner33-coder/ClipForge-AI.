@@ -49,6 +49,12 @@ def _make_room(kind: str) -> None:
         builtin_ai.make_room(kind)
     except Exception:  # noqa: BLE001 - freeing memory is a courtesy, never a reason to fail the job
         pass
+    try:
+        from . import engines
+
+        engines.make_room(kind)  # ClipForge's own ComfyUI unloads its picture and video models
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class GpuManager:

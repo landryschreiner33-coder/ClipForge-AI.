@@ -7,7 +7,9 @@ is blocking and meant for a job thread; every call takes the same two callbacks:
 person. `status(role)` never raises.
 
 Roles: "image" (a still picture from words), "video" (a few seconds of motion from words or a picture) and "voice"
-(speech from words). Which engine serves a role is decided from the settings and from what is running or installed.
+(speech from words). Pictures and video are made by ComfyUI (ClipForge's own copy, or the ComfyUI app already on this
+computer) with a model from catalog.py; the voice runs inside ClipForge (voice.py). Settings → Pictures, video, voice
+sets them up (overview(), setup(), remove()).
 """
 from __future__ import annotations
 
@@ -24,32 +26,192 @@ class EngineError(RuntimeError):
     """An engine could not do the job; the message says why, in plain words."""
 
 
+def _settings() -> dict:
+    from .. import db
+
+    return db.get_settings()
+
+
 def status(role: str) -> dict:
     """{"ready": bool, "engine": str, "why": str} for one role. Never raises."""
     if role not in ROLES:
         return {"ready": False, "engine": "", "why": f"Unknown role {role!r}."}
-    return {"ready": False, "engine": "", "why": "No local engine is set up yet."}
+    try:
+        if role == "voice":
+            from . import voice
+
+            return voice.status()
+        from . import makers
+
+        return makers.status(role, _settings())
+    except Exception as exc:  # noqa: BLE001 - a status read must never break the page asking
+        return {"ready": False, "engine": "", "why": f"Could not check ({exc.__class__.__name__})."}
 
 
 def make_image(prompt: str, *, negative: str = "", style: str = "", width: int = 1080, height: int = 1920,
                seed: int | None = None, progress: Progress | None = None, cancel: Cancel | None = None) -> Path:
-    """A still picture (PNG) made from `prompt` by the image engine."""
-    raise EngineError("No image engine is set up yet.")
+    """A still picture (PNG) made from `prompt` by the picture model. The size is rounded to what the model draws
+    (a multiple of 16, at most about 2 megapixels, same shape); a note with the model, licence, words and seed is
+    saved next to it (same name, .json)."""
+    from . import makers
+
+    return makers.make_image(prompt, negative=negative, style=style, width=width, height=height, seed=seed,
+                             progress=progress, cancel=cancel)
 
 
 def make_video(prompt: str, *, image: Path | str | None = None, seconds: float = 4.0, width: int = 720,
                height: int = 1280, seed: int | None = None, progress: Progress | None = None,
                cancel: Cancel | None = None) -> Path:
-    """A short silent video (MP4) made from `prompt`, animating `image` when one is given."""
-    raise EngineError("No video engine is set up yet.")
+    """A short silent video (MP4, H.264) made from `prompt`, animating `image` when one is given. Length, size and
+    frame rate are rounded to what the model makes (the note next to it says what was made)."""
+    from . import makers
+
+    return makers.make_video(prompt, image=image, seconds=seconds, width=width, height=height, seed=seed,
+                             progress=progress, cancel=cancel)
 
 
 def speak(text: str, *, voice: str = "default", speed: float = 1.0, lang: str = "en",
           progress: Progress | None = None, cancel: Cancel | None = None) -> dict:
-    """Speech from `text`: {"path": <wav, mono>, "duration_s": float, "words": [{"text", "start_s", "end_s"}] | None}."""
-    raise EngineError("No voice engine is set up yet.")
+    """Speech from `text`: {"path": <wav, mono>, "duration_s": float, "words": [{"text", "start_s", "end_s"}],
+    "word_timing": "estimated", ...}. Sentence starts and ends are exact; word times inside a sentence are
+    estimated from word length."""
+    from . import voice as voice_engine
+
+    return voice_engine.speak(text, voice=voice, speed=speed, lang=lang, progress=progress, cancel=cancel)
 
 
 def voices() -> list[dict]:
-    """The voices the voice engine offers: [{"id", "name", "lang", "gender", "about"}]."""
-    return []
+    """The voices the voice engine offers: [{"id", "name", "lang", "gender", "about"}] (empty until it is set up)."""
+    from . import voice
+
+    return voice.voices()
+
+
+# ------------------------------------------------------------------ Settings → Pictures, video, voice
+def overview() -> dict:
+    """Everything the Settings section shows (cheap: does not start anything)."""
+    from . import catalog, comfy_server, makers, models, tasks, voice
+    from ..cloud import settings as cloud_settings
+
+    settings = _settings()
+    mode = makers.mode(settings)
+    app = makers.find_app(settings) if mode == "app" else None
+    machine = makers.machine()
+    flavor = machine["flavor"]
+    best = {r: makers.ranked(r, machine)[0].id for r in ROLES if catalog.for_role(r)}
+    recommended = {best[r] for r in best if len(catalog.for_role(r)) > 1}
+    out_models = []
+    seen: dict = {}  # the model folders of the ComfyUI app, asked once
+    for m in catalog.MODELS:
+        if m.role == "voice":
+            ready = voice.installed(m)
+            out_models.append(_model_view(m, ready, 0 if ready else voice.download_bytes(m), True, machine,
+                                          recommended))
+            continue
+        base = app if mode == "app" else None
+        try:
+            lacking = models.missing(m, mode, base, seen) if mode != "off" else list(m.files)
+        except EngineError:
+            lacking = list(m.files)
+        can = mode == "clipforge" or (mode == "app" and models.folders(mode, app) is not None)
+        out_models.append(_model_view(m, not lacking, sum(f.size for f in lacking), can, machine, recommended))
+    return {
+        "online": cloud_settings.enabled(),
+        "roles": {r: status(r) for r in ROLES},
+        "comfyui": {"mode": mode, "url": settings.get("engines_comfyui_url") or "", "app_found": app,
+                    "installed": comfy_server.installed(), "running": comfy_server.server.running(),
+                    "version": catalog.COMFYUI["version"], "supported": bool(comfy_server.platform_key()),
+                    "mac_too_old": comfy_server.mac_too_old(), "flavor": flavor,
+                    "flavor_label": catalog.TORCH[flavor]["label"] if flavor else "",
+                    "download_bytes": comfy_server.download_bytes() if comfy_server.platform_key() else 0,
+                    "disk_bytes": comfy_server.disk_bytes() if comfy_server.platform_key() else 0,
+                    "gpu": machine["gpu"], "idle_minutes": float(settings.get("engines_idle_minutes") or 10),
+                    "licence": "GPL-3.0", "source": "https://github.com/comfyanonymous/ComfyUI"},
+        "models": out_models,
+        "chosen": {"image": settings.get("engines_picture") or "", "video": settings.get("engines_video") or "",
+                   "voice": settings.get("engines_voice") or ""},
+        "memory_mb": machine["memory_mb"],
+        "vram_mb": machine["vram_mb"],
+        "task": tasks.view(),
+        "voice_rule": catalog.SUPERTONIC_RULE,
+    }
+
+
+def _model_view(m, ready: bool, need: int, can_download: bool, machine: dict, recommended: set[str]) -> dict:
+    from . import makers
+
+    return {"id": m.id, "role": m.role, "name": m.name, "maker": m.maker, "licence": m.licence,
+            "licence_url": m.licence_url, "about": m.about, "bytes": m.bytes, "download_bytes": need,
+            "ready": ready, "can_download": can_download, "memory_gb": m.memory_gb, "vram_gb": m.vram_gb,
+            "seconds": m.seconds, "fit": makers.fit(m, machine), "recommended": m.id in recommended}
+
+
+def setup(what: str, model_id: str = "") -> dict:
+    """Start one set-up in the background: "comfyui" (ClipForge's own ComfyUI) or "model" (a model's files)."""
+    from . import catalog, comfy_server, makers, models, tasks, voice
+
+    settings = _settings()
+    if what == "comfyui":
+        steps = comfy_server.setup_steps()
+        return tasks.start("Setting up ComfyUI", steps, on_done=makers.forget_found)
+    if what != "model":
+        raise EngineError(f"Unknown set-up {what!r}.")
+    m = catalog.by_id(model_id)
+    if m is None:
+        raise EngineError("Unknown model.")
+    if m.role == "voice":
+        return tasks.start(f"Downloading {m.name}", voice.install_steps(m))
+    mode = makers.mode(settings)
+    if mode == "off":
+        raise EngineError("Pictures and video are turned off. Choose a ComfyUI first.")
+    base = makers.find_app(settings, max_age=0) if mode == "app" else None
+    if mode == "app" and not base:
+        raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then download the model.")
+    return tasks.start(f"Downloading {m.name}", models.install_steps(m, mode, base))
+
+
+def cancel() -> dict:
+    from . import tasks
+
+    return tasks.cancel()
+
+
+def remove(what: str, model_id: str = "") -> dict:
+    """Delete ClipForge's own ComfyUI ("comfyui") or a model's files ("model"), to free disk space."""
+    from . import catalog, comfy_server, models, tasks, voice
+
+    if tasks.running():
+        raise EngineError("Wait for the set-up to finish, or cancel it, first.")
+    if what == "comfyui":
+        comfy_server.remove()
+        return overview()
+    m = catalog.by_id(model_id)
+    if what != "model" or m is None:
+        raise EngineError("Unknown model.")
+    if m.role == "voice":
+        voice.remove(m)
+        return overview()
+    keep = {x.id for x in catalog.MODELS if x.id != m.id and x.role != "voice"
+            and not models.missing(x, "clipforge", None)}
+    models.remove(m, keep)
+    return overview()
+
+
+def make_room(kind: str) -> None:
+    """Heavy work is about to use the graphics card (gpu.py): ClipForge's own ComfyUI hands its memory back."""
+    try:
+        from . import makers
+
+        makers.make_room(kind)
+    except Exception:  # noqa: BLE001 - a courtesy
+        pass
+
+
+def shutdown() -> None:
+    try:
+        from . import comfy_server, voice
+
+        comfy_server.shutdown()
+        voice.unload()
+    except Exception:  # noqa: BLE001 - shutting down
+        pass
