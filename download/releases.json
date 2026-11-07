@@ -2,80 +2,152 @@
   "schema": 2,
   "current": {
     "name": "ClipForge",
-    "version": "2026.11.06",
-    "date": "2026-11-06",
-    "source_commit": "32485bd8c36b5f889bff565d15bd15828bc6aadf",
-    "summary": "ClipForge AI: a built-in model, a memory and a chat, editing know-how from two filmmaking guides, and FilmCraft inside the app.",
+    "version": "2026.11.07",
+    "date": "2026-11-07",
+    "source_commit": "8593947e1e5bbabeec66c81527a858b71bc81102",
+    "summary": "A far smarter ClipForge AI that understands meaning, reads the whole video, judges, looks and listens; long videos with full stories, big footage and your script; and a new look.",
     "changes": [
       {
-        "title": "ClipForge AI knows how to edit",
-        "text": "Twelve built-in playbooks distilled from two filmmaking and short-form video guides: hooks and openings, endings, pacing, captions, voice and sound, music and colour by mood, effects, picking a clip, platforms, retention and talking heads. ClipForge AI reads the ones that fit when it answers you, proposes a change, edits for you or finishes in FilmCraft, and what you teach it always wins. Brain › Memory lists them under **What it knows about editing**, and Brain › Talk answers editing questions from them even without a model."
+        "title": "ClipForge AI understands what is said",
+        "text": "A small meaning model (90 MB, downloaded once from a fixed source and checked against fixed fingerprints, running on your computer) can tell that two sentences say the same thing in different words. It helps pick clips that stay on one topic and tie their ending back to their opening, tells stories apart in long videos, and finds the brain memory that means what you asked. Settings › AI helper › **Understanding meaning** shows it, and everything still works without it."
       },
       {
-        "title": "Clips, hooks and captions follow the numbers",
-        "text": "Endings that announce the end (“to recap”, “thanks for watching”) rank lower, so the point before them wins; warnings and mistakes to avoid rank higher as hooks; the hook headline starts below the apps’ top bar and shrinks to fit; bottom captions now sit above the bar the phone apps draw over the video."
+        "title": "It reads the whole video and judges the finalists",
+        "text": "Before scoring, ClipForge AI reads the transcript from start to end and names moments the word lists miss (a story told plainly, a quiet confession, a joke in ordinary words); each one still has to pass every check. At the end it puts the finalists side by side and gives each a green, yellow or red verdict with a reason. Its ranking can move a Clip Score by at most 10 points, and a red verdict is shown as a warning. It never adds or removes a clip on its own."
       },
       {
-        "title": "Colours in rendered clips",
-        "text": "Fixed: clips were converted with the wrong colour matrix (BT.601), a visible shift of reds and greens in every clip. They are now converted and tagged the way phones and players expect (BT.709), with a keyframe every half second and 256 kbps sound."
+        "title": "It looks at the picture and listens to the voice",
+        "text": "The built-in model now looks at frames of the strongest clips, rates how much the picture holds a viewer (at most 4 points), and picks the thumbnail. From the sound alone ClipForge measures emphasis (where the voice rises and strengthens), laughter and a flat delivery; a flat voice is named in the clip’s “Why”, and **Edit it for me** puts its punch-in zooms where your voice leans on a word (and on every other cut, as before, when your voice stays even)."
       },
       {
-        "title": "Talk to ClipForge AI",
-        "text": "Every video has a chat, and Brain › Talk is the general one. Say “remember: always keep my intro” and it keeps a rule (“for this video” keeps it to one video); ask “what do you know?”, “why?” or “forget that”. Brain › Memory shows what it remembers (rules, facts, what it did) with a health check, Tidy, export and import. The AI helper is now called ClipForge AI."
+        "title": "It learns your taste",
+        "text": "Every clip you untick, put back, export or publish is a lesson. After twelve (at least four kept and four left out), ClipForge AI adjusts new finalists by at most 6 points and says why (“you tend to keep clips with a stronger hook and leave out long ones”). Brain › Memory shows **What it learned from your choices** and can forget it."
       },
       {
-        "title": "A model that comes with the app",
-        "text": "Settings › ClipForge AI › **Built-in model** downloads a free model on first use (Basic, Standard or Pro), checked against a pinned hash: no key, no account, and nothing leaves your computer. A free key or a local Ollama or LM Studio model still works. With a model, ClipForge AI can advise the edit, answer anything in the chat and finish in FilmCraft."
+        "title": "Every Clip Score explained",
+        "text": "The deeper analysis now runs for every Make clips, not only Autopilot, from a broader pool. Each clip shows what the scout said, the judge’s rank and verdict, what the AI saw, what the voice did, your taste, and **How the Clip Score came about** line by line. Three more rules from the research guides: clips whose beats turn on “but”, “because” or “which meant” score higher on curiosity, an “and then, and then” chain loses points and gets a warning, “I spent 30 days…” counts as a hook, and “furthermore” or “my next point” counts as a topic change."
       },
       {
-        "title": "Clean up the sound",
-        "text": "One button cleans a noisy voice recording (a small noise model downloaded on first use) and polishes it with the dialogue chain: less rumble and mud, more presence and gentle compression."
+        "title": "Full stories: one clip per story, no questions",
+        "text": "For a video of someone reading posts, Full stories learns the narrator’s own separators (“next story”, a post title read out, numbering), keeps updates and top comments with their story, runs every story to the next one, and makes each clip at once without asking you anything. With the meaning model it also catches a change of subject the words hide, and with a model set up it reads the recording through for a table of contents and names the stories."
       },
       {
-        "title": "FilmCraft and EffectCraft inside ClipForge",
-        "text": "Final videos can be edited and rendered in FilmCraft, ArtCraft’s open-source editor, inside ClipForge (Settings › Editing apps): ClipForge AI finishes the edit with FilmCraft’s tools (looks, transitions, motion, titles) and with animated titles made in EffectCraft, rendered as shots and put into the final video, and **Edit version … in FilmCraft** opens the result in FilmCraft’s own editor page so you can keep working and save a new version. Both apps are downloaded on first use and checked against pinned hashes; the built-in editor stays as backup."
+        "title": "Big footage, used where it is",
+        "text": "On the desktop, **Add from this computer** browses your folders and uses files where they are: nothing is copied, and a folder of many gigabytes goes in. Long recordings are listened to in pieces that carry on after a restart, and previews come from a small copy while the final render always uses the original."
+      },
+      {
+        "title": "Your script",
+        "text": "Drop, choose or paste a script (.txt, .md, .docx, .pdf, .fdx or plain text) on the Make a YouTube video page. Every spoken line is matched to the footage, the cleanest take of each line plays and the other takes wait a click away (**Use this take**), a heading is a chapter, and missing lines are named. The editor page gets a **Script** panel."
+      },
+      {
+        "title": "A smarter Edit it for me",
+        "text": "Without a script, the cleanest take of a line said more than once plays and the rest are switched off in place, warm-ups and camera chatter are left out, a video of two minutes or more opens with its strongest line, and ClipForge AI reads the whole video inside a time budget instead of the first part only."
+      },
+      {
+        "title": "A new look",
+        "text": "One design system for the whole app: layered dark surfaces lit from the top edge, sunken wells where media goes, lifted buttons, the footage the brightest thing on the page and one accent colour for the way forward. Settings is a side list of sections, loading pages show the shape of what is coming, and the four palettes and six accents in Customize studio were retuned."
       }
     ],
     "checked": [
-      "1,866 automatic checks on made-up test videos with stand-in YouTube and TikTok accounts, 12 of them for the new know-how: the chat answers editing questions from it, change requests read it after your own rules, endings that announce the end rank lower, bottom captions sit above the phone bar, the voice chain has the guide’s numbers, and a red frame renders with the BT.709 value. The 27 checks that render real video and audio ran on GitHub’s Linux machine.",
-      "The built-in model (Basic) was downloaded on GitHub’s Linux and Mac machines and finished an edit in FilmCraft with the new know-how in its request: FilmCraft 0.17.1 and EffectCraft 0.9.2 were fetched and checked against their pinned hashes, the AI’s steps were applied (on Linux 7 of 9; the two others named settings FilmCraft lacks, and its animated title did not render), the video rendered, and the editor page opened the result and saved a new version. An earlier run of the same check, before the know-how was added, did place an animated EffectCraft title in the video.",
+      "1,969 automatic checks on made-up test videos with stand-in YouTube and TikTok accounts, 39 of them for the smarter ClipForge AI: the download and its fingerprints (a tampered file is refused), the meaning of sentences, the scout’s nominations and the judge’s limits, the eyes’ three frames and thumbnail, emphasis and laughter in a synthetic voice, punch-ins on emphasis, the taste learner, and story changes. The 27 checks that render real video and audio ran on GitHub’s Linux machine.",
+      "The meaning model was downloaded on GitHub’s Linux and Mac machines and checked against its fingerprints (90.6 MB in under two seconds); sentences that say the same thing scored 0.57 and unrelated ones −0.13. The built-in model (Basic) answered the judge’s question in its fixed shape and described three frames of a test video through the eyes on both machines, and the FilmCraft timeline check passed on the same code.",
       "The Mac app was built, opened and tested with its own video tools, Keychain and window on an Apple-silicon Mac with macOS 15 in GitHub’s test service. The DMG on this page is that exact build.",
       "The Windows setup was installed in GitHub’s test service over the previous version: it kept the same data folder and settings, opened the app, and closed and reopened cleanly. Every installed file was compared with the exact source."
     ],
     "not_checked": [
       "Your own computer, its graphics card, and real uploads to your accounts.",
-      "A real model reading the know-how in the chat; that was tested with a stand-in. The built-in model ran only on GitHub’s machines, which have no graphics card: a Basic answer took about three minutes there.",
-      "How the new caption position and the hook headline look on a real phone, and the sound clean-up by ear.",
+      "Real footage with the built-in model: the scout, the judge and the eyes ran on GitHub’s machines with a test picture and stand-in answers. The first Make clips with the AI on will show the new “Why” lines on your computer.",
+      "Footage of many gigabytes and real speech: the long-video work was tested with given words and small files, and a folder of 17 GB needs your own computer.",
+      "The taste learner on your real choices; it needs twelve of them before it says anything.",
+      "How the new look reads on your own screen (the app is dark only, like before).",
       "Real AI keys (Gemini, Groq, OpenRouter, Claude); that flow was tested with a stand-in service.",
       "A real YouTube download: YouTube asks test machines to sign in, so links were tested with a stand-in video page.",
-      "Live answers from YouTube, Openverse, Wikimedia Commons and Pexels; those were tested with recorded answers.",
       "Whether Windows security accepts the setup without asking. If it reports a threat, stop and read what it found; do not turn protection off.",
       "Apple’s notarization. macOS will ask once before opening the app."
     ],
     "files": {
       "windows": {
         "file": "ClipForge-Windows-Setup.zip",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/9ddbd62ed93d775ea1bbb3d12060859530c07549/ClipForge-Windows-Setup.zip",
-        "bytes": 47304093,
-        "sha256": "2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/055ede71072dfb4f6e97a578a0ea8042f6ef7bef/ClipForge-Windows-Setup.zip",
+        "bytes": 49199526,
+        "sha256": "3cf76b9221c697fedaf90ad61e1c39ffe967634bddd48e4bbb2961bd813a2e24",
         "kind": "ZIP",
         "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42408340705",
         "tested_label": "Windows install check"
       },
       "mac": {
         "file": "ClipForge-Mac-Apple-Silicon.dmg",
-        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-06-32485bd/ClipForge-Mac-Apple-Silicon.dmg",
-        "bytes": 237930523,
-        "sha256": "ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1",
+        "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-07-8593947/ClipForge-Mac-Apple-Silicon.dmg",
+        "bytes": 248199864,
+        "sha256": "fd29c5c7a52964544ec5fd6de494b231c70a3f75bc87bcf3c4c4fc7bbfe267aa",
         "kind": "DMG",
         "requires": "Apple silicon, macOS 15 or newer",
-        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798",
+        "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42407317796",
         "tested_label": "Mac build and test run"
       }
     }
   },
   "previous": [
+    {
+      "name": "ClipForge",
+      "version": "2026.11.06",
+      "date": "2026-11-06",
+      "source_commit": "32485bd8c36b5f889bff565d15bd15828bc6aadf",
+      "summary": "ClipForge AI: a built-in model, a memory and a chat, editing know-how from two filmmaking guides, and FilmCraft inside the app.",
+      "changes": [
+        {
+          "title": "ClipForge AI knows how to edit",
+          "text": "Twelve built-in playbooks distilled from two filmmaking and short-form video guides: hooks and openings, endings, pacing, captions, voice and sound, music and colour by mood, effects, picking a clip, platforms, retention and talking heads. ClipForge AI reads the ones that fit when it answers you, proposes a change, edits for you or finishes in FilmCraft, and what you teach it always wins. Brain › Memory lists them under **What it knows about editing**, and Brain › Talk answers editing questions from them even without a model."
+        },
+        {
+          "title": "Clips, hooks and captions follow the numbers",
+          "text": "Endings that announce the end (“to recap”, “thanks for watching”) rank lower, so the point before them wins; warnings and mistakes to avoid rank higher as hooks; the hook headline starts below the apps’ top bar and shrinks to fit; bottom captions now sit above the bar the phone apps draw over the video."
+        },
+        {
+          "title": "Colours in rendered clips",
+          "text": "Fixed: clips were converted with the wrong colour matrix (BT.601), a visible shift of reds and greens in every clip. They are now converted and tagged the way phones and players expect (BT.709), with a keyframe every half second and 256 kbps sound."
+        },
+        {
+          "title": "Talk to ClipForge AI",
+          "text": "Every video has a chat, and Brain › Talk is the general one. Say “remember: always keep my intro” and it keeps a rule (“for this video” keeps it to one video); ask “what do you know?”, “why?” or “forget that”. Brain › Memory shows what it remembers (rules, facts, what it did) with a health check, Tidy, export and import. The AI helper is now called ClipForge AI."
+        },
+        {
+          "title": "A model that comes with the app",
+          "text": "Settings › ClipForge AI › **Built-in model** downloads a free model on first use (Basic, Standard or Pro), checked against a pinned hash: no key, no account, and nothing leaves your computer. A free key or a local Ollama or LM Studio model still works. With a model, ClipForge AI can advise the edit, answer anything in the chat and finish in FilmCraft."
+        },
+        {
+          "title": "Clean up the sound",
+          "text": "One button cleans a noisy voice recording (a small noise model downloaded on first use) and polishes it with the dialogue chain: less rumble and mud, more presence and gentle compression."
+        },
+        {
+          "title": "FilmCraft and EffectCraft inside ClipForge",
+          "text": "Final videos can be edited and rendered in FilmCraft, ArtCraft’s open-source editor, inside ClipForge (Settings › Editing apps): ClipForge AI finishes the edit with FilmCraft’s tools (looks, transitions, motion, titles) and with animated titles made in EffectCraft, rendered as shots and put into the final video, and **Edit version … in FilmCraft** opens the result in FilmCraft’s own editor page so you can keep working and save a new version. Both apps are downloaded on first use and checked against pinned hashes; the built-in editor stays as backup."
+        }
+      ],
+      "files": {
+        "windows": {
+          "file": "ClipForge-Windows-Setup.zip",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./raw/9ddbd62ed93d775ea1bbb3d12060859530c07549/ClipForge-Windows-Setup.zip",
+          "bytes": 47304093,
+          "sha256": "2abde3f1829a0cc36ab5eede866895f42a36316a7dc9148d96bf34bc0ef36888",
+          "kind": "ZIP",
+          "requires": "Windows 10 or 11, 64-bit, with Python 3.12 and FFmpeg",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42312199587",
+          "tested_label": "Windows install check"
+        },
+        "mac": {
+          "file": "ClipForge-Mac-Apple-Silicon.dmg",
+          "url": "https://github.com/landryschreiner33-coder/ClipForge-AI./releases/download/clipforge-mac-2026-11-06-32485bd/ClipForge-Mac-Apple-Silicon.dmg",
+          "bytes": 237930523,
+          "sha256": "ff6358ca836ce8a9b39f98f07c495a09d2035749bf5a823235677d97b2e91fc1",
+          "kind": "DMG",
+          "requires": "Apple silicon, macOS 15 or newer",
+          "tested_url": "https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42311548798",
+          "tested_label": "Mac build and test run"
+        }
+      }
+    },
     {
       "name": "ClipForge",
       "version": "2026.11.05.2",
