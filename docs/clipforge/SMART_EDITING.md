@@ -7,10 +7,15 @@ is the brief field `smart_edit`: `smart` ("Edit it for me", the default in the a
 ## What it does (clipfoundry/studio/smart_edit.py)
 
 1. **Leaves out** sentences the brief asks to avoid, an earlier take of a line said again (a false start, or the same
-   line twice), a stumble inside one sentence ("the water was the water was ..."), sentences ClipForge AI suggests,
-   and, to fit the asked length, the weakest passages (scored by what is said; the opening, the ending and must-keep
-   words stay). Left-out parts stay in the sequence switched off (`include: false`, outline "Left out (why): ..."),
-   so Put back restores them.
+   line twice), the rougher takes of a line said again anywhere else in the footage (another recording or minutes
+   later; the cleanest take plays, a line said more than three times is a catchphrase and stays), warm-ups and
+   camera chatter at the start and end of a recording and a sign-off before the last recording, a stumble inside
+   one sentence ("the water was the water was ..."), sentences ClipForge AI suggests, and, to fit the asked length,
+   the weakest passages (scored by what is said; the opening, the ending and must-keep words stay). Left-out parts
+   stay in the sequence switched off (`include: false`, outline "Left out (why): ..."), so Put back restores them.
+   A video of two minutes or more opens with its strongest line (a cold open, `hook: true`), then plays from the
+   beginning. Details and the numbers: [LONG_VIDEOS.md](LONG_VIDEOS.md), "A better cut without a script". With a
+   script, `script_cut.py` cuts in script order instead ("The script" there).
 2. **Cuts dead air:** pauses longer than 0.7 s (0.4 s fast-paced) and lone "um"/"uh", found from word timings and
    confirmed in the sound (`audio.wav`, 10 ms levels, 30 dB under the speaker). A cut never lands inside a word.
    Joins inside one recording are straight cuts (`join: "cut"`) with 10 ms sound fades; fast-paced punches in
@@ -53,10 +58,12 @@ to change", chosen under **Settings → ClipForge AI** (`#/settings/ai`):
 | Claude API | Paid per use | Online, your key |
 
 It is sent text only: the brief and the numbered sentences with their times, in windows of about 6,000 characters
-(at most 8 requests per edit). The answer is read as one JSON object; unknown indices are ignored, must-keep
-sentences are never cut, and at most 40 % of a window's sentences can be left out. A failure or a missing helper is
-written in the notes and the built-in editor decides. A saved key is only sent to the address it was saved for:
-switching to another service needs that service's key.
+(the sentences the rules already left out are not sent; each window carries the story so far), read until every
+window is done or the time budget is spent (`ai_edit_timeout_s` × 15, between 2 and 15 minutes; the rest is left to
+the rules and the notes say so). The answer is read as one JSON object; unknown indices are ignored, must-keep
+sentences are never cut, at most 40 % of a window's sentences can be left out, and the `hook` it names is only ever
+a sentence that plays. A failure or a missing helper is written in the notes and the built-in editor decides. A
+saved key is only sent to the address it was saved for: switching to another service needs that service's key.
 
 ## Tests
 

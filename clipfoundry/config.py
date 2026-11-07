@@ -235,6 +235,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
                                         # built-in engine if it fails | filmcraft: FilmCraft only | ffmpeg: built-in
     "craft_auto_install": True,         # the desktop app fetches the editing apps in the background
     "craft_ai_finish": True,            # with an AI service set up, the AI finishes the edit with FilmCraft's tools
+    # Make a YouTube video previews (studio/proxies.py): a small copy of each big video (wider than 1280 pixels or
+    # longer than ten minutes) is made once and read by previews instead of the full file; finals use the original
+    "preview_proxies": True,
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",

@@ -1,8 +1,25 @@
 /** ClipForge studio API: uploads, Make clips, full videos, stories, styles, skills, accounts, preferences. */
-import { req } from "./api";
+import { req, responseError } from "./api";
 
 export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: string; sha256: string; size: number;
-  duration?: number; width?: number; height?: number; fps?: number; has_audio?: boolean; has_thumbnail: boolean };
+  duration?: number; width?: number; height?: number; fps?: number; has_audio?: boolean; has_thumbnail: boolean;
+  /** The owner's own file used where it is on this computer (desktop), not a copy ClipForge keeps. */
+  linked?: boolean;
+  /** A small preview copy of a big video exists (previews read it; the final render never does). */
+  proxy?: boolean };
+/** A folder of this computer the owner may pick footage from (desktop only). */
+export type LocalRoot = { label: string; path: string };
+export type LocalListing = { path: string; parent: string; roots: LocalRoot[];
+  folders: { name: string; path: string }[];
+  files: { name: string; path: string; size: number; kind: "video" | "audio" | "image"; modified: number }[];
+  truncated: boolean };
+/** A script as ClipForge read it (what /api/studio/scripts/parse returns and a video keeps). */
+export type ScriptLine = { n: number; text: string; kind: "line" | "heading" | "direction"; speaker: string; section: string };
+export type Script = { filename: string; format: string; text?: string; lines: ScriptLine[];
+  counts: { lines: number; headings: number; directions: number; words: number } };
+/** How the plan matched each script line: the clip that plays it and the other takes behind it. */
+export type ScriptMatch = { n: number; status: "matched" | "weak" | "missing" | "skipped" | "heading" | "direction";
+  coverage: number; clip_id: string; takes: { clip_id: string; coverage: number; quality: number }[] };
 export type Upload = { id: string; filename: string; kind: string; size: number; received: number; status: string;
   error: string; asset_id: string; chunk_size: number };
 
@@ -69,16 +86,26 @@ export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: stri
 
 export type PlanClip = { id: string; asset_id: string; kind: string; in_ms: number; out_ms: number; label: string;
   gain_db: number; include: boolean; must_keep?: string[]; mute?: boolean; fade_in_ms?: number; fade_out_ms?: number;
-  layout?: string | null; join?: "cut"; zoom?: number };
+  layout?: string | null; join?: "cut"; zoom?: number;
+  /** The cold open: the strongest line, playing first (it plays again where it was said). */
+  hook?: boolean;
+  /** Script mode: the lines this clip plays (with each line's bounds), or the line it is another take of,
+   * or speech that is not in the script. */
+  take_of?: { lines?: number[]; takes?: Record<string, { in_ms: number; out_ms: number; coverage?: number; quality?: number }>;
+    line?: number; coverage?: number; quality?: number; off_script?: boolean } };
 /** A picture (or muted video) shown over a clip while its sound goes on. */
 export type Overlay = { id: string; asset_id: string; clip_id: string; offset_ms: number; length_ms: number;
   motion: "still" | "zoom"; fit?: "fill" | "fit"; label: string; auto?: boolean; why?: string };
 export type SmartLevel = "off" | "smart" | "tight";
 export type SmartReport = { level: SmartLevel; options: Record<string, unknown>;
-  stats: { pauses_cut: number; seconds_saved: number; trimmed_s: number; retakes: number; stumbles?: number; ai_left_out: number;
-    fit_left_out: number; fillers: number; overlays: number; effects: number; music: string };
+  /** True when the cut follows the project's script (script_cut.py) rather than the smart edit's rules. */
+  script?: boolean;
+  stats: { pauses_cut: number; seconds_saved: number; trimmed_s: number; retakes: number; takes?: number; chatter?: number;
+    stumbles?: number; ai_left_out: number; fit_left_out: number; fillers: number; overlays: number; effects: number;
+    music: string; cold_open?: string; lines_found?: number; lines_missing?: number; alternatives?: number; off_script_s?: number };
   ai: { used: boolean; provider?: string; sent?: string; local?: boolean; problems?: string[]; problem?: string;
-    windows?: number; skipped_sentences?: number };
+    windows?: number; read?: number; budget_s?: number; not_sent?: number; skipped_sentences?: number;
+    hook?: { i: number; why: string } | null };
   picture_queries: { query: string; clip_id: string; offset_ms: number }[] };
 export type AudioRole = "voiceover" | "music" | "effect";
 export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: string; start_ms: number; in_ms: number;
@@ -92,6 +119,8 @@ export type Plan = { schema: number; output: { aspect: string; fps: number }; la
   word_fixes?: Record<string, Record<string, string>>;
   outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[];
   overlays?: Overlay[]; chapters?: { clip_id: string; offset_ms?: number; title: string }[]; smart?: SmartReport;
+  /** Script mode: how each script line was matched (the text lives in Video.script). */
+  script?: { filename: string; stats: Record<string, number>; lines: ScriptMatch[] };
   /** Set on a version finished by hand in FilmCraft's editor (rendered by FilmCraft from that save). */
   filmcraft?: { project: string; saved_at: number; opened_on: number } };
 export type Segment = { clip_id: string; asset_id: string; kind: string; src_in_ms: number; src_out_ms: number;
@@ -112,6 +141,8 @@ export type Video = { id: string; name: string; status: string; message: string;
   sources?: Record<string, AssetSource[]>; credits?: Credit[]; media_rules?: MediaRules;
   overlay_timeline?: { overlay_id: string; asset_id: string; clip_id: string; out_start_ms: number; out_end_ms: number }[];
   chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
+  /** The script this video follows (null for none). */
+  script?: Script | null;
   ai_helper?: { configured: boolean; label: string; local: boolean } };
 
 export type MediaKind = "image" | "footage" | "music" | "effect";
@@ -246,6 +277,24 @@ export const studio = {
   /** Edit it for me (again): a new version made in the background with these choices. */
   smartVideo: (id: string, base_revision: number, choices: Record<string, unknown>) =>
     req<{ job: string }>("POST", `/api/studio/videos/${id}/smart`, { base_revision, choices }),
+  /** Read a script file or pasted text into numbered lines (nothing is stored). */
+  parseScript: async (source: File | { text: string; filename?: string }): Promise<Script> => {
+    const form = new FormData();
+    if (source instanceof File) form.append("file", source);
+    else { form.append("text", source.text); form.append("filename", source.filename || "script.txt"); }
+    const res = await fetch("/api/studio/scripts/parse", { method: "POST", body: form, headers: { "X-ClipFoundry": "1" } });
+    if (!res.ok) throw await responseError(res);
+    return res.json() as Promise<Script>;
+  },
+  /** Give the video a script (or take it away with null) and cut it again to follow it, as a new version. */
+  setVideoScript: (id: string, base_revision: number, script: Script | null) =>
+    req<Video & { job: string; script: boolean }>("PUT", `/api/studio/videos/${id}/script`, { base_revision, script }),
+  /** This computer's folders (desktop only; the cloud answers 403). An empty path lists the top folders. */
+  localBrowse: (path = "") => req<LocalListing>("GET", `/api/local/browse?${new URLSearchParams({ path })}`),
+  /** Use files where they are on this computer: no copy, no upload. */
+  linkLocal: (paths: string[]) => req<{ assets: Asset[]; problems: { path: string; detail: string }[] }>("POST", "/api/uploads/link", { paths }),
+  /** Prepare a file in the background (its sound, transcript and preview copy), so the build starts faster. */
+  prepareAsset: (id: string) => req<{ job: string; status: string }>("POST", `/api/assets/${id}/prepare`),
   addVideoMedia: (id: string, asset_ids: string[]) => req<Video & { added: string[] }>("POST", `/api/studio/videos/${id}/media`, { asset_ids }),
   styles: () => req<Style[]>("GET", "/api/studio/styles"),
   brainMap: () => req<BrainMap>("GET", "/api/studio/brain/map"),

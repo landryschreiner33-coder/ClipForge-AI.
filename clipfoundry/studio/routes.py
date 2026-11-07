@@ -590,6 +590,7 @@ class VideoRequest(BaseModel):
     style_id: str = "saved"
     remember: dict = {}
     reference_id: str = ""
+    script: dict | None = None  # the script the video follows (what /api/studio/scripts/parse returned)
 
 
 def _video(video_id: str) -> dict:
@@ -604,7 +605,8 @@ def make_video(body: VideoRequest) -> dict:
     p = principal.current()
     try:
         v = video_flow.create(p.workspace_id, p.user_id, name=body.name, asset_ids=body.asset_ids, brief=body.brief,
-                              style_id=body.style_id, remember=body.remember, reference_id=body.reference_id)
+                              style_id=body.style_id, remember=body.remember, reference_id=body.reference_id,
+                              script=body.script)
     except (video_flow.VideoError, styles.StyleError) as exc:
         raise _bad(exc) from exc
     return video_flow.view(v)
@@ -648,6 +650,45 @@ def smart_edit_video(video_id: str, body: SmartBody) -> dict:
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
     return {**out, **video_flow.view(_video(video_id))}
+
+
+class ScriptBody(BaseModel):
+    base_revision: int
+    script: dict | None = None  # None takes the script away; the cut then follows the brief again
+
+
+@router.put("/api/studio/videos/{video_id}/script")
+def set_video_script(video_id: str, body: ScriptBody) -> dict:
+    """Give the video a script (or take it away) and cut it again to follow it, as a new version made in the
+    background."""
+    _video(video_id)
+    try:
+        out = video_flow.set_script(video_id, body.base_revision, body.script)
+    except video_flow.Conflict as exc:
+        raise _bad(exc, 409) from exc
+    except video_flow.VideoError as exc:
+        raise _bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+@router.post("/api/studio/scripts/parse")
+async def parse_script(file: UploadFile | None = File(default=None), text: str = Form(default=""),
+                       filename: str = Form(default="")) -> dict:
+    """Read a script file (.txt, .md, .docx, .pdf, .fdx) or pasted text into numbered lines, for the Script panel
+    to show and for a new video or `PUT .../script` to follow. Nothing is stored here."""
+    from . import script as script_mod
+
+    if file is not None and file.filename:
+        data: bytes | str = await file.read(script_mod.MAX_BYTES + 1)
+        name = file.filename
+    elif text.strip():
+        data, name = text, (filename.strip() or "script.txt")
+    else:
+        raise HTTPException(422, "Give a script file, or paste the script's text.")
+    try:
+        return await run_in_threadpool(script_mod.parse, name, data)
+    except script_mod.ScriptError as exc:
+        raise _bad(exc) from exc
 
 
 @router.get("/api/studio/sound-library")

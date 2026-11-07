@@ -311,8 +311,13 @@ def test_ai_windows_bound_every_request():
 
     sentences = [{"i": i, "file": 1, "start": i * 3.0, "dur": 2.5, "text": "word " * 40} for i in range(400)]
     wins = ai_editor.windows(sentences)
-    assert sum(len(w) for w in wins) == 400 and len(wins) > ai_editor.MAX_WINDOWS
+    assert sum(len(w) for w in wins) == 400 and len(wins) > 1
     assert all(len(ai_editor.build_prompt(w, {}, 1, 1)) < ai_editor.WINDOW_CHARS + 2500 for w in wins)
+    # the story so far (earlier parts' chapters) is short, and a request with it stays bounded
+    so_far = ai_editor.story_so_far([{"i": 3, "title": f"Chapter {n}"} for n in range(40)], 120)
+    assert so_far.startswith("Earlier parts (120 sentences") and len(so_far) <= ai_editor.SO_FAR_CHARS
+    assert all(len(ai_editor.build_prompt(w, {}, 2, 3, so_far=so_far)) < ai_editor.WINDOW_CHARS + 3000 for w in wins)
+    assert ai_editor.story_so_far([], 0) == ""
 
 
 def _settle(project_id: str):
@@ -654,3 +659,176 @@ def test_ai_setup_routes(env, ollama, monkeypatch):
         assert r.status_code == 400
         r = api.post("/api/ai/ollama/import", json={"path": "/nope.txt", "name": "x"}, headers=h)
         assert r.status_code == 400 and ".gguf" in r.json()["detail"]
+
+
+# ------------------------------------------------------------------ takes across files, chatter, the cold open
+def _lines(start: float, lines: list[str], gap: float = 1.0, step: float = 0.35) -> tuple[list, float]:
+    """Sentences one after another from `start`, `gap` seconds apart; returns (timed words, the end time)."""
+    script, t = [], start
+    for line in lines:
+        script += _say(t, line, step)
+        t += len(line.split()) * step + gap
+    return script, t
+
+
+def test_the_same_line_in_another_file_keeps_the_cleanest_take_and_a_refrain_stays(env):
+    from clipfoundry.studio import engine, smart_edit, video_flow
+
+    a = _asset(env, "take1.mp4", "video", 60)
+    b = _asset(env, "take2.mp4", "video", 60)
+    refrain = "Let's get into the next one right now."
+    first, _t = _lines(1.0, ["Um the the lake was um really cold that morning.",  # a rough take of line one
+                             refrain, "We packed the tent before the rain came down.", refrain])
+    second, _t = _lines(1.0, ["The lake was really cold that morning.",            # the clean take, in file two
+                              refrain, "Then we drove home along the coast road.", refrain])
+    words = {a["id"]: _words(first), b["id"]: _words(second)}
+    project = _project([a, b], {"smart_edit": "smart", "music": "none", "sound_effects": False})
+    values = (project.get("guidance") or {}).get("values") or {}
+    judged = smart_edit.judge_sentences(project, video_flow._assets(project), words, values)
+    one, two = judged["talks"]
+    assert one["status"][0] == "retake" and "take2.mp4" in one["why"][0] and two["status"][0] == "keep"
+    assert judged["stats"]["takes"] == 1 and any("said again" in n for n in judged["notes"])
+    # the refrain is said four times: a catchphrase, never a retake
+    assert all(t["status"][k] == "keep" for t in (one, two) for k, s in enumerate(t["sents"]) if "next one" in s["text"])
+    plan = _cut(project, words)
+    assert plan["smart"]["stats"]["takes"] == 1
+    off = [o["summary"] for o in plan["outline"] if o["summary"].startswith("Left out")]
+    assert len(off) == 1 and "another take of this line" in off[0] and "lake was" in off[0]
+    assert engine.validate(plan, video_flow._assets(project, plan)) == []
+    # a must-keep word protects a take
+    keep = _project([a, b], {"smart_edit": "smart", "music": "none", "must_keep": "lake"}, "Keep")
+    assert _cut(keep, words)["smart"]["stats"]["takes"] == 0
+
+
+def test_chatter_warm_ups_camera_talk_and_a_sign_off_before_the_end_are_left_out(env):
+    from clipfoundry.studio import smart_edit, video_flow
+
+    first_part = ["Okay so.", "Is this thing on?", "Alright let's go.",
+                  "Today we climb the mountain behind the village before the snow comes.",
+                  "The path starts at the old church and follows the stream.",
+                  "That's it for today, thanks for watching and see you next time.", "Did we get that?"]
+    rec1, _t = _lines(0.5, first_part, gap=0.8)
+    rec2, _t = _lines(0.5, ["Here is the summit at last with the whole valley below us.",
+                            "Thanks for watching, see you in the next one."], gap=0.8)
+    a = _asset(env, "walk.mp4", "video", 40)
+    b = _asset(env, "summit.mp4", "video", 40)
+    words = {a["id"]: _words(rec1), b["id"]: _words(rec2)}
+    project = _project([a, b], {"smart_edit": "smart", "music": "none", "sound_effects": False})
+    values = (project.get("guidance") or {}).get("values") or {}
+    judged = smart_edit.judge_sentences(project, video_flow._assets(project), words, values)
+    one, two = judged["talks"]
+    assert one["status"] == ["chatter", "chatter", "chatter", "keep", "keep", "chatter", "chatter"]
+    assert "throat-clearer" in one["why"][0] and "is this thing on" in one["why"][1]
+    assert "sign-off in the middle" in one["why"][5] and "whoever is recording" in one["why"][6]
+    assert two["status"] == ["keep", "keep"]  # the last recording's sign-off is the video's ending
+    assert judged["stats"]["chatter"] == 5 and any("never meant for the viewer" in n for n in judged["notes"])
+    plan = _cut(project, words)
+    assert plan["smart"]["stats"]["chatter"] == 5
+    assert smart_edit.chatter([], True) == {}
+    # with cut_retakes off the takes rule is off too, chatter is still left out
+    alone = _project([a], {"smart_edit": "smart", "music": "none", "cut_retakes": False}, "Alone")
+    plan = _cut(alone, {a["id"]: _words(rec1)})
+    said = [o["summary"] for o in plan["outline"] if not o["summary"].startswith("Left out")]
+    assert any("thanks for watching" in s for s in said)  # now the only recording: its sign-off is the ending
+    assert not any("Did we get that" in s for s in said)
+
+
+HIKE = ["Welcome back to the channel and to the start of a long walk.", "We left the car at the bottom of the valley.",
+        "The first hour follows a forest road with nothing to see.", "Then the trees stop and the ground turns to rock.",
+        "Why did nobody tell me the secret that 90 percent of hikers never learn?",
+        "Water runs out faster than you think up here.", "We filled the bottles at a spring near the hut.",
+        "The hut keeper told us the pass was still open.", "From the hut it is two hours to the ridge.",
+        "The wind picked up as soon as we reached the ridge.", "My hands went numb inside the gloves.",
+        "We stopped for bread and cheese behind a boulder.", "A pair of ravens watched us the whole time.",
+        "After lunch the path crosses a field of loose stones.", "Every step slid back half a step.",
+        "The last part is a scramble with a fixed cable.", "The cable was cold enough to hurt.",
+        "At the top the clouds opened for about a minute.", "We could see the lake and the village far below.",
+        "Then the fog came back and we started down.", "Going down is harder on the knees than going up.",
+        "We reached the hut again just before dark.", "The keeper had soup ready for everyone.",
+        "That night the temperature dropped below freezing.", "In the morning the stones were white with frost.",
+        "The walk back to the car took three more hours.", "My boots are finished after this trip.",
+        "Next time I will bring thicker gloves and more water.", "The whole trip cost us nothing but time.",
+        "If you only do one walk this year, do this one.", "The best views come after the worst stretch.",
+        "Thanks for coming along on this one.", "See you on the next walk."]
+
+
+def test_a_long_video_opens_with_its_strongest_line(env):
+    from clipfoundry.studio import engine, smart_edit, video_flow
+
+    v = _asset(env, "hike.mp4", "video", 400)
+    script, end = _lines(1.0, HIKE, gap=1.0, step=0.4)
+    assert end >= 140
+    words = {v["id"]: _words(script)}
+    project = _project([v], {"smart_edit": "smart", "music": "none", "sound_effects": False})
+    plan = _cut(project, words)
+    hook = plan["clips"][0]
+    assert hook["id"] == "hook" and hook["hook"] is True and hook["include"]
+    secret = next(s for s in smart_edit.sentence_table(project, video_flow._assets(project), words)
+                  if "secret" in s["text"])
+    assert hook["in_ms"] <= secret["start"] * 1000 < hook["out_ms"] and hook["out_ms"] - hook["in_ms"] < 12000
+    # the line still plays where it was said, in a clip that is not the cold open
+    assert any(c["include"] and c["id"] != "hook" and c["in_ms"] <= secret["start"] * 1000 < c["out_ms"]
+               for c in plan["clips"])
+    assert plan["outline"][0]["summary"].startswith("Cold open: “Why did nobody tell me")
+    assert any(n.startswith("Opened with the strongest line") for n in plan["notes"])
+    assert plan["smart"]["stats"]["cold_open"].startswith("Why did nobody")
+    assert engine.validate(plan, video_flow._assets(project, plan)) == []
+    assert smart_edit._locate(plan, v["id"], int(secret["start"] * 1000) + 100)["clip_id"] != "hook"
+    # switched off in the brief, or a short video: no cold open
+    plain = _cut(_project([v], {"smart_edit": "smart", "music": "none", "cold_open": False}, "Plain"), words)
+    assert not any(c.get("hook") for c in plain["clips"])
+    short_words = {v["id"]: _words(_lines(1.0, HIKE[:8], gap=1.0, step=0.4)[0])}
+    assert not any(c.get("hook") for c in _cut(project, short_words)["clips"])
+    # ClipForge AI's hook wins when it names a line that plays
+    ravens = next(s for s in smart_edit.sentence_table(project, video_flow._assets(project), words)
+                  if "ravens" in s["text"])
+    led = _cut(project, words, {"ai": {"hook": {"i": ravens["i"], "why": "a surprise"}, "cut": {}}})
+    assert led["clips"][0]["id"] == "hook" and led["clips"][0]["in_ms"] <= ravens["start"] * 1000 < led["clips"][0]["out_ms"]
+    assert any("chosen by ClipForge AI" in n for n in led["notes"])
+    # shorten the introduction skips the cold open and cuts the clip after it
+    whole = _cut(_project([v], {"smart_edit": "smart", "music": "none", "cut_pauses": False}, "Whole"), words)
+    assert whole["clips"][0]["id"] == "hook" and whole["clips"][1]["include"]
+    shorter, note = video_flow.apply_edit(whole, {"op": "shorten_intro", "seconds": 8}, words)
+    assert shorter["clips"][0]["in_ms"] == whole["clips"][0]["in_ms"] and "Shortened" in note
+    assert shorter["clips"][1]["in_ms"] > whole["clips"][1]["in_ms"]
+
+
+def test_ai_advice_has_a_time_budget_a_story_so_far_a_hook_and_skips_what_the_rules_cut():
+    import time
+
+    from clipfoundry.studio import ai_editor
+
+    sentences = [{"i": i, "file": 1, "start": i * 3.0, "dur": 2.5, "text": f"sentence {i} " + "word " * 30}
+                 for i in range(80)]
+    assert len(ai_editor.windows(sentences)) >= 2
+    prompts = []
+
+    def fake(settings, prompt, **kw):
+        prompts.append(prompt)
+        return json.dumps({"leave_out": [{"i": 3, "why": "weak"}], "chapters": [{"i": 0, "title": "The start"}],
+                           "hook": {"i": 2, "why": "a question"}, "music": "calm"})
+
+    advice = ai_editor.advise(sentences, {}, {"ai_provider": "ollama", "ai_edit_timeout_s": 60}, complete=fake,
+                              skip={1, 5})
+    assert advice["hook"] == {"i": 2, "why": "a question"} and advice["not_sent"] == 2
+    assert "[1] " not in prompts[0] and "[2] " in prompts[0]  # what the rules cut is not sent
+    assert advice["read"] == 78 and advice["skipped_sentences"] == 0 and advice["budget_s"] == 900
+    assert len(prompts) >= 2 and "Earlier parts (" in prompts[1] and "The start" in prompts[1]
+    assert "Earlier parts" not in prompts[0]
+    # a hook the model also wants left out is no hook
+    def contrary(settings, prompt, **kw):
+        return json.dumps({"leave_out": [{"i": 2}], "hook": {"i": 2}})
+    assert ai_editor.advise(sentences[:5], {}, {"ai_provider": "ollama"}, complete=contrary)["hook"] is None
+    # the time budget: the first part is always read, the rest is left to the rules and said so
+    slow = []
+
+    def slowly(settings, prompt, **kw):
+        slow.append(prompt)
+        time.sleep(0.2)
+        return json.dumps({"leave_out": []})
+
+    tight = ai_editor.advise(sentences, {}, {"ai_provider": "ollama", "ai_edit_timeout_s": 60}, complete=slowly,
+                             budget_s=0.1)
+    assert len(slow) == 1 and tight["read"] == len(ai_editor.windows(sentences)[0])
+    assert tight["skipped_sentences"] == 80 - tight["read"] and any("time budget" in p for p in tight["problems"])
+    assert ai_editor.budget_for({"ai_edit_timeout_s": 60}) == 900 and ai_editor.budget_for({"ai_edit_timeout_s": 2}) == 120
