@@ -14,9 +14,12 @@ a far smarter ClipForge AI (PR #32: a small meaning model downloaded once and ch
 the eyes, the ears, the taste learner, capped and explained score changes) and the punch-in fix from PR #33 (when
 your voice stays even after the cuts, every other cut zooms in a little, as before). The 77 setup tests passed,
 and all 788 app files were compared with that commit (six `.bat` files differ only by the declared CRLF export).
-The Windows install check for this ZIP is recorded here once it has run. FFmpeg is not installed on the check
-machine, so no video is processed on Windows there; Windows 10/11 desktops, Windows security acceptance, GPUs, the
-built-in model, the meaning model and real AI keys on a PC, and real uploads are not tested.
+[Windows setup check run 42408340705](https://github.com/landryschreiner33-coder/ClipForge-AI./actions/runs/42408340705)
+installed the previous release (32485bd) with a synthetic setting on a GitHub Windows Server 2025 runner, then this
+ZIP over it: the new folder kept the same data folder and setting, served this commit's page and icon, all 788
+installed files matched, and it closed and reopened without a second copy. See `verification-windows.json`. FFmpeg
+was not installed there, so no video was processed on Windows; Windows 10/11 desktops, Windows security acceptance,
+GPUs, the built-in model, the meaning model and real AI keys on a PC, and real uploads are not tested.
 
 The Mac download is published as a GitHub release; the download page is
 https://landryschreiner33-coder.github.io/ClipForge-AI./download/ .
