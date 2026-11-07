@@ -1,5 +1,31 @@
 # AI handoff
 
+## Release 2026.11.07 published — 2026-11-07 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry said "publish the new changes". The smarter-AI work (PR #32) was merged into the
+release line; the release line's slow render test then caught a gap (the fast-paced "Edit it for me" left its jump
+cuts bare when the voice stays even), PR #33 fixed it, and ClipForge 2026.11.07 (long videos, the new look, ClipForge
+AI far smarter) is on the download page for Mac and Windows with its version notes.
+
+- **Where things are:** the release line `claude/project-thread-x72wkd` is at merge commit `95a70e0` (PR #33), whose
+  tree equals that of `8593947`, the source commit of both downloads; Mac release `clipforge-mac-2026-11-07-8593947`; Windows ZIP at `raw/055ede7` on
+  `claude/clipforge-downloads` (record commit `7b3cd71`); `gh-pages` `0a7f3f0`; every URL, size,
+  hash and run in [docs/clipforge/WEBSITE_DEPLOYMENT.md](docs/clipforge/WEBSITE_DEPLOYMENT.md).
+- **Verified before publishing:** build and test run 42407317796 (macOS 15: native build and bundled-app smoke passed; 1,969 fast tests passed, 2 skipped; 27 slow tests passed, 1 skipped); the slow
+  suite locally with espeak-ng installed (27 passed, 1 skipped in 19 min); built-in AI check run 42402011931 on d1547e3's tree (the
+  meaning model downloaded and verified against its hashes, the judge and the eyes answered, on Linux, Mac and Windows
+  runners); FilmCraft check run 42402011877; Windows setup check run 42408340705; `build.py --check` and `--verify` on
+  gh-pages; Download page run 42409903435.
+- **Not verified (needs Landry's computer):** real footage with the built-in model (scout, judge, eyes), a 17 GB
+  folder and real speech, the taste learner on real choices, the new look on his screen, real AI keys, YouTube,
+  Windows security acceptance, notarization.
+- **Still open:** PR #29 (records for 2026.11.06) and PR #20 (release line → default branch) are unmerged; the nine
+  ClipForge AI plan questions; the follow-ups in SMARTER_AI.md (slow drift zoom on static shots, sculpted silence
+  before a payoff, the Qwen3 embedding through the built-in engine).
+- **Next release:** a second one today would be `2026.11.07.2`; new work starts from `claude/project-thread-x72wkd`
+  at 95a70e0 (same files as 8593947); a release, a website change or a merge needs Landry's explicit OK each time; run the slow suite before
+  merging into the release line.
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,
