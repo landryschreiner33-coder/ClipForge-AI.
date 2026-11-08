@@ -158,9 +158,11 @@ export type PlanFields = { title: string; summary: string; video_type: string; a
   captions: Tri; pictures: Tri; sound_effects: Tri; zooms: Tri; cold_open: Tri; order: string[]; notes: string[];
   find_media: "" | "suggest" | "auto" };
 export type SetupQuestion = { id: string; q: string; choices: string[] };
-export type SetupMessage = { id: string; role: "owner" | "ai" | "agent"; text: string; status: "done" | "thinking" | "failed";
-  created_at: number; data: { tool?: string; say?: string; plan?: PlanFields; lines?: string[]; questions?: SetupQuestion[];
-    source?: "ai" | "rules"; sent?: string; provider?: string; used?: { kind: string; text: string }[];
+export type SetupMessage = { id: string; chat_id?: string; role: "owner" | "ai" | "agent"; text: string;
+  status: "done" | "thinking" | "failed"; created_at: number; updated_at?: number;
+  data: { tool?: string; say?: string; plan?: PlanFields; lines?: string[]; questions?: SetupQuestion[];
+    ask?: { question: string; choices: string[] }; source?: "ai" | "rules"; sent?: string; remote?: boolean; provider?: string;
+    used?: { kind: string; text: string }[];
     knowhow?: { title: string }[]; answers?: string; building?: boolean;
     helpers?: { agent: { id: string; name: string; icon: string }; text: string; ok: boolean }[] } };
 export type SetupFile = { id: string; kind: "video" | "image" | "audio"; filename: string; duration: number;

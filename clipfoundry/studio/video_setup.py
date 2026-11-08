@@ -1763,10 +1763,12 @@ def look_used(project_id: str) -> None:
 
 # ------------------------------------------------------------------ what the pages show
 def message_view(row: dict) -> dict:
+    """A planning message for the page, in the ClipForge AI chat's own shape (a draft's chat can be open there too:
+    its quick answers come from `ask`, the "stays on this computer" line from `sent` and `remote`)."""
     data = row.get("data") or {}
-    keep = ("tool", "say", "plan", "lines", "questions", "source", "sent", "provider", "agent", "used", "knowhow",
-            "answers", "building", "helpers")
-    return {**{k: row.get(k) for k in ("id", "role", "text", "status", "created_at")},
+    keep = ("tool", "say", "plan", "lines", "questions", "ask", "source", "sent", "remote", "provider", "agent",
+            "used", "knowhow", "answers", "building", "helpers")
+    return {**{k: row.get(k) for k in ("id", "chat_id", "role", "text", "status", "created_at", "updated_at")},
             "data": {k: data[k] for k in keep if k in data}}
 
 

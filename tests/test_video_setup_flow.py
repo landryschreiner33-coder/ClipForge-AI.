@@ -568,5 +568,13 @@ def test_a_message_to_a_drafts_chat_from_anywhere_plans_it(env):
         pytest.skip("the assistant's chat routes come with the ClipForge AI assistant")
     files = _files(env)
     v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a vlog")
+    first = v["open"][0]
+    # a quick answer pressed in the ClipForge AI panel counts as the answer to that question, like on this page
+    out = chat.send(WS, v["chat_id"], first["choices"][0])
+    assert out["owner"]["data"]["answers"] == first["id"] and out["ai"]["data"]["tool"] == "plan"
+    # in the chat's own shape, so the panel shows it like its own answers (the next quick answers from `ask`)
+    assert out["owner"]["chat_id"] == out["ai"]["chat_id"] == v["chat_id"] and out["ai"]["updated_at"]
+    left = video_setup.view(WS, v["id"])["open"]
+    assert left and out["ai"]["data"]["ask"] == {"question": left[0]["q"], "choices": left[0]["choices"]}
     out = chat.send(WS, v["chat_id"], "make it 7 minutes")
     assert out["ai"]["data"]["tool"] == "plan" and video_setup.view(WS, v["id"])["plan"]["length_min"] == 7
