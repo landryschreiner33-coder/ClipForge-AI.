@@ -33,7 +33,10 @@ No release.
   confirmation window ("Deleted for good" and "Stays" from the server, "This can't be undone", focus starts on "Keep
   it"; while blocked only "Check again" and "Close"). A clips project's own page uses the same window
   (`libParts.tsx` `DeleteProjectDialog`). `frontend/dist` rebuilt.
-- **Tests:** `tests/test_studio_project_delete.py` (9 tests). TESTS_LINE
+- **Tests:** `tests/test_studio_project_delete.py` (9 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+  slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
+  (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
+  passed 18 of 18 checks.
 - **Not verified:** a real Windows PC (the read-only file handling is simulated in a test); Landry's Mac.
 
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
