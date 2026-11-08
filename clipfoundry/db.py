@@ -724,7 +724,7 @@ CREATE TABLE IF NOT EXISTS brain_memory_uses ( -- where an answer used a memory
     id TEXT PRIMARY KEY,
     memory_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL DEFAULT 'local',
-    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance
+    where_used TEXT NOT NULL,                 -- change_request | filmcraft | smart_edit | chat | guidance | agent
     ref_id TEXT DEFAULT '',                   -- the request, project or chat message
     created_at REAL NOT NULL
 );

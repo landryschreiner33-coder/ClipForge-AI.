@@ -1,5 +1,70 @@
 # AI handoff
 
+## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for a built-in AI he can actually talk to like a real AI, and for agents that
+work alongside it. ClipForge AI now holds a real conversation in both chats (on each video, and Brain → Talk): it reads
+the conversation so far, knows his projects, his memories and its know-how, writes its answer word by word (Stop keeps
+what it wrote), and does things in ClipForge with twelve tools. Looking things up and making new things (a memory, a
+proposed change, a helper's work) happen at once; renaming, forgetting and deleting only happen when Landry presses
+OK on the card it shows. Helper agents (eight ready-made, or his own, in Brain → Agents) are specialists that ClipForge
+AI hands jobs to, that Landry talks to with "@Name", and that give the new-video planner short notes. Without a model
+the old rules still answer, and the chat offers the built-in model in one press.
+
+- **Branch / PR:** `claude/project-thread-sa113l` from the release line at 95a70e0 (PR #33 merged). Not merged, no
+  pull request yet, no release; Landry has not said to merge.
+- **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant",
+  "Actions", "Helper agents", "API", "Not done yet"; [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`; changed `brain/chat.py`,
+  `routes.py`, `memories.py` (use place `agent`), `db.py` (table `brain_agents`, role `agent`), `api.py`,
+  `pipeline/llm.py` (`converse`), `builtin_ai.py` (`converse`, never idle while answering), `gpu.py`;
+  `frontend/src/components/ClipForgeAI.tsx`, `AgentsTab.tsx` (new), `pages/Brain.tsx`, `brain.ts`,
+  `components/AiHelperSettings.tsx`, `styles.css`; `frontend/dist` rebuilt; `tests/test_clipforge_ai_assistant.py`,
+  `test_clipforge_ai_agents.py`, `test_llm_converse.py`, `fake_model.py` (new), `test_clipforge_ai_chat.py`,
+  `test_clipforge_ai_knowhow.py`, `test_builtin_ai.py`, `fake_llama_server.py`; `scripts/assistant_check.py` and
+  `.github/workflows/assistant-check.yml` (new: the real built-in model in a conversation).
+- **The contract with the other threads** (other branches call these; keep the names and shapes):
+  - **The new-video planner thread** answers a draft video's chat with `brain.chat.route(applies, handle)` (its
+    messages have `data.tool` "plan", which the page shows like "talk"), registers `make_youtube_video` with
+    `tools.register(tools.Tool(...))` (its `Result.data` has `links` `[{label, href: "#/create/video?idea=…"}]`), asks
+    the helpers with `agents.consult(ws, task, *, context="", agent_ids=None, where="plans", ref_id="",
+    budget_s=60.0)` (`ref_id` is accepted and not recorded yet), and speaks as ClipForge AI with
+    `assistant.persona()`, `assistant.history(chat_id, budget_chars=3000, *, as_json=False, before="")`,
+    `assistant.app_context(ws, project_id="", budget_chars=2000)`, `assistant.ready(settings=None)` and
+    `llm.converse(settings, messages, *, system, task, json_object, json_schema, max_tokens, timeout, temperature,
+    num_ctx, on_text, cancel)`. Also public: `tools.Tool`, `tools.Result`, `tools.ToolError`,
+    `agents.list_(ws, enabled_only=False)`, `agents.run(ws, agent_id, task, …)`.
+  - **The projects thread** (`claude/project-thread-8i3krg`, "Delete projects from the Projects page") adds
+    `clipfoundry/studio/project_delete.py`: `plan(ws, project_id, kind)` (`goes`, `stays`, `blocked`, `working`) and
+    `delete(ws, project_id, kind, *, wait)`, which raises `DeleteError` (code `stopping` while running work ends).
+    `delete_project` calls exactly these (`wait=10.0`; `stopping` keeps the button for another press). Until that
+    branch is merged here, the tool says deleting from the chat is not possible yet. `test_clipforge_ai_assistant.py`
+    tests both, with a stand-in for the safe delete.
+  - Chat messages keep the `brain_chat_messages` table and its columns; roles are `owner`, `ai` and `agent`;
+    `data.tool` values include "talk" (the assistant) and "plan" (the planner).
+- **Verify:** `python -m pytest -q tests/test_clipforge_ai_assistant.py tests/test_clipforge_ai_agents.py
+  tests/test_llm_converse.py tests/test_clipforge_ai_chat.py tests/test_clipforge_ai_knowhow.py
+  tests/test_builtin_ai.py`, then `python -m pytest -q tests -m "not slow"`; `cd frontend && npm run build`; on a
+  runner, the `assistant-check.yml` workflow (the real built-in model on Linux and Mac; it runs when a push to this
+  branch changes the AI's code, or by hand; its job summary has a table of every turn, and the run keeps the JSON
+  report for 14 days; `python scripts/assistant_check.py --fake --out report.json` checks the script itself without
+  a download). On Landry's computer: set up the built-in model from the chat's card; in Brain → Talk ask "What
+  projects do I have?" and for hook ideas; say "never put music under my intros" (a memory with Undo); ask it to
+  rename a project and press OK on the card; add the Critic in Brain → Agents and write "@Critic review my last
+  video"; press Stop on a long answer; in a video's chat ask "What would make this video better?".
+- **Judgement calls to know about:** the built-in model and Ollama get the smaller budgets (an 8,192-token context);
+  change and delete tools never run on the model's word, even after a "yes" in the conversation: only the card's OK
+  runs them; "remember: …" and an exact "forget …" skip the model, while "I like …" and "always …" now go to the
+  conversation, where the model saves lasting preferences with `remember`; a video's chat still proposes the changes
+  the editor's rules fully understand without the model; one answer at a time per chat, and at most two being written
+  in the whole app; helpers run one after another (inside an answer and in `consult`); `consult` notes from an online
+  model are not counted against the daily AI limit.
+- **Not done:** the real built-in model's answers could not be run here (the model hub is blocked): the
+  `assistant-check.yml` workflow must run after the push and its result be read; Landry's computer was not tested; web
+  research for the Researcher, a model per helper, helpers in parallel, pictures in the chat, voice (CLIPFORGE_AI.md,
+  "Not done yet").
+- **Waiting on Landry:** a try of the chat and the helpers on his computer; the merge; the release (explicit OK).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,

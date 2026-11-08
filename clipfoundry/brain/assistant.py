@@ -125,22 +125,27 @@ def app_context(ws: str, project_id: str = "", budget_chars: int = 2000) -> str:
         tail.append(f"Your model: {llm.provider_label(s)}" + (", on this computer." if _local(s) else ", online."))
     on = agents.list_(ws, enabled_only=True)
     if on:
-        tail.append("Helper agents you can hand work to (ask_agent): " +
-                    "; ".join(f"{a['name']}: {a['role']}" for a in on))
+        helpers = "Helper agents you can hand work to (ask_agent): "
+        line = helpers + "; ".join(f"{a['name']}: {a['role']}" for a in on)
+        if len(line) > budget_chars // 3:  # many agents: their names only, so the rest still fits
+            line = tools.clip(helpers + "; ".join(a["name"] for a in on), max(80, budget_chars // 3))
+        tail.append(line)
     own = ""
     if project_id:
         mine = [p for p in every if p["id"] == project_id]
         if mine:
             own = f"This chat belongs to the {toolbox.KIND_WORDS[mine[0]['kind']]} “{mine[0]['name']}”:\n" + \
                 toolbox.describe_project(ws, mine[0], budget=max(400, budget_chars // 2))
-    room = budget_chars - sum(len(x) + 1 for x in head + tail) - len(own)
+    room = budget_chars - sum(len(x) + 1 for x in head + tail) - (len(own) + 1 if own else 0)
     listing = []
     if every:
         listing.append(f"The owner's projects ({len(every)}, newest first):")
-        for p in every:
+        room -= len(listing[0]) + 1
+        for n, p in enumerate(every):
             ln = toolbox.line(p, now)
-            if room - len(ln) - 1 < 60:
-                listing.append(f"- … and {len(every) - len(listing) + 1} more (find_projects lists them)")
+            more = f"- … and {len(every) - n} more (find_projects lists them)"
+            if room - len(ln) - 1 < (0 if n == len(every) - 1 else len(more) + 1):  # keep room to say what is left
+                listing.append(more)
                 break
             listing.append(ln)
             room -= len(ln) + 1
@@ -162,17 +167,20 @@ def history(chat_id: str, budget_chars: int = 3000, *, as_json: bool = False, be
     turns: list[dict] = []
     for r in rows:
         text = (r.get("text") or "").strip()
-        if r.get("status") != "done" or not text:
+        if r.get("status") != "done":
             continue
         if r["role"] == "owner":
-            turns.append({"role": "user", "content": text})
+            if text:
+                turns.append({"role": "user", "content": text})
             continue
         data = r.get("data") or {}
         agent = (data.get("agent") or {}).get("name") if r["role"] == "agent" else ""
         notes = [f"[{h['agent'].get('name')} wrote: {tools.clip(h.get('text'), 600)}]"
                  for h in data.get("helpers") or [] if isinstance(h, dict) and isinstance(h.get("agent"), dict)]
         notes += [_pending_note(p) for p in data.get("pending") or [] if isinstance(p, dict)]
-        said = (f"[{agent}] " if agent else "") + text + ("\n" + "\n".join(notes) if notes else "")
+        if not text and not notes:
+            continue
+        said = "\n".join(x for x in [((f"[{agent}] " if agent else "") + text).strip(), *notes] if x)
         turns.append({"role": "assistant", "content": tools.dumps({"say": said, "do": []}) if as_json else said})
     out, used = [], 0
     for t in reversed(turns):
@@ -233,7 +241,13 @@ def partial_say(raw: str) -> str:
             continue
         out.append(ch)
         i += 1
-    return "".join(out)
+    return _whole("".join(out))
+
+
+def _whole(text: str) -> str:
+    """A character written as two escapes (an emoji: \\ud83d\\ude00) put back together; half of one (the rest not
+    written yet, or a stray half) left out, so the words can always be saved and shown."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "ignore")
 
 
 def _strip_fences(s: str) -> str:
@@ -255,15 +269,18 @@ def parse_reply(raw: str) -> dict:
             obj = json.loads(s[a:b + 1])
         except ValueError:
             obj = None
-    if not isinstance(obj, dict):
-        say = partial_say(s) if a >= 0 else s
-        return {"say": " ".join(say.split(" ")).strip()[:SAY_CHARS], "do": [], "ask": None}
+    if not isinstance(obj, dict):  # plain words (braces and all), or JSON cut off while it was written
+        say = partial_say(s) if re.match(r'\{\s*"', s) or _SAY.search(s) else s
+        return {"say": _whole(say).strip()[:SAY_CHARS], "do": [], "ask": None}
     say = next((obj[k] for k in ("say", "answer", "reply", "text", "message") if isinstance(obj.get(k), str)), "")
     do = obj.get("do")
     if do is None:
         do = next((obj[k] for k in ("tools", "actions", "tool_calls", "calls") if k in obj), [])
-    if do in ([], None) and isinstance(obj.get("tool"), str):
-        do = [{"tool": obj["tool"], "args": obj.get("args") or obj.get("arguments") or {}}]
+    if do in ([], None):  # one call written beside the words, or a bare function call {"name", "arguments"}
+        name = obj.get("tool") if isinstance(obj.get("tool"), str) else \
+            obj.get("name") if isinstance(obj.get("name"), str) and ("arguments" in obj or "parameters" in obj) else ""
+        if name:
+            do = [{"tool": name, "args": obj.get("args") or obj.get("arguments") or obj.get("parameters") or {}}]
     if isinstance(do, dict):
         do = [do]
     calls = []
@@ -282,11 +299,12 @@ def parse_reply(raw: str) -> dict:
             calls.append({"tool": name.strip(), "args": args if isinstance(args, dict) else {}})
     ask = obj.get("ask")
     if isinstance(ask, dict) and isinstance(ask.get("question"), str) and ask["question"].strip():
-        choices = [" ".join(str(c).split())[:80] for c in ask.get("choices") or [] if str(c).strip()][:4]
+        given = ask.get("choices") if isinstance(ask.get("choices"), list) else []
+        choices = [" ".join(str(c).split())[:80] for c in given if str(c).strip()][:4]
         ask = {"question": " ".join(ask["question"].split())[:300], "choices": choices}
     else:
         ask = None
-    return {"say": str(say).strip()[:SAY_CHARS], "do": calls[:MAX_CALLS], "ask": ask}
+    return {"say": _whole(str(say)).strip()[:SAY_CHARS], "do": calls[:MAX_CALLS], "ask": ask}
 
 
 # ------------------------------------------------------------------ one answer's rounds
@@ -380,6 +398,8 @@ def think(settings: dict, system: str, messages: list[dict], tool_list: list[too
             on_change(out)
 
     for step in range(max_steps):
+        if ctx.cancel and ctx.cancel():  # stopped while a tool worked: a model that answers all at once is not asked
+            raise llm.Canceled("Stopped.")
         final = step == max_steps - 1
         offered = [] if final else tool_list
         left = (ctx.deadline - time.monotonic()) if ctx.deadline else 180.0

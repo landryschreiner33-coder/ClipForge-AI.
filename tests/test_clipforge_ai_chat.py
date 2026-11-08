@@ -1,22 +1,25 @@
 """ClipForge AI's chat (docs/clipforge/CLIPFORGE_AI.md, "The chat"): teaching, forgetting, listing and explaining
-work without a model; a video's chat makes checked proposals; the general chat asks the model with the memories
-it recalled, and every answer records what it used. A fake model stands in; nothing leaves the machine."""
+work without a model; a video's chat makes checked proposals; with a model, ClipForge AI the assistant answers every
+message with the conversation so far and the memories it recalled, proposes changes with its tools, and every
+answer records what it used. Fake models stand in (tests/fake_model.py for the conversation, FakeHelper for the
+editor's AI helper that works a change out); nothing leaves the machine."""
 from __future__ import annotations
 
 import json
 import threading
-import time
 
 import pytest
 
-from test_studio_edit_requests import _plan, _project, env  # noqa: F401
+from fake_model import answers_finish, install, say, settled, wait_for  # noqa: F401
+from test_studio_edit_requests import _order, _plan, _project, env  # noqa: F401
 
 H = {"X-ClipFoundry": "1"}
 WS = "local"
 
 
 class FakeHelper:
-    """Stands in for llm.complete: records every call, answers from a script, can block until released."""
+    """Stands in for llm.complete (the editor's AI helper): records every call, answers from a script, can block
+    until released."""
 
     def __init__(self, *answers):
         self.answers, self.calls, self.gate = list(answers), [], threading.Event()
@@ -31,32 +34,10 @@ class FakeHelper:
         return answer
 
 
-def _helper(monkeypatch, *answers, **settings) -> FakeHelper:
-    from clipfoundry import db
-    from clipfoundry.pipeline import llm
-
-    fake = FakeHelper(*answers)
-    monkeypatch.setattr(llm, "complete", fake)
-    db.save_settings({"ai_provider": "ollama", "ollama_url": "http://localhost:11434", **settings})
-    return fake
-
-
 def _say(chat_id: str, text: str, **kw) -> dict:
     from clipfoundry.brain import chat
 
     return chat.send(WS, chat_id, text, **kw)["ai"]
-
-
-def _settled(chat_id: str, message_id: str, timeout: float = 5.0) -> dict:
-    from clipfoundry.brain import chat
-
-    end = time.time() + timeout
-    while time.time() < end:
-        m = [m for m in chat.messages(WS, chat_id) if m["id"] == message_id][0]
-        if m["status"] != "thinking":
-            return m
-        time.sleep(0.02)
-    raise AssertionError("still thinking")
 
 
 def test_teaching_forgetting_listing_and_help_need_no_model(env):
@@ -170,68 +151,141 @@ def test_a_videos_chat_proposes_checked_changes_that_apply_as_versions_and_expla
 
 
 def test_a_videos_chat_waits_for_the_ai_helper_and_remembers_what_it_used(env, monkeypatch):
+    """With a model, ClipForge AI talks in the video's chat: it reads the memories that fit the message and records
+    them as used, proposes the change with its propose_change tool (the editor's AI helper works it out and the
+    editor checks it), and the video changes only when the owner presses Apply, as a new version."""
     from clipfoundry import brain, db
-    from clipfoundry.brain import chat
+    from clipfoundry.brain import assistant, chat
+    from clipfoundry.pipeline import llm
+    from clipfoundry.studio import edit_requests as er
 
-    fake = _helper(monkeypatch, json.dumps({"summary": "Keep the lunch story together.",
-                                            "operations": [{"op": "move", "clip_id": "c4", "after": "c2"}]}))
+    fake = install(monkeypatch, ['{"say": "I will keep the lunch story together', ': check my proposal below.", '
+                                 '"do": [{"tool": "propose_change", "args": {"request": "keep the second story '
+                                 'together"}}]}'])
+    helper = FakeHelper(json.dumps({"summary": "Keep the lunch story together.",
+                                    "operations": [{"op": "move", "clip_id": "c4", "after": "c2"}]}))
+    monkeypatch.setattr(llm, "complete", helper)
+    monkeypatch.setattr(assistant, "WRITE_EVERY_S", 0.0)
     brain.remember(WS, "Never move the summit part", kind="rule")
     p = _project(env)
     c = chat.open_chat(WS, p["id"])
-    fake.gate.clear()
-    m = _say(c["id"], "Keep the second story together")
-    assert m["status"] == "thinking" and m["text"].startswith("Asking the AI service")
-    assert [x["text"] for x in m["data"]["used"]] == ["Never move the summit part"]
-    assert m["data"]["request"]["status"] == "thinking"
-    fake.gate.set()
-    m = _settled(c["id"], m["id"])
-    assert m["status"] == "done" and m["data"]["request"]["status"] == "ready"
-    assert m["text"].startswith("Keep the lunch story together.") and "New order: 1, 2, 4, 3" in m["text"]
+    fake.ready.clear()
+    fake.flowing.clear()
+    helper.gate.clear()
+    try:
+        m = _say(c["id"], "Keep the second story together")
+        assert m["status"] == "thinking" and m["role"] == "ai" and m["text"] == "" and m["data"]["tool"] == "talk"
+        assert m["data"]["provider"].startswith("Ollama") and m["data"]["sent"].startswith("Stays on this computer")
+        assert m["data"]["remote"] is False
+        fake.ready.set()
+        assert fake.started.wait(10)
+        # the answer shows while it is written
+        row = db.fetch("brain_chat_messages", m["id"])
+        assert row["status"] == "thinking" and row["text"] == "I will keep the lunch story together"
+        assert [x["text"] for x in row["data"]["used"]] == ["Never move the summit part"]
+        fake.flowing.set()
+        m = settled(c["id"], m["id"])
+        assert m["status"] == "done"
+        assert m["text"] == "I will keep the lunch story together: check my proposal below."
+        assert m["data"]["steps"] == [{"tool": "propose_change", "label": "Started working out the change",
+                                       "ok": True}]
+        assert m["data"]["request"]["status"] == "thinking"  # the editor's AI helper is still working it out
+        assert len(fake.calls) == 1  # a proposal on its way needs no second round
+    finally:
+        fake.ready.set()
+        fake.flowing.set()
+        helper.gate.set()
+    req = wait_for(lambda: next((x["data"]["request"] for x in chat.messages(WS, c["id"]) if x["id"] == m["id"]
+                                 and x["data"]["request"]["status"] != "thinking"), None), what="the proposal")
+    assert req["status"] == "ready" and "New order: 1, 2, 4, 3" in req["proposal"]["changes"]
+    assert req["proposal"]["summary"] == "Keep the lunch story together."
     assert db.fetch("brain_chat_messages", m["id"])["status"] == "done"  # the finished state is kept
-    prompt, kw = fake.calls[0]
+
+    # what it read and used: the rule went to the model and to the AI helper, and both uses are recorded
+    call = fake.calls[0]
+    assert call["task"] == "chat" and call["streamed"] and "- [rule] Never move the summit part" in call["system"]
+    assert "This chat belongs to the YouTube video “Hike”" in call["system"]
+    assert call["messages"] == [{"role": "user", "content": "Keep the second story together"}]
+    assert "propose_change" in fake.tools_offered(0)
+    prompt, kw = helper.calls[0]
     assert kw["task"] == "edit_proposal" and "- [rule] Never move the summit part" in prompt
-    m = _say(c["id"], "what did you use?")
-    assert "answered by Ollama" in m["text"] and "[rule] Never move the summit part" in m["text"]
-    assert "What I proposed: Keep the lunch story together." in m["text"]
+    assert [x["text"] for x in m["data"]["used"]] == ["Never move the summit part"]
+    assert [u["where_used"] for u in db.select("brain_memory_uses", "ref_id = ?", (m["id"],))] == ["chat"]
+    assert [u["where_used"] for u in db.select("brain_memory_uses", "ref_id = ?", (req["id"],))] == \
+        ["change_request"]
+    assert er.view(req["id"], WS)["memories"][0]["text"] == "Never move the summit part"
+
+    # nothing changed until Apply; Apply makes version 2 with the new order
+    assert _order(p["id"]) == ["c1", "c2", "c3", "c4"] and db.fetch("studio_projects", p["id"])["plan_revision"] == 1
+    done = chat.apply(WS, c["id"], m["id"])
+    assert done["data"]["request"]["status"] == "applied"
+    assert db.fetch("studio_projects", p["id"])["plan_revision"] == 2 and _order(p["id"]) == ["c1", "c2", "c4", "c3"]
+    with pytest.raises(chat.ChatError) as again:
+        chat.apply(WS, c["id"], m["id"])  # not twice
+    assert again.value.status == 409
 
 
 def test_the_general_chat_asks_the_ai_helper_with_its_memories_and_checks_the_answer(env, monkeypatch):
+    """The general chat: the conversation engine answers with the memories it recalled (recorded as used), the
+    conversation so far and ClipForge's reply shape; plain words are read as the answer, a failing model is said
+    plainly, a long answer is cut, and the daily limit is for online models only."""
     from clipfoundry import brain, db
-    from clipfoundry.brain import chat
+    from clipfoundry.brain import assistant, chat, tools
     from clipfoundry.pipeline import llm
 
-    fake = _helper(monkeypatch, json.dumps({"say": "About 3 seconds, as you told me."}), "not json at all",
-                   llm.ProviderError("the helper is down"), json.dumps({"say": "x" * 5000}),
-                   ai_edit_requests_per_day=4)
+    fake = install(monkeypatch, say("About 3 seconds, as you told me."), "not json at all",
+                   llm.ProviderError("the helper is down"), say("x" * 7000), say("Online answer one."),
+                   say("Online answer two."))
     brain.remember(WS, "my intro is 3 seconds")
     brain.remember(WS, "Never zoom in on faces", kind="rule")
     c = chat.open_chat(WS)
-    m = _say(c["id"], "how long should my intro be?")
-    assert m["status"] == "thinking" and m["text"] == "Thinking…" and m["data"]["tool"] == "answer"
-    assert m["data"]["provider"].startswith("Ollama") and m["data"]["sent"].startswith("Stays on this computer")
-    assert "Never your videos" in m["data"]["sent"]
-    assert [x["text"] for x in m["data"]["used"]] == ["Never zoom in on faces", "my intro is 3 seconds"]
-    m = _settled(c["id"], m["id"])
+    fake.ready.clear()
+    try:
+        m = _say(c["id"], "how long should my intro be?")
+        assert m["status"] == "thinking" and m["text"] == "" and m["data"]["tool"] == "talk"
+        assert m["data"]["provider"].startswith("Ollama") and m["data"]["sent"].startswith("Stays on this computer")
+    finally:
+        fake.ready.set()
+    m = settled(c["id"], m["id"])
     assert m["status"] == "done" and m["text"] == "About 3 seconds, as you told me."
-    prompt, kw = fake.calls[0]
-    assert kw["system"] == chat.SYSTEM and kw["task"] == "chat" and kw["json_object"] is True
-    assert kw["num_ctx"] == 8192 and kw["max_tokens"] == 600 and kw["timeout"] >= 60
-    assert prompt.startswith(brain.memories.HEADER) and "- [fact] my intro is 3 seconds" in prompt
-    assert prompt.endswith("<<<how long should my intro be?>>>")
+    assert [x["text"] for x in m["data"]["used"]] == ["Never zoom in on faces", "my intro is 3 seconds"]
+    assert m["data"]["steps"] == [] and m["data"]["pending"] == []
+    call = fake.calls[0]
+    settings = db.get_settings()
+    assert call["task"] == "chat" and call["streamed"] and callable(call["cancel"])
+    assert call["max_tokens"] == assistant.budgets(settings)["max_tokens"] and call["timeout"] > 60
+    assert call["system"].startswith(assistant.persona()) and brain.memories.HEADER in call["system"]
+    assert "- [fact] my intro is 3 seconds" in call["system"] and "- [rule] Never zoom in on faces" in call["system"]
+    assert call["json_schema"] == tools.reply_schema(tools.available("general"))
+    assert call["messages"] == [{"role": "user", "content": "how long should my intro be?"}]
     assert [u["where_used"] for u in db.select("brain_memory_uses", "ref_id = ?", (m["id"],))] == ["chat", "chat"]
 
-    m = _settled(c["id"], _say(c["id"], "and the outro?")["id"])
-    assert m["status"] == "failed" and m["text"].startswith("My model did not answer with JSON.")
-    m = _settled(c["id"], _say(c["id"], "and the music?")["id"])
-    assert m["status"] == "failed" and "could not answer: the helper is down" in m["text"]
-    m = _settled(c["id"], _say(c["id"], "and the captions?")["id"])
-    assert m["status"] == "done" and len(m["text"]) == chat.ANSWER_CHARS  # a long answer is cut, never refused
+    m = settled(c["id"], _say(c["id"], "and the outro?")["id"])
+    assert m["status"] == "done" and m["text"] == "not json at all"  # plain words are read as what it says
+    assert fake.calls[1]["messages"] == [
+        {"role": "user", "content": "how long should my intro be?"},
+        {"role": "assistant", "content": '{"say":"About 3 seconds, as you told me.","do":[]}'},
+        {"role": "user", "content": "and the outro?"}]  # the conversation so far goes with every message
+    m = settled(c["id"], _say(c["id"], "and the music?")["id"])
+    assert m["status"] == "failed" and m["text"] == "My model could not answer: the helper is down"
+    m = settled(c["id"], _say(c["id"], "and the captions?")["id"])
+    assert m["status"] == "done" and m["text"] == "x" * assistant.SAY_CHARS  # a long answer is cut, never refused
+    assert [t["content"] for t in fake.calls[3]["messages"]][-2:] == ["and the music?", "and the captions?"]
+
+    # a model on this computer has no daily limit; an online one does (one answer counts once)
+    db.save_settings({"ai_provider": "anthropic", "anthropic_model": "claude-opus-5", "ai_edit_requests_per_day": 2})
+    m = settled(c["id"], _say(c["id"], "and the title?")["id"])
+    assert m["status"] == "done" and m["data"]["remote"] is True
+    assert m["data"]["sent"].startswith("Sent over the internet to Claude claude-opus-5")
+    assert m["data"]["sent"].endswith("Never your files or their sound.")
+    assert settled(c["id"], _say(c["id"], "and the hashtags?")["id"])["status"] == "done"
     m = _say(c["id"], "one more?")
-    assert m["status"] == "failed" and "Today's limit of 4 AI requests" in m["text"] and len(fake.calls) == 4
+    assert m["status"] == "failed" and "Today's limit of 2 requests to your online AI is reached" in m["text"]
+    assert len(fake.calls) == 6
 
     # a restart while an answer was waiting: reported, never asked again
-    db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "Thinking…",
-                                      "data": {"tool": "answer"}, "status": "thinking"})
+    db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "",
+                                      "data": {"tool": "talk"}, "status": "thinking"})
     assert chat.recover() == 1 and chat.recover() == 0
     assert chat.messages(WS, c["id"])[-1]["text"].startswith("ClipForge restarted while this was waiting")
 

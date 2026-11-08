@@ -16,7 +16,6 @@ Ready-made agents (TEMPLATES) are added with one press and can be edited; the ow
 """
 from __future__ import annotations
 
-import re
 import time
 from typing import Callable
 
@@ -148,7 +147,7 @@ def mentioned(ws: str, text: str) -> tuple[dict, str] | None:
     if not hits:
         return None
     agent = max(hits, key=lambda a: len(a["name"]))
-    return agent, text[1 + len(agent["name"]):].strip(" ,:;-")
+    return agent, text[1 + len(agent["name"]):].strip(" ,:;-\n\t\r").strip()
 
 
 def add(ws: str, *, template: str = "", name: str = "", icon: str = "", role: str = "", instructions: str = "",
@@ -162,7 +161,7 @@ def add(ws: str, *, template: str = "", name: str = "", icon: str = "", role: st
     name = _clean(name or base.get("name"), NAME_CHARS)
     if not name:
         raise AgentError("Give the agent a name.")
-    if not re.search(r"[A-Za-z0-9]", name):
+    if not any(ch.isalnum() for ch in name):  # a letter of any language, or a digit
         raise AgentError("An agent's name needs a letter or a digit.")
     if any(a["name"].lower() == name.lower() for a in list_(ws)):
         raise AgentError(f"You already have an agent called {name}.", 409)
@@ -175,7 +174,8 @@ def add(ws: str, *, template: str = "", name: str = "", icon: str = "", role: st
         "role": role, "instructions": str(instructions or base.get("instructions") or "").strip()[:INSTRUCTIONS_CHARS],
         "tools": _tool_names(tools_ if tools_ is not None else base.get("tools", [])),
         "helps_plans": int(bool(base.get("helps_plans")) if helps_plans is None else bool(helps_plans)),
-        "enabled": int(bool(enabled)), "position": len(list_(ws)), "runs": 0, "created_at": now, "updated_at": now})
+        "enabled": int(bool(enabled)), "position": max([a["position"] for a in list_(ws)], default=-1) + 1,
+        "runs": 0, "created_at": now, "updated_at": now})  # last, also after agents moved down the list
     return _view(row)
 
 
@@ -184,7 +184,7 @@ def edit(ws: str, agent_id: str, **fields) -> dict:
     patch: dict = {}
     if fields.get("name") is not None:
         name = _clean(fields["name"], NAME_CHARS)
-        if not name or not re.search(r"[A-Za-z0-9]", name):
+        if not any(ch.isalnum() for ch in name):
             raise AgentError("Give the agent a name with a letter or a digit.")
         if any(a["name"].lower() == name.lower() and a["id"] != agent_id for a in list_(ws)):
             raise AgentError(f"You already have an agent called {name}.", 409)

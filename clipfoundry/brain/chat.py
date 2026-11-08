@@ -53,6 +53,7 @@ _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
 _REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*(?::|that\b)\s*(.+)$", re.I | re.S)
+_FORGET_WORD = re.compile(r"^(?:please\s+)?forget\b\s*[:,]?\s*", re.I)
 _lock = threading.Lock()
 _decide_lock = threading.Lock()
 _routes: list[tuple[Callable[[dict, dict | None], bool], Callable[[str, str, str], dict]]] = []
@@ -230,12 +231,14 @@ def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
     if not assistant.ready():
         return _rules(chat, text, base_revision)
     m = _REMEMBER_EXACT.match(text)
-    if m:
+    if m and not text.rstrip().endswith("?"):  # "remember that day at the lake?" is a question for the conversation
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip():
+        # the exact words of a memory, also when they start with a word the pattern skips ("forget my intro is …")
+        said = {memories._norm(m.group(1)), memories._norm(_FORGET_WORD.sub("", text))}  # noqa: SLF001
         exact = [x for x in memories.list_(ws, q=m.group(1).strip(), limit=CANDIDATES)
-                 if memories._norm(x["text"]) == memories._norm(m.group(1).strip())]  # noqa: SLF001
+                 if memories._norm(x["text"]) in said]  # noqa: SLF001
         if exact:
             gone = memories.forget(ws, exact[0]["id"])
             return {"text": f"Forgotten: “{gone['text']}”.", "data": {"tool": "forget", "forgotten": gone,
@@ -526,6 +529,8 @@ def decide(ws: str, chat_id: str, message_id: str, action_id: str, do: bool) -> 
                     raise tools.ToolError("This action is not available any more.")
                 result = tool.run(ctx, tools.check_args(tool, act.get("args") or {}))
                 act["state"], act["result"] = ("done" if result.ok else "failed"), result.summary or result.text
+            except tools.TryAgain as exc:  # not yet (a delete waits for running work to stop): the button stays
+                act["result"] = str(exc)
             except tools.ToolError as exc:
                 act["state"], act["result"] = "failed", str(exc)
             except Exception as exc:  # noqa: BLE001 - a failed action is reported on its button

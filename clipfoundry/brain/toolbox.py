@@ -14,7 +14,7 @@ import time
 from .. import db
 from . import knowhow as knowhow_mod
 from . import memories
-from .tools import Ctx, Result, Tool, ToolError, clip, register
+from .tools import Ctx, Result, Tool, ToolError, TryAgain, clip, register
 
 PAGES = {
     "studio": ("Studio", "#/"), "projects": ("Projects", "#/projects"), "make_clips": ("Make clips", "#/create/clips"),
@@ -53,7 +53,8 @@ def projects(ws: str) -> list[dict]:
         out.append({"id": v["id"], "kind": "full_video", "name": v.get("name") or "My video",
                     "status": v.get("status") or "", "updated_at": v.get("updated_at") or 0, "mode": "full_video",
                     "versions": int(v.get("plan_revision") or 0), "files": len(v.get("asset_ids") or []),
-                    "href": f"#/video/{v['id']}"})
+                    # a video still being planned opens on its setup page, a made one in the editor
+                    "href": f"#/create/video/{v['id']}" if v.get("status") == "draft" else f"#/video/{v['id']}"})
     return sorted(out, key=lambda x: -float(x["updated_at"] or 0))
 
 
@@ -334,6 +335,8 @@ def _delete_preview(ctx: Ctx, args: dict) -> dict:
     except pd.DeleteError as exc:
         raise ToolError(str(exc)) from exc
     detail = [f"Goes: {s}" for s in plan.get("goes") or []] + [f"Stays: {s}" for s in plan.get("stays") or []]
+    if plan.get("working"):  # "ClipForge is still working on it (...). Deleting stops that first."
+        detail.insert(0, str(plan["working"]))
     return {"label": f"Delete the {KIND_WORDS[p['kind']]} “{p['name']}”", "detail": detail[:10],
             "blocked": plan.get("blocked") or "", "args": {"project": p["id"], "kind": p["kind"]}}
 
@@ -342,8 +345,10 @@ def _delete(ctx: Ctx, args: dict) -> Result:
     p = find(ctx.ws, args.get("project", ""), ctx.project_id)
     pd = _deleter()
     try:
-        done = pd.delete(ctx.ws, p["id"], p["kind"])
+        done = pd.delete(ctx.ws, p["id"], p["kind"], wait=10.0)  # running work gets 10 s to stop, like the Projects page
     except pd.DeleteError as exc:
+        if getattr(exc, "code", "") == "stopping":  # its work was asked to stop and has not yet: OK works in a moment
+            raise TryAgain(str(exc)) from exc
         raise ToolError(str(exc)) from exc
     return Result(f"Deleted the {KIND_WORDS[p['kind']]} “{p['name']}”.", f"Deleted “{p['name']}”",
                   {"deleted": {"id": p["id"], "kind": p["kind"], "name": done.get("name") or p["name"]}})

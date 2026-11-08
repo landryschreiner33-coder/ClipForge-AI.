@@ -341,6 +341,11 @@ def _turns(messages: list[dict]) -> list[dict]:
     return out
 
 
+def _said(err) -> str:
+    """An error a server sent in the middle of an answer, as words."""
+    return str((err.get("message") if isinstance(err, dict) else None) or err)[:200]
+
+
 def _sse(r: httpx.Response, on_text, cancel, deadline: float, timeout: float) -> str:
     """The text of an OpenAI-style streamed answer (data: lines), reported as it grows."""
     import time
@@ -360,6 +365,10 @@ def _sse(r: httpx.Response, on_text, cancel, deadline: float, timeout: float) ->
             chunk = json.loads(data)
         except ValueError:
             continue
+        if not isinstance(chunk, dict):
+            continue
+        if chunk.get("error"):  # the service failed in the middle of the answer (OpenRouter says it this way)
+            raise ProviderError(f"OpenAI-compatible server error: {_said(chunk['error'])}")
         for choice in chunk.get("choices") or []:
             piece = (choice.get("delta") or {}).get("content") or ""
             if piece:
@@ -398,7 +407,10 @@ def _conv_ollama(settings: dict, system: str, turns: list[dict], o: dict) -> str
         r = httpx.post(url, json=body, timeout=o["timeout"])
         if r.status_code != 200:
             raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
-        return r.json().get("message", {}).get("content", "")
+        try:
+            return str((r.json().get("message") or {}).get("content") or "")
+        except (AttributeError, ValueError) as exc:
+            raise ProviderError("Ollama sent an answer in an unexpected shape.") from exc
     deadline, text = time.monotonic() + o["timeout"], ""
     with httpx.stream("POST", url, json=body, timeout=httpx.Timeout(o["timeout"], connect=10.0)) as r:
         if r.status_code != 200:
@@ -413,6 +425,10 @@ def _conv_ollama(settings: dict, system: str, turns: list[dict], o: dict) -> str
                 chunk = json.loads(line) if line.strip() else {}
             except ValueError:
                 continue
+            if not isinstance(chunk, dict):
+                continue
+            if chunk.get("error"):  # Ollama failed in the middle of the answer (out of memory, a crashed runner)
+                raise ProviderError(f"Ollama error: {_said(chunk['error'])}")
             piece = (chunk.get("message") or {}).get("content") or ""
             if piece:
                 text += piece
@@ -518,8 +534,9 @@ def converse(settings: dict, messages: list[dict], *, system: str = "", task: st
 
     `json_schema` makes the built-in model, Ollama and servers that support it answer in exactly that shape (others
     get `json_object` or the instructions alone); `on_text(text_so_far)` streams the answer as it is written (the
-    built-in model, Ollama and OpenAI-style servers; the others call it once at the end); `timeout` bounds the whole
-    answer; `num_ctx` is Ollama's context size."""
+    built-in model, Ollama and OpenAI-style servers; the others answer all at once and never call it); `timeout`
+    bounds the whole answer, and a model on this computer waits for the GPU at most that long; `cancel()` also stops
+    that wait; `num_ctx` is Ollama's context size."""
     provider = settings.get("ai_provider", "heuristic")
     fn = CONVERSE.get(provider)
     if fn is None or provider not in PROVIDERS:
@@ -535,14 +552,18 @@ def converse(settings: dict, messages: list[dict], *, system: str = "", task: st
     try:
         if provider in LOCAL_PROVIDERS and is_local(settings, provider):
             from .. import gpu  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+            from .common import Cancelled
 
             try:
                 with gpu.manager.heavy("local AI model", provider_label(settings) if provider == "builtin" else str(
                         settings.get("ollama_model") if provider == "ollama" else
-                        settings.get("openai_model") or "local model"), max_wait_s=900):
+                        settings.get("openai_model") or "local model"), cancelled=cancel,
+                        max_wait_s=min(900.0, o["timeout"])):
                     return _strip_thinking(fn(settings, system, turns, o))
             except gpu.GpuBusy as exc:
                 raise ProviderError(str(exc)) from exc
+            except Cancelled as exc:  # stopped while waiting for the GPU
+                raise Canceled("Stopped.") from exc
         return _strip_thinking(fn(settings, system, turns, o))
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc

@@ -30,6 +30,10 @@ class ToolError(ValueError):
     """The tool could not do it; the message is a plain sentence for the model and the owner."""
 
 
+class TryAgain(ToolError):
+    """Not right now, but pressing OK again in a moment works (the message says so); the button stays."""
+
+
 @dataclass
 class Ctx:
     """Where a tool runs: the workspace, the chat and its video ('' in the general chat), the AI message it belongs

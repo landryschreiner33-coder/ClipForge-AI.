@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AiPreset, AiSetup, api, BuiltinAi, errorText, MeaningModel, Settings } from "../api";
+import { AiPreset, AiSetup, api, BuiltinAi, BuiltinTask, errorText, MeaningModel, Settings } from "../api";
 import { Banner, Disclosure, Icon, LoadingPage, Pill, ProgressBar, toast } from "./ui";
 
 const SAVED = "********";
@@ -269,6 +269,18 @@ export default function AiHelperSettings() {
 const gb = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
 const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
 
+/** The built-in model's download while it runs (here and in ClipForge AI's chat): what it does, how far, Cancel. */
+export function BuiltinProgress({ t, onCancel }: { t: BuiltinTask; onCancel: () => void }) {
+  return (
+    <div className="stack-2" aria-live="polite">
+      <b className="small">{t.status || "Starting"}{t.total ? `: ${gb(t.completed || 0)} of ${gb(t.total)}` : ""}</b>
+      <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Setting up the built-in model" />
+      <div className="row wrap"><button type="button" className="btn btn-small" onClick={onCancel}>Cancel</button>
+        <span className="small muted">You can keep working; a stopped download resumes where it stopped.</span></div>
+    </div>
+  );
+}
+
 /**
  * The meaning model: a small sentence-meaning network (all-MiniLM-L6-v2) that lets ClipForge compare what is said rather
  * than which words are used. Downloaded once (about 90 MB), checked against fixed checksums, run on this computer with
@@ -371,12 +383,7 @@ function BuiltinSetup({ b, inUse, onChange }: { b: BuiltinAi; inUse: boolean; on
         ))}
       </div>
       {running ? (
-        <div className="stack-2" aria-live="polite">
-          <b className="small">{t.status || "Starting"}{t.total ? `: ${gb(t.completed || 0)} of ${gb(t.total)}` : ""}</b>
-          <ProgressBar value={t.total ? (t.completed || 0) / t.total : 0} label="Setting up the built-in model" />
-          <div className="row wrap"><button type="button" className="btn btn-small" onClick={() => void act(() => api.builtinCancel())}>Cancel</button>
-            <span className="small muted">You can keep working; a stopped download resumes where it stopped.</span></div>
-        </div>
+        <BuiltinProgress t={t} onCancel={() => void act(() => api.builtinCancel())} />
       ) : (
         <div className="row wrap">
           {pick.installed

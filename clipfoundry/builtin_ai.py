@@ -696,6 +696,10 @@ class Server:
     def touch(self) -> None:
         self.last_used = time.time()
 
+    def answering(self, seconds: float) -> None:
+        """The engine is answering for up to `seconds`: it is not idle meanwhile (never stopped mid-answer)."""
+        self.last_used = time.time() + max(0.0, float(seconds))
+
     def _idle_loop(self) -> None:
         while True:
             time.sleep(IDLE_POLL_S)
@@ -789,6 +793,7 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, js
     if max_tokens:
         body["max_tokens"] = int(max_tokens)
     try:
+        server.answering(timeout)  # never stopped as idle in the middle of an answer
         r = httpx.post(f"{base}/chat/completions", json=body, headers={"Authorization": f"Bearer {key}"},
                        timeout=timeout, trust_env=False)
     finally:
@@ -833,6 +838,7 @@ def converse(settings: dict, messages: list[dict], *, timeout: float = 180.0, js
     headers = {"Authorization": f"Bearer {key}"}
     deadline = time.monotonic() + float(timeout)
     try:
+        server.answering(timeout)  # never stopped as idle in the middle of an answer
         if on_text is None:
             r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout, trust_env=False)
             if r.status_code != 200:
