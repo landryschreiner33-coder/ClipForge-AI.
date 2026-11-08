@@ -80,7 +80,7 @@ export default function LocalMakersSettings() {
   const modelRow = (m: EngineModel) => {
     const chosen = st.chosen[m.role] === m.id || (!st.chosen[m.role] && st.roles[m.role].model === m.id);
     return (
-      <li key={m.id} className="file-row"><Icon name={m.role === "image" ? "spark" : m.role === "video" ? "film" : "play"} />
+      <li key={m.id} className="file-row maker-row"><Icon name={m.role === "image" ? "spark" : m.role === "video" ? "film" : "play"} />
         <div><b>{m.name}</b> <span className="small muted">by {m.maker} · <a href={m.licence_url} target="_blank"
           rel="noreferrer">{m.licence}</a></span>
           <span className="block small">{m.about}</span>
