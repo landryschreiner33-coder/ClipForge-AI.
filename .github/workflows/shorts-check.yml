@@ -1,0 +1,66 @@
+name: Animated shorts check
+# Does Make → Animated short work on real Mac, Windows and Linux computers with their own voices (macOS `say`, the
+# Windows voices, espeak-ng)? Lists the voices, reads with them, makes a short from a pasted script with designed
+# cards and camera moves, renders it and checks the picture, the sound and the captions (scripts/shorts_check.py,
+# docs/clipforge/ANIMATED_SHORTS.md). Only FFmpeg, espeak-ng (Linux) and ClipForge's Python packages are installed;
+# no model is downloaded.
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['clipfoundry/makers/**', 'scripts/shorts_check.py', '.github/workflows/shorts-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shorts-check-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Get the code (in a folder of its own, because this repository's folder name cannot be made on Windows)
+        working-directory: ${{ runner.temp }}
+        run: |
+          git init -q clipforge
+          cd clipforge
+          git config core.autocrlf false
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          git fetch -q --depth 1 origin "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
+      - name: Install FFmpeg, espeak-ng (Linux) and ClipForge's Python packages
+        working-directory: ${{ runner.temp }}/clipforge
+        run: |
+          case "$RUNNER_OS" in
+            macOS) brew install ffmpeg ;;
+            Windows) choco install ffmpeg -y --no-progress ;;
+            *) sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng ;;
+          esac
+          ffmpeg -hide_banner -version | sed -n 1p
+          python -m pip install -r requirements.txt
+      - name: Make a short with this computer's own voices, render it and check it
+        working-directory: ${{ runner.temp }}/clipforge
+        run: python scripts/shorts_check.py --out ../shorts-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shorts-check-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/shorts-check/report.json
+            ${{ runner.temp }}/shorts-check/*.wav
+            ${{ runner.temp }}/shorts-check/*.png
+            ${{ runner.temp }}/shorts-check/final.mp4
+          retention-days: 7
