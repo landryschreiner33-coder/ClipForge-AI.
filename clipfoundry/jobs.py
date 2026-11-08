@@ -121,6 +121,7 @@ class Worker:
                     self._run_version(key)
                 elif kind == "studio":
                     from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - handlers
+                    from .makers import shorts  # noqa: F401 - handlers
 
                     studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die

@@ -610,6 +610,16 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
 SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound")
 
 
+def is_short(project: dict) -> bool:
+    """An animated short (makers/shorts.py): made from a script with a voice and pictures, not from footage."""
+    return (project or {}).get("workflow") == "animated_short"
+
+
+def _footage_only(project: dict, what: str) -> None:
+    if is_short(project):
+        raise VideoError(f"{what} works on filmed videos. To change an animated short, change its scenes.")
+
+
 def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
     """Run the smart edit again on this project with these choices, as a background job that saves a new version
     (Undo returns to the current one). Your look, captions, word fixes and the sounds and pictures you placed
@@ -617,6 +627,7 @@ def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
     project = db.fetch("studio_projects", project_id)
     if not project or not project["plan_revision"]:
         raise VideoError("The rough cut is not ready yet.")
+    _footage_only(project, "“Edit it for me”")
     if base_revision != project["plan_revision"]:
         raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
     unknown = set(choices) - set(SMART_OPTIONS) - {"target_duration_s"}
@@ -643,6 +654,7 @@ def set_script(project_id: str, base_revision: int, script) -> dict:
     project = db.fetch("studio_projects", project_id)
     if not project or not project["plan_revision"]:
         raise VideoError("The rough cut is not ready yet.")
+    _footage_only(project, "Following a script with your footage")
     if base_revision != project["plan_revision"]:
         raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
     payload = script_payload(script)
@@ -1085,6 +1097,8 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             return p, _clip_set(p, edit, field, value)
         if field == "captions" and type(value) is bool:
             p["captions"]["enabled"] = value
+        elif field == "caption_highlight" and type(value) is bool:
+            p["captions"]["highlight"] = value
         elif field == "caption_position" and value in engine.CAPTION_POSITIONS:
             p["captions"]["position"] = value
         elif field == "caption_size" and value in engine.CAPTION_SIZES:
@@ -1419,6 +1433,8 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
     choice = settings.get("edit_engine", "auto")
     if not hand and (preview or choice == "ffmpeg"):
         return None, ""
+    if not hand and choice == "auto" and plan.get("maker") == "animated_short":
+        return None, ""  # FilmCraft's captions cannot highlight the word being said; the built-in engine keeps them
     if not apps.find_cli("filmcraft"):
         if hand:
             raise VideoError("This version was finished in FilmCraft's editor, and FilmCraft is not set up here to "
@@ -1581,7 +1597,17 @@ def view(project: dict) -> dict:
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
             "script": script_view(project.get("script") or {}),
+            "workflow": project.get("workflow") or "full_video", "short": _short_view(project, plan),
             "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+
+
+def _short_view(project: dict, plan: dict | None) -> dict | None:
+    """An animated short's scenes and options for the editor page (makers/shorts.py); None for other videos."""
+    if not is_short(project):
+        return None
+    from ..makers import shorts  # noqa: PLC0415 - makers build on this module
+
+    return shorts.view(project, plan)
 
 
 def script_view(script: dict) -> dict | None:

@@ -268,6 +268,8 @@ def validate(plan: dict, assets: dict[str, dict]) -> list[str]:
         out.append("Unknown caption size.")
     if captions.get("position", "bottom") not in CAPTION_POSITIONS:
         out.append("Unknown caption position.")
+    if captions.get("highlight", False) not in (True, False):
+        out.append("Highlighting the spoken word is either on or off.")
     return out + _validate_audio(plan, assets) + _validate_overlays(plan, assets)
 
 
@@ -543,6 +545,39 @@ def caption_events(words: list[dict], captions: dict) -> list[tuple[float, float
     for chunk in chunk_words(words, style):
         text = " ".join(w["w"].strip() for w in chunk).replace("{", "(").replace("}", ")").replace("\\", "/")
         out.append((chunk[0]["start"], chunk[-1]["end"] + 0.15, text.upper() if p.get("upper") else text))
+    return out
+
+
+def _escape_caption(text: str) -> str:
+    return text.strip().replace("{", "(").replace("}", ")").replace("\\", "/")
+
+
+def highlight_events(words: list[dict], captions: dict) -> list[tuple[float, float, str]]:
+    """Caption events with the word being said in the style's highlight colour (plan `captions.highlight`, made for
+    animated shorts): the same groups as `caption_events`, one event per word while the group is on screen, held
+    through short gaps so it never flickers. The plain events stay what exports (FilmCraft, subtitles) read."""
+    style = captions.get("style") or "clean"
+    p = STYLE_PRESETS.get(style, STYLE_PRESETS["clean"])
+    colour = hex_to_ass(p.get("highlight") or "#FFE500")
+    grow = f"\\fscx{p['word_scale']}\\fscy{p['word_scale']}" if p.get("word_scale", 100) != 100 else ""
+    chunks = chunk_words(words, style)
+    out = []
+    for ci, chunk in enumerate(chunks):
+        texts = [_escape_caption(w["w"]) for w in chunk]
+        texts = [t.upper() for t in texts] if p.get("upper") else texts
+        start = chunk[0]["start"]
+        following = chunks[ci + 1][0]["start"] if ci + 1 < len(chunks) else None
+        end = chunk[-1]["end"] + 0.15
+        if following is not None and following - chunk[-1]["end"] < 0.35:
+            end = following  # a short gap: keep the group up until the next one starts
+        end = max(end, start + 0.2)
+        for wi in range(len(chunk)):
+            a = start if wi == 0 else chunk[wi]["start"]
+            b = chunk[wi + 1]["start"] if wi + 1 < len(chunk) else end
+            if b - a < 0.02:
+                continue
+            text = " ".join(f"{{\\c{colour}{grow}}}{t}{{\\r}}" if k == wi else t for k, t in enumerate(texts))
+            out.append((a, b, text))
     return out
 
 
@@ -936,7 +971,8 @@ def render(plan: dict, assets: dict[str, dict], words_by_asset: dict[str, list[d
     segs = render_timeline(plan, fps)
     words = output_words(plan, words_by_asset, segs)
     captions = plan.get("captions") or {}
-    events = caption_events(words, captions) if captions.get("enabled") and words else []
+    events = ((highlight_events if captions.get("highlight") else caption_events)(words, captions)
+              if captions.get("enabled") and words else [])
     trans = TRANSITIONS.get((plan.get("transition") or {}).get("type", "cut"))
     layout = plan.get("layout") or "fit"
     encode = _encode_args(preview, settings, fps)

@@ -933,6 +933,33 @@ CREATE TABLE IF NOT EXISTS studio_jobs (     -- durable studio work with leases 
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_studio_jobs_status ON studio_jobs(status, created_at);
+-- ---------------------------------------------------------------- Make → Animated short (makers/shorts.py)
+CREATE TABLE IF NOT EXISTS short_scenes (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    position REAL NOT NULL,                   -- order when first made; after that the plan's order wins
+    narration TEXT DEFAULT '',
+    picture_prompt TEXT DEFAULT '',
+    picture_from TEXT DEFAULT '',             -- script | ai | words | owner: who described the picture
+    picture_source TEXT DEFAULT 'auto',       -- auto (made by ClipForge) | upload (the owner's own picture)
+    picture_asset_id TEXT DEFAULT '',
+    clip_asset_id TEXT DEFAULT '',
+    move TEXT DEFAULT 'auto',
+    seed INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'waiting',            -- waiting | voice | picture | motion | ready | failed
+    message TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    duration_ms INTEGER DEFAULT 0,
+    voice_key TEXT DEFAULT '',                -- what the voice, picture and clip were made from (a build remakes
+    picture_key TEXT DEFAULT '',              -- only what changed)
+    clip_key TEXT DEFAULT '',
+    pictures TEXT DEFAULT '[]',               -- earlier pictures, newest last
+    info TEXT DEFAULT '{}',                   -- engines used, fallbacks and word timing of the made scene
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_short_scenes_project ON short_scenes(project_id, position);
 -- ---------------------------------------------------------------- Clips → Full stories
 CREATE TABLE IF NOT EXISTS story_proposals (
     id TEXT PRIMARY KEY,
@@ -1217,7 +1244,8 @@ JSON_FIELDS = {
     "oauth_connects": set(),
     "uploads": set(),
     "assets": {"probe"},
-    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short"},
+    "short_scenes": {"pictures", "info"},
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},
@@ -1258,7 +1286,8 @@ ADDED_COLUMNS = {
     "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
     "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
     # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
-    "studio_projects": {"media": "TEXT DEFAULT '{}'", "script": "TEXT DEFAULT '{}'"},
+    "studio_projects": {"media": "TEXT DEFAULT '{}'", "script": "TEXT DEFAULT '{}'",
+                        "short": "TEXT DEFAULT '{}'"},  # an animated short's options (makers/shorts.py)
     # the memories ClipForge AI read for a proposal (brain/memories.py)
     "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},

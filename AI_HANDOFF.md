@@ -1,5 +1,40 @@
 # AI handoff
 
+## Make → Animated short: viral voice-over shorts — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for the animated voice-over shorts seen on TikTok, from a pasted script or
+one ClipForge writes, all running on his Mac. Make → Animated short now turns a script into scenes, gives each a
+voice, a picture and a gentle camera move, and puts them together with big captions where the spoken word lights up,
+music under the voice and a whoosh on the cuts. Every scene can be changed on its own afterwards (words, picture,
+move, order, add, delete), and the normal editor, preview, render and FilmCraft work on it. Without the local
+engines it still works: the computer's own voice and designed cards with each scene's key words.
+
+- **Branch / PR:** `claude/project-thread-5qybvh` from the release line at 95a70e0, draft PR into
+  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Depends on, loosely:** the local engines (`clipfoundry/engines`, thread "Plug local open-source tools into
+  ClipForge", branch `claude/project-thread-nnvh05`). `makers/local_engines.py` is the only door; without the module
+  every role reports "not part of this version" and the fallbacks run. Either branch can merge first.
+- **Design and limits:** [docs/clipforge/ANIMATED_SHORTS.md](docs/clipforge/ANIMATED_SHORTS.md);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/makers/` (scenes, writer, voice, pictures, cards, motion, looks, local_engines, shorts,
+  routes); changed `db.py`, `api.py`, `jobs.py`, `cloud/ownership.py`, `studio/engine.py` (`captions.highlight`),
+  `studio/video_flow.py`, `studio/routes.py`, `brain/knowhow.py`, `brain/memories.py`, `requirements.txt` (pillow);
+  frontend `pages/MakeShort.tsx`, `components/ShortScenes.tsx`, `shorts.ts`, `pages/shorts.css` (new), `App.tsx`,
+  `Studio.tsx`, `Projects.tsx`, `VideoReview.tsx`, `MemoryTab.tsx`, `router.ts`, `studio.ts`; `frontend/dist` rebuilt.
+- **Verify:** `python -m pytest -q tests/test_studio_shorts_flow.py tests/test_studio_shorts_parts.py
+  tests/test_studio_shorts_voice.py tests/test_studio_shorts_captions.py tests/test_clipforge_ai_knowhow.py`; the
+  real render: `python -m pytest -q -m slow tests/test_studio_shorts_render.py` (needs espeak-ng); `cd frontend && npm
+  run build`. On Landry's Mac: Make → Animated short with a pasted script (the `say` voices), then with the local
+  makers set up (real pictures and the Supertonic voice: the reminder next to Download should appear), and Write it
+  for me with the built-in AI.
+- **Judgement calls to know about:** captions default to the look's own style; a scene is 6-16 words (one picture
+  every 2-4 s); the engine's own estimated word times are ignored in favour of listening or the sound; "auto" voice
+  is pinned when a short is first made so later scenes match; a short allows 600 words and 80 scenes; the owner's
+  editor changes (order, trims, removed clips, levels, word fixes) survive scenes being made again.
+- **Not done / not testable here:** the real engines, `say`, SAPI, a real model writing scripts and the speech
+  model's word times; a Windows run.
+- **Waiting on Landry:** a look at the PR, a try on his Mac, the merge and any release (explicit OK each time).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,

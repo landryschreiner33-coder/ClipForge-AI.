@@ -1,5 +1,49 @@
 # AI changelog
 
+## Make → Animated short: viral voice-over shorts, made on this computer — 2026-11-08 (Claude Code)
+
+Landry asked for a maker of the animated voice-over shorts seen on TikTok: paste a script, or have it written, and
+everything running locally on his Apple-silicon Mac. Branch `claude/project-thread-5qybvh` from the release line at
+95a70e0. No release. Design and contracts: [docs/clipforge/ANIMATED_SHORTS.md](docs/clipforge/ANIMATED_SHORTS.md).
+The picture, video and voice engines themselves come from the local-engines work (`clipfoundry/engines`, branch
+`claude/project-thread-nnvh05`); this branch talks to them through one door and works without them.
+
+- **Scenes** (`clipfoundry/makers/scenes.py`, new): a pasted script becomes scenes of 6-16 spoken words (one picture
+  every 2-4 seconds at 175 words a minute); blank lines, "Scene 3" headings and timings end a scene; `[Visual: ...]`,
+  `Show:`, `B-roll:` and bracketed lines become the next scene's picture; titles, music, sound and hashtag lines are
+  dropped; at most 600 words and 80 scenes, refused in plain words. Picture ideas from a scene's own words name the
+  script's subject.
+- **ClipForge AI writes** (`makers/writer.py`, new): a script from a topic, tone, length and audience, or picture
+  ideas for a pasted script, as one JSON object in a schema; reads the owner's memories first (recorded as used in
+  "short_script"), then the new **Animated voice-over shorts** playbook with hooks and endings
+  (`brain/knowhow.py`: 13 playbooks, task "short"); outro lines are taken off, long lines split, a script far from
+  the length asked once more; Stop works while it thinks.
+- **Voice** (`makers/voice.py`, new): the local voice engine, else macOS `say`, Windows SAPI or espeak-ng (as its own
+  program); speed; a voice sample for Hear it; word times from the engine, the speech model when it is downloaded
+  (never downloads) or estimated from the sound; the engine's licence rule is kept with each scene's voice.
+- **Pictures and motion** (`makers/pictures.py`, `cards.py`, `motion.py`, `looks.py`, new): eight looks; the picture
+  engine when it is set up, else an honest designed card with the scene's key words (out of the caption zone); a
+  sub-pixel push-in or pan on the still (OpenCV frames piped to FFmpeg, BT.709, exact length), or the video engine's
+  motion slowed at most 1.5 times and held.
+- **The short** (`makers/shorts.py`, `routes.py`, new; table `short_scenes`, JSON column `studio_projects.short`):
+  one durable `short_build` job makes only what changed in each scene, one failing scene never stops the others, and
+  the plan is one clip per scene with centred captions where the spoken word lights up (`captions.highlight`,
+  `studio/engine.py`), music at -20 dB ducked under the voice and a whoosh on every other cut; the owner's editor
+  changes stay when scenes are made again. A change shows "Waiting to make the changes" until the build starts.
+  `/api/studio/shorts/...`; projects list filter `kind=short`; Stop says how to go on.
+- **Pages** (`frontend/src/pages/MakeShort.tsx`, `components/ShortScenes.tsx`, `shorts.ts`, `pages/shorts.css`,
+  new): Make → Animated short (paste or write, look cards, voice with Hear it, speed, music, captions with "Fits the
+  look", camera moves or animated pictures, what will make it); the Scenes panel on the editor page (words, picture
+  idea, new or earlier or own picture, camera move, move, add, delete, try again, voice/look/music for the whole
+  short, how it was made); a reminder next to Download when the voice's licence asks for an AI label; Studio shows
+  three things to make; Projects has an Animated shorts filter; the top bar says "Video" on the editor page.
+- **Tests:** `tests/test_studio_shorts_flow.py` (12), `_parts.py` (12), `_voice.py` (18), `_captions.py` (5) and the
+  slow `_render.py` (a real short with espeak-ng, rendered and its frames checked); the know-how tests count 13
+  playbooks. Browser check against the real app: a 5-scene short made from the page in 18 s, then words changed, a
+  scene moved, added and deleted; 1440 and 390 px wide.
+- **Not checked here:** the real picture, video and voice engines, macOS `say`, Windows SAPI, ClipForge AI writing
+  with a real model and the speech model's word times (none can run in the cloud computer).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
 
 Landry asked to make the built-in AI and the editing "100 times smarter", with research first and anything useful
