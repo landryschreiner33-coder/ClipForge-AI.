@@ -47,6 +47,32 @@ def _no_meaning_model_download(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_engine_downloads(monkeypatch):
+    """Tests never download ComfyUI, uv or a model for the local makers (clipfoundry/engines): a pinned download from
+    anywhere but this computer fails as if offline, so a test serves the files itself (tests/test_local_engines.py),
+    and no ComfyUI app is looked for on the usual ports."""
+    from urllib.parse import urlsplit
+
+    from clipfoundry.engines import files, makers, tasks
+
+    real_stream = files.httpx.stream
+
+    def local_only(method, url, *args, **kwargs):
+        if (urlsplit(str(url)).hostname or "") not in ("127.0.0.1", "localhost"):
+            raise files.httpx.ConnectError(f"tests do not download {url}")
+        return real_stream(method, url, *args, **kwargs)
+
+    monkeypatch.setattr(files.httpx, "stream", local_only)
+    monkeypatch.setattr(makers, "APP_PORTS", (9,))
+    makers.forget_found()
+    makers._machine.update(at=0.0, view=None)  # noqa: SLF001
+    tasks.reset_for_tests()
+    yield
+    tasks.reset_for_tests()
+    makers.forget_found()
+
+
+@pytest.fixture(autouse=True)
 def _own_videos_folder(monkeypatch, tmp_path):
     """Autopilot's videos folder lives in the user's Videos folder: tests use one of their own instead."""
     monkeypatch.setenv("CLIPFOUNDRY_VIDEOS", str(tmp_path / "videos folder"))

@@ -81,10 +81,10 @@ def install_steps(m: catalog.Model | None = None) -> list:
 
     def fetch_all(report, cancelled) -> None:
         total = sum(f.size for f in m.files)
+        label = f"Downloading the voice ({total / 1e6:.0f} MB)"
         done_before = 0
         for f in m.files:
             dest = _path(m, f)
-            label = f"Downloading the voice ({total / 1e6:.0f} MB)"
             files.fetch(f.pin, dest, lambda d, b=done_before: report(label, b + d, total), cancelled,
                         lambda d, b=done_before: report("Checking the voice", b + d, total))
             done_before += f.size

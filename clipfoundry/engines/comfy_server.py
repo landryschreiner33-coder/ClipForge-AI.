@@ -366,12 +366,15 @@ def extra_paths_yaml() -> Path:
     lines = ["clipforge:", f"  base_path: {json.dumps(str(base))}"]
     lines += [f"  {sub}: {sub}" for sub in catalog.MODEL_FOLDERS]
     path = root() / "extra_model_paths.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
 def build_command(port: int, flavor: str) -> list[str]:
     w = work_dir()
+    for sub in ("output", "input", "temp", "user"):  # ComfyUI stops at once (exit 2) when --user-directory is missing
+        (w / sub).mkdir(parents=True, exist_ok=True)
     cmd = [str(env_python(flavor)), "-s", str(main_py()), "--listen", "127.0.0.1", "--port", str(port),
            "--disable-auto-launch", "--extra-model-paths-config", str(extra_paths_yaml()),
            "--output-directory", str(w / "output"), "--input-directory", str(w / "input"),

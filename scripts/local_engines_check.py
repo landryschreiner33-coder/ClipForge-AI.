@@ -245,7 +245,12 @@ def start_comfy(run: Run, report: dict, extra: list[str]) -> str:
     started = time.time()
     while time.time() - started < 900:
         if run.proc.poll() is not None:
-            raise RuntimeError(f"ComfyUI stopped while starting (exit {run.proc.returncode}); see comfyui.log")
+            try:  # the reason, in the job log itself
+                tail = (logs / "comfyui.log").read_text(encoding="utf-8", errors="replace").splitlines()[-25:]
+            except OSError:
+                tail = []
+            raise RuntimeError(f"ComfyUI stopped while starting (exit {run.proc.returncode}); the end of "
+                               "comfyui.log:\n" + "\n".join(tail))
         if Comfy(base, timeout=3).alive():
             break
         time.sleep(1)

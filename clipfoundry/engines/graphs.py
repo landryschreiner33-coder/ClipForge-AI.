@@ -48,9 +48,12 @@ def video_shape(model: Model, width: int, height: int, seconds: float) -> tuple[
         k = math.sqrt(most / (w * h))
         w, h = w * k, h * k
     w, h = snap(w, step, step * 4, 2048), snap(h, step, step * 4, 2048)
-    most_s = float(d.get("max_seconds", 5.0))
-    frames = int(round(max(0.5, min(most_s, float(seconds))) * fps))
-    frames = max(5, (frames - 1) // 4 * 4 + 1)  # 4n + 1 frames
+
+    def nearest(n: float) -> int:  # the model makes 4n + 1 frames
+        return 4 * round((n - 1) / 4) + 1
+
+    most = nearest(float(d.get("max_seconds", 5.0)) * fps)  # 5 seconds: 121 frames, as in Wan's own example
+    frames = max(5, min(most, nearest(max(0.1, float(seconds)) * fps)))
     return w, h, frames, fps
 
 
