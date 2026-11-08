@@ -286,9 +286,30 @@ def _png_info(path: Path) -> dict:
             stat = ImageStat.Stat(im.convert("RGB"))
             info["mean"] = [round(x, 1) for x in stat.mean]
             info["stddev"] = [round(x, 1) for x in stat.stddev]
+            import numpy as np
+
+            g = np.asarray(im.convert("L"), dtype=np.float64)
+            if g.shape[1] > 1 and g.std() > 0:
+                # neighbouring pixels of a real picture are alike (about 0.8 to 1); in noise they are not (about 0)
+                info["smooth"] = round(float(np.corrcoef(g[:, :-1].ravel(), g[:, 1:].ravel())[0, 1]), 3)
     except Exception as exc:  # noqa: BLE001
         info["pixels_error"] = str(exc)[:200]
     return info
+
+
+def _preview(path: Path) -> str:
+    """A small JPEG of the picture as base64, printed into the job log so it can be looked at without the artifact."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    with Image.open(path) as im:
+        small = im.convert("RGB")
+        small.thumbnail((128, 128))
+        buf = io.BytesIO()
+        small.save(buf, "JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _mp4_info(path: Path) -> dict:
@@ -422,9 +443,14 @@ def real_picture(run: Run, report: dict, model_id: str) -> None:
     Comfy(run.base, timeout=120).download(files[-1], dest)
     res.update(seconds=round(time.time() - started, 1), progress=seen[-8:], result=_png_info(dest))
     log(f"real picture: {res['result']} in {res['seconds']} s")
+    try:
+        log(f"PREVIEW-JPEG-BASE64 {_preview(dest)}")
+    except Exception as exc:  # noqa: BLE001 - the preview is a convenience
+        log(f"no preview: {exc}")
     px = res["result"]
-    if not (px.get("png") and px.get("width") == 256 and px.get("height") == 256 and max(px.get("stddev") or [0]) > 8):
-        raise RuntimeError(f"the picture is not right: {px}")
+    if not (px.get("png") and px.get("width") == 256 and px.get("height") == 256 and max(px.get("stddev") or [0]) > 8
+            and (px.get("smooth") or 0) >= 0.5):
+        raise RuntimeError(f"the picture is not right (flat, noise or wrong size): {px}")
 
 
 def check_voice(report: dict, out: Path) -> None:

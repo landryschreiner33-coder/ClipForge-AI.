@@ -585,6 +585,10 @@ def test_a_file_clipforge_did_not_download_is_never_replaced(file_server, monkey
     assert theirs.read_bytes() == b"q" * 700
     right = comfy_server.models_root() / "diffusion_models" / "a.safetensors"
     assert right.is_file()  # the files before it were downloaded and checked
+    theirs.write_bytes(b"q" * 123)  # same name, another size: not replaced either
+    view = run_steps(models.install_steps(a, "clipforge", None))
+    assert view["state"] == "failed" and "did not replace it" in view["error"]
+    assert theirs.read_bytes() == b"q" * 123
     theirs.write_bytes(b"v" * 700)  # the right file, put there by someone else: checked and used
     assert run_steps(models.install_steps(a, "clipforge", None))["state"] == "done"
     assert models.missing(a, "clipforge", None) == []

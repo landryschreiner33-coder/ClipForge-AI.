@@ -65,6 +65,9 @@ export default function LocalMakersSettings() {
   const voiceModel = byRole("voice")[0];
   const comfyReady = c.mode === "clipforge" ? c.installed : c.mode === "app" ? Boolean(c.app_found) : false;
 
+  // the reasons name this page for other pages (the shorts maker); here that hint is redundant
+  const why = (role: EngineRole) => st.roles[role].why.replace(/ \(Settings, Pictures, video, voice\)/, "");
+
   const fitNote = (m: EngineModel) => {
     if (m.fit === "slow" && c.flavor === "mps") {
       return `This Mac has ${Math.round(st.memory_mb / 1024)} GB of memory, so this one will be slow here.`;
@@ -105,12 +108,12 @@ export default function LocalMakersSettings() {
     return (
       <div className="row-actions">
         <button type="button" className="btn btn-small" disabled={!ready || busy || trial.state === "running"}
-          title={ready ? undefined : st.roles[role].why}
+          title={ready ? undefined : why(role)}
           onClick={() => void act(() => engines.tryIt(role, "", role === "voice" ? voice : ""))}>
           <Icon name="play" />{role === "image" ? "Make a test picture" : role === "video" ? "Make a 2-second test clip" : "Hear it"}</button>
         {mine && trial.state === "running" && <button type="button" className="btn btn-small btn-quiet"
           onClick={() => void act(() => engines.stopTry())}><Icon name="stop" />Stop</button>}
-        {!ready && <span className="small muted">{st.roles[role].why}</span>}
+        {!ready && <span className="small muted">{why(role)}</span>}
       </div>
     );
   };
@@ -142,7 +145,7 @@ export default function LocalMakersSettings() {
           nothing goes online and nothing you make leaves the computer.</p>
         {(["image", "video", "voice"] as EngineRole[]).map((r) => (
           <p key={r} className="small">{st.roles[r].ready ? <Pill tone="good" icon="check">{ROLE_NAME[r]}</Pill> :
-            <Pill>{ROLE_NAME[r]}</Pill>} {st.roles[r].ready ? st.roles[r].engine : st.roles[r].why}</p>
+            <Pill>{ROLE_NAME[r]}</Pill>} {st.roles[r].ready ? st.roles[r].engine : why(r)}</p>
         ))}
       </section>
 

@@ -148,12 +148,13 @@ def install_steps(model: catalog.Model, mode: str, base: str | None) -> list:
 def _download_step(model: catalog.Model, f: catalog.ModelFile, dest: Path, n: int, of: int):
     def step(report, cancelled) -> None:
         label = f"{model.name}: file {n} of {of} ({f.size / 1e9:.1f} GB)"
-        if dest.is_file() and dest.stat().st_size == f.size:
+        if dest.is_file():
             # a file with the same name and size (another program put it there): use it once it is checked
-            if files.sha256_file(dest, lambda d: report(f"Checking {label}", d, f.size), cancelled) == f.sha256:
+            if dest.stat().st_size == f.size and files.sha256_file(
+                    dest, lambda d: report(f"Checking {label}", d, f.size), cancelled) == f.sha256:
                 _record(dest, f, model.id)
                 return
-            if str(dest) not in _read_index():
+            if str(dest) not in _read_index():  # someone else's file of that name: never replaced
                 raise EngineError(f"{dest} is already there but is not the file {model.name} needs; ClipForge did "
                                   "not replace it. Move it away and try again.")
         files.fetch(f.pin, dest, lambda d: report(f"Downloading {label}", d, f.size), cancelled,
