@@ -1,5 +1,68 @@
 # AI changelog
 
+## Local makers: pictures, video and voice made on this computer — 2026-11-08 (Claude Code)
+
+Landry asked (Nov 7) to look at seven open-source projects he found (FreeVideo, WanGP, ComfyUI Desktop, InvokeAI,
+OpenHiggsfield, VoiceStudio, Tencent WeKnora), plug the useful ones into ClipForge, and keep everything local on his
+Apple silicon Mac and on Windows. Branch `claude/project-thread-nnvh05` from the release line at 95a70e0. No release.
+Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md).
+
+- **The door** (`clipfoundry/engines/__init__.py`, new package): `make_image`, `make_video`, `speak`, `voices`,
+  `status`, with `progress(fraction, message)` / `cancel()` and one `EngineError` whose message is written for the
+  person. The animated-shorts maker (its own thread) and ClipForge AI call only this. What is made goes to
+  `data/engines/made/<kind>/<day>/` with a `.json` note (model, licence, words, seed, time).
+- **ComfyUI as the picture and video engine** (`comfy_server.py`, `comfy.py`, `graphs.py`, `makers.py`, `models.py`):
+  GPL-3.0, so always a separate program over HTTP on 127.0.0.1, never imported. Either ClipForge's own copy (one
+  button: uv 0.13.7 from PyPI, a private Python 3.12, PyTorch 2.14.1 for Metal / CUDA 13.0 with driver ≥ 580 / the
+  processor, ComfyUI 0.43.0 from GitHub's archive of the tag, its packages as of Nov 7 via `--exclude-newer`), started
+  on demand with `--offline --disable-all-custom-nodes`, stopped after 10 idle minutes, shared between ClipForge
+  processes; or the ComfyUI desktop app found on 127.0.0.1:8000 / :8188. The graphs are ComfyUI's official examples.
+- **Models, all Apache-2.0, full precision** (fp8/int8 do not run on Metal): FLUX.2 klein 4B (recommended on 16 GB
+  Macs and 8 GB NVIDIA cards), Z-Image Turbo (best detail and lettering), Wan 2.2 TI2V 5B (clips up to 5 s from words
+  or a picture). Comfy-Org repositories pinned to commits; the shared Qwen3 4B text encoder is downloaded once.
+  `makers.machine()/fit()/ranked()` recommend the one that suits the computer; Settings says when one will be slow.
+- **The voice** (`voice.py`): Supertonic 3 (OpenRAIL-M; what it makes must be disclosed as machine-generated, so
+  the rule asks for a "Voice is AI-generated" line in the caption) on the processor through ONNX Runtime, ClipForge's
+  own code checked against Supertone's reference; 10 voices, 31 languages, sentence chunks, estimated word timings,
+  WAV out.
+- **Use rules agreed before a download** (`catalog.Model.rule`): Supertonic's OpenRAIL-M rules and the request on Wan's
+  model card are shown in the download dialog, whose button reads "Agree and download"; `setup()` and
+  `POST /api/engines/setup` refuse such a model without `agreed: true`; every picture, clip and voice note carries
+  the rule.
+- **Downloads** (`catalog.py`, `files.py`, `tasks.py`): every file pinned by address, size and SHA-256; resumable,
+  free-space check, safe unpacking, one set-up at a time with Cancel; a model file ClipForge did not download is never
+  replaced (same or different size).
+- **Settings → Pictures, video, voice** (`routes.py`, `frontend/src/components/LocalMakers.tsx`, `studio.ts`): what is
+  ready and why not, the three ComfyUI choices, set-up, each model with licence, size, memory and fit, Download / Use
+  this / Remove (shown only when ClipForge downloaded the files there), a quick try for each part, the voice's licence
+  rule. `frontend/dist` rebuilt. Not offered online (routes answer 404 in cloud mode).
+- **Fixed after a code review (Nov 8, a test written first for each):** a ComfyUI app's model in a subfolder is sent
+  by the name ComfyUI lists; Remove deletes only ClipForge's own downloads in the ComfyUI in use, keeps the shared text
+  encoder while the other model has its files, refuses while a picture is being made, and lets ComfyUI release the
+  files first (Windows); each job saves under its own name (the same request twice failed on ComfyUI's cache); uv's
+  Python stays out of `~/.local/bin` and the Windows registry (`--no-bin --no-registry`, and the machine check fails
+  if not); the venv's seed packages and PyTorch's dependencies are bounded by the checked day too (PyTorch installed
+  alone with `--no-deps`); a complete `.part` file is finished instead of failing on HTTP 416, a refused range starts
+  over once, the final rename retries on Windows; progress never goes backwards; Stop and time-outs wait until ComfyUI
+  has let go of the graph; clearer words for a too-old ComfyUI and a missing model file.
+- **Skipped, with reasons** (details in the design doc): FreeVideo (its MiniMax H3 model's licence excludes the
+  United States); WanGP (custom licence needs a paid deal to ship inside a sold app; Wan 2.2 already runs through
+  ComfyUI); InvokeAI (the same models already run through ComfyUI); OpenHiggsfield (only a page for a paid online
+  service, and its code has no licence; the zip was unpacked apart and only read); WeKnora (a team-sized server
+  needing several extra programs; a small passage search in the Brain is a follow-up); VoiceStudio kept for later
+  (its default voice model is non-commercial and the app is heavy; it could add a creator's own cloned voice).
+- **Checks:** `tests/test_local_engines.py` (55, a stand-in ComfyUI and a local file server, each test with its own
+  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2024 passed, 2 skipped) and
+  `pytest -m slow` (27 passed, 1 skipped);
+  `.github/workflows/local-engines-check.yml` + `scripts/local_engines_check.py` on GitHub's Mac, Windows and Linux
+  machines: every pin compared with its source, ComfyUI set up from nothing and started, a model-free PNG and H.264
+  clip, every graph accepted by the real ComfyUI, the voice (two voices, every word in order, 1.8–3.5× real time),
+  and on Linux a real FLUX.2 klein picture on the processor (about 4 minutes). The Settings page was checked in a
+  browser at desktop and phone sizes. Found and fixed by the machine check: ComfyUI exits at once (code 2) when its
+  `--user-directory` does not exist yet.
+- **Not verified** (needs Landry's computer): Metal speed and memory on a 16 GB and a larger Mac, a real Wan clip,
+  Windows with an NVIDIA card, the ComfyUI desktop app, the shorts maker end to end with real engines.
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
 
 Landry asked to make the built-in AI and the editing "100 times smarter", with research first and anything useful

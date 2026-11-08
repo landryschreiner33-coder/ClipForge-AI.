@@ -27,6 +27,14 @@ from clipfoundry.engines import EngineError, catalog, comfy, comfy_server, files
 
 
 # ------------------------------------------------------------------ helpers
+@pytest.fixture(autouse=True)
+def _own_data_folder(monkeypatch, tmp_path):
+    """A data folder for each test: the model folders, ComfyUI's folder and the index of checked files would otherwise
+    be shared by every test of a run (pytest-xdist's workers inherit one CLIPFOUNDRY_DATA), and a test that leaves a
+    model downloaded would change what another one sees."""
+    monkeypatch.setenv("CLIPFOUNDRY_DATA", str(tmp_path / "data"))
+
+
 def png_bytes(width: int, height: int, rgb: tuple[int, int, int] = (40, 90, 200)) -> bytes:
     row = b"\x00" + bytes(rgb) * width
     raw = zlib.compress(row * height)

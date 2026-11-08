@@ -1,5 +1,50 @@
 # AI handoff
 
+## Local makers: pictures, video and voice made on this computer — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry found seven open-source projects and asked for the useful ones to be plugged into
+ClipForge, all running locally on his Apple silicon Mac and on Windows. ClipForge can now make pictures, short video
+clips and voice-overs itself, for free: pictures and clips through ComfyUI (ClipForge sets up its own private copy
+with one button, or uses the ComfyUI desktop app if it is installed) with three Apache-2.0 models, and a built-in
+voice (Supertonic 3) that needs no extra program. Every download is pinned to an exact size and checksum, nothing goes
+online once downloaded, and Settings → Pictures, video, voice recommends what suits the computer. The animated-shorts
+maker and ClipForge AI use it through one door. The other projects were skipped for stated reasons (licences that
+exclude the United States or forbid use in a paid app, cloud-only services, heavy servers, or overlap with ComfyUI).
+
+- **Branch / PR:** `claude/project-thread-nnvh05` from the release line at 95a70e0, draft PR into
+  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Design and limits:** [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md) (Landry's list with the
+  reason for each verdict, the models and their licences, the door, how it was checked, what the cloud cannot check);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/engines/` (`__init__`, `catalog`, `files`, `tasks`, `comfy_server`, `comfy`, `graphs`,
+  `models`, `makers`, `voice`, `routes`); `clipfoundry/config.py` (settings `engines_*`), `api.py` (routes, shutdown),
+  `gpu.py` (ComfyUI hands back graphics memory before heavy work); `frontend/src/components/LocalMakers.tsx`,
+  `studio.ts`, `pages/Settings.tsx`, `router.ts`; `frontend/dist` rebuilt; `scripts/local_engines_check.py`,
+  `.github/workflows/local-engines-check.yml`; `tests/test_local_engines.py`, `tests/conftest.py`.
+- **Verify:** `python -m pytest -q tests/test_local_engines.py -p no:cacheprovider`; the whole suite with
+  `python -m pytest -m "not slow" -q -p no:cacheprovider` (add `-n 4` with pytest-xdist) and `-m slow` (needs
+  espeak-ng); `cd frontend && npm ci && npm run build`; the "Local makers check" workflow runs on every push that
+  touches the engines (Mac, Windows, Linux; `workflow_dispatch` takes a picture model id). On Landry's computer:
+  Settings → Pictures, video, voice → Set up ComfyUI, download FLUX.2 klein 4B, "Make a test picture"; download the
+  voice and "Hear it"; then Wan 2.2 and "Make a 2-second test clip" on a large Mac or an NVIDIA PC.
+- **Judgement calls to know about:** ComfyUI 0.43.0 (the newest published release) rather than the newer 0.44 tags;
+  one set of full-precision files for every computer (fp8/int8 fail on Metal), so downloads are large (16–23 GB per
+  model); FLUX.2 klein 4B is the recommendation for 16 GB Macs; the voice's word timings are estimated inside each
+  sentence; the CI picture is made on the processor at 256×256 with `--bf16-unet` to fit the runner's memory; the
+  voice and Wan 2.2 need an "Agree and download" (their licences come with use rules; `setup(agreed=True)`); PyTorch
+  is installed with `--no-deps` and gets its dependencies from PyPI under the Nov 7 cut-off (PyTorch's own index has
+  no upload dates), so on Linux with NVIDIA the CUDA libraries come from PyPI too.
+- **Code review (Nov 8):** a three-reviewer pass with skeptics found ten real problems (subfolder model names in the
+  ComfyUI app, Remove deleting the shared encoder or files ClipForge did not download, the same request twice failing
+  on ComfyUI's cache, uv putting `python3.12` on the PATH and in the Windows registry, unbounded seed and PyTorch
+  dependency versions, a complete `.part` file never finishing, progress going backwards, Stop returning while ComfyUI
+  still ran, two misleading error texts); all fixed with a test each (AI_CHANGELOG.md has the list).
+- **Not done:** real Metal generation and speed on Landry's Mac, a real Wan clip, Windows with NVIDIA, the ComfyUI
+  desktop app, the shorts maker end to end with real engines (all need Landry's computer); smaller fp8 files for small
+  NVIDIA cards; LTX-Video.
+- **Waiting on Landry:** a look at the PR; trying Settings → Pictures, video, voice on his Mac; the merge; the release
+  (explicit OK).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,
