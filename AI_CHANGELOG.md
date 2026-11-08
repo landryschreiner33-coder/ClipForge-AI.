@@ -1,5 +1,41 @@
 # AI changelog
 
+## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-08 (Claude Code)
+
+Landry asked to be able to delete projects. Branch `claude/project-thread-8i3krg` from the release line at 95a70e0.
+No release.
+
+- **One delete for both kinds** (`clipfoundry/studio/project_delete.py`, new): `plan(ws, id, kind)` says in plain
+  sentences what goes and what stays without changing anything; `delete(ws, id, kind, wait=)` does it in one
+  transaction and returns the same sentences. Kinds: `clips` (Highlights and Full stories) and `full_video`. Used by
+  the Projects page, a clips project's own page and ClipForge AI's delete tool (the assistant thread).
+- **What goes:** the clips with their versions, scores, blueprints, analyses and suggested post text, the transcript
+  windows, story proposals and link imports; or a video's edit history (every revision), previews and finished videos,
+  change requests, media searches and imports, and an animated short's scenes; the project's folder; an upload copy or
+  downloaded link that nothing else uses (another clips project, an example, any other video or any of its saved
+  revisions), and for a file used where it is only what ClipForge made from it; the project's ClipForge AI chat and the
+  memories that apply to it only; planned posts that have not started uploading (canceled, they stay in the history);
+  its place on the pinned list.
+- **What stays:** the owner's own files (never deleted, never made writable); media something else uses (kept, still
+  read-only); anything posted (post history, results, the fingerprints that stop a clip being posted twice); memories
+  for every video, a platform or a mode; the taste lessons; Autopilot's record of the video it found (its link to the
+  project is cleared, so the Autopilot page no longer opens a missing project and the entry can be removed).
+- **Waits instead of deleting** (409, code `blocked`, with the reason): Autopilot still working on the project, its
+  clips or its source; a post uploading or being checked; a video still being copied in (status `uploading` and the
+  folder changed in the last minute; a copy that stopped halfway can be deleted). Running work (making clips, renders,
+  studio jobs, link downloads, media imports, preparing a file that goes) is canceled first; a delete request waits up
+  to 10 s for it, else 409 `stopping`, and the window asks again for up to 90 s.
+- **Routes:** `GET /api/projects/{id}/delete-plan`, `GET /api/studio/videos/{id}/delete-plan`,
+  `DELETE /api/studio/videos/{id}` (new); `DELETE /api/projects/{id}` now runs the same code (before, it refused while
+  clips were being made and left the upload copy, the chat and the project's memories behind).
+- **Screens:** `frontend/src/components/DeleteProject.tsx` and `.css` (new): a trash button on every Projects card (top
+  left, the Pin button's twin; `LibraryCard` takes an optional `onDelete`, so the Studio page's cards have none) and one
+  confirmation window ("Deleted for good" and "Stays" from the server, "This can't be undone", focus starts on "Keep
+  it"; while blocked only "Check again" and "Close"). A clips project's own page uses the same window
+  (`libParts.tsx` `DeleteProjectDialog`). `frontend/dist` rebuilt.
+- **Tests:** `tests/test_studio_project_delete.py` (9 tests). TESTS_LINE
+- **Not verified:** a real Windows PC (the read-only file handling is simulated in a test); Landry's Mac.
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
 
 Landry asked to make the built-in AI and the editing "100 times smarter", with research first and anything useful

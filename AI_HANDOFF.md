@@ -1,5 +1,30 @@
 # AI handoff
 
+## Deleting projects — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked to be able to delete projects. Every card on the Projects page now has a
+trash button. It opens a window that lists exactly what will be deleted for good and what stays, and nothing happens
+until "Delete project" is pressed. Deleting removes what ClipForge keeps only for that project (its clips or edit
+history, renders, its own copy of the video when nothing else uses it, its ClipForge AI chat and the notes kept only
+for it, planned posts not yet sent). The owner's own files, media another project uses, anything already posted and
+what ClipForge AI learned for all videos stay. Work running on the project is stopped first; while Autopilot or a
+post is busy with it, or the video is still being copied in, the window says why it has to wait.
+
+- **Branch / PR:** `claude/project-thread-8i3krg` from the release line at 95a70e0, draft PR into
+  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Code:** new `clipfoundry/studio/project_delete.py`, `frontend/src/components/DeleteProject.tsx` / `.css`,
+  `tests/test_studio_project_delete.py`; changed `clipfoundry/api.py` (router, `DELETE /api/projects/{id}`),
+  `frontend/src/pages/Projects.tsx`, `Studio.tsx` (`LibraryCard` `onDelete`), `components/libParts.tsx`;
+  `frontend/dist` rebuilt. Details: [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **For other work:** a table that belongs to one project goes in `VIDEO_TABLES` or `CLIPS_TABLES` (a listed table that
+  does not exist yet is skipped). ClipForge AI's delete tool calls `plan()` and `delete()`; deleting from a project's
+  own chat deletes that chat too.
+- **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
+  run build`; in the app, delete a full video and a clips project from Projects and read the window first.
+- **Not done:** a real Windows PC check (read-only files are simulated); a Delete action on a full video's own page
+  (the Projects page has it; that page is being changed by the edit-setup thread).
+- **Waiting on Landry:** a look at the PR; the merge; the release (explicit OK).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,

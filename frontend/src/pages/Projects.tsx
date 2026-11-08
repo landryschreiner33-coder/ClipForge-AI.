@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { errorText } from "../api";
+import { DeleteProjectConfirm } from "../components/DeleteProject";
 import { Banner, EmptyState, PageHead, Segmented } from "../components/ui";
 import { LibraryItem, studio } from "../studio";
 import { LibraryCard } from "./Studio";
 
-/** One library: clips projects (Highlights and Full stories) and full videos, with filters and search. */
+/** One library: clips projects (Highlights and Full stories) and full videos, with filters and search. Each card can
+ * be deleted after a confirmation that says what goes and what stays. */
 export default function Projects() {
   const [kind, setKind] = useState<"" | "clips" | "full_video">("");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [problem, setProblem] = useState("");
+  const [deleting, setDeleting] = useState<LibraryItem | null>(null);
   useEffect(() => {
     let alive = true;
     const t = window.setTimeout(() => studio.library(kind, q).then((x) => alive && setItems(x))
@@ -35,7 +38,11 @@ export default function Projects() {
         <EmptyState icon="film" title={q ? "Nothing matches that search" : "No projects yet"}>
           {q ? "Try another word." : "Make clips or a YouTube video to start."}
         </EmptyState>
-      ) : <div className="lib-grid">{(items || []).map((i) => <LibraryCard key={i.id} item={i} />)}</div>}
+      ) : <div className="lib-grid">{(items || []).map((i) => <LibraryCard key={i.id} item={i} onDelete={() => setDeleting(i)} />)}</div>}
+      {deleting && (
+        <DeleteProjectConfirm kind={deleting.kind} id={deleting.id} name={deleting.name} onClose={() => setDeleting(null)}
+          onDeleted={(id) => setItems((list) => list && list.filter((x) => x.id !== id))} />
+      )}
     </div>
   );
 }

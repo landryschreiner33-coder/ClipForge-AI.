@@ -26,7 +26,7 @@ from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, vi
 from .pipeline.process import load_words, project_dir, version_dir
 from .publish import jobs as publish_jobs
 from .publish import connection_routes
-from .studio import local_routes, routes as studio_routes
+from .studio import local_routes, project_delete, routes as studio_routes
 from .craft import routes as craft_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
@@ -110,6 +110,7 @@ app.include_router(publish_routes.router)  # before the UI catch-all route below
 app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
+app.include_router(project_delete.router)  # what deleting a project does, and deleting a full video
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
@@ -501,17 +502,9 @@ def cancel(project_id: str) -> dict:
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: str) -> dict:
-    p = _project_or_404(project_id)
-    if worker.current == project_id:
-        raise HTTPException(409, "Cancel processing before deleting")
-    worker.cancel(project_id)
-    pdir = config.projects_dir() / project_id
-    db.delete_project(project_id)
-    root = config.projects_dir().resolve()
-    if pdir.resolve().parent == root and pdir.exists():
-        shutil.rmtree(pdir, ignore_errors=True)
-    return {"ok": True, "deleted": p["id"]}
+def delete_project(project_id: str):
+    """The clips project and what only it uses; running work on it is stopped first (studio/project_delete.py)."""
+    return project_delete.answer_delete(project_id, "clips")
 
 
 @app.get("/api/projects/{project_id}/thumbnail")

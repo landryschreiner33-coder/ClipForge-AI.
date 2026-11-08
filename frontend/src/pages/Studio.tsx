@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { errorText } from "../api";
 import { Banner, EmptyState, Icon, ProgressBar, toast } from "../components/ui";
+import { DeleteProjectButton } from "../components/DeleteProject";
 import { useAppearance } from "../prefs";
 import { timeLabel } from "../components/postShared";
 import { useStatus } from "../status";
@@ -275,7 +276,8 @@ function PublishingStatus() {
   );
 }
 
-export function LibraryCard({ item }: { item: LibraryItem }) {
+/** A project's card; with `onDelete` (the Projects page) it has a trash button that opens the confirmation. */
+export function LibraryCard({ item, onDelete }: { item: LibraryItem; onDelete?: () => void }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="lib-card-wrap">
@@ -289,6 +291,7 @@ export function LibraryCard({ item }: { item: LibraryItem }) {
         </div>
       </a>
       <PinButton id={item.id} name={item.name} />
+      {onDelete && <DeleteProjectButton name={item.name} onClick={onDelete} />}
     </div>
   );
 }
