@@ -807,6 +807,81 @@ def chat(settings: dict, system: str, prompt: str, *, timeout: float = 180.0, js
     return text
 
 
+class Canceled(BuiltinError):
+    """The person stopped the answer while it was being written."""
+
+
+def converse(settings: dict, messages: list[dict], *, timeout: float = 180.0, json_object: bool = False,
+             json_schema: dict | None = None, max_tokens: int | None = None, temperature: float = 0.4,
+             on_text: Callable[[str], None] | None = None, cancel: Callable[[], bool] | None = None) -> str:
+    """A whole conversation sent to the built-in model; the answer's text.
+
+    `messages` is the exchange so far, oldest first: [{"role": "system" | "user" | "assistant", "content": str}],
+    the system text first. `json_object` / `json_schema` / `max_tokens` work as in `chat`. With `on_text` the answer
+    streams: `on_text(text_so_far)` is called as it grows, and `cancel()` returning True stops it (the engine stops
+    writing as soon as the connection closes) and raises `Canceled`. `timeout` bounds the whole answer, not only the
+    wait for its first word."""
+    base, key = server.ensure(settings)
+    body: dict = {"model": ALIAS, "temperature": float(temperature),
+                  "messages": [{"role": str(m["role"]), "content": m["content"]} for m in messages]}
+    if json_schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": json_schema}}
+    elif json_object:
+        body["response_format"] = {"type": "json_object"}
+    if max_tokens:
+        body["max_tokens"] = int(max_tokens)
+    headers = {"Authorization": f"Bearer {key}"}
+    deadline = time.monotonic() + float(timeout)
+    try:
+        if on_text is None:
+            r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=timeout, trust_env=False)
+            if r.status_code != 200:
+                raise BuiltinError(f"The built-in model answered {r.status_code}: {r.text[:200]}")
+            try:
+                got = r.json()
+                text = got["choices"][0]["message"]["content"] or ""
+                finish = got["choices"][0].get("finish_reason")
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                raise BuiltinError("The built-in model sent an answer in an unexpected shape.") from exc
+            timings, usage = got.get("timings") or {}, got.get("usage") or {}
+        else:
+            body["stream"] = True
+            text, finish, timings, usage = "", None, {}, {}
+            with httpx.stream("POST", f"{base}/chat/completions", json=body, headers=headers,
+                              timeout=httpx.Timeout(timeout, connect=15.0), trust_env=False) as r:
+                if r.status_code != 200:
+                    r.read()
+                    raise BuiltinError(f"The built-in model answered {r.status_code}: {r.text[:200]}")
+                for line in r.iter_lines():
+                    if cancel and cancel():
+                        raise Canceled("Stopped.")
+                    if time.monotonic() > deadline:
+                        raise BuiltinError(f"The built-in model took longer than {int(timeout)} seconds.")
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError:
+                        continue
+                    timings = chunk.get("timings") or timings
+                    usage = chunk.get("usage") or usage
+                    for choice in chunk.get("choices") or []:
+                        piece = (choice.get("delta") or {}).get("content") or ""
+                        if piece:
+                            text += piece
+                            on_text(text)
+                        finish = choice.get("finish_reason") or finish
+    finally:
+        server.touch()
+    last_answer.clear()
+    last_answer.update(finish=finish, timings=timings, usage=usage)
+    log.info("built-in model answered a conversation: %s", last_answer)
+    return text
+
+
 def status(settings: dict) -> dict:
     """Everything Settings shows: this computer, the levels, what is installed and what is running."""
     mem, gpu = memory_mb(), vram_mb()

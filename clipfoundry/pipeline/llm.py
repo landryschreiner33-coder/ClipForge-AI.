@@ -318,6 +318,236 @@ def complete(settings: dict, prompt: str, *, unattended: bool = False, task: str
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
 
 
+# ------------------------------------------------------------------ conversations (ClipForge AI's chat)
+class Canceled(ProviderError):
+    """The person stopped the answer while it was being written."""
+
+
+def _turns(messages: list[dict]) -> list[dict]:
+    """The exchange as alternating owner/assistant turns, starting with the owner (what every provider accepts):
+    other roles are dropped, empty turns skipped, two turns in a row by the same side joined."""
+    out: list[dict] = []
+    for m in messages:
+        role = "assistant" if m.get("role") == "assistant" else "user" if m.get("role") == "user" else ""
+        text = str(m.get("content") or "").strip()
+        if not role or not text:
+            continue
+        if out and out[-1]["role"] == role:
+            out[-1] = {"role": role, "content": out[-1]["content"] + "\n\n" + text}
+        else:
+            out.append({"role": role, "content": text})
+    while out and out[0]["role"] != "user":
+        out.pop(0)
+    return out
+
+
+def _sse(r: httpx.Response, on_text, cancel, deadline: float, timeout: float) -> str:
+    """The text of an OpenAI-style streamed answer (data: lines), reported as it grows."""
+    import time
+
+    text = ""
+    for line in r.iter_lines():
+        if cancel and cancel():
+            raise Canceled("Stopped.")
+        if time.monotonic() > deadline:
+            raise ProviderError(f"The model took longer than {int(timeout)} seconds.")
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        for choice in chunk.get("choices") or []:
+            piece = (choice.get("delta") or {}).get("content") or ""
+            if piece:
+                text += piece
+                on_text(text)
+    return text
+
+
+def _conv_builtin(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    from .. import builtin_ai
+
+    try:
+        return builtin_ai.converse(settings, [{"role": "system", "content": system}, *turns], timeout=o["timeout"],
+                                   json_object=o["json_object"], json_schema=o["json_schema"],
+                                   max_tokens=o["max_tokens"], temperature=o["temperature"], on_text=o["on_text"],
+                                   cancel=o["cancel"])
+    except builtin_ai.Canceled as exc:
+        raise Canceled(str(exc)) from exc
+    except builtin_ai.BuiltinError as exc:
+        raise ProviderError(str(exc)) from exc
+
+
+def _conv_ollama(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    import time
+
+    url = settings.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/chat"
+    body: dict = {"model": settings.get("ollama_model") or "llama3.1:8b",
+                  "messages": [{"role": "system", "content": system}, *turns], "stream": bool(o["on_text"]),
+                  "options": {"temperature": o["temperature"], "num_ctx": int(o["num_ctx"] or 8192),
+                              **({"num_predict": int(o["max_tokens"])} if o["max_tokens"] else {})}}
+    if o["json_schema"]:
+        body["format"] = o["json_schema"]
+    elif o["json_object"]:
+        body["format"] = "json"
+    if not o["on_text"]:
+        r = httpx.post(url, json=body, timeout=o["timeout"])
+        if r.status_code != 200:
+            raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
+        return r.json().get("message", {}).get("content", "")
+    deadline, text = time.monotonic() + o["timeout"], ""
+    with httpx.stream("POST", url, json=body, timeout=httpx.Timeout(o["timeout"], connect=10.0)) as r:
+        if r.status_code != 200:
+            r.read()
+            raise ProviderError(f"Ollama error {r.status_code}: {r.text[:200]}")
+        for line in r.iter_lines():
+            if o["cancel"] and o["cancel"]():
+                raise Canceled("Stopped.")
+            if time.monotonic() > deadline:
+                raise ProviderError(f"The model took longer than {int(o['timeout'])} seconds.")
+            try:
+                chunk = json.loads(line) if line.strip() else {}
+            except ValueError:
+                continue
+            piece = (chunk.get("message") or {}).get("content") or ""
+            if piece:
+                text += piece
+                o["on_text"](text)
+            if chunk.get("done"):
+                break
+    return text
+
+
+def _conv_openai(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    import time
+
+    base = (settings.get("openai_url") or "http://localhost:1234/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {settings['openai_api_key']}"} if settings.get("openai_api_key") else {}
+    body: dict = {"model": settings.get("openai_model") or "local-model", "temperature": o["temperature"],
+                  "messages": [{"role": "system", "content": system}, *turns],
+                  **({"max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {})}
+    if o["json_schema"]:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": o["json_schema"]}}
+    elif o["json_object"]:
+        body["response_format"] = {"type": "json_object"}
+
+    def refused(r: httpx.Response) -> None:
+        if r.status_code == 429:
+            raise ProviderError("The AI service's free limit is used up for now (rate limit). Try again later.")
+        if r.status_code in (401, 403):
+            raise ProviderError("The AI service refused the API key. Check it in Settings → ClipForge AI.")
+        if r.status_code != 200:
+            raise ProviderError(f"OpenAI-compatible server error {r.status_code}: {r.text[:200]}")
+
+    for attempt in (1, 2):  # a server that does not know response_format is asked again without it
+        if not o["on_text"]:
+            r = httpx.post(f"{base}/chat/completions", json=body, headers=headers, timeout=o["timeout"])
+            if r.status_code in (400, 422) and attempt == 1 and "response_format" in body:
+                body.pop("response_format")
+                continue
+            refused(r)
+            try:
+                return r.json()["choices"][0]["message"]["content"] or ""
+            except (KeyError, IndexError, TypeError, ValueError) as exc:
+                raise ProviderError("The AI service sent an answer in an unexpected shape.") from exc
+        with httpx.stream("POST", f"{base}/chat/completions", json={**body, "stream": True}, headers=headers,
+                          timeout=httpx.Timeout(o["timeout"], connect=10.0)) as r:
+            if r.status_code != 200:
+                r.read()
+                if r.status_code in (400, 422) and attempt == 1 and "response_format" in body:
+                    body.pop("response_format")
+                    continue
+                refused(r)
+            return _sse(r, o["on_text"], o["cancel"], time.monotonic() + o["timeout"], o["timeout"])
+    raise ProviderError("The AI service did not answer.")
+
+
+def _conv_anthropic(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    try:
+        import anthropic
+    except ImportError as exc:
+        raise ProviderError("The 'anthropic' package is not installed (pip install anthropic)") from exc
+    client = anthropic.Anthropic(api_key=settings.get("anthropic_api_key") or None, max_retries=2,
+                                 timeout=o["timeout"])
+    model = settings.get("anthropic_model") or "claude-opus-5"
+    try:
+        resp = client.messages.create(model=model, max_tokens=int(o["max_tokens"] or 2000), system=system,
+                                      messages=turns)
+    except anthropic.AuthenticationError as exc:
+        raise ProviderError("Anthropic API key is invalid") from exc
+    except anthropic.NotFoundError as exc:
+        raise ProviderError(f"Unknown Anthropic model '{model}'") from exc
+    except anthropic.RateLimitError as exc:
+        raise ProviderError("Anthropic rate limit reached") from exc
+    except anthropic.APIStatusError as exc:
+        raise ProviderError(f"Anthropic API error {exc.status_code}") from exc
+    except anthropic.APIConnectionError as exc:
+        raise ProviderError("Could not reach the Anthropic API") from exc
+    if resp.stop_reason == "refusal":
+        raise ProviderError("The model declined to answer")
+    return "".join(b.text for b in resp.content if b.type == "text")
+
+
+def _conv_flat(settings: dict, system: str, turns: list[dict], o: dict) -> str:
+    """A provider that takes one prompt (NVIDIA): the conversation written out, the newest message last."""
+    lines = [("The owner" if t["role"] == "user" else "You") + ": " + t["content"] for t in turns[:-1]]
+    prompt = (("The conversation so far:\n" + "\n\n".join(lines) + "\n\n") if lines else "") + \
+        "The owner's new message: " + (turns[-1]["content"] if turns else "")
+    fn = PROVIDERS[settings.get("ai_provider", "heuristic")]
+    flat = {**settings, "_system": system, "_ai_task": o["task"], "_timeout": o["timeout"],
+            **({"_max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {}),
+            **({"_json_object": True} if o["json_object"] or o["json_schema"] else {})}
+    return fn(flat, prompt)
+
+
+CONVERSE = {"builtin": _conv_builtin, "ollama": _conv_ollama, "openai_compatible": _conv_openai,
+            "anthropic": _conv_anthropic, "nvidia": _conv_flat}
+
+
+def converse(settings: dict, messages: list[dict], *, system: str = "", task: str = "chat", json_object: bool = False,
+             json_schema: dict | None = None, max_tokens: int | None = None, timeout: float | None = None,
+             temperature: float = 0.4, num_ctx: int | None = None, on_text=None, cancel=None) -> str:
+    """A conversation with the configured provider: `messages` is the exchange so far, oldest first
+    ([{"role": "user" | "assistant", "content": str}]; the instructions go in `system`). Returns the answer's text,
+    without any <think> part. Raises ProviderError in heuristic mode or on failure, and Canceled when `cancel()`
+    returned True while the answer streamed.
+
+    `json_schema` makes the built-in model, Ollama and servers that support it answer in exactly that shape (others
+    get `json_object` or the instructions alone); `on_text(text_so_far)` streams the answer as it is written (the
+    built-in model, Ollama and OpenAI-style servers; the others call it once at the end); `timeout` bounds the whole
+    answer; `num_ctx` is Ollama's context size."""
+    provider = settings.get("ai_provider", "heuristic")
+    fn = CONVERSE.get(provider)
+    if fn is None or provider not in PROVIDERS:
+        raise ProviderError("heuristic mode")
+    turns = _turns(messages)
+    if not turns:
+        raise ProviderError("Nothing to answer.")
+    o = {"task": task, "json_object": json_object, "json_schema": json_schema, "max_tokens": max_tokens,
+         "timeout": float(timeout or 180), "temperature": float(temperature), "num_ctx": num_ctx,
+         "on_text": on_text, "cancel": cancel}
+    if provider in ("anthropic", "nvidia"):
+        o["on_text"] = None  # answered at once; the caller shows it when it arrives
+    try:
+        if provider in LOCAL_PROVIDERS and is_local(settings, provider):
+            from .. import gpu  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+
+            try:
+                with gpu.manager.heavy("local AI model", provider_label(settings) if provider == "builtin" else str(
+                        settings.get("ollama_model") if provider == "ollama" else
+                        settings.get("openai_model") or "local model"), max_wait_s=900):
+                    return _strip_thinking(fn(settings, system, turns, o))
+            except gpu.GpuBusy as exc:
+                raise ProviderError(str(exc)) from exc
+        return _strip_thinking(fn(settings, system, turns, o))
+    except httpx.HTTPError as exc:
+        raise ProviderError(f"{provider} is not reachable: {exc}") from exc
+
+
 def evaluate(settings: dict, video_name: str, sentences: list[str], context_before: str,
              duration: float) -> dict:
     prompt = build_prompt(video_name, sentences, context_before, duration, settings.get("brain_priorities"))

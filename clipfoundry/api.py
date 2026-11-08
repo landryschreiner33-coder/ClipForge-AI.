@@ -117,6 +117,7 @@ app.include_router(brain_routes.router)
 app.include_router(knowledge_routes.router)
 app.include_router(memory_routes.router)  # ClipForge AI's memories
 app.include_router(memory_routes.chats)  # ClipForge AI's chat
+app.include_router(memory_routes.agent_routes)  # ClipForge AI's helper agents
 app.include_router(integration_routes.router)
 app.include_router(phone.router)
 

@@ -97,7 +97,7 @@ def test_teaching_forgetting_listing_and_help_need_no_model(env):
     with pytest.raises(chat.ChatError):
         chat.send(WS, c["id"], "   ")
     with pytest.raises(chat.ChatError):
-        chat.send(WS, c["id"], "x" * 501)
+        chat.send(WS, c["id"], "x" * 4001)
     with pytest.raises(chat.ChatError):
         chat.send("other", c["id"], "hello")  # another workspace's chat
     with pytest.raises(chat.ChatError):

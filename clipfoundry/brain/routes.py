@@ -174,15 +174,23 @@ class Say(BaseModel):
     base_revision: int | None = None
 
 
+class Decide(BaseModel):
+    do: bool
+
+
 @chats.post("", dependencies=WRITE)
 def open_chat(body: OpenChat) -> dict:
-    """The chat of one video, or the general chat, with its last messages."""
+    """The chat of one video, or the general chat, with its last messages, ClipForge AI's model (ready or not, and
+    the built-in model's setup) and the helper agents you can talk to with @."""
+    from . import agents, assistant
+
     ws = principal.workspace_id()
     try:
         chat = chat_module.open_chat(ws, body.project_id)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
-    return {**chat, "messages": chat_module.messages(ws, chat["id"])}
+    return {**chat, "messages": chat_module.messages(ws, chat["id"]), "ai": assistant.status(ws),
+            "agents": [agents.card(a) | {"role": a["role"]} for a in agents.list_(ws, enabled_only=True)]}
 
 
 @chats.get("/{chat_id}/messages", dependencies=READ)
@@ -223,3 +231,91 @@ def discard_change(chat_id: str, chat_message_id: str) -> dict:
         return chat_module.discard(principal.workspace_id(), chat_id, chat_message_id)
     except chat_module.ChatError as exc:
         raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/stop", dependencies=WRITE)
+def stop_answer(chat_id: str) -> list[dict]:
+    """Stop the answer being written in this chat; it keeps what it wrote so far."""
+    try:
+        return chat_module.stop(principal.workspace_id(), chat_id)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+@chats.post("/{chat_id}/messages/{chat_message_id}/actions/{action_id}", dependencies=WRITE)
+def decide_action(chat_id: str, chat_message_id: str, action_id: str, body: Decide) -> dict:
+    """The owner's OK (do: true) or no (do: false) for a change or delete ClipForge AI proposed. Only this request,
+    sent by the app's own page, can run it; the model never can."""
+    try:
+        return chat_module.decide(principal.workspace_id(), chat_id, chat_message_id, action_id, body.do)
+    except chat_module.ChatError as exc:
+        raise _chat_err(exc) from exc
+
+
+# ------------------------------------------------------------------ helper agents
+from . import agents as agents_module  # noqa: E402
+
+agent_routes = APIRouter(prefix="/api/brain/agents")
+
+
+def _agent_err(exc: agents_module.AgentError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class AgentIn(BaseModel):
+    template: str = Field(default="", max_length=40)
+    name: str = Field(default="", max_length=200)
+    icon: str = Field(default="", max_length=40)
+    role: str = Field(default="", max_length=1000)
+    instructions: str = Field(default="", max_length=8000)
+    tools: list[str] | None = None
+    helps_plans: bool | None = None
+    enabled: bool = True
+
+
+class AgentPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    icon: str | None = Field(default=None, max_length=40)
+    role: str | None = Field(default=None, max_length=1000)
+    instructions: str | None = Field(default=None, max_length=8000)
+    tools: list[str] | None = None
+    helps_plans: bool | None = None
+    enabled: bool | None = None
+    position: int | None = Field(default=None, ge=0, le=1000)
+
+
+@agent_routes.get("", dependencies=READ)
+def list_agents() -> dict:
+    """Your helper agents, the ready-made ones you can add, the tools an agent may be given and the icons."""
+    ws = principal.workspace_id()
+    mine = agents_module.list_(ws)
+    have = {a["template"] for a in mine}
+    return {"agents": mine, "templates": [{**t, "added": t["template"] in have} for t in agents_module.TEMPLATES],
+            "tools": agents_module.agent_tools(), "icons": list(agents_module.ICONS),
+            "limit": agents_module.MAX_AGENTS}
+
+
+@agent_routes.post("", dependencies=WRITE)
+def add_agent(body: AgentIn) -> dict:
+    try:
+        return agents_module.add(principal.workspace_id(), template=body.template, name=body.name, icon=body.icon,
+                                 role=body.role, instructions=body.instructions, tools_=body.tools,
+                                 helps_plans=body.helps_plans, enabled=body.enabled)
+    except agents_module.AgentError as exc:
+        raise _agent_err(exc) from exc
+
+
+@agent_routes.patch("/{agent_id}", dependencies=WRITE)
+def edit_agent(agent_id: str, body: AgentPatch) -> dict:
+    try:
+        return agents_module.edit(principal.workspace_id(), agent_id, **body.model_dump())
+    except agents_module.AgentError as exc:
+        raise _agent_err(exc) from exc
+
+
+@agent_routes.delete("/{agent_id}", dependencies=WRITE)
+def remove_agent(agent_id: str) -> dict:
+    try:
+        return {"removed": agents_module.remove(principal.workspace_id(), agent_id)}
+    except agents_module.AgentError as exc:
+        raise _agent_err(exc) from exc
