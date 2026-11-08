@@ -71,23 +71,29 @@ def check_video(width: int = 256, height: int = 256, frames: int = 25, fps: int 
 
 
 # ------------------------------------------------------------------ pictures
-def picture(model: Model, prompt: str, negative: str, width: int, height: int, seed: int) -> tuple[dict, str]:
-    """(graph, the node whose steps are the progress) for one picture."""
+def picture(model: Model, prompt: str, negative: str, width: int, height: int, seed: int, *,
+            names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/picture") -> tuple[dict, str]:
+    """(graph, the node whose steps are the progress) for one picture. `names` maps a model file's name to the name
+    the ComfyUI in use lists it by (a ComfyUI app may keep it in a subfolder: "flux2/<name>", "flux2\\<name>" on
+    Windows); `prefix` is where ComfyUI saves it (a new one for each job: ComfyUI answers an identical graph from its
+    cache without saving the file again)."""
     builder = {"zimage": _zimage, "flux2": _flux2}.get(model.graph)
     if builder is None:
         raise ValueError(f"no picture graph for {model.graph!r}")
-    return builder(model, prompt, negative, width, height, seed)
+    return builder(model, prompt, negative, width, height, seed, _files(model, names), prefix)
 
 
-def _files(model: Model) -> dict[str, str]:
-    return {f.folder: f.name for f in model.files}
+def _files(model: Model, names: dict[str, str] | None = None) -> dict[str, str]:
+    """{ComfyUI folder: the name ComfyUI knows the model's file in it by}."""
+    return {f.folder: (names or {}).get(f.name) or f.name for f in model.files}
 
 
-def _zimage(model: Model, prompt: str, negative: str, width: int, height: int, seed: int) -> tuple[dict, str]:
+def _zimage(model: Model, prompt: str, negative: str, width: int, height: int, seed: int, f: dict[str, str],
+            prefix: str) -> tuple[dict, str]:
     """Z-Image (Tongyi-MAI): Qwen3 text encoder, a flow model with AuraFlow sampling, the FLUX autoencoder.
     Turbo needs no guidance (cfg 1), so the negative words are not used; the empty side is zeroed as in the
     official example."""
-    d, f = model.defaults, _files(model)
+    d = model.defaults
     g = {
         "1": _n("UNETLoader", unet_name=f["diffusion_models"], weight_dtype="default"),
         "2": _n("CLIPLoader", clip_name=f["text_encoders"], type=d.get("clip_type", "lumina2"), device="default"),
@@ -100,17 +106,18 @@ def _zimage(model: Model, prompt: str, negative: str, width: int, height: int, s
                 sampler_name=d.get("sampler", "res_multistep"), scheduler=d.get("scheduler", "simple"),
                 positive=["5", 0], negative=["6", 0], latent_image=["7", 0], denoise=1.0),
         "9": _n("VAEDecode", samples=["8", 0], vae=["3", 0]),
-        "10": _n("SaveImage", images=["9", 0], filename_prefix=f"{PREFIX}/picture"),
+        "10": _n("SaveImage", images=["9", 0], filename_prefix=prefix),
     }
     if negative and float(d.get("cfg", 1.0)) > 1.0:
         g["6"] = _n("CLIPTextEncode", clip=["2", 0], text=negative)
     return g, "8"
 
 
-def _flux2(model: Model, prompt: str, negative: str, width: int, height: int, seed: int) -> tuple[dict, str]:
+def _flux2(model: Model, prompt: str, negative: str, width: int, height: int, seed: int, f: dict[str, str],
+           prefix: str) -> tuple[dict, str]:
     """FLUX.2 [klein] (Black Forest Labs): Qwen3 text encoder, the FLUX.2 autoencoder, its own step schedule; the
     distilled model needs no guidance (cfg 1)."""
-    d, f = model.defaults, _files(model)
+    d = model.defaults
     g = {
         "1": _n("UNETLoader", unet_name=f["diffusion_models"], weight_dtype="default"),
         "2": _n("CLIPLoader", clip_name=f["text_encoders"], type=d.get("clip_type", "flux2"), device="default"),
@@ -125,7 +132,7 @@ def _flux2(model: Model, prompt: str, negative: str, width: int, height: int, se
         "11": _n("SamplerCustomAdvanced", noise=["8", 0], guider=["9", 0], sampler=["7", 0], sigmas=["6", 0],
                  latent_image=["5", 0]),
         "12": _n("VAEDecode", samples=["11", 0], vae=["3", 0]),
-        "13": _n("SaveImage", images=["12", 0], filename_prefix=f"{PREFIX}/picture"),
+        "13": _n("SaveImage", images=["12", 0], filename_prefix=prefix),
     }
     if negative and float(d.get("cfg", 1.0)) > 1.0:
         g["10"] = _n("CLIPTextEncode", clip=["2", 0], text=negative)
@@ -134,20 +141,20 @@ def _flux2(model: Model, prompt: str, negative: str, width: int, height: int, se
 
 # ------------------------------------------------------------------ video
 def video(model: Model, prompt: str, negative: str, width: int, height: int, frames: int, fps: int, seed: int,
-          image: str = "") -> tuple[dict, str]:
+          image: str = "", *, names: dict[str, str] | None = None, prefix: str = f"{PREFIX}/video") -> tuple[dict, str]:
     """(graph, the sampler node) for one clip; `image` is a picture ComfyUI already has (upload_image) to start
-    from."""
+    from; `names` and `prefix` as for picture()."""
     builder = {"wan22_5b": _wan22_5b}.get(model.graph)
     if builder is None:
         raise ValueError(f"no video graph for {model.graph!r}")
-    return builder(model, prompt, negative, width, height, frames, fps, seed, image)
+    return builder(model, prompt, negative, width, height, frames, fps, seed, image, _files(model, names), prefix)
 
 
 def _wan22_5b(model: Model, prompt: str, negative: str, width: int, height: int, frames: int, fps: int, seed: int,
-              image: str) -> tuple[dict, str]:
+              image: str, f: dict[str, str], prefix: str) -> tuple[dict, str]:
     """Wan 2.2 TI2V 5B (Alibaba, Apache-2.0): words to video, or a picture to video, in one model; umT5 text encoder,
     the Wan 2.2 autoencoder (16x smaller frames), 24 frames a second, as in ComfyUI's official example."""
-    d, f = model.defaults, _files(model)
+    d = model.defaults
     g = {
         "1": _n("UNETLoader", unet_name=f["diffusion_models"], weight_dtype="default"),
         "2": _n("CLIPLoader", clip_name=f["text_encoders"], type="wan", device="default"),
@@ -161,7 +168,7 @@ def _wan22_5b(model: Model, prompt: str, negative: str, width: int, height: int,
                 positive=["5", 0], negative=["6", 0], latent_image=["7", 0], denoise=1.0),
         "9": _n("VAEDecode", samples=["8", 0], vae=["3", 0]),
         "10": _n("CreateVideo", images=["9", 0], fps=float(fps)),
-        "11": _n("SaveVideo", video=["10", 0], filename_prefix=f"{PREFIX}/video", format="mp4",
+        "11": _n("SaveVideo", video=["10", 0], filename_prefix=prefix, format="mp4",
                  **{"format.codec": "h264"}),
     }
     if image:

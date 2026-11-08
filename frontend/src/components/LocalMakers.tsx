@@ -96,7 +96,7 @@ export default function LocalMakersSettings() {
           {!m.ready && m.can_download && <button type="button" className="btn btn-small" disabled={busy || setupRunning ||
             (m.role !== "voice" && !comfyReady)} onClick={() => setConfirm({ what: "model", model: m })}>
             <Icon name="download" />Download</button>}
-          {m.ready && <button type="button" className="btn btn-small btn-quiet" disabled={busy || setupRunning}
+          {m.ready && m.removable && <button type="button" className="btn btn-small btn-quiet" disabled={busy || setupRunning}
             onClick={() => void act(() => engines.remove("model", m.id), `${m.name} removed.`)}><Icon name="trash" />Remove</button>}
         </div></li>
     );
@@ -217,7 +217,7 @@ export default function LocalMakersSettings() {
 
       <section className="panel" aria-labelledby="lm-voice"><h2 id="lm-voice">Voice</h2>
         {voiceModel && <ul className="file-list">{modelRow(voiceModel)}</ul>}
-        <Banner tone="neutral" title="The voice's licence">{st.voice_rule}</Banner>
+        <Banner tone="neutral" title="The voice's licence">{voiceModel?.rule || st.voice_rule}</Banner>
         {voiceModel?.ready && <div className="row-actions">
           <label className="field"><span>Voice to hear</span>
             <select value={voice} onChange={(e) => setVoice(e.target.value)}>
@@ -241,10 +241,12 @@ export default function LocalMakersSettings() {
       </Disclosure>
 
       {confirm && <ConfirmDialog title={confirm.what === "comfyui" ? "Set up ComfyUI?" : `Download ${confirm.model?.name}?`}
-        confirmLabel={confirm.what === "comfyui" ? `Set up (${gb(c.download_bytes)})` : `Download (${gb(confirm.model?.download_bytes || 0)})`}
+        confirmLabel={confirm.what === "comfyui" ? `Set up (${gb(c.download_bytes)})`
+          : `${confirm.model?.rule ? "Agree and download" : "Download"} (${gb(confirm.model?.download_bytes || 0)})`}
         onClose={() => setConfirm(null)} disabled={busy}
         onConfirm={async () => {
-          await engines.setUp(confirm.what, confirm.model?.id || "");
+          // the button the person pressed shows the model's use rules, so pressing it is agreeing to them
+          await engines.setUp(confirm.what, confirm.model?.id || "", Boolean(confirm.model?.rule));
           await load();
         }}>
         {confirm.what === "comfyui" ? <p>ClipForge downloads ComfyUI {c.version}, a Python for it and PyTorch for
@@ -252,7 +254,7 @@ export default function LocalMakersSettings() {
           you can keep working, and a stopped download resumes.</p> :
           <><p>{confirm.model?.about} {confirm.model?.name} is made by {confirm.model?.maker} and comes under
             {" "}<a href={confirm.model?.licence_url} target="_blank" rel="noreferrer">{confirm.model?.licence}</a>.</p>
-            {confirm.model?.role === "voice" && <p>{st.voice_rule}</p>}
+            {confirm.model?.rule && <p><b>Its use rules:</b> {confirm.model.rule}</p>}
             <p>About {gb(confirm.model?.download_bytes || 0)} to download.</p></>}
       </ConfirmDialog>}
     </>

@@ -162,11 +162,14 @@ def disk_bytes() -> int:
 
 # ------------------------------------------------------------------ setting it up
 def _uv_env() -> dict:
+    """uv's settings for the set-up: everything in ClipForge's folder, nothing from the person's own uv or pip
+    settings, and the Python it installs is not put on the PATH (~/.local/bin) or into the Windows registry."""
     env = {k: v for k, v in os.environ.items()
            if not k.upper().startswith(("UV_", "PIP_", "VIRTUAL_ENV", "CONDA", "PYTHONHOME", "PYTHONPATH"))}
     env.update(UV_CACHE_DIR=str(root() / "cache"), UV_PYTHON_INSTALL_DIR=str(root() / "python"),
                UV_PYTHON_PREFERENCE="only-managed", UV_NO_CONFIG="1", UV_LINK_MODE="copy",
-               UV_NO_PROGRESS="1", UV_HTTP_TIMEOUT="120", PYTHONNOUSERSITE="1")
+               UV_NO_PROGRESS="1", UV_HTTP_TIMEOUT="120", PYTHONNOUSERSITE="1",
+               UV_PYTHON_INSTALL_BIN="0", UV_PYTHON_INSTALL_REGISTRY="0")
     return env
 
 
@@ -275,20 +278,28 @@ def _step_env(report, cancelled) -> None:
     uv = str(uv_exe())
     env = env_dir(flavor)
     report("Getting a private Python for ComfyUI", 0, 0)
-    _run([uv, "python", "install", catalog.PYTHON_VERSION], "get a Python for ComfyUI", cancelled, 1800)
+    # --no-bin / --no-registry: the Python stays in ClipForge's folder (uv would otherwise add python3.12 to
+    # ~/.local/bin, ahead of the person's own, and register it in Windows)
+    _run([uv, "python", "install", "--no-bin", "--no-registry", catalog.PYTHON_VERSION], "get a Python for ComfyUI",
+         cancelled, 1800)
     if env.exists():
         files.remove_tree(env)
-    _run([uv, "venv", str(env), "--python", catalog.PYTHON_VERSION, "--seed"], "make ComfyUI's Python environment",
-         cancelled, 600)
+    _run([uv, "venv", str(env), "--python", catalog.PYTHON_VERSION, "--seed", "--exclude-newer", catalog.EXCLUDE_NEWER],
+         "make ComfyUI's Python environment", cancelled, 600)
     py = str(env_python(flavor))
     constraints = root() / "constraints.txt"
     constraints.write_text(catalog.CONSTRAINTS, encoding="utf-8")
     report(f"Downloading PyTorch for {torch['label']} (about {torch['bytes'] / 1e9:.1f} GB)", 0, 0)
-    cmd = [uv, "pip", "install", "--python", py, *torch["packages"]]
-    if torch.get("index"):  # PyTorch's own index alone (it carries PyTorch's dependencies too), as PyTorch says
+    # PyTorch alone (--no-deps): what it needs comes with ComfyUI's packages below, from PyPI as it was on the
+    # checked day. PyTorch's own index (the builds for NVIDIA cards and for the processor) has no upload dates, so
+    # the date cut-off can only apply to PyPI.
+    cmd = [uv, "pip", "install", "--python", py, "--no-deps", *torch["packages"]]
+    if torch.get("index"):
         cmd += ["--index-url", torch["index"]]
+    else:
+        cmd += ["--exclude-newer", catalog.EXCLUDE_NEWER]
     _run(cmd, "install PyTorch", cancelled, 5400)
-    report("Installing ComfyUI's packages", 0, 0)
+    report("Installing ComfyUI's packages and what PyTorch needs", 0, 0)
     _run([uv, "pip", "install", "--python", py, "-r", str(app_dir() / catalog.COMFYUI["inner"] / "requirements.txt"),
           "--constraint", str(constraints), "--exclude-newer", catalog.EXCLUDE_NEWER],
          "install ComfyUI's packages", cancelled, 3600)

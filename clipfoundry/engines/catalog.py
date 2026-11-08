@@ -3,9 +3,13 @@ it comes under. Nothing is fetched from an address that is not written here (mod
 HF_ENDPOINT, a mirror). scripts/local_engines_check.py compares every pin with its source and installs the whole set
 on Mac, Windows and Linux test machines; docs/clipforge/LOCAL_ENGINES.md explains each choice.
 
-Licences (checked Nov 7 2026): only permissive ones (Apache-2.0, MIT, BSD) or ones that allow commercial use without
-conditions that bind ClipForge. ComfyUI is GPL-3.0 and therefore only ever runs as a separate program that ClipForge
-talks to over HTTP; nothing of it is imported or shipped inside ClipForge.
+Licences (checked Nov 7 2026, again Nov 8): only permissive ones (Apache-2.0, MIT, BSD) or ones that allow commercial
+use without conditions that bind ClipForge. ComfyUI is GPL-3.0 and therefore only ever runs as a separate program that
+ClipForge talks to over HTTP; nothing of it is imported or shipped inside ClipForge. PyTorch is BSD-3-Clause with the
+permissive licences of the parts it includes; on a PC with an NVIDIA card it comes with NVIDIA's CUDA libraries, under
+NVIDIA's own licence, which lets anyone use them for free (inside the PyTorch download on Windows, as NVIDIA's packages
+from PyPI on Linux). A model whose licence comes with use rules for the person (Model.rule) is only downloaded once the
+person agreed to them in Settings.
 """
 from __future__ import annotations
 
@@ -30,8 +34,9 @@ UV = {  # the wheels on PyPI (a wheel is a zip; the program is <dist>.data/scrip
 UV_NOTICE = ("uv " + UV_VERSION + " by Astral, https://github.com/astral-sh/uv, under the MIT or Apache-2.0 licence. "
              "ClipForge uses it to give ComfyUI a Python of its own; uv checks every Python and package it downloads.\n")
 
-# The Python ComfyUI runs on: python-build-standalone (PSF licence), installed by uv, which checks each download
-# against the checksums built into it.
+# The Python ComfyUI runs on: python-build-standalone (CPython under the PSF licence, built by scripts under MPL-2.0),
+# installed by uv, which checks each download against the checksums built into it, into ClipForge's folder only:
+# never onto the PATH (~/.local/bin) or into the Windows registry (comfy_server._step_env).
 PYTHON_VERSION = "3.12"
 
 # ------------------------------------------------------------------ ComfyUI
@@ -71,8 +76,9 @@ TORCH = {
             "bytes": 250_000_000, "disk": 1_100_000_000},
 }
 
-# ComfyUI's other packages resolve to what PyPI had on this day, so a later release of one of them cannot change a
-# set-up that was checked (uv's --exclude-newer); PyTorch itself is pinned above.
+# ComfyUI's other packages, PyTorch's own and the seed packages of its environment resolve to what PyPI had on this
+# day, so a later release of one of them cannot change a set-up that was checked (uv's --exclude-newer). PyTorch
+# itself is pinned above and installed alone first (--no-deps): PyTorch's index has no upload dates to cut off at.
 EXCLUDE_NEWER = "2026-11-07T00:00:00Z"
 CONSTRAINTS = (f"torch=={TORCH_VERSION}\n"
                f"torchvision=={TORCHVISION_VERSION}\n"
@@ -119,6 +125,7 @@ class Model:
     vram_gb: float = 0.0       # the NVIDIA graphics-card memory it runs well with (less works, more slowly)
     seconds: dict = field(default_factory=dict)  # a rough time for one picture or clip: {"mac": .., "nvidia": ..}
     defaults: dict = field(default_factory=dict)  # steps, cfg, sampler, scheduler, shift, fps, frame rules...
+    rule: str = ""             # use rules that come with the licence: shown before the download, agreed to, noted
 
     @property
     def bytes(self) -> int:
@@ -126,6 +133,16 @@ class Model:
 
 
 # ------------------------------------------------------------------ the voice (runs inside ClipForge on the processor)
+# The licence's use rules (its Attachment A) bind whoever uses the voice, and the licence says an app "shall require"
+# its users to follow them, so Settings asks the person to agree before the download. The one that matters for
+# posting is (e): content may not be shared "without expressly and intelligibly disclaiming that the information
+# and/or content is machine generated"; a platform's own AI label may not say that clearly enough on its own.
+SUPERTONIC_RULE = ("Supertonic's licence (OpenRAIL-M) lets you use the voice for free, also commercially, under its "
+                   "use rules: do not impersonate real people or use it for anything illegal or harmful, and say "
+                   "clearly that the voice is machine-generated wherever you post what it made, with a plain line "
+                   "such as \"Voice is AI-generated\" in the caption or description (a platform's AI label alone "
+                   "may not be enough).")
+
 _ST3 = ("Supertone/supertonic-3", "724fb5abbf5502583fb520898d45929e62f02c0b")  # the revision supertonic-py 1.3.1 pins
 
 
@@ -168,13 +185,8 @@ SUPERTONIC_3 = Model(
              "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f"),
     ),
     defaults={"steps": 8, "speed": 1.05, "chunk": 300, "chunk_ko": 120, "pause_s": 0.3},
+    rule=SUPERTONIC_RULE,
 )
-# The licence's use rules (Attachment A) bind whoever uses the voice; the one that matters for posting is (e): what it
-# makes must be clearly labelled as machine-generated where it is shown. Settings says so before the download.
-SUPERTONIC_RULE = ("Supertonic's licence (OpenRAIL-M) lets you use the voice for free, also commercially, with use "
-                   "rules: no impersonating real people, nothing illegal or harmful, and anything it makes must be "
-                   "clearly labelled as machine-generated where you post it (for example the AI-generated label on "
-                   "TikTok and YouTube).")
 
 
 # ------------------------------------------------------------------ pictures and video (run in ComfyUI)
@@ -260,6 +272,10 @@ WAN22_TI2V_5B = Model(
     # ComfyUI's official example: 20 steps, cfg 5, uni_pc/simple, SD3 shift 8, 24 frames a second, 1280x704
     defaults={"steps": 20, "cfg": 5.0, "sampler": "uni_pc", "scheduler": "simple", "shift": 8.0, "fps": 24,
               "step": 32, "max_pixels": 1280 * 704, "max_seconds": 5.0, "negative": WAN_NEGATIVE},
+    # the "License Agreement" on Wan's model card, on top of Apache-2.0
+    rule=("Wan 2.2 is free to use under Apache-2.0. Its makers add: you are fully accountable for what you make "
+          "with it, and it must not break the law, harm people or groups, share personal information to harm "
+          "someone, spread misinformation or target vulnerable people."),
 )
 
 MODELS: tuple[Model, ...] = (Z_IMAGE_TURBO, FLUX2_KLEIN_4B, WAN22_TI2V_5B, SUPERTONIC_3)

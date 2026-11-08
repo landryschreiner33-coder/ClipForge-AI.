@@ -172,6 +172,35 @@ def fill_missing(report: dict, want_comfy: bool, model_ids: list[str]) -> None:
 
 
 # ------------------------------------------------------------------ ComfyUI
+def python_traces() -> set[str]:
+    """Where uv could put a Python it installs outside ClipForge's folder: python3.12 in the user's bin folder (on
+    the PATH) and the Python entries in the Windows registry (PEP 514). The set-up must add none of them."""
+    found = set()
+    bin_dir = Path(os.environ.get("XDG_BIN_HOME") or Path.home() / ".local" / "bin")
+    if bin_dir.is_dir():
+        found |= {str(p) for p in bin_dir.iterdir() if p.name.lower().startswith("python3.12")}
+    if sys.platform == "win32":
+        import winreg
+
+        for hive, hive_name in ((winreg.HKEY_CURRENT_USER, "HKCU"), (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
+            try:
+                with winreg.OpenKey(hive, r"Software\Python") as python_key:
+                    for i in range(256):
+                        try:
+                            company = winreg.EnumKey(python_key, i)
+                        except OSError:
+                            break
+                        with winreg.OpenKey(python_key, company) as company_key:
+                            for j in range(256):
+                                try:
+                                    found.add(rf"{hive_name}\Software\Python\{company}\{winreg.EnumKey(company_key, j)}")
+                                except OSError:
+                                    break
+            except OSError:
+                pass
+    return found
+
+
 class Run:
     def __init__(self, out: Path) -> None:
         self.out = out
@@ -199,6 +228,7 @@ def setup_comfy(report: dict) -> dict:
         return text
 
     comfy_server.torch_problem = lenient
+    traces_before = python_traces()
     started = time.time()
     view = tasks.start("Setting up ComfyUI (check)", comfy_server.setup_steps(), wait=True)
     comfy_server.torch_problem = real_problem
@@ -206,10 +236,14 @@ def setup_comfy(report: dict) -> dict:
                 installed=comfy_server.installed())
     if view["state"] != "done" or not info["installed"]:
         raise RuntimeError(f"setting ComfyUI up failed: {view.get('error') or problems}")
+    leaked = sorted(python_traces() - traces_before)
+    info["python_outside_clipforge"] = leaked
+    if leaked:
+        raise RuntimeError(f"setting ComfyUI up put its Python outside ClipForge's folder: {leaked}")
     py = str(comfy_server.env_python(flavor))
     out = subprocess.run([py, "-I", "-c", "import json, importlib.metadata as md; print(json.dumps({p: md.version(p) "
                           "for p in ('torch', 'torchvision', 'av', 'transformers', 'comfyui-frontend-package', "
-                          "'numpy', 'safetensors')}))"], capture_output=True, text=True, timeout=300)
+                          "'numpy', 'safetensors', 'sympy', 'pip')}))"], capture_output=True, text=True, timeout=300)
     try:
         info["packages"] = json.loads(out.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):

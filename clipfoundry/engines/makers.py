@@ -208,7 +208,11 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
             if model is None:
                 raise EngineError(status(role, settings).get("why") or "No model is set up for this.")
             client = Comfy(base, timeout=60)
-            graph, steps_node, extra = graph_for(model, client)
+            # the names that ComfyUI takes the files by, and a new place to save to (an identical graph would be
+            # answered from ComfyUI's cache, with a file ClipForge's own ComfyUI no longer has)
+            names = models.names(model, mode(settings), base)
+            prefix = f"{graphs.PREFIX}/{kind}-{uuid.uuid4().hex[:8]}"
+            graph, steps_node, extra = graph_for(model, client, names, prefix)
             lacking = client.missing_nodes(graphs.class_types(graph))
             if lacking:
                 raise EngineError(f"This ComfyUI lacks {', '.join(lacking)}; it may be too old for {model.name}. "
@@ -242,8 +246,9 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
         log.exception("making %s failed", kind)
         raise EngineError(f"Making the {kind} failed ({exc.__class__.__name__}: {str(exc)[:200]}).") from exc
     info = {**note, **extra, "model": model.id, "model_name": model.name, "maker": model.maker,
-            "licence": model.licence, "licence_url": model.licence_url, "engine": status(role, settings).get("engine"),
-            "seconds_taken": round(time.time() - started, 1), "made_at": time.time(), "file": dest.name}
+            "licence": model.licence, "licence_url": model.licence_url, "rule": model.rule,
+            "engine": status(role, settings).get("engine"), "seconds_taken": round(time.time() - started, 1),
+            "made_at": time.time(), "file": dest.name}
     dest.with_suffix(".json").write_text(json.dumps(info, indent=1), encoding="utf-8")
     return dest, info
 
@@ -276,9 +281,9 @@ def make_image(prompt: str, *, negative: str = "", style: str = "", width: int =
     words = f"{prompt}. {style.strip()}" if style and style.strip() else prompt
     s = _seed(seed)
 
-    def graph_for(model: catalog.Model, client: Comfy):
+    def graph_for(model: catalog.Model, client: Comfy, names: dict[str, str], prefix: str):
         w, h = graphs.picture_size(model, width, height)
-        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s)
+        g, node = graphs.picture(model, words[:4000], negative[:2000], w, h, s, names=names, prefix=prefix)
         return g, node, {"width": w, "height": h}
 
     path, info = _run("picture", "image", graph_for, {"prompt": words[:4000], "negative": negative[:2000], "seed": s,
@@ -301,10 +306,10 @@ def make_video(prompt: str, *, image: Path | str | None = None, seconds: float =
         raise EngineError("The picture to animate is missing.")
     s = _seed(seed)
 
-    def graph_for(model: catalog.Model, client: Comfy):
+    def graph_for(model: catalog.Model, client: Comfy, names: dict[str, str], prefix: str):
         w, h, frames, fps = graphs.video_shape(model, width, height, seconds)
         uploaded = client.upload_image(start) if start is not None else ""
-        g, node = graphs.video(model, prompt[:4000], "", w, h, frames, fps, s, uploaded)
+        g, node = graphs.video(model, prompt[:4000], "", w, h, frames, fps, s, uploaded, names=names, prefix=prefix)
         return g, node, {"width": w, "height": h, "frames": frames, "fps": fps, "seconds": round(frames / fps, 2),
                          "from_picture": bool(start)}
 

@@ -46,8 +46,8 @@ def engines_setup(body: dict[str, Any]) -> dict:
     _desktop()
     from . import setup
 
-    try:
-        return setup(str(body.get("what") or ""), str(body.get("model") or ""))
+    try:  # "agreed": the person agreed to the model's use rules, shown with its download (JSON true only)
+        return setup(str(body.get("what") or ""), str(body.get("model") or ""), agreed=body.get("agreed") is True)
     except EngineError as exc:
         raise _fail(exc) from exc
 

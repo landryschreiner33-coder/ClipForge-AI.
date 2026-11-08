@@ -7,6 +7,7 @@ web page does:
 * GET  /view            one output file
 * POST /upload/image    a picture to animate (image-to-video)
 * POST /interrupt       stop the running graph (Cancel); POST /queue {"delete": [...]} drops a waiting one
+* GET  /queue           whether the graph still runs (ComfyUI finishes the step it is on before it stops)
 * GET  /system_stats    which ComfyUI, PyTorch and graphics device it runs on, and its memory
 * GET  /object_info/<n> whether a node type exists (an older ComfyUI may lack a node a graph needs)
 * GET  /models/<folder> the model files it can see
@@ -34,6 +35,8 @@ from . import EngineError
 log = logging.getLogger(__name__)
 
 POLL_S = 1.0
+STOP_WAIT_S = 120.0  # after a stop, how long to wait for ComfyUI to let go of the graphics card
+STOP_POLL_S = 0.5
 Progress = Callable[[float, str], None]
 Cancel = Callable[[], bool]
 
@@ -44,12 +47,17 @@ _PLAIN = (
      "model in Settings, Pictures, video, voice."),
     (("value not in list",), "ComfyUI does not have a model file this needs. Download the model in Settings, "
      "Pictures, video, voice."),
-    (("error while deserializing header", "safetensors", "invalid load key", "unexpected eof"),
+    (("could not detect model type",),
+     "This ComfyUI is too old for this model: it could not tell what kind of model the file is. Update ComfyUI, or "
+     "use ClipForge's own copy."),
+    (("error while deserializing header", "headertoolarge", "incomplete metadata", "metadataincompletebuffer",
+      "invalid load key", "unexpected eof"),
      "A model file ComfyUI tried to load is damaged or incomplete. Remove the model and download it again in "
      "Settings, Pictures, video, voice."),
     (("does not exist", "node type not found", "cannot execute because node"),
      "This ComfyUI is missing a part the graph needs; it may be too old. Update ComfyUI, or use ClipForge's own copy."),
 )
+_MODEL_FILES = (".safetensors", ".sft", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
 
 
 def plain(message: str) -> str:
@@ -57,6 +65,9 @@ def plain(message: str) -> str:
     for words, text in _PLAIN:
         if any(w in low for w in words):
             return text
+    if "no such file or directory" in low and any(x in low for x in _MODEL_FILES):
+        return ("ComfyUI could not find a model file it needs. Download the model again in Settings, Pictures, video, "
+                "voice.")
     return (message or "ComfyUI stopped without saying why.").strip()[:400]
 
 
@@ -157,6 +168,28 @@ class Comfy:
         except EngineError:
             pass
 
+    def running(self, prompt_id: str) -> bool | None:
+        """Whether ComfyUI still runs (or holds) the graph `prompt_id`; None when it does not say."""
+        try:
+            r = httpx.get(self.base + "/queue", timeout=10.0, trust_env=False)
+            q = r.json() if r.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            return None
+        if not isinstance(q, dict):
+            return None
+        return any(isinstance(item, (list, tuple)) and len(item) > 1 and str(item[1]) == prompt_id
+                   for key in ("queue_running", "queue_pending") for item in (q.get(key) or []))
+
+    def stop(self, prompt_id: str, report: Progress | None = None) -> None:
+        """Interrupt the graph and wait (up to STOP_WAIT_S) until ComfyUI has let go of it: it finishes the step it is
+        on first, and until then the graphics card is still busy."""
+        self.interrupt(prompt_id)
+        deadline = time.monotonic() + STOP_WAIT_S
+        while time.monotonic() < deadline and self.running(prompt_id):
+            if report:
+                report(0.0, "Stopping: ComfyUI finishes the step it is on")
+            time.sleep(STOP_POLL_S)
+
     def free(self) -> None:
         """Unload ComfyUI's models so their memory goes back to the computer (it reloads them when needed)."""
         try:
@@ -196,15 +229,22 @@ class Comfy:
         cancel = cancel or (lambda: False)
         labels = labels or {}
         deadline = time.monotonic() + timeout_s
+        state = {"top": 0.0, "sampling": False}
+
+        def report(fraction: float, message: str) -> None:  # never backwards
+            state["top"] = max(state["top"], float(fraction))
+            if progress:
+                progress(state["top"], message)
+
         ws = _socket(self.base, self.client_id)
         last_poll = 0.0
         try:
             while True:
                 if cancel():
-                    self.interrupt(prompt_id)
+                    self.stop(prompt_id, report)
                     raise EngineError("Stopped.")
                 if time.monotonic() > deadline:
-                    self.interrupt(prompt_id)
+                    self.stop(prompt_id, report)
                     raise EngineError(f"ComfyUI took longer than {timeout_s / 60:.0f} minutes, so it was stopped. "
                                       "Try a smaller size or the lighter model.")
                 if ws is not None:
@@ -212,7 +252,7 @@ class Comfy:
                     if msg == "closed":
                         ws = None
                     elif isinstance(msg, dict):
-                        done = _on_message(msg, prompt_id, progress, steps_node, labels)
+                        done = _on_message(msg, prompt_id, report, steps_node, labels, state)
                         if done == "error":
                             entry = self.history(prompt_id) or {}
                             raise EngineError(plain(_entry_error(entry) or _message_error(msg)))
@@ -328,8 +368,10 @@ def _receive(ws, timeout: float):
     return msg if isinstance(msg, dict) else None
 
 
-def _on_message(msg: dict, prompt_id: str, progress: Progress | None, steps_node: str,
-                labels: dict[str, str]) -> str:
+def _on_message(msg: dict, prompt_id: str, report: Progress, steps_node: str, labels: dict[str, str],
+                state: dict) -> str:
+    """One websocket message: progress for the person, or how the graph ended. The steps of `steps_node` are 15-90 %;
+    what runs after them (decoding, saving) stays at 90 % or more (report() never goes backwards)."""
     kind, data = msg.get("type"), msg.get("data") or {}
     if not isinstance(data, dict) or (data.get("prompt_id") and data.get("prompt_id") != prompt_id):
         return ""
@@ -343,12 +385,17 @@ def _on_message(msg: dict, prompt_id: str, progress: Progress | None, steps_node
         node = data.get("node")
         if node is None and data.get("prompt_id") == prompt_id:
             return "success"  # older ComfyUI: "executing" with no node means the graph finished
-        if progress and node is not None:
-            progress(0.1 if str(node) != steps_node else 0.15, labels.get(str(node), "Working"))
-    elif kind == "progress" and progress:
+        if node is not None:
+            if steps_node and str(node) == steps_node:
+                state["sampling"] = True
+                report(0.15, labels.get(str(node), "Working"))
+            else:
+                report(0.9 if state.get("sampling") else 0.1, labels.get(str(node), "Working"))
+    elif kind == "progress":
         value, top = float(data.get("value") or 0), float(data.get("max") or 0)
         if top > 0 and (not steps_node or str(data.get("node")) == steps_node):
-            progress(0.15 + 0.75 * min(1.0, value / top), f"Step {int(value)} of {int(top)}")
+            state["sampling"] = state.get("sampling") or bool(steps_node)
+            report(0.15 + 0.75 * min(1.0, value / top), f"Step {int(value)} of {int(top)}")
     return ""
 
 

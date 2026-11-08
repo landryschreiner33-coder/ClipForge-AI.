@@ -102,19 +102,21 @@ def overview() -> dict:
     recommended = {best[r] for r in best if len(catalog.for_role(r)) > 1}
     out_models = []
     seen: dict = {}  # the model folders of the ComfyUI app, asked once
+    where = models.folders(mode, app) if mode == "clipforge" or (mode == "app" and app) else None
     for m in catalog.MODELS:
         if m.role == "voice":
             ready = voice.installed(m)
-            out_models.append(_model_view(m, ready, 0 if ready else voice.download_bytes(m), True, machine,
+            out_models.append(_model_view(m, ready, 0 if ready else voice.download_bytes(m), True, ready, machine,
                                           recommended))
             continue
         base = app if mode == "app" else None
         try:
             lacking = models.missing(m, mode, base, seen) if mode != "off" else list(m.files)
+            removable = bool(where) and bool(models.removal_plan(m, mode, base, seen, where)[0])
         except EngineError:
-            lacking = list(m.files)
-        can = mode == "clipforge" or (mode == "app" and models.folders(mode, app) is not None)
-        out_models.append(_model_view(m, not lacking, sum(f.size for f in lacking), can, machine, recommended))
+            lacking, removable = list(m.files), False
+        out_models.append(_model_view(m, not lacking, sum(f.size for f in lacking), where is not None, removable,
+                                      machine, recommended))
     return {
         "online": cloud_settings.enabled(),
         "roles": {r: status(r) for r in ROLES},
@@ -137,17 +139,20 @@ def overview() -> dict:
     }
 
 
-def _model_view(m, ready: bool, need: int, can_download: bool, machine: dict, recommended: set[str]) -> dict:
+def _model_view(m, ready: bool, need: int, can_download: bool, removable: bool, machine: dict,
+                recommended: set[str]) -> dict:
     from . import makers
 
     return {"id": m.id, "role": m.role, "name": m.name, "maker": m.maker, "licence": m.licence,
-            "licence_url": m.licence_url, "about": m.about, "bytes": m.bytes, "download_bytes": need,
-            "ready": ready, "can_download": can_download, "memory_gb": m.memory_gb, "vram_gb": m.vram_gb,
-            "seconds": m.seconds, "fit": makers.fit(m, machine), "recommended": m.id in recommended}
+            "licence_url": m.licence_url, "about": m.about, "rule": m.rule, "bytes": m.bytes, "download_bytes": need,
+            "ready": ready, "can_download": can_download, "removable": removable, "memory_gb": m.memory_gb,
+            "vram_gb": m.vram_gb, "seconds": m.seconds, "fit": makers.fit(m, machine),
+            "recommended": m.id in recommended}
 
 
-def setup(what: str, model_id: str = "") -> dict:
-    """Start one set-up in the background: "comfyui" (ClipForge's own ComfyUI) or "model" (a model's files)."""
+def setup(what: str, model_id: str = "", agreed: bool = False) -> dict:
+    """Start one set-up in the background: "comfyui" (ClipForge's own ComfyUI) or "model" (a model's files). A model
+    whose licence comes with use rules (catalog.Model.rule) is only downloaded once the person agreed to them."""
     from . import catalog, comfy_server, makers, models, tasks, voice
 
     settings = _settings()
@@ -159,6 +164,8 @@ def setup(what: str, model_id: str = "") -> dict:
     m = catalog.by_id(model_id)
     if m is None:
         raise EngineError("Unknown model.")
+    if m.rule and not agreed:
+        raise EngineError(f"{m.name} comes with use rules; agree to them to download it. {m.rule}")
     if m.role == "voice":
         return tasks.start(f"Downloading {m.name}", voice.install_steps(m))
     mode = makers.mode(settings)
@@ -177,23 +184,44 @@ def cancel() -> dict:
 
 
 def remove(what: str, model_id: str = "") -> dict:
-    """Delete ClipForge's own ComfyUI ("comfyui") or a model's files ("model"), to free disk space."""
-    from . import catalog, comfy_server, models, tasks, voice
+    """Delete ClipForge's own ComfyUI ("comfyui") or a model's files ("model"), to free disk space: only the files
+    ClipForge downloaded into the folders of the ComfyUI in use, and never a file another model there still uses."""
+    from . import catalog, comfy_server, makers, models, tasks, voice
+    from .comfy import Comfy
 
     if tasks.running():
         raise EngineError("Wait for the set-up to finish, or cancel it, first.")
+    m = catalog.by_id(model_id)
+    if what == "model" and m is not None and m.role == "voice":  # the voice runs inside ClipForge, not in ComfyUI
+        voice.remove(m)
+        return overview()
+    if comfy_server.busy.is_set():
+        raise EngineError("A picture or clip is being made right now. Wait for it to finish, or stop it, first.")
     if what == "comfyui":
         comfy_server.remove()
         return overview()
-    m = catalog.by_id(model_id)
     if what != "model" or m is None:
         raise EngineError("Unknown model.")
-    if m.role == "voice":
-        voice.remove(m)
-        return overview()
-    keep = {x.id for x in catalog.MODELS if x.id != m.id and x.role != "voice"
-            and not models.missing(x, "clipforge", None)}
-    models.remove(m, keep)
+    settings = _settings()
+    mode = makers.mode(settings)
+    if mode == "off":
+        raise EngineError("Pictures and video are turned off. Choose a ComfyUI in Settings first.")
+    base = makers.find_app(settings, max_age=0) if mode == "app" else None
+    if mode == "app" and not base:
+        raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then remove the model.")
+    paths, kept_for = models.removal_plan(m, mode, base)
+    if not paths:
+        if kept_for:
+            raise EngineError(f"{m.name}'s files are also used by {', '.join(kept_for)}, so they were kept.")
+        raise EngineError(f"ClipForge did not download {m.name}'s files into this ComfyUI, so it leaves them alone. "
+                          "Remove them in ComfyUI itself.")
+    # ComfyUI keeps the model files it loaded open (Windows then refuses to delete them): ClipForge's own ComfyUI is
+    # stopped (it starts again when needed), a ComfyUI app is asked to let go of its models
+    if mode == "clipforge":
+        comfy_server.server.stop()
+    else:
+        Comfy(str(base), timeout=30).free()
+    models.remove(m, mode, base)
     return overview()
 
 

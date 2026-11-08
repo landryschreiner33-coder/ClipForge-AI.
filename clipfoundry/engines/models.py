@@ -6,7 +6,11 @@ this computer (the desktop app, a manual install) tells ClipForge its model fold
 ClipForge downloads into the first one of each kind; for a ComfyUI on another computer ClipForge can only use models it
 already has. Every file ClipForge downloaded and checked is listed in <models>/comfy/clipforge-verified.json, so a
 model counts as set up only when each of its files is there with its size and was checked once, and Remove only ever
-deletes files ClipForge downloaded itself.
+deletes files ClipForge downloaded itself, in the folders of the ComfyUI in use, and never a file another model there
+still uses.
+
+A ComfyUI app may keep a model in a subfolder of its model folder ("flux2/flux-2-klein-4b.safetensors"); ComfyUI then
+only takes the file by that name, so the graphs are given the names it lists (names()).
 """
 from __future__ import annotations
 
@@ -93,6 +97,26 @@ def file_path(f: catalog.ModelFile, where: dict[str, Path]) -> Path:
 
 
 # ------------------------------------------------------------------ what is there
+def _listed(base: str, folder: str, seen: dict[str, list[str] | None]) -> list[str] | None:
+    """The file names a ComfyUI lists in one model folder (asked once per `seen`)."""
+    if folder not in seen:
+        try:
+            seen[folder] = Comfy(base, timeout=10).model_files(folder)
+        except EngineError:
+            seen[folder] = None
+    return seen[folder]
+
+
+def _match(f: catalog.ModelFile, listed: list[str] | None) -> str | None:
+    """The name ComfyUI lists `f` by: the file itself at the top of its folder first, else the first one in a
+    subfolder ("sub/name", "sub\\name" on Windows); None when it does not list it."""
+    if not listed:
+        return None
+    if f.name in listed:
+        return f.name
+    return next((n for n in listed if n.replace("\\", "/").endswith("/" + f.name)), None)
+
+
 def missing(model: catalog.Model, mode: str, base: str | None, seen: dict[str, list[str] | None] | None = None
             ) -> list[catalog.ModelFile]:
     """The files of `model` the ComfyUI in use does not have yet."""
@@ -102,17 +126,17 @@ def missing(model: catalog.Model, mode: str, base: str | None, seen: dict[str, l
     if not base:
         return list(model.files)
     seen = {} if seen is None else seen
-    out = []
-    for f in model.files:
-        if f.folder not in seen:
-            try:
-                seen[f.folder] = Comfy(base, timeout=10).model_files(f.folder)
-            except EngineError:
-                seen[f.folder] = None
-        names = seen[f.folder]
-        if names is None or not any(n == f.name or n.replace("\\", "/").endswith("/" + f.name) for n in names):
-            out.append(f)
-    return out
+    return [f for f in model.files if _match(f, _listed(base, f.folder, seen)) is None]
+
+
+def names(model: catalog.Model, mode: str, base: str | None, seen: dict[str, list[str] | None] | None = None
+          ) -> dict[str, str]:
+    """{file name: the name the ComfyUI in use takes it by} for the graphs (ClipForge's own ComfyUI has each file at
+    the top of its folder)."""
+    if mode == "clipforge" or not base:
+        return {f.name: f.name for f in model.files}
+    seen = {} if seen is None else seen
+    return {f.name: _match(f, _listed(base, f.folder, seen)) or f.name for f in model.files}
 
 
 def download_bytes(model: catalog.Model, mode: str, base: str | None) -> int:
@@ -164,23 +188,74 @@ def _download_step(model: catalog.Model, f: catalog.ModelFile, dest: Path, n: in
     return step
 
 
-def remove(model: catalog.Model, keep: set[str]) -> list[str]:
-    """Delete the files of `model` that ClipForge downloaded and no model in `keep` (ids) still uses."""
-    used = {(f.folder, f.name) for m in catalog.MODELS if m.id in keep and m.id != model.id for f in m.files}
+def _present(f: catalog.ModelFile, mode: str, base: str | None, where: dict[str, Path],
+             seen: dict[str, list[str] | None]) -> bool:
+    if mode == "clipforge":
+        return f.folder in where and verified(file_path(f, where), f)
+    return bool(base) and _match(f, _listed(str(base), f.folder, seen)) is not None
+
+
+def removal_plan(model: catalog.Model, mode: str, base: str | None, seen: dict[str, list[str] | None] | None = None,
+                 where: dict[str, Path] | None = None) -> tuple[list[Path], list[str]]:
+    """What Remove would delete for `model` in the ComfyUI in use: (the files ClipForge downloaded there, the names of
+    the other models that keep a shared file). A shared file (the picture models' text encoder) stays while another
+    model there still has its other files."""
+    if mode not in ("clipforge", "app"):
+        return [], []
+    where = folders(mode, base) if where is None else where
+    if not where:
+        return [], []
+    seen = {} if seen is None else seen
+    entries = _read_index()
+    paths, kept_for = [], []
+    for f in model.files:
+        if f.folder not in where:
+            continue
+        path = file_path(f, where)
+        if (entries.get(str(path)) or {}).get("sha256") != f.sha256:
+            continue  # not a file ClipForge downloaded
+        users = [m for m in catalog.MODELS if m.id != model.id and m.role != "voice"
+                 and any((g.folder, g.name, g.sha256) == (f.folder, f.name, f.sha256) for g in m.files)
+                 and any(_present(g, mode, base, where, seen) for g in m.files
+                         if (g.folder, g.name) != (f.folder, f.name))]
+        if users:
+            kept_for += [m.name for m in users if m.name not in kept_for]
+            continue
+        paths.append(path)
+    return paths, kept_for
+
+
+def _delete(path: Path, tries: int = 6) -> None:
+    """Delete a file; Windows refuses while a program still holds it, which a ComfyUI that was just asked to unload
+    its models (or a virus scanner) stops doing within moments."""
+    for n in range(tries):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if n == tries - 1:
+                raise
+            time.sleep(0.5 * (n + 1))
+
+
+def remove(model: catalog.Model, mode: str, base: str | None) -> list[str]:
+    """Delete the files of `model` that ClipForge downloaded into the folders of the ComfyUI in use and no other model
+    there still uses (removal_plan); returns their names."""
+    paths, _ = removal_plan(model, mode, base)
     removed = []
     with _lock:
         entries = _read_index()
-        for path_s, entry in list(entries.items()):
-            path = Path(path_s)
-            mine = next((f for f in model.files if f.name == path.name and entry.get("sha256") == f.sha256), None)
-            if not mine or (mine.folder, mine.name) in used:
-                continue
+        for path in paths:
             try:
-                path.unlink(missing_ok=True)
-                path.with_name(path.name + ".part").unlink(missing_ok=True)
+                existed = path.is_file()
+                _delete(path)
+                _delete(path.with_name(path.name + ".part"))
             except OSError as exc:
-                raise EngineError(f"Could not delete {path.name} ({exc}).") from exc
-            entries.pop(path_s, None)
-            removed.append(path.name)
+                _write_index(entries)
+                raise EngineError(f"Could not delete {path.name} ({exc}). Close the programs that use it and try "
+                                  "again.") from exc
+            entries.pop(str(path), None)
+            if existed:
+                removed.append(path.name)
         _write_index(entries)
     return removed

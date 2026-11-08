@@ -53,7 +53,7 @@ def sha256_file(path: Path, progress: Callable[[int], None] | None = None,
 def fetch(pin: Pinned, dest: Path, progress: Callable[[int], None] | None = None,
           cancelled: Callable[[], bool] = lambda: False, check: Callable[[int], None] | None = None) -> Path:
     """Download `pin` to `dest` (resuming a partial download) and check its size and SHA-256. A finished file that
-    already matches its size is only re-checked. Returns `dest`."""
+    already matches its size is only re-checked, and so is a `.part` file that has every byte. Returns `dest`."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_file() and dest.stat().st_size == pin.size:
         if sha256_file(dest, check, cancelled) == pin.sha256:
@@ -64,30 +64,42 @@ def fetch(pin: Pinned, dest: Path, progress: Callable[[int], None] | None = None
     if have > pin.size:
         part.unlink()
         have = 0
+    if have and have == pin.size:  # every byte came, but it was not checked and finished (the computer stopped)
+        if sha256_file(part, check, cancelled) == pin.sha256:
+            _finish(part, dest)
+            return dest
+        part.unlink()
+        have = 0
     digest = hashlib.sha256()
     if have:
         with open(part, "rb") as fh:  # the hash of what is already there, so the finished file is hashed once
             for block in iter(lambda: fh.read(8 * CHUNK), b""):
                 digest.update(block)
-    headers = {"Range": f"bytes={have}-"} if have else {}
     try:
-        with httpx.stream("GET", pin.url, headers=headers, follow_redirects=True,
-                          timeout=httpx.Timeout(30.0, read=120.0)) as r:
-            if r.status_code == 200 and have:  # the server ignored the range: start over
-                have, digest = 0, hashlib.sha256()
-            elif r.status_code not in (200, 206):
-                raise EngineError(f"The download of {pin.name} answered HTTP {r.status_code}.")
-            with open(part, "ab" if have else "wb") as fh:
-                for block in r.iter_bytes(CHUNK):
-                    if cancelled():
-                        raise EngineError("Stopped. The download resumes where it stopped next time.")
-                    have += len(block)
-                    if have > pin.size:
-                        raise EngineError(f"{pin.name} is larger than expected; it was not used.")
-                    digest.update(block)
-                    fh.write(block)
-                    if progress:
-                        progress(have)
+        for again in (False, True):
+            headers = {"Range": f"bytes={have}-"} if have else {}
+            with httpx.stream("GET", pin.url, headers=headers, follow_redirects=True,
+                              timeout=httpx.Timeout(30.0, read=120.0)) as r:
+                if r.status_code == 416 and have and not again:  # it cannot go on from there: start over, once
+                    part.unlink(missing_ok=True)
+                    have, digest = 0, hashlib.sha256()
+                    continue
+                if r.status_code == 200 and have:  # the server ignored the range: start over
+                    have, digest = 0, hashlib.sha256()
+                elif r.status_code not in (200, 206):
+                    raise EngineError(f"The download of {pin.name} answered HTTP {r.status_code}.")
+                with open(part, "ab" if have else "wb") as fh:
+                    for block in r.iter_bytes(CHUNK):
+                        if cancelled():
+                            raise EngineError("Stopped. The download resumes where it stopped next time.")
+                        have += len(block)
+                        if have > pin.size:
+                            raise EngineError(f"{pin.name} is larger than expected; it was not used.")
+                        digest.update(block)
+                        fh.write(block)
+                        if progress:
+                            progress(have)
+            break
     except httpx.ConnectError as exc:
         raise EngineError("Could not connect to download it. Check the internet connection and try again (the "
                           "download resumes).") from exc
@@ -98,8 +110,22 @@ def fetch(pin: Pinned, dest: Path, progress: Callable[[int], None] | None = None
     if have != pin.size or digest.hexdigest() != pin.sha256:
         part.unlink(missing_ok=True)
         raise EngineError(f"{pin.name} did not match its published checksum, so it was deleted. Try again.")
-    part.replace(dest)
+    _finish(part, dest)
     return dest
+
+
+def _finish(part: Path, dest: Path, tries: int = 6) -> None:
+    """Give the checked `.part` file its name. On Windows a virus scanner or the search indexer may still hold the
+    new file for a moment, so this tries again for a few seconds (the checked file is kept if it never lets go)."""
+    for n in range(tries):
+        try:
+            part.replace(dest)
+            return
+        except PermissionError as exc:
+            if n == tries - 1:
+                raise EngineError(f"Could not finish {dest.name}: another program is holding it. Try again in a "
+                                  "moment; nothing has to be downloaded again.") from exc
+            time.sleep(0.25 * (n + 1))
 
 
 def read_marker(folder: Path) -> dict | None:

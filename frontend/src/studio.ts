@@ -211,8 +211,9 @@ export const craft = {
 /** Settings → Pictures, video, voice: the local makers (ComfyUI for pictures and video, the built-in voice). */
 export type EngineRole = "image" | "video" | "voice";
 export type EngineModel = { id: string; role: EngineRole; name: string; maker: string; licence: string; licence_url: string;
-  about: string; bytes: number; download_bytes: number; ready: boolean; can_download: boolean; memory_gb: number;
-  vram_gb: number; seconds: Record<string, number>; fit: "good" | "slow" | "cpu" | ""; recommended: boolean };
+  about: string; rule: string; bytes: number; download_bytes: number; ready: boolean; can_download: boolean;
+  removable: boolean; memory_gb: number; vram_gb: number; seconds: Record<string, number>;
+  fit: "good" | "slow" | "cpu" | ""; recommended: boolean };
 export type EngineTask = { state: string; what: string; status: string; done: number; total: number; error: string;
   step: number; steps: number };
 export type EngineTrial = { state: string; role: string; progress: number; message: string; file: string; error: string;
@@ -229,7 +230,9 @@ export type EnginesView = { online: boolean;
 
 export const engines = {
   view: () => req<EnginesView>("GET", "/api/engines"),
-  setUp: (what: "comfyui" | "model", model = "") => req<EngineTask>("POST", "/api/engines/setup", { what, model }),
+  /** `agreed`: the person agreed to the model's use rules (a model with a rule is only downloaded then). */
+  setUp: (what: "comfyui" | "model", model = "", agreed = false) =>
+    req<EngineTask>("POST", "/api/engines/setup", { what, model, agreed }),
   cancel: () => req<EngineTask>("POST", "/api/engines/cancel"),
   remove: (what: "comfyui" | "model", model = "") => req<EnginesView>("POST", "/api/engines/remove", { what, model }),
   tryIt: (role: EngineRole, text = "", voice = "") => req<EngineTrial>("POST", "/api/engines/try", { role, text, voice }),

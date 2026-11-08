@@ -65,6 +65,12 @@ class FileServer:
                 rng = self.headers.get("Range")
                 if rng and owner.ranges:
                     start = int(re.match(r"bytes=(\d+)-", rng).group(1))
+                    if owner.ranges == "416" or start >= len(data):  # a range it cannot serve (RFC 9110)
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{len(data)}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
                     self.send_response(206)
                     self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
                 else:
@@ -132,6 +138,11 @@ class FakeComfy:
         self.fail_with = ""          # an execution error message for the next graph
         self.polls_before_done = 1   # how many /history polls see nothing yet
         self._polls: dict[str, int] = {}
+        self.cache = False           # like ComfyUI: an identical graph is answered from its cache and saves nothing
+        self._cached: dict[str, dict] = {}
+        self.stops_after = 0         # GET /queue answers after an interrupt that still show the graph running
+        self._queue_asks = 0
+        self._interrupted_at: int | None = None
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -171,6 +182,13 @@ class FakeComfy:
                     if seen < owner.polls_before_done or pid not in owner.history:
                         return self._send(200, {})
                     return self._send(200, {pid: owner.history[pid]})
+                if u.path == "/queue":
+                    owner._queue_asks += 1
+                    stopped = (owner._interrupted_at is not None
+                               and owner._queue_asks - owner._interrupted_at > owner.stops_after)
+                    running = [[len(owner.prompts), f"p{len(owner.prompts)}", {}, {}, []]] \
+                        if owner.prompts and not stopped else []
+                    return self._send(200, {"queue_running": running, "queue_pending": []})
                 if u.path == "/view":
                     q = parse_qs(u.query)
                     key = (q.get("subfolder", [""])[0], q.get("filename", [""])[0])
@@ -189,6 +207,8 @@ class FakeComfy:
                     name = m.group(1).decode() if m else "upload.png"
                     owner.uploads.append(name)
                     return self._send(200, {"name": name, "subfolder": "", "type": "input"})
+                if u.path == "/interrupt":
+                    owner._interrupted_at = owner._queue_asks
                 if u.path in ("/interrupt", "/queue", "/free"):
                     return self._send(200, {})
                 return self._send(404, {})
@@ -228,8 +248,13 @@ class FakeComfy:
                                      "exception_type": "RuntimeError"}]]}}
             self.fail_with = ""
         else:
-            self.history[pid] = {"outputs": self._outputs(graph), "status": {"status_str": "success",
-                                                                             "completed": True, "messages": []}}
+            key = json.dumps(graph, sort_keys=True)
+            outputs = self._cached.get(key) if self.cache else None
+            if outputs is None:
+                outputs = self._outputs(graph)
+                self._cached[key] = outputs
+            self.history[pid] = {"outputs": outputs, "status": {"status_str": "success", "completed": True,
+                                                                "messages": []}}
         h._send(200, {"prompt_id": pid, "number": len(self.prompts), "node_errors": {}})
 
     def _outputs(self, graph: dict) -> dict:
@@ -567,9 +592,9 @@ def test_models_download_once_and_removal_keeps_shared_files(file_server, monkey
     assert run_steps(models.install_steps(b, "clipforge", None))["state"] == "done"
     assert len(srv.hits) - hits == 2  # the shared text encoder was not downloaded again
     root = comfy_server.models_root()
-    assert models.remove(a, keep={"tiny-b"}) == ["a.safetensors", "vae-a.safetensors"]
+    assert models.remove(a, "clipforge", None) == ["a.safetensors", "vae-a.safetensors"]
     assert (root / "text_encoders" / "te.safetensors").is_file() and models.missing(b, "clipforge", None) == []
-    assert sorted(models.remove(b, keep=set())) == ["b.safetensors", "te.safetensors", "vae-b.safetensors"]
+    assert sorted(models.remove(b, "clipforge", None)) == ["b.safetensors", "te.safetensors", "vae-b.safetensors"]
     assert not any(any((root / sub).glob("*.safetensors")) for sub in catalog.MODEL_FOLDERS)
     assert models._read_index() == {}  # noqa: SLF001
 
@@ -1026,3 +1051,235 @@ def test_the_online_studio_offers_no_local_makers(monkeypatch):
         with pytest.raises(HTTPException) as err:
             call()
         assert err.value.status_code == 404
+
+
+# ------------------------------------------------------------------ found by the code review (Nov 8)
+def test_a_model_in_a_subfolder_of_the_comfyui_app_is_used_by_the_name_comfyui_lists(app_settings, fake_comfy,
+                                                                                     monkeypatch):
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    k = {f.folder: f.name for f in catalog.FLUX2_KLEIN_4B.files}
+    fake_comfy.models.update(diffusion_models=[f"flux2/{k['diffusion_models']}"],
+                             text_encoders=[f"qwen\\{k['text_encoders']}"],  # ComfyUI on Windows
+                             vae=[f"old/{k['vae']}", k["vae"]])
+    assert models.missing(catalog.FLUX2_KLEIN_4B, "app", fake_comfy.url) == []
+    engines.make_image("A lighthouse at dusk", seed=5)
+    sent = fake_comfy.prompts[-1]
+    assert sent["1"]["inputs"]["unet_name"] == f"flux2/{k['diffusion_models']}"
+    assert sent["2"]["inputs"]["clip_name"] == f"qwen\\{k['text_encoders']}"
+    assert sent["3"]["inputs"]["vae_name"] == k["vae"]  # the one at the top of the folder comes first
+
+
+def test_removing_a_model_from_the_comfyui_app_keeps_what_another_model_uses(file_server, monkeypatch, app_settings,
+                                                                             fake_comfy):
+    from clipfoundry import engines
+
+    srv = file_server({})
+    a, b = tiny_models(srv, monkeypatch)
+    app = fake_comfy.tmp / "app-models"
+    for m in (a, b):
+        assert run_steps(models.install_steps(m, "app", fake_comfy.url))["state"] == "done"
+        fake_comfy.have(m)
+    assert run_steps(models.install_steps(a, "clipforge", None))["state"] == "done"  # ClipForge's own copy too
+    comfy_server.busy.set()  # a picture is being made: its model files stay
+    try:
+        with pytest.raises(EngineError, match="being made"):
+            engines.remove("model", "tiny-a")
+    finally:
+        comfy_server.busy.clear()
+    assert (app / "diffusion_models" / "a.safetensors").is_file()
+    view = engines.remove("model", "tiny-a")
+    assert ("POST", "/free") in fake_comfy.calls  # the ComfyUI app let go of its models first
+    assert not (app / "diffusion_models" / "a.safetensors").exists() and not (app / "vae" / "vae-a.safetensors").exists()
+    assert (app / "text_encoders" / "te.safetensors").is_file()  # tiny-b still uses it
+    assert models.missing(a, "clipforge", None) == []  # ClipForge's own folders are another place: untouched
+    fake_comfy.models["diffusion_models"].remove("a.safetensors")
+    fake_comfy.models["vae"].remove("vae-a.safetensors")
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert by["tiny-b"]["removable"] and not by["tiny-a"]["removable"]
+    engines.remove("model", "tiny-b")
+    assert not (app / "text_encoders" / "te.safetensors").exists()  # nothing else uses it now
+    assert view["models"]
+
+
+def test_remove_says_so_when_clipforge_did_not_download_the_files(app_settings, fake_comfy):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)  # downloaded in the ComfyUI app itself
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert by["flux2-klein-4b"]["ready"] and not by["flux2-klein-4b"]["removable"]
+    with pytest.raises(EngineError, match="did not download"):
+        engines.remove("model", "flux2-klein-4b")
+
+
+def test_the_same_request_twice_is_made_twice(app_settings, fake_comfy, monkeypatch):
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    fake_comfy.have(catalog.WAN22_TI2V_5B)
+    fake_comfy.cache = True  # ComfyUI answers an identical graph from its cache and saves nothing new
+    for make, node in ((lambda: engines.make_image("A lighthouse at dusk", seed=5), "SaveImage"),
+                       (lambda: engines.make_video("The waves roll in", seconds=1.0, seed=5), "SaveVideo")):
+        first = make()
+        fake_comfy.outputs.clear()  # ClipForge's own ComfyUI keeps no copy of what it handed over
+        second = make()
+        assert first != second and second.is_file()
+        prefixes = [next(n["inputs"]["filename_prefix"] for n in g.values() if n["class_type"] == node)
+                    for g in fake_comfy.prompts[-2:]]
+        assert prefixes[0] != prefixes[1] and all(p.startswith("clipforge/") for p in prefixes)
+
+
+def test_setting_comfyui_up_changes_nothing_else_and_uses_only_checked_packages(monkeypatch):
+    flavor = ["mps"]
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, what, cancelled, timeout_s=3600.0):
+        cmd = [str(c) for c in cmd]
+        ran.append(cmd)
+        if cmd[1:2] == ["venv"]:
+            Path(cmd[2]).mkdir(parents=True, exist_ok=True)
+        if cmd[0] == str(comfy_server.env_python(flavor[0])):
+            local = "" if flavor[0] == "mps" else "+cpu"
+            return json.dumps({"torch": catalog.TORCH_VERSION + local, "mps": flavor[0] == "mps", "cuda": False})
+        return ""
+
+    monkeypatch.setattr(comfy_server, "_run", fake_run)
+    monkeypatch.setattr(comfy_server, "torch_flavor", lambda: flavor[0])
+    monkeypatch.setattr(comfy_server, "installed", lambda: False)
+    monkeypatch.setattr(comfy_server.files, "need_space", lambda *a, **k: None)
+    comfy_server.root().mkdir(parents=True, exist_ok=True)
+    env = comfy_server._uv_env()  # noqa: SLF001
+    assert env["UV_PYTHON_INSTALL_BIN"] == "0" and env["UV_PYTHON_INSTALL_REGISTRY"] == "0"
+    for f in ("mps", "cpu"):
+        flavor[0] = f
+        ran.clear()
+        comfy_server._step_env(lambda *a: None, lambda: False)  # noqa: SLF001
+        py_install, venv, torch_cmd, reqs, _probe = ran
+        assert py_install[1:3] == ["python", "install"] and {"--no-bin", "--no-registry"} <= set(py_install)
+        assert "--seed" in venv and venv[venv.index("--exclude-newer") + 1] == catalog.EXCLUDE_NEWER
+        assert "--no-deps" in torch_cmd  # PyTorch alone: what it needs comes from PyPI as it was on the checked day
+        if f == "mps":
+            assert torch_cmd[torch_cmd.index("--exclude-newer") + 1] == catalog.EXCLUDE_NEWER
+            assert "--index-url" not in torch_cmd
+        else:  # PyTorch's own index has no upload dates, so the date cut-off cannot apply to it
+            assert torch_cmd[torch_cmd.index("--index-url") + 1] == catalog.TORCH["cpu"]["index"]
+            assert "--exclude-newer" not in torch_cmd
+        assert "--constraint" in reqs and reqs[reqs.index("--exclude-newer") + 1] == catalog.EXCLUDE_NEWER
+
+
+def test_a_part_file_that_is_already_complete_is_finished_not_fetched_again(file_server, tmp_path):
+    srv = file_server({})
+    data = b"p" * 300_000
+    pin = pin_for(srv, "e.bin", data)
+    dest = tmp_path / "e.bin"
+    dest.with_name("e.bin.part").write_bytes(data)  # every byte arrived, but the rename never happened
+    files.fetch(pin, dest)
+    assert dest.read_bytes() == data and srv.hits == [] and not dest.with_name("e.bin.part").exists()
+    dest.unlink()
+    dest.with_name("e.bin.part").write_bytes(b"q" * len(data))  # the full size but wrong: downloaded again
+    files.fetch(pin, dest)
+    assert dest.read_bytes() == data and srv.hits[-1][1] is None
+
+
+def test_a_server_that_refuses_the_range_is_asked_again_from_the_start(file_server, tmp_path):
+    srv = file_server({}, ranges="416")
+    data = b"r" * 200_000
+    pin = pin_for(srv, "f.bin", data)
+    dest = tmp_path / "f.bin"
+    dest.with_name("f.bin.part").write_bytes(data[:50_000])
+    files.fetch(pin, dest)
+    assert dest.read_bytes() == data and [h[1] for h in srv.hits] == ["bytes=50000-", None]
+
+
+class ScriptedSocket:
+    """ComfyUI's websocket messages, in the order ComfyUI 0.43 sends them."""
+
+    def __init__(self, messages: list[dict]) -> None:
+        self.messages = list(messages)
+
+    def recv(self, timeout=None):
+        if not self.messages:
+            raise TimeoutError
+        return json.dumps(self.messages.pop(0))
+
+    def close(self) -> None:
+        pass
+
+
+def test_progress_never_goes_backwards(app_settings, fake_comfy, monkeypatch):
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    pid = f"p{len(fake_comfy.prompts) + 1}"
+    msgs = [{"type": "executing", "data": {"node": n, "prompt_id": pid}} for n in ("1", "2", "3", "4", "11")]
+    msgs += [{"type": "progress", "data": {"value": v, "max": 4, "node": "11", "prompt_id": pid}} for v in (1, 2, 3, 4)]
+    msgs += [{"type": "executing", "data": {"node": n, "prompt_id": pid}} for n in ("12", "13")]
+    msgs += [{"type": "execution_success", "data": {"prompt_id": pid}}]
+    monkeypatch.setattr(comfy, "_socket", lambda base, cid: ScriptedSocket(msgs))
+    seen: list[tuple[float, str]] = []
+    engines.make_image("a cat", progress=lambda f, m: seen.append((f, m)))
+    fractions = [f for f, _ in seen]
+    assert fractions == sorted(fractions), seen
+    assert "Finishing" in [m for _, m in seen] and "Step 4 of 4" in [m for _, m in seen]
+
+
+def test_stopping_waits_until_comfyui_has_really_stopped(app_settings, fake_comfy, monkeypatch):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    fake_comfy.polls_before_done = 10_000
+    fake_comfy.stops_after = 3  # ComfyUI finishes the step it is on before it stops
+    monkeypatch.setattr(comfy, "STOP_POLL_S", 0.01)
+    asked = []
+
+    def cancel() -> bool:
+        asked.append(1)
+        return len(asked) > 3
+
+    with pytest.raises(EngineError, match="Stopped"):
+        engines.make_image("a cat", cancel=cancel)
+    calls = fake_comfy.calls
+    after = calls[calls.index(("POST", "/interrupt")):]
+    assert after.count(("GET", "/queue")) >= 4  # it waited until the graph left ComfyUI's queue
+
+
+def test_loader_errors_in_plain_words():
+    old = comfy.plain("ERROR: Could not detect model type of: /m/diffusion_models/z_image_turbo_bf16.safetensors")
+    assert "too old" in old and "damaged" not in old
+    assert "could not find" in comfy.plain("[Errno 2] No such file or directory: '/m/vae/ae.safetensors'")
+    assert "damaged" in comfy.plain("Error while deserializing header: HeaderTooLarge")
+
+
+def test_models_with_use_rules_need_the_persons_agreement(monkeypatch, client):
+    from clipfoundry import engines
+
+    assert catalog.SUPERTONIC_3.rule == catalog.SUPERTONIC_RULE
+    assert "machine-generated" in catalog.SUPERTONIC_RULE and "caption" in catalog.SUPERTONIC_RULE
+    assert "misinformation" in catalog.WAN22_TI2V_5B.rule
+    assert catalog.FLUX2_KLEIN_4B.rule == "" and catalog.Z_IMAGE_TURBO.rule == ""
+    started = []
+    monkeypatch.setattr(tasks, "start", lambda name, steps, **kw: started.append(name) or {"state": "running"})
+    for model_id in ("supertonic-3", "wan2.2-ti2v-5b"):
+        with pytest.raises(EngineError, match="agree"):
+            engines.setup("model", model_id)
+        engines.setup("model", model_id, agreed=True)
+    engines.setup("model", "flux2-klein-4b")  # no use rules beyond its licence
+    assert started == [f"Downloading {m.name}" for m in (catalog.SUPERTONIC_3, catalog.WAN22_TI2V_5B,
+                                                          catalog.FLUX2_KLEIN_4B)]
+    r = client.post("/api/engines/setup", json={"what": "model", "model": "supertonic-3"}, headers=APP)
+    assert r.status_code == 409 and "agree" in r.json()["detail"]
+    r = client.post("/api/engines/setup", json={"what": "model", "model": "supertonic-3", "agreed": True}, headers=APP)
+    assert r.status_code == 200
+    by = {m["id"]: m for m in client.get("/api/engines").json()["models"]}
+    assert by["wan2.2-ti2v-5b"]["rule"] == catalog.WAN22_TI2V_5B.rule and by["flux2-klein-4b"]["rule"] == ""
+
+
+def test_a_clip_note_carries_the_models_use_rule(app_settings, fake_comfy):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.WAN22_TI2V_5B)
+    path = engines.make_video("The waves roll in", seconds=1.0, seed=2)
+    assert json.loads(path.with_suffix(".json").read_text())["rule"] == catalog.WAN22_TI2V_5B.rule
