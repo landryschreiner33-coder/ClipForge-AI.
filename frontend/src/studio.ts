@@ -143,7 +143,34 @@ export type Video = { id: string; name: string; status: string; message: string;
   chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
   /** The script this video follows (null for none). */
   script?: Script | null;
+  /** The plan made with ClipForge AI before the build (null for a video made without one). */
+  setup?: { mode: SetupMode; plan: PlanFields; lines: string[]; source: string; pending: boolean } | null;
   ai_helper?: { configured: boolean; label: string; local: boolean } };
+
+// ------------------------------------------------------------------ planning a video with ClipForge AI
+export type SetupMode = "ask" | "auto";
+/** "" leaves a choice to your style and Brain. */
+export type Tri = "" | "on" | "off";
+export type PlanFields = { title: string; summary: string; video_type: string; audience: string; goal: string;
+  length_min: number; aspect_ratio: "" | "16:9" | "9:16" | "1:1" | "4:5"; feel: "" | "calm" | "balanced" | "energetic";
+  edit: SmartLevel; opening: string; story: string[]; keep: string[]; cut: string[];
+  music: "" | "auto" | "library" | "mine" | "find" | "none"; music_file: string; voiceover_files: string[];
+  captions: Tri; pictures: Tri; sound_effects: Tri; zooms: Tri; cold_open: Tri; order: string[]; notes: string[];
+  find_media: "" | "suggest" | "auto" };
+export type SetupQuestion = { id: string; q: string; choices: string[] };
+export type SetupMessage = { id: string; role: "owner" | "ai" | "agent"; text: string; status: "done" | "thinking" | "failed";
+  created_at: number; data: { tool?: string; say?: string; plan?: PlanFields; lines?: string[]; questions?: SetupQuestion[];
+    source?: "ai" | "rules"; sent?: string; provider?: string; used?: { kind: string; text: string }[];
+    knowhow?: { title: string }[]; answers?: string; building?: boolean;
+    helpers?: { agent: { id: string; name: string; icon: string }; text: string; ok: boolean }[] } };
+export type SetupFile = { id: string; kind: "video" | "image" | "audio"; filename: string; duration: number;
+  /** For a video: being listened to, waiting its turn, nothing said in it, or heard. */
+  state: "" | "listening" | "waiting" | "silent" | "heard"; words: number; thumbnail: boolean };
+export type VideoSetup = { id: string; name: string; status: string; message: string; mode: SetupMode; plan: PlanFields;
+  lines: string[]; locked: string[]; source: string; planned: boolean; rounds: number; open: SetupQuestion[];
+  files: SetupFile[]; chat_id: string; messages: SetupMessage[]; thinking: boolean; listening: boolean;
+  style_id: string; reference_id: string; remember: { enabled?: boolean; name?: string }; script: Script | null;
+  model: { ready: boolean; label: string; local: boolean }; href: string };
 
 export type MediaKind = "image" | "footage" | "music" | "effect";
 export type MediaTerms = { known: boolean; commercial: boolean; modify: boolean; attribution: boolean; share_alike: boolean };
@@ -265,6 +292,22 @@ export const studio = {
   mergeStories: (pid: string, ids: string[]) => req("POST", `/api/projects/${pid}/stories/merge`, { ids }),
   createStoryClips: (pid: string, ids: string[] | null) => req<{ created: string[] }>("POST", `/api/projects/${pid}/stories/create`, { ids }),
   makeVideo: (body: Record<string, unknown>) => req<Video>("POST", "/api/studio/videos", body),
+  /** A draft video from your files and your idea; ClipForge AI answers with a plan (or builds it: mode "auto"). */
+  startVideoSetup: (body: { asset_ids: string[]; idea: string; mode: SetupMode; name?: string; style_id?: string;
+    reference_id?: string; script?: Script | null; remember?: { enabled: boolean; name?: string } }) =>
+    req<VideoSetup>("POST", "/api/studio/videos/setup", body),
+  videoSetup: (id: string) => req<VideoSetup>("GET", `/api/studio/videos/${id}/setup`),
+  /** Whether ClipForge AI has a model to plan with (else its built-in rules read what you say). */
+  setupModel: () => req<VideoSetup["model"]>("GET", "/api/studio/video-setup/model"),
+  sayToSetup: (id: string, text: string, question_id = "") =>
+    req<{ owner: SetupMessage; ai: SetupMessage; setup: VideoSetup }>("POST", `/api/studio/videos/${id}/setup/say`, { text, question_id }),
+  changeSetup: (id: string, changes: Record<string, unknown>) => req<VideoSetup>("PATCH", `/api/studio/videos/${id}/setup`, changes),
+  stopSetup: (id: string) => req<VideoSetup>("POST", `/api/studio/videos/${id}/setup/stop`),
+  buildSetup: (id: string, mode: SetupMode | "" = "") =>
+    req<Video & { href: string }>("POST", `/api/studio/videos/${id}/setup/build`, { mode }),
+  /** After the build: change the plan and edit the video again with it (a new version Undo takes back). */
+  changePlan: (id: string, base_revision: number, plan: Partial<PlanFields>) =>
+    req<Video & { job: string }>("PUT", `/api/studio/videos/${id}/plan`, { base_revision, plan }),
   video: (id: string) => req<Video>("GET", `/api/studio/videos/${id}`),
   editVideo: (id: string, base_revision: number, edit: Record<string, unknown>) =>
     req<Video & { note: string }>("POST", `/api/studio/videos/${id}/edits`, { base_revision, edit }),

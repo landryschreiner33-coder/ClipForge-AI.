@@ -1,0 +1,157 @@
+# Make a YouTube video: drop in your files, tell ClipForge AI your idea, build
+
+Written 2026-11-07 for Landry's ask: "make the setup for the editing the youtube video better where you drop in your
+stuff then tell the ai your idea for it and plan and stuff and it can ask questions or not". Branch
+`claude/project-thread-2wwa4c` from the release line at 95a70e0. The tests named at the end hold what is written
+here.
+
+## What the owner sees
+
+1. **Drop in your stuff.** Videos, pictures, sounds (one drop for all of them, "Add from this computer" on the
+   desktop, a script if you read from one). Each video is listened to in the background as soon as it is in, so
+   ClipForge AI knows what is said in your footage while you type.
+2. **Tell ClipForge AI your idea**, in your own words, as long or as short as you like: what happens, who it is
+   for, how long, the feel, how it should open, what to keep or cut, the music.
+3. **Questions, or not.** A switch: "Ask me questions" (ClipForge AI asks at most three short questions, and only
+   about what it really needs; every question has quick answers and a "Just do it" button) or "Just do it" (it
+   never asks: it plans and starts editing at once). The choice is remembered for next time.
+4. **The plan.** ClipForge AI answers with a plan you can read and change: name, what it is, who it is for, length,
+   shape, feel, how much to edit, how it opens, the story in order, what to keep, what to cut, music, captions,
+   pictures, sound effects, zooms, the order of your files. Keep talking to change it ("make it shorter", "no
+   music") or change any line by hand.
+5. **Build my video.** The plan drives the edit (below). The planning talk continues as the video's ClipForge AI
+   chat, and the plan stays on the editor page, where changing it and pressing "Edit it again with this plan"
+   makes a new version that Undo takes back.
+
+Leaving the page keeps everything: the video is a **draft** project from the first message on ("Planning with
+ClipForge AI" in Projects; opening it returns to this page). Drafts can be deleted like any project.
+
+## The plan
+
+Stored in `studio_projects.setup.plan`; every field is optional, "" or empty means "from your style and Brain".
+
+| Field | What it is | Bounds | Drives |
+|---|---|---|---|
+| `title` | the video's name | 120 chars | project name (unless you named it) |
+| `summary` | what the video is, one or two sentences | 300 | ClipForge AI's edit prompt |
+| `video_type` | "Travel vlog", "Tutorial" … | 80 | brief `video_type` |
+| `audience` | who it is for | 120 | brief `audience` |
+| `goal` | what it should do | 200 | brief `goal` |
+| `length_min` | wanted length in minutes | 0.25–240, 0 = none | brief `target_duration_s` (fit to length) |
+| `aspect_ratio` | 16:9, 9:16, 1:1, 4:5 | enum | brief `aspect_ratio` |
+| `feel` | calm, balanced, energetic | enum | brief `feel` (joins) |
+| `edit` | smart ("Edit it for me"), tight ("Fast-paced"), off ("Keep my clips") | enum | brief `smart_edit` |
+| `opening` | how it should open ("the jump off the dock") | 200 | brief `open_with` (cold open) + edit prompt |
+| `story` | the parts, in order | 8 × 160 | edit prompt; fit-to-length ranking |
+| `keep` | words or topics that must stay | 12 × 80 | brief `must_keep` |
+| `cut` | words or topics to leave out | 12 × 80 | brief `avoid` |
+| `music` | auto, library, mine, none | enum | brief `music` (`mine` = your music file) |
+| `music_file` | which of your sounds is the music | an audio file of the project | brief `music_asset_id` |
+| `voiceover_files` | which of your sounds are voiceovers | audio files of the project | brief `voiceover_asset_ids` |
+| `captions`, `pictures`, `sound_effects`, `zooms`, `cold_open` | on, off or "" | enum | brief `captions`, `broll_images`, `sound_effects`, `punch_in`, `cold_open` |
+| `order` | your videos and pictures in play order | a permutation of them | the media bin's order (only while you have not reordered by hand) |
+| `notes` | anything else to keep in mind | 6 × 200 | edit prompt |
+
+`video_setup.plan_to_brief` turns a plan into brief fields; `brief.plan` keeps `summary`, `opening`, `story` and
+`notes` for ClipForge AI's edit prompt.
+
+## How the plan drives the edit
+
+- **The brief.** Every brief field above, so length, shape, feel, captions, music, keep and cut work exactly as the
+  old four questions did (the same validation, the same guidance snapshot, "Remember this style" saves the plan's
+  look the way it saved questions 2 and 3).
+- **ClipForge AI's edit** (`ai_editor.build_prompt`): every window starts with "The owner's plan for this video"
+  (summary, how it opens, the story in order, notes; at most 700 characters) and the instructions say to follow it:
+  leave out what does not serve it, choose the hook it asks for, name chapters after its parts.
+- **The opening without a model** (`smart_edit.cold_open`): with `open_with`, the kept sentence that shares most of
+  its words (at least half, said in 1.5 to 15 seconds) opens the video, anywhere in it, for any video of 30 seconds
+  or more; the note says "the opening you asked for". Without a match the usual strongest line rules apply.
+- **Fit to length**: a passage that shares words with the plan's summary, opening, story or keep list ranks higher
+  (at most +0.15 on the 0–1 passage score), so the cut keeps what the plan is about.
+- **Order**: the plan's `order` sets the media bin's order before the rough cut when you never reordered by hand.
+
+## The planner (`clipfoundry/studio/video_setup.py`)
+
+Every turn the owner says something, ClipForge AI answers with a message and the plan, in one of two ways.
+
+**With a model** (Settings → ClipForge AI: the built-in model, a local server or a key): one request, text only:
+
+- who ClipForge AI is (the assistant's `persona()` when present, else a built-in line), how to answer;
+- the files: number, name, kind, length; for each listened video its first words, its two strongest lines (by the
+  smart editor's hook score, with their times) and its most frequent topic words; "still being listened to" for the
+  rest (at most 3,000 characters, transcripts marked as data);
+- the owner's memories (rules and facts, 600 characters) and the built-in know-how for the idea (600);
+- notes from the owner's helper agents when the assistant offers them (`agents.consult`, once per draft, 800);
+- the conversation so far (the assistant's `history()` when present, else this chat's rows, 3,000 characters);
+- the current plan as JSON, the fields the owner set by hand, the mode and how many question rounds were asked.
+
+It answers one JSON object `{"say", "questions", "plan"}` (a JSON schema for the built-in model, so a small model
+cannot answer in another shape; 1,200 tokens at most). The answer is data: every field is checked against the
+bounds above, unknown fields are dropped, file numbers must exist, the order must be a permutation.
+
+**Without a model, or when the model fails**, the built-in rules read what the owner said: lengths ("10 minutes",
+"under 5 min", "an hour"), shapes ("vertical", "TikTok", "square", "16:9"), feel words, how much to edit
+("fast-paced", "keep everything"), music ("no music", "my song"), captions, "keep …", "cut …"/"skip …"/"remove …",
+"start with …"/"open with …", "for my family", video types (vlog, tutorial, review, podcast …) and a story told
+with "first … then … finally …". The message says the rules answered and how to set up the free built-in model.
+
+**Merging.** The new plan is the old plan, then the model's plan, then what the rules found said explicitly in the
+newest messages (an explicit "10 minutes" wins over a model that wrote 8), then the fields the owner set by hand
+(kept unless the newest message changes that field).
+
+**Questions** (only in "Ask me questions"): at most 3 per round and 2 rounds per draft, never one that was asked
+before or that the plan already answers. Without a model the rules ask, in the first round only, for what matters
+and is missing: who it is for, the length, the feel. "Just do it" on a question card switches the mode and builds.
+
+**Just do it** builds at once. When there is no plan yet, the build job plans after listening (so the plan uses
+every word said), posts the plan to the chat, sets the brief and continues; the editor page shows it.
+
+## Drafts
+
+`studio_projects.status = "draft"`, `plan_revision = 0`, no build job, `setup` = `{"mode", "plan", "idea",
+"locked", "rounds", "asked", "style_id", "reference_id", "remember", "owner_order", "pending", "consulted"}`. The bin
+is listened to (`video_media` job) as soon as the draft exists and whenever files are added. The planning talk is the
+draft's own ClipForge AI chat (`brain_chats` with its `project_id`): owner rows, and AI rows with
+`data.tool = "plan"`, `data.plan`, `data.questions`, `data.ask` (the first open question, for quick replies),
+`data.source` (`ai` or `rules`), `data.sent` (what was sent where) and the memories used. A model answer is written
+in the background (`status = "thinking"`; the page polls).
+
+| Route | What it does |
+|---|---|
+| `POST /api/studio/videos/setup` | start a draft: files, idea, mode, name, style, example, script, remember |
+| `GET /api/studio/videos/{id}/setup` | the draft (or built video's) setup: plan, mode, messages, files with listening state, model |
+| `POST /api/studio/videos/{id}/setup/say` | the owner says something; returns the owner row and the AI row |
+| `PATCH /api/studio/videos/{id}/setup` | mode, plan fields by hand, name, style, example, remember, file order, script |
+| `POST /api/studio/videos/{id}/setup/build` | build the draft (plans first in the job when there is no plan) |
+| `PUT /api/studio/videos/{id}/plan` | after the build: change the plan and edit again as a new version |
+| `POST /api/studio/videos/{id}/media` | (existing) add files, to a draft too |
+
+`POST /api/studio/videos` (the old one-step create) is unchanged for scripts and tests.
+
+## Shared with the assistant thread
+
+The thread "Make the built-in AI a real assistant" (branch `claude/project-thread-sa113l`) rebuilds the chat and
+adds tools and agents. This module uses its pieces when they exist and works without them, so either branch can
+merge first:
+
+- `brain.chat.route(applies, handle)`: registered at import so a message to a draft's chat anywhere goes to
+  `video_setup.say`.
+- `brain.assistant.persona()`, `history(chat_id, budget_chars)`, `app_context(ws, project_id, budget_chars)`;
+  `pipeline.llm.converse(settings, messages, …)` for a real multi-turn request (else one flattened prompt through
+  `llm.complete`).
+- `brain.tools.register(Tool(name="make_youtube_video", risk="make", …))` so the assistant can start a draft.
+- `brain.agents.consult(ws, task, context=…, where="video_setup", ref_id=…)`: the helper agents' notes, shown in the
+  chat as their own messages and read by the planner.
+
+## Privacy and limits
+
+Text only: the idea, the conversation, file names, lengths and what is said in the videos (bounded as above).
+Never the video, the sound or file paths. The message says whether it stayed on this computer or went over the
+internet, and to whom. Every planning answer from a model counts against `ai_edit_requests_per_day` like the
+chat. A model request may take `max(60, ai_edit_timeout_s × 2)` seconds, at most 300; in the build job it renews
+the job's lease while it waits.
+
+## What the cloud cannot test
+
+The built-in model's real answers, real footage, real speech and a real Mac. The tests use a fake model (fixed JSON
+answers, a broken answer, a slow answer), synthetic transcripts and the rules; Landry's computer is the real test.

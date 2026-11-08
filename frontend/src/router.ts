@@ -28,7 +28,7 @@ const ALIASES: [RegExp, string][] = [
   [/^autopilot(\/.*)?$/, "missions"],
   [new RegExp(`^missions/(?!${MISSIONS}$).*$`), "missions"],
   [/^create$/, "create/clips"],
-  [/^create\/(?!(clips|video|link|transcript)$).*$/, "create/clips"],
+  [/^create\/(?!(clips|video|link|transcript)$)(?!video\/[\w-]+$).*$/, "create/clips"],
   [/^settings\/accounts$/, "accounts"],
   [/^settings\/(?!(appearance|media|ai|apps|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
@@ -47,7 +47,10 @@ export type Route = {
 };
 
 function read(): Route {
-  let path = decodeURIComponent(window.location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
+  // "?…" after an address carries values for its page (#/create/video?idea=…), never part of the address
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  const q = raw.indexOf("?");
+  let path = decodeURIComponent(q >= 0 ? raw.slice(0, q) : raw).replace(/\/+$/, "");
   for (const [re, to] of ALIASES) {
     if (re.test(path)) {
       const next = path.replace(re, to);

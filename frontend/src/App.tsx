@@ -50,7 +50,7 @@ function page(route: Route) {
     case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return id === "video" ? <MakeVideo /> : id === "transcript" ? <Create />
+    case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "project": return <ProjectView id={id} key={id} />;
@@ -216,7 +216,7 @@ function Shell({ me }: { me: Me }) {
               {makeOpen && (
                 <div role="menu" aria-label="Make">
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
-                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
+                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                 </div>
               )}
             </div>

@@ -49,7 +49,11 @@ BRIEF_FIELDS = {"video_type", "audience", "goal", "target_duration_s", "aspect_r
                 "music_asset_id", "must_keep", "avoid", "caption_style", "caption_position", "transition",
                 "title_card", "music_level_db", "layout", "caption_size", "frame_rate", "duck_music",
                 "voiceover_asset_ids", "duck_depth_db", "shot_length_s", "find_media", "smart_edit", "cut_pauses",
-                "cut_retakes", "fit_length", "punch_in", "sound_effects", "broll_images", "ai_edit", "cold_open"}
+                "cut_retakes", "fit_length", "punch_in", "sound_effects", "broll_images", "ai_edit", "cold_open",
+                "open_with", "plan"}
+OPEN_WITH_CHARS = 200    # the brief's `open_with`: how the owner wants the video to open (their words)
+PLAN_WORDS = {"summary": 300, "opening": 200}       # the brief's `plan`: the owner's plan made with ClipForge AI
+PLAN_LISTS = {"story": (8, 160), "notes": (6, 200)}  # (video_setup.py), read by ClipForge AI's edit
 SMART_OPTIONS = {"smart_edit": ("off", "smart", "tight"), "music": ("none", "supplied", "find", "auto", "library"),
                  "cut_pauses": (True, False), "cut_retakes": (True, False), "fit_length": (True, False),
                  "punch_in": (True, False), "sound_effects": (True, False), "broll_images": (True, False),
@@ -191,21 +195,37 @@ def script_payload(script) -> dict:
                        "words": sum(len(ln["text"].split()) for ln in out if ln["kind"] == "line")}}
 
 
-def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], brief: dict, style_id: str = "saved",
-           remember: dict | None = None, reference_id: str = "", script=None) -> dict:
-    """A new project. `asset_ids` is the media bin in order (any number of videos, images and audio files; the rough
-    cut uses the videos and images, audio stays in the bin until you place it, apart from the music and voiceovers
-    the brief names). `script`: the script the video follows (script_payload), when there is one."""
-    if not asset_ids:
-        raise VideoError("Add at least one video or image.")
-    script = script_payload(script)
+def plan_words(value) -> dict:
+    """The owner's plan words a brief carries for ClipForge AI's edit (`brief.plan`, made on the setup page by
+    video_setup.py): what the video is, how it opens, the story in order and notes, each bounded. {} for none."""
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, dict):
+        raise VideoError("The plan must be a JSON object.")
+    out: dict = {}
+    for key, limit in PLAN_WORDS.items():
+        if isinstance(value.get(key), str) and value[key].strip():
+            out[key] = " ".join(value[key].split())[:limit]
+    for key, (count, size) in PLAN_LISTS.items():
+        items = value.get(key)
+        if items in (None, ""):
+            continue
+        if not isinstance(items, list) or not all(isinstance(x, str) for x in items):
+            raise VideoError(f"The plan's {key} must be a list of short texts.")
+        kept = [" ".join(x.split())[:size] for x in items if x.strip()][:count]
+        if kept:
+            out[key] = kept
+    return out
+
+
+def check_brief(workspace_id: str, brief: dict) -> dict:
+    """The brief, checked (unknown fields, music, supporting media, the smart-editing choices, voiceovers, the
+    opening and the plan words) and returned with its plan words bounded. Raises VideoError."""
+    if not isinstance(brief, dict):
+        raise VideoError("The brief must be a JSON object.")
     unknown = set(brief) - BRIEF_FIELDS
     if unknown:
         raise VideoError("Unknown brief fields: " + ", ".join(sorted(unknown)))
-    asset_ids = list(dict.fromkeys(asset_ids))  # the same file twice is one bin entry
-    assets = [_owned(workspace_id, aid) for aid in asset_ids]
-    if not any(a["kind"] == "video" for a in assets):
-        raise VideoError("Add at least one video; images are inserted between videos.")
     if brief.get("music") == "supplied":
         try:
             m = uploads.asset(str(brief.get("music_asset_id") or ""), workspace_id)
@@ -227,6 +247,21 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
     for aid in voiceovers:
         if _owned(workspace_id, str(aid))["kind"] != "audio":
             raise VideoError("A voiceover must be an audio file.")
+    opening = brief.get("open_with")
+    if opening not in (None, "") and (not isinstance(opening, str) or len(opening) > OPEN_WITH_CHARS):
+        raise VideoError(f"How the video opens must be text of at most {OPEN_WITH_CHARS} characters.")
+    out = dict(brief)
+    if "plan" in out:
+        out["plan"] = plan_words(out["plan"])
+        if not out["plan"]:
+            out.pop("plan")
+    return out
+
+
+def guidance_for(workspace_id: str, name: str, brief: dict, style_id: str = "saved",
+                 reference_id: str = "") -> tuple[dict | None, dict, dict]:
+    """(the style, the guidance snapshot, the brief's style choices) for a project with this brief: the brief's
+    own answers win over the style and the example video."""
     style = styles.default(workspace_id) if style_id == "saved" else (
         styles.get(style_id, workspace_id) if style_id not in ("", "settings") else None)
     choices = {k: v for k, v in brief.items() if k in STYLE_CHOICES and v not in (None, "")}
@@ -241,13 +276,11 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
                                 context={"title": name, "caption_text": brief.get("goal") or ""}, **examples)
     if snapshot["problems"]:
         raise VideoError("; ".join(snapshot["problems"]))
-    project = db.insert("studio_projects", {
-        "id": "vid-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": (name or "My video")[:120],
-        "status": "building", "message": "Reading your files", "asset_ids": asset_ids,
-        "brief": {k: v for k, v in brief.items() if k in BRIEF_FIELDS}, "style_id": (style or {}).get("id", ""),
-        "guidance": snapshot, "script": script,
-        "media": {"mode": "auto" if brief.get("find_media") == "auto" else "suggest",
-                  "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
+    return style, snapshot, choices
+
+
+def remember_style(workspace_id: str, user_id: str, name: str, choices: dict, remember: dict | None) -> None:
+    """Save the brief's look as a style when the owner wants that (their last choice is the next default)."""
     remember = remember or {}
     pref = prefs.get_appearance(workspace_id, user_id)["value"]
     if remember.get("enabled", pref.get("remember_style", True)):
@@ -255,6 +288,30 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
                                    "full_video")
     if "enabled" in remember:  # the owner's explicit choice is the next brief's default
         prefs.set_appearance(workspace_id, user_id, {"remember_style": bool(remember["enabled"])}, None)
+
+
+def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], brief: dict, style_id: str = "saved",
+           remember: dict | None = None, reference_id: str = "", script=None) -> dict:
+    """A new project. `asset_ids` is the media bin in order (any number of videos, images and audio files; the rough
+    cut uses the videos and images, audio stays in the bin until you place it, apart from the music and voiceovers
+    the brief names). `script`: the script the video follows (script_payload), when there is one."""
+    if not asset_ids:
+        raise VideoError("Add at least one video or image.")
+    script = script_payload(script)
+    brief = check_brief(workspace_id, brief)
+    asset_ids = list(dict.fromkeys(asset_ids))  # the same file twice is one bin entry
+    assets = [_owned(workspace_id, aid) for aid in asset_ids]
+    if not any(a["kind"] == "video" for a in assets):
+        raise VideoError("Add at least one video; images are inserted between videos.")
+    style, snapshot, choices = guidance_for(workspace_id, name, brief, style_id, reference_id)
+    project = db.insert("studio_projects", {
+        "id": "vid-" + os.urandom(6).hex(), "workspace_id": workspace_id, "name": (name or "My video")[:120],
+        "status": "building", "message": "Reading your files", "asset_ids": asset_ids,
+        "brief": {k: v for k, v in brief.items() if k in BRIEF_FIELDS}, "style_id": (style or {}).get("id", ""),
+        "guidance": snapshot, "script": script,
+        "media": {"mode": "auto" if brief.get("find_media") == "auto" else "suggest",
+                  "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
+    remember_style(workspace_id, user_id, name, choices, remember)
     enqueue(workspace_id, "video_build", project["id"], 0)
     return project
 
@@ -493,6 +550,12 @@ def build(job: dict, lease: Lease) -> dict:
     if missing:
         raise VideoError("A file of this project is missing; upload it again.")
     words = listen(assets, project["asset_ids"], settings, lease, 0.05, 0.65)
+    if (project.get("setup") or {}).get("pending"):
+        # "Just do it" before ClipForge AI had planned: it plans now, having heard every file (video_setup.py)
+        from . import video_setup
+
+        project = video_setup.plan_in_build(project, assets, words, settings, lease)
+        assets = _assets(project)
     lease.progress(0.7, "Building the rough cut")
     smart = prepare_smart(project, assets, words, settings, lease)
     plan = rough_cut(db.fetch("studio_projects", project["id"]), assets, words, smart)
@@ -671,6 +734,12 @@ def smart_job(job: dict, lease: Lease) -> dict:
     for key in SMART_KEEP:  # the look and the fixes you made stay as they are
         if key in current:
             new[key] = copy.deepcopy(current[key])
+    look = (project.get("setup") or {}).get("look") or {}
+    if look:  # ...apart from the shape and captions you changed in the plan ("Edit it again with this plan")
+        if look.get("aspect") in engine.ASPECTS and isinstance(new.get("output"), dict):
+            new["output"]["aspect"] = look["aspect"]
+        if isinstance(look.get("captions"), bool) and isinstance(new.get("captions"), dict):
+            new["captions"]["enabled"] = look["captions"]
     clip_ids = {c["id"] for c in new["clips"]}
     mine = [i for i in current.get("audio") or [] if not i.get("auto") and
             (not i.get("anchor") or i["anchor"].get("clip_id") in clip_ids)]
@@ -700,6 +769,10 @@ def smart_job(job: dict, lease: Lease) -> dict:
     except Conflict as exc:
         raise VideoError("The video changed while it was being edited; nothing was overwritten. Press Edit it for "
                          "me again.") from exc
+    if look:
+        from . import video_setup
+
+        video_setup.look_used(project["id"])
     enqueue(project["workspace_id"], "video_preview", project["id"], rev)
     return {"revision": rev}
 
@@ -1580,8 +1653,15 @@ def view(project: dict) -> dict:
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
-            "script": script_view(project.get("script") or {}),
+            "script": script_view(project.get("script") or {}), "setup": _setup_view(project),
             "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+
+
+def _setup_view(project: dict) -> dict | None:
+    """The plan made with ClipForge AI before the build (video_setup.py), or None for a video made without one."""
+    from . import video_setup
+
+    return video_setup.summary(project)
 
 
 def script_view(script: dict) -> dict | None:
