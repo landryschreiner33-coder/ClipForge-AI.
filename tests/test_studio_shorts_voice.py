@@ -1,7 +1,8 @@
 """The animated short's voice (clipfoundry/makers/voice.py): real espeak-ng reading into a trimmed 48 kHz WAV, word
 times estimated from the sound (pauses at the script's punctuation), aligned to heard words, and chosen from the
 engine, the speech model or the estimate; the local engine and its fallback; macOS `say` and Windows SAPI commands
-and voice lists (stand-in programs, nothing real runs); unknown voices, speed limits and cancelling.
+and voice lists (stand-in programs, nothing real runs) and their speed, set by FFmpeg after they read; unknown voices,
+speed limits and cancelling.
 """
 from __future__ import annotations
 
@@ -88,6 +89,11 @@ def _assert_tidy(words: list[dict], length: float) -> None:
         assert round(w["start"], 3) == w["start"] and round(w["end"], 3) == w["end"]
     for a, b in zip(words, words[1:]):
         assert a["end"] <= b["start"] and a["start"] < b["start"]
+
+
+def _stand_in_seconds(speed: float) -> float:
+    """How long a stand-in program's 0.5 s of sound lasts as a voice file at `speed`: 40 ms of silence each side."""
+    return 0.5 / speed + 0.08
 
 
 def _wav_seconds(path: Path) -> float:
@@ -474,11 +480,13 @@ def test_macos_say_voices_and_command(env, monkeypatch):
     got = voice.speak("Hello [[rate 500]] there", out, voice="system:Daniel", speed=1.2)
     assert got["engine"] == "say" and got["voice"] == "Daniel" and got["fallback"] == ""
     args = programs.calls[-1]["args"]
-    assert args[:5] == ["/usr/bin/say", "-v", "Daniel", "-r", "210"]
+    assert args[:5] == ["/usr/bin/say", "-v", "Daniel", "-r", "175"], "macOS reads at its usual pace"
     assert args[5] == "-f" and args[7] == "-o" and args[8].endswith(".aiff") and len(args) == 9
     assert Path(args[6]).name == "words.txt" and not any("Hello" in a for a in args)
     with wave.open(str(out), "rb") as wf:
         assert wf.getframerate() == 48000
+    # ...and FFmpeg makes it 1.2 times as fast, so the speed is what was asked whatever say's rate does
+    assert got["duration_s"] == pytest.approx(_stand_in_seconds(1.2), abs=0.02)
 
     def words_said(speed):
         said = {}
@@ -489,11 +497,15 @@ def test_macos_say_voices_and_command(env, monkeypatch):
             return programs(args, **kw)
 
         monkeypatch.setattr(voice, "_run", keep)
-        voice.speak("Hello [[rate 500]] there", out, voice="system:Daniel", speed=speed)
+        said["seconds"] = voice.speak("Hello [[rate 500]] there", out, voice="system:Daniel", speed=speed)["duration_s"]
         return said
 
     assert words_said(1.0)["text"] == "Hello [ [rate 500] ] there", "say's [[commands]] are broken up"
-    assert words_said(3.0)["rate"] == "245" and words_said(0.1)["rate"] == "122"
+    fast, slow, usual = words_said(3.0), words_said(0.1), words_said(1.0)
+    assert fast["rate"] == slow["rate"] == usual["rate"] == "175"
+    assert fast["seconds"] == pytest.approx(_stand_in_seconds(1.4), abs=0.02), "kept within 0.7 to 1.4"
+    assert slow["seconds"] == pytest.approx(_stand_in_seconds(0.7), abs=0.02)
+    assert usual["seconds"] == pytest.approx(_stand_in_seconds(1.0), abs=0.02)
 
 
 def test_macos_without_enhanced_voices_prefers_samantha(env, monkeypatch):
@@ -540,15 +552,20 @@ def test_windows_sapi_voices_and_command(env, monkeypatch):
     assert '"' not in voice.SAPI_SPEAK and '"' not in voice.SAPI_LIST, "fixed scripts, single quotes only"
     assert not any("Héllo" in a or "David" in a for a in call["args"]), "words and voice stay off the command line"
     env_vars = call["env"]
-    assert env_vars["CLIPFORGE_VOICE_NAME"] == "Microsoft David Desktop" and env_vars["CLIPFORGE_VOICE_RATE"] == "4"
+    assert env_vars["CLIPFORGE_VOICE_NAME"] == "Microsoft David Desktop"
     assert said["text"] == text and Path(env_vars["CLIPFORGE_VOICE_TEXT"]).name == "words.txt"
     assert env_vars["CLIPFORGE_VOICE_OUT"].endswith(".wav")
+    # Windows reads at its usual pace (its rate has only whole steps) and FFmpeg sets the speed afterwards
+    assert "CLIPFORGE_VOICE_RATE" not in env_vars and "Rate" not in voice.SAPI_SPEAK
+    assert got["duration_s"] == pytest.approx(_stand_in_seconds(1.4), abs=0.02)
 
-    voice.speak("Hi", env / "w.wav", voice="system:Microsoft David Desktop", speed=0.7)
-    assert programs.calls[-1]["env"]["CLIPFORGE_VOICE_RATE"] == "-3"
-    voice.speak("Hi", env / "w.wav", voice="system:Microsoft David Desktop", speed=1.0)
-    assert programs.calls[-1]["env"]["CLIPFORGE_VOICE_RATE"] == "0"
-    assert [voice._sapi_rate(s) for s in (0.7, 0.85, 1.0, 1.2, 1.4)] == [-3, -2, 0, 2, 4]
+    def seconds(speed):
+        return voice.speak("Hi", env / "w.wav", voice="system:Microsoft David Desktop", speed=speed)["duration_s"]
+
+    assert seconds(0.7) == pytest.approx(_stand_in_seconds(0.7), abs=0.02)
+    assert seconds(1.0) == pytest.approx(_stand_in_seconds(1.0), abs=0.02)
+    calm, lively, fast = seconds(0.95), seconds(1.05), seconds(1.15)
+    assert calm > lively + 0.03 and lively > fast + 0.03, "the shorts' Calm, Lively and Fast all sound different"
 
 
 # ------------------------------------------------------------------ choices, limits and failures
@@ -576,10 +593,12 @@ def test_speed_is_kept_within_its_limits(env, monkeypatch):
     monkeypatch.setattr(voice, "_run", programs)
     rates = []
     for speed in (0.1, 0.7, 1.0, 1.2, 1.4, 9, "fast", float("nan"), None):
-        voice.speak("Hello there.", env / "s.wav", voice="espeak:en-us", speed=speed)
+        got = voice.speak("Hello there.", env / "s.wav", voice="espeak:en-us", speed=speed)
         args = programs.calls[-1]["args"]
         assert args[:5] == ["/usr/bin/espeak-ng", "-b", "1", "-v", "en-us"] and args[7] == "-f" and args[9] == "-w"
         rates.append(args[args.index("-s") + 1])
+        # espeak-ng reads at the speed asked itself (measured even), so FFmpeg leaves its sound as it is
+        assert got["duration_s"] == pytest.approx(_stand_in_seconds(1.0), abs=0.02)
     assert rates == ["122", "122", "175", "210", "245", "245", "175", "175", "175"]
     assert voice._speed(math.inf) == 1.0
 

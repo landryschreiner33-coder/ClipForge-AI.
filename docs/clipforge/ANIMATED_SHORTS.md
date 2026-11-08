@@ -170,9 +170,13 @@ def time_words(wav: Path, text: str, *, engine_words=None, settings=None, listen
 class VoiceError(RuntimeError)
 ```
 
-macOS: `say -v <name> -r <words a minute> -f <text file> -o <file>.aiff`. Windows: PowerShell with System.Speech
-(text, voice and paths passed in environment variables and a file, never in the command line). Linux and anything
-else: `espeak-ng` (or `espeak`) when installed, run as its own program. Speed 1.0 is 175 words a minute.
+macOS: `say -v <name> -r 175 -f <text file> -o <file>.aiff`. Windows: PowerShell with System.Speech at its usual
+rate (text, voice and paths passed in environment variables and a file, never in the command line). Linux and
+anything else: `espeak-ng` (or `espeak`) when installed, run as its own program, `-s` 175 × speed. Speed 1.0 is about
+175 words a minute. The engine and espeak-ng read at the speed asked; macOS and Windows voices read at their usual
+pace and FFmpeg's `atempo` then sets the speed without changing the pitch, because their own rate settings are
+uneven: on GitHub's Apple-silicon Mac, `say -r` at 1.3 times the words a minute read 1.7 times as fast, and the
+Windows rate has only whole steps (Calm and Lively both read at the usual pace) and read 1.44 times as fast for 1.3.
 
 ### cards.py
 
@@ -255,7 +259,11 @@ Every change answers with the whole video (as `GET /api/studio/videos/<id>`), so
 * Word times are exact when the engine gives them or the speech model is downloaded; otherwise they are estimated
   from the sound (pauses and syllables), close enough for captions but not frame-exact.
 * A script is at most 600 words (about three and a half minutes) and 80 scenes.
-* What could not be tried in the cloud: the local picture, video and voice engines (they need the models on the
-  owner's Mac), macOS `say` and Windows SAPI, ClipForge AI writing a real script (no model here) and word times from
-  the speech model. Pasted scripts, espeak-ng voices, designed cards, camera moves, the plan, captions, previews and
-  renders were made and checked for real.
+* Real computers: `.github/workflows/shorts-check.yml` runs `scripts/shorts_check.py` on GitHub's macOS 15
+  (Apple silicon), Windows and Ubuntu machines: it lists the computer's voices, reads with the one ClipForge picks
+  and two more, checks that the speeds are even, then makes a short from a pasted script with designed cards and
+  camera moves, renders it and checks the size, frame rate, sound, length and burnt-in captions. The Mac's own
+  voices (Samantha, Daniel, Eddy), the Windows voices (Zira, David) and espeak-ng were checked this way.
+* What could not be tried anywhere but the owner's Mac: the local picture, video and voice engines (they need the
+  models), the Premium and Enhanced macOS voices the owner downloaded, ClipForge AI writing a real script (no model
+  in the cloud) and word times from the speech model.

@@ -1,10 +1,16 @@
 """The voice of an animated short: a scene's words read aloud, and when each word is said
 (docs/clipforge/ANIMATED_SHORTS.md).
 
-Voices, best first: the local voice engine when it is set up (Settings → Pictures, video, voice), then this computer's own:
-macOS `say`, the Windows voices (SAPI, through Windows PowerShell) and espeak-ng (or espeak) wherever it is
-installed. "auto" is the best voice found. Whichever voice reads, the result is the same kind of file: a WAV (mono,
-48 kHz, 16-bit) with the silence at both ends trimmed to 40 ms, so the scenes join evenly.
+Voices, best first: the local voice engine when it is set up (Settings → Pictures, video, voice), then this
+computer's own: macOS `say`, the Windows voices (SAPI, through Windows PowerShell) and espeak-ng (or espeak) wherever
+it is installed. "auto" is the best voice found. Whichever voice reads, the result is the same kind of file: a WAV
+(mono, 48 kHz, 16-bit) with the silence at both ends trimmed to 40 ms, so the scenes join evenly.
+
+Speed: the engine and espeak-ng read at the speed asked. macOS and Windows voices read at their usual pace and FFmpeg
+then makes the sound faster or slower without changing its pitch (`atempo`), because their own rate settings do not
+scale evenly. Measured on GitHub's Mac and Windows machines (scripts/shorts_check.py): `say -r` at 1.3 times the
+words a minute read 1.7 times as fast, and the Windows rate for 1.3 (3 of 10) read 1.44 times as fast; the Windows
+rate also only has whole steps, so the shorts' Calm (0.95) and Lively (1.05) were both read at the usual pace.
 
 The words reach a voice program in a temporary file, never on its command line and never through a shell; a voice
 name is only ever one that `voices()` listed; a cancel stops the program at once.
@@ -47,6 +53,7 @@ RATE = 48000               # the voice file: mono, 48 kHz, 16-bit
 EDGE_S = 0.04              # the silence kept at both ends
 FADE_S = 0.005             # the very first and last moments fade, so a cut there never clicks
 WPM = 175                  # words a minute at speed 1.0 (say -r, espeak -s)
+TEMPO_KINDS = ("say", "sapi")  # voices made faster or slower by FFmpeg after they read (see the module's notes)
 SPEEDS = (0.7, 1.4)
 CACHE_S = 600.0            # the voice list is looked up again after ten minutes
 FRAME_S = 0.01             # loudness is measured every 10 ms
@@ -87,7 +94,7 @@ SAPI_LIST = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Add-Type
              "[Console]::Out.WriteLine($i.Name + '|' + $i.Culture.Name + '|' + $i.Gender) } }; $s.Dispose()")
 SAPI_SPEAK = ("$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.Speech; "
               "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-              "try { $s.SelectVoice($env:CLIPFORGE_VOICE_NAME); $s.Rate = [int]$env:CLIPFORGE_VOICE_RATE; "
+              "try { $s.SelectVoice($env:CLIPFORGE_VOICE_NAME); "
               "$s.SetOutputToWaveFile($env:CLIPFORGE_VOICE_OUT); "
               "$s.Speak([System.IO.File]::ReadAllText($env:CLIPFORGE_VOICE_TEXT, [System.Text.Encoding]::UTF8)) } "
               "finally { $s.Dispose() }")
@@ -324,8 +331,9 @@ def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang
     """Read `text` aloud into `out`: a WAV (mono, 48 kHz, 16-bit) with the silence at both ends trimmed to 40 ms.
 
     `voice` is an id from `voices()` ("auto" is the best one); an id that is not there reads with the best voice,
-    and so does a voice that does not work. `speed` is kept within 0.7 to 1.4 (1.0 is 175 words a minute). `cancel()`
-    is checked before and after, and stops a voice program while it runs (raising Cancelled).
+    and so does a voice that does not work. `speed` is kept within 0.7 to 1.4 (1.0 is the voice's usual pace, about
+    175 words a minute); macOS and Windows voices get it from FFmpeg after they read (see the module's notes).
+    `cancel()` is checked before and after, and stops a voice program while it runs (raising Cancelled).
 
     Returns {"path", "duration_s", "words": the engine's timed words (on this file's time) or None, "engine":
     "engine" | "say" | "sapi" | "espeak", "voice": its name, "fallback": why the asked voice was not used ("" when it
@@ -377,10 +385,6 @@ def _speed(speed) -> float:
 
 def _wpm(speed: float) -> int:
     return round(WPM * speed)
-
-
-def _sapi_rate(speed: float) -> int:
-    return max(-10, min(10, round((speed - 1.0) * 10)))
 
 
 def _check(cancel: Callable[[], bool] | None) -> None:
@@ -444,12 +448,12 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
             raw, words, rule = _engine_read(voice_id, text, speed, lang, cancel)
         elif kind == "say":
             # say acts on [[...]] commands inside the words: break them up so the script cannot change the voice
-            raw = _say_read(voice_id, text.replace("[[", "[ [").replace("]]", "] ]"), work, speed, cancel)
+            raw = _say_read(voice_id, text.replace("[[", "[ [").replace("]]", "] ]"), work, cancel)
         elif kind == "sapi":
-            raw = _sapi_read(voice_id, text, work, speed, cancel)
+            raw = _sapi_read(voice_id, text, work, cancel)
         else:
             raw = _espeak_read(voice_id, text, work, speed, cancel)
-        length, shift = _save(raw, out, work, cancel)
+        length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0)
     except _Failed as exc:
         if not exc.reason:
             who = "The local voice engine" if kind == "engine" else f"“{name}”"
@@ -502,22 +506,23 @@ def _sentence(text: str) -> str:
     return text if text[-1] in ".!?" else text + "."
 
 
-def _say_read(name: str, text: str, work: Path, speed: float, cancel) -> Path:
+def _say_read(name: str, text: str, work: Path, cancel) -> Path:
+    """macOS reads at its usual pace (speed 1.0); FFmpeg sets the speed afterwards."""
     say = _find("say")
     if not say:
         raise _Failed("say is missing")
     words, made = _words_file(work, text), work / "voice.aiff"
-    _program([say, "-v", name, "-r", str(_wpm(speed)), "-f", str(words), "-o", str(made)], made, text, cancel)
+    _program([say, "-v", name, "-r", str(WPM), "-f", str(words), "-o", str(made)], made, text, cancel)
     return made
 
 
-def _sapi_read(name: str, text: str, work: Path, speed: float, cancel) -> Path:
+def _sapi_read(name: str, text: str, work: Path, cancel) -> Path:
+    """Windows reads at its usual pace (rate 0); FFmpeg sets the speed afterwards."""
     powershell = _find("powershell")
     if not powershell:
         raise _Failed("Windows PowerShell is missing")
     words, made = _words_file(work, text), work / "voice.wav"
-    env = dict(os.environ, CLIPFORGE_VOICE_TEXT=str(words), CLIPFORGE_VOICE_NAME=name,
-               CLIPFORGE_VOICE_RATE=str(_sapi_rate(speed)), CLIPFORGE_VOICE_OUT=str(made))
+    env = dict(os.environ, CLIPFORGE_VOICE_TEXT=str(words), CLIPFORGE_VOICE_NAME=name, CLIPFORGE_VOICE_OUT=str(made))
     _program([powershell, "-NoProfile", "-NonInteractive", "-Command", SAPI_SPEAK], made, text, cancel, env=env)
     return made
 
@@ -566,10 +571,13 @@ def _tail(data: bytes | None) -> str:
     return (data or b"").decode("utf-8", "replace").strip()[-400:]
 
 
-def _convert(src: Path, dst: Path, rate: int, cancel=None) -> None:
-    """Any sound file as a mono 16-bit WAV at `rate`, by FFmpeg."""
+def _convert(src: Path, dst: Path, rate: int, cancel=None, tempo: float = 1.0) -> None:
+    """Any sound file as a mono 16-bit WAV at `rate`, by FFmpeg; `tempo` other than 1 makes it that much faster or
+    slower without changing its pitch."""
+    tempo = _speed(tempo)
+    shape = ["-af", f"atempo={tempo:.4f}"] if abs(tempo - 1.0) > 1e-4 else []
     args = [ffmpeg_utils.ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", "-y", "-i", str(src),
-            "-map", "0:a:0", "-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le", "-f", "wav", str(dst)]
+            "-map", "0:a:0", *shape, "-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le", "-f", "wav", str(dst)]
     try:
         got = ffmpeg_utils.run_process(args, timeout=300.0, cancel=cancel)
     except ffmpeg_utils.FFmpegError as exc:
@@ -578,10 +586,11 @@ def _convert(src: Path, dst: Path, rate: int, cancel=None) -> None:
         raise _Failed(f"FFmpeg could not read the voice's sound: {_tail(got.stderr)}")
 
 
-def _save(raw: Path, out: Path, work: Path, cancel) -> tuple[float, float]:
-    """The voice program's sound as the voice file `out`: (its length, and how far its times moved, in seconds)."""
+def _save(raw: Path, out: Path, work: Path, cancel, tempo: float = 1.0) -> tuple[float, float]:
+    """The voice program's sound as the voice file `out` (`tempo` times as fast): (its length, and how far its times
+    moved, in seconds). Engine words are only ever given with tempo 1."""
     pcm = work / "voice-48k.wav"
-    _convert(raw, pcm, RATE, cancel)
+    _convert(raw, pcm, RATE, cancel, tempo)
     _check(cancel)
     return _trim(pcm, out)
 

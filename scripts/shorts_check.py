@@ -3,12 +3,12 @@
 Run by .github/workflows/shorts-check.yml on macOS (the `say` voices), Windows (the Windows voices through
 PowerShell) and Linux (espeak-ng), and by hand anywhere: python scripts/shorts_check.py --out <folder>.
 
-It lists the voices, reads a sentence with the voice ClipForge picks and up to two more English ones (and once
-faster), then makes a short from a pasted script with the picked voice (designed cards and camera moves: no picture
-maker is set up), renders it and checks what a viewer gets: 1080x1920 at 30 fps, 48 kHz sound with the voice clearly
-in it, the length of the plan, and captions burnt in the middle of the frame. Writes <out>/report.json, keeps the
-voices, the frames and the final video, and exits 1 when a check fails. Nothing is downloaded and nothing leaves the
-computer.
+It checks that FFmpeg can burn captions, lists the voices, reads a sentence with the voice ClipForge picks and up to
+two more English ones, checks that the speeds are even (the shorts' Calm, Lively and Fast, and 1.3), then makes a
+short from a pasted script with the picked voice (designed cards and camera moves: no picture maker is set up),
+renders it and checks what a viewer gets: 1080x1920 at 30 fps, 48 kHz sound with the voice clearly in it, the length
+of the plan, and captions burnt in the middle of the frame. Writes <out>/report.json, keeps the voices, the frames
+and the final video, and exits 1 when a check fails. Nothing is downloaded and nothing leaves the computer.
 """
 from __future__ import annotations
 
@@ -70,6 +70,19 @@ class Check:
         (self.out / "report.json").write_text(json.dumps(self.report, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _ffmpeg(c: Check) -> None:
+    from clipfoundry.pipeline import ffmpeg_utils
+
+    exe = ffmpeg_utils.ffmpeg_bin()
+    version = subprocess.run([exe, "-hide_banner", "-version"], capture_output=True, text=True).stdout.splitlines()
+    listing = subprocess.run([exe, "-hide_banner", "-filters"], capture_output=True, text=True).stdout.splitlines()
+    names = {parts[1] for parts in (line.split() for line in listing) if len(parts) > 2 and "->" in parts[2]}
+    missing = sorted({"ass", "atempo"} - names)  # captions; the speed of macOS and Windows voices
+    c.step("FFmpeg can burn captions and change a voice's speed", not missing, ffmpeg=exe,
+           version=version[0] if version else "", missing=missing,
+           why="built without libass, so it cannot burn captions" if "ass" in missing else "")
+
+
 def _voices(c: Check) -> list[dict]:
     from clipfoundry.makers import voice
 
@@ -106,14 +119,25 @@ def _speak(c: Check, mine: list[dict]) -> None:
             c.step(f"speaks with {v['id']}", False, error=f"{exc.__class__.__name__}: {exc}",
                    trace=traceback.format_exc()[-1500:])
     if picked:
+        from clipfoundry.makers import shorts
+
         try:
-            slow = voice.speak(SENTENCE, c.out / "speed-1.0.wav", voice=picked[0]["id"], speed=1.0)
-            fast = voice.speak(SENTENCE, c.out / "speed-1.3.wav", voice=picked[0]["id"], speed=1.3)
-            ratio = fast["duration_s"] / max(0.01, slow["duration_s"])
-            c.step("a faster speed reads faster", ratio < 0.92, normal_s=slow["duration_s"], fast_s=fast["duration_s"],
-                   ratio=round(ratio, 3))
+            first = picked[0]["id"]
+
+            def seconds(speed: float) -> float:
+                return voice.speak(SENTENCE, c.out / f"speed-{speed:g}.wav", voice=first, speed=speed)["duration_s"]
+
+            usual = seconds(1.0)
+            paces = [(label, value, seconds(value)) for value, label in shorts.SPEEDS]
+            asked = {label: value for label, value, _ in paces} | {"1.3": 1.3}
+            took = {label: got for label, _, got in paces} | {"1.3": seconds(1.3)}
+            # how much faster than the usual pace each one read, against what was asked (1.0 is exactly right)
+            even = {label: round(usual / took[label] / asked[label], 3) for label in asked}
+            c.step("the speeds are even", all(abs(v - 1.0) < 0.06 for v in even.values())
+                   and all(a[2] > b[2] for a, b in zip(paces, paces[1:])),
+                   voice=first, usual_s=usual, seconds=took, read_vs_asked=even)
         except Exception as exc:  # noqa: BLE001
-            c.step("a faster speed reads faster", False, error=f"{exc.__class__.__name__}: {exc}")
+            c.step("the speeds are even", False, error=f"{exc.__class__.__name__}: {exc}")
 
 
 def _short(c: Check) -> None:
@@ -205,6 +229,7 @@ def main() -> int:
         from clipfoundry import db
 
         db.init()
+        _ffmpeg(c)
         mine = _voices(c)
         _speak(c, mine)
         _short(c)
