@@ -1,7 +1,7 @@
 """The voice of an animated short: a scene's words read aloud, and when each word is said
 (docs/clipforge/ANIMATED_SHORTS.md).
 
-Voices, best first: the local voice engine when it is set up (Settings → Local makers), then this computer's own:
+Voices, best first: the local voice engine when it is set up (Settings → Pictures, video, voice), then this computer's own:
 macOS `say`, the Windows voices (SAPI, through Windows PowerShell) and espeak-ng (or espeak) wherever it is
 installed. "auto" is the best voice found. Whichever voice reads, the result is the same kind of file: a WAV (mono,
 48 kHz, 16-bit) with the silence at both ends trimmed to 40 ms, so the scenes join evenly.
@@ -57,7 +57,7 @@ WORD_S = 60.0 / WPM        # one word's time when nothing better is known
 FINAL_WEIGHT = 3           # the last word of a phrase is drawn out (phrase-final lengthening)
 MIN_WORD_S = 0.01
 AUTO_NAME = "Best voice on this computer"
-SETUP = "set up the local voice engine in ClipForge's Settings → Local makers"
+SETUP = "download the voice in ClipForge's Settings → Pictures, video, voice"
 
 # macOS voices made for fun rather than narration (System Settings lists them under "Novelty")
 NOVELTY = frozenset({"albert", "bad news", "bahh", "bells", "boing", "bubbles", "cellos", "deranged", "good news",

@@ -6,7 +6,7 @@ change) and the scene's key words in big letters. The words sit between 18 and 4
 captions in the middle and of the buttons the phone apps put along the bottom and the right. A card is larger than the
 video's frame (1242 x 2208 for 1080 x 1920) so the camera can push in on it and it stays sharp.
 
-Cards are honest placeholders, not illustrations: the page says so and links to the local makers settings.
+Cards are honest placeholders, not illustrations: the page says so and links to Settings → Pictures, video, voice.
 """
 from __future__ import annotations
 

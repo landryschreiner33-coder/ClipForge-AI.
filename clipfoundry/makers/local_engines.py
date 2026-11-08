@@ -1,4 +1,4 @@
-"""The one door from the makers to the local engines (clipfoundry/engines, set up under Settings → Local makers;
+"""The one door from the makers to the local engines (clipfoundry/engines, set up under Settings → Pictures, video, voice;
 docs/clipforge/LOCAL_ENGINES.md and docs/clipforge/ANIMATED_SHORTS.md).
 
 The engines module is made by separate work and may be missing from this ClipForge, or present with no engine set
@@ -30,7 +30,7 @@ def status(role: str) -> dict:
     """{"ready": bool, "engine": str, "why": str, "available": bool} for one role. Never raises."""
     mod = module()
     if mod is None:
-        return {"ready": False, "engine": "", "why": "Local makers are not part of this version of ClipForge.",
+        return {"ready": False, "engine": "", "why": "This version of ClipForge does not have the local makers yet.",
                 "available": False}
     try:
         got = mod.status(role) or {}

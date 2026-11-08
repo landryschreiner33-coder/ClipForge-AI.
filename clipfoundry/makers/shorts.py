@@ -376,16 +376,17 @@ def _insert_scenes(project_id: str, workspace_id: str, rows: list[dict], base_se
     return ids
 
 
-def _rebuild(project: dict, changes: dict | None = None, apply: tuple = ()) -> int:
+def _rebuild(project: dict, changes: dict | None = None, apply: tuple = (),
+             waiting: str = "Waiting to make the changes") -> int:
     """Ask for a new build after a change: the job makes what changed and saves the next version of the plan. Until
     it starts, the short says it is waiting to make the change (not "Ready"), unless it waits for the owner to check
     the script or ClipForge AI is still writing it."""
     now = {**(project.get("short") or {}), **(changes or {})}
     if not (now.get("review") and not now.get("reviewed")) and now.get("stage") != "writing":
-        changes = {**(changes or {}), "stage": "making", "message": "Waiting to make the changes"}
+        changes = {**(changes or {}), "stage": "making", "message": waiting}
     short = _patch_short(project["id"], changes, bump=True, apply=apply)
     build = int(short["build"])
-    db.update("studio_projects", project["id"], status="building", message="Making the changed scenes")
+    db.update("studio_projects", project["id"], status="building", message=waiting)
     enqueue(project["workspace_id"], "short_build", project["id"], build)
     return build
 
@@ -836,7 +837,7 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
 
     eng = local_engines.module()
     if eng is None:
-        return None, "Local makers are not part of this version of ClipForge; the camera moves instead."
+        return None, "This version of ClipForge does not have the local makers yet, so the camera moves instead."
     prompt, _negative = looks.prompt_for(look, scene["picture_prompt"], short.get("character") or "")
     try:
         video = eng.make_video(prompt, image=Path(picture["path"]), seconds=min(VIDEO_MAX_S, duration_s), width=720,
@@ -1108,7 +1109,7 @@ def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
                      " a designed card with the scene's key words. Press New picture on a scene to try again.")
     elif cards:
         notes.append(f"{len(cards)} of {len(rows)} pictures are designed cards with each scene's key words, because "
-                     "no picture maker is set up. Set one up under Settings → Local makers, then press Make the short "
+                     "no picture maker is set up. Set one up in Settings → Pictures, video, voice, then press Make the short "
                      "to swap them for real pictures.")
     for n, s in enumerate(rows, 1):
         if s["status"] == "failed":
@@ -1118,7 +1119,7 @@ def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
     if fallback:
         notes.append(str(fallback["fallback"]))
     for rule in dict.fromkeys((_info(s).get("voice") or {}).get("rule") or "" for s in rows):
-        if rule:  # what the voice's licence asks of what it makes (Settings → Local makers); also shown at Download
+        if rule:  # what the voice's licence asks of what it makes (Settings → Pictures, video, voice); also at Download
             notes.append(f"About the voice: {rule}")
     animated = [s for s in rows if (_info(s).get("motion") or {}).get("why")]
     if animated:
@@ -1301,7 +1302,7 @@ def make(project: dict) -> None:
     if project["short"].get("mode") == "write" and not scene_rows(project["id"]) and \
             project["status"] == "building":
         raise ShortError("ClipForge AI is still writing the script.")
-    _rebuild(project, {"reviewed": True})
+    _rebuild(project, {"reviewed": True}, waiting="Waiting to start")
 
 
 def set_options(project: dict, body: dict) -> None:

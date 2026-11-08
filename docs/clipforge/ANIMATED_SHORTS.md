@@ -220,7 +220,8 @@ shorter than the voice and holds its last frame for the rest.
   and message, the scenes in the plan's order, progress, seconds, engines, the writer, `voice_rule` (shown next to
   Download) and notes (also the plan's notes).
 * A change (`update_scene`, `add_scene`, `delete_scene`, `set_options`, `make`) bumps the build number, sets the stage
-  to `making` ("Waiting to make the changes") unless the short waits for the owner to check the script, and queues
+  to `making` ("Waiting to make the changes", or "Waiting to start" after **Make the short**) unless the short
+  waits for the owner to check the script, and queues
   `short_build`; a build that finds a newer build number waiting leaves the last word to it.
 
 ### The API
@@ -249,7 +250,7 @@ Every change answers with the whole video (as `GET /api/studio/videos/<id>`), so
 ## Limits
 
 * Without a picture engine, pictures are designed cards with the scene's key words. They are honest placeholders,
-  not illustrations: the page says so and links to the local makers settings.
+  not illustrations: the page says so and links to Settings → Pictures, video, voice (`#/settings/makers`).
 * The computer's own voices are clear but plain; a local voice engine sounds better.
 * Word times are exact when the engine gives them or the speech model is downloaded; otherwise they are estimated
   from the sound (pauses and syllables), close enough for captions but not frame-exact.
