@@ -8,8 +8,8 @@ setting. Now story clips show the whole gameplay picture, centred and still, wit
 clips has **Full story** (one clip per story) and **Story parts** (each story cut at its most gripping places into
 Part 1, Part 2…, each its own clip); and no story clip is ever longer than five minutes, whatever the setting or hand
 edit. On 40 test recordings of this kind of video (four posts each) the release line made 9 to 21 clips; this makes 4.
-An independent review before the PR found 13 problems (cut points, kinds of story videos the stricter rules missed,
-caption placement, framing details); all are fixed and tested.
+An independent review before the PR found problems with cut points, kinds of story videos the stricter rules missed,
+caption placement and framing details; all are fixed and tested.
 
 - **Branch / PR:** `claude/project-thread-6ouxbx`, restarted from the release line at 95a70e0 (PRs #30–#33), draft PR
   into `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
