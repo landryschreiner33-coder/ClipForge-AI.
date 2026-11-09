@@ -39,12 +39,13 @@ export default function LocalMakersSettings() {
     return () => window.clearInterval(t);
   }, [running, load]);
 
-  const act = async (fn: () => Promise<unknown>, done?: string) => {
+  const act = async <T,>(fn: () => Promise<T>, done?: string | ((result: T) => string)) => {
     setBusy(true);
     try {
-      await fn();
+      const result = await fn();
       await load();
-      if (done) toast(done);
+      const text = typeof done === "function" ? done(result) : done;
+      if (text) toast(text);
     } catch (e) {
       toast(errorText(e), true);
     }
@@ -88,6 +89,7 @@ export default function LocalMakersSettings() {
             {m.memory_gb ? ` · runs well on a Mac with ${m.memory_gb} GB of memory or a PC with an NVIDIA card with ${m.vram_gb} GB` : ""}</span>
           {fitNote(m) && <span className="block small">{fitNote(m)}</span>}</div>
         {m.ready ? <Pill tone="good" icon="check">{chosen && byRole(m.role).length > 1 ? "In use" : "Ready"}</Pill>
+          : m.removable ? <Pill tone="warn">Partly downloaded</Pill>
           : m.recommended ? <Pill tone="info">Best for this computer</Pill> : <Pill>Not downloaded</Pill>}
         <div className="row-actions">
           {m.ready && byRole(m.role).length > 1 && !chosen && <button type="button" className="btn btn-small" disabled={busy}
@@ -96,8 +98,9 @@ export default function LocalMakersSettings() {
           {!m.ready && m.can_download && <button type="button" className="btn btn-small" disabled={busy || setupRunning ||
             (m.role !== "voice" && !comfyReady)} onClick={() => setConfirm({ what: "model", model: m })}>
             <Icon name="download" />Download</button>}
-          {m.ready && m.removable && <button type="button" className="btn btn-small btn-quiet" disabled={busy || setupRunning}
-            onClick={() => void act(() => engines.remove("model", m.id), `${m.name} removed.`)}><Icon name="trash" />Remove</button>}
+          {m.removable && <button type="button" className="btn btn-small btn-quiet" disabled={busy || setupRunning}
+            onClick={() => void act(() => engines.remove("model", m.id), (v) => v.note || `${m.name} removed.`)}>
+            <Icon name="trash" />Remove</button>}
         </div></li>
     );
   };

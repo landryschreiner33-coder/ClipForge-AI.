@@ -21,6 +21,7 @@ killed is stopped at the next start (its process id is recorded).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -359,6 +360,9 @@ def mac_too_old() -> bool:
 
 
 def remove() -> None:
+    if server._shared():  # noqa: SLF001 - its files are in use (and Windows would refuse to delete them part way)
+        raise EngineError("ComfyUI is in use by another copy of ClipForge that is open. Close it first, then remove "
+                          "ComfyUI.")
     server.stop()
     for p in (root() / "cache", root() / "downloads"):
         files.remove_tree(p)
@@ -560,12 +564,61 @@ class Server:
             if rec and proc is not None and int(rec.get("pid") or 0) == proc.pid:
                 self.pid_file.unlink(missing_ok=True)
 
+    def release_files(self) -> None:
+        """Model files are about to be deleted, and Windows refuses to delete a file a program holds open: this
+        process's ComfyUI is stopped (it starts again when needed); one that another ClipForge process started and
+        shares is not this process's to stop, so it is asked to unload its models instead."""
+        self.stop()
+        other = self._shared()
+        if other:
+            Comfy(other, timeout=30).free()
+
     def view(self) -> dict:
         return {"running": self.running(), "since": self.started_at if self.running() else 0,
                 "idle_minutes": round(self.idle_s / 60, 1)}
 
 
-busy = threading.Event()  # set while a picture or a video is being made, so the idle stop waits
+busy = threading.Event()  # set while a picture or a video is being made, so the idle stop and Remove wait
+_jobs_cond = threading.Condition()
+_jobs = 0      # pictures and clips being made (job)
+_removals = 0  # removals under way (removing)
+
+
+@contextlib.contextmanager
+def job():
+    """One picture or clip, from starting ComfyUI to saving the file: meanwhile the idle stop leaves ComfyUI running
+    and Remove is refused (it stops or empties the ComfyUI the job uses); a Remove under way is waited for first."""
+    global _jobs
+    with _jobs_cond:
+        while _removals:
+            _jobs_cond.wait()
+        _jobs += 1
+        busy.set()
+    try:
+        yield
+    finally:
+        with _jobs_cond:
+            _jobs -= 1
+            if not _jobs:
+                busy.clear()
+            _jobs_cond.notify_all()
+        server.touch()
+
+
+@contextlib.contextmanager
+def removing():
+    """Removing ComfyUI or model files: refused while a picture or clip is being made; new ones wait until it ends."""
+    global _removals
+    with _jobs_cond:
+        if _jobs or busy.is_set():
+            raise EngineError("A picture or clip is being made right now. Wait for it to finish, or stop it, first.")
+        _removals += 1
+    try:
+        yield
+    finally:
+        with _jobs_cond:
+            _removals -= 1
+            _jobs_cond.notify_all()
 
 
 def _cmdline(pid: int) -> str:

@@ -226,7 +226,9 @@ export type EnginesView = { online: boolean;
     source: string };
   models: EngineModel[]; chosen: Record<EngineRole, string>; memory_mb: number; vram_mb: number; task: EngineTask;
   trial: EngineTrial;
-  voice_rule: string };
+  voice_rule: string;
+  /** After a Remove: what was kept because another model still needs it. */
+  note?: string };
 
 export const engines = {
   view: () => req<EnginesView>("GET", "/api/engines"),

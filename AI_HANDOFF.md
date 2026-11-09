@@ -39,6 +39,19 @@ exclude the United States or forbid use in a paid app, cloud-only services, heav
   on ComfyUI's cache, uv putting `python3.12` on the PATH and in the Windows registry, unbounded seed and PyTorch
   dependency versions, a complete `.part` file never finishing, progress going backwards, Stop returning while ComfyUI
   still ran, two misleading error texts); all fixed with a test each (AI_CHANGELOG.md has the list).
+- **Second review (Nov 8):** three more, each fixed with a test: Remove kept the 8 GB shared text encoder for a
+  model that was not there when the person had a file of the same name as one of its files (FLUX.1's `ae.safetensors`
+  is also Z-Image's VAE name), and could then never remove it (now kept only for a model that is complete or that
+  ClipForge was part way through downloading, and Remove says what it kept; a stopped download can be removed); a
+  picture job counted as running only while ComfyUI worked on it, so Remove could stop the ComfyUI a job was starting
+  (`comfy_server.job()` now covers start to saved file, `removing()` excludes it); ComfyUI 0.43's own loader's words
+  for a damaged file (used on NVIDIA cards) were shown raw. Two more found while checking: another program's `.part`
+  file in the app's folders counted as ClipForge's (now only one recorded in the index before the download), and
+  Remove did not make a ComfyUI shared from another ClipForge process let go of the files (`release_files()`), and
+  removing ComfyUI itself deleted it from under such a process (now refused). Only
+  one of the three planned reviewers ran (a usage limit until Nov 11); the process and Windows parts were checked by
+  hand instead. Known limit: the job guard is per process, so a second ClipForge process making a picture with the
+  shared ComfyUI is not seen by Remove in the first (today only the app process makes pictures).
 - **Not done:** real Metal generation and speed on Landry's Mac, a real Wan clip, Windows with NVIDIA, the ComfyUI
   desktop app, the shorts maker end to end with real engines (all need Landry's computer); smaller fp8 files for small
   NVIDIA cards; LTX-Video.

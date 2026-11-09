@@ -1121,6 +1121,153 @@ def test_remove_says_so_when_clipforge_did_not_download_the_files(app_settings, 
         engines.remove("model", "flux2-klein-4b")
 
 
+def test_a_shared_file_is_kept_only_for_a_model_that_still_needs_it(file_server, monkeypatch, app_settings,
+                                                                      fake_comfy):
+    """The person's own file that happens to share a name with one of another model's files (FLUX.1's ae.safetensors
+    and Z-Image's VAE) does not make ClipForge keep the 8 GB text encoder for a model that is not there."""
+    from clipfoundry import engines
+
+    srv = file_server({})
+    a, b = tiny_models(srv, monkeypatch)
+    app = fake_comfy.tmp / "app-models"
+    theirs = app / "vae" / "vae-a.safetensors"
+    theirs.parent.mkdir(parents=True, exist_ok=True)
+    theirs.write_bytes(b"their own vae")
+    fake_comfy.models["vae"].append("vae-a.safetensors")
+    other_part = app / "diffusion_models" / "a.safetensors.part"  # another program's download of that name
+    other_part.parent.mkdir(parents=True, exist_ok=True)
+    other_part.write_bytes(b"not ClipForge's")
+    assert run_steps(models.install_steps(b, "app", fake_comfy.url))["state"] == "done"
+    fake_comfy.have(b)
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert not by["tiny-a"]["removable"]
+    view = engines.remove("model", "tiny-b")
+    assert not (app / "text_encoders" / "te.safetensors").exists()  # tiny-a is not there: nothing else needs it
+    assert not (app / "diffusion_models" / "b.safetensors").exists()
+    assert theirs.read_bytes() == b"their own vae" and other_part.is_file()  # never touched
+    assert not view.get("note")
+
+
+def test_remove_says_what_it_kept_and_a_part_downloaded_model_can_be_removed(file_server, monkeypatch,
+                                                                             app_settings, fake_comfy):
+    from clipfoundry import engines
+
+    srv = file_server({})
+    a, b = tiny_models(srv, monkeypatch)
+    app = fake_comfy.tmp / "app-models"
+    assert run_steps(models.install_steps(b, "app", fake_comfy.url))["state"] == "done"
+    fake_comfy.have(b)
+    steps = models.install_steps(a, "app", fake_comfy.url)
+    assert run_steps(steps[:2])["state"] == "done"  # tiny-a's first file
+    fetch = files.fetch
+
+    def stopped(pin, dest, *args, **kwargs):  # its last file: stopped part way (the computer went to sleep)
+        dest.with_name(dest.name + ".part").write_bytes(b"v" * 100)
+        raise EngineError("Stopped; the download resumes where it left off.")
+
+    monkeypatch.setattr(files, "fetch", stopped)
+    assert len(steps) == 3 and run_steps(steps[2:])["state"] == "failed"  # (the shared encoder is there already)
+    monkeypatch.setattr(files, "fetch", fetch)
+    fake_comfy.models["diffusion_models"].append("a.safetensors")
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert not by["tiny-a"]["ready"] and by["tiny-a"]["removable"]  # Settings offers to remove what is there
+    view = engines.remove("model", "tiny-b")
+    assert (app / "text_encoders" / "te.safetensors").is_file()  # tiny-a's download still needs it
+    assert "te.safetensors" in view["note"] and a.name in view["note"]
+    fake_comfy.models["diffusion_models"].remove("b.safetensors")  # ComfyUI no longer lists what was deleted
+    fake_comfy.models["vae"].remove("vae-b.safetensors")
+    view = engines.remove("model", "tiny-a")
+    for gone in ("diffusion_models/a.safetensors", "text_encoders/te.safetensors", "vae/vae-a.safetensors.part"):
+        assert not (app / gone).exists(), gone
+    assert not view.get("note")
+
+
+def test_remove_asks_a_comfyui_another_clipforge_process_runs_to_let_go(file_server, monkeypatch, fake_comfy):
+    """ClipForge's own ComfyUI may have been started by another ClipForge process (they share it). Stopping it is
+    not this process's to do, but it must still let go of the files (Windows will not delete them otherwise)."""
+    import os
+
+    from clipfoundry import engines
+
+    srv = file_server({})
+    a, _ = tiny_models(srv, monkeypatch)
+    assert run_steps(models.install_steps(a, "clipforge", None))["state"] == "done"
+    values = dict(config.DEFAULT_SETTINGS, engines_comfyui="clipforge")
+    monkeypatch.setattr(engines, "_settings", lambda: values)
+    monkeypatch.setattr(makers, "_settings", lambda: values)
+    pid_file = comfy_server.server.pid_file
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(json.dumps({"pid": 4242, "port": int(fake_comfy.url.rsplit(":", 1)[1]),
+                                    "owner": os.getppid()}))  # another live process started it
+    monkeypatch.setattr(comfy_server, "_is_ours", lambda pid: pid == 4242)
+    engines.remove("model", "tiny-a")
+    assert ("POST", "/free") in fake_comfy.calls
+    assert [f.name for f in models.missing(a, "clipforge", None)] == [f.name for f in a.files]
+    assert pid_file.is_file()  # still that process's ComfyUI
+
+
+def test_comfyui_is_not_removed_while_another_clipforge_process_runs_it(fake_comfy, monkeypatch):
+    import os
+
+    from clipfoundry import engines
+
+    env = comfy_server.root() / "env-cpu"
+    env.mkdir(parents=True, exist_ok=True)
+    (env / "python").write_text("x")
+    comfy_server.server.pid_file.write_text(json.dumps({"pid": 4242, "port": int(fake_comfy.url.rsplit(":", 1)[1]),
+                                                        "owner": os.getppid()}))
+    monkeypatch.setattr(comfy_server, "_is_ours", lambda pid: pid == 4242)
+    with pytest.raises(EngineError, match="another copy of ClipForge"):
+        engines.remove("comfyui")
+    assert (env / "python").is_file()
+    comfy_server.server.pid_file.unlink()
+    engines.remove("comfyui")  # nobody else uses it: removed
+    assert not env.exists()
+
+
+def test_remove_waits_for_the_whole_picture_job(app_settings, fake_comfy, monkeypatch):
+    """From starting ComfyUI to saving the file, a picture job keeps Remove away (Remove stops or empties the ComfyUI
+    the job uses), and a Remove under way keeps a new job waiting until it is done."""
+    from clipfoundry import engines
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    seen = {}
+    real_base, real_download = makers.base_url, comfy.Comfy.download
+
+    def base_url(settings, progress=None):
+        seen["starting"] = comfy_server.busy.is_set()
+        with pytest.raises(EngineError, match="being made"):
+            engines.remove("model", "flux2-klein-4b")
+        return real_base(settings, progress)
+
+    def download(self, file, dest):
+        seen["saving"] = comfy_server.busy.is_set()
+        return real_download(self, file, dest)
+
+    monkeypatch.setattr(makers, "base_url", base_url)
+    monkeypatch.setattr(comfy.Comfy, "download", download)
+    engines.make_image("A lighthouse at dusk")
+    assert seen == {"starting": True, "saving": True} and not comfy_server.busy.is_set()
+
+    entered = threading.Event()
+
+    def job():
+        with comfy_server.job():
+            entered.set()
+
+    with comfy_server.removing():
+        t = threading.Thread(target=job, daemon=True)
+        t.start()
+        assert not entered.wait(0.3)  # waits while the files are being removed
+    assert entered.wait(5)
+    t.join(5)
+    with comfy_server.job():
+        with pytest.raises(EngineError, match="being made"), comfy_server.removing():
+            pass
+    assert not comfy_server.busy.is_set()
+
+
 def test_the_same_request_twice_is_made_twice(app_settings, fake_comfy, monkeypatch):
     from clipfoundry import engines
 
@@ -1259,6 +1406,13 @@ def test_loader_errors_in_plain_words():
     assert "too old" in old and "damaged" not in old
     assert "could not find" in comfy.plain("[Errno 2] No such file or directory: '/m/vae/ae.safetensors'")
     assert "damaged" in comfy.plain("Error while deserializing header: HeaderTooLarge")
+    # ComfyUI 0.43 on NVIDIA cards loads model files itself (comfy/utils.py load_safetensors) and says it this way
+    tail = "\n\nFile path: /m/vae/ae.safetensors\n\nThe safetensors file is corrupt/incomplete. Check the file size."
+    for first in ("The safetensors header is incomplete.", "Tensor 'decoder.conv_in.weight' extends past the end of "
+                  "the file.", "The safetensors header is too large.", "Tensor 'x' has invalid data offsets."):
+        assert "damaged" in comfy.plain(first + tail), first
+    assert "damaged" in comfy.plain("Tensor 'x' does not match its declared shape and dtype.\n\nFile path: /m/x."
+                                    "safetensors\n\nThe safetensors file is corrupt or invalid. Make sure ...")
 
 
 def test_models_with_use_rules_need_the_persons_agreement(monkeypatch, client):

@@ -195,34 +195,52 @@ def remove(what: str, model_id: str = "") -> dict:
     if what == "model" and m is not None and m.role == "voice":  # the voice runs inside ClipForge, not in ComfyUI
         voice.remove(m)
         return overview()
-    if comfy_server.busy.is_set():
-        raise EngineError("A picture or clip is being made right now. Wait for it to finish, or stop it, first.")
-    if what == "comfyui":
-        comfy_server.remove()
-        return overview()
-    if what != "model" or m is None:
-        raise EngineError("Unknown model.")
-    settings = _settings()
-    mode = makers.mode(settings)
-    if mode == "off":
-        raise EngineError("Pictures and video are turned off. Choose a ComfyUI in Settings first.")
-    base = makers.find_app(settings, max_age=0) if mode == "app" else None
-    if mode == "app" and not base:
-        raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then remove the model.")
-    paths, kept_for = models.removal_plan(m, mode, base)
-    if not paths:
-        if kept_for:
-            raise EngineError(f"{m.name}'s files are also used by {', '.join(kept_for)}, so they were kept.")
-        raise EngineError(f"ClipForge did not download {m.name}'s files into this ComfyUI, so it leaves them alone. "
-                          "Remove them in ComfyUI itself.")
-    # ComfyUI keeps the model files it loaded open (Windows then refuses to delete them): ClipForge's own ComfyUI is
-    # stopped (it starts again when needed), a ComfyUI app is asked to let go of its models
-    if mode == "clipforge":
-        comfy_server.server.stop()
-    else:
-        Comfy(str(base), timeout=30).free()
-    models.remove(m, mode, base)
-    return overview()
+    with comfy_server.removing():  # refused while a picture or clip is being made; none starts meanwhile
+        if what == "comfyui":
+            comfy_server.remove()
+            return overview()
+        if what != "model" or m is None:
+            raise EngineError("Unknown model.")
+        settings = _settings()
+        mode = makers.mode(settings)
+        if mode == "off":
+            raise EngineError("Pictures and video are turned off. Choose a ComfyUI in Settings first.")
+        base = makers.find_app(settings, max_age=0) if mode == "app" else None
+        if mode == "app" and not base:
+            raise EngineError("ComfyUI is not running. Open the ComfyUI app first, then remove the model.")
+        paths, kept = models.removal_plan(m, mode, base)
+        if not paths:
+            if kept:
+                raise EngineError(f"{m.name}'s files are also used by {_and(_users(kept))}, so they were kept.")
+            raise EngineError(f"ClipForge did not download {m.name}'s files into this ComfyUI, so it leaves them "
+                              "alone. Remove them in ComfyUI itself.")
+        # ComfyUI keeps the model files it loaded open (Windows then refuses to delete them): ClipForge's own ComfyUI
+        # lets go of them (release_files), a ComfyUI app is asked to unload its models
+        if mode == "clipforge":
+            comfy_server.server.release_files()
+        else:
+            Comfy(str(base), timeout=30).free()
+        models.remove(m, mode, base)
+    view = overview()
+    if kept:
+        names = [f.name for f, _ in kept]
+        users = _users(kept)
+        view["note"] = (f"{m.name} removed. Kept {_and(names)} ({_size(sum(f.size for f, _ in kept))}): "
+                        f"{_and(users)} {'needs' if len(users) == 1 else 'need'} {'it' if len(names) == 1 else 'them'} "
+                        "too.")
+    return view
+
+
+def _users(kept) -> list[str]:
+    return sorted({u for _, users in kept for u in users})
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _size(n: int) -> str:
+    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{max(1, round(n / 1e6))} MB"
 
 
 def make_room(kind: str) -> None:

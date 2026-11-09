@@ -45,14 +45,27 @@ Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/cl
   alone with `--no-deps`); a complete `.part` file is finished instead of failing on HTTP 416, a refused range starts
   over once, the final rename retries on Windows; progress never goes backwards; Stop and time-outs wait until ComfyUI
   has let go of the graph; clearer words for a too-old ComfyUI and a missing model file.
+- **Fixed after a second review (Nov 8, a test written first for each):** Remove keeps the shared text encoder only
+  for a model that is complete or that ClipForge was part way through downloading (a file of the person's own with the
+  same name as one of the other model's files, such as FLUX.1's `ae.safetensors`, made it keep 8 GB for a model that
+  was not there, which nothing could remove afterwards), and says what it kept; a stopped download can be removed
+  (the row says "Partly downloaded"); a picture or clip job now counts from starting ComfyUI to saving its file
+  (`comfy_server.job()`), and Remove (`removing()`) is refused meanwhile and holds new jobs back while it runs, so it
+  can no longer stop the ComfyUI a job is starting; ComfyUI 0.43's own model loader (used on NVIDIA cards) has its
+  damaged-file words turned into plain words too. Found while checking those fixes: a `.part` file counts as
+  ClipForge's in the app's folders only when ClipForge recorded it before its download started (another program's
+  half-downloaded file of the same name was offered for removal), and Remove asks a ComfyUI that another ClipForge
+  process started and shares to unload its models (`Server.release_files()`), since stopping it is not this
+  process's to do and Windows would otherwise refuse the delete; removing ComfyUI itself is refused while such a
+  process runs it (it deleted the program from under it).
 - **Skipped, with reasons** (details in the design doc): FreeVideo (its MiniMax H3 model's licence excludes the
   United States); WanGP (custom licence needs a paid deal to ship inside a sold app; Wan 2.2 already runs through
   ComfyUI); InvokeAI (the same models already run through ComfyUI); OpenHiggsfield (only a page for a paid online
   service, and its code has no licence; the zip was unpacked apart and only read); WeKnora (a team-sized server
   needing several extra programs; a small passage search in the Brain is a follow-up); VoiceStudio kept for later
   (its default voice model is non-commercial and the app is heavy; it could add a creator's own cloned voice).
-- **Checks:** `tests/test_local_engines.py` (55, a stand-in ComfyUI and a local file server, each test with its own
-  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2024 passed, 2 skipped) and
+- **Checks:** `tests/test_local_engines.py` (60, a stand-in ComfyUI and a local file server, each test with its own
+  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2027 passed, 2 skipped) and
   `pytest -m slow` (27 passed, 1 skipped);
   `.github/workflows/local-engines-check.yml` + `scripts/local_engines_check.py` on GitHub's Mac, Windows and Linux
   machines: every pin compared with its source, ComfyUI set up from nothing and started, a model-free PNG and H.264

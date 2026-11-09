@@ -170,26 +170,37 @@ set-up runs at a time with progress and Cancel.
   (`catalog.Model.rule`: Supertonic 3 and Wan 2.2) it shows them and the button reads "Agree and download"; the
   set-up route refuses such a model unless the request says `"agreed": true`.
 - **Remove** is shown only when it would delete something: the files ClipForge downloaded itself into the folders of
-  the ComfyUI in use (ClipForge's own, or the app's), never a file another model there still uses (the picture
-  models' shared text encoder stays while the other one has its files), and never while a picture or clip is being
-  made. ClipForge's own ComfyUI is stopped first and a ComfyUI app is asked to unload its models, because Windows
-  will not delete a file a program still holds; a file Windows still holds is tried again for a few seconds. The online studio does not offer local makers (the routes answer 404
-in cloud mode). Routes: `GET /api/engines`, `POST /api/engines/setup|cancel|remove|try|try/cancel` (all need the
-app's own header), `GET /api/engines/made/<file>` (this computer only).
+  the ComfyUI in use (ClipForge's own, or the app's), and what a stopped download of ClipForge's left there (the row
+  then says "Partly downloaded"; in the app's folders only a `.part` file ClipForge recorded before it started, never
+  another program's). It never deletes a file of the person's own, nor a shared file another model there still
+  needs: the picture models' text encoder stays while the other model is there or ClipForge is part way through
+  downloading it (a file of the person's that only has the same name as one of its files does not count), and Remove
+  then says what it kept. It is refused while a picture or clip is being made, from starting ComfyUI to saving the
+  file, and none starts until it is done. ClipForge's own ComfyUI is stopped first (or, when another ClipForge
+  process started it and shares it, asked to unload its models) and a ComfyUI app is asked to unload its models,
+  because Windows will not delete a file a program still holds; a file Windows still holds is tried again for a few
+  seconds. Removing ComfyUI itself is refused while another copy of ClipForge that is open runs it.
+
+The online studio does not offer local makers (the routes answer 404 in cloud mode). Routes: `GET /api/engines`,
+`POST /api/engines/setup|cancel|remove|try|try/cancel` (all need the app's own header), `GET /api/engines/made/<file>`
+(this computer only).
 
 ## How it was checked
 
-- **Tests:** `tests/test_local_engines.py` (55 tests) with a stand-in ComfyUI and a local file server: every pin is
+- **Tests:** `tests/test_local_engines.py` (60 tests) with a stand-in ComfyUI and a local file server: every pin is
   filled; licences and Mac-safe number formats; ComfyUI's start command (offline, no add-on nodes, folders that
   exist); PyTorch per computer and driver; uv's set-up commands (no Python on the PATH or in the registry, every
   package bounded by the checked day, PyTorch on its own); set-up refusals; resumed, wrong, oversized and cancelled
   downloads, a finished `.part` file and a refused range; archive escapes; shared and foreign model files (never
-  replaced); removal in the app's folders (shared file kept, ClipForge's own copy untouched, nothing that is not
-  ClipForge's, not while a picture is being made); recommended models; the graphs against ComfyUI's official
-  examples; model files in a subfolder of the app; sizes and frame counts; making pictures and clips end to end; the
-  same request twice with ComfyUI's cache; progress that never goes backwards; plain errors; cancel, and waiting
-  until ComfyUI has really stopped; use rules agreed before a download and kept in each note; the voice's text
-  handling, chunks and word times; the Settings view, routes and the app-header guard; cloud mode.
+  replaced); removal in the app's folders (a shared file kept only for a model that still needs it, and said so;
+  ClipForge's own copy untouched; nothing that is not ClipForge's, another program's `.part` file included; a
+  stopped download; not while a picture is being made, from starting ComfyUI to saving it; a ComfyUI another
+  ClipForge process shares is asked to let go of the files, and is not removed itself while that process runs it); recommended models; the graphs against ComfyUI's official examples;
+  model files in a subfolder of the app; sizes and frame counts; making pictures and clips end to end; the same
+  request twice with ComfyUI's cache; progress that never goes backwards; plain errors (also ComfyUI 0.43's own model
+  loader's); cancel, and waiting until ComfyUI has really stopped; use rules agreed before a download and kept in
+  each note; the voice's text handling, chunks and word times; the Settings view, routes and the app-header guard;
+  cloud mode.
   `tests/conftest.py` makes it impossible for any test to download from the internet.
 - **Real machines** (`.github/workflows/local-engines-check.yml`, `scripts/local_engines_check.py`), on every push
   that touches the engines, on GitHub's Mac (Apple silicon), Windows and Linux machines:

@@ -202,7 +202,8 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
     settings = _settings()
     started = time.time()
     try:
-        with _gpu("picture maker" if role == "image" else "video maker", note.get("prompt", ""), cancel, progress):
+        with _gpu("picture maker" if role == "image" else "video maker", note.get("prompt", ""), cancel, progress), \
+                comfy_server.job():
             base = base_url(settings, progress)
             model = chosen(role, settings, base)
             if model is None:
@@ -217,13 +218,8 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
             if lacking:
                 raise EngineError(f"This ComfyUI lacks {', '.join(lacking)}; it may be too old for {model.name}. "
                                   "Update it, or use ClipForge's own ComfyUI.")
-            comfy_server.busy.set()
-            try:
-                outputs = client.run(graph, progress=progress, cancel=cancel, timeout_s=timeout_s,
-                                     steps_node=steps_node, labels=graphs.labels(graph))
-            finally:
-                comfy_server.busy.clear()
-                comfy_server.server.touch()
+            outputs = client.run(graph, progress=progress, cancel=cancel, timeout_s=timeout_s,
+                                 steps_node=steps_node, labels=graphs.labels(graph))
             wanted = [o for o in outputs if o["key"] in (("images",) if role == "image" else ("images", "videos",
                                                                                                 "gifs", "video"))]
             out = (wanted or outputs)[-1]

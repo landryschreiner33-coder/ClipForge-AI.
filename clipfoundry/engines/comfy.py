@@ -50,8 +50,11 @@ _PLAIN = (
     (("could not detect model type",),
      "This ComfyUI is too old for this model: it could not tell what kind of model the file is. Update ComfyUI, or "
      "use ClipForge's own copy."),
+    # (the safetensors library's words, then ComfyUI 0.43's own loader's, which it uses on NVIDIA cards:
+    # comfy/utils.py load_safetensors; never the bare word "safetensors", which every model file's path has)
     (("error while deserializing header", "headertoolarge", "incomplete metadata", "metadataincompletebuffer",
-      "invalid load key", "unexpected eof"),
+      "invalid load key", "unexpected eof", "safetensors file is corrupt", "safetensors header is",
+      "extends past the end of the file", "does not match its declared shape", "has invalid data offsets"),
      "A model file ComfyUI tried to load is damaged or incomplete. Remove the model and download it again in "
      "Settings, Pictures, video, voice."),
     (("does not exist", "node type not found", "cannot execute because node"),
