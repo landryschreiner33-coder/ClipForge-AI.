@@ -213,9 +213,10 @@ The online studio does not offer local makers (the routes answer 404 in cloud mo
   - downloads the voice and speaks two voices, checking length, loudness and every word in order;
   - on Linux, downloads FLUX.2 klein 4B and makes a real picture on the processor.
 
-  Every check passed on all three machines on Nov 8. Setting ComfyUI up from nothing took about 25 s on Linux and
-  45–55 s on the Mac and Windows; starting it took 14–20 s; the real FLUX.2 klein picture on Linux's processor took
-  about 5 minutes; the voice check took about 11 s.
+  Every check passed on all three machines on Nov 8, and again on Nov 9 on the second review's fixes (run
+  42704530253). Setting ComfyUI up from nothing took 25–26 s on Linux and 36–55 s on the Mac and Windows; starting
+  it took 13–23 s; making the real FLUX.2 klein picture on Linux's processor took about 3 minutes, after downloading
+  the model (16 GB; 25 minutes on Nov 9, when Hugging Face was slow); the voice spoke at 2–4.4 times real time.
 
 ## What cannot be checked from the cloud
 

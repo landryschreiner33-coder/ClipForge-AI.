@@ -1,6 +1,6 @@
 # AI handoff
 
-## Local makers: pictures, video and voice made on this computer — 2026-11-08 (Claude Code, cloud session)
+## Local makers: pictures, video and voice made on this computer — 2026-11-08/09 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry found seven open-source projects and asked for the useful ones to be plugged into
 ClipForge, all running locally on his Apple silicon Mac and on Windows. ClipForge can now make pictures, short video
@@ -11,8 +11,9 @@ online once downloaded, and Settings → Pictures, video, voice recommends what 
 maker and ClipForge AI use it through one door. The other projects were skipped for stated reasons (licences that
 exclude the United States or forbid use in a paid app, cloud-only services, heavy servers, or overlap with ComfyUI).
 
-- **Branch / PR:** `claude/project-thread-nnvh05` from the release line at 95a70e0, draft PR into
-  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Branch / PR:** `claude/project-thread-nnvh05` from the release line at 95a70e0, draft PR #39 into
+  `claude/project-thread-x72wkd` (code at 53dd380; the Local makers check passed on Mac, Windows and Linux, run
+  42704530253). No release; Landry has not said to merge.
 - **Design and limits:** [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md) (Landry's list with the
   reason for each verdict, the models and their licences, the door, how it was checked, what the cloud cannot check);
   [AI_CHANGELOG.md](AI_CHANGELOG.md).

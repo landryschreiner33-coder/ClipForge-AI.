@@ -4,7 +4,8 @@
 
 Landry asked (Nov 7) to look at seven open-source projects he found (FreeVideo, WanGP, ComfyUI Desktop, InvokeAI,
 OpenHiggsfield, VoiceStudio, Tencent WeKnora), plug the useful ones into ClipForge, and keep everything local on his
-Apple silicon Mac and on Windows. Branch `claude/project-thread-nnvh05` from the release line at 95a70e0. No release.
+Apple silicon Mac and on Windows. Branch `claude/project-thread-nnvh05` from the release line at 95a70e0, draft PR #39.
+No release.
 Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md).
 
 - **The door** (`clipfoundry/engines/__init__.py`, new package): `make_image`, `make_video`, `speak`, `voices`,
@@ -65,13 +66,14 @@ Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/cl
   needing several extra programs; a small passage search in the Brain is a follow-up); VoiceStudio kept for later
   (its default voice model is non-commercial and the app is heavy; it could add a creator's own cloned voice).
 - **Checks:** `tests/test_local_engines.py` (60, a stand-in ComfyUI and a local file server, each test with its own
-  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2027 passed, 2 skipped) and
-  `pytest -m slow` (27 passed, 1 skipped);
+  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2029 passed, 2 skipped) and
+  `pytest -m slow` (27 passed, 1 skipped), both on 53dd380;
   `.github/workflows/local-engines-check.yml` + `scripts/local_engines_check.py` on GitHub's Mac, Windows and Linux
   machines: every pin compared with its source, ComfyUI set up from nothing and started, a model-free PNG and H.264
   clip, every graph accepted by the real ComfyUI, the voice (two voices, every word in order, 1.8–3.5× real time),
-  and on Linux a real FLUX.2 klein picture on the processor (about 4 minutes). The Settings page was checked in a
-  browser at desktop and phone sizes. Found and fixed by the machine check: ComfyUI exits at once (code 2) when its
+  and on Linux a real FLUX.2 klein picture on the processor (about 3 minutes once downloaded); all passed again on
+  53dd380 (run 42704530253). The Settings page was checked in a browser at desktop and phone sizes, again on the
+  final code (download dialogs, a stopped download shown as "Partly downloaded" and removed). Found and fixed by the machine check: ComfyUI exits at once (code 2) when its
   `--user-directory` does not exist yet.
 - **Not verified** (needs Landry's computer): Metal speed and memory on a 16 GB and a larger Mac, a real Wan clip,
   Windows with an NVIDIA card, the ComfyUI desktop app, the shorts maker end to end with real engines.
