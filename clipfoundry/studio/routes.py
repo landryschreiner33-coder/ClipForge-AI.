@@ -570,7 +570,7 @@ def library(kind: str = "", q: str = "") -> list[dict]:
             # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
             asset = db.fetch("assets", first) if first else None
             pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
-            draft = v["status"] == "draft"  # still being planned with ClipForge AI: it opens on the setup page
+            draft = video_setup.is_draft(v)  # still being planned with ClipForge AI: it opens on the setup page
             out.append({"id": v["id"], "kind": "full_video", "mode": "full_video", "name": v["name"],
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
                         "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "",

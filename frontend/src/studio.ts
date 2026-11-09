@@ -145,6 +145,8 @@ export type Video = { id: string; name: string; status: string; message: string;
   script?: Script | null;
   /** The plan made with ClipForge AI before the build (null for a video made without one). */
   setup?: { mode: SetupMode; plan: PlanFields; lines: string[]; source: string; pending: boolean } | null;
+  /** Still being planned with ClipForge AI: its page is the setup page (#/create/video/<id>). */
+  planning?: boolean;
   ai_helper?: { configured: boolean; label: string; local: boolean } };
 
 // ------------------------------------------------------------------ planning a video with ClipForge AI
@@ -172,7 +174,9 @@ export type VideoSetup = { id: string; name: string; status: string; message: st
   lines: string[]; locked: string[]; source: string; planned: boolean; rounds: number; open: SetupQuestion[];
   files: SetupFile[]; chat_id: string; messages: SetupMessage[]; thinking: boolean; listening: boolean;
   style_id: string; reference_id: string; remember: { enabled?: boolean; name?: string }; script: Script | null;
-  model: { ready: boolean; label: string; local: boolean }; href: string };
+  model: { ready: boolean; label: string; local: boolean };
+  /** Still being planned here; false once it is being made (or for a video never planned here). */
+  planning: boolean; href: string };
 
 export type MediaKind = "image" | "footage" | "music" | "effect";
 export type MediaTerms = { known: boolean; commercial: boolean; modify: boolean; attribution: boolean; share_alike: boolean };

@@ -57,6 +57,9 @@ export function planRows(p: PlanFields, files: FileLike[]): PlanRow[] {
 export function useChanged(plan: PlanFields | null | undefined): Set<string> {
   const before = useRef<PlanFields | null>(null);
   const [changed, setChanged] = useState<Set<string>>(new Set());
+  // By what it says, not by the object: the page polls while ClipForge AI listens, and the same plan read again must
+  // not cancel the moment the highlight goes out.
+  const said = plan ? JSON.stringify(plan) : "";
   useEffect(() => {
     if (!plan) return;
     const prev = before.current;
@@ -67,7 +70,7 @@ export function useChanged(plan: PlanFields | null | undefined): Set<string> {
     setChanged(new Set(keys.map((k) => (k === "music_file" ? "music" : k === "cold_open" ? "opening" : k))));
     const t = window.setTimeout(() => setChanged(new Set()), 2600);
     return () => window.clearTimeout(t);
-  }, [plan]);
+  }, [said]);  // eslint-disable-line react-hooks/exhaustive-deps -- `plan` is what `said` says
   return changed;
 }
 

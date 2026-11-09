@@ -1653,15 +1653,16 @@ def view(project: dict) -> dict:
             "jobs": [{k: j[k] for k in ("id", "kind", "revision", "status", "progress", "message", "error")}
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
-            "script": script_view(project.get("script") or {}), "setup": _setup_view(project),
+            "script": script_view(project.get("script") or {}), **_setup_view(project),
             "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
 
 
-def _setup_view(project: dict) -> dict | None:
-    """The plan made with ClipForge AI before the build (video_setup.py), or None for a video made without one."""
+def _setup_view(project: dict) -> dict:
+    """The plan made with ClipForge AI before the build (video_setup.py; None for a video made without one), and
+    whether the video is still being planned (its page is then the setup page)."""
     from . import video_setup
 
-    return video_setup.summary(project)
+    return {"setup": video_setup.summary(project), "planning": video_setup.is_draft(project)}
 
 
 def script_view(script: dict) -> dict | None:

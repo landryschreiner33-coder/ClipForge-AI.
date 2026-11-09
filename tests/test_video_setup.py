@@ -133,6 +133,18 @@ def test_quick_answers_fill_the_plan():
     assert vs.answer_fields("feel", "whatever you think", FILES) == {}
 
 
+def test_words_typed_under_who_is_it_for_count_only_when_they_name_people():
+    # the only question on screen is "Who is it for?" and the owner types instead of tapping
+    for typed, who in (("my gaming friends", "my gaming friends"), ("it's for my mom", "my mom"),
+                       ("It’s for my Mom!", "my Mom"), ("kids who want to learn guitar", "kids who want to learn guitar"),
+                       ("travel lovers", "travel lovers")):
+        assert vs.answer_fields("audience", typed, FILES) == {"audience": who}, typed
+    # a message about another part of the video is not taken as who it is for
+    for typed in ("the beach part is the best", "more drone shots", "the sunset at the end", "use the drone shots",
+                  "make it 5 minutes and no music", "first the drive then the lake", "add captions", "no idea"):
+        assert vs.answer_fields("audience", typed, FILES) == {}, typed
+
+
 # ------------------------------------------------------------------ the plan, checked
 def test_clean_plan_keeps_only_checked_values():
     raw = {"title": "  Lake   days ", "summary": "x" * 500, "length_min": "12", "aspect_ratio": "21:9",

@@ -175,6 +175,23 @@ def test_talking_changes_the_plan_and_quick_answers_and_hand_edits_stay(env):
         video_setup.patch(WS, WS, v["id"], {"mode": "sometimes"})
 
 
+def test_typing_under_the_only_question_answers_it_only_with_an_answer(env):
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    ids = [f["id"] for f in files]
+    v = video_setup.start(WS, WS, asset_ids=ids, mode="ask", idea="Our lake trip, about 10 minutes, calm")
+    assert [q["id"] for q in v["open"]] == ["audience"]
+    # typed instead of tapped, about something else: not who it is for
+    video_setup.say(WS, v["id"], "the beach part is the best")
+    assert video_setup.view(WS, v["id"])["plan"]["audience"] == ""
+    # typed instead of tapped, naming people: it is
+    v = video_setup.start(WS, WS, asset_ids=ids, mode="ask", idea="Our lake trip, about 10 minutes, calm")
+    out = video_setup.say(WS, v["id"], "my gaming friends")
+    assert out["owner"]["data"]["answers"] == "audience"
+    assert video_setup.view(WS, v["id"])["plan"]["audience"] == "my gaming friends"
+
+
 def test_files_order_name_and_removing_a_file_before_the_build(env):
     from clipfoundry.studio import video_setup
 
@@ -578,3 +595,33 @@ def test_a_message_to_a_drafts_chat_from_anywhere_plans_it(env):
     assert left and out["ai"]["data"]["ask"] == {"question": left[0]["q"], "choices": left[0]["choices"]}
     out = chat.send(WS, v["chat_id"], "make it 7 minutes")
     assert out["ai"]["data"]["tool"] == "plan" and video_setup.view(WS, v["id"])["plan"]["length_min"] == 7
+
+
+def test_a_video_waiting_as_a_draft_that_was_not_planned_here_stays_its_own(env):
+    """An animated short stopped before its first version waits with status "draft" too: its page, its chat and its
+    Projects link are not taken over by the planning page."""
+    from clipfoundry import db
+    from clipfoundry.studio import routes, video_flow, video_setup
+
+    now = time.time()
+    db.insert("studio_projects", {"id": "vid-short", "workspace_id": WS, "name": "My short", "workflow": "animated_short",
+                                  "status": "draft", "created_at": now, "updated_at": now})
+    short = db.fetch("studio_projects", "vid-short")
+    assert not video_setup.is_draft(short) and not video_setup._draft_chat({}, short)  # noqa: SLF001
+    entry = [x for x in routes.library() if x["id"] == "vid-short"][0]
+    assert entry["href"] == "#/video/vid-short"
+    assert video_setup.view(WS, "vid-short")["planning"] is False
+    assert video_flow.view(short)["planning"] is False
+    with pytest.raises(video_setup.SetupError) as no:
+        video_setup.say(WS, "vid-short", "make it 7 minutes")
+    assert no.value.status == 409
+    video_setup.stop(WS, "vid-short")  # nothing of its own to stop
+    # a draft made here is one, and stops being one when it is built
+    files = _files(env)
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a vlog")
+    row = db.fetch("studio_projects", v["id"])
+    assert video_setup.is_draft(row) and video_flow.view(row)["planning"] is True and v["planning"] is True
+    video_setup.build(WS, WS, v["id"])
+    row = db.fetch("studio_projects", v["id"])
+    assert not video_setup.is_draft(row) and video_flow.view(row)["planning"] is False
+    assert video_setup.view(WS, v["id"])["planning"] is False

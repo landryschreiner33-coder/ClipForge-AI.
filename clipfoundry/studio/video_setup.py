@@ -584,6 +584,13 @@ def rules_questions(plan: dict, asked: set[str], said: set[str]) -> list[dict]:
 
 _NON_ANSWER = re.compile(r"^(?:whatever|you (?:decide|choose|pick)|up to you|i don'?t know|idk|no idea|not sure|"
                          r"any|anything|doesn'?t matter|skip)\b")
+# Words typed under "Who is it for?" name people ("my gaming friends", "it's for my mom"); a message about another
+# part of the video ("the beach part is the best", "more drone shots", "the sunset at the end") is not taken as one.
+_FOR_PREFIX = re.compile(r"^(?:it['’]?s |it is |this is |mostly |mainly |just )?for\s+", re.I)
+_NOT_PEOPLE = re.compile(r"\b(?:is|are|was|were|it|it'?s|its|this|that|these|those|should|please|more|less|fewer|"
+                         r"shorter|longer|faster|slower|mins?|minutes?|seconds?|captions?|subtitles?|end|beginning|"
+                         r"start|first|then|after|before|parts?|clips?|shots?|scenes?|footage)\b")
+AUDIENCE_WORDS = 8
 
 
 def answer_fields(question_id: str, text: str, files: list[dict]) -> dict:
@@ -597,8 +604,12 @@ def answer_fields(question_id: str, text: str, files: list[dict]) -> dict:
     if question_id == "audience":
         if "audience" in said:
             return {"audience": said["audience"]}
-        if t and not _NON_ANSWER.match(t.lower()):
-            return {"audience": t.strip(" .!?")[:TEXT["audience"]]}
+        m = _FOR_PREFIX.match(t)
+        who = t[m.end():] if m else t
+        low = who.lower().replace("’", "'")
+        if who and len(who.split()) <= AUDIENCE_WORDS and set(said) <= {"video_type"} and \
+                not _NON_ANSWER.match(low) and not _ASK.match(low) and not _NOT_PEOPLE.search(low):
+            return {"audience": who.strip(" .!?")[:TEXT["audience"]]}
     return {}
 
 
@@ -848,6 +859,13 @@ def _sent(settings: dict) -> dict:
 
 
 # ------------------------------------------------------------------ the setup stored on the project
+def is_draft(project: dict | None) -> bool:
+    """A video still being planned here: a draft made by Make a YouTube video. Not another video that waits as a
+    "draft" (an animated short stopped before its first version has no setup), so its pages and chat stay its own."""
+    return bool(project) and project.get("status") == "draft" and bool(project.get("setup")) and \
+        (project.get("workflow") or "full_video") == "full_video"
+
+
 def _setup(project: dict) -> dict:
     st = dict(project.get("setup") or {})
     return {"mode": st.get("mode") if st.get("mode") in MODES else "ask",
@@ -889,7 +907,7 @@ def _owned_draft(ws: str, project_id: str) -> dict:
 
 def _draft(ws: str, project_id: str) -> dict:
     project = _owned_draft(ws, project_id)
-    if project["status"] != "draft":
+    if not is_draft(project):
         raise SetupError("This video is already being made; change it on its editor page.", 409)
     return project
 
@@ -1307,10 +1325,11 @@ def _gather(project: dict, st: dict, files: list[dict], settings: dict, newest: 
     notes: list[dict] = []
     if not st["consulted"]:
         notes = _consult(project["workspace_id"], project, st["idea"] or newest, files_text(files, summaries, 1500))
-        with _lock:
-            fresh = _setup(db.fetch("studio_projects", project["id"]))
-            fresh["consulted"] = True
-            _store(project["id"], fresh)
+        if notes:  # none yet (no helper, the built-in model still starting, today's online limit): the next message
+            with _lock:  # asks again
+                fresh = _setup(db.fetch("studio_projects", project["id"]))
+                fresh["consulted"] = True
+                _store(project["id"], fresh)
     note_text = "\n".join(f"{n['agent'].get('name') or 'Agent'}: {_text(n.get('text'), 400)}" for n in notes
                           if n.get("ok"))[:AGENT_CHARS]
     request = material(project, st, files, summaries, newest, first=len(_owner_messages(chat["id"])) <= 1,
@@ -1327,7 +1346,7 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
     from ..pipeline import llm
 
     project = db.fetch("studio_projects", project_id)
-    if not project or project["status"] != "draft":
+    if not is_draft(project):
         _finish(message_id, status="failed", text="The video was built or deleted before I answered.")
         return
     owner = db.fetch("brain_chat_messages", owner_id) or {}
@@ -1484,7 +1503,8 @@ def say(ws: str, project_id: str, text: str, question_id: str = "") -> dict:
 
 def stop(ws: str, project_id: str) -> None:
     """Stop the answer ClipForge AI is writing for this draft (what was planned before stays)."""
-    _owned_draft(ws, project_id)
+    if not _owned_draft(ws, project_id).get("setup"):
+        return  # a video never planned here: its chat is not this page's to stop
     chat = _chat(ws, project_id)
     for row in db.select("brain_chat_messages", "chat_id = ? AND status = 'thinking'", (chat["id"],)):
         try:
@@ -1814,8 +1834,8 @@ def view(ws: str, project_id: str) -> dict:
             "thinking": any(r.get("status") == "thinking" for r in rows), "listening": listening,
             "style_id": st["style_id"], "reference_id": st["reference_id"], "remember": st["remember"],
             "script": video_flow.script_view(project.get("script") or {}),
-            "model": model_view(settings),
-            "href": f"#/video/{project['id']}" if project["status"] != "draft" else f"#/create/video/{project['id']}"}
+            "model": model_view(settings), "planning": is_draft(project),
+            "href": f"#/create/video/{project['id']}" if is_draft(project) else f"#/video/{project['id']}"}
 
 
 def summary(project: dict) -> dict | None:
@@ -1831,7 +1851,7 @@ def summary(project: dict) -> dict | None:
 
 # ------------------------------------------------------------------ the assistant's chat and tools
 def _draft_chat(chat: dict, video: dict | None) -> bool:
-    return bool(video) and video.get("status") == "draft"
+    return is_draft(video)
 
 
 def _answer_in_chat(ws: str, project_id: str, text: str) -> dict:

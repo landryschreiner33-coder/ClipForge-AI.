@@ -190,7 +190,7 @@ function Start() {
 function Planning({ id }: { id: string }) {
   const { appearance, set: setAppearance } = useAppearance();
   const { data: s, error, refresh, setData } = usePoll(() => studio.videoSetup(id), [id], 2000,
-    (v) => !!v && v.status === "draft" && (v.thinking || v.listening));
+    (v) => !!v && v.planning && (v.thinking || v.listening));
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState("");
@@ -202,8 +202,8 @@ function Planning({ id }: { id: string }) {
   const last = s?.messages[s.messages.length - 1];
 
   useEffect(() => {
-    if (s && s.status !== "draft") navigate(`video/${s.id}`);  // built (here, or from the ClipForge AI panel)
-  }, [s?.status, s?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+    if (s && !s.planning) navigate(`video/${s.id}`);  // built (here, or from the ClipForge AI panel), or never planned here
+  }, [s?.planning, s?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = log.current;
     if (el) el.scrollTop = el.scrollHeight;

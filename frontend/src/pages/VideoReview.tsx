@@ -351,7 +351,7 @@ export default function VideoReview({ id }: { id: string }) {
     return () => window.clearInterval(t);
   }, [load]);
   // a video still being planned with ClipForge AI opens on its setup page
-  useEffect(() => { if (v?.status === "draft") navigate(`create/video/${v.id}`); }, [v?.status, v?.id]);
+  useEffect(() => { if (v?.planning) navigate(`create/video/${v.id}`); }, [v?.planning, v?.id]);
 
   const act = useCallback(async (call: () => Promise<Video & { note?: string }>) => {
     setBusy(true);
