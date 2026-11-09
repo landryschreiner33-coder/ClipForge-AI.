@@ -153,8 +153,9 @@ def _snapshot(body: GuidanceRequest) -> dict:
         style = clips_flow._style(ws, body.style_id)  # noqa: SLF001
         enabled = skills.enabled_skills(ws)
         on = [s for s in (db.fetch("skills", i) for i in body.skills_on) if s and s["workspace_id"] == ws]
-        examples = reference.guidance_inputs(ws, body.mode, body.reference_id)
-        return guidance.resolve(body.mode, project_choices=body.choices, style=style, project_skills=on,
+        mode = clips_flow.guidance_mode(body.mode)
+        examples = reference.guidance_inputs(ws, mode, body.reference_id)
+        return guidance.resolve(mode, project_choices=body.choices, style=style, project_skills=on,
                                 global_skills=[s for s in enabled if s["id"] not in set(body.skills_off) and
                                                s not in on], context={"title": body.title, "caption_text": ""},
                                 **examples)
@@ -254,7 +255,8 @@ def project_stories(project_id: str) -> dict:
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    return {"mode": project.get("clip_mode"), "stories": story_review.list_for(project_id),
+    return {"mode": project.get("clip_mode"), "split": story_review.split_of(project),
+            "stories": story_review.list_for(project_id),
             "summary": (project.get("info") or {}).get("stories") or {}}
 
 
@@ -559,6 +561,8 @@ def library(kind: str = "", q: str = "") -> list[dict]:
             if (p.get("workspace_id") or "local") != ws:
                 continue
             out.append({"id": p["id"], "kind": "clips", "mode": p.get("clip_mode") or "highlights",
+                        "story_split": (p.get("options") or {}).get("story_split", "") if isinstance(
+                            p.get("options"), dict) else "",
                         "name": p["name"], "status": p["status"], "stage": p.get("stage"),
                         "progress": p.get("progress"), "message": p.get("message"), "error": p.get("error"),
                         "clip_count": p.get("clip_count") or 0, "updated_at": p["updated_at"],

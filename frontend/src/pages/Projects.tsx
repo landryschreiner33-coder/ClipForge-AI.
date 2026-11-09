@@ -5,8 +5,8 @@ import { Banner, EmptyState, PageHead, Segmented } from "../components/ui";
 import { LibraryItem, studio } from "../studio";
 import { LibraryCard } from "./Studio";
 
-/** One library: clips projects (Highlights and Full stories) and full videos, with filters and search. Each card can
- * be deleted after a confirmation that says what goes and what stays. */
+/** One library: clips projects (Highlights, Full stories and Story parts) and full videos, with filters and search.
+ * Each card can be deleted after a confirmation that says what goes and what stays. */
 export default function Projects() {
   const [kind, setKind] = useState<"" | "clips" | "full_video">("");
   const [q, setQ] = useState("");

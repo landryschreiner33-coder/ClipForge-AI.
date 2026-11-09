@@ -10,7 +10,7 @@ import { studio } from "./studio";
  */
 export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum"; accent: string;
   density: "comfortable" | "compact"; text_size: "standard" | "large" | "larger"; motion: "system" | "full" | "reduced";
-  office_size: "compact" | "expanded"; pinned: string[]; clips_mode: "highlights" | "full_stories";
+  office_size: "compact" | "expanded"; pinned: string[]; clips_mode: "highlights" | "full_stories" | "story_parts";
   remember_style: boolean };
 export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "violet", density: "comfortable",
   text_size: "standard", motion: "system", office_size: "expanded", pinned: [], clips_mode: "highlights",

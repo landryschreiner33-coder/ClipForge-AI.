@@ -20,7 +20,8 @@ const STOPPED = new Set(["error", "failed", "needs_input"]);
 const VIDEO_WORDS: Record<string, string> = { building: "Building the rough cut", rendering: "Rendering",
   queued: "Waiting to start", importing: "Getting the video from your link" };
 const KIND_WORD = (i: LibraryItem) => i.kind === "full_video" ? "YouTube video"
-  : i.mode === "full_stories" ? "Clips · Full stories" : "Clips · Highlights";
+  : i.mode === "full_stories" ? (i.story_split === "parts" ? "Clips · Story parts" : "Clips · Full stories")
+  : "Clips · Highlights";
 
 /**
  * Studio: Home and the Office in one place (studio upgrade handoff, section 4). The two things ClipForge makes, what
@@ -71,9 +72,10 @@ export default function Studio() {
             <div>
               <h2>Make clips</h2>
               <p>Vertical clips for TikTok and YouTube, with captions, from one long video.</p>
-              <div className="mode-names" aria-label="Two ways">
+              <div className="mode-names" aria-label="Three ways">
                 <span>Highlights: the strongest short moments</span>
-                <span>Full stories: one complete clip per story</span>
+                <span>Full story: one complete clip per story</span>
+                <span>Story parts: each story in Part 1, Part 2…</span>
               </div>
               <span className="btn btn-primary go"><Icon name="film" />Make clips</span>
             </div>

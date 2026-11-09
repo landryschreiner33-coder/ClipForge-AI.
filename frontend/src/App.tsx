@@ -215,7 +215,7 @@ function Shell({ me }: { me: Me }) {
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
                 </div>
               )}
