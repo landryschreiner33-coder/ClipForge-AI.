@@ -511,9 +511,11 @@ def test_a_memory_saved_again_for_another_project_stays(env):
     assert db.fetch("brain_memories", moved["id"]) and db.fetch("brain_memories", only_first["id"]) is None
 
 
-def test_a_file_added_again_since_the_project_last_changed_stays(env):
+def test_a_file_added_again_after_the_project_was_made_stays_while_it_is_new(env):
     """ClipForge keeps one copy per file: uploading the same file again (for a new video that has not saved it yet)
-    gives the same copy, so it stays when the old project is deleted."""
+    gives the same copy, so it stays when the old project is deleted. What the window said holds even when the
+    project changes before the delete (deleting stops its work first, which changes it). A second upload more than
+    a day old protects nothing: no page is waiting for it any more."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
@@ -527,9 +529,23 @@ def test_a_file_added_again_since_the_project_last_changed_stays(env):
     plan = project_delete.plan("local", vid, "full_video")
     assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
     assert "“clip13.mp4” stays in ClipForge because you added it again since." in plan["stays"]
-    project_delete.delete("local", vid, "full_video")
+    time.sleep(0.01)
+    db.update("studio_projects", vid, status="ready", message="Canceled")  # its work was stopped: it changed
+    assert project_delete.plan("local", vid, "full_video")["counts"]["files_kept"] == 1
+    out = project_delete.delete("local", vid, "full_video")
+    assert "“clip13.mp4” stays in ClipForge because you added it again since." in out["stays"]
     assert db.fetch("assets", asset["id"]) and os.path.isfile(asset["path"])
     assert stat.S_IMODE(os.stat(asset["path"]).st_mode) == 0o440
+
+    old = _stored(16)
+    days = time.time() - 86400
+    for when in (days - 2 * 86400, days - 86400):  # its own upload, then once more two days ago
+        db.insert("uploads", {"workspace_id": "local", "filename": "clip16.mp4", "size": 3000, "status": "complete",
+                              "asset_id": old["id"], "created_at": when, "updated_at": when})
+    long_ago = _video("Older cut", [old["id"]], created_at=days - 3 * 86400)["id"]
+    assert project_delete.plan("local", long_ago, "full_video")["counts"]["files"] == 1
+    project_delete.delete("local", long_ago, "full_video")
+    assert db.fetch("assets", old["id"]) is None and not os.path.exists(old["path"])
 
 
 def test_a_clips_projects_own_recording_or_download_is_named_in_what_goes(env):
@@ -613,3 +629,74 @@ def test_deleting_only_answers_clipforges_own_page_on_this_computer(env):
         refused = api.delete(f"/api/studio/videos/{vid}", headers=H)
         assert refused.status_code == 403 and "on the computer that runs it" in refused.json()["detail"]
     assert db.fetch("studio_projects", vid) and db.get_project(p["id"])
+
+
+def test_a_reused_render_open_in_a_player_is_counted_once_and_deleted_at_the_next_start(env, monkeypatch):
+    """A render reused for a later revision (after undo or restore) is one file with two links in the video's
+    folder: the space it frees is counted once, and when it is open in a player it is listed for the next start
+    like any other file in use (it is ClipForge's, not the owner's)."""
+    from clipfoundry import config
+    from clipfoundry.studio import project_delete
+
+    vid = _video("Undone and redone", [])["id"]
+    first = config.data_dir() / "videos" / vid / "r1" / "final.mp4"
+    again = config.data_dir() / "videos" / vid / "r3" / "final.mp4"
+    first.parent.mkdir(parents=True)
+    again.parent.mkdir(parents=True)
+    first.write_bytes(b"f" * 700)
+    os.link(first, again)
+    assert project_delete.plan("local", vid, "full_video")["freed_bytes"] == 700
+    real_unlink = os.unlink
+
+    def open_in_a_player(path, *args, **kw):
+        if os.path.basename(path) == "final.mp4":
+            raise PermissionError(32, "The file is being used by another process", str(path))
+        return real_unlink(path, *args, **kw)
+
+    monkeypatch.setattr(os, "unlink", open_in_a_player)
+    out = project_delete.delete("local", vid, "full_video")
+    assert out["left_behind"] is True and first.is_file() and again.is_file()
+    monkeypatch.setattr(os, "unlink", real_unlink)
+    assert project_delete.finish_later() == 1
+    assert not (config.data_dir() / "videos" / vid).exists()
+
+
+def test_a_link_to_a_kept_copy_left_by_a_delete_goes_at_the_next_start_and_the_copy_stays_read_only(
+        env, monkeypatch):
+    """Two clips projects made from one upload each link ClipForge's read-only copy. One is deleted while the other
+    is rendering from that file (on Windows the file is then in use under every name), so its link stays for now.
+    At the next start the link goes, even though the copy is read-only again (Windows refuses to delete a read-only
+    file), and the copy the other project uses stays, read-only."""
+    from clipfoundry import config, db
+    from clipfoundry.studio import project_delete
+
+    kept = _stored(17)
+    first, second = (db.create_project(n, workspace_id="local", status="ready", asset_id=kept["id"])
+                     for n in ("Highlights", "Full stories"))
+    for p in (first, second):
+        os.makedirs(config.projects_dir() / p["id"])
+        os.link(kept["path"], config.projects_dir() / p["id"] / "source.mp4")
+    link = config.projects_dir() / first["id"] / "source.mp4"
+    real_unlink = os.unlink
+
+    def windows_unlink(path, *args, dir_fd=None, **kw):
+        st = os.lstat(path, dir_fd=dir_fd)
+        if not stat.S_ISLNK(st.st_mode) and not st.st_mode & stat.S_IWRITE:
+            raise PermissionError(13, "Access is denied", str(path))
+        return real_unlink(path, *args, dir_fd=dir_fd, **kw)
+
+    def rendering_from_it(path, *args, **kw):
+        if os.path.basename(path) == "source.mp4":
+            raise PermissionError(32, "The file is being used by another process", str(path))
+        return windows_unlink(path, *args, **kw)
+
+    monkeypatch.setattr(os, "unlink", rendering_from_it)
+    out = project_delete.delete("local", first["id"], "clips")
+    assert out["left_behind"] is True and link.is_file()
+    assert stat.S_IMODE(os.stat(kept["path"]).st_mode) == 0o440
+    monkeypatch.setattr(os, "unlink", windows_unlink)  # the render ended; the copy is read-only again
+    assert project_delete.finish_later() == 1
+    assert not (config.projects_dir() / first["id"]).exists()
+    assert db.fetch("assets", kept["id"]) and os.stat(kept["path"]).st_nlink == 2  # the copy and the other link
+    assert stat.S_IMODE(os.stat(kept["path"]).st_mode) == 0o440
+    assert not (config.data_dir() / "delete-later.json").exists()

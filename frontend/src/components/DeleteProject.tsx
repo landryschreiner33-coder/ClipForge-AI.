@@ -115,6 +115,13 @@ export function DeleteProjectConfirm({ kind, id, name, onClose, onDeleted }: {
   const close = busy ? () => {} : onClose;  // Escape and a click outside wait for the answer too
   const blocked = plan?.blocked || "";
   const canDelete = !!plan && !blocked;
+  // While deleting, the buttons say they are off but keep focus (a disabled button drops it out of the window);
+  // when the Delete button goes (the delete was refused), focus moves to Keep it / Close.
+  const stay = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const at = document.activeElement;
+    if (!busy && (!at || at === document.body)) stay.current?.focus();
+  }, [busy, blocked]);
   return (
     <Dialog title={`Delete “${name}”?`} onClose={close} actions={<>
       {blocked && (
@@ -123,9 +130,12 @@ export function DeleteProjectConfirm({ kind, id, name, onClose, onDeleted }: {
           void load();
         }}>Check again</button>
       )}
-      <button type="button" className="btn" disabled={!!busy} onClick={close}>{canDelete ? "Keep it" : "Close"}</button>
+      <button ref={stay} type="button" className="btn" aria-disabled={busy ? true : undefined} onClick={close}>
+        {canDelete ? "Keep it" : "Close"}
+      </button>
       {canDelete && (
-        <button type="button" className="btn btn-danger" disabled={!!busy} onClick={go}>
+        <button type="button" className="btn btn-danger" aria-disabled={busy ? true : undefined}
+          onClick={busy ? undefined : go}>
           {busy && <span className="inline-spinner" aria-hidden="true" />}
           <Icon name="trash" className="sm" />
           {busy === "stopping" ? "Stopping its work…" : busy ? "Deleting…" : "Delete project"}

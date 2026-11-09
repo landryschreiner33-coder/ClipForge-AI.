@@ -182,6 +182,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const forgetPin = useCallback((id: string) => {
     // only this page's copy: saving a list from here could undo a pin made on another device meanwhile
     setAppearance((a) => (a.pinned.includes(id) ? { ...a, pinned: a.pinned.filter((x) => x !== id) } : a));
+    const waiting = pending.current;  // a save that failed and may be retried must not pin it again
+    if (waiting?.pinned?.includes(id)) pending.current = { ...waiting, pinned: waiting.pinned.filter((x) => x !== id) };
   }, []);
 
   const value = useMemo(() => ({ appearance: shown, set, state, retry, namesVersion, refreshNames, saved: appearance,

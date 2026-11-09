@@ -27,7 +27,8 @@ in another program (Windows) is deleted the next time ClipForge starts.
 - **Not done:** a real Windows PC check (read-only and in-use files are simulated); a Delete action on a full video's
   own page (the Projects page has it; that page is being changed by the edit-setup thread). Deleting only works in
   the browser on the computer that runs ClipForge (like Autopilot and memories), not from another device on the
-  network.
+  network. A file used where it is and added again for a page that has not saved it yet is not protected the way a
+  re-upload is (only ClipForge's prepared data for it goes; the owner's file never does).
 - **Waiting on Landry:** a look at the PR; the merge; the release (explicit OK).
 
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)

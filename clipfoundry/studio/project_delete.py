@@ -119,19 +119,27 @@ def _inside_data(path: Path) -> bool:
     return data in path.resolve().parents
 
 
-def _bytes(folder: Path, shared_too: bool = False) -> int:
-    """What deleting `folder` frees: a file with another hard link (a project's link to an upload ClipForge keeps)
-    frees nothing unless that is deleted too (`shared_too`)."""
-    total = 0
-    for root, _dirs, files in os.walk(folder):
-        for name in files:
+def _files(folder: Path) -> dict[object, list[int]]:
+    """Every file in `folder` once (a render reused for a later revision is one file with two links here): its
+    size, its number of links and how many of them are in the folder."""
+    files: dict[object, list[int]] = {}
+    for root, _dirs, names in os.walk(folder):
+        for name in names:
             try:
                 st = os.lstat(os.path.join(root, name))
             except OSError:
                 continue
-            if stat.S_ISREG(st.st_mode) and (shared_too or st.st_nlink <= 1):
-                total += st.st_size
-    return total
+            if stat.S_ISREG(st.st_mode):
+                key = (st.st_dev, st.st_ino) if st.st_ino else os.path.join(root, name)
+                seen = files.setdefault(key, [st.st_size, st.st_nlink, 0])
+                seen[2] += 1
+    return files
+
+
+def _bytes(folder: Path, shared_too: bool = False) -> int:
+    """What deleting `folder` frees: a file with a link outside it too (a project's link to an upload ClipForge
+    keeps) frees nothing unless that is deleted too (`shared_too`)."""
+    return sum(size for size, links, here in _files(folder).values() if shared_too or here >= links)
 
 
 def _asset_folder(asset: dict) -> Path | None:
@@ -205,11 +213,20 @@ def _own_source(row: dict, pdir: Path) -> str:
     return row.get("source_filename") or src.name
 
 
+AGAIN_S = 24 * 3600  # how long a file added again stays protected while no project uses it yet
+
+
 def _added_again(asset_id: str, row: dict) -> bool:
-    """The owner uploaded the same file again after the project last changed (ClipForge keeps one copy per file, so
-    the new upload is this asset): a page may be about to use it, so it stays."""
-    return bool(db.scalar("SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND updated_at > ? "
-                          "LIMIT 1", (asset_id, float(row.get("updated_at") or 0))))
+    """The owner added this file again, by uploading it once more, after the project was made and within the last
+    day (ClipForge keeps one copy per file, so that upload is this asset): a page may be about to use it, so it
+    stays. One upload is the project's own. The time the project was made is used, not the time it last changed:
+    stopping its work (deleting does that first) changes the project, and the answer must stay what the window
+    said."""
+    with db.connect() as conn:
+        count, newest = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM uploads WHERE asset_id = ? AND status = "
+                                     "'complete'", (asset_id,)).fetchone()
+    since = max(float(row.get("created_at") or 0), time.time() - AGAIN_S)
+    return int(count or 0) >= 2 and float(newest or 0) > since
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -435,6 +452,9 @@ def _remove(folder: Path, copies: set[tuple[int, int]]) -> bool:
                 try:
                     st = os.lstat(path)
                     if stat.S_ISLNK(st.st_mode) or (st.st_nlink > 1 and (st.st_dev, st.st_ino) not in copies):
+                        # never made writable (it may be the owner's own file): read-only, it stays on purpose;
+                        # writable, it was refused because it is open, so the next start tries again
+                        stuck = stuck or (not stat.S_ISLNK(st.st_mode) and bool(st.st_mode & stat.S_IWRITE))
                         continue
                     os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
                     os.unlink(path)
@@ -508,14 +528,36 @@ def _later(folders: list[Path]) -> None:
             pass  # nothing more to do: the folder stays until it is deleted by hand
 
 
-def _finish(listed: str) -> str:
+def _copies() -> dict[tuple[int, int], str]:
+    """ClipForge's own upload copies (kept read-only), by file: a folder a delete left may still hold a link to one
+    that stays, which may be made writable to be deleted (never the owner's own files: those are linked assets)."""
+    out: dict[tuple[int, int], str] = {}
+    for asset in db.select("assets"):
+        if uploads.is_linked(asset):
+            continue
+        try:
+            st = os.stat(asset["path"])
+        except (OSError, TypeError, ValueError):
+            continue
+        out[(st.st_dev, st.st_ino)] = asset["path"]
+    return out
+
+
+def _finish(listed: str, copies: dict[tuple[int, int], str]) -> str:
     """Delete one listed folder: "done", "in use" (a file in it is still open) or "skipped" (it is not there, or it
     is not one of ClipForge's own folders)."""
     try:
         folder = Path(listed)
         if not folder.exists() or not _ours(folder):
             return "skipped"
-        return "in use" if _remove(folder, set()) else "done"
+        linked = [copies[k] for k in _files(folder) if k in copies]
+        stuck = _remove(folder, set(copies))
+        for path in linked:  # a copy that stays is read-only again (its link here had to be made writable)
+            try:
+                os.chmod(path, 0o440)
+            except OSError:
+                pass
+        return "in use" if stuck else "done"
     except (OSError, ValueError):
         return "skipped"
 
@@ -528,7 +570,8 @@ def finish_later() -> int:
         listed = _read_later(path)
         if not listed:
             return 0
-        results = {p: _finish(p) for p in listed}
+        copies = _copies()
+        results = {p: _finish(p, copies) for p in listed}
         try:
             _write_later(path, [p for p, r in results.items() if r == "in use"])
         except OSError:
