@@ -48,7 +48,7 @@ export default defineConfig({
         "manual-publish.spec.ts", "public-consent.spec.ts", "brain-graph.spec.ts", "tiktok-setup.spec.ts",
         "phone-settings.spec.ts", "posting-readiness.spec.ts",
         "continuous-publishing.spec.ts", "office-handoff-flow.spec.ts", "review-queue.spec.ts", "bulk-review.spec.ts",
-        "youtube-comments.spec.ts", "submitted-videos.spec.ts", "discovery-retired.spec.ts"],
+        "youtube-comments.spec.ts", "submitted-videos.spec.ts", "discovery-retired.spec.ts", "video-setup.spec.ts"],
       // Not run: discovery-quality.spec.ts and search-connections.spec.ts test the setup screens of automatic source
       // discovery (search keys, scan limits), which the studio upgrade retired (section 2) and removed from the app.
       // They are kept as dormant coverage, like the discovery engine's Python suites; delete them with that code.
