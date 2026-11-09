@@ -1,5 +1,44 @@
 # AI changelog
 
+## Make a YouTube video: drop in your files, tell ClipForge AI your idea, plan it together — 2026-11-08 (Claude Code)
+
+Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI your idea and plan, and it
+can ask questions or not. Branch `claude/project-thread-2wwa4c` from the release line at 95a70e0. No release. Design,
+bounds and routes: [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The start page** (`frontend/src/pages/MakeVideo.tsx`, rewritten; `#/create/video`, `?idea=` fills the box):
+  your videos, pictures and sounds in one drop and in play order, your idea in your own words (4,000 characters),
+  "Ask me questions" or "Just do it" (remembered: `video_setup_mode` in `prefs.py`, `prefs.tsx`, `Customize.tsx`),
+  and More choices (style and example, remember the look, your script, the name).
+- **The planning page** (`#/create/video/<id>`): the conversation with ClipForge AI (quick answers, "Just do it",
+  Stop, notes from your helper agents), the plan as a slate whose changed lines light up
+  (`components/VideoPlan.tsx`: `PlanSheet`, `PlanForm`, `useChanged`; `videoSetup.css`), your files with what was
+  heard in each, adding more files, and Build my video. A video being planned is a draft project
+  (`studio_projects.status = "draft"` with a `setup`, new column in `db.py`; `video_setup.is_draft`, so an animated
+  short stopped before its first version keeps its own page and chat); Projects lists it and opens it here, and
+  `#/video/<id>` sends it here (`planning` in the video view; `VideoReview.tsx`, `router.ts`, `App.tsx`).
+- **The planner** (`clipfoundry/studio/video_setup.py`, new): built-in rules for lengths, shapes, feel, how much to
+  edit, music, captions, keep and cut, openings, stories, audiences and video types; with a model, one bounded text
+  request (files, what is said in them, memories, know-how, helper notes, the conversation, the plan) answered as
+  `{"say", "questions", "plan"}` inside a JSON schema and checked field by field; questions at most 3 at a time and
+  2 rounds, a quick answer keeps the others, typing drops them; merging keeps explicit words and hand edits; the
+  online daily limit and "what was sent where" like the chat.
+- **The plan drives the edit**: `plan_to_brief` fills the brief (length, shape, feel, editing, captions, music, keep,
+  cut, the opening); `video_flow.py` gains `open_with` and `plan` brief fields and plans inside the build job when
+  "Just do it" had no plan yet; `ai_editor.py` starts every window with the owner's plan (700 characters);
+  `smart_edit.py` opens with the sentence that matches the asked opening and ranks passages that match the plan
+  higher when fitting to length; the plan's file order sets the bin's order.
+- **After the build**: "Your plan" on the editor page; `PUT /api/studio/videos/{id}/plan` edits again as a new
+  version that Undo takes back.
+- **Routes** (`studio/routes.py`): `POST /api/studio/videos/setup`, `GET|PATCH /api/studio/videos/{id}/setup`,
+  `POST .../setup/say|stop|build`, `PUT .../plan`, `GET /api/studio/video-setup/model`; the old one-step
+  `POST /api/studio/videos` is unchanged.
+- **With the assistant (PR #37)**: a draft's chat answers through `chat.route` in the chat's own message shape, the
+  `make_youtube_video` tool shows a button to this page, helper agents' notes come from `agents.consult`; each part
+  is optional, so either PR can merge first.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py`; `e2e/sandbox/video-setup.spec.ts` walks
+  the whole flow in the sandbox (and at phone width); `frontend/dist` rebuilt.
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code)
 
 Landry asked to make the built-in AI and the editing "100 times smarter", with research first and anything useful
