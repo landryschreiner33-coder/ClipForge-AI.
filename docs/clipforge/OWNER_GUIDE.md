@@ -6,21 +6,34 @@ Open your studio's address and choose **Continue with Google**. Only your own ac
 On the desktop app there is no sign-in.
 
 ## Making clips
-Home → **Make clips**. Pick **Highlights** (the strongest short moments) or **Full stories** (one complete clip per
-story), drop your video, and choose a style (*My saved style* is used unless you pick another).
+Home → **Make clips**. Pick **Highlights** (the strongest short moments), **Full story** (one complete clip per
+story) or **Story parts** (each story cut at its best moments into Part 1, Part 2…), drop your video, and choose a
+style (*My saved style* is used unless you pick another).
 **Customize captions and framing** changes only this project. The box *Used from your Brain* shows which style, skill
 or note decides each choice before you start.
 - **Make clips only**: review and download, publish later.
 - **Make & upload clips**: tick the exact channels. YouTube uploads happen once per channel after each clip passes
   its final check; TikTok posts wait for your OK on each one. You can close the page once the file has uploaded.
 
-Full stories finds where each story starts (a pause and a new subject, the narrator's own words such as *next story*
-or *story number three*, a post's title read out) and makes one clip per story, running until the next story starts,
-however long it is. Every clip is made right away; nothing waits for you. Each card shows the start, the end, the
-length and how sure ClipForge is. If a boundary is off, use *Start 2 s earlier*, *End 2 s later*, *Split*, *Merge* or
-*Leave out*, then *Remake this clip*. A story longer than an account allows is kept whole; the card says which
-accounts can take it. With ClipForge AI's model set up, it double-checks the boundaries the rules are least sure of
-and names the stories.
+Full story finds where each story starts (the narrator's own words such as *next story*, *first story* or *story
+number three*, a post's title read out, a long break and a new subject) and makes one clip per story, running until
+the next story starts. A gamer who stops talking for a few seconds while he plays is not split at every pause. A
+story is never cut, except one longer than **five minutes**: no story clip is ever longer than that, so a longer
+story is split at its best point into Part 1, Part 2…
+
+Story parts finds the stories the same way and cuts each one where it is most gripping to stop (a cliffhanger, a
+reveal, a jump in time, the poster's update) into parts of about one to three minutes. Each part is its own clip with
+the story's title and "Part 1", "Part 2"… at the top.
+
+Story clips keep the picture still: the whole video, centred, never cropped, zoomed or stretched, with the captions
+just above it so none of the gameplay is covered. A framing you choose under *Customize* for this video, or in the
+clip editor, changes that (choosing a subject to follow there, such as a face, gives the vertical frame following
+it). Every clip is made right away; nothing waits for you. Each card shows the start, the end,
+the length, the part and how sure ClipForge is. If a boundary is off, use *Start 2 s earlier*, *End 2 s later*,
+*Split*, *Merge* or *Leave out*, then *Remake this clip* (none of them can make a story clip longer than five
+minutes). A story longer than an account allows is kept whole; the card says which accounts can take it. With
+ClipForge AI's model set up, it double-checks the boundaries the rules are least sure of, names the stories and helps
+choose where parts end.
 
 ## Making a YouTube video
 Home → **Make a YouTube video**. Drop your clips and images, put them in order, answer the four questions and press

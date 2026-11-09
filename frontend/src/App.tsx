@@ -216,7 +216,7 @@ function Shell({ me }: { me: Me }) {
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                 </div>

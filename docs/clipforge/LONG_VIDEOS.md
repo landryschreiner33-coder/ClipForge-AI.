@@ -152,6 +152,9 @@ What `pipeline/stories.py` does now:
 Tested on a five-post Reddit reader with no pauses, an update, an edit, read-out comments, a remark after one story
 and two long breaths inside stories (`tests/story_fixtures.reddit_reader`).
 
+Since Nov 8: Full story and Story parts, the five-minute limit, a gamer's pauses, and the still picture with the
+captions above it are in [STORY_CLIPS.md](STORY_CLIPS.md).
+
 ## Limits
 
 - A script in another language than the speech matches poorly; the report says so (low coverage everywhere).

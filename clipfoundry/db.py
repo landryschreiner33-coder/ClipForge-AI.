@@ -979,6 +979,9 @@ CREATE TABLE IF NOT EXISTS story_proposals (
     clip_id TEXT DEFAULT '',
     boundary_revision INTEGER DEFAULT 0,      -- 0 = as proposed; incremented by every manual change
     method TEXT DEFAULT '',
+    part INTEGER DEFAULT 0,                   -- Part 1, 2... of a story cut into parts (0 = the whole story)
+    parts INTEGER DEFAULT 0,                  -- how many parts that story has
+    story_key TEXT DEFAULT '',                -- the same for every part of one story
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -1291,6 +1294,8 @@ ADDED_COLUMNS = {
     # the memories ClipForge AI read for a proposal (brain/memories.py)
     "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},
+    # a story cut into parts (Story parts, or a Full story longer than five minutes): which part of which story
+    "story_proposals": {"part": "INTEGER DEFAULT 0", "parts": "INTEGER DEFAULT 0", "story_key": "TEXT DEFAULT ''"},
     # reuse terms of a rule (an agreement's credit line, commercial use, platforms, third-party material, files)
     "source_rights": {"conditions": "TEXT DEFAULT '{}'", "evidence": "TEXT DEFAULT ''"},
     # what the provider reported about a source's license, how its file was obtained, and whether the platform

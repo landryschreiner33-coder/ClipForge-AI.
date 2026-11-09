@@ -28,6 +28,7 @@ from collections import defaultdict
 from typing import Callable
 
 from . import semantic
+from .story_parts import pause_weight, rhythm
 from .text_utils import STOPWORDS, cosine, tf_vector
 
 METHOD = "local estimate from pauses, wording, the narrator's own separators and topic change"
@@ -41,6 +42,9 @@ MERGE_S = 2.0
 MIN_STORY_S = 12.0      # shorter unlabelled talk next to intro/sponsor/outro material is part of that material
 LEAD_S = 0.4            # a story's clip starts this long before its first word when the pause allows
 TAIL_S = 1.0            # and the last story keeps this much of the recording's tail
+FRAGMENT_S = 40.0       # a "story" this short that nothing announced is a piece of its neighbour, not a story
+EDGE_SHARE = 0.12       # intro wording counts only this close to the start (share of the recording), outro wording
+EDGE_MIN_S = 90.0       # only this close to the end (at least this many seconds): mid-video it is part of a story
 
 # Deliberate words for "here comes the next story" (strong), and the ways a story tends to begin (weak).
 STRONG_OPENERS = [r"\bstory (number |no\.? |#)?(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b",
@@ -55,7 +59,11 @@ STRONG_OPENERS = [r"\bstory (number |no\.? |#)?(one|two|three|four|five|six|seve
            r"^(from|in|over on) (the )?(subreddit|r/|r slash|are slash)\b", r"\br/\w+", r"\b(r|are) slash \w+",
            r"^(aita|aitah|wibta|wibtah|tifu)\b", r"^(am i the (asshole|a-hole|ahole|jerk)|today i (fucked|messed|screwed) up|would i be the (asshole|a-hole))\b",
            r"^(the )?title (is|says|reads)\b", r"^(this one'?s|this one is) (titled|called|about)\b",
-           r"^(okay|ok|alright|right),? (so )?(next|story)\b"]
+           r"^(okay|ok|alright|right),? (so )?(next|story)\b",
+           # "Alright, first story." / "Okay, last story, this one is from...": the announcement ends right there
+           # (never "So my last post blew up..." or "And our first one is turning five", said inside a post)
+           r"^(okay|ok|alright|right|so|and|now|anyway|anyways),? (the )?(first|second|third|fourth|fifth|"
+           r"next|last|final) (story|one|post|tale)\s*([.,:;!?-]|$)"]
 WEAK_OPENERS = [r"^so,? (this|one) (one )?time\b", r"^(another|one) time\b", r"^it all (started|began)\b",
                 r"^(back in|years ago|a few years ago|when i was)\b", r"^once upon a time\b",
                 r"^i remember (when|the)\b", r"^this (one )?happened\b"]
@@ -76,7 +84,8 @@ CONTINUATIONS = [r"^(update|edit|final update|small update|quick update|tl;?dr|t
                  r"(said|replied|commented|asked|wrote|responded)\b", r"^(and )?then (he|she|they) (replied|responded)\b"]
 GAP_KINDS = {
     "intro": [r"\b(hey|hi|hello),? (everyone|everybody|guys|friends)\b", r"\bwelcome (back )?to\b",
-              r"\bin (this|today'?s) video\b", r"\btoday i('?m| am| have| want)\b", r"\btoday'?s (stories|video)\b"],
+              r"\bin (this|today'?s) video\b", r"\btoday (i|we)('?m|'?re| am| are| have| want| will|'?ll)\b",
+              r"\btoday'?s (stories|video)\b"],
     "sponsor": [r"\bsponsor(ed)?\b", r"\bbrought to you by\b", r"\buse (my |the )?code\b",
                 r"\blink in the description\b", r"\bpromo\b", r"\bdiscount\b"],
     "transition": [r"\bthat one still\b", r"\bgrab a (drink|snack|coffee)\b", r"\bthe (last|next) one is\b",
@@ -107,14 +116,39 @@ def _match(patterns: list[str], text: str) -> bool:
     return any(re.search(p, t) for p in patterns)
 
 
-def gap_kind(text: str) -> str:
-    return next((k for k, pats in GAP_KINDS.items() if _match(pats, text)), "")
+def gap_kind(text: str, at: float | None = None, span: tuple[float, float] | None = None) -> str:
+    """intro, sponsor, transition or outro material, or "". With the sentence's time `at` and the recording's
+    `span` (first word, last word), a greeting counts as the intro only near the start and a goodbye as the outro
+    only near the end: "Today I am still mad" or "subscribe if you like these" in the middle of a story is part of
+    the story."""
+    kind = next((k for k, pats in GAP_KINDS.items() if _match(pats, text)), "")
+    if kind in ("intro", "outro") and at is not None and span is not None:
+        edge = max(EDGE_MIN_S, EDGE_SHARE * (span[1] - span[0]))
+        if (kind == "intro" and at - span[0] > edge) or (kind == "outro" and span[1] - at > edge):
+            return ""
+    return kind
 
 
 def title_like(text: str) -> bool:
     """Short and shaped like a post title or a story's first line."""
     t = text.strip().strip("\"'")
     return len(t.split()) <= 25 and (t.endswith("?") or _match(TITLE_STARTS, t))
+
+
+# A post's title read out: the subreddit's own prefixes, a question to the readers, or a statement in the present
+# tense ("My husband keeps inviting his mother on our date nights"). A story told in the past tense ("My sister was
+# furious", "My cousin kept talking") is the story going on, not a new post.
+POST_TITLES = [r"^(aita|aitah|wibta|wibtah|tifu|aio|wibta)\b",
+               r"^(am|would|should|was|is) i (the |a |wrong|right|overreacting|being|crazy|justified)",
+               r"^(my|our) (\w+ ){1,4}(is|are|keeps|won'?t|wont|wants|refuses|thinks|has|makes|does|expects|demands|"
+               r"insists|says|hates|ignores|blames|believes|needs)\b"]
+
+
+def post_title(text: str) -> bool:
+    """Reads like the title of a Reddit post (a stricter test than title_like): only these are worth asking
+    ClipForge AI about when nothing else in the words says a new post starts."""
+    t = text.strip().strip("\"'")
+    return 4 <= len(t.split()) <= 30 and _match(POST_TITLES, t)
 
 
 def continues(text: str) -> bool:
@@ -228,31 +262,46 @@ def meaning_shifts(sents: list[dict], emb) -> tuple[np.ndarray, np.ndarray] | No
 
 
 def _boundary(sents: list[dict], i: int, lo: int, hi: int, marks: dict[int, str], baseline: float = 0.0,
-              meaning: tuple[float, float] | None = None) -> dict:
+              meaning: tuple[float, float] | None = None, rh: dict | None = None) -> dict:
     """Evidence for a boundary between sentence i and i+1, using only sentences lo..hi (one chunk's context).
     `baseline` is the chunk's usual cohesion, so a dip below it counts as a change of topic too. `meaning` is the
-    meaning model's (shift, z) for this gap when it is available (meaning_shifts)."""
+    meaning model's (shift, z) for this gap when it is available (meaning_shifts). `rh` is the narrator's rhythm
+    (story_parts.rhythm): a pause counts by how long it is for this narrator, so someone who stops talking for a few
+    seconds all the time (a gamer playing while he reads) is not starting a new story at each pause; without it,
+    fixed lengths are used.
+
+    A story is never split on a pause, a change of subject or a sentence that only looks like a title: a boundary
+    needs words that say a new story starts ("explicit"): the narrator's separator or the story's number, words that
+    announce the next story or a post's title (AITA, TIFU, r/...), a run of intro, sponsor, transition or outro
+    material starting or ending, wording that ends a story followed by wording that starts one, a title-like
+    sentence after a closing line where the subject changes completely, or a pause that is long for this narrator
+    together with a complete change of subject. Anything less stays under the threshold. `cue` marks the places
+    whose words suggest a story starts or ends there: only those are worth asking ClipForge AI about."""
     a, b = sents[i], sents[i + 1]
+    span = (sents[0]["start"], sents[-1]["end"])
     gap = max(0.0, b["start"] - a["end"])
     cohesion = _cohesion(sents, i, lo, hi)
     mark = marks.get(i + 1)
     strong = bool(mark) or _match(STRONG_OPENERS, b["text"])
     opener = strong or _match(WEAK_OPENERS, b["text"])
     closer = _match(CLOSERS, a["text"])
-    kind_a, kind_b = gap_kind(a["text"]), gap_kind(b["text"])
-    # intro, sponsor and outro material usually comes in runs of sentences: a run starting or ending is explicit
-    block = (kind_b and (i + 2 >= len(sents) or gap_kind(sents[i + 2]["text"]) == kind_b)) or \
-        (kind_a and (i == 0 or gap_kind(sents[i - 1]["text"]) == kind_a))
+
+    def kind_of(k: int) -> str:
+        return gap_kind(sents[k]["text"], sents[k]["start"], span)
+    kind_a, kind_b = kind_of(i), kind_of(i + 1)
+    # intro, sponsor and outro material usually comes in runs of sentences (one of them may lack the words, "Raid
+    # Shadow Legends has six hundred champions"): a run starting or ending is explicit; one such sentence alone in
+    # a story ("she got a discount on the dress") is not
+    block = (kind_b and (i + 2 >= len(sents) or kind_b in (kind_of(i + 2), i + 3 < len(sents) and kind_of(i + 3)))) or \
+        (kind_a and (i == 0 or kind_a in (kind_of(i - 1), i >= 2 and kind_of(i - 2))))
     titled = title_like(b["text"])
     goes_on = continues(b["text"])
-    score, why = 0.0, []
-    if gap >= 3.0:
-        score += 0.38
-    elif gap >= 1.5:
-        score += 0.26
-    elif gap >= 0.9:
-        score += 0.12
-    if gap >= 0.9:
+    if rh is not None:
+        weight = pause_weight(gap, rh)
+    else:
+        weight = 1.0 if gap >= 3.0 else 0.26 / 0.38 if gap >= 1.5 else 0.12 / 0.38 if gap >= 0.9 else 0.0
+    score, why = 0.38 * weight, []
+    if weight > 0:
         why.append(f"a {gap:.1f} s pause")
     if mark == "separator":
         score += 0.55
@@ -290,13 +339,37 @@ def _boundary(sents: list[dict], i: int, lo: int, hi: int, marks: dict[int, str]
     if goes_on:
         score -= 0.4
         why.append("but the same story goes on (an update or a comment)")
-    explicit = opener or kind_a != kind_b or (titled and closer)
-    if gap < 0.25 and not explicit:
+    posted = post_title(b["text"])
+    worded = opener or kind_a != kind_b or (titled and closer) or posted
+    if gap < 0.25 and not worded:
         score = min(score, 0.3)  # no pause and no explicit change: not a boundary, whatever the wording
+    # a complete change of subject the meaning model sees (word overlap alone is too noisy in speech), or a
+    # complete change of the words themselves
+    new_subject = meaning is not None and meaning[1] <= -2.5 and meaning[0] <= 0.25
+    changed = new_subject or topic >= 0.20
+    clear = weight >= 0.9  # a pause that is long for this narrator
+    # a pause far longer than any this narrator makes inside a story (a reader who leaves a silence between posts)
+    stark = clear and gap >= max(1.5, 5.0 * (rh or {}).get("median", 0.0))
+    explicit = not goes_on and (strong or bool(block) or (opener and closer) or (titled and closer and topic >= 0.20)
+                                or (clear and new_subject)
+                                # a clear break, then a story's first words or a post's title about something else
+                                or (clear and (opener or posted) and topic >= 0.10)
+                                or (stark and (opener or posted))
+                                # a post's title read straight, and everything after it is about something else
+                                or (posted and changed))
+    if posted and not strong and not goes_on and (changed or stark):
+        score += 0.25
+        why.append("a post's title is read out")
+    if not explicit:
+        score = min(score, THRESHOLD - 0.01)
+    # a post's title where the subject changes: worth ClipForge AI's word even when the narrator announces his posts
+    title_cue = not goes_on and posted and (topic >= 0.10 or (meaning is not None and meaning[1] <= -1.8))
+    cue = not goes_on and (opener or title_cue or (closer and (titled or topic >= 0.10)))
     cut = b["start"] - LEAD_S if gap >= 2 * LEAD_S else (a["end"] + b["start"]) / 2
     return {"after": i, "time": (a["end"] + b["start"]) / 2, "cut": round(cut, 3), "gap": gap,
             "score": round(max(0.0, min(score, 1.0)), 3), "why": why, "opener": opener, "strong": strong,
-            "closer": closer, "mark": mark or "", "sure": (strong or bool(block)) and not goes_on}
+            "closer": closer, "mark": mark or "", "sure": (strong or bool(block)) and not goes_on, "cue": cue,
+            "title_cue": title_cue, "explicit": explicit}
 
 
 def _chunks(duration: float) -> list[dict]:
@@ -318,6 +391,7 @@ def candidates(sents: list[dict], duration: float, emb=None
     meaning model's view of where the subject changes."""
     marks = marks_of(sents)
     shifts = meaning_shifts(sents, emb)
+    rh = rhythm(sents)
 
     def meaning_at(i: int) -> tuple[float, float] | None:
         return (float(shifts[0][i]), float(shifts[1][i])) if shifts is not None and i < len(shifts[0]) else None
@@ -331,11 +405,15 @@ def candidates(sents: list[dict], duration: float, emb=None
         lo, hi = idx[0], idx[-1]
         baseline = statistics.median(_cohesion(sents, i, lo, hi) for i in range(lo, hi)) if hi - lo >= 4 else 0.0
         for i in range(lo, hi):
-            b = _boundary(sents, i, lo, hi, marks, baseline, meaning_at(i))
+            b = _boundary(sents, i, lo, hi, marks, baseline, meaning_at(i), rh)
             if b["score"] < NEAR:
                 continue
+            # seen with truncated context: close to the chunk's edge in time, or with fewer than the six sentences
+            # on either side that the change of topic is measured over (a slow narrator's six sentences can take
+            # longer than EDGE_S)
             near_edge = (b["time"] - c["start"] < EDGE_S and c["start"] > 0) or \
-                (c["end"] - b["time"] < EDGE_S and c["end"] < duration)
+                (c["end"] - b["time"] < EDGE_S and c["end"] < duration) or \
+                (i - 5 < lo and lo > 0) or (i + 7 > hi + 1 and hi < len(sents) - 1)
             found.append({**b, "chunk": chunks.index(c), "edge": near_edge})
     merged: dict[int, dict] = {}
     for b in found:  # the same boundary seen by two overlapping chunks is one boundary
@@ -346,7 +424,7 @@ def candidates(sents: list[dict], duration: float, emb=None
     for b in sorted(merged.values(), key=lambda x: x["time"]):
         if b["edge"]:
             # Seen only with truncated context: recompute with full context before trusting it.
-            full = _boundary(sents, b["after"], 0, len(sents) - 1, marks, 0.0, meaning_at(b["after"]))
+            full = _boundary(sents, b["after"], 0, len(sents) - 1, marks, 0.0, meaning_at(b["after"]), rh)
             b = {**full, "chunk": b["chunk"], "edge": False}
         need = STRONG if templated and not b["sure"] else THRESHOLD
         if b["score"] >= need:
@@ -413,7 +491,8 @@ def story_title(seg: list[dict]) -> str:
 
 def _item(sents: list[dict], seg: list[dict], start: float, end: float, start_b: dict | None,
           end_b: dict | None, duration: float) -> dict:
-    kinds = [gap_kind(s["text"]) for s in seg]
+    span = (sents[0]["start"], sents[-1]["end"])
+    kinds = [gap_kind(s["text"], s["start"], span) for s in seg]
     labelled = [x for x in kinds if x]
     span = seg[-1]["end"] - seg[0]["start"]
     kind = "gap" if labelled and (len(labelled) * 2 >= len(seg) or span < 25) else "story"
@@ -435,7 +514,7 @@ def _item(sents: list[dict], seg: list[dict], start: float, end: float, start_b:
     if start_b:
         reasons.append("starts after " + ", ".join(start_b["why"]))
     if end_b:
-        reasons.append("runs until the next part starts (" + ", ".join(end_b["why"]) + ")")
+        reasons.append("runs until the next section starts (" + ", ".join(end_b["why"]) + ")")
     completeness = "complete"
     unfinished = not re.search(r"[.!?…]['\")]*$", seg[-1]["text"].strip())
     if not end_b and not closes and (trailing < 1.0 or (unfinished and trailing < 2.0)):
@@ -470,7 +549,27 @@ def _absorb(items: list[dict]) -> list[dict]:
     return merged
 
 
+def _drop_fragments(sents: list[dict], accepted: list[dict]) -> list[dict]:
+    """A boundary only ClipForge AI's word put there (the rules did not find it on their own) never leaves a piece
+    shorter than FRAGMENT_S on either side of it: such a piece is part of the story next to it. A safety net, so a
+    model's mistake never cuts one story into pieces, before or after the place it named."""
+    kept = list(accepted)
+    first, last = (sents[0]["start"], sents[-1]["end"]) if sents else (0.0, 0.0)
+    k = 0
+    while k < len(kept):
+        b = kept[k]
+        before = b["cut"] - (kept[k - 1]["cut"] if k else first)
+        after = (kept[k + 1]["cut"] if k + 1 < len(kept) else last) - b["cut"]
+        if not b.get("explicit", True) and min(before, after) < FRAGMENT_S:
+            kept.pop(k)
+            k = max(0, k - 1)  # the piece before it grew: look at its own start again
+            continue
+        k += 1
+    return kept
+
+
 def _assemble(sents: list[dict], accepted: list[dict], duration: float) -> list[dict]:
+    accepted = _drop_fragments(sents, accepted)
     cuts = [-1] + [b["after"] for b in accepted] + [len(sents) - 1]
     by_after = {b["after"]: b for b in accepted}
     items = []
@@ -515,11 +614,18 @@ def propose(words: list[dict], sents: list[dict], duration: float, judge: "Judge
                 "note": "No speech was found, so no story boundaries can be estimated. Add the stories by hand."}
     emb = semantic.embed_sentences(sents, opts) if len(sents) >= 8 else None
     accepted, near, chunks, marks = candidates(sents, duration, emb)
+    # ClipForge AI is asked only where the words suggest a story starts or ends: its word alone never splits a
+    # story on a pause or a change of subject (a gamer's talk about the game in the middle of a post is not a story).
+    # When the narrator announces the stories (two or more announced starts), only announced starts and a post's
+    # title read where the subject changes (a post he did not announce) can be new stories: the model may still
+    # confirm or drop the rules' boundaries, but adds no others.
+    announced = sum(1 for b in accepted if b["strong"]) >= 2
+    near = [b for b in near if (b.get("title_cue") if announced else b.get("cue"))]
     ai: dict = {}
     if judge is not None:
         scan = getattr(judge, "scan", None)
         if scan is not None:
-            accepted, near = scan(accepted, near, marks)
+            accepted, near = scan(accepted, near, marks, strong_only=announced)
         accepted, ai = judge.review(accepted, near)
     if emb is not None and getattr(emb, "model", "lexical") != "lexical":
         ai = {**ai, "meaning_model": emb.model}
@@ -539,6 +645,8 @@ MAX_QUESTIONS = 60
 BATCH = 6
 SCAN_SCHEMA = {"type": "object", "properties": {"starts": {"type": "array", "maxItems": 12, "items": {"type": "integer"}}},
                "required": ["starts"]}
+CUT_SCHEMA = {"type": "object", "properties": {"option": {"type": "integer"}}, "required": ["option"]}
+CUT_SHARE = 0.25        # cutting stories into parts may use this share of the time budget
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="stories-ai")
 
 
@@ -553,11 +661,13 @@ class Judge:
         from . import llm
 
         self.settings, self.sents = settings, sents
+        self.rh = rhythm(sents)
         self.budget_s, self.heartbeat, self.canceled = budget_s, heartbeat, canceled
         self.complete = complete or llm.complete
         self.timeout = min(120.0, max(20.0, float(settings.get("ai_edit_timeout_s", 60)) * 2))
         self.report = {"provider": llm.provider_label(settings), "asked": 0, "answered": 0, "changed": 0,
                        "problems": []}
+        self._cut_time = 0.0
 
     def _ask(self, prompt: str, label: str, schema: dict | None = None) -> str:
         from . import llm
@@ -597,7 +707,8 @@ class Judge:
                 f"{places}\n\n"
                 'Answer with {"new_story": [the place numbers where a new story begins]} (an empty list when none).')
 
-    def scan(self, accepted: list[dict], near: list[dict], marks: dict[int, str]) -> tuple[list[dict], list[dict]]:
+    def scan(self, accepted: list[dict], near: list[dict], marks: dict[int, str], strong_only: bool = False
+             ) -> tuple[list[dict], list[dict]]:
         """Read the recording through, part by part, and ask where new stories begin (a table of contents). A start
         the rules already found is confirmed; a near miss it names is promoted; a place nobody suspected becomes a
         boundary when the rules' own evidence there, plus the model's word, reaches the threshold, otherwise a near
@@ -646,7 +757,7 @@ class Judge:
             kept.append(b)
         rest = []
         for b in near:
-            if b["after"] + 1 in starts:
+            if b["after"] + 1 in starts and b.get("cue", True):
                 self.report["changed"] += 1
                 kept.append({**b, "score": max(b["score"], THRESHOLD),
                              "why": b["why"] + ["ClipForge AI read a new story beginning here"]})
@@ -656,7 +767,9 @@ class Judge:
             after = i - 1
             if after in by_after or after in near_by or after < 0 or after >= len(self.sents) - 1:
                 continue
-            b = _boundary(self.sents, after, 0, len(self.sents) - 1, marks)
+            b = _boundary(self.sents, after, 0, len(self.sents) - 1, marks, rh=self.rh)
+            if not b["cue"] or (strong_only and not (b["strong"] or b["title_cue"])):
+                continue  # nothing in the words says a story starts here: the model's word alone is not enough
             b = {**b, "score": round(min(1.0, b["score"] + 0.35), 3),
                  "why": b["why"] + ["ClipForge AI read a new story beginning here"], "chunk": 0, "edge": False}
             if b["score"] >= THRESHOLD:
@@ -721,6 +834,29 @@ class Judge:
                 continue
             out.append(b)
         return out, self.report
+
+    def choose_cut(self, k: int, n: int, options: list[dict]) -> int | None:
+        """ClipForge AI's pick among the best few places (story_parts.split) for the end of part k of a story cut
+        into n parts: the one that leaves viewers most wanting the next part. None when the time for this is used
+        up or there is no readable answer; story_parts keeps the pick only when every length rule still holds."""
+        if (self.canceled and self.canceled()) or self._cut_time > self.budget_s * CUT_SHARE:
+            return None
+        listed = "\n".join(f'Option {m}: part {k} ends with "{o["end_text"][-220:]}" and part {k + 1} starts with '
+                           f'"{o["next_text"][:160]}"' for m, o in enumerate(options, 1))
+        prompt = (f"A story read aloud is cut into {n} parts for short videos. Choose where part {k} ends: the option "
+                  "whose last line makes viewers most want to see the next part (a cliffhanger, right before a "
+                  "reveal or a jump in time), never in the middle of a moment.\n\n"
+                  f"{listed}\n\nAnswer with {{\"option\": the option number}}.")
+        started = time.monotonic()
+        raw = self._ask(prompt, f"where part {k} of {n} ends", CUT_SCHEMA)
+        self._cut_time += time.monotonic() - started
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        try:
+            pick = int((json.loads(m.group(0)) if m else {}).get("option"))
+        except (ValueError, TypeError, AttributeError):
+            return None
+        self.report["cuts"] = self.report.get("cuts", 0) + 1
+        return pick - 1 if 1 <= pick <= len(options) else None
 
     def titles(self, items: list[dict]) -> dict[int, str]:
         """A title per story from the model, by item index; only the stories it answered for. Each title is checked

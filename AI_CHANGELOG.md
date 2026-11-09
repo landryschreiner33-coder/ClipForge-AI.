@@ -35,6 +35,89 @@ same branch (`claude/project-thread-5qybvh`, draft PR #36). No release.
 - **Tests:** new `tests/test_studio_shorts_undo.py` (8), `_stops.py` (14), `_edits.py` (5); more in `_flow.py`,
   `_parts.py` (16) and `_voice.py` (22).
 
+## Story clips: Full story, Story parts, five minutes at most, a still picture — 2026-11-09 (Claude Code)
+
+Landry's videos: a creator reads Reddit posts aloud while he plays a game. He asked for story clips that keep the
+picture still and centred and show as much gameplay as possible without distorting it; two settings, "Full story"
+(one clip per story; the finder kept splitting stories) and "Story parts" (each story cut at its best places into
+separate parts); and no story clip over five minutes, a longer story split no matter what. Branch
+`claude/project-thread-6ouxbx` restarted from the release line at 95a70e0; draft PR into `claude/project-thread-x72wkd`.
+No release. Design, rules and numbers: [docs/clipforge/STORY_CLIPS.md](docs/clipforge/STORY_CLIPS.md).
+
+- **Stories no longer split** (`pipeline/stories.py`): pauses count relative to the narrator (`story_parts.rhythm`,
+  `pause_weight`: a break only at 2.5 × the median pause and the 97th percentile, partly from the 90th); a boundary
+  needs words (a strong announcement, an intro/sponsor/outro run starting or ending, a post's title read out where
+  the subject changes, a story's first words or a post's title after a pause long for this narrator with a change of
+  subject or after a pause far longer than any inside a story, a closing line then an opener, or a long break with a
+  change of subject measured by the meaning model); intro/outro wording counts only in the first and last 12 % (at
+  least 90 s); ClipForge AI's checks are held to the same cues, and when the narrator announces his stories only
+  announced places and post titles where the subject changes are offered; a boundary only the model's word put there
+  is dropped when it would leave a piece under 40 s (`_drop_fragments`). On 40 synthetic recordings of a gamer
+  reading four posts (`tests/story_fixtures.gamer_reader`, seeds 1–40) the release line made 9 to 21 clips (15.1 on
+  average); this branch makes exactly 4, each starting within 1 s of the labelled start; with a model that answers
+  "new story" to everything, 4 on 30 of 30. On 423 situations written for the review (sponsor reads, intros and
+  outros, posts read title-first, narrators who pause before each post, a text-to-speech reader, model mistakes, a
+  worst case with long pauses inside posts) it finds every story; the release line finds 160.
+- **Story parts** (`pipeline/story_parts.py`, new): part counts (`max(ceil(D/299.5), ceil(D/175), round(D/110))`,
+  lowered while a part would be under 62 s; under about two minutes a story stays whole; in Full story a story of 5:00
+  or less is one clip); cut places between sentences scored
+  by what makes a good stop (the poster's update +0.45, a jump in time +0.35, right before a reveal +0.3, a line that
+  leaves you hanging +0.3, a question or exclamation +0.12, a change of scene +0.12, a pause long for this narrator up
+  to +0.25; a cut before "And/Because/Which…" or after an unfinished sentence −0.3); a dynamic programme with a cost
+  for uneven parts and for parts outside 62–175 s, looking only at cut places that can lead to parts under the cap (an
+  hour-long story plans in well under a second); when no set of sentence boundaries fits, Full story first tries one
+  part more and Story parts fewer, longer parts, and only then is a part cut at the longest pause between two words or
+  inside a long stretch without talking, never inside a word, and never leaving a part under a minute of silence in
+  Story parts; ClipForge AI may choose among the four best places (`stories.Judge.choose_cut`, at most a quarter of the
+  stories budget), used only when every part still fits.
+- **Two settings** (`studio/clips_flow.py`, `link_import.py`, `prefs.py`, `routes.py`): the request mode `story_parts`
+  makes a Full stories project with `options.story_split = "parts"` (`"whole"` otherwise and for older projects); the
+  guidance preview, the link import and the remembered choice accept it.
+- **Parts are stories of their own** (`studio/story_review.py`; `db.py` columns `part`, `parts`, `story_key`):
+  `plan_parts`, titles "… (Part N)", the hook "Part N" shown for the whole clip (and still after a trim in the clip
+  editor, unless the owner set its seconds), reasons "Part 2 of 3: starts …";
+  *Split in the middle* and *Merge* number the parts again (`_renumber`).
+- **Five minutes at most** (`story_parts.MAX_CLIP_S` 300, parts planned at most 299.5 s): in `plan_parts`; `capped`
+  splits an older or hand-set story when its clip is made; *Start earlier*, *End later* and *Merge* refuse a longer
+  story with the length in words; `PATCH /api/clips/{id}` refuses a trim that makes a story clip longer than five
+  minutes (other edits to an older, longer clip still work), and a start or end that is not a time in seconds ("NaN",
+  infinity) for any clip; the Stories card disables those buttons with the reason.
+- **A still picture** (`story_review.story_edit`, `studio/guidance.py`): story clips start with `fit`, `center`, zoom 1
+  and no push-in; only a framing chosen for the project (Customize, or its example video) changes that, not the app's
+  settings, a style, a skill, a shared example or a Brain note (`guidance.story_framing`); a subject to follow chosen
+  for the project with no framing gets the vertical frame. Captions go just above the fitted picture
+  (`pipeline/captions.py` `above_picture`, `render.py` passes the picture's top edge, `blueprint.POSITIONS` accepts
+  `"above"`), unless any level chose a caption position, and fall back to the lower third when there is no room; the
+  room is measured with libass (two lines reach twice the font size; the "Part N" box ends 1.25 font sizes under its
+  top), and captions at the top go under the headline while it shows (`hook_bottom`).
+  "Used from your Brain" shows these as "Story clips (the whole picture, still)" with what they replaced. `"above"` is
+  deliberately not a style choice in `studio/capabilities.py` (the full-video engine has no such position).
+- **Screens:** Make clips (three kinds with what each does), Stories ("Part k of n", the limit, disabled buttons with
+  reasons), the clip editor (the limit under Trim, "Above the picture" for Fit, the hook's seconds up to the clip's
+  length), Studio labels, the Brain level words;
+  `frontend/dist` rebuilt.
+- **Docs:** `docs/clipforge/STORY_CLIPS.md` (new), `OWNER_GUIDE.md`, `LONG_VIDEOS.md`, `FEATURE_CHECKLIST.md`.
+- **Independent review** (before the PR): found and fixed a 4:58 story split in two, cuts inside sentences and words
+  near twice five minutes and in silent gameplay, a planner that took minutes on an hour-long story, kinds of story
+  videos the stricter rules missed (sponsor reads, posts read title-first, narrators who pause before each post), a
+  trim of "NaN" accepted, "Part N" covering captions at the top, a room check for captions above the picture that was
+  too strict, "Part N" vanishing after a part was lengthened, and a subject to follow chosen for a story project doing
+  nothing.
+- **Checks:** `tests/test_story_parts.py` (15), `tests/test_story_clips.py` (15, two slow: libass placement and a real
+  render), `tests/test_full_stories.py` (33; the gamer-reader recordings in `tests/story_fixtures.py`),
+  `tests/test_smarter_ai.py`.
+  Two existing expectations changed on purpose: ClipForge AI can no longer split a story at a change of subject that
+  nothing in the words announces (the old near-miss test now uses a place whose words start a story).
+  Full fast suite (`pytest -m "not slow"`): 1968 passed, 3 skipped; the 49 failures and errors are the same 49 tests
+  that fail on the release line in this cloud machine (yt_dlp, faster_whisper, huggingface_hub and CUDA are not
+  installed). Slow suite (`pytest -m slow`): 29 passed, 1 skipped (needs the sound cleanup model files). Story finder
+  on 423 review situations: 423 (release line 160). `tsc --noEmit` clean, `npm run build`. Browser tests (`e2e/`,
+  the app on seeded data): 56 passed, 4 skipped, 8 failed, the same 8 that fail on the release line with the same data
+  (Autopilot, Office and Settings expectations outside this change).
+- **Not verified:** real speech recognition on Landry's own videos (the numbers are on synthetic recordings built from
+  real post patterns); ClipForge AI's real model choosing among cut places (tested with stand-in answers and a broken
+  model).
+
 ## Make → Animated short: viral voice-over shorts, made on this computer — 2026-11-08 (Claude Code)
 
 Landry asked for a maker of the animated voice-over shorts seen on TikTok: paste a script, or have it written, and
