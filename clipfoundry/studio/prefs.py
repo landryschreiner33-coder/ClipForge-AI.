@@ -28,7 +28,7 @@ PIN_MAX = 12
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MOTIONS = ("system", "full", "reduced")
 DEVICES = ("desktop", "tablet", "phone")
-CLIP_MODES = ("highlights", "full_stories")
+CLIP_MODES = ("highlights", "full_stories", "story_parts")  # the last kind of clips chosen in Make clips
 # The panels each arrangeable screen has (the Studio page and the editor use the same IDs). Only the editor's
 # panels sit side by side, so only they have widths.
 PANELS = {"studio": ("needs_you", "pinned", "current", "office", "recent", "publishing"),

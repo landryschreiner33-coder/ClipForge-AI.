@@ -62,7 +62,8 @@ FIELDS: dict[str, Field] = {f.name: f for f in (
     Field("caption_style", "Caption style", "choice", ALL, tuple(config.CAPTION_STYLES),
           applies="burned-in captions"),
     Field("caption_position", "Caption position", "choice", ALL, ("bottom", "middle", "top"),
-          applies="caption placement", words={"bottom": "lower third", "middle": "centre", "top": "top"}),
+          applies="caption placement", words={"bottom": "lower third", "middle": "centre", "top": "top",
+                                              "above": "above the picture"}),  # story clips' own (guidance.py)
     Field("caption_emphasis", "Caption emphasis", "bool", CLIP_MODES, applies="highlighted key words"),
     Field("captions", "Captions", "bool", ("full_video",), applies="whether captions are burned in"),
     Field("pacing", "Pacing", "choice", ("highlights",), ("safe_cuts", "continuous"),

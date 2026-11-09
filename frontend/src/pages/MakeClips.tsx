@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import { errorText } from "../api";
 import { DestinationPicker, ExampleSelect, FileDrop, Picked, StyleSelect, UsedFromBrain } from "../components/studioParts";
 import { Banner, CAPTION_STYLES, Disclosure, Icon, PageHead, TRACKING } from "../components/ui";
-import { useAppearance } from "../prefs";
+import { Appearance, useAppearance } from "../prefs";
 import { navigate } from "../router";
 import { Connection, LinkCheck, Snapshot, studio } from "../studio";
 
 const MODES = [
   { id: "highlights", name: "Highlights", text: "Pick the strongest short moments" },
-  { id: "full_stories", name: "Full stories", text: "One clip per story, from its start to the next story" },
+  { id: "full_stories", name: "Full story", text: "Each story whole, in one clip" },
+  { id: "story_parts", name: "Story parts", text: "Each story cut at its best moments into Part 1, Part 2…" },
 ] as const;
+// Story parts are Full stories cut into parts: the same styles and example videos apply to both
+const guidanceMode = (mode: string) => (mode === "story_parts" ? "full_stories" : mode);
+const STORY_MODES = new Set(["full_stories", "story_parts"]);
 
 const newRequestId = () => (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, "");
 
@@ -78,7 +82,7 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
           reuse_basis: basis, agreed };
       }
       const project = await studio.makeClips(body);
-      if (mode !== appearance.clips_mode) set({ clips_mode: mode as "highlights" | "full_stories" });
+      if (mode !== appearance.clips_mode) set({ clips_mode: mode as Appearance["clips_mode"] });
       navigate(`project/${project.id}`);
     } catch (e) {
       setProblem(errorText(e));
@@ -111,8 +115,14 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
               ))}
             </div>
             {mode === "full_stories" && <p className="small muted">ClipForge finds where each story starts and makes one clip per story,
-              running until the next one starts, however long it is. Nothing waits for you: every clip is made right away, and you can
-              still move a boundary afterwards. Nothing is cut short to fit a platform.</p>}
+              running until the next one starts. A story is never split, except one longer than 5 minutes: that one is split at its
+              best point into Part 1, Part 2… so no clip is longer than 5 minutes.</p>}
+            {mode === "story_parts" && <p className="small muted">ClipForge finds each story and cuts it where it is most gripping to
+              stop (a cliffhanger, a reveal, a jump in time) into parts of about one to three minutes. Every part is its own clip with
+              the story's title and “Part 1”, “Part 2”… at the top. No part is longer than 5 minutes.</p>}
+            {STORY_MODES.has(mode) && <p className="small muted">The picture stays still: the whole video, centred, never cropped,
+              zoomed or stretched, with the captions just above it. Every clip is made right away; you can still move a story's start
+              or end afterwards.</p>}
           </section>
           <section className="panel" aria-labelledby="mc-file">
             <h2 id="mc-file">Your video</h2>
@@ -148,9 +158,11 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
           </section>
           <section className="panel" aria-labelledby="mc-style">
             <h2 id="mc-style">Style</h2>
-            <StyleSelect value={style} onChange={setStyle} mode={mode} />
-            <ExampleSelect value={example} onChange={setExample} mode={mode} />
+            <StyleSelect value={style} onChange={setStyle} mode={guidanceMode(mode)} />
+            <ExampleSelect value={example} onChange={setExample} mode={guidanceMode(mode)} />
             <Disclosure summary="Customize captions and framing">
+              {STORY_MODES.has(mode) && <p className="small muted">Story clips show the whole picture, still and centred, with the
+                captions above it. Choose a framing or caption position here only to change that for this video.</p>}
               <div className="grid-2">
                 <label className="field"><span>Caption position</span>
                   <select value={choices.caption_position || ""} onChange={(e) => choose("caption_position", e.target.value)}>

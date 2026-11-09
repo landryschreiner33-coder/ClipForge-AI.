@@ -38,7 +38,7 @@ WORD_TOLERANCE = 0.03      # a cut this close to a word edge still counts as bet
 SPEED_RANGE = (0.8, 1.25)  # what the renderer can play without changing the voice pitch (atempo)
 GAIN_RANGE = (-12.0, 12.0)
 ZOOM_RANGE = (1.0, 2.5)
-POSITIONS = ("bottom", "middle", "top")
+POSITIONS = ("bottom", "middle", "top", "above")  # "above": over a fitted picture (captions.py)
 ORIGINS = ("strategist", "edit", "version")
 
 
