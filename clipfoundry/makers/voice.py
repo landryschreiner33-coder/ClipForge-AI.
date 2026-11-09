@@ -55,7 +55,8 @@ FADE_S = 0.005             # the very first and last moments fade, so a cut ther
 WPM = 175                  # words a minute at speed 1.0 (say -r, espeak -s)
 TEMPO_KINDS = ("say", "sapi")  # voices made faster or slower by FFmpeg after they read (see the module's notes)
 SPEEDS = (0.7, 1.4)
-CACHE_S = 600.0            # the voice list is looked up again after ten minutes
+CACHE_S = 600.0            # the voice list is looked up again after ten minutes...
+RETRY_S = 30.0             # ...or after half a minute when listing this computer's voices failed
 FRAME_S = 0.01             # loudness is measured every 10 ms
 PAUSE_S = 0.12             # a quiet run this long inside the speech is a pause...
 SHORT_PAUSE_S = 0.06       # ...but fast speech pauses less at a comma, so a shorter run is a weaker candidate
@@ -136,9 +137,11 @@ def voices() -> list[dict]:
     with _cache_lock:
         if _cache["key"] == key and time.monotonic() - _cache["at"] < CACHE_S:
             return [dict(v) for v in _cache["voices"]]
-        found = _engine_voices(status) + _system_voices() + _espeak_voices()
+        trouble: list[str] = []
+        found = _engine_voices(status, trouble) + _system_voices(trouble) + _espeak_voices()
         listing = [_auto_entry(found)] + found
-        _cache.update(at=time.monotonic(), key=key, voices=listing)
+        # a listing that failed (a slow first start of PowerShell, a busy computer) is looked up again soon
+        _cache.update(at=time.monotonic() - (CACHE_S - RETRY_S if trouble else 0.0), key=key, voices=listing)
         return [dict(v) for v in listing]
 
 
@@ -158,6 +161,13 @@ def _lang_base(lang: str) -> str:
     return re.split(r"[-_]", str(lang or "").strip().lower())[0]
 
 
+def _speaks(v: dict, want: str) -> bool:
+    """Whether a voice reads the language `want` ("en"): a voice that reads every language says "multilingual" or
+    "mul", or nothing."""
+    base = _lang_base(v["lang"])
+    return base == want or base in ("multilingual", "mul", "")
+
+
 def _english_first(found: list[dict]) -> list[dict]:
     return sorted(found, key=lambda v: _lang_base(v["lang"]) != "en")
 
@@ -165,7 +175,7 @@ def _english_first(found: list[dict]) -> list[dict]:
 def _auto_entry(found: list[dict]) -> dict:
     order = _auto_order(found, "en")
     if not order:
-        return _entry("auto", AUTO_NAME, "en", "", f"No voice was found on this computer yet. You can {SETUP}.", "")
+        return _entry("auto", AUTO_NAME, "en", "", f"No voice was found on this computer yet. {_how_to_add()}", "")
     best = order[0]
     return _entry("auto", AUTO_NAME, best["lang"], best["gender"],
                   f"ClipForge picks the best voice it finds. Right now that is {best['name']}.", best["engine"])
@@ -180,8 +190,8 @@ def _auto_order(listing: list[dict], lang: str = "en") -> list[dict]:
         group = [v for v in listing if v["engine"] in kinds and v["id"] != "auto"]
         if not group:
             continue
-        same = [v for v in group if _lang_base(v["lang"]) == want]
-        english = [v for v in group if _lang_base(v["lang"]) == "en"]
+        same = [v for v in group if _speaks(v, want)]
+        english = [v for v in group if _speaks(v, "en")]
         picks.append((0 if same else 1, rank, _best(same or english or group)))
     return [pick for *_, pick in sorted(picks, key=lambda p: p[:2])]
 
@@ -205,7 +215,7 @@ def _best(group: list[dict]) -> dict:
     return group[0]
 
 
-def _engine_voices(status: dict) -> list[dict]:
+def _engine_voices(status: dict, trouble: list[str]) -> list[dict]:
     mod = local_engines.module()
     if not status["ready"] or mod is None:
         return []
@@ -213,6 +223,7 @@ def _engine_voices(status: dict) -> list[dict]:
         listed = list(mod.voices() or [])
     except Exception:  # noqa: BLE001 - a broken engine leaves this computer's own voices
         log.exception("The voice engine could not list its voices")
+        trouble.append("engine")
         return []
     found = {}
     for v in listed:
@@ -224,7 +235,7 @@ def _engine_voices(status: dict) -> list[dict]:
     return _english_first(list(found.values()))
 
 
-def _system_voices() -> list[dict]:
+def _system_voices(trouble: list[str]) -> list[dict]:
     try:
         if sys.platform == "darwin":
             return _say_voices()
@@ -232,6 +243,7 @@ def _system_voices() -> list[dict]:
             return _sapi_voices()
     except (OSError, ValueError, subprocess.SubprocessError, ffmpeg_utils.FFmpegError) as exc:
         log.warning("This computer's voices could not be listed: %s", exc)
+        trouble.append("system")
     return []
 
 
@@ -241,8 +253,7 @@ def _say_voices() -> list[dict]:
         return []
     got = _run([say, "-v", "?"], timeout=30.0)
     if got.returncode != 0:
-        log.warning("say -v ? answered %s: %s", got.returncode, _tail(got.stderr))
-        return []
+        raise OSError(f"say -v ? answered {got.returncode}: {_tail(got.stderr)}")
     return _parse_say(got.stdout.decode("utf-8", "replace"))
 
 
@@ -273,8 +284,7 @@ def _sapi_voices() -> list[dict]:
         return []
     got = _run([powershell, "-NoProfile", "-NonInteractive", "-Command", SAPI_LIST], timeout=30.0)
     if got.returncode != 0:
-        log.warning("The Windows voices could not be listed (%s): %s", got.returncode, _tail(got.stderr))
-        return []
+        raise OSError(f"the Windows voices could not be listed ({got.returncode}): {_tail(got.stderr)}")
     return _parse_sapi(got.stdout.decode("utf-8", "replace"))
 
 
@@ -372,7 +382,7 @@ def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang
     except OSError as exc:
         raise VoiceError("ClipForge could not save the voice. Check that the disk has free space, then try "
                          "again.") from exc
-    raise VoiceError(f"{_no_voice()[:-1]} that could read these words. {failures[0]}. Try again, or {SETUP}.")
+    raise VoiceError(f"{_no_voice()[:-1]} that could read these words. {failures[0]}. Try again{_or_setup()}.")
 
 
 def _speed(speed) -> float:
@@ -396,12 +406,24 @@ def _no_voice() -> str:
     return "No voice is available on this computer."
 
 
+def _or_setup() -> str:
+    """", or download the voice in ClipForge's Settings" when this ClipForge has the local makers (the Settings page
+    shows that section only then), else ""."""
+    return f", or {SETUP}" if local_engines.available() else ""
+
+
 def _how_to_add() -> str:
     if sys.platform == "darwin":
-        return f"Add a voice in System Settings → Accessibility → Spoken Content, or {SETUP}."
+        return f"Add a voice in System Settings → Accessibility → Spoken Content{_or_setup()}."
     if sys.platform == "win32":
-        return f"Add a voice in Windows Settings → Time & language → Speech, or {SETUP}."
-    return f"Install espeak-ng (for example: sudo apt install espeak-ng), or {SETUP}."
+        return f"Add a voice in Windows Settings → Time & language → Speech{_or_setup()}."
+    return f"Install espeak-ng (for example: sudo apt install espeak-ng){_or_setup()}."
+
+
+def _no_commands(text: str) -> str:
+    """say acts on [[...]] commands inside the words, and espeak-ng reads [[...]] as phoneme codes: every pair of
+    brackets is broken up ("[[[slnc 3000]]]" → "[ [ [slnc 3000] ] ]"), so the script is only ever read aloud."""
+    return re.sub(r"\](?=\])", "] ", re.sub(r"\[(?=\[)", "[ ", text))
 
 
 def _speakable(text: str) -> str:
@@ -447,12 +469,11 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
         if kind == "engine":
             raw, words, rule = _engine_read(voice_id, text, speed, lang, cancel)
         elif kind == "say":
-            # say acts on [[...]] commands inside the words: break them up so the script cannot change the voice
-            raw = _say_read(voice_id, text.replace("[[", "[ [").replace("]]", "] ]"), work, cancel)
+            raw = _say_read(voice_id, _no_commands(text), work, cancel)
         elif kind == "sapi":
             raw = _sapi_read(voice_id, text, work, cancel)
         else:
-            raw = _espeak_read(voice_id, text, work, speed, cancel)
+            raw = _espeak_read(voice_id, _no_commands(text), work, speed, cancel)
         length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0)
     except _Failed as exc:
         if not exc.reason:
@@ -1166,14 +1187,15 @@ def _fill(times: list, weights: list[int]) -> None:
 
 
 def time_words(wav: Path, text: str, *, engine_words=None, settings: dict | None = None, listen: bool = True,
-               cancel: Callable[[], bool] | None = None) -> tuple[list[dict], str]:
+               cancel: Callable[[], bool] | None = None, used: dict | None = None) -> tuple[list[dict], str]:
     """The script's words with their times in `wav`, and how they were found:
 
     "engine" (the voice engine said when it spoke each word; matched to the script), "listened" (the speech model is
     installed and already downloaded: it listened, and what it heard is matched to the script; this never downloads
     anything), or "estimated" (from the sound, see `estimate_words`). Heard or engine words that match less than half
     of the script are not trusted. `cancel` stops the listening (raising Cancelled); any other problem while
-    listening falls back to the estimate."""
+    listening falls back to the estimate. `used["model"]` becomes True when the speech model was asked to listen
+    (it may stay loaded even when its words were not used: `release()` gives the memory back)."""
     wav = Path(wav)
     length = _length(wav)
     if engine_words:
@@ -1181,7 +1203,7 @@ def time_words(wav: Path, text: str, *, engine_words=None, settings: dict | None
         if words and share >= MATCH_MIN:
             return _tidy(words, length), "engine"
     if listen:
-        heard = _listen(wav, settings, cancel)
+        heard = _listen(wav, settings, cancel, used)
         if heard:
             words, share = _align(text, heard)
             if words and share >= MATCH_MIN:
@@ -1189,7 +1211,7 @@ def time_words(wav: Path, text: str, *, engine_words=None, settings: dict | None
     return estimate_words(wav, text), "estimated"
 
 
-def _listen(wav: Path, settings: dict | None, cancel) -> list[dict] | None:
+def _listen(wav: Path, settings: dict | None, cancel, used: dict | None = None) -> list[dict] | None:
     """What the speech model hears in the voice, when it is installed and its files are already on this computer;
     None otherwise. A CPU fallback is allowed only when that model is downloaded too, so nothing is downloaded."""
     from ..pipeline import transcribe  # noqa: PLC0415 - heavy, and only needed when listening
@@ -1206,6 +1228,8 @@ def _listen(wav: Path, settings: dict | None, cancel) -> list[dict] | None:
         with tempfile.TemporaryDirectory(prefix="clipforge-listen-", ignore_cleanup_errors=True) as tmp:
             pcm = Path(tmp) / "voice-16k.wav"
             _convert(wav, pcm, 16000, cancel)
+            if used is not None:
+                used["model"] = True  # loading it starts now
             result = transcribe.transcribe(pcm, _length(pcm) or 0.0, conf, JobContext(None, cancel), vad=False,
                                            allow_cpu_fallback=allow_cpu)
         return transcribe.flatten_words(result)

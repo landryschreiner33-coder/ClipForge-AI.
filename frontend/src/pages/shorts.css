@@ -89,7 +89,8 @@
 .short-scenes .scene-move { display: flex; gap: var(--s1); }
 .short-scenes .scene-main textarea { min-height: 76px; }
 .short-scenes .scene-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--s2); font-size: var(--fs-small); color: var(--text-2); }
-.short-scenes .scene-status > span { min-width: 0; overflow-wrap: anywhere; }
+/* the words stay beside the icon (a long message wraps inside its own box); a button goes under them */
+.short-scenes .scene-status > span { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .short-scenes .scene-status .icon { color: var(--text-3); }
 .short-scenes .scene-status.good .icon { color: var(--good); }
 .short-scenes .scene-status.bad { color: var(--text); }

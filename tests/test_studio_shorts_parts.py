@@ -146,8 +146,86 @@ def test_a_card_carries_the_scenes_key_words_in_the_look_and_differs_by_scene(tm
     odd = looks.Look(**{**looks.get("flat").__dict__, "font": "missing.ttf"})
     assert cards.make_card("hello", odd, tmp_path / "nofont.png", size=(414, 736)).is_file()
     (tmp_path / "dir.png").mkdir()
-    with pytest.raises(cards.CardError):
+    with pytest.raises(cards.CardError) as caught:
         cards.make_card("hello", look, tmp_path / "dir.png", size=(414, 736))
+    assert "Errno" not in str(caught.value) and str(caught.value).endswith("then press Try again.")
+
+
+def test_a_cards_words_always_fit_and_new_picture_moves_its_shapes(tmp_path):
+    from PIL import Image, ImageDraw
+
+    from clipfoundry.makers import cards, looks
+
+    look = looks.get("comic")
+    draw = ImageDraw.Draw(Image.new("RGB", cards.SIZE))
+    width = int(cards.SIZE[0] * cards.TEXT_WIDTH)
+    for words in ("SUPERCALIFRAGILISTICEXPIALIDOCIOUS OCTOPUS", "X" * 80, "THREE HEARTS"):
+        font, lines, _ = cards._fit(draw, words, look, width, 500)
+        assert lines and all(draw.textlength(line, font=font) <= width for line in lines), words
+    a = cards.make_card("three hearts", look, tmp_path / "a.png", index=0, size=(414, 736), seed=7)
+    b = cards.make_card("three hearts", look, tmp_path / "b.png", index=0, size=(414, 736), seed=8)
+    c = cards.make_card("three hearts", look, tmp_path / "c.png", index=0, size=(414, 736), seed=7)
+    pa, pb, pc = (np.asarray(Image.open(p).convert("RGB"), dtype=np.int16) for p in (a, b, c))
+    assert np.array_equal(pa, pc) and np.abs(pa - pb).mean() > 2
+
+
+def test_the_picture_maker_falls_back_to_a_card_in_plain_words(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from clipfoundry.makers import local_engines, looks, pictures
+
+    class Engines:
+        class EngineError(Exception):
+            pass
+
+        answer = None
+
+        def status(self, role):
+            return {"ready": role == "image", "engine": "Fake pictures", "why": ""}
+
+        def make_image(self, prompt, **kw):
+            return self.answer()
+
+    engines = Engines()
+    monkeypatch.setattr(local_engines, "module", lambda: engines)
+    look = looks.get("comic")
+
+    def make(n: int) -> dict:
+        return pictures.make("Octopuses have three hearts.", "an octopus", look, tmp_path / f"out{n}", seed=n)
+
+    def good():
+        path = tmp_path / "engine.png"
+        Image.new("RGB", (64, 64), "red").save(path)
+        return path
+
+    def cut_short():  # the engine was killed while writing, or the disk filled
+        path = good()
+        path.write_bytes(path.read_bytes()[:70])
+        return path
+
+    def full():
+        raise OSError(28, "No space left on device", "/Users/someone/engine/picture.png")
+
+    def bug():
+        raise KeyError("steps")
+
+    def said():
+        raise Engines.EngineError("The picture model is still downloading.")
+
+    engines.answer = cut_short
+    got = make(1)
+    assert (got["source"], got["tried"]) == ("card", True)
+    assert got["why"] == "The picture maker's picture could not be opened, so ClipForge drew a card."
+    engines.answer = full
+    assert make(2)["why"] == ("The picture maker's picture could not be saved, so ClipForge drew a card. Check that "
+                              "the disk has free space.")
+    engines.answer = bug
+    assert make(3)["why"] == "The picture maker stopped with an error, so ClipForge drew a card."
+    engines.answer = said
+    assert make(4)["why"] == "The picture maker could not make this picture (The picture model is still downloading.)."
+    engines.answer = good
+    got = make(5)
+    assert (got["source"], got["why"]) == ("engine", "") and Path(got["path"]).is_file()
 
 
 # ------------------------------------------------------------------ motion.py
@@ -278,6 +356,56 @@ def test_motion_stops_when_asked_and_explains_a_bad_picture(media):
         motion.still_clip(media / "bad.png", voice, media / "b.mp4", duration_s=1.0, size=(108, 192))
     with pytest.raises(motion.MotionError, match="no length"):
         motion.still_clip(picture, voice, media / "z.mp4", duration_s=0, size=(108, 192))
+
+
+def _rgb_frame(path: Path, n: int, size: tuple[int, int]) -> np.ndarray:
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-vf", f"select=eq(n\\,{n})", "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.uint8).reshape(size[1], size[0], 3).astype(int)
+
+
+def test_see_through_pictures_lie_on_the_looks_colour(media):
+    from PIL import Image
+
+    from clipfoundry.makers import motion
+
+    voice = _wav(media / "v.wav", 0.3)
+    rgba = np.zeros((192, 108, 4), dtype=np.uint8)
+    rgba[..., :3] = (255, 0, 255)  # a colour stored under the see-through part, never meant to be seen
+    rgba[80:112, 40:68] = (255, 255, 255, 255)
+    Image.fromarray(rgba, "RGBA").save(media / "sticker.png")
+    got = motion.still_clip(media / "sticker.png", voice, media / "s.mp4", duration_s=0.3, move="still",
+                            size=(108, 192), background="#2050a0")
+    frame = _rgb_frame(got["path"], 0, (108, 192))
+    assert np.abs(frame[6, 6] - (0x20, 0x50, 0xA0)).max() < 20
+    assert frame[96, 54].min() > 220  # the picture itself is on top
+    black = motion.still_clip(media / "sticker.png", voice, media / "b.mp4", duration_s=0.3, move="still",
+                              size=(108, 192))
+    assert _rgb_frame(black["path"], 0, (108, 192))[6, 6].max() < 30  # no colour given: black, never magenta
+
+
+def test_huge_pictures_are_refused_plainly_and_big_photos_read_small(media):
+    import struct
+    import zlib
+
+    from PIL import Image
+
+    from clipfoundry.makers import motion
+
+    voice = _wav(media / "v.wav", 0.3)
+    Image.new("RGB", (1, 1)).save(media / "huge.png")
+    data = bytearray((media / "huge.png").read_bytes())
+    struct.pack_into(">II", data, 16, 40000, 40000)  # the header says 40000 x 40000
+    struct.pack_into(">I", data, 29, zlib.crc32(bytes(data[12:29])) & 0xFFFFFFFF)
+    (media / "huge.png").write_bytes(bytes(data))
+    with pytest.raises(motion.MotionError) as caught:
+        motion.still_clip(media / "huge.png", voice, media / "h.mp4", duration_s=0.3, size=(108, 192))
+    assert str(caught.value) == "This scene's picture is too large to use. Choose a smaller picture."
+    Image.new("RGB", (4000, 3000), "#888888").save(media / "big.jpg", quality=80)
+    assert motion._read_picture(media / "big.jpg", (108, 192), 0.08).shape == (375, 500, 3)  # an eighth
+    assert motion._read_picture(media / "big.jpg", (1080, 1920), 0.08).shape == (3000, 4000, 3)  # all of it
+    got = motion.still_clip(media / "big.jpg", voice, media / "j.mp4", duration_s=0.3, size=(108, 192))
+    assert got["frames"] == 9
 
 
 # ------------------------------------------------------------------ writer.py

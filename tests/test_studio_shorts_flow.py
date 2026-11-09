@@ -10,7 +10,6 @@ tests stay quick; tests/test_studio_shorts_render.py renders a real short with e
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 import types
@@ -50,6 +49,10 @@ class Calls:
         self.fail: set[str] = set()     # words the stand-in voice refuses to say
         self.during_clip = None         # called while a clip is being made (the owner editing meanwhile)
         self.rule = ""                  # what the stand-in voice's licence asks of what it makes
+        self.stand_in = ""              # another voice reads instead of the chosen one (the note says so)
+        self.error = None               # raised by the voice for the next scene
+        self.model_used = False         # the speech model listened (and may still be loaded)
+        self.released = 0               # times the speech model's memory was given back
 
 
 @pytest.fixture()
@@ -70,14 +73,20 @@ def env(monkeypatch, tmp_path):
 
     def speak(text, out, *, voice="auto", speed=1.0, lang="en", cancel=None):
         calls.speak.append(text)
+        if calls.error is not None:
+            exc, calls.error = calls.error, None
+            raise exc
         if any(bad in text for bad in calls.fail):
             raise VoiceError("This voice could not say that scene.")
         seconds = round(0.3 * len(text.split()) / speed, 3)
         _tone(Path(out), seconds)
         return {"path": Path(out), "duration_s": seconds, "words": None, "engine": "espeak", "voice": "Test voice",
-                "fallback": "", "rule": calls.rule}
+                "voice_id": "espeak:en-gb" if calls.stand_in else voice, "fallback": calls.stand_in,
+                "rule": calls.rule}
 
-    def time_words(wav, text, *, engine_words=None, settings=None, listen=True):
+    def time_words(wav, text, *, engine_words=None, settings=None, listen=True, cancel=None, used=None):
+        if calls.model_used and used is not None:
+            used["model"] = True  # the speech model was asked, though its words were not used
         words, t = [], 0.0
         for w in text.split():
             words.append({"w": w, "start": round(t, 3), "end": round(t + 0.25, 3)})
@@ -90,7 +99,7 @@ def env(monkeypatch, tmp_path):
     voice.default_voice = lambda: "espeak:en-us"
     voice.voices = lambda: [{"id": "auto", "name": "Best voice", "lang": "en", "gender": "", "about": "",
                              "engine": ""}]
-    voice.release = lambda: None
+    voice.release = lambda: setattr(calls, "released", calls.released + 1)
 
     motion = types.ModuleType("clipfoundry.makers.motion")
 
@@ -98,7 +107,7 @@ def env(monkeypatch, tmp_path):
         pass
 
     def still_clip(picture, audio, out, *, duration_s, move="zoom_in", fps=30, size=(1080, 1920), strength=0.08,
-                   cancel=None, progress=None):
+                   cancel=None, progress=None, background=None):
         calls.clips.append(str(picture))
         if calls.during_clip:
             hook, calls.during_clip = calls.during_clip, None

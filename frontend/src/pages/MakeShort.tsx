@@ -175,6 +175,11 @@ export default function MakeShort() {
               {tooLong && <p className="short-warn small"><Icon name="alert" className="sm" />
                 <span>This script has {words} words; a short can have up to {maxWords}. Take some out to make it.</span></p>}
             </div>
+            {opts && writer && canWrite && (
+              <p className="small muted short-writer"><Icon name="info" className="sm" />
+                <span>{writer.label} suggests a picture for each scene {writer.local ? "on this computer"
+                  : `online (your script is sent to ${writer.label})`}. [Visual: …] lines are used as they are.</span></p>
+            )}
           </div>
         ) : (
           <div className="stack-4">

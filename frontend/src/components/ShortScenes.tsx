@@ -115,10 +115,12 @@ export function HearButton({ voice, speed, disabled, small }: { voice: string; s
     try {
       if (sample.current?.key !== asked) {
         setState("loading");
-        const blob = await shorts.voiceSample(voice, speed);
+        const { blob, note } = await shorts.voiceSample(voice, speed);
         if (latest.current !== asked) return;  // the voice changed while the sample was made
         if (sample.current) URL.revokeObjectURL(sample.current.url);
-        sample.current = { key: asked, url: URL.createObjectURL(blob) };
+        // a sample another voice read is played once and asked for again next time
+        sample.current = { key: note ? "" : asked, url: URL.createObjectURL(blob) };
+        if (note) toast(note);
       }
       const a = new Audio(sample.current.url);
       audio.current = a;
@@ -306,6 +308,15 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
                 onClick={() => void patch({ again: true }, `ClipForge is trying scene ${scene.n} again.`)}>
                 <Icon name="refresh" />Try again</button>
             )}
+          </p>
+        )}
+        {!early && scene.status === "ready" && !!scene.voice.fallback && (
+          <p className="scene-status warn">
+            <Icon name="alert" className="sm" />
+            <span>{scene.voice.fallback}</span>
+            <button type="button" className="btn btn-small" disabled={off}
+              onClick={() => void patch({ again: true }, `ClipForge is asking the chosen voice to read scene ${scene.n} again.`)}>
+              <Icon name="refresh" />Try again</button>
           </p>
         )}
         {scene.in_plan && !scene.included && (
@@ -619,6 +630,13 @@ export function ShortScenes({ v, busy, onVideo }: { v: Video; busy: boolean; onV
       )}
       {s.stage === "making" && s.progress.total > 0 && (
         <ProgressBar value={s.progress.done / s.progress.total} label={`${s.progress.done} of ${s.progress.total} scenes made`} />
+      )}
+      {s.stage === "ready" && (s.cards_to_swap ?? 0) > 0 && (
+        <Banner tone="info" title="A picture maker is ready"
+          actions={<button type="button" className="btn btn-small" disabled={off} onClick={() => void run(() => shorts.make(v.id),
+            "ClipForge is drawing real pictures for the cards.")}><Icon name="spark" />Draw real pictures</button>}>
+          {plural(s.cards_to_swap ?? 0, "scene")} {s.cards_to_swap === 1 ? "shows" : "show"} a designed card. Draw real pictures swaps {s.cards_to_swap === 1 ? "it" : "them"} for pictures made on this computer.
+        </Banner>
       )}
       {s.message && (s.stage === "making" || s.stage === "ready") && <p className="small muted">{s.message}</p>}
       {scenes.length > 0 && s.stage !== "writing" && (

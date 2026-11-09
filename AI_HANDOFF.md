@@ -34,6 +34,11 @@ engines it still works: the computer's own voice and designed cards with each sc
 - **Not done / not testable here:** the real engines, `say`, SAPI, a real model writing scripts and the speech
   model's word times; a Windows run.
 - **Waiting on Landry:** a look at the PR, a try on his Mac, the merge and any release (explicit OK each time).
+- **Nov 9 review round:** undo/redo/restore now put a short's scenes and choices back with the version (the critical
+  finding), Stop and Stop all jobs always free a short, and the other review findings are fixed (see the 2026-11-09
+  entry in [AI_CHANGELOG.md](AI_CHANGELOG.md)). New tests: `tests/test_studio_shorts_undo.py`, `_stops.py`,
+  `_edits.py`. Still only on real machines: the engines, Landry's downloaded voices, a real model writing and the
+  speech model's word times.
 
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 

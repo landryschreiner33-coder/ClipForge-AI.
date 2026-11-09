@@ -1,5 +1,40 @@
 # AI changelog
 
+## Animated shorts: undo keeps the scenes, Stop always frees a short, and the review's fixes — 2026-11-09 (Claude Code)
+
+A full review of the shorts branch found one critical problem and about forty smaller ones; all are fixed on the
+same branch (`claude/project-thread-5qybvh`, draft PR #36). No release.
+
+- **Undo, redo and restore keep the scenes in step** (`makers/shorts.py`, `studio/video_flow.py`): each version of
+  a short's plan keeps its scenes as they made its clips and the short's choices (`plan.short.rows`, `.options`);
+  going back puts them back in the same database step that saves the version (`save_revision(..., also=...)`, one
+  `BEGIN IMMEDIATE` transaction, which also turns two saves at the same moment into a Conflict). Before, the next
+  build made the undone scenes again. A change still waiting stays and is made on top.
+- **Stopping** (`studio/jobs.py`, `jobs.py`, `studio/routes.py`): studio jobs have stop hooks (`on_stop`); Stop all
+  jobs cancels the running studio job too; a build given up after three interruptions says so and offers Try again;
+  Stop frees a short whose build was lost. Ready, failed and stopped are written only when no newer build was asked
+  for, and an overtaken build saves no version.
+- **The script check is never skipped** after a writer that failed or was stopped; picture ideas from ClipForge AI
+  never overwrite what the owner typed meanwhile; a scene another voice had to read gets Try again (and Make the
+  short asks the chosen voice again); errors reach the owner in plain words (the cause goes to the log); the robot
+  office names the job "Making the animated short".
+- **The editor's changes:** fades that no longer fit a shorter clip are shortened in proportion; a whoosh the owner
+  muted, changed or removed is never put back; sounds and pictures attached to a deleted scene are named in a note; a
+  scene added after a clip the owner replaced goes after it; the Scenes panel's length is the video's.
+- **Voices** (`makers/voice.py`): the engine's multilingual voices count for "Best voice"; brackets are broken up
+  for `say` and espeak-ng; a failed voice listing is asked again after half a minute; the Settings hint appears only
+  where Settings has the voice engine; the speech model is released whenever it was asked; Hear it never keeps a
+  stand-in voice's sample (one file per request, the page says another voice read it).
+- **Pictures** (`motion.py`, `pictures.py`, `cards.py`): pictures read with Pillow (see-through ones on the look's
+  colour, big JPEGs decoded smaller, huge ones refused plainly); an engine picture that does not open becomes a card
+  with the reason; a long word on a card gets smaller letters; New picture on a card moves its shapes; a clip thrown
+  away mid-build is deleted when nothing uses it; leftovers of a closed app are tidied after an hour.
+- **Pages:** Draw real pictures when a picture maker is set up after cards were made; the Make page says when
+  ClipForge AI (and which one) suggests the pictures for a pasted script; no old failure banner over a ready short;
+  the projects list reads each short's cover from the short, not from its plan.
+- **Tests:** new `tests/test_studio_shorts_undo.py` (8), `_stops.py` (14), `_edits.py` (5); more in `_flow.py`,
+  `_parts.py` (16) and `_voice.py` (22).
+
 ## Make → Animated short: viral voice-over shorts, made on this computer — 2026-11-08 (Claude Code)
 
 Landry asked for a maker of the animated voice-over shorts seen on TikTok: paste a script, or have it written, and

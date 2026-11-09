@@ -256,8 +256,10 @@ def test_time_words_picks_the_engine_then_listening_then_the_estimate(env, monke
 
     # no speech model downloaded: listening is skipped and nothing is downloaded
     monkeypatch.setattr(transcribe, "model_cached", lambda model: False)
-    words, how = voice.time_words(wav, text, settings={})
+    used = {}
+    words, how = voice.time_words(wav, text, settings={}, used=used)
     assert how == "estimated" and [w["w"] for w in words] == text.split()
+    assert used == {}, "the speech model was not loaded"
 
     # downloaded: it listens to a 16 kHz copy without voice detection, and the heard times are used
     monkeypatch.setattr(transcribe, "model_cached", lambda model: True)
@@ -277,7 +279,9 @@ def test_time_words_picks_the_engine_then_listening_then_the_estimate(env, monke
 
     # a failure leaves the estimate; heard words that do not match the script are not trusted; cancel stops
     monkeypatch.setattr(transcribe, "transcribe", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no GPU")))
-    assert voice.time_words(wav, text, settings={})[1] == "estimated"
+    used = {}
+    assert voice.time_words(wav, text, settings={}, used=used)[1] == "estimated"
+    assert used == {"model": True}, "the model was asked (and may be loaded) though its words were not used"
     monkeypatch.setattr(transcribe, "transcribe", lambda *a, **k: {"segments": [{"words": [
         {"w": "completely", "start": 0, "end": 1}, {"w": "different", "start": 1, "end": 2}]}]})
     assert voice.time_words(wav, text, settings={})[1] == "estimated"
@@ -677,3 +681,93 @@ def test_spoken_text_leaves_out_emoji_but_the_words_keep_the_script(env):
     assert voice._speakable("co\u00adoperate 👍🏽 ok") == "cooperate ok"
     tone = _write_wav(env / "t.wav", [("quiet", 0.04), ("tone", 1.0), ("quiet", 0.04)])
     assert [w["w"] for w in voice.estimate_words(tone, "So crazy🤯 right 🎉")] == ["So", "crazy🤯", "right"]
+
+
+def test_auto_reads_with_engine_voices_that_speak_every_language(env, monkeypatch):
+    from clipfoundry.makers import local_engines, voice
+
+    engines = FakeEngines(env)
+    # the real engine lists its voices like this: one model for every language
+    engines.voices = lambda: [{"id": "F1", "name": "Sarah", "lang": "multilingual", "gender": "female"},
+                              {"id": "M1", "name": "Tom", "lang": "mul", "gender": "male"}]
+    engines.extra = {"word_timing": "estimated"}
+    monkeypatch.setattr(local_engines, "module", lambda: engines)
+    monkeypatch.setattr(voice, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(voice, "_find", lambda program: "/usr/bin/espeak-ng" if program == "espeak-ng" else None)
+    monkeypatch.setattr(voice, "_run", FakePrograms(env))
+    listing = voice.voices()
+    assert voice.default_voice() == "engine:F1"
+    assert listing[0]["engine"] == "engine" and "Sarah" in listing[0]["about"]
+    got = voice.speak("Hello world", env / "m.wav")
+    assert (got["engine"], got["voice_id"], got["fallback"]) == ("engine", "engine:F1", "")
+    assert got["words"] is None, "its word times are only estimated: the sound or the speech model times them"
+    assert voice._auto_order(listing, "fr")[0]["id"] == "engine:F1", "it reads French too"
+
+
+def test_the_settings_hint_only_names_a_place_that_exists(env, monkeypatch):
+    from clipfoundry.makers import local_engines, voice
+
+    monkeypatch.setattr(voice, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(voice, "_find", lambda program: None)
+    with pytest.raises(voice.VoiceError) as caught:  # this ClipForge has no local makers: Settings has no such place
+        voice.speak("Hello there.", env / "x.wav")
+    assert "Settings" not in str(caught.value) and str(caught.value).endswith("(for example: sudo apt install "
+                                                                             "espeak-ng).")
+    assert "Settings" not in voice.voices()[0]["about"]
+    voice.clear_cache()
+    monkeypatch.setattr(local_engines, "module", lambda: FakeEngines(env, ready=False))
+    with pytest.raises(voice.VoiceError) as caught:
+        voice.speak("Hello there.", env / "x.wav")
+    assert str(caught.value).endswith("or download the voice in ClipForge's Settings → Pictures, video, voice.")
+
+
+def test_a_failed_voice_listing_is_looked_up_again_soon(env, monkeypatch):
+    from clipfoundry.makers import voice
+
+    programs = FakePrograms(env, SAY_LIST)
+    clock = {"now": 1000.0}
+    fails = [True]
+
+    def listing(args, **kw):
+        if fails:  # a cold start of the voice program that does not answer in time
+            fails.pop()
+            programs.calls.append({"args": list(args)})
+            return SimpleNamespace(returncode=1, stdout=b"", stderr=b"timed out")
+        return programs(args, **kw)
+
+    monkeypatch.setattr(voice, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(voice, "_find", lambda program: "/usr/bin/say" if program == "say" else None)
+    monkeypatch.setattr(voice, "_run", listing)
+    monkeypatch.setattr(voice, "time", SimpleNamespace(monotonic=lambda: clock["now"]))
+    assert [v["id"] for v in voice.voices()] == ["auto"]
+    clock["now"] += 10
+    voice.voices()
+    assert len(programs.calls) == 1, "not asked again at once"
+    clock["now"] += 25
+    assert voice.voices()[1]["name"] == "Alex" and len(programs.calls) == 2, "asked again after half a minute"
+    clock["now"] += 300
+    voice.voices()
+    assert len(programs.calls) == 2, "a listing that worked is kept for ten minutes"
+
+
+def test_brackets_in_the_words_are_never_voice_commands(env, monkeypatch):
+    from clipfoundry.makers import voice
+
+    programs = FakePrograms(env, SAY_LIST)
+    said = []
+
+    def keep(args, **kw):
+        if "-f" in args:
+            said.append(Path(args[args.index("-f") + 1]).read_text(encoding="utf-8"))
+        return programs(args, **kw)
+
+    monkeypatch.setattr(voice, "_run", keep)
+    monkeypatch.setattr(voice, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(voice, "_find", lambda program: "/usr/bin/espeak-ng" if program == "espeak-ng" else None)
+    words = "Say [[like this]] and [[[[slnc 3000]]]] or [one] now"
+    voice.speak(words, env / "e.wav", voice="espeak:en-us")  # espeak-ng reads [[...]] as phoneme codes
+    voice.clear_cache()
+    monkeypatch.setattr(voice, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(voice, "_find", lambda program: "/usr/bin/say" if program == "say" else None)
+    voice.speak(words, env / "s.wav", voice="system:Daniel")  # say acts on [[...]] commands
+    assert said == ["Say [ [like this] ] and [ [ [ [slnc 3000] ] ] ] or [one] now"] * 2

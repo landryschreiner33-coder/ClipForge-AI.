@@ -19,6 +19,23 @@ PICTURE_SIZE = (1080, 1920)   # what the picture engine is asked for (portrait, 
 SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 
+class _NoPicture(Exception):
+    """The engine answered without a usable picture; the message is the owner's sentence."""
+
+
+def _opens(path: Path) -> bool:
+    """Whether a picture opens all the way (one cut short by a crash or a full disk does not)."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as im:
+            im.load()
+        return True
+    except Exception as exc:  # noqa: BLE001 - any picture that does not open is the same problem
+        log.warning("the picture engine's picture does not open: %s", exc)
+        return False
+
+
 def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: str = "", seed: int = 0,
          index: int = 0, cancel: Callable[[], bool] | None = None,
          progress: Callable[[float, str], None] | None = None) -> dict:
@@ -38,20 +55,28 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
                 progress=progress, cancel=cancel))
             suffix = made.suffix.lower() if made.suffix.lower() in SUFFIXES else ".png"
             if not made.is_file() or made.stat().st_size == 0:
-                raise OSError("it gave no picture")
+                raise _NoPicture("The picture maker gave no picture, so ClipForge drew a card.")
+            if not _opens(made):
+                raise _NoPicture("The picture maker's picture could not be opened, so ClipForge drew a card.")
             path = out_dir / f"picture-{seed}{suffix}"
             shutil.copyfile(made, path)  # the engine's file stays the engine's
             return {"path": path, "source": "engine", "engine": state["engine"], "why": "", "tried": True,
                     "prompt": prompt, "negative": negative}
         except (Canceled, Cancelled):
             raise
-        except local_engines.errors() as exc:
+        except _NoPicture as exc:
+            why = str(exc)
+        except OSError as exc:  # its words are for the log
+            log.warning("the picture engine's picture could not be saved: %s", exc)
+            why = "The picture maker's picture could not be saved, so ClipForge drew a card. Check that the disk " \
+                  "has free space."
+        except local_engines.errors() as exc:  # written for the owner
             why = f"The picture maker could not make this picture ({str(exc)[:160]})."
-        except Exception as exc:  # noqa: BLE001 - a broken engine never stops the short
+        except Exception:  # noqa: BLE001 - a broken engine never stops the short
             log.exception("picture engine failed")
-            why = f"The picture maker stopped with an error ({exc.__class__.__name__})."
+            why = "The picture maker stopped with an error, so ClipForge drew a card."
         if cancel and cancel():
             raise Cancelled("Stopped.")
-    path = cards.make_card(cards.key_words(narration), look, out_dir / f"card-{seed}.png", index=index)
+    path = cards.make_card(cards.key_words(narration), look, out_dir / f"card-{seed}.png", index=index, seed=seed)
     return {"path": Path(path), "source": "card", "engine": "", "why": why, "tried": bool(state["ready"]),
             "prompt": prompt, "negative": negative}

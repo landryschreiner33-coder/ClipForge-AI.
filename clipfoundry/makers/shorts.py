@@ -17,11 +17,13 @@ levels, tracks, pictures over the video and the word fixes of unchanged scenes.
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -30,7 +32,7 @@ from typing import Callable
 from .. import config, db
 from ..pipeline.common import Cancelled, write_json
 from ..studio import engine, guidance, library, uploads, video_flow
-from ..studio.jobs import Canceled, Lease, enqueue, handler
+from ..studio.jobs import Canceled, Lease, enqueue, handler, on_stop
 from . import local_engines, looks
 
 log = logging.getLogger(__name__)
@@ -59,10 +61,18 @@ MAX_PICTURE = 400
 MAX_SCRIPT = 20_000
 MAX_TOPIC = 300
 MAX_VOICES = 120       # recorded scene voices kept per short (going back to earlier words reuses them)
+LEFTOVER_S = 3600.0    # what an app closed in the middle of a build left behind goes once it is an hour old
 VIDEO_MAX_S = 5.0      # what the video engine is asked for at most per scene
 CLIP_RECIPE = 1        # part of every clip key: a changed recipe makes the clips again
 STATUS_TTL = 5.0       # seconds an engine's status is reused (the editor page asks every few seconds)
 WORKING = ("voice", "picture", "motion")
+# What each version of the plan keeps of the short, so undo, redo and going back put the scenes and choices back with
+# the video (going_back): a scene's state as it made the clip in the version, and the short's choices.
+ROW_STATE = ("position", "narration", "picture_prompt", "picture_from", "picture_source", "picture_asset_id",
+             "picture_key", "clip_asset_id", "clip_key", "duration_ms", "move", "seed", "voice_key")
+OWNER_FIELDS = ("narration", "picture_prompt", "picture_from", "picture_source", "picture_asset_id", "move", "seed")
+OPTION_STATE = ("voice", "voice_used", "speed", "look", "music", "captions", "motion")
+OWNER_ERRORS = ("VoiceError", "MotionError", "CardError")  # their messages are written for the owner
 SAMPLE_TEXT = "Here is how this voice sounds in your short. Did you know octopuses have three hearts?"
 _status_cache: dict[str, tuple[float, dict]] = {}
 
@@ -126,24 +136,30 @@ def scene_rows(project_id: str) -> list[dict]:
     return db.select("short_scenes", "project_id = ?", (project_id,), "position, created_at")
 
 
-def _patch_short(project_id: str, changes: dict | None = None, *, bump: bool = False, apply: tuple = ()) -> dict:
+def _patch_short(project_id: str, changes: dict | None = None, *, bump: bool = False, apply: tuple = (),
+                 row: dict | None = None, if_build: int | None = None) -> dict | None:
     """Change some of the short's options in one step (the build job and the page both write them); returns them.
     `bump` asks for a new build; `apply` names plan parts ("music", "captions") that build sets again from the
-    options, over what the owner changed in the editor."""
+    options, over what the owner changed in the editor. `row` sets the project's status and message in the same
+    step. With `if_build`, nothing changes (None is returned) when a newer build was asked for meanwhile."""
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT short FROM studio_projects WHERE id = ?", (project_id,)).fetchone()
-        if row is None:
+        found = conn.execute("SELECT short FROM studio_projects WHERE id = ?", (project_id,)).fetchone()
+        if found is None:
             raise ShortError("The short was deleted.")
-        data = json.loads(row["short"] or "{}")
+        data = json.loads(found["short"] or "{}")
+        if if_build is not None and int(data.get("build") or 0) > if_build:
+            return None
         for key, value in (changes or {}).items():
             data[key] = value
         if bump:
             data["build"] = int(data.get("build") or 0) + 1
         for part in apply:
             data.setdefault("apply", {})[part] = int(data.get("build") or 0)
-        conn.execute("UPDATE studio_projects SET short = ?, updated_at = ? WHERE id = ?",
-                     (json.dumps(data, ensure_ascii=False), time.time(), project_id))
+        cols = {"short": json.dumps(data, ensure_ascii=False), "updated_at": time.time(),
+                **{k: row[k] for k in ("status", "message") if k in (row or {})}}
+        conn.execute(f"UPDATE studio_projects SET {', '.join(f'{k} = ?' for k in cols)} WHERE id = ?",
+                     [*cols.values(), project_id])
     return data
 
 
@@ -382,27 +398,55 @@ def _rebuild(project: dict, changes: dict | None = None, apply: tuple = (),
     it starts, the short says it is waiting to make the change (not "Ready"), unless it waits for the owner to check
     the script or ClipForge AI is still writing it."""
     now = {**(project.get("short") or {}), **(changes or {})}
-    if not (now.get("review") and not now.get("reviewed")) and now.get("stage") != "writing":
+    review = bool(now.get("review") and not now.get("reviewed"))
+    if not review and now.get("stage") != "writing":
         changes = {**(changes or {}), "stage": "making", "message": waiting}
-    short = _patch_short(project["id"], changes, bump=True, apply=apply)
-    build = int(short["build"])
-    db.update("studio_projects", project["id"], status="building", message=waiting)
+    if review and now.get("stage") == "review":  # the build stops at the script again: it still waits for the owner
+        row = {"status": "needs_input", "message": now.get("message") or "Check the script, then press Make the short."}
+    else:
+        row = {"status": "building", "message": (changes or {}).get("message") or now.get("message") or waiting}
+    short = _patch_short(project["id"], changes, bump=True, apply=apply, row=row)
+    build = int(short["build"])  # type: ignore[index]
     enqueue(project["workspace_id"], "short_build", project["id"], build)
     return build
 
 
-def stopped(project_id: str) -> None:
-    """After the owner pressed Stop: the scenes being made wait, and the short says how to go on."""
+def stopped(project_id: str, build: int | None = None) -> None:
+    """After the owner pressed Stop (or Stop all jobs): the scenes being made wait, and the short says how to go on.
+    Nothing changes when the build that stopped is not the newest one (`build`), or when nothing is being made (it
+    finished meanwhile, or it waits for the owner)."""
     project = db.fetch("studio_projects", project_id)
     if not is_short(project):
         return
+    short = project["short"] or {}  # type: ignore[index]
+    newest = int(short.get("build") or 0)
+    if (build is not None and newest > build) or short.get("stage") not in ("making", "writing"):
+        return
+    message = "Stopped. Press Make the short to go on."
+    status = "ready" if project["plan_revision"] else "draft"  # type: ignore[index]
+    done = _patch_short(project_id, {"stage": "stopped", "message": message}, if_build=newest,
+                        row={"status": status, "message": message})
+    if done is None:
+        return  # a change asked for a new build at this very moment: that build goes on
     for s in scene_rows(project_id):
         if s["status"] in WORKING:
-            db.update("short_scenes", s["id"], status="waiting", message="Stopped")
-    message = "Stopped. Press Make the short to go on."
-    _patch_short(project_id, {"stage": "stopped", "message": message})
-    db.update("studio_projects", project_id, status="ready" if project["plan_revision"] else "draft",  # type: ignore[index]
-              message=message)
+            _change_scene(s["id"], lambda r: {"status": "waiting", "message": "Stopped"} if r["status"] in WORKING
+                          else None)
+
+
+@on_stop("short_build")
+def _build_stopped(job: dict, how: str) -> None:
+    """A short build that will not run to its end (Stop, Stop all jobs, or given up after repeated interruptions)
+    never says so itself: the short says it here, so the page offers Make the short again."""
+    if how == "canceled":
+        stopped(job["target_id"], int(job.get("revision") or 0))
+        return
+    project = db.fetch("studio_projects", job["target_id"])
+    if not is_short(project):
+        return
+    message = "The short stopped after repeated interruptions. Press Try again."
+    _patch_short(job["target_id"], {"stage": "failed", "message": message}, if_build=int(job.get("revision") or 0),
+                 row={"status": "failed", "message": message})
 
 
 # ------------------------------------------------------------------ the order of the scenes
@@ -451,7 +495,9 @@ def voice_for(project_id: str, short: dict) -> str:
 
 
 def voice_key(scene: dict, short: dict, voice_id: str) -> str:
-    return _hash("voice", _norm(scene["narration"]), voice_id, round(float(short.get("speed") or 1.0), 2))
+    take = int(_info(scene).get("voice_take") or 0)  # Try again after a stand-in voice records the scene again
+    return _hash("voice", _norm(scene["narration"]), voice_id, round(float(short.get("speed") or 1.0), 2),
+                 *((take,) if take else ()))
 
 
 def picture_keys(scene: dict, short: dict) -> tuple[str, str]:
@@ -501,19 +547,18 @@ def _asset_ok(asset_id: str, workspace_id: str, kind: str) -> dict | None:
 
 
 def needs(scene: dict, short: dict, project: dict, voice_id: str) -> list[str]:
-    """What this scene still needs made: any of "voice", "picture", "clip" (in that order)."""
+    """What this scene still needs made: any of "voice", "picture", "clip" (in that order). A scene whose clip was
+    made from what it says and shows now needs nothing, even when its recorded voice was tidied away (after undo or
+    going back to an earlier version, for example)."""
     vkey = voice_key(scene, short, voice_id)
     wav, meta = _voice_files(project["id"], vkey)
     ws = project["workspace_id"]
-    out = []
-    if not (wav.is_file() and meta.is_file()):
-        out.append("voice")
-    if scene["picture_source"] != "upload" and (scene["picture_key"] not in _fine_pictures(scene, short) or
-                                                not _asset_ok(scene["picture_asset_id"], ws, "image")):
-        out.append("picture")
-    if out or scene["clip_key"] != clip_key(scene, short, vkey) or not _asset_ok(scene["clip_asset_id"], ws, "video"):
-        out.append("clip")
-    return out
+    picture = scene["picture_source"] != "upload" and (scene["picture_key"] not in _fine_pictures(scene, short) or
+                                                       not _asset_ok(scene["picture_asset_id"], ws, "image"))
+    if not picture and scene["clip_key"] == clip_key(scene, short, vkey) and \
+            _asset_ok(scene["clip_asset_id"], ws, "video"):
+        return []
+    return [*(("voice",) if not (wav.is_file() and meta.is_file()) else ()), *(("picture",) if picture else ()), "clip"]
 
 
 # ------------------------------------------------------------------ the build job
@@ -531,6 +576,7 @@ def build_job(job: dict, lease: Lease) -> dict:
         return {"skipped": "A newer change is being made."}
     settings = db.get_settings()
     state = {"listened": False}
+    _sweep(project_id)
     try:
         short = project["short"]
         if short.get("mode") == "write" and not scene_rows(project_id):
@@ -546,38 +592,99 @@ def build_job(job: dict, lease: Lease) -> dict:
             _plan_pictures(project, settings, lease)
             project = _project(project_id)
         made = _make_scenes(project, settings, lease, state)
-        rev = save_plan(project_id)
+        rev = save_plan(project_id, int(job["revision"]))
     except (Canceled, Cancelled):
         if _job_canceled(job["id"]):
-            stopped(project_id)
+            stopped(project_id, int(job["revision"]))
         raise
     except Exception as exc:
         if lease.canceled():
             if _job_canceled(job["id"]):
-                stopped(project_id)
+                stopped(project_id, int(job["revision"]))
             raise Canceled() from exc
-        message = str(exc) if isinstance(exc, video_flow.VideoError) and str(exc) else \
-            f"The short could not be made ({exc.__class__.__name__}). Press Make the short to try again."
+        message = _plain(exc, "short")
         if db.fetch("studio_projects", project_id):
-            _patch_short(project_id, {"stage": "failed", "message": message})
-            db.update("studio_projects", project_id, status="failed", message=message[:200])
-        raise
+            _patch_short(project_id, {"stage": "failed", "message": message}, if_build=int(job["revision"]),
+                         row={"status": "failed", "message": message[:200]})
+        if isinstance(exc, video_flow.VideoError):
+            raise
+        raise ShortError(message) from exc  # the job keeps the plain words; the log keeps the cause
     finally:
-        if state["listened"]:
+        if state["listened"] or state.get("model"):  # the speech model was asked, so it may still be loaded
             try:
                 voice.release()
             except Exception:  # noqa: BLE001 - freeing memory never fails a build
                 log.exception("releasing the speech model failed")
     project = _project(project_id)
     _tidy_voices(project_id, project["short"])
-    if int(project["short"].get("build") or 0) > int(job["revision"]):
-        return {"revision": rev, "made": made, "newer": True}  # the next build is waiting; it says when it is done
     failed = [s for s in scene_rows(project_id) if s["status"] == "failed"]
     message = (f"{len(failed)} scene{'s' if len(failed) != 1 else ''} could not be made; see the scenes" if failed
                else "The short is ready; making a preview")
-    _patch_short(project_id, {"stage": "ready", "message": message})
-    db.update("studio_projects", project_id, status="ready", message=message)
+    if _patch_short(project_id, {"stage": "ready", "message": message}, if_build=int(job["revision"]),
+                    row={"status": "ready", "message": message}) is None:
+        return {"revision": rev, "made": made, "newer": True}  # the next build is waiting; it says when it is done
     return {"revision": rev, "made": made, "failed": len(failed)}
+
+
+def _sweep(project_id: str) -> None:
+    """What an app closed in the middle of a build left in the short's folder (working folders, half-recorded
+    voices) goes once it is an hour old (one build of a short runs at a time)."""
+    folder = short_dir(project_id)
+    old = time.time() - LEFTOVER_S
+    for p in [*folder.glob("tmp*"), *(folder / "voice").glob("*.part.wav")]:
+        try:
+            if p.stat().st_mtime >= old:
+                continue
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _drop_unused(asset: dict, workspace_id: str) -> None:
+    """A file this build stored a moment ago and then threw away (its scene changed or went meanwhile) is deleted
+    when nothing uses it. The same bytes may be someone else's file (files are stored once): it then stays."""
+    aid, like = asset["id"], f'%"{asset["id"]}"%'
+    checks = (("SELECT COUNT(*) FROM short_scenes WHERE picture_asset_id = ? OR clip_asset_id = ? OR pictures LIKE ?",
+               (aid, aid, like)),
+              ("SELECT COUNT(*) FROM edit_plans WHERE plan LIKE ?", (like,)),
+              ("SELECT COUNT(*) FROM studio_projects WHERE asset_ids LIKE ? OR brief LIKE ? OR short LIKE ?",
+               (like, like, like)),
+              *((f"SELECT COUNT(*) FROM {table} WHERE asset_id = ?", (aid,))
+                for table in ("uploads", "link_imports", "reference_videos", "asset_sources", "media_imports")))
+    try:
+        if any(db.scalar(sql, args) for sql, args in checks):
+            return
+        row = db.fetch("assets", aid)
+        if not row or row["workspace_id"] != workspace_id or uploads.is_linked(row):
+            return
+        folder = uploads.work_dir(row).resolve()
+        if config.data_dir().resolve() not in folder.parents:
+            return  # nothing outside ClipForge's data folder is ever deleted
+        db.execute("DELETE FROM assets WHERE id = ?", (aid,))
+        shutil.rmtree(folder, ignore_errors=True)
+    except Exception:  # noqa: BLE001 - tidying never fails a build
+        log.exception("an unused scene file could not be deleted")
+
+
+def _plain(exc: BaseException, what: str = "scene") -> str:
+    """What the owner reads about an error: the message of an error written for them, else a plain sentence (the
+    technical text stays in the log)."""
+    if (isinstance(exc, (video_flow.VideoError, uploads.UploadError)) or exc.__class__.__name__ in OWNER_ERRORS) \
+            and str(exc):
+        return str(exc)
+    if isinstance(exc, OSError):
+        if exc.errno == errno.ENOSPC:
+            return "There is not enough free disk space. Free some space, then press Try again."
+        if isinstance(exc, PermissionError):
+            return ("ClipForge was not allowed to save a file it needs. Check that it may write to its folder, then "
+                    "press Try again.")
+        return f"ClipForge could not read or save a file it needs for this {what}. Press Try again."
+    if exc.__class__.__name__ == "FFmpegError":
+        return f"The video tool could not make this {what}. Press Try again."
+    return f"Something went wrong while making this {what}. Press Try again."
 
 
 def _write_script(project: dict, settings: dict, lease: Lease) -> None:
@@ -643,8 +750,14 @@ def _plan_pictures(project: dict, settings: dict, lease: Lease) -> None:
                                        beat=lambda m="", *_: lease.progress(0.05, str(m or message)))
             character = _norm(got.get("character"))[:300] or character
             for s, idea in zip(rows, got.get("pictures") or []):
-                if s["id"] in lacking and _norm(idea):
-                    db.update("short_scenes", s["id"], picture_prompt=_norm(idea)[:MAX_PICTURE], picture_from="ai")
+                text = _norm(idea)[:MAX_PICTURE]
+                if s["id"] not in lacking or not text:
+                    continue
+                # only over what was read before asking: the owner may have described it or changed its words since
+                now = _change_scene(s["id"], lambda r, s=s, text=text: {"picture_prompt": text, "picture_from": "ai"}
+                                    if all(r[k] == s[k] for k in ("narration", "picture_prompt", "picture_from"))
+                                    else None)
+                if now is None or (now["picture_prompt"] == text and now["picture_from"] == "ai"):
                     lacking.discard(s["id"])
             from ..brain import knowhow
 
@@ -657,10 +770,16 @@ def _plan_pictures(project: dict, settings: dict, lease: Lease) -> None:
                 raise Canceled() from exc
             notes.append(f"ClipForge AI could not describe the pictures ({str(exc)[:120]}), so each picture follows "
                          "its scene's own words.")
+
+    def by_words(row: dict) -> dict | None:
+        if row["picture_from"] in ("script", "owner", "ai") and row["picture_prompt"]:
+            return None  # described meanwhile
+        return {"picture_prompt": scenes.picture_words(row["narration"], subject)[:MAX_PICTURE],
+                "picture_from": "words"}
+
     for s in rows:
         if s["id"] in lacking:
-            db.update("short_scenes", s["id"], picture_prompt=scenes.picture_words(s["narration"], subject)[:MAX_PICTURE],
-                      picture_from="words")
+            _change_scene(s["id"], by_words)  # from the words it says now
     _patch_short(pid, {"pictured": True, "character": character, "subject": subject, "notes": notes[-6:],
                        "writer": writer_used})
 
@@ -674,7 +793,10 @@ def _make_scenes(project: dict, settings: dict, lease: Lease, state: dict) -> in
     todo = [s for s in rows if needs(s, short, project, voice_id)]
     for s in rows:
         if s not in todo and s["status"] != "ready":
-            db.update("short_scenes", s["id"], status="ready", message="", error="")
+            # made already (a change put back, or a stop before the scene was reached); a change saved since the
+            # rows were read keeps its own status
+            _change_scene(s["id"], lambda r, s=s: {"status": "ready", "message": "", "error": ""}
+                          if _same(r, s) and r["clip_key"] == s["clip_key"] and r["status"] == s["status"] else None)
     message = f"Making {len(todo)} scene{'s' if len(todo) != 1 else ''}" if todo else "Putting the short together"
     _patch_short(pid, {"stage": "making", "message": message})
     db.update("studio_projects", pid, status="building", message=message)
@@ -698,12 +820,11 @@ def _make_scenes(project: dict, settings: dict, lease: Lease, state: dict) -> in
             if lease.canceled():
                 db.update("short_scenes", s["id"], status="waiting", message="Stopped")
                 raise Canceled() from exc
-            known = isinstance(exc, (video_flow.VideoError, uploads.UploadError, OSError)) or \
-                exc.__class__.__name__ in ("VoiceError", "MotionError", "FFmpegError", "CardError")
+            known = isinstance(exc, (video_flow.VideoError, uploads.UploadError)) or \
+                exc.__class__.__name__ in OWNER_ERRORS
             if not known:
                 log.exception("scene %s failed", s["id"])
-            why = str(exc) if known and str(exc) else f"Something went wrong ({exc.__class__.__name__})."
-            db.update("short_scenes", s["id"], status="failed", message="", error=why[:300])
+            db.update("short_scenes", s["id"], status="failed", message="", error=_plain(exc)[:300])
     return made
 
 
@@ -737,13 +858,14 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                               cancel=lease.canceled)
             step(0.1, f"Timing the words of scene {n}")
             words, how = voice.time_words(tmp, scene["narration"], engine_words=got.get("words"), settings=settings,
-                                          listen=True)
+                                          listen=True, cancel=lease.canceled, used=state)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
         state["listened"] = state["listened"] or how == "listened"
         write_json(meta_path, {"duration_s": float(got["duration_s"]), "words": words, "timing": how,
                                "engine": got.get("engine", ""), "voice": got.get("voice", ""),
+                               "voice_id": str(got.get("voice_id") or voice_id),
                                "fallback": got.get("fallback", ""), "rule": str(got.get("rule") or "")})
         tmp.replace(wav)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -798,6 +920,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
     step(0.7, f"Moving the picture of scene {n}")
     duration_s = float(meta["duration_s"]) + END_MS / 1000
     how, why = "camera", ""
+    since = time.time()
     with tempfile.TemporaryDirectory(dir=short_dir(pid)) as tmpdir:
         out = Path(tmpdir) / f"scene-{n}.mp4"
         result = None
@@ -806,7 +929,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
             how = "engine" if result else "camera"
         if result is None:
             result = motion.still_clip(Path(picture["path"]), wav, out, duration_s=duration_s, move=_move(scene),
-                                       fps=FPS, size=SIZE, cancel=lease.canceled,
+                                       fps=FPS, size=SIZE, cancel=lease.canceled, background=look.bottom,
                                        progress=lambda f=0.0, *_: step(0.7 + 0.25 * float(f or 0),
                                                                        f"Moving the picture of scene {n}"))
         clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4")
@@ -819,13 +942,17 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
     def put_clip(row: dict) -> dict | None:
         if not _same(row, scene, picture["id"]):
             return None
-        return {"clip_asset_id": clip["id"], "clip_key": ckey, "duration_ms": duration_ms, "status": "ready",
-                "message": "", "error": "",
+        return {"clip_asset_id": clip["id"], "clip_key": ckey, "voice_key": vkey, "duration_ms": duration_ms,
+                "status": "ready", "message": "", "error": "",
                 "info": {**_info(row), "voice": voice_info, "motion": {"how": how, "why": why}}}
 
     row = _change_scene(sid, put_clip)
-    if row is not None and row["clip_asset_id"] != clip["id"]:
-        raise _Stale()
+    if row is None or row["clip_asset_id"] != clip["id"]:
+        if float(clip.get("created_at") or 0) >= since:
+            _drop_unused(clip, ws)  # made for words or a picture that changed (or a scene that went) meanwhile
+        if row is not None:
+            raise _Stale()
+        return
     step(1.0, f"Scene {n} is ready")
 
 
@@ -850,12 +977,17 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
     except (Canceled, Cancelled):
         raise
     except local_engines.errors() as exc:
+        if isinstance(exc, OSError):
+            log.warning("animating scene %s: %s", scene["id"], exc)
+            return None, "The video maker's video for this scene could not be saved, so the camera moves instead."
         return None, f"The video maker could not animate this scene ({str(exc)[:140]}); the camera moves instead."
     except Exception as exc:  # noqa: BLE001 - the camera move stands in
         if lease.canceled():
             raise Canceled() from exc
+        if exc.__class__.__name__ == "MotionError" and str(exc):
+            return None, f"{str(exc)[:200]} The camera moves instead."
         log.exception("animating scene %s failed", scene["id"])
-        return None, f"The video maker stopped with an error ({exc.__class__.__name__}); the camera moves instead."
+        return None, "The video maker stopped with an error, so the camera moves instead."
 
 
 def _write_transcript(clip: dict, narration: str, words: list[dict], duration_s: float) -> None:
@@ -917,9 +1049,27 @@ def _scene_clip(scene: dict, keep: dict, taken: set[str]) -> dict:
     c = {"id": cid, "asset_id": scene["clip_asset_id"], "kind": "video", "in_ms": 0, "out_ms": out,
          "label": _label(scene), "gain_db": 0.0, "include": True, "scene_id": scene["id"], "auto_ms": [0, out]}
     c.update(keep)
-    if int(c.get("fade_in_ms") or 0) + int(c.get("fade_out_ms") or 0) > out:
-        c.update(fade_in_ms=0, fade_out_ms=0)
+    _fit_fades(c)
     return c
+
+
+def _fit_fades(c: dict) -> None:
+    """Sound fades the owner set that no longer fit a clip that got shorter are shortened in proportion."""
+    length = max(0, int(c["out_ms"]) - int(c["in_ms"]))
+    fades = int(c.get("fade_in_ms") or 0), int(c.get("fade_out_ms") or 0)
+    if sum(fades) > length:
+        scale = length / sum(fades)
+        c.update(fade_in_ms=int(fades[0] * scale), fade_out_ms=int(fades[1] * scale))
+
+
+def _row_state(s: dict, placed: bool) -> dict:
+    """What a version keeps of a scene (ROW_STATE): as it made the clip in the video, or for a scene not in the video
+    yet (it failed, or waits) as it is."""
+    out = {k: s[k] for k in ROW_STATE}
+    out["info"] = {k: v for k, v in _info(s).items() if k != "readd"}
+    if not placed:
+        out.update(status="waiting" if s["status"] in WORKING else s["status"], error=s["error"] or "")
+    return out
 
 
 def _fresh_plan(project: dict, short: dict, look) -> dict:
@@ -935,7 +1085,9 @@ def _slot(clips: list[dict], order: list[dict], scene: dict) -> int:
     """Where a new scene's clip goes: after the clips of the scene before it, else before the first scene clip."""
     k = order.index(scene)
     for prev in reversed(order[:k]):
-        at = [i for i, c in enumerate(clips) if c.get("scene_id") == prev["id"]]
+        # a scene clip the owner replaced in the editor keeps the scene's id as its own
+        at = [i for i, c in enumerate(clips) if c.get("scene_id") == prev["id"] or
+              (not c.get("scene_id") and c.get("id") == prev["id"])]
         if at:
             return at[-1] + 1
     at = [i for i, c in enumerate(clips) if c.get("scene_id")]
@@ -999,6 +1151,7 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         c["out_ms"] = min(int(c["out_ms"]), int(s["duration_ms"]))
         if c["out_ms"] - int(c["in_ms"]) < 200:
             c.update(in_ms=0, out_ms=auto, auto_ms=[0, auto])
+        _fit_fades(c)
         c["label"] = _label(s)
     ids = {c["id"] for c in clips}
     plan["clips"] = clips
@@ -1015,14 +1168,24 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
                 return None
         return anchor_id if anchor_id in ids else None
 
+    dropped: list[str] = []
+    whooshed = {a["anchor"]["clip_id"] for a in plan.get("audio") or []
+                if a.get("auto") and a.get("role") == "effect" and (a.get("anchor") or {}).get("clip_id")}
+    # a whoosh the owner removed or changed in the editor: no new one on that clip (a changed one is theirs now)
+    no_whoosh = set(before.get("no_whoosh") or []) | (set(before.get("whooshes") or []) - whooshed)
     audio = []
     for a in plan.get("audio") or []:
         if a.get("auto") and a.get("role") == "effect":
-            continue  # ClipForge's own whooshes are placed again below
+            if not _whoosh_changed(project, a):
+                continue  # ClipForge's own whooshes are placed again below
+            a = {k: v for k, v in a.items() if k != "auto"}
+            no_whoosh.add((a.get("anchor") or {}).get("clip_id"))
         anchor = a.get("anchor")
         if anchor:
             to = follow(anchor.get("clip_id"))
             if to is None:
+                if not a.get("auto"):
+                    dropped.append(str(a.get("label") or "a sound"))
                 continue
             a = {**a, "anchor": {**anchor, "clip_id": to}}
         audio.append(a)
@@ -1031,6 +1194,8 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         to = follow(o.get("clip_id"))
         if to is not None:
             overlays.append({**o, "clip_id": to})
+        else:
+            dropped.append(str(o.get("label") or o.get("text") or "a picture"))
     if plan.get("overlays") is not None or overlays:
         plan["overlays"] = overlays
     audio_ids = {a["id"] for a in audio}
@@ -1039,13 +1204,24 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
         music = _music_item(project, short, audio_ids)
         if music:
             audio.insert(0, music)
-    plan["audio"] = audio + _whooshes(project, clips, audio_ids | {a["id"] for a in audio})
+    no_whoosh = {to for to in (follow(cid) for cid in no_whoosh if cid) if to}  # the clips they are on now
+    whooshes = _whooshes(project, clips, audio_ids | {a["id"] for a in audio}, no_whoosh)
+    plan["audio"] = audio + whooshes
     plan["maker"] = WORKFLOW
     placed = (placed_before & set(by_id)) | present
-    # which scenes the plan placed (a placed scene missing from it was replaced by the owner) and which option
-    # changes it has taken in; nothing that changes from build to build, so an unchanged short saves no new version
+    prior = before.get("rows") or {}
+    in_video = {c["scene_id"] for c in clips if c.get("scene_id") in by_id and
+                c["asset_id"] == by_id[c["scene_id"]]["clip_asset_id"]}
+    # which scenes the plan placed (a placed scene missing from it was replaced by the owner), which option changes
+    # it has taken in, the whoosh places, and the scenes and choices it was made from (going_back puts those back
+    # with the version). Nothing that changes from build to build, so an unchanged short saves no new version.
     plan["short"] = {"scenes": sorted(placed),
-                     "applied": {k: max(int(want.get(k) or 0), int(applied.get(k) or 0)) for k in ("captions", "music")}}
+                     "applied": {k: max(int(want.get(k) or 0), int(applied.get(k) or 0)) for k in ("captions", "music")},
+                     "whooshes": sorted(a["anchor"]["clip_id"] for a in whooshes), "no_whoosh": sorted(no_whoosh),
+                     "rows": {s["id"]: prior[s["id"]] if s["id"] in placed and s["id"] in prior and
+                              not (s["id"] in ready and s["id"] in in_video) else _row_state(s, s["id"] in placed)
+                              for s in rows},
+                     "options": {k: short.get(k) for k in OPTION_STATE}}
     old_outline = {o.get("clip_id"): o for o in plan.get("outline") or []}
     outline = []
     for c in clips:
@@ -1057,7 +1233,20 @@ def assemble(project: dict, rows: list[dict], base: dict | None) -> dict | None:
             outline.append(old_outline[c["id"]])
     plan["outline"] = outline
     plan["notes"] = _notes(ordered(rows, plan), short, plan)
+    if dropped:
+        names = ", ".join(f"“{d[:40]}”" for d in dict.fromkeys(dropped))
+        plan["notes"].append(f"These were attached to a scene that is no longer in the short and were left out: "
+                             f"{names}.")
     return plan
+
+
+def _whoosh_changed(project: dict, item: dict) -> bool:
+    """Whether the owner changed one of ClipForge's whooshes in the editor (its level, sound, trim or fades)."""
+    ref = video_flow._audio_item("x", library.asset(project["workspace_id"], "whoosh"), "effect",  # noqa: SLF001
+                                 gain_db=WHOOSH_DB)
+    keys = ("asset_id", "gain_db", "mute", "in_ms", "out_ms", "length_ms", "fade_in_ms", "fade_out_ms", "loop")
+    return any(item.get(k) != ref.get(k) for k in keys) or \
+        int((item.get("anchor") or {}).get("offset_ms") or 0) != -WHOOSH_LEAD_MS
 
 
 def _new_audio_id(taken: set[str]) -> str:
@@ -1080,15 +1269,16 @@ def _music_item(project: dict, short: dict, taken: set[str]) -> dict | None:
     return item
 
 
-def _whooshes(project: dict, clips: list[dict], taken: set[str]) -> list[dict]:
-    """A soft whoosh on every other cut, attached to the clip after the cut so it moves with it."""
+def _whooshes(project: dict, clips: list[dict], taken: set[str], skip: set = frozenset()) -> list[dict]:
+    """A soft whoosh on every other cut, attached to the clip after the cut so it moves with it (not on the clips in
+    `skip`, where the owner removed or changed one)."""
     shown = [c for c in clips if c.get("include", True)]
     if len(shown) < 2:
         return []
     asset = library.asset(project["workspace_id"], "whoosh")
     out = []
     for k, c in enumerate(shown):
-        if k % 2 == 1:
+        if k % 2 == 1 and c["id"] not in skip:
             item = video_flow._audio_item(_new_audio_id(taken), asset, "effect", gain_db=WHOOSH_DB)  # noqa: SLF001
             item.update(anchor={"clip_id": c["id"], "offset_ms": -WHOOSH_LEAD_MS}, auto=True,
                         label="Whoosh (ClipForge)")
@@ -1108,9 +1298,14 @@ def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
                      f"{'s' if len(failed_engine) != 1 else ''}, so {'they are' if len(failed_engine) != 1 else 'it is'}"
                      " a designed card with the scene's key words. Press New picture on a scene to try again.")
     elif cards:
-        notes.append(f"{len(cards)} of {len(rows)} pictures are designed cards with each scene's key words, because "
-                     "no picture maker is set up. Set one up in Settings → Pictures, video, voice, then press Make the short "
-                     "to swap them for real pictures.")
+        some = f"{len(cards)} of {len(rows)} pictures are designed cards with each scene's key words"
+        if _cards_to_swap(rows, short):
+            notes.append(f"{some}. A picture maker is ready now: press Draw real pictures to swap them.")
+        elif local_engines.available():
+            notes.append(f"{some}, because no picture maker is set up. Set one up in Settings → Pictures, video, voice, "
+                         "then press Draw real pictures to swap them.")
+        else:
+            notes.append(f"{some}, because this ClipForge has no picture maker yet.")
     for n, s in enumerate(rows, 1):
         if s["status"] == "failed":
             notes.append(f"Scene {n} {'still shows its earlier version' if s['id'] in in_plan else 'is not in the video yet'}"
@@ -1132,17 +1327,36 @@ def _notes(rows: list[dict], short: dict, plan: dict | None) -> list[str]:
     return notes
 
 
+def _cards_to_swap(rows: list[dict], short: dict) -> int:
+    """How many designed cards the next build would swap for the picture maker's pictures (it is ready now, and it
+    has not failed on them): Draw real pictures (make()) does that."""
+    return sum(1 for s in rows if s["picture_source"] != "upload" and s["picture_asset_id"] and
+               (_info(s).get("picture") or {}).get("source") == "card" and
+               s["picture_key"] not in _fine_pictures(s, short))
+
+
 def _clear_readd(plan: dict) -> None:
     for sid in {c.get("scene_id") for c in plan.get("clips") or [] if c.get("scene_id")}:
         _change_scene(sid, lambda r: {"info": {k: v for k, v in _info(r).items() if k != "readd"}}
                       if _info(r).get("readd") else None)
 
 
-def save_plan(project_id: str) -> int | None:
-    """Save the scenes as the next version of the plan (unless nothing changed) and queue its preview."""
+def _bookkeeping(plan: dict) -> dict:
+    """What a version keeps of the short, but for why a scene failed (a new reason is no new version)."""
+    short = copy.deepcopy(plan.get("short") or {})
+    for r in (short.get("rows") or {}).values():
+        r.pop("error", None)
+    return short
+
+
+def save_plan(project_id: str, build: int | None = None) -> int | None:
+    """Save the scenes as the next version of the plan (unless nothing changed) and queue its preview. A build
+    (`build`) overtaken by a newer change saves nothing: the newer build saves what both made."""
     for attempt in range(3):
         project = _project(project_id)
         rev = project["plan_revision"]
+        if build is not None and int(project["short"].get("build") or 0) > build:
+            return rev or None
         base = video_flow.plan_at(project_id, rev) if rev else None
         rows = scene_rows(project_id)
         plan = assemble(project, ordered(rows, base), base)
@@ -1151,7 +1365,8 @@ def save_plan(project_id: str) -> int | None:
             if failed:
                 raise ShortError(f"No scene could be made. {failed[0]['error']}".strip())
             return rev or None
-        if base is not None and video_flow.plan_hash(plan) == video_flow.plan_hash(base):
+        if base is not None and video_flow.plan_hash(plan) == video_flow.plan_hash(base) and \
+                _bookkeeping(plan) == _bookkeeping(base):
             _clear_readd(plan)
             return rev
         problems = engine.validate(plan, video_flow._assets(project, plan))  # noqa: SLF001
@@ -1168,9 +1383,110 @@ def save_plan(project_id: str) -> int | None:
                 raise
             continue  # the owner edited it meanwhile: build on their edit
         _clear_readd(plan)
+        _patch_short(project_id, {"cover": _cover_of(plan)})
         enqueue(project["workspace_id"], "video_preview", project_id, new)
         return new
     return None
+
+
+def _cover_of(plan: dict) -> str:
+    """The picture of the first scene in the video, for the project lists."""
+    rows = (plan.get("short") or {}).get("rows") or {}
+    for c in plan.get("clips") or []:
+        pic = (rows.get(c.get("scene_id") or "") or {}).get("picture_asset_id")
+        if pic:
+            return str(pic)
+    return ""
+
+
+# ------------------------------------------------------------------ undo, redo and going back
+def going_back(project_id: str, plan: dict) -> tuple[Callable | None, Callable[[], None]]:
+    """For video_flow._jump (undo, redo and going back to a version): the scenes and the short's choices go back
+    with the plan, so the Scenes panel shows what the video shows and the next build keeps it. A change the owner made
+    after the version being left was saved, still waiting to be made, stays and is made on top. Returns (what to do
+    in the same step as saving the version, what to do after it)."""
+    target = (plan or {}).get("short") or {}
+    if "rows" not in target:
+        return None, lambda: None  # a version saved before versions kept the scenes
+    queued: dict = {}
+
+    def also(conn, rev: int) -> None:
+        raw = conn.execute("SELECT plan FROM edit_plans WHERE project_id = ? AND revision = ?",
+                           (project_id, rev - 1)).fetchone()
+        current = ((engine.upgrade(json.loads(raw["plan"] or "null")) if raw else None) or {}).get("short") or {}
+        prj = conn.execute("SELECT short, workspace_id FROM studio_projects WHERE id = ?", (project_id,)).fetchone()
+        rows = {r["id"]: r for r in (db._decode("short_scenes", x) for x in conn.execute(  # noqa: SLF001
+            "SELECT * FROM short_scenes WHERE project_id = ?", (project_id,)).fetchall())}
+        _put_back_rows(conn, project_id, prj["workspace_id"], rows, current.get("rows") or {}, target["rows"])
+        data = json.loads(prj["short"] or "{}")
+        _put_back_options(data, current, target)
+        data["cover"] = _cover_of(plan)
+        if conn.execute("SELECT 1 FROM studio_jobs WHERE target_id = ? AND kind = 'short_build' AND status IN "
+                        "('queued', 'running') LIMIT 1", (project_id,)).fetchone():
+            data["build"] = int(data.get("build") or 0) + 1  # the build under way started from what was there before
+            queued.update(build=data["build"], workspace=prj["workspace_id"])
+        conn.execute("UPDATE studio_projects SET short = ?, guidance = ? WHERE id = ?",
+                     (json.dumps(data, ensure_ascii=False), json.dumps(_guidance(data)), project_id))
+
+    def after() -> None:
+        if queued:
+            enqueue(queued["workspace"], "short_build", project_id, queued["build"])
+
+    return also, after
+
+
+def _waits(row: dict, was: dict) -> bool:
+    """Whether the owner changed this scene after the version being left saved it (that change still waits)."""
+    return any(row[k] != was.get(k) for k in OWNER_FIELDS) or (not row["clip_key"] and bool(was.get("clip_key")))
+
+
+def _from_state(snap: dict) -> dict:
+    out = {k: snap[k] for k in ROW_STATE if k in snap}
+    status = snap.get("status") or "ready"
+    out.update(info=dict(snap.get("info") or {}), status=status, error=snap.get("error") or "",
+               message="Waiting" if status == "waiting" else "")
+    return out
+
+
+def _put_back_rows(conn, project_id: str, workspace_id: str, rows: dict, was: dict, want: dict) -> None:
+    """Scenes as version `want` keeps them, over the scenes now (`rows`); `was` is what the version being left kept."""
+    now = time.time()
+    for sid, snap in want.items():
+        row = rows.get(sid)
+        if row is None:
+            if sid in was:
+                continue  # deleted after the version being left was saved: that change stays
+            enc = db._encode("short_scenes", {**_from_state(snap), "id": sid, "project_id": project_id,  # noqa: SLF001
+                                              "workspace_id": workspace_id, "pictures": [], "created_at": now,
+                                              "updated_at": now})
+            conn.execute(f"INSERT INTO short_scenes ({', '.join(enc)}) VALUES ({', '.join('?' for _ in enc)})",
+                         list(enc.values()))
+            continue
+        if (sid in was and _waits(row, was[sid])) or (sid not in was and _waits(row, snap)):
+            continue  # changed since, and waiting to be made: made on top of the version gone back to
+        fields = {k: v for k, v in _from_state(snap).items() if row.get(k) != v}
+        if fields:
+            enc = db._encode("short_scenes", {**fields, "updated_at": now})  # noqa: SLF001
+            conn.execute(f"UPDATE short_scenes SET {', '.join(f'{k} = ?' for k in enc)} WHERE id = ?",
+                         [*enc.values(), sid])
+    for sid, row in rows.items():
+        if sid not in want and sid in was and not _waits(row, was[sid]):
+            conn.execute("DELETE FROM short_scenes WHERE id = ?", (sid,))  # added after the version gone back to
+
+
+def _put_back_options(data: dict, current: dict, target: dict) -> None:
+    """The short's choices (and which option changes the plan took in) as the version gone back to has them, but
+    for a choice changed after the version being left was saved."""
+    was, want = current.get("options") or {}, target.get("options") or {}
+    for k in OPTION_STATE:
+        if k in want and data.get(k) == was.get(k, data.get(k)):
+            data[k] = want[k]
+    applied_was, applied_now = current.get("applied") or {}, target.get("applied") or {}
+    apply = dict(data.get("apply") or {})
+    for k in ("captions", "music"):
+        if int(apply.get(k) or 0) <= int(applied_was.get(k) or 0):
+            apply[k] = int(applied_now.get(k) or 0)
+    data["apply"] = apply
 
 
 # ------------------------------------------------------------------ changes from the page
@@ -1258,6 +1574,8 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
             info["picture"] = picture_info
         if retry:
             info["picture"] = {**(info.get("picture") or {}), "failed": ""}
+        if body.get("again") and (info.get("voice") or {}).get("fallback"):
+            info["voice_take"] = int(info.get("voice_take") or 0) + 1  # the chosen voice gets another try
         out = {**changes, "status": "waiting", "message": "Waiting", "error": "", "info": info}
         if chosen is not None:
             out["pictures"] = (list(row.get("pictures") or []) + [chosen])[-(MAX_EARLIER + 1):]
@@ -1298,11 +1616,25 @@ def delete_scene(project: dict, scene_id: str) -> None:
 
 
 def make(project: dict) -> None:
-    """Go on after the owner checked the script (or after a stop), or make every scene that still needs it."""
-    if project["short"].get("mode") == "write" and not scene_rows(project["id"]) and \
-            project["status"] == "building":
+    """Go on after the owner checked the script (or after a stop), or make every scene that still needs it; a scene
+    a stand-in voice read tries the chosen voice again."""
+    short = project["short"]
+    if short.get("mode") == "write" and not scene_rows(project["id"]) and project["status"] == "building":
         raise ShortError("ClipForge AI is still writing the script.")
-    _rebuild(project, {"reviewed": True}, waiting="Waiting to start")
+    for s in scene_rows(project["id"]):
+        if (_info(s).get("voice") or {}).get("fallback"):
+            _change_scene(s["id"], _retake)
+    # the script counts as checked only once the owner saw it: after a writer that failed or was stopped, the build
+    # writes the script and stops there again
+    _rebuild(project, {"reviewed": True} if short.get("stage") == "review" else None, waiting="Waiting to start")
+
+
+def _retake(row: dict) -> dict | None:
+    info = _info(row)
+    if not (info.get("voice") or {}).get("fallback"):
+        return None
+    return {"info": {**info, "voice_take": int(info.get("voice_take") or 0) + 1}, "status": "waiting",
+            "message": "Waiting"}
 
 
 def set_options(project: dict, body: dict) -> None:
@@ -1325,8 +1657,9 @@ def set_options(project: dict, body: dict) -> None:
     db.update("studio_projects", project["id"], guidance=_guidance({**short, **changes}))
 
 
-def voice_sample(voice_id: str, speed: float) -> Path:
-    """A few seconds of a voice, kept by voice and speed (POST /api/studio/shorts/voice-sample)."""
+def voice_sample(voice_id: str, speed: float) -> tuple[Path, str]:
+    """A few seconds of a voice, kept by voice and speed (POST /api/studio/shorts/voice-sample): (the file, "") or,
+    when another voice had to stand in, (a file to send once and delete, what happened)."""
     from . import voice
 
     opts = clean_options({"voice": voice_id, "speed": speed})
@@ -1339,15 +1672,31 @@ def voice_sample(voice_id: str, speed: float) -> Path:
     folder = config.data_dir() / "shorts" / "samples"
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{_hash('sample', chosen, opts['speed'], SAMPLE_TEXT)}.wav"
-    if not out.is_file():
-        tmp = out.with_name(out.stem + ".part.wav")
+    if out.is_file():
+        return out, ""
+    for old in folder.glob("*.part.wav"):  # left by an app that was closed while a sample was made
         try:
-            voice.speak(SAMPLE_TEXT, tmp, voice=chosen, speed=float(opts["speed"]))
-        except Exception as exc:
-            tmp.unlink(missing_ok=True)
-            raise ShortError(str(exc) or "That voice could not speak on this computer.") from exc
+            if old.stat().st_mtime < time.time() - 3600:
+                old.unlink()
+        except OSError:
+            pass
+    fd, name = tempfile.mkstemp(dir=folder, prefix=f"{out.stem}.", suffix=".part.wav")  # one per request
+    os.close(fd)
+    tmp = Path(name)
+    try:
+        got = voice.speak(SAMPLE_TEXT, tmp, voice=chosen, speed=float(opts["speed"]))
+        if got.get("fallback") or (chosen != "auto" and got.get("voice_id") and got["voice_id"] != chosen):
+            return tmp, str(got.get("fallback") or "Another voice read this sample.")  # not kept as the chosen voice
         tmp.replace(out)
-    return out
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        if out.is_file():
+            return out, ""  # made by another request at the same moment
+        if isinstance(exc, ShortError) or exc.__class__.__name__ in OWNER_ERRORS:
+            raise ShortError(str(exc) or "That voice could not speak on this computer.") from exc
+        log.warning("voice sample failed: %s", exc)
+        raise ShortError("That voice could not speak on this computer. Try another voice.") from exc
+    return out, ""
 
 
 # ------------------------------------------------------------------ the editor page
@@ -1369,7 +1718,8 @@ def _scene_view(s: dict, n: int, plan: dict | None) -> dict:
             "status": s["status"], "message": s["message"] or "", "error": s["error"] or "",
             "duration": round(int(s["duration_ms"] or 0) / 1000, 2),
             "picture": {"source": source, "engine": pic.get("engine") or "", "why": pic.get("why") or ""},
-            "voice": {"engine": v.get("engine") or "", "voice": v.get("voice") or "", "timing": v.get("timing") or ""},
+            "voice": {"engine": v.get("engine") or "", "voice": v.get("voice") or "", "timing": v.get("timing") or "",
+                      "fallback": str(v.get("fallback") or "")},
             "motion": info.get("motion") or {}, "earlier": earlier,
             "in_plan": any(c["asset_id"] == s["clip_asset_id"] for c in parts),
             "included": any(c.get("include", True) for c in parts),
@@ -1386,14 +1736,18 @@ def view(project: dict, plan: dict | None = None) -> dict:
     rows = ordered(scene_rows(project["id"]), plan)
     shown = [_scene_view(s, n, plan) for n, s in enumerate(rows, 1)]
     speed = float(short.get("speed") or 1.0)
-    seconds = sum(x["duration"] or scenes.seconds(x["narration"], speed) for x in shown)
+    # the video as it is (switched-off scenes left out, the owner's own clips in), and what scenes not in it yet add
+    in_video = {c.get("scene_id") for c in (plan or {}).get("clips") or [] if c.get("scene_id")}
+    seconds = (engine.duration_ms(plan) / 1000 if plan else 0.0) + sum(
+        max(0.2, x["duration"] - (END_MS - TAIL_MS) / 1000) if x["duration"] else scenes.seconds(x["narration"], speed)
+        for x in shown if x["id"] not in in_video and not x["replaced"])
     state = _writer_state(db.get_settings())
     return {**{k: short.get(k, DEFAULTS.get(k, "")) for k in OPTION_FIELDS},
             "topic": short.get("topic") or "", "title": short.get("title") or "",
             "character": short.get("character") or "", "stage": short.get("stage") or "making",
             "message": short.get("message") or "", "scenes": shown,
             "progress": {"done": sum(1 for x in shown if x["status"] == "ready"), "total": len(shown)},
-            "seconds": round(seconds, 1), "engines": _engines(),
+            "seconds": round(seconds, 1), "engines": _engines(), "cards_to_swap": _cards_to_swap(rows, short),
             "writer": {**state, "used": short.get("writer")},
             "voice_rule": voice_rule(rows),
             "notes": _notes(rows, short, plan)}
@@ -1405,9 +1759,12 @@ def voice_rule(rows: list[dict]) -> str:
     return next((str(r) for r in ((_info(s).get("voice") or {}).get("rule") for s in rows) if r), "")
 
 
-def cover_asset(project_id: str) -> str:
-    """The first scene's picture, for the project lists ("" while there is none)."""
-    project = db.fetch("studio_projects", project_id)
+def cover_asset(project_id: str, project: dict | None = None) -> str:
+    """The first scene's picture, for the project lists ("" while there is none): kept when a version is saved, so
+    the lists need not read every plan."""
+    project = project or db.fetch("studio_projects", project_id)
+    if ((project or {}).get("short") or {}).get("cover"):
+        return str(project["short"]["cover"])  # type: ignore[index]
     plan = video_flow.plan_at(project_id, project["plan_revision"]) if project and project["plan_revision"] else None
     for s in ordered(scene_rows(project_id), plan):
         if s["picture_asset_id"]:

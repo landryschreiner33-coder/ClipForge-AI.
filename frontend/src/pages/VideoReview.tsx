@@ -386,7 +386,8 @@ export default function VideoReview({ id }: { id: string }) {
   const working = v.jobs.find((j) => j.status === "running" || j.status === "queued");
   const preview = v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
   const finals = v.artifacts.filter((a) => a.kind === "final");
-  const failed = v.jobs.find((j) => j.status === "failed" && j.revision >= v.plan_revision);
+  // a short's build reports itself in the Scenes panel (its revision is a build number, not a version)
+  const failed = v.jobs.find((j) => j.status === "failed" && j.kind !== "short_build" && j.revision >= v.plan_revision);
   const vertical = plan?.output.aspect === "9:16" || plan?.output.aspect === "4:5";
   const bin = v.bin.map((aid) => media[aid]).filter(Boolean);
   const pictures = bin.filter((a) => a.kind !== "audio");

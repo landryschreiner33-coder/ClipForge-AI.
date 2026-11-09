@@ -572,7 +572,7 @@ def library(kind: str = "", q: str = "") -> list[dict]:
             short = shorts.is_short(v)
             if kind and (kind == "short") != short:
                 continue  # "full_video" lists filmed videos, "short" animated shorts
-            first = shorts.cover_asset(v["id"]) if short else (v.get("asset_ids") or [""])[0]
+            first = shorts.cover_asset(v["id"], v) if short else (v.get("asset_ids") or [""])[0]
             # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
             asset = db.fetch("assets", first) if first else None
             pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
@@ -799,10 +799,12 @@ def cancel_video(video_id: str) -> dict:
                                                      (video_id,)))
     if n and v["status"] == "rendering":
         db.update("studio_projects", video_id, status="ready", message="Render canceled; the plan is unchanged")
-    elif n and v.get("workflow") == "animated_short" and v["status"] in ("building", "needs_input"):
+    elif v.get("workflow") == "animated_short":
         from ..makers import shorts
 
-        shorts.stopped(video_id)  # a build that was still waiting never runs to say so itself
+        # a canceled build says so itself (studio_jobs.on_stop); this also frees a short whose build was lost, so
+        # the page offers Make the short again. Nothing changes when nothing is being made.
+        shorts.stopped(video_id)
     return {"canceled": n, **video_flow.view(_video(video_id))}
 
 

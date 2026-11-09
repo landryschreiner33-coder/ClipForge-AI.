@@ -52,7 +52,8 @@ export type ShortScene = {
   /** Seconds. */
   duration: number;
   picture: { source: "engine" | "card" | "upload" | ""; engine: string; why: string };
-  voice: { engine: string; voice: string; timing: "engine" | "listened" | "estimated" | "" };
+  /** fallback: why another voice read this scene ("" when the chosen voice did); Try again asks the chosen one. */
+  voice: { engine: string; voice: string; timing: "engine" | "listened" | "estimated" | ""; fallback?: string };
   /** Earlier pictures of this scene, newest first. */
   earlier: { asset_id: string; prompt: string; source: string }[];
   /** The scene has a clip in the current plan (clip id == scene id). */
@@ -71,6 +72,8 @@ export type ShortView = {
   look: string; voice: string; speed: number; music: string; captions: string; motion: ShortMotion; review: boolean;
   title: string; character: string; scenes: ShortScene[]; progress: { done: number; total: number }; seconds: number;
   engines: ShortEngines;
+  /** Designed cards the picture maker (ready now) would swap for real pictures: Draw real pictures does it. */
+  cards_to_swap?: number;
   writer: ShortWriter & { used: { model: string; memories: number; knowhow: string[] } | null };
   /** What the licence of the voice that spoke it asks of what it makes ("" for none); shown next to Download. */
   voice_rule?: string;
@@ -106,14 +109,20 @@ export const shorts = {
     return optionsCall;
   },
   create: (body: ShortCreate) => req<Video>("POST", "/api/studio/shorts", body),
-  /** A few seconds of a voice, as WAV. */
-  voiceSample: async (voice: string, speed: number): Promise<Blob> => {
+  /** A few seconds of a voice, as WAV, and what to tell the owner when another voice had to read it ("" if none). */
+  voiceSample: async (voice: string, speed: number): Promise<{ blob: Blob; note: string }> => {
     const res = await fetch("/api/studio/shorts/voice-sample", {
       method: "POST", headers: { "Content-Type": "application/json", "X-ClipFoundry": "1" },
       body: JSON.stringify({ voice, speed }),
     });
     if (!res.ok) throw await responseError(res);
-    return res.blob();
+    let note = "";
+    try {
+      note = decodeURIComponent(res.headers.get("X-ClipForge-Note") || "");
+    } catch {
+      note = "Another voice read this sample.";
+    }
+    return { blob: await res.blob(), note };
   },
   patchScene: (videoId: string, sceneId: string, body: ScenePatch) =>
     req<Video>("PATCH", `${scenes(videoId)}/${encodeURIComponent(sceneId)}`, body),

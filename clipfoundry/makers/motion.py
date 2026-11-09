@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import subprocess
 from collections import deque
 from pathlib import Path
@@ -56,19 +57,43 @@ def _audio_args(audio: Path, duration: float) -> list[str]:
             "-map", "0:v:0", "-map", "[a]"]
 
 
-def _read_picture(picture: Path):
+def _read_picture(picture: Path, size: tuple[int, int] | None = None, strength: float = 0.0,
+                  background: str | None = None):
+    """The picture as BGR pixels, upright (its EXIF orientation), a see-through picture laid on `background`
+    ("#RRGGBB", black when None). A JPEG much larger than the move needs for `size` is decoded at a half, a quarter
+    or an eighth of its size, so a huge photo never takes gigabytes; a picture over Pillow's size limit (about 180
+    million pixels) is refused. Raises MotionError in plain words."""
     import cv2
     import numpy as np
+    from PIL import Image, ImageOps
 
-    img = cv2.imread(str(picture), cv2.IMREAD_COLOR)
-    if img is None:
+    unreadable = "ClipForge could not open this scene's picture. Choose another picture."
+    try:
+        with Image.open(picture) as im:
+            if size:
+                w, h = im.size
+                # either way up (EXIF may turn it), with the room the move needs
+                need = max(size[0] / w, size[1] / h, size[0] / h, size[1] / w) * (1 + strength)
+                if need < 0.5:
+                    im.draft(None, (max(1, math.ceil(w * need)), max(1, math.ceil(h * need))))
+            im = ImageOps.exif_transpose(im)
+            if im.mode == "RGB":
+                rgb = im
+            else:
+                rgba = im.convert("RGBA")
+                colour = background if re.fullmatch(r"#[0-9a-fA-F]{6}", str(background or "")) else "#000000"
+                rgb = Image.alpha_composite(Image.new("RGBA", rgba.size, colour), rgba).convert("RGB")
+            img = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
+    except Image.DecompressionBombError as exc:
+        raise MotionError("This scene's picture is too large to use. Choose a smaller picture.") from exc
+    except Exception as exc:  # noqa: BLE001 - a format only OpenCV reads gets one more try
         try:
-            from PIL import Image, ImageOps
-
-            with Image.open(picture) as im:
-                img = cv2.cvtColor(np.asarray(ImageOps.exif_transpose(im).convert("RGB")), cv2.COLOR_RGB2BGR)
-        except Exception as exc:  # noqa: BLE001 - any unreadable file is the same problem for the owner
-            raise MotionError("ClipForge could not open this scene's picture. Choose another picture.") from exc
+            img = cv2.imread(str(picture), cv2.IMREAD_COLOR)
+        except cv2.error:
+            img = None
+        if img is None:
+            log.info("scene picture unreadable: %s", exc)
+            raise MotionError(unreadable) from exc
     if img.ndim != 3 or img.shape[0] < 2 or img.shape[1] < 2:
         raise MotionError("This scene's picture is empty. Choose another picture.")
     return img
@@ -135,8 +160,9 @@ def _frames(duration_s: float, fps: int) -> int:
 def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move: str = "zoom_in", fps: int = 30,
                size: tuple[int, int] = (1080, 1920), strength: float = 0.08,
                cancel: Callable[[], bool] | None = None,
-               progress: Callable[[float], None] | None = None) -> dict:
-    """The still picture moving with the voice under it: {"path", "duration_s", "frames"}. Raises MotionError."""
+               progress: Callable[[float], None] | None = None, background: str | None = None) -> dict:
+    """The still picture moving with the voice under it: {"path", "duration_s", "frames"}. A see-through picture is
+    laid on `background` ("#RRGGBB"; black when None). Raises MotionError."""
     import cv2
     import numpy as np
 
@@ -147,7 +173,8 @@ def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move
     duration = frames / fps
     strength = min(0.3, max(0.0, float(strength)))
     w_out, h_out = int(size[0]), int(size[1])
-    img, cover = _prepare(_read_picture(Path(picture)), (w_out, h_out), strength)
+    img, cover = _prepare(_read_picture(Path(picture), (w_out, h_out), strength, background), (w_out, h_out),
+                          strength)
     h, w = img.shape[:2]
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -19,6 +19,12 @@ This document is the design and the contract between the parts. The user-facing 
    picture, a different camera move, moved, deleted or added. Each change makes the scenes that need it again and
    saves a new version of the plan (undo goes back). Until the build starts, the short says it is waiting to make
    the change (never "Ready" with a change still to make).
+5. **Undo**, **Redo** and going back to a version put the scenes and the short's choices back with the video: the
+   Scenes panel shows what the video shows, and the next change builds on it (an undone scene is never made again).
+6. **Stop** (or **Stop all jobs**) stops the build; **Make the short** goes on. A scene another voice had to read
+   (the chosen one did not work) says so and offers **Try again**; **Make the short** asks the chosen voice for all
+   of them. When a picture maker is set up after the short was made with designed cards, **Draw real pictures**
+   swaps them.
 
 With **Let me check the script first**, ClipForge stops after writing the script so the owner can change lines;
 **Make the short** then makes the voice and the pictures.
@@ -152,7 +158,8 @@ Without a model, `write` raises WriterError with the way to set one up; `picture
 def voices() -> list[dict]
     # [{"id", "name", "lang", "gender", "about", "engine"}]; "auto" first, then the engine's voices ("engine:<id>"),
     # then this computer's voices ("system:<name>": macOS say, Windows SAPI; "espeak:<voice>" when espeak-ng is
-    # installed). Novelty voices are left out. Cached for ten minutes.
+    # installed). Novelty voices are left out. Cached for ten minutes (half a minute when a listing failed). A voice
+    # whose lang is "multilingual", "mul" or "" reads every language (the engine's voices say so).
 def default_voice() -> str
 def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang: str = "en", cancel=None) -> dict
     # writes `out` (WAV, mono, 48 kHz, 16-bit, silence at both ends trimmed to 40 ms) and returns
@@ -164,27 +171,33 @@ def estimate_words(wav: Path, text: str) -> list[dict]
     # shared out by syllables. Always works; the words are the script's words with their punctuation.
 def align_words(text: str, heard: list[dict]) -> list[dict]
     # the script's words with the times of the words a speech model heard (matched in order; the rest interpolated)
-def time_words(wav: Path, text: str, *, engine_words=None, settings=None, listen: bool = True) -> tuple[list[dict], str]
+def time_words(wav: Path, text: str, *, engine_words=None, settings=None, listen: bool = True, cancel=None,
+               used: dict | None = None) -> tuple[list[dict], str]
     # (words, how): "engine" (the engine said), "listened" (the speech model is installed and downloaded: transcribed
-    # and aligned; never downloads), "estimated"
+    # and aligned; never downloads), "estimated". `cancel` stops the listening; used["model"] becomes True when the
+    # speech model was asked (the build then gives its memory back even if no scene's times came from it)
 class VoiceError(RuntimeError)
 ```
 
 macOS: `say -v <name> -r 175 -f <text file> -o <file>.aiff`. Windows: PowerShell with System.Speech at its usual
 rate (text, voice and paths passed in environment variables and a file, never in the command line). Linux and
-anything else: `espeak-ng` (or `espeak`) when installed, run as its own program, `-s` 175 × speed. Speed 1.0 is about
-175 words a minute. The engine and espeak-ng read at the speed asked; macOS and Windows voices read at their usual
-pace and FFmpeg's `atempo` then sets the speed without changing the pitch, because their own rate settings are
-uneven: on GitHub's Apple-silicon Mac, `say -r` at 1.3 times the words a minute read 1.7 times as fast, and the
-Windows rate has only whole steps (Calm and Lively both read at the usual pace) and read 1.44 times as fast for 1.3.
+anything else: `espeak-ng` (or `espeak`) when installed, run as its own program, `-s` 175 × speed. Speed 1.0 is
+about 175 words a minute. `[[` and `]]` in the words are broken up before `say` (its commands) and espeak-ng
+(phoneme codes), so a script is only ever read aloud. The engine and espeak-ng read at the speed asked; macOS and
+Windows voices read at their usual pace and FFmpeg's `atempo` then sets the speed without changing the pitch,
+because their own rate settings are uneven: on GitHub's Apple-silicon Mac, `say -r` at 1.3 times the words a minute
+read 1.7 times as fast, and the Windows rate has only whole steps (Calm and Lively both read at the usual pace) and
+read 1.44 times as fast for 1.3.
 
 ### cards.py
 
 ```python
 def key_words(narration: str, limit: int = 4) -> str     # the scene's key words for its card
-def make_card(text: str, look: Look, out: Path, *, index: int = 0, size=(1242, 2208)) -> Path
-    # PNG: the look's gradient, soft shapes placed by `index`, the key words big between 18 and 42 percent of the
-    # height (clear of the centred captions and the apps' buttons). Larger than 1080x1920 so a push-in stays sharp.
+def make_card(text: str, look: Look, out: Path, *, index: int = 0, size=(1242, 2208), seed: int = 0) -> Path
+    # PNG: the look's gradient, soft shapes placed by `index` and `seed` (New picture gives the scene a new seed),
+    # the key words big between 18 and 42 percent of the height (clear of the centred captions and the apps'
+    # buttons); a word too wide even at the smallest size gets smaller letters, never cut off. Larger than
+    # 1080x1920 so a push-in stays sharp. Raises CardError in plain words.
 ```
 
 ### motion.py
@@ -193,7 +206,7 @@ def make_card(text: str, look: Look, out: Path, *, index: int = 0, size=(1242, 2
 MOVES = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up", "pan_down", "still")
 def pick_move(index: int) -> str                  # alternating: zoom_in, pan_right, zoom_out, pan_left, ...
 def still_clip(picture: Path, audio: Path, out: Path, *, duration_s: float, move: str = "zoom_in", fps: int = 30,
-               size=(1080, 1920), strength: float = 0.08, cancel=None, progress=None) -> dict
+               size=(1080, 1920), strength: float = 0.08, cancel=None, progress=None, background=None) -> dict
 def video_clip(video: Path, audio: Path, out: Path, *, duration_s: float, fps: int = 30, size=(1080, 1920),
                cancel=None, progress=None) -> dict
     # both → {"path", "duration_s", "frames"}; an H.264 (BT.709, yuv420p) + AAC 48 kHz MP4 whose length is exactly
@@ -201,8 +214,12 @@ def video_clip(video: Path, audio: Path, out: Path, *, duration_s: float, fps: i
 ```
 
 `still_clip` covers the frame with the picture and moves it with OpenCV (sub-pixel, so there is no jitter), frames
-piped to FFmpeg. `video_clip` covers the frame with the engine's video, slows it down up to 1.5 times when it is
-shorter than the voice and holds its last frame for the rest.
+piped to FFmpeg. The picture is read with Pillow, upright: a see-through picture lies on `background` (the look's
+bottom colour), a JPEG much larger than the move needs is decoded at an eighth, a quarter or half its size, and a
+picture over Pillow's limit (about 180 million pixels) is refused in plain words. `video_clip` covers the frame with
+the engine's video, slows it down up to 1.5 times when it is shorter than the voice and holds its last frame for the
+rest. `pictures.make` opens the engine's picture all the way before using it; one that does not open (cut short by a
+crash or a full disk) becomes a designed card with the reason.
 
 ### shorts.py (the job and the plan)
 
@@ -220,9 +237,29 @@ shorter than the voice and holds its last frame for the rest.
   library at -20 dB with ducking, and a whoosh on every other cut (-14 dB, attached to its clip). A later build keeps
   the owner's edits: the order, trims of unchanged scenes, removed clips, captions, music level, tracks, word fixes
   of unchanged scenes and pictures placed over the video; ClipForge's own whooshes are placed again.
+* Each version of the plan keeps, under `plan.short`, the scenes as they made the clips in it (`rows`: the fields in
+  `ROW_STATE` and `info`; a scene not in the video yet keeps its status) and the short's choices (`options`).
+  Undo, redo and restore (`video_flow._jump`) call `going_back`, which puts them back in the same database step
+  that saves the version (`save_revision(..., also=...)`): scenes are put back, re-added or taken away, choices set
+  back. A change the owner made after the version being left and not yet made stays and is made on top; a build
+  that was waiting gets a new build number so it builds on what was put back. Versions saved before this have no
+  `rows`: the scenes then stay as they are.
+* Stopping: `studio.jobs.on_stop("short_build")` hears a canceled build and one given up after repeated
+  interruptions; Stop all jobs cancels the studio job that is running too. `stopped(project_id, build)` only acts on
+  a short still making or writing, and never for an older build. Writes that end a build (ready, failed, stopped)
+  happen only when no newer build was asked for (`_patch_short(..., if_build=...)`), and an overtaken build saves no
+  version of its own.
+* Errors reach the owner in plain words (`_plain`): the voice, motion, card and upload messages are written for the
+  owner; a full disk, a permission problem or another file problem, the video tool and anything else get a plain
+  sentence, and the cause goes to the log.
+* Tidying: a clip a build made and then threw away (its scene changed or went meanwhile) is deleted when nothing
+  uses it (files are stored once, so the same bytes may be in use elsewhere: then it stays); working folders and
+  half-recorded voices an app closed mid-build left are deleted once they are an hour old. Pictures and clips that
+  any version uses stay, so undo can bring them back.
 * `view(project)` is the `short` part of the editor page's video (`GET /api/studio/videos/<id>`): the options, stage
-  and message, the scenes in the plan's order, progress, seconds, engines, the writer, `voice_rule` (shown next to
-  Download) and notes (also the plan's notes).
+  and message, the scenes in the plan's order, progress, seconds (the video's length plus an estimate for scenes
+  not in it yet), engines, `cards_to_swap` (designed cards a ready picture maker would replace: **Draw real
+  pictures**), the writer, `voice_rule` (shown next to Download) and notes (also the plan's notes).
 * A change (`update_scene`, `add_scene`, `delete_scene`, `set_options`, `make`) bumps the build number, sets the stage
   to `making` ("Waiting to make the changes", or "Waiting to start" after **Make the short**) unless the short
   waits for the owner to check the script, and queues
@@ -234,7 +271,7 @@ shorter than the voice and holds its last frame for the rest.
 |---|---|
 | `GET /api/studio/shorts/options` | looks, voices, tones, lengths, captions ("" fits the look), music, speeds, what each engine can do, whether ClipForge AI can write |
 | `POST /api/studio/shorts` | make a short (`mode` paste or write, `script` or `topic`, options) → the video |
-| `POST /api/studio/shorts/voice-sample` | a few seconds of a voice (WAV) |
+| `POST /api/studio/shorts/voice-sample` | a few seconds of a voice (WAV); when another voice had to read it, the header `X-ClipForge-Note` says so (URL-encoded) and that sample is not kept |
 | `PATCH /api/studio/shorts/{video_id}/scenes/{scene_id}` | words, picture idea, move, the owner's picture, an earlier picture, `again` |
 | `POST /api/studio/shorts/{video_id}/scenes` | add a scene after another |
 | `DELETE /api/studio/shorts/{video_id}/scenes/{scene_id}` | delete a scene |

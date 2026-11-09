@@ -5,9 +5,12 @@ itself happens in the short's build job.
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from .. import db
 from ..cloud import principal
@@ -73,10 +76,14 @@ class SampleRequest(BaseModel):
 @router.post("/api/studio/shorts/voice-sample")
 def voice_sample(body: SampleRequest) -> FileResponse:
     try:
-        path = shorts.voice_sample(body.voice, body.speed)
+        path, note = shorts.voice_sample(body.voice, body.speed)
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
-    return FileResponse(path, media_type="audio/wav")
+    if not note:
+        return FileResponse(path, media_type="audio/wav")
+    # another voice stood in: this sample is sent once and not kept, and the page says what happened
+    return FileResponse(path, media_type="audio/wav", headers={"X-ClipForge-Note": quote(note[:300])},
+                        background=BackgroundTask(path.unlink, missing_ok=True))
 
 
 class SceneChange(BaseModel):

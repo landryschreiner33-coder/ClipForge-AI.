@@ -10,6 +10,7 @@ Cards are honest placeholders, not illustrations: the page says so and links to 
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 import zlib
@@ -25,6 +26,8 @@ TEXT_WIDTH = 0.84            # the words' widest line, as a share of the width
 MAX_LINES = 3
 FONT_SIZES = (230, 60)       # the largest and the smallest letters tried, at the card's own size
 FALLBACK_FONT = "Poppins-Black.ttf"
+SMALLEST = 12                # the letters of a word wider than the card at the smallest size shrink down to this
+log = logging.getLogger(__name__)
 
 
 class CardError(RuntimeError):
@@ -124,16 +127,22 @@ def _fit(draw, text: str, look: Look, width: int, height: int):
             if line_h * len(lines) <= height:
                 return font, lines, line_h
         size = int(size * 0.92)
-    font = _font(look, lo)
+    # too long even at the smallest size: a word wider than the card gets smaller letters, and lines past the last
+    # are left out, so nothing is ever drawn past the edge
+    size = lo
+    font = _font(look, size)
+    while size > SMALLEST and words and max(draw.textlength(w, font=font) for w in words) > width:
+        size = max(SMALLEST, int(size * 0.9))
+        font = _font(look, size)
     lines, line = [], ""
-    for w in words:  # too long even at the smallest size: cut, never overflow
+    for w in words:
         if draw.textlength(f"{line} {w}".strip(), font=font) <= width:
             line = f"{line} {w}".strip()
         else:
             lines.append(line)
             line = w
     lines.append(line)
-    return font, [ln for ln in lines if ln][:MAX_LINES], lo * 1.08
+    return font, [ln for ln in lines if ln][:MAX_LINES], size * 1.08
 
 
 def _background(look: Look, size: tuple[int, int], rng: random.Random):
@@ -176,14 +185,16 @@ def _background(look: Look, size: tuple[int, int], rng: random.Random):
     return Image.alpha_composite(img, crisp)
 
 
-def make_card(text: str, look: Look, out: Path, *, index: int = 0, size: tuple[int, int] = SIZE) -> Path:
-    """Draw a scene's card into `out` (PNG) and return its path. Raises CardError."""
+def make_card(text: str, look: Look, out: Path, *, index: int = 0, size: tuple[int, int] = SIZE,
+              seed: int = 0) -> Path:
+    """Draw a scene's card into `out` (PNG) and return its path: the same card for the same look, scene number and
+    seed (New picture gives the scene a new seed, so its shapes move). Raises CardError."""
     try:
         from PIL import Image, ImageDraw, ImageFilter
     except ImportError as exc:  # pillow is in requirements.txt
         raise CardError("ClipForge could not draw the scene's card: Pillow is missing. Reinstall ClipForge.") from exc
     w, h = int(size[0]), int(size[1])
-    rng = random.Random(zlib.crc32(f"{look.id}:{int(index)}".encode()))
+    rng = random.Random(zlib.crc32(f"{look.id}:{int(index)}{f':{int(seed)}' if seed else ''}".encode()))
     try:
         img = _background(look, (w, h), rng)
         words = " ".join(str(text or "").split()).upper()
@@ -218,5 +229,7 @@ def make_card(text: str, look: Look, out: Path, *, index: int = 0, size: tuple[i
     except CardError:
         raise
     except (OSError, ValueError) as exc:
-        raise CardError(f"ClipForge could not draw the scene's card ({exc}).") from exc
+        log.warning("the card could not be drawn: %s", exc)
+        raise CardError("ClipForge could not draw or save this scene's card. Check that the disk has free space, "
+                        "then press Try again.") from exc
     return out
