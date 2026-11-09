@@ -916,32 +916,75 @@ def test_a_change_of_subject_the_words_do_not_show_counts_once_there_is_a_pause_
     assert len(asked) == 1 and stories.NEAR <= asked[0]["score"] < stories.THRESHOLD and asked[0]["why"] == ["a change of topic"]
 
 
+def test_short_posts_with_a_varying_silence_between_them_are_all_found_with_the_meaning_model(monkeypatch):
+    """Six posts of about a minute each, titles read straight, 2.5 to 4.5 s of silence between posts and 0.3 to 0.9 s
+    inside them: with so many breaks, the 97th percentile of the pauses is one of them, and the shortest breaks must
+    still count as a long pause for this narrator when the meaning model sees the subject change."""
+    import itertools
+    import random
+
+    from clipfoundry import embedder
+    from clipfoundry.pipeline import stories, transcribe
+    from clipfoundry.pipeline.text_utils import build_sentences
+    from story_fixtures import REDDIT_VOCAB, TEMPLATES, _sentence_words
+
+    titles = ["My sister keeps telling everyone I ruined her wedding.", "Am I wrong for leaving my neighbour on the balcony?",
+              "My husband keeps inviting his mother on our date nights.", "My brother wants half of the car grandpa left me.",
+              "My cousin thinks I ruined her wedding speech.", "Am I wrong for locking the balcony door all winter?"]
+    topics = ["wedding", "balcony", "inlaws", "car", "wedding", "balcony"]
+    for seed in range(1, 6):
+        rng, cycle = random.Random(seed), itertools.cycle(TEMPLATES)
+        posts = []
+        for k, topic in enumerate(topics):
+            body = []
+            for _ in range(13):
+                a, b, c = rng.sample(REDDIT_VOCAB[topic], 3)
+                body.append(next(cycle).format(a=a, b=b, c=c) + ".")
+            posts.append([titles[k], *body])
+        segments, groups, t = [], [], 0.6
+        for k, post in enumerate(posts):
+            for n, text in enumerate(post):
+                words, t_end = _sentence_words(text, t)
+                segments.append({"start": words[0]["start"], "end": words[-1]["end"], "text": text, "words": words})
+                groups.append(k)
+                t = t_end + (rng.uniform(2.5, 4.5) if n == len(post) - 1 else rng.uniform(0.3, 0.9))
+        transcript = {"language": "en", "duration": round(t + 2.0, 3), "source": "fixture", "segments": segments}
+        words = transcribe.flatten_words(transcript)
+        sents = build_sentences(words)
+        assert len(sents) == len(groups)
+        emb = _topics(sents, groups)
+        monkeypatch.setattr(embedder, "embed_or_none", lambda texts, settings=None, emb=emb: np.asarray(emb)[:len(texts)])
+        monkeypatch.setattr(semantic, "_baseline", lambda vecs, fallback: 0.0)
+        found = stories.propose(words, sents, transcript["duration"], opts={"meaning_model": True})
+        assert sum(1 for i in found["items"] if i["kind"] == "story") == 6, seed
+
+
 def test_the_table_of_contents_pass_names_where_stories_begin_and_the_rules_follow(monkeypatch):
-    from test_full_stories import GARDEN, HIGHWAY, _sentences
-    from story_fixtures import read_aloud
+    from test_full_stories import GARDEN, TOLD, _two_topics
 
     from clipfoundry.pipeline import stories, transcribe
 
-    transcript, _ = read_aloud([("story", GARDEN), ("story", HIGHWAY)])
-    words, sents, duration = transcribe.flatten_words(transcript), _sentences(transcript), transcript["duration"]
-    first_highway = len(GARDEN)
+    # the second story starts with words that start a story ("Another time, ..."): a place worth the model's word
+    transcript, sents = _two_topics(TOLD, repeat=2)
+    words, duration = transcribe.flatten_words(transcript), transcript["duration"]
+    first_told = 2 * len(GARDEN) - 1
 
     def answer(prompt: str) -> dict:
         if "List the numbers" in prompt:  # the table of contents: sentence numbers (0 and 999 are nonsense)
-            return {"starts": [first_highway, 0, 999]}
+            return {"starts": [first_told, 0, 999]}
         places = re.findall(r"Place (\d+):.*?>>> marked: \"(.*?)\"", prompt, re.S)  # the review: place numbers
-        return {"new_story": [int(n) for n, text in places if text.startswith(HIGHWAY[0][:30])]}
+        return {"new_story": [int(n) for n, text in places if text.startswith(TOLD[0][:30])]}
     fake = _Fake(stories=answer)
     judge = stories.Judge(AI_OPTS, sents, complete=fake)
     accepted, near, _chunks, marks = stories.candidates(sents, duration)
-    assert not any(b["after"] == first_highway - 1 for b in accepted)
+    assert not any(b["after"] == first_told - 1 for b in accepted)
     accepted2, near2 = judge.scan(accepted, near, marks)
     assert judge.report["scanned"] == 1 and judge.report["parts"] == 1 and judge.report["problems"] == []
-    found = [b for b in accepted2 if b["after"] == first_highway - 1]
+    found = [b for b in accepted2 if b["after"] == first_told - 1]
     assert len(found) == 1 and "ClipForge AI read a new story beginning here" in found[0]["why"]
     assert found[0]["score"] >= stories.THRESHOLD
     call = fake.calls[0]
-    assert call["json_schema"] is stories.SCAN_SCHEMA and call["task"] == "stories" and f"{first_highway} [" in call["prompt"]
+    assert call["json_schema"] is stories.SCAN_SCHEMA and call["task"] == "stories" and f"{first_told} [" in call["prompt"]
     result = stories.propose(words, sents, duration, judge=stories.Judge(AI_OPTS, sents, complete=fake))
     assert [i["kind"] for i in result["items"]] == ["story", "story"] and "checked by ClipForge AI" in result["method"]
     assert result["ai"]["scanned"] == 1
@@ -950,6 +993,16 @@ def test_the_table_of_contents_pass_names_where_stories_begin_and_the_rules_foll
     assert garbled.scan(accepted, near, marks) == (accepted, near) and "not readable" in garbled.report["problems"][0]
     down = stories.Judge(AI_OPTS, sents, complete=_Fake(raise_=llm.ProviderError("down")))
     assert down.scan(accepted, near, marks) == (accepted, near) and down.report["problems"] == ["part 1 of 1: down"]
+    # the model naming a place where nothing in the words starts a story (a change of subject only) splits nothing
+    transcript, sents = _two_topics(repeat=2)
+    words, duration = transcribe.flatten_words(transcript), transcript["duration"]
+
+    def eager(prompt: str) -> dict:
+        if "List the numbers" in prompt:
+            return {"starts": [2 * len(GARDEN) - 1]}
+        return {"new_story": [int(n) for n in re.findall(r"Place (\d+):", prompt)]}
+    result = stories.propose(words, sents, duration, judge=stories.Judge(AI_OPTS, sents, complete=_Fake(stories=eager)))
+    assert [i["kind"] for i in result["items"]] == ["story"]
 
 
 # ------------------------------------------------------------------ the request plumbing

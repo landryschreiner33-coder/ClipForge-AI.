@@ -41,7 +41,11 @@ export type Eligibility = { connection_id: string; platform: string; account: st
 export type Story = { id: string; position: number; kind: "story" | "gap"; title: string; opening: string; closing: string;
   completeness: "complete" | "uncertain" | "incomplete"; reason: string; method: string; boundary_revision: number;
   clip_id: string; clip_status: string; start: number; end: number; duration: number; confidence: number;
-  included: boolean; eligibility: Eligibility[] };
+  included: boolean; eligibility: Eligibility[];
+  /** Part k of n of one story (0 when the story is one clip); the parts of a story share its story_key. */
+  part: number; parts: number; story_key: string };
+/** No story clip is longer than this (clipfoundry/pipeline/story_parts.py MAX_CLIP_S). */
+export const STORY_MAX_S = 300;
 
 export type Style = { id: string; name: string; revision: number; modes: string[]; values: Record<string, unknown>;
   source: string; is_default: boolean; effects: string[]; reference_id?: string;
@@ -81,6 +85,8 @@ export type BrainMap = { styles: (Style & { updated_at?: number })[];
   omitted_projects: number; applied: { node: string; at: number; project: string }[]; recent_seconds: number };
 
 export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: string; name: string; status: string;
+  /** Full stories projects: "whole" (Full story) or "parts" (Story parts). */
+  story_split?: string;
   message?: string; stage?: string; progress?: number; error?: string; clip_count?: number; updated_at: number;
   thumbnail: string; href: string };
 
@@ -292,7 +298,8 @@ export const studio = {
   /** Is this a usable video link? Checked without fetching anything. */
   linkCheck: (url: string) => req<LinkCheck>("GET", `/api/studio/link-check?${new URLSearchParams({ url })}`),
   projectGuidance: (id: string) => req<{ snapshot: Snapshot; frozen: boolean; note: string }>("GET", `/api/projects/${id}/guidance`),
-  stories: (id: string) => req<{ mode: string; stories: Story[]; summary: Record<string, unknown> }>("GET", `/api/projects/${id}/stories`),
+  stories: (id: string) => req<{ mode: string; split: "whole" | "parts"; stories: Story[]; summary: Record<string, unknown> }>(
+    "GET", `/api/projects/${id}/stories`),
   patchStory: (id: string, body: Record<string, unknown>) => req<Story>("PATCH", `/api/stories/${id}`, body),
   splitStory: (pid: string, story_id: string, at: number) => req("POST", `/api/projects/${pid}/stories/split`, { story_id, at }),
   mergeStories: (pid: string, ids: string[]) => req("POST", `/api/projects/${pid}/stories/merge`, { ids }),

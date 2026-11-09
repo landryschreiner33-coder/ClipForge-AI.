@@ -180,7 +180,8 @@ export function StyleSelect({ value, onChange, mode }: { value: string; onChange
 }
 
 const LEVEL_WORDS: Record<string, string> = { project: "This project", reference: "Example chosen for this project",
-  style: "Style", skill: "Skill", example: "Example video", brain: "Brain note", settings: "Settings" };
+  style: "Style", skill: "Skill", example: "Example video", brain: "Brain note", settings: "Settings",
+  story: "Story clips (the whole picture, still)" };
 
 /** "Use an example": an analyzed example video whose saved choices this project should follow. */
 export function ExampleSelect({ value, onChange, mode }: { value: string; onChange: (v: string) => void; mode: string }) {
