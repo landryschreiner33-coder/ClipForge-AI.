@@ -4,7 +4,7 @@ import { Banner, EmptyState, PageHead, Segmented } from "../components/ui";
 import { LibraryItem, studio } from "../studio";
 import { LibraryCard } from "./Studio";
 
-/** One library: clips projects (Highlights and Full stories) and full videos, with filters and search. */
+/** One library: clips projects (Highlights, Full stories and Story parts) and full videos, with filters and search. */
 export default function Projects() {
   const [kind, setKind] = useState<"" | "clips" | "full_video">("");
   const [q, setQ] = useState("");

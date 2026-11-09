@@ -1,5 +1,50 @@
 # AI handoff
 
+## Story clips: Full story, Story parts, five minutes at most, a still picture — 2026-11-09 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry uploads videos of a creator who reads Reddit posts aloud while he plays a game. Story
+clips made from them moved the camera, Full stories kept cutting one story into many clips, and there was only one
+setting. Now story clips show the whole gameplay picture, centred and still, with the captions just above it; Make
+clips has **Full story** (one clip per story) and **Story parts** (each story cut at its most gripping places into
+Part 1, Part 2…, each its own clip); and no story clip is ever longer than five minutes, whatever the setting or hand
+edit. On 40 test recordings of this kind of video (four posts each) the release line made 9 to 21 clips; this makes 4.
+An independent review before the PR found 13 problems (cut points, kinds of story videos the stricter rules missed,
+caption placement, framing details); all are fixed and tested.
+
+- **Branch / PR:** `claude/project-thread-6ouxbx`, restarted from the release line at 95a70e0 (PRs #30–#33), draft PR
+  into `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Design and limits:** [docs/clipforge/STORY_CLIPS.md](docs/clipforge/STORY_CLIPS.md) (why stories were split, the
+  rules, the part planner, every place the five-minute limit is enforced, the still picture, the measured numbers);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/pipeline/story_parts.py`; changed `pipeline/stories.py`, `captions.py`, `render.py`,
+  `blueprint.py`, `studio/story_review.py`, `guidance.py`, `capabilities.py` (a word only), `clips_flow.py`,
+  `link_import.py`, `prefs.py`, `routes.py`, `db.py` (three columns), `api.py` (trim limit); `frontend/src/pages/MakeClips.tsx`,
+  `ClipEditor.tsx`, `Studio.tsx`, `Projects.tsx`, `components/StoryReview.tsx`, `studioParts.tsx`, `App.tsx`,
+  `prefs.tsx`, `studio.ts`; `frontend/dist` rebuilt; tests `tests/test_story_parts.py`, `tests/test_story_clips.py`
+  (new), `tests/test_full_stories.py`, `tests/story_fixtures.py`, `tests/test_smarter_ai.py`.
+- **Verify:** `python -m pytest -q -p no:cacheprovider tests/test_story_parts.py tests/test_story_clips.py
+  tests/test_full_stories.py tests/test_smarter_ai.py`; `python -m pytest -m slow -q -p no:cacheprovider
+  tests/test_story_clips.py tests/test_studio_render.py` (real renders, needs ffmpeg and espeak-ng); `cd frontend &&
+  npx tsc --noEmit -p . && npm run build`. On Landry's computer: Make clips → Full story on one of the gamer videos
+  (one clip per post, the picture still, captions above it), then Story parts on the same video (Part 1, Part 2… with
+  "Part N" at the top), and a story longer than five minutes (split into parts in both settings).
+- **Judgement calls to know about:** a story boundary now needs something said (an announcement, a post's title where
+  the subject changes, an intro/sponsor/outro run, a story's first words after a long pause) or a long break with a
+  change of subject measured by the meaning model;
+  ClipForge AI can no longer split at a change of subject alone (an existing test's expectation changed on purpose).
+  Story parts is a Full stories project with `options.story_split = "parts"`, so Full stories styles, skills and
+  examples apply to both. Only a framing chosen for the project (Customize or its example video) or the clip editor
+  can move the picture of a story clip; a saved style, a skill, a shared example, a Brain note or the settings cannot.
+  A subject to follow chosen for the project with no framing gets the vertical frame (otherwise the choice would do
+  nothing). A story of 5:00 or less is one clip in Full story; parts are planned at most 299.5 s.
+  Captions sit above the picture unless any level chose a caption position. Parts are 62–175 s when the story allows
+  (TikTok counts over a minute as long; under the three-minute Shorts and Reels limit).
+- **Not done:** real speech recognition on Landry's own videos (needs his computer); ClipForge AI's real model choosing
+  among cut places (stand-in answers only); captions above the picture for 4:3 sources with a "Part N" headline, High
+  energy captions above a 16:10 source with a "Part N" headline, square or vertical sources (they use the lower
+  third).
+- **Waiting on Landry:** a look at the PR; a real-video test on his computer; the merge; the release (explicit OK).
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,

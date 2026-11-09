@@ -8,6 +8,9 @@ Precedence, highest first (deterministic):
 5. example videos set to apply to every project or to this project type, then enabled Brain notes whose topic
    matches the source (the existing saved guidance);
 6. Settings.
+Story clips (Full stories and Story parts) keep the whole picture still and centred with the captions above it: only
+levels 1 and 2 change their framing, and any level changes their caption position (STORY_* below; the clips
+themselves follow the same rule in studio/story_review.py).
 When two entries of the same level disagree about one field, neither is applied: the next level decides and the
 conflict is shown, so an unrelated rule is never picked silently. The snapshot records every entry's ID and revision,
 what it decided, what it overrode and why, so a retry or a later render reproduces the same plan and the review
@@ -21,6 +24,10 @@ from .. import db
 from . import capabilities
 
 SCHEMA = 1
+# Story clips: the steady picture and where the captions go unless someone chose otherwise
+STORY_STEADY = {"layout": "fit", "tracking": "center"}
+STORY_OWNER_LEVELS = ("project", "reference")  # chosen for this project: they win over the steady picture
+STORY_CAPTIONS = "above"                         # right above the fitted picture (pipeline/captions.py)
 
 
 def _entry(level: str, ident: str, revision, name: str) -> dict:
@@ -109,6 +116,8 @@ def resolve(mode: str, *, project_choices: dict | None = None, style: dict | Non
                 settings[field]) if fields[field].kind != "text" else "", "from": _entry("settings", "", 0,
                                                                                          "Settings"),
                                 "also": [], "overridden": passed_over}
+    if mode == "full_stories":
+        _story_clips(values, decisions)
     used = {}
     for d in decisions.values():
         e = d["from"]
@@ -118,6 +127,40 @@ def resolve(mode: str, *, project_choices: dict | None = None, style: dict | Non
             "decisions": list(decisions.values()), "conflicts": conflicts, "problems": problems,
             "used": list(used.values()),
             "entries": [e for _, entries in levels for e, _ in entries]}
+
+
+def story_framing(decisions) -> dict:
+    """The framing fields a story clip sets itself: those not chosen for this project keep the whole picture still and
+    centred. When the project chose a subject to follow but no framing, the frame is the vertical one, because the
+    whole picture leaves nothing to follow (the choice would do nothing)."""
+    owned = {d["field"]: d.get("value") for d in decisions
+             if isinstance(d, dict) and (d.get("from") or {}).get("level") in STORY_OWNER_LEVELS}
+    framing = {f: v for f, v in STORY_STEADY.items() if f not in owned}
+    if "layout" in framing and owned.get("tracking", STORY_STEADY["tracking"]) != STORY_STEADY["tracking"]:
+        framing["layout"] = "fill"
+    return framing
+
+
+def _story_clips(values: dict, decisions: dict[str, dict]) -> None:
+    """Story clips keep the whole picture still and centred (fit, centre) unless this project chose a framing, and put
+    the captions above the picture unless anything chose a caption position."""
+    entry = _entry("story", "", 0, "")
+    wanted = [(f, v, "story clips keep the whole picture" if v == STORY_STEADY[f] else
+               "the subject chosen for this project needs the vertical frame")
+              for f, v in story_framing(decisions.values()).items()]
+    old = decisions.get("caption_position")
+    if not old or old["from"]["level"] not in ("project", "reference", "style", "skill", "example", "brain"):
+        wanted.append(("caption_position", STORY_CAPTIONS, "story clips keep the whole picture"))
+    for field, value, why in wanted:
+        old = decisions.get(field)
+        if old and old["value"] == value:  # already so: whoever chose it is the one shown
+            continue
+        values[field] = value
+        decisions[field] = {"field": field, "value": value, "text": capabilities.FIELDS[field].describe(value),
+                            "from": entry, "also": [],
+                            "overridden": ([{**old["from"], "name": old["from"]["name"] or "Settings",
+                                             "value": old["value"], "reason": why}]
+                                           if old else []) + (old["overridden"] if old else [])}
 
 
 def render_values(snapshot: dict) -> dict:
