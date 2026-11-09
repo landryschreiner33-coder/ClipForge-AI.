@@ -28,11 +28,12 @@ import os
 import re
 import shutil
 import stat
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import config, db
@@ -83,10 +84,13 @@ class _Survey:
     renders: int = 0
     keys: set[str] = field(default_factory=set)     # the heavy-work thread's keys: project, clips, versions
     jobs: list[dict] = field(default_factory=list)  # open studio jobs of the project (and of media it alone uses)
+    targets: set[str] = field(default_factory=set)  # what the project's studio jobs name: it, its imports, its media
     working: list[str] = field(default_factory=list)
     blocked: str = ""
     drop: list[dict] = field(default_factory=list)  # media nothing else uses: deleted
     keep: list[dict] = field(default_factory=list)  # media something else uses: kept
+    again: list[dict] = field(default_factory=list)  # media the owner uploaded again since: kept
+    source_copy: str = ""  # a clips project's own copy of its video (a recording, a download, an older upload)
     folders: list[Path] = field(default_factory=list)
     planned_posts: list[str] = field(default_factory=list)
     posted: int = 0
@@ -187,6 +191,27 @@ def _copying(folder: Path) -> bool:
     return time.time() - newest < COPY_QUIET_S
 
 
+def _own_source(row: dict, pdir: Path) -> str:
+    """The name of a clips project's own copy of its video, when the project folder holds the only link to it: a
+    live recording, a download, a video copied in by an older upload. "" when it is a link to a file kept elsewhere
+    (ClipForge's stored copy, handled with the media, or the owner's own file, which stays)."""
+    src = Path(row.get("source_path") or "")
+    try:
+        st = os.lstat(src)
+    except OSError:
+        return ""
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1 or src.parent.resolve() != pdir.resolve():
+        return ""
+    return row.get("source_filename") or src.name
+
+
+def _added_again(asset_id: str, row: dict) -> bool:
+    """The owner uploaded the same file again after the project last changed (ClipForge keeps one copy per file, so
+    the new upload is this asset): a page may be about to use it, so it stays."""
+    return bool(db.scalar("SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND updated_at > ? "
+                          "LIMIT 1", (asset_id, float(row.get("updated_at") or 0))))
+
+
 def _pending() -> tuple[str | None, set[str]]:
     """The heavy-work thread's current key and the keys waiting for it (not already canceled)."""
     from ..jobs import worker
@@ -213,6 +238,7 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
             if (key == current or key in waiting) and words not in s.working:
                 s.working.append(words)
         links = db.select("link_imports", "project_id = ?", (project_id,))
+        s.targets = {link["id"] for link in links}
         s.jobs = [j for link in links for j in db.select(
             "studio_jobs", "kind = 'link_import' AND target_id = ? AND status IN ('queued', 'running')", (link["id"],))]
         asset_ids = list(dict.fromkeys(a for a in [row.get("asset_id"), *(link.get("asset_id") for link in links)]
@@ -220,6 +246,7 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
         pdir = config.projects_dir() / project_id
         if pdir.resolve().parent == config.projects_dir().resolve() and pdir.is_dir():
             s.folders.append(pdir)
+            s.source_copy = _own_source(row, pdir)
         from . import link_import
 
         s.folders += [f for f in (link_import.imports_dir() / link["id"] for link in links) if f.is_dir()]
@@ -234,6 +261,9 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
                           (project_id,))
         sent = db.select("publications", "clip_id IN (SELECT id FROM clips WHERE project_id = ?)", (project_id,))
         live = [p for p in posts if p["status"] in POST_LIVE] + [p for p in sent if p["status"] in UPLOAD_OPEN]
+        # a post's publish step that is already running (canceling the post does not stop it; it may be uploading)
+        live += [p for p in posts if db.scalar("SELECT 1 FROM worker_jobs WHERE ref_type = 'scheduled' AND ref_id = ? "
+                                               "AND status = 'running' LIMIT 1", (p["id"],))]
         if busy:
             s.blocked = ("Autopilot is still working on this video. Wait until it finishes, or stop it on the "
                          "Autopilot page, then delete the project.")
@@ -249,9 +279,12 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
         s.renders = int(db.scalar("SELECT COUNT(*) FROM studio_artifacts WHERE project_id = ?", (project_id,)) or 0)
         s.jobs = db.select("studio_jobs", "target_id = ? AND status IN ('queued', 'running')", (project_id,),
                            "created_at ASC")
-        for imp in db.select("media_imports", "project_id = ? AND status IN ('queued', 'importing')", (project_id,)):
-            s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
-                                "('queued', 'running')", (imp["id"],))
+        imports = db.select("media_imports", "project_id = ?", (project_id,))
+        s.targets = {project_id, *(imp["id"] for imp in imports)}
+        for imp in imports:
+            if imp["status"] in ("queued", "importing"):
+                s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
+                                    "('queued', 'running')", (imp["id"],))
         asset_ids = _video_asset_ids(row)
         vdir = config.data_dir() / "videos" / project_id
         if vdir.is_dir() and _inside_data(vdir):
@@ -261,17 +294,27 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
         asset = db.fetch("assets", aid)
         if not asset or asset["workspace_id"] != ws:
             continue
-        (s.keep if aid in elsewhere else s.drop).append(asset)
+        if aid in elsewhere:
+            s.keep.append(asset)
+        elif _added_again(aid, row):
+            s.again.append(asset)
+        else:
+            s.drop.append(asset)
     for asset in s.drop:  # preparing a file that is about to go is work on this project too
+        s.targets.add(asset["id"])
         s.jobs += db.select("studio_jobs", "kind = 'asset_prepare' AND target_id = ? AND status IN "
                             "('queued', 'running')", (asset["id"],))
+    # A job that was asked to stop is no longer queued or running in its row, but the heavy-work thread may still be
+    # inside it until its next safe point: it is this project's work for as long as it runs.
+    job = db.fetch("studio_jobs", current) if current else None
+    if job and job["target_id"] in s.targets and all(j["id"] != job["id"] for j in s.jobs):
+        s.jobs.append(job)
     for job in s.jobs:
         words = JOB_WORDS.get(job["kind"], "working on it")
         if words not in s.working:
             s.working.append(words)
-    scope = f"project:{project_id}"
-    s.memories = int(db.scalar("SELECT COUNT(*) FROM brain_memories WHERE workspace_id = ? AND (scope = ? OR "
-                               "project_id = ?)", (ws, scope, project_id)) or 0)
+    s.memories = int(db.scalar("SELECT COUNT(*) FROM brain_memories WHERE workspace_id = ? AND scope = ?",
+                               (ws, f"project:{project_id}")) or 0)
     s.chat_messages = int(db.scalar("SELECT COUNT(*) FROM brain_chat_messages WHERE chat_id IN (SELECT id FROM "
                                     "brain_chats WHERE workspace_id = ? AND project_id = ?)", (ws, project_id)) or 0)
     s.freed_bytes = sum(_bytes(f) for f in s.folders) + sum(
@@ -308,6 +351,10 @@ def _view(s: _Survey) -> dict:
         made = [f"its edit history ({_n(s.revisions, 'saved version')})"] if s.revisions else []
         made += ["its previews and finished videos"] if s.renders else []
         goes.append(f"The video project {name}" + (f" with {' and '.join(made)}." if made else "."))
+    if s.source_copy:
+        source = f"“{s.source_copy[:60]}”"
+        goes.append(f"The recording of the live stream ({source}). ClipForge has the only copy."
+                    if row.get("origin") == "live" else f"ClipForge's copy of the video it was made from ({source}).")
     copies = [a for a in s.drop if not uploads.is_linked(a)]
     linked = [a for a in s.drop if uploads.is_linked(a)]
     if copies:
@@ -331,6 +378,9 @@ def _view(s: _Survey) -> dict:
     if s.keep:
         stays.append(f"{_names(s.keep)} {'stays' if len(s.keep) == 1 else 'stay'} in ClipForge because another "
                      "project or example uses " + ("it." if len(s.keep) == 1 else "them."))
+    if s.again:
+        stays.append(f"{_names(s.again)} {'stays' if len(s.again) == 1 else 'stay'} in ClipForge because you added "
+                     + ("it" if len(s.again) == 1 else "them") + " again since.")
     if s.posted:
         stays.append("Anything already posted to YouTube or TikTok stays there, with its history.")
     stays.append("What ClipForge AI learned for all your videos stays: your rules and your taste.")
@@ -340,7 +390,8 @@ def _view(s: _Survey) -> dict:
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
             "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes,
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
-                       "files": len(s.drop), "files_kept": len(s.keep), "planned_posts": len(s.planned_posts),
+                       "files": len(s.drop) + (1 if s.source_copy else 0), "files_kept": len(s.keep) + len(s.again),
+                       "planned_posts": len(s.planned_posts),
                        "memories": s.memories, "chat_messages": s.chat_messages}}
 
 
@@ -367,15 +418,19 @@ def _running(s: _Survey) -> bool:
     return worker.current is not None and worker.current in s.keys | {j["id"] for j in s.jobs}
 
 
-def _remove(folder: Path, copies: set[tuple[int, int]]) -> None:
+def _remove(folder: Path, copies: set[tuple[int, int]]) -> bool:
     """Delete a folder of ClipForge's without changing anything outside it. Windows refuses to delete a read-only
     file: an upload's copy (`copies`, kept read-only) or a file only this folder holds is made writable first, but a
-    link to the owner's own file is never changed (a read-only one then stays behind, taking no space of its own)."""
+    link to the owner's own file is never changed (a read-only one then stays behind, taking no space of its own).
+    True when a file could not be deleted for now (on Windows, one open in another program, such as a player)."""
+    stuck = False
     for root, dirs, files in os.walk(folder, topdown=False):
         for name in files:
             path = os.path.join(root, name)
             try:
                 os.unlink(path)
+            except FileNotFoundError:
+                pass
             except PermissionError:
                 try:
                     st = os.lstat(path)
@@ -383,16 +438,19 @@ def _remove(folder: Path, copies: set[tuple[int, int]]) -> None:
                         continue
                     os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
                     os.unlink(path)
-                except OSError:
+                except FileNotFoundError:
                     pass
+                except OSError:
+                    stuck = True
             except OSError:
-                pass
+                stuck = True
         for name in dirs:
             try:
                 os.rmdir(os.path.join(root, name))
             except OSError:
                 pass
     shutil.rmtree(folder, ignore_errors=True)
+    return stuck
 
 
 def _unpin(ws: str, project_id: str) -> None:
@@ -407,24 +465,106 @@ def _unpin(ws: str, project_id: str) -> None:
                        (json.dumps(value), time.time(), ws, pref["user_id"]))
 
 
+_LATER = "delete-later.json"  # in the data folder: folders a delete could not finish removing
+_later_lock = threading.Lock()
+
+
+def _ours(folder: Path) -> bool:
+    """A folder a delete removes: a project's, a video's, a link download's or an upload's own folder in the data
+    folder (so a damaged or edited list of leftovers can never point anywhere else)."""
+    data = config.data_dir().resolve()
+    try:
+        parent = folder.resolve().parent
+    except OSError:
+        return False
+    return parent in {config.projects_dir().resolve(), data / "videos", data / "link-imports"} or (
+        parent.parent == data / "assets")
+
+
+def _read_later(path: Path) -> list[str]:
+    try:
+        listed = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+    except (OSError, ValueError):
+        return []
+    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+
+
+def _write_later(path: Path, listed: list[str]) -> None:
+    if not listed:
+        path.unlink(missing_ok=True)
+        return
+    tmp = path.with_name(_LATER + ".tmp")
+    tmp.write_text(json.dumps(listed), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _later(folders: list[Path]) -> None:
+    """Remember folders with a file that could not be deleted yet, so the next start finishes them."""
+    with _later_lock:
+        path = config.data_dir() / _LATER
+        try:
+            _write_later(path, list(dict.fromkeys([*_read_later(path), *(str(f) for f in folders)])))
+        except OSError:
+            pass  # nothing more to do: the folder stays until it is deleted by hand
+
+
+def _finish(listed: str) -> str:
+    """Delete one listed folder: "done", "in use" (a file in it is still open) or "skipped" (it is not there, or it
+    is not one of ClipForge's own folders)."""
+    try:
+        folder = Path(listed)
+        if not folder.exists() or not _ours(folder):
+            return "skipped"
+        return "in use" if _remove(folder, set()) else "done"
+    except (OSError, ValueError):
+        return "skipped"
+
+
+def finish_later() -> int:
+    """At start: delete what earlier deletes could not (the program that had a file open is closed by now). Only
+    folders a delete listed, and only ClipForge's own (see `_ours`), are touched. Returns how many were finished."""
+    with _later_lock:
+        path = config.data_dir() / _LATER
+        listed = _read_later(path)
+        if not listed:
+            return 0
+        results = {p: _finish(p) for p in listed}
+        try:
+            _write_later(path, [p for p, r in results.items() if r == "in use"])
+        except OSError:
+            pass
+        return sum(1 for r in results.values() if r == "done")
+
+
+STOPPING = "ClipForge is still stopping the work on this project. Try deleting it again in a moment."
+POSTING = ("One of its clips is being posted right now, or ClipForge is still checking whether a post went live. "
+           "Wait until that finishes (see Publishing), then delete the project.")
+
+
 def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0) -> dict:
     """Delete the project and what only it uses (see the module notes); returns `plan`'s words with "deleted":
-    True. Running work is asked to stop and given up to `wait` seconds; DeleteError (409, "stopping") when it has
-    not stopped by then, so the caller can ask again in a moment."""
+    True ("left_behind": True when some files were in use; the next start removes them). Running work is asked to
+    stop and given up to `wait` seconds; DeleteError (409, "stopping") when it has not stopped by then, so the
+    caller can ask again in a moment."""
     s = _survey(ws, project_id, kind)
     if s.blocked:
         raise DeleteError(s.blocked, 409, "blocked")
-    if s.working:
+    end = time.monotonic() + max(0.0, wait)
+    while s.working:
         _stop(s)
-        end = time.monotonic() + max(0.0, wait)
         while _running(s) and time.monotonic() < end:
             time.sleep(0.2)
         if _running(s):
-            raise DeleteError("ClipForge is still stopping the work on this project. Try deleting it again in a "
-                              "moment.", 409, "stopping")
-        s = _survey(ws, project_id, kind)  # what is there now that the work has stopped
+            raise DeleteError(STOPPING, 409, "stopping")
+        # what is there now that the work has stopped: a step that ended may have queued the next one
+        s = _survey(ws, project_id, kind)
         if s.blocked:
             raise DeleteError(s.blocked, 409, "blocked")
+        if s.working:
+            if time.monotonic() >= end:
+                _stop(s)
+                raise DeleteError(STOPPING, 409, "stopping")
+            time.sleep(0.2)
     out = _view(s)
     if s.planned_posts:
         from ..autopilot import scheduler
@@ -432,8 +572,10 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0) -> dict:
         for post_id in s.planned_posts:
             try:
                 scheduler.cancel(post_id, "Canceled: its project was deleted")
-            except ValueError:
-                pass  # it started uploading in the meantime: it finishes, and its history stays
+            except ValueError as exc:
+                post = db.fetch("scheduled_publications", post_id)
+                if post and post["status"] in POST_LIVE:  # it started uploading in the meantime: wait for it
+                    raise DeleteError(POSTING, 409, "blocked") from exc
     scope = f"project:{project_id}"
     with db.connect() as conn:  # one transaction: the project is either all there or all gone
         have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -458,25 +600,29 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0) -> dict:
         conn.execute("DELETE FROM brain_chat_messages WHERE chat_id IN (SELECT id FROM brain_chats WHERE "
                      "workspace_id = ? AND project_id = ?)", (ws, project_id))
         conn.execute("DELETE FROM brain_chats WHERE workspace_id = ? AND project_id = ?", (ws, project_id))
+        # the scope says whom a memory is for (a memory saved again for another project or a platform keeps the
+        # project_id it was first saved with, so that column is not used here)
         conn.execute("DELETE FROM brain_memory_uses WHERE memory_id IN (SELECT id FROM brain_memories WHERE "
-                     "workspace_id = ? AND (scope = ? OR project_id = ?))", (ws, scope, project_id))
-        conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND (scope = ? OR project_id = ?)",
-                     (ws, scope, project_id))
+                     "workspace_id = ? AND scope = ?)", (ws, scope))
+        conn.execute("DELETE FROM brain_memories WHERE workspace_id = ? AND scope = ?", (ws, scope))
         for asset in s.drop:
             for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
                 conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset["id"],))
-    stored = [a for a in s.drop + s.keep if not uploads.is_linked(a) and Path(a["path"]).is_file()]
+    kept = s.keep + s.again
+    stored = [a for a in s.drop + kept if not uploads.is_linked(a) and Path(a["path"]).is_file()]
     copies = {(st.st_dev, st.st_ino) for st in (os.stat(a["path"]) for a in stored)}
-    for folder in s.folders + [f for f in (_asset_folder(a) for a in s.drop) if f]:
-        _remove(folder, copies)
-    for asset in s.keep:  # a kept copy stays read-only (on Windows its project link had to be made writable)
+    folders = s.folders + [f for f in (_asset_folder(a) for a in s.drop) if f]
+    left = [f for f in folders if _remove(f, copies)]
+    for asset in kept:  # a kept copy stays read-only (on Windows its project link had to be made writable)
         if asset in stored:
             try:
                 os.chmod(asset["path"], 0o440)
             except OSError:
                 pass
+    if left:
+        _later(left)
     _unpin(ws, project_id)
-    return {**out, "deleted": True}
+    return {**out, "deleted": True, "left_behind": bool(left)}
 
 
 # ------------------------------------------------------------------ routes
@@ -485,6 +631,22 @@ router = APIRouter()
 
 def _refused(exc: DeleteError) -> JSONResponse:
     return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=exc.status)
+
+
+def from_this_computer(request: Request) -> None:
+    """Deleting cancels planned posts and deletes ClipForge AI's notes, which only ClipForge's own page on this
+    computer may change (publish/common.py app_request: the page's header, and a request from this computer, so a
+    web site that points its name at this computer cannot delete anything). Said in words about deleting."""
+    from ..cloud import settings as cloud_settings
+    from ..publish import common
+
+    if not cloud_settings.enabled():
+        try:
+            common.local_only(request)
+        except HTTPException as exc:
+            raise HTTPException(403, "Projects can only be deleted in ClipForge on the computer that runs it "
+                                     "(http://127.0.0.1).") from exc
+    common.app_request(request)
 
 
 def answer_delete(project_id: str, kind: str):
@@ -511,6 +673,6 @@ def video_plan(video_id: str):
         return _refused(exc)
 
 
-@router.delete("/api/studio/videos/{video_id}")
+@router.delete("/api/studio/videos/{video_id}", dependencies=[Depends(from_this_computer)])
 def delete_video(video_id: str):
     return answer_delete(video_id, "full_video")

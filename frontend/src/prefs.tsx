@@ -40,11 +40,13 @@ type Ctx = { appearance: Appearance; set: (patch: Partial<Appearance>) => void; 
   saved: Appearance; setDraft: (a: Appearance | null) => void;
   layout: Layout; savedLayout: Layout; layoutRevision: number; setLayoutDraft: (l: Layout | null) => void;
   saveLayout: (l: Layout) => Promise<void>; resetLayout: () => Promise<void>;
-  customizing: boolean; setCustomizing: (open: boolean) => void };
+  customizing: boolean; setCustomizing: (open: boolean) => void;
+  /** a deleted project leaves this page's pinned list (the server already took it off the saved one) */
+  forgetPin: (id: string) => void };
 const AppearanceContext = createContext<Ctx>({ appearance: DEFAULT, set: () => {}, state: "saved", retry: () => {},
   namesVersion: 0, refreshNames: async () => {}, saved: DEFAULT, setDraft: () => {}, layout: { screens: {} },
   savedLayout: { screens: {} }, layoutRevision: 0, setLayoutDraft: () => {}, saveLayout: async () => {},
-  resetLayout: async () => {}, customizing: false, setCustomizing: () => {} });
+  resetLayout: async () => {}, customizing: false, setCustomizing: () => {}, forgetPin: () => {} });
 export const useAppearance = () => useContext(AppearanceContext);
 
 const DEFAULT_NAMES: Record<string, string> = { ...Object.fromEntries(Object.entries(BY_ID).map(([id, c]) => [id, c.name])),
@@ -177,9 +179,14 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     if (pending.current) void save(pending.current);
   }, [save]);
 
+  const forgetPin = useCallback((id: string) => {
+    // only this page's copy: saving a list from here could undo a pin made on another device meanwhile
+    setAppearance((a) => (a.pinned.includes(id) ? { ...a, pinned: a.pinned.filter((x) => x !== id) } : a));
+  }, []);
+
   const value = useMemo(() => ({ appearance: shown, set, state, retry, namesVersion, refreshNames, saved: appearance,
     setDraft, layout: layoutDraft || savedLayout, savedLayout, layoutRevision, setLayoutDraft, saveLayout, resetLayout,
-    customizing, setCustomizing }), [shown, set, state, retry, namesVersion, refreshNames, appearance, layoutDraft,
-    savedLayout, layoutRevision, saveLayout, resetLayout, customizing]);
+    customizing, setCustomizing, forgetPin }), [shown, set, state, retry, namesVersion, refreshNames, appearance,
+    layoutDraft, savedLayout, layoutRevision, saveLayout, resetLayout, customizing, forgetPin]);
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;
 }

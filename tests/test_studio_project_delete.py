@@ -2,8 +2,10 @@
 them (history, renders, folders, the media nothing else uses, the chat and the memories of that project only, planned
 posts that have not started), while the owner's own files, media another project or example uses, anything posted,
 memories for every video and the taste ClipForge AI learned stay. The plan says exactly that before anything changes;
-running work is stopped first; Autopilot's work and a post on its way out are never interrupted; a draft with only a
-planning chat goes too; and the routes answer with the plan or a reason and its code.
+running work is stopped first (also work that was already asked to stop and the next step a stopped step queues);
+Autopilot's work and a post on its way out are never interrupted; a draft with only a planning chat goes too; a memory
+saved again for another project and a file added again since stay; files that are in use are deleted at the next
+start; and the routes answer with the plan or a reason and its code, only to ClipForge's own page on this computer.
 """
 from __future__ import annotations
 
@@ -117,7 +119,7 @@ def test_a_video_goes_with_its_history_renders_chat_and_own_memories_and_keeps_w
     db.insert("asset_sources", {"workspace_id": "local", "asset_id": only["id"], "provider": "openverse",
                                 "kind": "image", "external_id": "abc", "retrieved_at": 1.0, "sha256": "x"})
     db.insert("uploads", {"workspace_id": "local", "filename": "clip1.mp4", "size": 3000, "status": "complete",
-                          "asset_id": only["id"]})
+                          "asset_id": only["id"], "created_at": 1.0, "updated_at": 1.0})  # before the video used it
     mem = _memories("local", vid)
     _chat("local", vid, 4)
     _chat("local", "", 2)  # the general chat stays
@@ -427,3 +429,187 @@ def test_on_windows_read_only_copies_go_but_a_link_to_the_owners_own_file_is_nev
     assert not (config.projects_dir() / first["id"]).exists()
     assert stat.S_IMODE(os.stat(kept["path"]).st_mode) == 0o440  # read-only again
     assert (config.projects_dir() / second["id"] / "source.mp4").is_file()
+
+
+def test_work_still_ending_after_a_stop_and_the_step_it_queues_next_are_stopped_before_anything_goes(env, monkeypatch):
+    """A render that was asked to stop (its row says canceled) is still running until its next safe point: deleting
+    again waits for it instead of deleting from under it. A step that ends while deleting waits may queue the next
+    step; that one is stopped too, and only then does the project go."""
+    from clipfoundry import db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete
+
+    vid = _video("Stopping", [])["id"]
+    render = db.insert("studio_jobs", {"workspace_id": "local", "kind": "video_render", "target_id": vid,
+                                       "revision": 1, "idempotency_key": f"video_render:{vid}:1",
+                                       "status": "canceled"})
+    monkeypatch.setattr(worker, "current", render["id"])  # canceled, but still inside the render
+    assert "rendering the finished video" in project_delete.plan("local", vid, "full_video")["working"]
+    with pytest.raises(project_delete.DeleteError) as stopping:
+        project_delete.delete("local", vid, "full_video", wait=0.3)
+    assert stopping.value.code == "stopping" and db.fetch("studio_projects", vid)
+
+    real_sleep = time.sleep
+    queued: list[dict] = []
+
+    def render_ends_and_queues_a_preview(seconds):
+        if not queued:
+            monkeypatch.setattr(worker, "current", None)
+            queued.append(db.insert("studio_jobs", {"workspace_id": "local", "kind": "video_preview", "target_id": vid,
+                                                    "revision": 2, "idempotency_key": f"video_preview:{vid}:2"}))
+        real_sleep(min(seconds, 0.01))
+
+    monkeypatch.setattr(worker, "current", render["id"])
+    monkeypatch.setattr(project_delete.time, "sleep", render_ends_and_queues_a_preview)
+    out = project_delete.delete("local", vid, "full_video", wait=5)
+    assert out["deleted"] and db.fetch("studio_projects", vid) is None
+    assert db.fetch("studio_jobs", queued[0]["id"])["status"] == "canceled"
+
+
+def test_a_post_that_starts_uploading_while_deleting_stops_the_delete(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.autopilot import scheduler
+    from clipfoundry.studio import project_delete
+
+    p = db.create_project("Almost posted", workspace_id="local", status="ready")
+    clip = db.create_clip(p["id"], start=0, end=5, status="ready")
+    post = db.insert("scheduled_publications", {"clip_id": clip["id"], "platform": "youtube", "status": "approved",
+                                                "planned_at": 2e9})
+    # its publish step already started (Autopilot runs it): canceling the post would not stop the upload
+    job = db.insert("worker_jobs", {"kind": "publish", "worker": "publish", "status": "running",
+                                    "ref_type": "scheduled", "ref_id": post["id"]})
+    assert "being posted right now" in project_delete.plan("local", p["id"], "clips")["blocked"]
+    db.update("worker_jobs", job["id"], status="done")
+    assert project_delete.plan("local", p["id"], "clips")["blocked"] == ""
+
+    def started_uploading(post_id, note):
+        db.update("scheduled_publications", post_id, status="publishing")
+        raise ValueError("This post is already being published (or may already be live): check it first")
+
+    monkeypatch.setattr(scheduler, "cancel", started_uploading)  # it started between the check and the cancel
+    with pytest.raises(project_delete.DeleteError) as posting:
+        project_delete.delete("local", p["id"], "clips")
+    assert posting.value.code == "blocked" and "being posted right now" in str(posting.value)
+    assert db.get_project(p["id"]) and db.fetch("clips", clip["id"])
+
+
+def test_a_memory_saved_again_for_another_project_stays(env):
+    """A memory keeps the project it was first saved for in its project_id even after it was saved again for
+    another project (its scope says whom it is for now), so only the scope decides what goes."""
+    from clipfoundry import db
+    from clipfoundry.brain import memories
+    from clipfoundry.studio import project_delete
+
+    first, second = _video("First", [])["id"], _video("Second", [])["id"]
+    moved = memories.remember("local", "Open on the drone shot", kind="rule", project_id=first)
+    memories.remember("local", "Open on the drone shot", kind="rule", project_id=second)
+    moved = db.fetch("brain_memories", moved["id"])
+    assert moved["scope"] == f"project:{second}" and moved["project_id"] == first
+    only_first = memories.remember("local", "Use the blue title card", kind="rule", project_id=first)
+    assert project_delete.plan("local", first, "full_video")["counts"]["memories"] == 1
+    project_delete.delete("local", first, "full_video")
+    assert db.fetch("brain_memories", moved["id"]) and db.fetch("brain_memories", only_first["id"]) is None
+
+
+def test_a_file_added_again_since_the_project_last_changed_stays(env):
+    """ClipForge keeps one copy per file: uploading the same file again (for a new video that has not saved it yet)
+    gives the same copy, so it stays when the old project is deleted."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    asset = _stored(13)
+    db.insert("uploads", {"workspace_id": "local", "filename": "clip13.mp4", "size": 3000, "status": "complete",
+                          "asset_id": asset["id"], "created_at": 1.0, "updated_at": 1.0})
+    vid = _video("Old cut", [asset["id"]])["id"]
+    assert project_delete.plan("local", vid, "full_video")["counts"]["files"] == 1
+    db.insert("uploads", {"workspace_id": "local", "filename": "clip13.mp4", "size": 3000, "status": "complete",
+                          "asset_id": asset["id"]})  # added again just now
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
+    assert "“clip13.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+    project_delete.delete("local", vid, "full_video")
+    assert db.fetch("assets", asset["id"]) and os.path.isfile(asset["path"])
+    assert stat.S_IMODE(os.stat(asset["path"]).st_mode) == 0o440
+
+
+def test_a_clips_projects_own_recording_or_download_is_named_in_what_goes(env):
+    from clipfoundry import config, db
+    from clipfoundry.studio import project_delete
+
+    live = db.create_project("Friday stream", workspace_id="local", status="ready", origin="live",
+                             source_filename="friday.mp4")
+    ldir = config.projects_dir() / live["id"]
+    ldir.mkdir(parents=True)
+    (ldir / "source.mp4").write_bytes(b"s" * 2000)
+    db.update_project(live["id"], source_path=str(ldir / "source.mp4"))
+    plan = project_delete.plan("local", live["id"], "clips")
+    assert "The recording of the live stream (“friday.mp4”). ClipForge has the only copy." in plan["goes"]
+    assert plan["counts"]["files"] == 1 and plan["freed_bytes"] == 2000
+
+    link = db.create_project("From a link", workspace_id="local", status="ready", source_filename="talk.mp4",
+                             source_url="https://example.com/talk")
+    kdir = config.projects_dir() / link["id"]
+    kdir.mkdir(parents=True)
+    (kdir / "source.mp4").write_bytes(b"d" * 100)
+    db.update_project(link["id"], source_path=str(kdir / "source.mp4"))
+    assert "ClipForge's copy of the video it was made from (“talk.mp4”)." in \
+        project_delete.plan("local", link["id"], "clips")["goes"]
+    project_delete.delete("local", live["id"], "clips")
+    assert not ldir.exists()
+
+
+def test_files_in_use_are_deleted_at_the_next_start(env, monkeypatch):
+    """On Windows a file open in another program (a finished video in a player) cannot be deleted. The project still
+    goes, the answer says some files were left for now, and the next start deletes them. Only ClipForge's own
+    folders that a delete listed are ever touched there."""
+    from clipfoundry import config, db
+    from clipfoundry.studio import project_delete
+
+    vid = _video("Playing now", [])["id"]
+    final = config.data_dir() / "videos" / vid / "r1" / "final.mp4"
+    final.parent.mkdir(parents=True)
+    final.write_bytes(b"f" * 300)
+    real_unlink = os.unlink
+
+    def open_in_a_player(path, *args, **kw):
+        if os.path.basename(path) == "final.mp4":
+            raise PermissionError(13, "The file is being used by another process", str(path))
+        return real_unlink(path, *args, **kw)
+
+    monkeypatch.setattr(os, "unlink", open_in_a_player)
+    out = project_delete.delete("local", vid, "full_video")
+    assert out["deleted"] and out["left_behind"] is True and db.fetch("studio_projects", vid) is None
+    assert final.is_file()
+    later = config.data_dir() / "delete-later.json"
+    assert json.loads(later.read_text()) == [str(config.data_dir() / "videos" / vid)]
+
+    own = env / "My Videos"  # never touched, even if the list names it
+    own.mkdir()
+    (own / "keep.mp4").write_bytes(b"k")
+    kept = _stored(14)  # nor ClipForge's other folders
+    listed = json.loads(later.read_text()) + [str(own), str(config.data_dir() / "assets"), str(config.data_dir())]
+    later.write_text(json.dumps(listed))
+    assert project_delete.finish_later() == 0  # still open
+    assert final.is_file() and json.loads(later.read_text()) == [str(config.data_dir() / "videos" / vid)]
+    monkeypatch.setattr(os, "unlink", real_unlink)  # the player was closed
+    assert project_delete.finish_later() == 1
+    assert not (config.data_dir() / "videos" / vid).exists() and not later.exists()
+    assert (own / "keep.mp4").is_file() and os.path.isfile(kept["path"])
+    assert project_delete.finish_later() == 0
+
+
+def test_deleting_only_answers_clipforges_own_page_on_this_computer(env):
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+
+    vid = _video("Guarded", [])["id"]
+    p = db.create_project("Guarded clips", workspace_id="local", status="ready")
+    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
+        for url in (f"/api/studio/videos/{vid}", f"/api/projects/{p['id']}"):
+            assert api.delete(url).status_code == 403  # without the page's header
+    with TestClient(app, base_url="http://192.168.1.20:8765") as api:  # from another device on the network
+        refused = api.delete(f"/api/studio/videos/{vid}", headers=H)
+        assert refused.status_code == 403 and "on the computer that runs it" in refused.json()["detail"]
+    assert db.fetch("studio_projects", vid) and db.get_project(p["id"])

@@ -69,6 +69,7 @@ async def lifespan(_: FastAPI):
         edit_requests.recover()  # an AI request cut off by the restart is reported, never sent again silently
         brain_chat.recover()  # a chat answer cut off by the restart is reported the same way
         link_import.clean_abandoned()  # partial downloads of canceled or failed links
+        project_delete.finish_later()  # files of deleted projects that were open in another program last time
         publish_jobs.worker.start()
         publish_jobs.worker.resume_waiting()  # uploads waiting for the time a platform asked for
         autopilot_host.supervisor.start()  # durable autopilot workers (own process by default)
@@ -501,7 +502,7 @@ def cancel(project_id: str) -> dict:
     return {"ok": True}
 
 
-@app.delete("/api/projects/{project_id}")
+@app.delete("/api/projects/{project_id}", dependencies=[Depends(project_delete.from_this_computer)])
 def delete_project(project_id: str):
     """The clips project and what only it uses; running work on it is stopped first (studio/project_delete.py)."""
     return project_delete.answer_delete(project_id, "clips")

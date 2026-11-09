@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorText } from "../api";
 import { DeleteProjectConfirm } from "../components/DeleteProject";
 import { Banner, EmptyState, PageHead, Segmented } from "../components/ui";
@@ -13,6 +13,9 @@ export default function Projects() {
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [problem, setProblem] = useState("");
   const [deleting, setDeleting] = useState<LibraryItem | null>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const focusAt = useRef<number | null>(null);  // where the deleted card was, so focus lands on its neighbour
   useEffect(() => {
     let alive = true;
     const t = window.setTimeout(() => studio.library(kind, q).then((x) => alive && setItems(x))
@@ -22,6 +25,13 @@ export default function Projects() {
       window.clearTimeout(t);
     };
   }, [kind, q]);
+  useEffect(() => {
+    // after the window closes: the card it was opened from is gone, so focus moves to the next card (or the search)
+    if (focusAt.current === null || deleting) return;
+    const cards = grid.current?.querySelectorAll<HTMLElement>(".lib-card");
+    (cards?.length ? cards[Math.min(focusAt.current, cards.length - 1)] : search.current)?.focus();
+    focusAt.current = null;
+  }, [items, deleting]);
   return (
     <div className="page">
       <PageHead kind="Library" title="Projects" sub="Everything you made, newest first."
@@ -30,7 +40,7 @@ export default function Projects() {
         <Segmented label="Show" value={kind} onChange={(v) => setKind(v as typeof kind)}
           options={[{ value: "", label: "All" }, { value: "clips", label: "Clips" }, { value: "full_video", label: "Full videos" }]} />
         <label className="field grow"><span className="sr-only">Search projects</span>
-          <input type="search" placeholder="Search by name" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+          <input ref={search} type="search" placeholder="Search by name" value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <a className="small" href="#/projects/feedback">Test feedback</a>
       </div>
       {problem && <Banner tone="warn" title="Could not load projects">{problem}</Banner>}
@@ -38,10 +48,13 @@ export default function Projects() {
         <EmptyState icon="film" title={q ? "Nothing matches that search" : "No projects yet"}>
           {q ? "Try another word." : "Make clips or a YouTube video to start."}
         </EmptyState>
-      ) : <div className="lib-grid">{(items || []).map((i) => <LibraryCard key={i.id} item={i} onDelete={() => setDeleting(i)} />)}</div>}
+      ) : <div className="lib-grid" ref={grid}>{(items || []).map((i) => <LibraryCard key={i.id} item={i} onDelete={() => setDeleting(i)} />)}</div>}
       {deleting && (
         <DeleteProjectConfirm kind={deleting.kind} id={deleting.id} name={deleting.name} onClose={() => setDeleting(null)}
-          onDeleted={(id) => setItems((list) => list && list.filter((x) => x.id !== id))} />
+          onDeleted={(id) => {
+            focusAt.current = Math.max(0, (items || []).findIndex((x) => x.id === id));
+            setItems((list) => list && list.filter((x) => x.id !== id));
+          }} />
       )}
     </div>
   );
