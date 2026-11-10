@@ -29,6 +29,7 @@ from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import local_routes, routes as studio_routes
 from .craft import routes as craft_routes
+from .makers import routes as maker_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
@@ -64,6 +65,7 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .makers import shorts  # noqa: F401 - the short_build job handler
         from .brain import chat as brain_chat
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
@@ -112,6 +114,7 @@ app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
+app.include_router(maker_routes.router)  # Make → Animated short
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)

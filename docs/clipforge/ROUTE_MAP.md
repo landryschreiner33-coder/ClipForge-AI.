@@ -13,9 +13,10 @@ sign-in: the sign-in page returns to the address that was requested.
 | Make clips | `#/create/clips` | `#/create` (old Add video) | Highlights / Full stories selector, file or link, saved style, destinations, Make clips / Make & upload clips. |
 | Add from a link | `#/create/link` | — | The earlier Add video page: a public link, or a file with its own transcript; linked from Make clips. |
 | Make a YouTube video | `#/create/video` | — | Media bin, four-question brief, saved style, Remember this style, Build my video. |
+| Make an animated short | `#/create/short` | — | Paste my script or Write it for me (topic, tone, length), look, voice with Hear it, speed, music, captions, camera moves or animated pictures, what makes it (picture maker, voice, word timing), Make the short. Opens the short in Full-video review with its Scenes panel. |
 | Source project review | `#/project/:id` | (unchanged) | Large preview, outputs (highlights or story cards), transcript, Used from your Brain, downloads, publishing. |
-| Full-video review | `#/video/:id` | — | Preview, outline, sequence (trim/reorder/include), Used from your Brain, versions, render, download, publish. |
-| Projects | `#/projects` | `#/clips`, `#/library`, `#/projects/*` | One library with All / Clips / Full videos filters, search, status badges, thumbnails. |
+| Full-video review | `#/video/:id` | — | Preview, outline, sequence (trim/reorder/include), Used from your Brain, versions, render, download, publish. An animated short adds its Scenes panel first (words, picture, camera move, add and delete scenes, voice, look and music). |
+| Projects | `#/projects` | `#/clips`, `#/library`, `#/projects/*` | One library with All / Clips / Full videos / Animated shorts filters, search, status badges, thumbnails. |
 | Test feedback | `#/projects/feedback` | `#/clips/feedback` | Existing feedback page. |
 | Edit clip | `#/clip/:id` | (unchanged) | Existing clip editor. |
 | Prepare post | `#/publish/:id` | (unchanged) | Existing publish screen, now with an explicit account selector. |
@@ -44,6 +45,7 @@ signed-in owner and Sign out. Below 1024 px the sidebar becomes a drawer opened 
 | Sign-in | `GET /api/auth/me`, `GET /api/auth/login`, `GET /api/auth/callback`, `POST /api/auth/logout`, `POST /api/auth/logout-all` |
 | Uploads and assets | `POST /api/uploads`, `GET/PUT /api/uploads/{id}`, `POST /api/uploads/{id}/complete`, `GET /api/assets/{id}`, `GET /api/assets/{id}/media`, `GET /api/assets/{id}/thumbnail` |
 | Studio projects | `POST /api/studio/clips`, `POST /api/studio/videos` (with `script`), `GET /api/studio/projects`, `GET/PATCH /api/studio/videos/{id}`, `POST /api/studio/videos/{id}/{build,edits,render,cancel,smart}`, `PUT /api/studio/videos/{id}/script`, `POST /api/studio/scripts/parse`, `GET /api/studio/videos/{id}/media` |
+| Animated shorts | `GET /api/studio/shorts/options`, `POST /api/studio/shorts`, `POST /api/studio/shorts/voice-sample`, `POST /api/studio/shorts/{id}/scenes`, `PATCH/DELETE /api/studio/shorts/{id}/scenes/{scene_id}`, `POST /api/studio/shorts/{id}/make`, `PUT /api/studio/shorts/{id}/options`, `GET /api/studio/projects?kind=short` |
 | Big footage (desktop) | `GET /api/local/browse`, `POST /api/uploads/link`, `POST/GET /api/assets/{id}/prepare` |
 | Full stories | `GET /api/projects/{id}/stories`, `PATCH /api/stories/{id}`, `POST /api/projects/{id}/stories/{split,merge,create}` |
 | Styles and skills | `/api/studio/styles…`, `/api/studio/skills…` (import, preview, enable, export, delete) |
