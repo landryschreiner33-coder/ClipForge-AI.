@@ -251,9 +251,11 @@ def removal_plan(model: catalog.Model, mode: str, base: str | None, seen: dict[s
         our_part = _our_part(path, mode, entries)
         if not ours and not our_part:
             continue  # not a file ClipForge downloaded, nor one it was downloading
+        # a stopped download of a shared file belongs to the model whose download it was (its index entry says)
+        started_by = (entries.get(str(_part(path))) or {}).get("model") if our_part else None
         users = [m.name for m in catalog.MODELS if m.id != model.id and m.role != "voice"
                  and any((g.folder, g.name, g.sha256) == (f.folder, f.name, f.sha256) for g in m.files)
-                 and _still_needed(m, f, mode, base, where, seen, entries)]
+                 and (m.id == started_by or _still_needed(m, f, mode, base, where, seen, entries))]
         if users:
             kept.append((f, users))
             continue

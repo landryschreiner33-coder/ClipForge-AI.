@@ -44,6 +44,17 @@ def cancel() -> dict:
     return view()
 
 
+def stop(timeout_s: float = 15.0) -> None:
+    """ClipForge is closing: stop a set-up under way and give it a moment to stop what it started (a download, or
+    uv installing), so nothing keeps working on with nothing in ClipForge showing it."""
+    if not running():
+        return
+    _cancel.set()
+    deadline = time.monotonic() + timeout_s
+    while running() and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+
 def start(what: str, steps: list[Step], on_done: Callable[[], None] | None = None, wait: bool = False) -> dict:
     """Run `steps` in a background thread (`wait`: in this thread, for checks and tests)."""
     with _lock:

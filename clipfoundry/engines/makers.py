@@ -55,8 +55,8 @@ def forget_found() -> None:
         _found.update(at=0.0, key="", base=None)
 
 
-def base_url(settings: dict, progress: Progress | None = None) -> str:
-    """The ComfyUI to send work to; starts ClipForge's own when that is the one chosen."""
+def base_url(settings: dict, progress: Progress | None = None, cancel: Cancel | None = None) -> str:
+    """The ComfyUI to send work to; starts ClipForge's own when that is the one chosen (`cancel` stops the start)."""
     from . import comfy_server
 
     m = mode(settings)
@@ -69,7 +69,7 @@ def base_url(settings: dict, progress: Progress | None = None) -> str:
             raise EngineError(f"ComfyUI is not running on {where}. Open the ComfyUI app, or choose ClipForge's own "
                               "ComfyUI in Settings, Pictures, video, voice.")
         return base
-    return comfy_server.server.ensure(settings, progress)
+    return comfy_server.server.ensure(settings, progress, cancel)
 
 
 # ------------------------------------------------------------------ which model
@@ -204,7 +204,7 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
     try:
         with _gpu("picture maker" if role == "image" else "video maker", note.get("prompt", ""), cancel, progress), \
                 comfy_server.job():
-            base = base_url(settings, progress)
+            base = base_url(settings, progress, cancel)
             model = chosen(role, settings, base)
             if model is None:
                 raise EngineError(status(role, settings).get("why") or "No model is set up for this.")
@@ -218,6 +218,8 @@ def _run(kind: str, role: str, graph_for, note: dict, progress: Progress | None,
             if lacking:
                 raise EngineError(f"This ComfyUI lacks {', '.join(lacking)}; it may be too old for {model.name}. "
                                   "Update it, or use ClipForge's own ComfyUI.")
+            if cancel():  # stopped while ComfyUI was being reached: send nothing
+                raise Cancelled()
             outputs = client.run(graph, progress=progress, cancel=cancel, timeout_s=timeout_s,
                                  steps_node=steps_node, labels=graphs.labels(graph))
             wanted = [o for o in outputs if o["key"] in (("images",) if role == "image" else ("images", "videos",
@@ -318,12 +320,16 @@ def make_video(prompt: str, *, image: Path | str | None = None, seconds: float =
 
 
 def make_room(kind: str) -> None:
-    """Heavy work that is not ours is about to use the graphics card: ClipForge's own ComfyUI unloads its models."""
+    """Heavy work that is not ours is about to use the graphics card: ClipForge's own ComfyUI unloads its models,
+    also when another ClipForge process started it (Autopilot works in its own process; the app makes pictures)."""
     from . import comfy_server
 
-    if kind in ("picture maker", "video maker") or not comfy_server.server.running():
+    if kind in ("picture maker", "video maker"):
         return
     try:
-        Comfy(f"http://127.0.0.1:{comfy_server.server.port}", timeout=10).free()
+        server = comfy_server.server
+        base = f"http://127.0.0.1:{server.port}" if server.running() else server._shared()  # noqa: SLF001
+        if base:
+            Comfy(base, timeout=10).free()
     except Exception:  # noqa: BLE001 - a courtesy
         pass

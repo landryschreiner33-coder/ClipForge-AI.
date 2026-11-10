@@ -214,20 +214,30 @@ def remove(what: str, model_id: str = "") -> dict:
                 raise EngineError(f"{m.name}'s files are also used by {_and(_users(kept))}, so they were kept.")
             raise EngineError(f"ClipForge did not download {m.name}'s files into this ComfyUI, so it leaves them "
                               "alone. Remove them in ComfyUI itself.")
+        # only a stopped download (.part files) is left of ClipForge's: ComfyUI never opens one
+        stopped = all(p.suffix == ".part" for p in paths)
+        stopped_bytes = sum(p.stat().st_size for p in paths if p.is_file()) if stopped else 0
         # ComfyUI keeps the model files it loaded open (Windows then refuses to delete them): ClipForge's own ComfyUI
         # lets go of them (release_files), a ComfyUI app is asked to unload its models
-        if mode == "clipforge":
+        if not stopped and mode == "clipforge":
             comfy_server.server.release_files()
-        else:
+        elif not stopped:
             Comfy(str(base), timeout=30).free()
         models.remove(m, mode, base)
     view = overview()
+    notes = []
+    if stopped:
+        notes.append(f"Deleted {m.name}'s stopped download ({_size(stopped_bytes)}).")
+        if any(v["id"] == m.id and v["ready"] for v in view["models"]):
+            notes.append(f"{m.name} itself stays: ClipForge did not download its files.")
     if kept:
         names = [f.name for f, _ in kept]
         users = _users(kept)
-        view["note"] = (f"{m.name} removed. Kept {_and(names)} ({_size(sum(f.size for f, _ in kept))}): "
-                        f"{_and(users)} {'needs' if len(users) == 1 else 'need'} {'it' if len(names) == 1 else 'them'} "
-                        "too.")
+        notes.append(("" if stopped else f"{m.name} removed. ") + f"Kept {_and(names)} "
+                     f"({_size(sum(f.size for f, _ in kept))}): {_and(users)} {'needs' if len(users) == 1 else 'need'} "
+                     f"{'it' if len(names) == 1 else 'them'} too.")
+    if notes:
+        view["note"] = " ".join(notes)
     return view
 
 
@@ -255,8 +265,9 @@ def make_room(kind: str) -> None:
 
 def shutdown() -> None:
     try:
-        from . import comfy_server, voice
+        from . import comfy_server, tasks, voice
 
+        tasks.stop()  # a set-up under way stops its download or uv first
         comfy_server.shutdown()
         voice.unload()
     except Exception:  # noqa: BLE001 - shutting down

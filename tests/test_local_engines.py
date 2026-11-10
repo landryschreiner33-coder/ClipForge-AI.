@@ -10,6 +10,7 @@ import io
 import json
 import re
 import struct
+import sys
 import tarfile
 import threading
 import time
@@ -423,6 +424,9 @@ def test_installed_only_with_every_checked_part(monkeypatch):
     py = comfy_server.env_python("cpu")
     py.parent.mkdir(parents=True)
     py.write_text("")
+    home = comfy_server.root() / "python" / "cpython-3.12-linux-x86_64-gnu" / "bin"
+    home.mkdir(parents=True)
+    (env / "pyvenv.cfg").write_text(f"home = {home}\nversion_info = 3.12.13\n", encoding="utf-8")
     mark = {"comfyui": catalog.COMFYUI["version"], "torch": catalog.TORCH["cpu"]["packages"], "flavor": "cpu",
             "constraints": catalog.CONSTRAINTS_ID}
     files.write_marker(env, {**mark, "constraints": "an older set"})
@@ -430,6 +434,14 @@ def test_installed_only_with_every_checked_part(monkeypatch):
     files.write_marker(env, mark)
     assert comfy_server.installed()
     assert comfy_server.download_bytes() == 0
+    # ClipForge's folder was moved or renamed: the environment still names the Python it was made from by its old
+    # full path, and on Windows its python.exe is still there, but ComfyUI can never start: it must be set up again
+    (env / "pyvenv.cfg").write_text(f"home = {home.parent.parent.parent / 'old-place' / 'bin'}\n", encoding="utf-8")
+    assert not comfy_server.installed()
+    (env / "pyvenv.cfg").unlink()
+    assert not comfy_server.installed()
+    (env / "pyvenv.cfg").write_text(f"home = {home}\n", encoding="utf-8")
+    assert comfy_server.installed()
     comfy_server.remove()
     assert not comfy_server.installed() and not app.exists() and not env.exists()
 
@@ -828,6 +840,18 @@ def test_stopping_a_picture_interrupts_comfyui(app_settings, fake_comfy):
     assert ("POST", "/interrupt") in fake_comfy.calls and ("POST", "/queue") in fake_comfy.calls
 
 
+def test_a_picture_stopped_while_comfyui_is_reached_is_never_sent(app_settings, fake_comfy, monkeypatch):
+    from clipfoundry import engines
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    reached = []
+    real = makers.base_url
+    monkeypatch.setattr(makers, "base_url", lambda *a, **k: (real(*a, **k), reached.append(1))[0])
+    with pytest.raises(EngineError, match="Stopped"):
+        engines.make_image("a cat", cancel=lambda: bool(reached))
+    assert reached and not fake_comfy.prompts
+
+
 def test_a_comfyui_that_is_not_running(app_settings, fake_comfy):
     from clipfoundry import engines
 
@@ -847,6 +871,36 @@ def test_clipforges_own_comfyui_hands_its_memory_back(monkeypatch, fake_comfy):
     assert ("POST", "/free") not in fake_comfy.calls
     makers.make_room("transcription")
     assert ("POST", "/free") in fake_comfy.calls
+
+
+def test_a_comfyui_another_clipforge_process_started_hands_its_memory_back(monkeypatch, fake_comfy):
+    """Autopilot works in its own process: its transcription must get back the graphics memory of the ComfyUI the
+    app's process started (they share it), not only of one this process started."""
+    import os
+
+    pid_file = comfy_server.server.pid_file
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(json.dumps({"pid": 4242, "port": int(fake_comfy.url.rsplit(":", 1)[1]),
+                                    "owner": os.getppid()}))  # another live process started it
+    monkeypatch.setattr(comfy_server, "_is_ours", lambda pid: pid == 4242)
+    assert not comfy_server.server.running()
+    makers.make_room("transcription")
+    assert ("POST", "/free") in fake_comfy.calls
+
+
+def test_heavy_work_frees_comfyui_before_it_waits_for_graphics_memory(monkeypatch):
+    """On an NVIDIA PC the wait for free graphics memory came before ComfyUI was asked to hand its memory back, so a
+    transcription waited for memory ClipForge's own ComfyUI held, and gave up ("another program is using the GPU")."""
+    from clipfoundry import db, gpu
+
+    db.init()
+    freed = []
+    monkeypatch.setattr(gpu, "_make_room", freed.append)
+    monkeypatch.setattr(gpu.manager, "memory", lambda max_age=3.0: {"free_mb": 6000 if freed else 500,
+                                                                       "used_mb": 2000, "total_mb": 8000,
+                                                                       "utilization": 0})
+    with gpu.manager.heavy("transcription", "talk.mp4", need_free_mb=1200, max_wait_s=0.5):
+        assert freed == ["transcription"]
 
 
 # ------------------------------------------------------------------ the built-in voice
@@ -1048,6 +1102,24 @@ def test_only_made_files_are_served(client):
     assert client.get("/api/engines/made/../../secret.png").status_code == 404
 
 
+def test_made_files_refuse_other_drives_and_network_shares_before_looking(client, monkeypatch):
+    """On Windows, looking at \\\\server\\share\\x.png connects to that server and signs in as the person, so a web page
+    could ask this computer's ClipForge for such an address and collect the sign-in. Anything but plain folder and
+    file names is refused before a file is looked at."""
+    made = config.data_dir() / "engines" / "made" / "picture"
+    made.mkdir(parents=True, exist_ok=True)
+    (made / "a.png").write_bytes(png_bytes(4, 4))
+    looked = []
+    for name in ("resolve", "is_file", "exists", "stat"):
+        real = getattr(Path, name)
+        monkeypatch.setattr(Path, name, lambda self, *a, _real=real, **k: (looked.append(str(self)), _real(self, *a, **k))[1])
+    for bad in ("//evil.example/share/x.png", "%5C%5Cevil.example%5Cshare%5Cx.png", "picture%5C..%5Cevil.png",
+                "C:/evil/x.png", "C:evil.png", "picture/a.png:evil", "picture/%2E%2E/evil.png"):
+        assert client.get(f"/api/engines/made/{bad}").status_code == 404, bad
+    assert not [p for p in looked if "evil" in p], looked
+    assert client.get("/api/engines/made/picture/a.png").status_code == 200
+
+
 def test_the_online_studio_offers_no_local_makers(monkeypatch):
     from fastapi import HTTPException
 
@@ -1235,11 +1307,11 @@ def test_remove_waits_for_the_whole_picture_job(app_settings, fake_comfy, monkey
     seen = {}
     real_base, real_download = makers.base_url, comfy.Comfy.download
 
-    def base_url(settings, progress=None):
+    def base_url(settings, progress=None, cancel=None):
         seen["starting"] = comfy_server.busy.is_set()
         with pytest.raises(EngineError, match="being made"):
             engines.remove("model", "flux2-klein-4b")
-        return real_base(settings, progress)
+        return real_base(settings, progress, cancel)
 
     def download(self, file, dest):
         seen["saving"] = comfy_server.busy.is_set()
@@ -1314,6 +1386,8 @@ def test_setting_comfyui_up_changes_nothing_else_and_uses_only_checked_packages(
         py_install, venv, torch_cmd, reqs, _probe = ran
         assert py_install[1:3] == ["python", "install"] and {"--no-bin", "--no-registry"} <= set(py_install)
         assert "--seed" in venv and venv[venv.index("--exclude-newer") + 1] == catalog.EXCLUDE_NEWER
+        # a set-up again replaces whatever is left of the old environment (Windows may not have deleted it all)
+        assert {"--clear", "--force"} <= set(venv)
         assert "--no-deps" in torch_cmd  # PyTorch alone: what it needs comes from PyPI as it was on the checked day
         if f == "mps":
             assert torch_cmd[torch_cmd.index("--exclude-newer") + 1] == catalog.EXCLUDE_NEWER
@@ -1517,3 +1591,321 @@ def test_the_shorts_maker_reads_with_the_built_in_voice_through_the_door(monkeyp
             assert w.getnchannels() == 1 and w.getnframes() > 0
     finally:
         short_voice.clear_cache()
+
+
+# ------------------------------------------------------------------ ComfyUI's own process
+STAND_IN_PROGRAM = """
+import http.server, sys, time
+
+time.sleep(float(sys.argv[2]))  # ComfyUI takes a while to load before it answers
+
+class Answer(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, *args):
+        pass
+
+http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Answer).serve_forever()
+"""
+
+
+@pytest.fixture
+def stand_in_program(monkeypatch, tmp_path):
+    """ClipForge's own ComfyUI, played by a small program that answers like ComfyUI when it is ready."""
+    script = tmp_path / "comfy" / "main.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(STAND_IN_PROGRAM, encoding="utf-8")
+    server = comfy_server.Server()
+    server.delay = 0.0  # seconds the stand-in takes to start
+    monkeypatch.setattr(comfy_server, "installed", lambda: True)
+    monkeypatch.setattr(comfy_server, "torch_flavor", lambda: "cpu")
+    monkeypatch.setattr(comfy_server, "main_py", lambda: script)
+    monkeypatch.setattr(comfy_server, "build_command", lambda port, flavor: [sys.executable, "-I", str(script),
+                                                                            str(port), str(server.delay)])
+    yield server
+    server.stop()
+
+
+def test_comfyui_started_from_a_job_thread_outlives_the_job(stand_in_program):
+    """On Linux ComfyUI is told to stop when its parent ends, and Linux counts the thread that started it as its
+    parent: started from a job's thread, it stopped as soon as that job ended, so it never stayed warm and a second
+    job using it at the same time lost it."""
+    server = stand_in_program
+    got = []
+    job = threading.Thread(target=lambda: got.append(server.ensure(dict(config.DEFAULT_SETTINGS))))
+    job.start()
+    job.join(60)
+    assert got and got[0] == f"http://127.0.0.1:{server.port}"
+    time.sleep(1.5)  # the signal comes at once when the thread ends
+    assert server.running(), f"ComfyUI stopped with the job that started it (exit code {server.proc.poll()})"
+    assert server.ensure(dict(config.DEFAULT_SETTINGS)) == got[0]  # still the same, warm ComfyUI
+
+
+CLIPFORGE_THAT_ENDS = """
+import os, sys, threading
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+os.environ["CLIPFOUNDRY_DATA"] = sys.argv[2]
+from clipfoundry import config
+from clipfoundry.engines import comfy_server
+
+program = sys.argv[3]
+comfy_server.installed = lambda: True
+comfy_server.torch_flavor = lambda: "cpu"
+comfy_server.main_py = lambda: Path(program)
+comfy_server.build_command = lambda port, flavor: [sys.executable, "-I", program, str(port), "0"]
+server = comfy_server.Server()
+job = threading.Thread(target=lambda: server.ensure(dict(config.DEFAULT_SETTINGS)))
+job.start()
+job.join()
+print(server.proc.pid, flush=True)
+os._exit(0)  # ClipForge ends without tidying up, as when it crashes
+"""
+
+
+def _gone(pid: int) -> bool:
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (OSError, IndexError):
+        return True
+    return state in ("Z", "X")
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the parent-death signal is Linux's")
+def test_comfyui_still_ends_with_clipforge(stand_in_program, tmp_path):
+    """Starting ComfyUI from a lasting thread must not cost the reason for the signal: when ClipForge ends, even
+    without tidying up, its ComfyUI ends too."""
+    import subprocess
+
+    repo = Path(comfy_server.__file__).resolve().parents[2]
+    run = subprocess.run([sys.executable, "-I", "-c", CLIPFORGE_THAT_ENDS, str(repo), str(tmp_path / "other-data"),
+                          str(comfy_server.main_py())], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr[-2000:]
+    pid = int(run.stdout.split()[-1])
+    deadline = time.monotonic() + 10
+    while not _gone(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert _gone(pid), "ComfyUI kept running after ClipForge ended"
+
+
+def test_stop_works_while_comfyui_is_starting(stand_in_program, monkeypatch):
+    """Stop did nothing while ClipForge's ComfyUI was starting (up to four minutes; often 15-25 s), and the picture
+    was still sent to it afterwards."""
+    from clipfoundry import engines
+
+    server = stand_in_program
+    server.delay = 30.0
+    values = dict(config.DEFAULT_SETTINGS, engines_comfyui="clipforge")
+    monkeypatch.setattr(engines, "_settings", lambda: values)
+    monkeypatch.setattr(makers, "_settings", lambda: values)
+    monkeypatch.setattr(comfy_server, "server", server)
+    asked = time.monotonic() + 1.0
+    started = time.monotonic()
+    with pytest.raises(EngineError, match="Stopped"):
+        engines.make_image("a cat", cancel=lambda: time.monotonic() > asked)
+    assert time.monotonic() - started < 10, "Stop waited for ComfyUI to finish starting"
+    assert not server.running() and server.proc is None  # the half-started ComfyUI is not left behind
+
+
+def test_closing_clipforge_stops_a_set_up_under_way(monkeypatch):
+    """Closing ClipForge during "Set up ComfyUI" left uv installing on its own, with nothing in ClipForge showing it
+    (on Windows nothing else stops it), into the folder the next set-up then tripped over."""
+    import subprocess
+
+    from clipfoundry import engines
+
+    started = []
+    real_popen = subprocess.Popen
+
+    def popen(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        started.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    comfy_server.root().mkdir(parents=True, exist_ok=True)
+    tasks.reset_for_tests()
+    tasks.start("Setting up ComfyUI", [lambda report, cancelled: comfy_server._run(  # noqa: SLF001
+        [sys.executable, "-c", "import time; time.sleep(60)"], "install PyTorch", cancelled)])
+    deadline = time.monotonic() + 10
+    while not started and time.monotonic() < deadline:
+        time.sleep(0.05)
+    try:
+        assert started and tasks.running()
+        engines.shutdown()
+        assert not tasks.running() and tasks.view()["state"] == "canceled"
+        assert started[0].poll() is not None, "the set-up's program kept running after ClipForge closed"
+    finally:
+        for proc in started:
+            if proc.poll() is None:
+                proc.kill()
+        tasks.reset_for_tests()
+
+
+def test_remove_says_so_when_comfyuis_files_could_not_be_deleted(monkeypatch):
+    """PyTorch's files sit deeper than Windows' 260 letters when ClipForge's folder is deep, and Remove said ComfyUI
+    was removed while they were all still there."""
+    env = comfy_server.root() / "env-cuda" / "Lib"
+    env.mkdir(parents=True)
+    (env / "torch.py").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(files, "remove_tree", lambda p: not p.exists())  # as when nothing could be deleted
+    with pytest.raises(EngineError, match="could not be deleted"):
+        comfy_server.remove()
+
+
+def test_windows_long_paths_are_named_so_windows_can_delete_them():
+    assert files.long_path("C:\\Users\\Ana\\ClipForge\\data") == "\\\\?\\C:\\Users\\Ana\\ClipForge\\data"
+    assert files.long_path("\\\\nas\\home\\ClipForge") == "\\\\?\\UNC\\nas\\home\\ClipForge"
+    assert files.long_path("\\\\?\\C:\\x") == "\\\\?\\C:\\x"
+
+
+def test_setting_comfyui_up_leaves_no_second_copy_of_pytorch(monkeypatch):
+    """uv keeps every package it installs unpacked in its cache, and ClipForge has it copy them into ComfyUI's
+    environment: PyTorch for NVIDIA cards took twice the 6.5 GB the card shows, the disk could fill part way, and the
+    second copy stayed for good."""
+    asked = []
+    fail = []
+
+    def fake_run(cmd, what, cancelled, timeout_s=3600.0):
+        cmd = [str(c) for c in cmd]
+        if cmd[1:2] == ["venv"]:
+            Path(cmd[2]).mkdir(parents=True, exist_ok=True)
+        if "install" in cmd and "--no-deps" in cmd:
+            (comfy_server.root() / "cache" / "archive-v0" / "torch").mkdir(parents=True, exist_ok=True)
+            if fail:
+                raise EngineError("Could not install PyTorch: the disk is full.")
+        if cmd[0] == str(comfy_server.env_python("cuda")):
+            return json.dumps({"torch": catalog.TORCH_VERSION + "+cu130", "mps": False, "cuda": True})
+        return ""
+
+    monkeypatch.setattr(comfy_server, "_run", fake_run)
+    monkeypatch.setattr(comfy_server, "torch_flavor", lambda: "cuda")
+    monkeypatch.setattr(comfy_server, "installed", lambda: False)
+    monkeypatch.setattr(comfy_server.files, "need_space", lambda path, needed, what: asked.append(needed))
+    comfy_server.root().mkdir(parents=True, exist_ok=True)
+    comfy_server._step_env(lambda *a: None, lambda: False)  # noqa: SLF001
+    torch = catalog.TORCH["cuda"]
+    assert asked == [2 * (torch["disk"] + catalog.SETUP_EXTRA_DISK)]  # both copies exist while it installs
+    assert not (comfy_server.root() / "cache").exists()
+    fail.append(1)
+    with pytest.raises(EngineError, match="disk is full"):
+        comfy_server._step_env(lambda *a: None, lambda: False)  # noqa: SLF001
+    assert not (comfy_server.root() / "cache").exists()  # a failed set-up does not keep gigabytes either
+
+
+
+@pytest.mark.parametrize("name", ["José", "Müller", "東京"])
+def test_a_comfyui_under_a_folder_with_accents_is_recognised_on_windows(monkeypatch, name):
+    """Windows PowerShell wrote the process list in the console's old code page (437 or 850) and ClipForge read it in
+    another (1252): under C:\\Users\\José its own ComfyUI was never recognised, so a second one was started beside the
+    shared one, and under C:\\Users\\Müller reading the list failed with an error."""
+    import types
+    from pathlib import PureWindowsPath
+
+    folder = f"C:\\Users\\{name}\\AppData\\Roaming\\ClipForge\\tools\\comfy"
+    line = f"{folder}\\env-cuda\\Scripts\\python.exe -s {folder}\\app\\ComfyUI-0.43.0\\main.py --port 8188\r\n"
+
+    def powershell(cmd, **kwargs):  # what Windows PowerShell 5.1 writes to a pipe, read the way subprocess.run reads it
+        data = line.encode("utf-8") if "UTF8Encoding" in cmd[-1] else line.encode("cp850", "replace")
+        if kwargs.get("encoding"):
+            out = data.decode(kwargs["encoding"], kwargs.get("errors") or "strict")
+        elif kwargs.get("text") or kwargs.get("universal_newlines"):
+            out = data.decode("cp1252")  # the Windows ANSI code page, read strictly as subprocess.run does
+        else:
+            out = data
+        return types.SimpleNamespace(stdout=out, returncode=0)
+
+    monkeypatch.setattr(comfy_server.sys, "platform", "win32")
+    monkeypatch.setattr(comfy_server.subprocess, "run", powershell)
+    monkeypatch.setattr(comfy_server, "root", lambda: PureWindowsPath(folder))
+    assert comfy_server._is_ours(4242)  # noqa: SLF001
+    monkeypatch.setattr(comfy_server, "root", lambda: PureWindowsPath(folder.replace(name, "Someone")))
+    assert not comfy_server._is_ours(4242)  # noqa: SLF001
+
+
+def test_a_comfyui_under_a_folder_with_accents_is_recognised_on_a_mac(monkeypatch):
+    """The Mac's ps writes letters like é as they are only in a UTF-8 locale; ClipForge asks for one and reads UTF-8."""
+    import types
+
+    seen = {}
+
+    def ps(cmd, **kwargs):
+        seen.update(kwargs)
+        out = "/Users/José/Library/ClipForge/tools/comfy/env-mps/bin/python main.py --port 8188\n".encode()
+        return types.SimpleNamespace(stdout=out.decode(kwargs["encoding"], kwargs["errors"]), returncode=0)
+
+    monkeypatch.setattr(comfy_server.sys, "platform", "darwin")
+    monkeypatch.setattr(comfy_server.subprocess, "run", ps)
+    monkeypatch.setattr(comfy_server, "root", lambda: Path("/Users/José/Library/ClipForge/tools/comfy"))
+    assert comfy_server._is_ours(4242)  # noqa: SLF001
+    assert seen["env"]["LC_ALL"].endswith("UTF-8") and seen["errors"] == "replace"
+
+
+# ------------------------------------------------------------------ found by the final review (Nov 10)
+def _stop_downloads(monkeypatch, data: bytes) -> None:
+    """Every download stops part way (the computer went to sleep), leaving its .part file."""
+    def stopped(pin, dest, *args, **kwargs):
+        dest.with_name(dest.name + ".part").write_bytes(data)
+        raise EngineError("Stopped; the download resumes where it left off.")
+
+    monkeypatch.setattr(files, "fetch", stopped)
+
+
+def test_another_models_stopped_download_of_the_shared_file_stays_with_it(file_server, monkeypatch, app_settings,
+                                                                           fake_comfy):
+    """With the ComfyUI app, the person had their own FLUX.2 picture file, so ClipForge's FLUX.2 download began with
+    the 8 GB text encoder both picture models use, and it stopped part way. Z-Image, never downloaded, then showed
+    "Partly downloaded", and its Remove deleted FLUX.2's half-done download."""
+    from clipfoundry import engines
+
+    srv = file_server({})
+    _, b = tiny_models(srv, monkeypatch)
+    app = fake_comfy.tmp / "app-models"
+    theirs = app / "diffusion_models" / "b.safetensors"
+    theirs.parent.mkdir(parents=True, exist_ok=True)
+    theirs.write_bytes(b"b" * 4000)
+    fake_comfy.models["diffusion_models"].append("b.safetensors")
+    _stop_downloads(monkeypatch, b"t" * 100)
+    assert run_steps(models.install_steps(b, "app", fake_comfy.url))["state"] == "failed"
+    part = app / "text_encoders" / "te.safetensors.part"
+    assert part.is_file()
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert not by["tiny-a"]["removable"] and by["tiny-b"]["removable"]
+    with pytest.raises(EngineError, match=b.name):
+        engines.remove("model", "tiny-a")
+    assert part.is_file()  # FLUX.2's download carries on from here
+    view = engines.remove("model", "tiny-b")
+    assert not part.exists() and theirs.read_bytes() == b"b" * 4000
+    assert view["note"].startswith(f"Deleted {b.name}'s stopped download")
+
+
+def test_removing_a_ready_models_stopped_download_says_so_and_leaves_comfyui_alone(file_server, monkeypatch,
+                                                                                  app_settings, fake_comfy):
+    """ClipForge's Z-Image download stopped part way, then the person got Z-Image in the ComfyUI app itself. Its row
+    showed Ready with Remove, which made the app unload its models, deleted only the stopped download, and said
+    "Z-Image Turbo removed." while Z-Image stayed Ready."""
+    from clipfoundry import engines
+
+    srv = file_server({})
+    a, _ = tiny_models(srv, monkeypatch)
+    app = fake_comfy.tmp / "app-models"
+    _stop_downloads(monkeypatch, b"a" * 2000)
+    assert run_steps(models.install_steps(a, "app", fake_comfy.url))["state"] == "failed"
+    for f in a.files:  # then the ComfyUI app downloaded Z-Image itself
+        (app / f.folder).mkdir(parents=True, exist_ok=True)
+        (app / f.folder / f.name).write_bytes(b"x" * f.size)
+    fake_comfy.have(a)
+    by = {m["id"]: m for m in engines.overview()["models"]}
+    assert by["tiny-a"]["ready"] and by["tiny-a"]["removable"]
+    view = engines.remove("model", "tiny-a")
+    assert ("POST", "/free") not in fake_comfy.calls  # ComfyUI never opens a stopped download: it keeps its models
+    assert not (app / "diffusion_models" / "a.safetensors.part").exists()
+    assert all((app / f.folder / f.name).is_file() for f in a.files)
+    assert view["note"].startswith(f"Deleted {a.name}'s stopped download") and "stays" in view["note"]
+    by = {m["id"]: m for m in view["models"]}
+    assert by["tiny-a"]["ready"] and not by["tiny-a"]["removable"]

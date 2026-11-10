@@ -138,6 +138,20 @@ def _env_marker(flavor: str) -> dict | None:
     return files.read_marker(env_dir(flavor))
 
 
+def _env_home_ok(env: Path) -> bool:
+    """The Python the environment was made from is still where its pyvenv.cfg says. That is a full path, so after
+    ClipForge's folder is moved or renamed the environment cannot start (on Windows its python.exe is still there)."""
+    try:
+        lines = (env / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        key, _, value = line.partition("=")
+        if key.strip().lower() == "home":
+            return bool(value.strip()) and Path(value.strip()).is_dir()
+    return False
+
+
 def installed() -> bool:
     """ClipForge's own ComfyUI is set up for this computer: the source and an environment that were checked."""
     flavor = torch_flavor()
@@ -146,7 +160,7 @@ def installed() -> bool:
     return bool(platform_key() and m and app and m.get("comfyui") == catalog.COMFYUI["version"]
                 and m.get("torch") == catalog.TORCH[flavor]["packages"] and m.get("constraints") == catalog.CONSTRAINTS_ID
                 and app.get("sha256") == catalog.COMFYUI["sha256"] and env_python(flavor).is_file()
-                and main_py().is_file())
+                and _env_home_ok(env_dir(flavor)) and main_py().is_file())
 
 
 def download_bytes() -> int:
@@ -189,6 +203,11 @@ def _run(cmd: list[str], what: str, cancelled, timeout_s: float = 3600.0) -> str
             proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603 - pinned programs, fixed arguments
         except OSError as exc:
             raise EngineError(f"Could not {what}: {exc}") from exc
+        if sys.platform == "win32":  # no console signal reaches it: it ends with ClipForge however ClipForge ends
+            from .. import builtin_ai
+
+            server._job = server._job or builtin_ai._win_job()  # noqa: SLF001
+            builtin_ai._assign(server._job, proc)  # noqa: SLF001
         tail: list[str] = []
         lines: list[str] = []
 
@@ -275,7 +294,15 @@ def _step_env(report, cancelled) -> None:
     if installed():
         return
     torch = catalog.TORCH[flavor]
-    files.need_space(root(), torch["disk"] + catalog.SETUP_EXTRA_DISK, "ComfyUI's Python packages")
+    # twice: uv unpacks each package into its cache, then copies it into the environment (the cache goes at the end)
+    files.need_space(root(), 2 * (torch["disk"] + catalog.SETUP_EXTRA_DISK), "ComfyUI's Python packages")
+    try:
+        _install_env(flavor, torch, report, cancelled)
+    finally:
+        files.remove_tree(root() / "cache")  # uv's unpacked second copy of PyTorch and the rest (gigabytes)
+
+
+def _install_env(flavor: str, torch: dict, report, cancelled) -> None:
     uv = str(uv_exe())
     env = env_dir(flavor)
     report("Getting a private Python for ComfyUI", 0, 0)
@@ -285,8 +312,9 @@ def _step_env(report, cancelled) -> None:
          cancelled, 1800)
     if env.exists():
         files.remove_tree(env)
-    _run([uv, "venv", str(env), "--python", catalog.PYTHON_VERSION, "--seed", "--exclude-newer", catalog.EXCLUDE_NEWER],
-         "make ComfyUI's Python environment", cancelled, 600)
+    # --clear --force: whatever is left of an earlier environment goes (Windows may not have deleted all of it)
+    _run([uv, "venv", str(env), "--python", catalog.PYTHON_VERSION, "--seed", "--exclude-newer", catalog.EXCLUDE_NEWER,
+          "--clear", "--force"], "make ComfyUI's Python environment", cancelled, 600)
     py = str(env_python(flavor))
     constraints = root() / "constraints.txt"
     constraints.write_text(catalog.CONSTRAINTS, encoding="utf-8")
@@ -370,6 +398,10 @@ def remove() -> None:
         files.remove_tree(p)
     for p in root().glob("app-*"):
         files.remove_tree(p)
+    left = [p.name for p in (*root().glob("env-*"), *root().glob("app-*"))]
+    if left:
+        raise EngineError("Some of ComfyUI's files could not be deleted. Close any program that may be using them, "
+                          "or restart the computer, then press Remove again.")
 
 
 # ------------------------------------------------------------------ running it
@@ -398,6 +430,23 @@ def build_command(port: int, flavor: str) -> list[str]:
     if flavor == "cpu":
         cmd.append("--cpu")
     return cmd
+
+
+_starter_lock = threading.Lock()
+_starter = None  # concurrent.futures.ThreadPoolExecutor with one thread, made on first use
+
+
+def _popen_lasting(cmd: list[str], **kwargs) -> subprocess.Popen:
+    """subprocess.Popen from one thread that lasts as long as ClipForge. On Linux ComfyUI is told to stop when its
+    parent ends (the parent-death signal), and Linux counts the *thread* that started a program as its parent, not
+    the whole ClipForge: started from a job's thread, ComfyUI stopped as soon as that job ended."""
+    global _starter
+    with _starter_lock:
+        if _starter is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            _starter = ThreadPoolExecutor(max_workers=1, thread_name_prefix="comfy-start")
+    return _starter.submit(subprocess.Popen, cmd, **kwargs).result()
 
 
 class Server:
@@ -455,8 +504,9 @@ class Server:
         _kill(pid)
         log.info("stopped a ComfyUI left over from an earlier run (pid %s)", pid)
 
-    def ensure(self, settings: dict, progress=None) -> str:
-        """The address of a running ClipForge ComfyUI; starts it when needed."""
+    def ensure(self, settings: dict, progress=None, cancel=None) -> str:
+        """The address of a running ClipForge ComfyUI; starts it when needed. `cancel()` turning true while it starts
+        stops the half-started ComfyUI and raises Cancelled."""
         from .. import builtin_ai
 
         if not installed():
@@ -492,7 +542,8 @@ class Server:
             if progress:
                 progress(0.01, "Starting ComfyUI")
             try:
-                proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603 - the checked environment, fixed arguments
+                start = _popen_lasting if "preexec_fn" in kwargs else subprocess.Popen
+                proc = start(cmd, **kwargs)  # noqa: S603 - the checked environment, fixed arguments
             except OSError as exc:
                 raise EngineError(f"ComfyUI could not start: {exc}") from exc
             finally:
@@ -512,8 +563,8 @@ class Server:
             except OSError:
                 pass
             try:
-                self._wait_ready()
-            except EngineError:
+                self._wait_ready(cancel)
+            except BaseException:  # failed, stopped by the person, or ClipForge closing: no half-started ComfyUI
                 self.stop()
                 raise
             if self._watch is None or not self._watch.is_alive():
@@ -521,9 +572,13 @@ class Server:
                 self._watch.start()
             return f"http://127.0.0.1:{self.port}"
 
-    def _wait_ready(self) -> None:
+    def _wait_ready(self, cancel=None) -> None:
+        from ..pipeline.common import Cancelled
+
         deadline = time.monotonic() + START_TIMEOUT_S
         while time.monotonic() < deadline:
+            if cancel is not None and cancel():
+                raise Cancelled()
             if not self.running():
                 raise EngineError("ComfyUI stopped while starting. Its log is data/logs/comfyui.log.")
             try:
@@ -622,17 +677,21 @@ def removing():
 
 
 def _cmdline(pid: int) -> str:
+    """Process `pid`'s command line, or "" when it cannot be read. Always read as UTF-8, so a ClipForge folder with
+    letters outside plain English (C:\\Users\\José, C:\\Users\\Müller) is still recognised."""
     try:
         if sys.platform.startswith("linux"):
             return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
-        if sys.platform == "darwin":
-            return subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True,
-                                  timeout=5).stdout
-        if sys.platform == "win32":
-            out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                  f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"],
-                                 capture_output=True, text=True, timeout=20, creationflags=NO_WINDOW).stdout
-            return out
+        if sys.platform == "darwin":  # ps writes such letters as they are only in a UTF-8 locale
+            return subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True,
+                                  encoding="utf-8", errors="replace", timeout=5,
+                                  env={**os.environ, "LC_ALL": "en_US.UTF-8"}).stdout
+        if sys.platform == "win32":  # Windows PowerShell writes in the console's old code page unless told otherwise
+            return subprocess.run(["powershell", "-NoProfile", "-Command",
+                                   ("[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "
+                                    f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine")],
+                                  capture_output=True, encoding="utf-8", errors="replace", timeout=20,
+                                  creationflags=NO_WINDOW).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
     return ""

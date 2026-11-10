@@ -9,6 +9,8 @@
            is reported with the value to write into catalog.py.
 --comfy    sets ClipForge's own ComfyUI up exactly as the app does (uv, a private Python, PyTorch for this computer,
            ComfyUI's packages), starts it and runs the two graphs that need no model: a picture and an MP4 clip.
+           First it checks that ClipForge reads a folder with letters like é, ü and 東 back from this computer's
+           process list (how it recognises a ComfyUI it started).
 --graphs   checks that ComfyUI accepts every model graph ClipForge sends (graphs.py): it is given stand-in files with
            the model files' names, so its checks pass and the run then stops where the real file would be loaded.
 --picture  downloads one picture model and makes a real 256x256 picture with it (on the processor: slow).
@@ -236,6 +238,8 @@ def setup_comfy(report: dict) -> dict:
                 installed=comfy_server.installed())
     if view["state"] != "done" or not info["installed"]:
         raise RuntimeError(f"setting ComfyUI up failed: {view.get('error') or problems}")
+    if (comfy_server.root() / "cache").exists():
+        raise RuntimeError("setting ComfyUI up left uv's cache (a second copy of PyTorch) in ClipForge's folder")
     leaked = sorted(python_traces() - traces_before)
     info["python_outside_clipforge"] = leaked
     if leaked:
@@ -526,6 +530,40 @@ def check_voice(report: dict, out: Path) -> None:
             raise RuntimeError(f"the voice {v} does not sound right: {row}")
 
 
+
+# ------------------------------------------------------------------ recognising ClipForge's own ComfyUI
+def check_process_names(report: dict) -> None:
+    """ClipForge recognises a ComfyUI it started (left over from an earlier run, or shared by two ClipForge windows) by
+    ClipForge's folder in its command line, and that folder can hold any letters (C:\\Users\\José). A stand-in
+    process with such a folder in its command line must be read back exactly, here without LANG (a Mac app opened
+    from the Finder has none)."""
+    from clipfoundry.engines import comfy_server
+
+    folder = str(Path(tempfile.gettempdir()) / "ClipForge José Müller Øre 東京" / "main.py")
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", folder],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    bare = {k: os.environ.pop(k) for k in list(os.environ) if k == "LANG" or k.startswith("LC_")}
+    try:
+        line = ""
+        for _ in range(40):  # Windows lists a new process a moment after it starts
+            line = comfy_server._cmdline(proc.pid)  # noqa: SLF001
+            if folder in line:
+                break
+            time.sleep(0.5)
+        row = {"read": line.strip()[-200:], "ok": folder in line}
+        if sys.platform == "darwin":  # for the record: what ps writes when it is not asked for UTF-8
+            plain = subprocess.run(["/bin/ps", "-p", str(proc.pid), "-o", "command="], capture_output=True, timeout=10)
+            row["plain_ps"] = plain.stdout.decode("utf-8", "replace").strip()[-200:]
+        report["process_names"] = row
+        log(f"process names: {row}")
+        if not row["ok"]:
+            raise RuntimeError(f"ClipForge read its folder wrongly from this computer's process list: {line!r}")
+    finally:
+        os.environ.update(bare)
+        proc.kill()
+        proc.wait()
+
+
 # ------------------------------------------------------------------ main
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -578,6 +616,8 @@ def main() -> int:
              ([args.picture] if args.picture else []) + (["supertonic-3"] if args.voice else []))
     run = Run(out)
     try:
+        if args.comfy:
+            step("ClipForge's folder read back from the process list", check_process_names, report)
         if args.comfy and step("set ComfyUI up", setup_comfy, report):
             extra = []
             from clipfoundry.engines import comfy_server

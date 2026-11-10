@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import tarfile
 import time
 import zipfile
@@ -200,8 +201,18 @@ def extract(archive: Path, dest: Path) -> None:
             t.extractall(base, members=members)  # noqa: S202
 
 
-def remove_tree(path: Path) -> None:
-    """Delete a folder ClipForge made (read-only files too, which Windows refuses to delete otherwise)."""
+def long_path(path: str) -> str:
+    """An absolute Windows path written the way that lets it pass 260 letters (\\\\?\\C:\\..., \\\\?\\UNC\\server\\...)."""
+    if path.startswith("\\\\?\\"):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
+def remove_tree(path: Path) -> bool:
+    """Delete a folder ClipForge made: read-only files too, which Windows refuses to delete otherwise, and files
+    deeper than Windows' 260 letters (PyTorch's are, when ClipForge's folder is deep). True when it is gone."""
     def unlock(func, p, _exc):  # noqa: ANN001
         try:
             os.chmod(p, 0o700)
@@ -209,8 +220,10 @@ def remove_tree(path: Path) -> None:
         except OSError:
             pass
 
-    if path.exists():
+    target = long_path(os.path.abspath(path)) if sys.platform == "win32" else str(path)
+    if os.path.exists(target):
         try:
-            shutil.rmtree(path, onexc=unlock)  # type: ignore[call-arg]
+            shutil.rmtree(target, onexc=unlock)  # type: ignore[call-arg]
         except TypeError:  # Python < 3.12
-            shutil.rmtree(path, onerror=unlock)
+            shutil.rmtree(target, onerror=unlock)
+    return not os.path.exists(target)
