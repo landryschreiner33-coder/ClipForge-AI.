@@ -1,6 +1,7 @@
 import AiHelperSettings from "../components/AiHelperSettings";
 import AppearanceSettings from "../components/AppearanceSettings";
 import EditingAppsSettings from "../components/EditingApps";
+import LocalMakersSettings from "../components/LocalMakers";
 import MediaSourcesSettings from "../components/MediaSources";
 import { MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Accounts, api, errorText, Health, Platform, PlatformAccount, Settings } from "../api";
@@ -69,6 +70,13 @@ export default function SettingsPage({ tab }: { tab?: string }) {
       </SettingsFrame>
     );
   }
+  if (tab === "makers") {
+    return (
+      <SettingsFrame current="makers" sub="Pictures, short video clips and voice-overs made on this computer, for free, by open-source tools.">
+        <LocalMakersSettings />
+      </SettingsFrame>
+    );
+  }
   if (tab === "appearance") {
     return (
       <SettingsFrame current="appearance" wide sub="How ClipForge looks. Customize studio changes it and says where each choice is kept.">
@@ -84,6 +92,7 @@ const SETTINGS_TABS = [
   { id: "media", href: "#/settings/media", label: "Media sources" },
   { id: "ai", href: "#/settings/ai", label: "ClipForge AI" },
   { id: "apps", href: "#/settings/apps", label: "Editing apps" },
+  { id: "makers", href: "#/settings/makers", label: "Pictures, video, voice" },
   { id: "accounts", href: "#/settings", label: "Connections setup" },
   { id: "defaults", href: "#/settings/defaults", label: "Defaults" },
   { id: "integrations", href: "#/settings/integrations", label: "Integrations" },
