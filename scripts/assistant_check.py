@@ -814,10 +814,11 @@ def main() -> int:
             if not set_up_model(run, args.level):
                 return finish(run, started)
             run.rounds.real = original
-            if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS"):
-                # GitHub's Mac machines can't use the graphics chip (about 5 words a second); a real Mac uses it
+            if os.environ.get("GITHUB_ACTIONS") and (sys.platform == "darwin" or args.level != "basic"):
+                # GitHub's machines have no graphics chip for the model (a Mac's about 5 words a second, and the
+                # Standard level on Linux's 4 cores a few); a real Mac, or a PC with a graphics card, uses one
                 assistant.LOCAL_TURN_S = 900.0
-                report["turn_limit_note"] = ("On GitHub's Mac machines (no graphics chip for the model) an answer may "
+                report["turn_limit_note"] = ("On GitHub's machines (no graphics chip for the model) an answer may "
                                              "take 900 s instead of the app's 300 s.")
         llm.converse = run.rounds
         run.seeded = seed()

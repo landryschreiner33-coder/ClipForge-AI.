@@ -223,8 +223,9 @@
     <tr><td>Settings and keys</td><td>Your choices, and any API keys or client secrets you enter</td><td>Until you
       change or remove them</td></tr>
     <tr><td>Optional NVIDIA AI</td><td>When you turn it on: the date you agreed to send excerpts, each request's
-      time, task, model, token counts and status (to keep the daily limits), and its answers so the same excerpt is
-      not sent twice</td><td>Request counts: until you delete the data folder. Saved answers: 30 days</td></tr>
+      time, task, model, token counts and status (to keep the daily limits), and its answers, ClipForge AI's
+      included, so the same request is not sent twice</td><td>Request counts: until you delete the data folder.
+      Saved answers: 30 days</td></tr>
     <tr><td>Logs</td><td>Technical messages for troubleshooting, such as file names, video titles and links, steps,
       error messages, and the items shown under Needs you</td><td>Background jobs that completed or were canceled, and
       the step messages of all jobs: 30 days. Failed background jobs: until you delete the data folder. Autopilot's
@@ -292,6 +293,28 @@
   are encrypted on the server with a key kept outside the data folder. Nothing is sent to any other new service.
 </p>
 
+<h3 id="clipforge-ai">ClipForge AI (added 2026-11-10)</h3>
+<p>
+  ClipForge AI is the assistant you talk with in Brain and in each video's chat. It keeps, in the same data folder:
+  each chat's messages (yours, its answers and its helper agents' answers, the steps it took, the OK and No buttons
+  it showed with what became of them, and a copy of the memories each answer used, saved or forgot), the newest 200
+  per chat, until you press Clear this chat; the memories you or it saved, with a record of the answers that used
+  them, until you forget them in Brain → Memory or ask it to (a memory it only guessed is no longer used after 60
+  days unless you confirm it, and Tidy in Brain → Memory removes such expired memories and merges exact twins); and
+  the helper agents you add (name, icon, job, instructions, the tools they may use, and how many times and when each
+  last worked), until you remove them in Brain → Agents.
+</p>
+<p>
+  A change you ask for in a video's chat is also kept with that video's change requests, like one typed in the
+  editor (your words as typed, the change proposed, the memories and know-how it used, and a note of what was sent to
+  an AI service), until you delete the data folder; Clear this chat does not remove it. When its model is an online
+  service, each request ClipForge AI or a helper agent sends is recorded (the time, the task, the model and, for its
+  own answers, the chat message it was for) to keep the daily limit, "AI requests a day" in Settings → Advanced,
+  until you delete the data folder. With NVIDIA, its answers are also saved as described under "Optional NVIDIA AI"
+  above. Talking with it does not train a model. What it sends, and where, is under "An AI service you choose" in
+  section 3.
+</p>
+
 <h2>3. When information leaves your computer</h2>
 <p>
   ClipFoundry sends information only to the services below, only for the features that need them, and straight from
@@ -327,19 +350,42 @@
       first words of the titles of TikTok videos it found, to look for the longer YouTube videos they came from; and
       your key. Pressing Test saved Tavily connection instead sends only your key in an Authorization header to
       read account usage; it does not run a search or send Brain text, video titles or topics</td></tr>
-    <tr><td>An AI service you choose</td><td>Only if you turn on AI scoring in Settings (off by default)</td><td>The
-      words said in a video's strongest moments (up to 12 by default), the sentence just before each one, each
-      moment's length and the video's name, so they can be scored; and the words said in each clip, so titles and
-      captions can be written. If you choose an AI program on your own computer (such as Ollama or LM Studio),
-      ClipFoundry sends this text only to the address you set for that program. If you choose a cloud AI service (for
+    <tr><td>An AI service you choose</td><td>Only if you choose an AI helper in Settings → ClipForge AI or in
+      Settings → Advanced (AI scoring); none is chosen by default. The built-in model runs on this computer,
+      so with it nothing leaves your computer. With another helper, whenever a feature uses it: for example when clips
+      are made, scored and titled, when you ask the editor for a change it does not understand on its own, for smart
+      editing, FilmCraft, a short's script and Full stories, and each time you talk with ClipForge AI or one of its
+      helper agents</td><td>Text only: never your files, their pictures or their sound. To make clips: the video's
+      name, the words said in it (read in order, a part at a time), the words said in its strongest moments (up to 12
+      by default) with the sentence just before each one and each moment's length, and the memories and know-how that
+      fit, so moments can be found and scored; and the words said in each clip, so titles and captions can be
+      written. The other features send the words and details they work on (for example your brief or topic, the words
+      said with their times, and the list of clips); the editor, smart editing, FilmCraft and the script writer also
+      send the memories and know-how that fit. When you talk with ClipForge AI: your message and the conversation so
+      far (the oldest messages are left out first when it does not fit); your standing rules (up to 8) and the other
+      memories and know-how that fit it; today's date and the time on this computer; your projects' names with their
+      kind, counts, status and age; the details of the chat's video and of the projects it looks at (a video's brief,
+      its script's name, each part's label, often a file's name, with the words said in it, and its status note; a
+      clips project's clip titles, scores and lengths); your helper agents' names and jobs (and, for the helper doing
+      a job, its instructions); and the results of the looking steps it takes (such as what is running). Each request
+      ClipForge AI or a helper agent sends to an online service counts once against "AI requests a day" in
+      Settings → Advanced (0 sends none).
+      If you choose an AI program on your own computer (such as Ollama or LM Studio),
+      ClipFoundry sends this text only to the address you set for that program; an Ollama cloud model (a model name
+      ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
       example Anthropic's Claude API, or another server address you enter), that service receives the text and your
       API key, under your own account with it</td></tr>
     <tr><td>NVIDIA (build.nvidia.com)</td><td>Only if you turn on NVIDIA AI in Settings → Integrations, choose it
       as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
-      only for work you start yourself, never for Autopilot's unattended work</td><td>The words said in a video's
-      strongest moments (links and email addresses removed, cut to your size limit) and the video's name, so they
-      can be scored and titled; fixed recognized editing-priority names; and your NVIDIA API key. Never raw Brain
-      notes, example files, video, audio, account tokens or lists of viewers.
+      only for work you start yourself, never for Autopilot's unattended work</td><td>The text described in the row
+      above for the features you use with it (for example the words said in a video's strongest moments and the
+      video's name, so they can be scored and titled, and your conversations with ClipForge AI), with links and email
+      addresses removed from all of it; each request's words are cut to your size limit (a conversation with
+      ClipForge AI leaves out its oldest messages first), while the instructions sent with them, which hold your
+      memories and project details, are not cut; fixed recognized editing-priority names; and your NVIDIA API key. An
+      answer that is not in the right form is asked for once more; that second request counts toward NVIDIA's budget
+      but not again toward "AI requests a day". Never raw Brain teaching notes, example files, video, audio, account
+      tokens or lists of viewers.
       Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
       under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are

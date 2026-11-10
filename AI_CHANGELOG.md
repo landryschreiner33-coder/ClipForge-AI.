@@ -63,6 +63,10 @@ Landry's projects, could never do anything, and without a downloaded model only 
 - **API:** `POST /api/brain/chats/{id}/stop`; `POST /api/brain/chats/{id}/messages/{mid}/actions/{aid}` `{do}`;
   `GET`/`POST /api/brain/agents`, `PATCH`/`DELETE /api/brain/agents/{id}`; opening a chat also returns the model's
   state and the switched-on helpers.
+- **Privacy page** (`docs/legal/privacy.html`): a new "ClipForge AI" part says what its chats, memories, helper agents
+  and online request counts keep and until when; "An AI service you choose" says what talking with it sends (and that
+  the built-in model sends nothing off the computer, while an Ollama cloud model answers online), and NVIDIA's row
+  says the same for NVIDIA. The public website is not updated (that needs Landry's OK).
 - **Checks:** `tests/test_clipforge_ai_assistant.py` (TESTS_PENDING), `tests/test_clipforge_ai_agents.py`
   (TESTS_PENDING), `tests/test_llm_converse.py` (TESTS_PENDING), `tests/test_clipforge_ai_chat.py` (TESTS_PENDING; its
   two model tests now go through the conversation engine), `tests/test_clipforge_ai_knowhow.py` (TESTS_PENDING; its
@@ -113,7 +117,7 @@ Landry's projects, could never do anything, and without a downloaded model only 
   (127.x.x.x, ::1, 0.0.0.0) and an Ollama cloud model (`…-cloud`) counts as online and is disclosed as sent over the
   internet (one check, `llm.is_local`, for the chat, the editor and the AI editor); an answer nested deeper than any
   real one is read as words instead of failing; the chat page keeps reading an answer after a passing error (only a
-  deleted chat stops it). Settings → ClipForge AI calls the limit "AI requests a day" and says what it covers.
+  deleted chat stops it). Settings → Advanced calls the limit "AI requests a day" and says what it covers.
 - **Small models** (after the first real-model run): the round instructions ask the model to answer from the
   results (name the projects), a helper is told to do the job in the same answer ("never only say that you will do
   it"), ClipForge AI is told to always hand a job to a helper when the owner asks for that helper's work and is
@@ -130,10 +134,38 @@ Landry's projects, could never do anything, and without a downloaded model only 
   level, Qwen3-VL 2B: 11 turns in 307 s, 3.2 tokens a second, answers in 14 to 68 s); the small model did not name
   the projects it found, did not save the red-captions rule itself, did not hand the title job to the Script
   writer, and the Script writer said it was ready instead of writing: the "Small models" changes above answer that.
-  The run on this version: CHECK_PENDING.
+  The run on the merged version (56aae46, run 42745705173) passed on Linux (11 turns in 110 s, 8.8 tokens a second,
+  answers in 6 to 21 s) and on a Mac (359 s, 2.8 tokens a second, answers in 19 to 61 s): every must-check held. The
+  Basic model again did not name the projects it found (the step's buttons showed them), did not save the two
+  memories itself (ClipForge kept the owner's words), did not hand the title job to the Script writer, and the Script
+  writer said it would write instead of writing; its three rounds that each began "Here are your projects:" showed
+  that line three times, which `Outcome.text` now shows once. The run on the final version is linked in PR #37.
+- **Last review pass** (an independent review of the stutter fix, the check workflow, the privacy page and the
+  docs; each finding reproduced, each fix with a test): an answer's rounds stay in the order they were said, and a
+  round that says earlier rounds again and goes on replaces them at the end, so the answer's last words come last (a
+  "Let me check …" said before the answer no longer ends up after it); a short answer that only starts like an
+  earlier round ("No." after "Now let me check …", "Step 1" after "Step 10") is kept, and one of fewer than three
+  words counts as said again only where its words end a phrase ("Got it." in "Got it, I'll remember that."); words
+  are compared with their marks (Thai, Hindi); a round that only repeats the start of several earlier rounds in a row
+  adds nothing, and the round being written shows only once it has a new word, so a repeated lead-in (one round's or
+  several rounds') or a lone "**" does not flash up. With NVIDIA, ClipForge AI's instructions (memories, project
+  details, helpers' instructions) lose links and email addresses like the conversation, and a conversation longer
+  than NVIDIA's input limit loses its oldest messages first (the limit cut its end, where the newest message is).
+  `assistant-check.yml` can run on both machines, only Linux or only the Mac (`machines`), gives an answer 900 s on
+  GitHub's machines when there is no graphics chip for the model (the Mac, and Linux at the Standard level), and a
+  run by hand never cancels a push's run, nor one with other choices. The daily-limit messages now point to where the
+  limit is ("Settings → Advanced, “AI requests a day”"; they said Settings → ClipForge AI). The privacy page now
+  matches the code: what the chats, memories (guesses expire after 60 days; Tidy), helpers, the change requests made
+  in a video's chat (kept until the data folder is deleted; Clear this chat leaves them) and the request records
+  keep; which features send text to the AI helper you choose (scoring and titling, the editor, smart editing,
+  FilmCraft, a short's script, Full stories, ClipForge AI and its helpers; never files, pictures or sound) and what a
+  conversation sends (standing rules, the date and time, the chat's video, part labels that are often file names);
+  and, for NVIDIA, that links and email addresses go from everything, the size limit cuts each request's words but
+  not its instructions, and its one repair request is not counted again against "AI requests a day".
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
-  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines, and its result must be read after the
-  push. Landry's own computer was not tested. Ollama, LM Studio and the online services were played by stand-ins.
+  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
+  the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
+  own computer was not tested. Ollama, LM Studio and the online services were played by stand-ins.
 
 ## Animated shorts: undo keeps the scenes, Stop always frees a short, and the review's fixes — 2026-11-09 (Claude Code)
 

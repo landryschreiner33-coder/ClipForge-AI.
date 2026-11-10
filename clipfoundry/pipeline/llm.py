@@ -537,10 +537,25 @@ def _conv_anthropic(settings: dict, system: str, turns: list[dict], o: dict) -> 
 
 
 def _conv_flat(settings: dict, system: str, turns: list[dict], o: dict) -> str:
-    """A provider that takes one prompt (NVIDIA): the conversation written out, the newest message last."""
-    lines = [("The owner" if t["role"] == "user" else "You") + ": " + t["content"] for t in turns[:-1]]
-    prompt = (("The conversation so far:\n" + "\n\n".join(lines) + "\n\n") if lines else "") + \
-        "The owner's new message: " + (turns[-1]["content"] if turns else "")
+    """A provider that takes one prompt (NVIDIA): the conversation written out, the newest message last. NVIDIA cuts a
+    prompt longer than its input limit at the end, where the newest message is, so the oldest messages are left out
+    first (counted without links and email addresses, which NVIDIA's check removes)."""
+    from . import nvidia
+
+    lines = [nvidia.scrub(("The owner" if t["role"] == "user" else "You") + ": " + t["content"]) for t in turns[:-1]]
+    last = nvidia.scrub("The owner's new message: " + (turns[-1]["content"] if turns else ""))
+    limit = nvidia.input_chars(int(settings.get("nvidia_max_input_tokens") or 6000))
+
+    def written(earlier: list[str], left_out: bool) -> str:
+        note = "(Earlier messages were left out.)\n" if left_out else ""
+        return (f"The conversation so far:\n{note}" + "\n\n".join(earlier) + "\n\n" if earlier else
+                (note + "\n" if note else "")) + last
+
+    gone = 0
+    prompt = written(lines, False)
+    while len(prompt) > limit and gone < len(lines):
+        gone += 1
+        prompt = written(lines[gone:], True)
     fn = PROVIDERS[settings.get("ai_provider", "heuristic")]
     flat = {**settings, "_system": system, "_ai_task": o["task"], "_timeout": o["timeout"],
             **({"_max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {}),

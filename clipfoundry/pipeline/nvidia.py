@@ -226,10 +226,20 @@ URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
+def scrub(text: str) -> str:
+    """Links and email addresses removed."""
+    return EMAIL_RE.sub("[email]", URL_RE.sub("[link]", text))
+
+
+def input_chars(limit_tokens: int) -> int:
+    """The most characters of text one request sends: the input limit in tokens, about 4 characters each."""
+    return max(200, int(limit_tokens) * 4)
+
+
 def minimize(text: str, limit_tokens: int) -> str:
     """Links and email addresses removed; cut at the input limit (whole lines only, and said so)."""
-    text = EMAIL_RE.sub("[email]", URL_RE.sub("[link]", text))
-    limit = max(200, int(limit_tokens) * 4)
+    text = scrub(text)
+    limit = input_chars(limit_tokens)
     if len(text) <= limit:
         return text
     kept = text[:limit].rsplit("\n", 1)[0]
@@ -326,6 +336,7 @@ def complete(settings: dict, system: str, prompt: str, *, task: str = "clip_scor
              job_id: str = "") -> str:
     """One JSON-answer request. Raises NvidiaUnavailable whenever local analysis should be used instead."""
     _allowed(settings, unattended)
+    system = scrub(system)  # ClipForge AI's instructions hold the owner's memories and project details
     prompt = minimize(prompt, int(settings.get("nvidia_max_input_tokens") or 6000))
     key = _cache_key(settings, system, prompt)
     hit = db.fetch("api_cache", key, "key")

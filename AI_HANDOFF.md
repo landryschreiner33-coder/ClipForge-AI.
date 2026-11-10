@@ -18,6 +18,12 @@ the old rules still answer, and the chat offers the built-in model in one press.
   review pass").
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant",
   "Actions", "Helper agents", "API", "Not done yet"; [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Privacy page:** `docs/legal/privacy.html` has a "ClipForge AI" part (what its chats, memories, helpers, the change
+  requests made in a video's chat and the online request records keep, and until when) and says which features send
+  text to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: links and
+  email addresses removed from everything, the size limit on each request's words). When deleting projects (PR #35)
+  lands, that part must say what a delete removes (the video's chat, its memories, its change requests). The public
+  website (gh-pages) is not updated: that needs Landry's OK.
 - **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily
   limit, per request); changed `brain/chat.py`,
   `routes.py`, `memories.py` (use place `agent`, `twin()`), `db.py` (table `brain_agents`, role `agent`), `api.py`,
@@ -81,8 +87,11 @@ the old rules still answer, and the chat offers the built-in model in one press.
   being written in the whole app; helpers run one after another (inside an answer and in `consult`); every request
   to an online model counts against the daily limit, `consult` notes included.
 - **Not done:** the real built-in model's answers could not be run here (the model hub is blocked): the
-  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines (passed on d02bb25; read the run for
-  the latest push); Landry's computer was not tested; web
+  `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (every must-check
+  passed on d02bb25 and 56aae46; the small model rarely uses its tools itself, so ClipForge's safety nets do the
+  remembering; PR #37 links the run on the final version). The Standard level a Mac with 16 GB or more gets can be
+  run by hand on the Linux machine (`level: standard`, `machines: linux`; without a graphics chip its answers get
+  900 s there). Landry's computer was not tested; web
   research for the Researcher, a model per helper, helpers in parallel, pictures in the chat, voice (CLIPFORGE_AI.md,
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).

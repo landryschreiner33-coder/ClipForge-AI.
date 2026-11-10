@@ -262,7 +262,19 @@ it is used or saved (`tools.whole`, `tools.clean`): a character a model wrote as
 back together, and a stray half is left out, so an answer can always be saved, shown and sent on.
 
 The last round offers no tools ("Now reply to the owner. No more tools in this answer."). The words of every round are
-joined with an empty line.
+joined with an empty line, in the order they were said (`Outcome.text`). The Basic model on GitHub's machines began
+three rounds with the same "Here are your projects:", which read as a stutter, so rounds are compared by their words
+(lower case, without punctuation; a word is letters, marks and digits, so Thai tone marks and Devanagari vowel signs
+count). A round whose words are only the start of the words of an earlier round, or of several earlier rounds in a
+row, adds nothing; one that begins with the words of one or more earlier rounds in a row and goes on replaces them, at
+the end, so the answer still ends with its last round. A round of fewer than three words counts as said again only
+where its words end a phrase ("Got it." is in "Got it, I'll remember that.", but the answer "No." is not in "No
+problem, let me look."; "Step 1" is never in "Step 10"), and a round without words (an emoji) only with the very same
+characters. The round being written is shown once it has a word that is not only the start of the words of earlier
+rounds in a row (its last word may be unfinished), so a repeated lead-in, or a lone "**" before the first word, never
+flashes up. A round that only says earlier words again adds nothing even when it is the last round, so an answer can
+still end on an earlier round: "Here are your projects:", "Let me check the clips." and "Here are your projects:"
+again show as the first two.
 
 **Streaming.** `llm.converse(…, on_text)` reports the answer while it is written; `partial_say` reads the words of
 `say` written so far (escapes, and a character written as two escapes, put back together) and the message is saved
@@ -332,14 +344,14 @@ files or their sound."), `used` and `knowhow` (what it read), and, as it works, 
 change) and, on a helper's own answer, `agent`. Limits: a message is at most 4,000 characters; a chat keeps its last
 200 messages.
 
-**The daily limit for an online AI** (`clipfoundry/brain/allowance.py`, Settings → ClipForge AI,
-`ai_edit_requests_per_day`, "AI requests a day"; 0 never sends one) counts requests, one by one: every round of
+**The daily limit for an online AI** (`clipfoundry/brain/allowance.py`, "AI requests a day" in Settings → Advanced,
+`ai_edit_requests_per_day`; 0 never sends one) counts requests, one by one: every round of
 ClipForge AI's answer, every round of a helper it asks or you talk to, every note a helper writes for the new-video
 planner, and the editor's change requests sent to an online AI (its `sent` line starts with
 `allowance.SENT_ONLINE`, "Sent over the internet"). Each request ClipForge AI or a helper sends is one `ai_usage` row
 (provider `clipforge_ai:<workspace>`, the day, the task `chat`, `helper` or `helper_note`, the model, the message).
 At the limit a message is not answered ("Today's limit of N requests to your online AI is reached (Settings →
-ClipForge AI). Nothing was sent."); an answer that reaches it midway keeps what it wrote and did and ends with "…
+Advanced, “AI requests a day”). Nothing was sent."); an answer that reaches it midway keeps what it wrote and did and ends with "…
 So I stopped here."; a helper says so instead of working; the planner gets no more notes. A model on this computer
 never counts and never limits ClipForge AI; the editor keeps its own limit of its requests to it, as always (its
 own requests that day). "On this computer" (`llm.is_local`) is the built-in model, or Ollama or an OpenAI-style
@@ -355,7 +367,9 @@ two parts asking at the same moment never send one more than the limit.
 json_schema, max_tokens, timeout, temperature, num_ctx, on_text, cancel)`): the whole conversation with a system
 text, for the built-in model (`builtin_ai.converse`: llama.cpp's `llama-server`, streamed as server-sent events),
 Ollama (`/api/chat`, streamed), OpenAI-style servers such as LM Studio or OpenRouter (`/chat/completions`, streamed),
-Anthropic and NVIDIA (answered at once; NVIDIA gets the conversation written out as one prompt). `timeout` bounds the
+Anthropic and NVIDIA (answered at once; NVIDIA gets the conversation written out as one prompt, without links and
+email addresses in it or in the instructions, and its oldest messages left out first when it is longer than NVIDIA's
+input limit, which would otherwise cut the newest message off its end). `timeout` bounds the
 whole streamed answer, not only its first word; `<think>` parts are left out; a server that fails in the middle of an
 answer is said in plain words; `Canceled` (a `ProviderError`) when `cancel()` stopped it. The built-in engine is
 never stopped as idle while it answers.

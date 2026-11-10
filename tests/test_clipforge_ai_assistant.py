@@ -536,6 +536,95 @@ def test_the_last_round_offers_no_tools_and_an_answer_has_at_most_max_steps_roun
     assert _think(fake, tl, max_steps=2).rounds == 2 and fake.tools_offered(1) == []
 
 
+def test_words_a_round_only_repeats_are_shown_once(data, monkeypatch):
+    """The real Basic model on GitHub's machines began three rounds with the same lead-in, and the answer read "Let me
+    look. Here are your projects: Here are your projects: Here are your projects:"."""
+    from clipfoundry.brain import assistant
+
+    monkeypatch.setattr(assistant, "WRITE_EVERY_S", 0.0)
+    tl = _test_tools([])
+    fake = install(monkeypatch, say("Let me look.", ("peek", {"words": "a"})),
+                   say("Here are your projects:", ("peek", {"words": "b"})),
+                   say("Here are your projects:", ("peek", {"words": "c"})), say("here are your projects"))
+    seen: list[str] = []
+    out = _think(fake, tl, on_change=lambda o: seen.append(o.text))
+    assert out.rounds == 4 and out.text == "Let me look.\n\nHere are your projects:"
+    assert seen[-1] == out.text and all(s.lower().count("here are") <= 1 for s in seen)  # never twice, even midway
+    # saying it again with more: the longer words take the place of the lead-in
+    fake = install(monkeypatch, say("Let me look.", ("peek", {"words": "a"})),
+                   say("Here are your projects:", ("peek", {"words": "b"})),
+                   say("Here are your projects: “Hike day” and “Lake day”."))
+    assert _think(fake, tl).text == "Let me look.\n\nHere are your projects: “Hike day” and “Lake day”."
+    # different words are all kept, in order, even when they start alike
+    fake = install(monkeypatch, say("Let me look.", ("peek", {"words": "a"})), say("Let me think: two things."))
+    assert _think(fake, tl).text == "Let me look.\n\nLet me think: two things."
+    # words without letters are compared as they are
+    assert assistant.Outcome(says=["👍", "👍", "Done."]).text == "👍\n\nDone."
+    assert assistant.Outcome(says=["👍"], live="Done").text == "👍\n\nDone"
+
+
+def test_repeated_words_keep_the_rounds_in_order_and_never_swallow_an_answer(data, monkeypatch):
+    """A round that says an earlier lead-in again goes last, where it was said, so the answer never ends on "Let me
+    check …"; and a short answer that only starts like an earlier round ("No." after "Now let me check …") stays."""
+    from clipfoundry.brain import assistant
+
+    monkeypatch.setattr(assistant, "WRITE_EVERY_S", 0.0)
+    tl = _test_tools([])
+    fake = install(monkeypatch, say("Let me look.", ("peek", {"words": "a"})),
+                   say("Here are your projects:", ("peek", {"words": "b"})),
+                   say("Let me check Hike day's clips.", ("peek", {"words": "c"})),
+                   say("Here are your projects: Hike day and Lake day. Hike day has no clips yet."))
+    seen: list[str] = []
+    out = _think(fake, tl, on_change=lambda o: seen.append(o.text))
+    assert out.text == ("Let me look.\n\nLet me check Hike day's clips.\n\n"
+                        "Here are your projects: Hike day and Lake day. Hike day has no clips yet.")
+    assert all(s.lower().count("here are") <= 1 for s in seen)
+    # each text shown while the last round is written goes on from the one before (the round is written at the end)
+    tail = [s for s in seen if "Hike day and" in s]
+    assert tail and all(b.startswith(a) for a, b in zip(tail, tail[1:]))
+
+    def text(*says: str, live: str = "") -> str:
+        return assistant.Outcome(says=list(says), live=live).text
+
+    # earlier rounds said again in one go make way for it
+    assert text("Let me look.", "Here are your projects:", "Let me look. Here are your projects: Hike day.") == \
+        "Let me look. Here are your projects: Hike day."
+    # a stopped answer ends with the words being written
+    assert text("Here are your projects:", "Let me check the clips.", live="Here are your projects: Hike") == \
+        "Let me check the clips.\n\nHere are your projects: Hike"
+    # short answers that only start like an earlier round are answers
+    for first, answer in [("Now let me check whether anything is running.", "No."),
+                          ("No problem, let me look.", "No."), ("Not really sure, let me look.", "Not really."),
+                          ("Vlog 10 has the most views; let me check it.", "Vlog 1."),
+                          ("Step 10: add the outro.", "Step 1"), ("Yesterday's render: let me check it.", "Yes."),
+                          ("ใช้เวลาสักครู่ ขอดูก่อนนะ", "ใช่"), ("हम देखते हैं।", "हाँ।"), ("不用担心，我来查一下。", "不。")]:
+        assert text(first, answer) == f"{first}\n\n{answer}", answer
+    # while it is written it may still become the same words, so it shows once it is said
+    assert text("Now let me check whether anything is running.", live="No") == \
+        "Now let me check whether anything is running."
+    assert text("No.", "No problem: here are your projects.") == "No.\n\nNo problem: here are your projects."
+    assert text("Let me look.", "No.", "Let me look. No problem, here they are.") == \
+        "No.\n\nLet me look. No problem, here they are."
+    # the same short words ending a phrase are said again
+    assert text("Got it.", "Got it, I'll remember that.") == "Got it, I'll remember that."
+    assert text("No.", "No. Nothing is running.") == "No. Nothing is running."
+    assert text("这是你的项目：", "这是你的项目：A和B。") == "这是你的项目：A和B。"
+    assert text("Done.", "done") == "Done."
+    # several earlier rounds said again in one round: nothing new while it is written, nothing new once it ends there
+    assert text("Let me look.", "Here are your projects:", live="Let me look. Here are") == \
+        "Let me look.\n\nHere are your projects:"
+    answer = "Here are your projects: Hike day and Lake day."
+    assert text("Let me look.", answer, "Let me look. Here are your projects:") == f"Let me look.\n\n{answer}"
+    # a start without words is not shown as a line of its own
+    for first, live in [("**Here are your projects:**", "**"), ("📂 Here are your projects:", "📂"), ("🎉🎉", "🎉"),
+                        ("Let me look.", "**")]:
+        assert text(first, live=live) == first
+    assert text(live="**") == "" and text("Hi.", "🎉") == "Hi.\n\n🎉"
+    assert text("📂 Here are your projects:", live="📂 Here are your projects: Hike day.") == \
+        "📂 Here are your projects: Hike day."
+    assert text("👍", live="👍 Do") == "👍 Do"
+
+
 def test_on_change_is_called_while_the_answer_streams(data, monkeypatch):
     from clipfoundry.brain import assistant
 
@@ -1081,7 +1170,7 @@ def test_every_request_to_an_online_ai_counts_against_the_daily_limit(data, monk
     m = settled(c["id"], _say(c["id"], "more angles?")["id"])
     assert len(fake.calls) == 2 and allowance.used(WS) == 5
     assert m["status"] == "done" and m["text"] == ("Today's limit of 5 requests to your online AI is reached (Settings "
-                                                   "→ ClipForge AI). So I stopped here.")
+                                                   "→ Advanced, “AI requests a day”). So I stopped here.")
     assert [h["text"] for h in m["data"]["helpers"]] == ["Angle: the lake."]  # the helper's work stands
     m = _say(c["id"], "and one more?")  # nothing is left: not even started
     assert m["status"] == "failed" and m["text"].endswith("Nothing was sent.") and len(fake.calls) == 2
@@ -1196,8 +1285,9 @@ def test_the_editor_and_the_chat_count_under_one_lock(env, monkeypatch):
 
     monkeypatch.setattr(er, "_recall", recall)
     r = er.ask(pid, WS, "Make the ending punchier")
-    assert r["status"] == "failed" and r["message"].startswith("Today's limit of 3 requests to your online AI is "
-                                                               "reached (Settings → ClipForge AI). Nothing was sent;")
+    assert r["status"] == "failed" and r["message"].startswith(
+        "Today's limit of 3 requests to your online AI is reached (Settings → Advanced, “AI requests a day”). Nothing "
+        "was sent;")
     assert fake_ai.prompts == [] and allowance.used(WS) == 3
 
 

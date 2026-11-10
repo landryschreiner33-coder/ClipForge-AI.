@@ -782,8 +782,8 @@ def ask(project_id: str, ws: str, text: str, base_revision: int | None = None) -
     def at_limit() -> dict:
         failed.update(status="failed", message=(
             (allowance.message(settings) if online else f"Today's limit of {limit} AI requests is reached (Settings "
-             "→ ClipForge AI).") + " Nothing was sent; the editor's controls and the requests ClipForge understands "
-            "on its own still work."))
+             "→ Advanced, “AI requests a day”).") + " Nothing was sent; the editor's controls and the requests "
+            "ClipForge understands on its own still work."))
         return _view(db.insert("edit_requests", failed))
 
     with _lock:

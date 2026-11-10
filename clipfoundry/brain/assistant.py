@@ -20,6 +20,7 @@ import logging
 import re
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -347,6 +348,80 @@ def parse_reply(raw: str) -> dict:
 
 
 # ------------------------------------------------------------------ one answer's rounds
+REPEAT_WORDS = 3  # a round of fewer words is said again only where its words end a phrase: "Got it." is in "Got it,
+#                   I'll remember that.", but "No." (an answer) is not in "No problem, let me look."
+
+
+def _wordy(ch: str) -> bool:
+    return unicodedata.category(ch)[0] in "LMN"
+
+
+def _plain(text: str) -> str:
+    """`text`'s words for comparing rounds: lower case, without punctuation or symbols. A word is letters, marks and
+    digits, so a Thai tone mark or a Devanagari vowel sign still tells two words apart."""
+    words, word = [], []
+    for ch in unicodedata.normalize("NFC", text).lower():
+        if _wordy(ch):
+            word.append(ch)
+        elif word:
+            words.append("".join(word))
+            word = []
+    return " ".join(words + (["".join(word)] if word else []))
+
+
+def _after(text: str, words: int) -> str:
+    """`text` after its first `words` words (as `_plain` counts them) and the spaces that follow them."""
+    seen, inside = 0, False
+    for i, ch in enumerate(text):
+        if _wordy(ch):
+            inside = True
+        elif inside:
+            inside, seen = False, seen + 1
+            if seen == words:
+                return text[i:].lstrip()
+    return ""
+
+
+def _begins(said: tuple[str, str], start: tuple[str, str], before: str = "") -> bool:
+    """Whether a finished round begins by saying another round's words again (right after the words `before`). Each
+    round is (its words as said, stripped and lower case; its words plainly). Whole words ("Step 1" is not in
+    "Step 10"); a round without words only with the very same characters; one of fewer than REPEAT_WORDS words only
+    where its words end a phrase."""
+    (raw, plain), (s_raw, s_plain) = said, start
+    if not s_plain:
+        return not before and raw.startswith(s_raw)
+    head = f"{before} {s_plain}".strip()
+    if not f"{plain} ".startswith(f"{head} "):
+        return False
+    rest = _after(raw, len(head.split()))
+    return len(s_plain.split()) >= REPEAT_WORDS or not rest or not _wordy(rest[0])
+
+
+def _make_way(kept: list[tuple[str, str, str]], new: tuple[str, str]) -> list[tuple[str, str, str]]:
+    """`kept` without the first rounds in a row that the new round begins by saying again (one, or several one after
+    another: "Let me look. Here are your projects: …" after "Let me look." and "Here are your projects:")."""
+    for i, (_said, raw, plain) in enumerate(kept):
+        if not _begins(new, (raw, plain)):
+            continue
+        j, joined = i + 1, plain
+        while j < len(kept) and kept[j][2] and _begins(new, kept[j][1:], joined):
+            joined = f"{joined} {kept[j][2]}".strip()
+            j += 1
+        return kept[:i] + kept[j:]
+    return kept
+
+
+def _runs(kept: list[tuple[str, str, str]]):
+    """Each kept round, and each run of rounds in a row that it starts, joined (a round without words stands alone)."""
+    for i, (_said, raw, plain) in enumerate(kept):
+        yield raw, plain
+        for _s, more_raw, more_plain in kept[i + 1:] if plain else []:
+            if not more_plain:
+                break
+            raw, plain = f"{raw} {more_raw}", f"{plain} {more_plain}"
+            yield raw, plain
+
+
 @dataclass
 class Outcome:
     """What one answer said and did, as it goes."""
@@ -360,8 +435,24 @@ class Outcome:
 
     @property
     def text(self) -> str:
-        parts = [s for s in self.says + ([self.live] if self.live else []) if s.strip()]
-        return "\n\n".join(parts)[:SAY_CHARS]
+        """Every round's words in the order they were said, the round being written last. A small model can begin
+        each round with the same lead-in ("Here are your projects:"), which read as a stutter: a round that only says
+        again what earlier rounds began with (one round, or several in a row) adds nothing, and one that begins by
+        saying earlier rounds again, and goes on, is shown in their place at the end (`_runs`, `_begins`,
+        `_make_way`). The round being written shows once it has a word that is not only the start of earlier rounds'
+        words (its last word may be unfinished)."""
+        kept: list[tuple[str, str, str]] = []  # (the round as said, stripped and lower case, its words plainly)
+        for said, live in [(s, False) for s in self.says] + ([(self.live, True)] if self.live else []):
+            new = (unicodedata.normalize("NFC", said).strip().lower(), _plain(said))
+            if not new[0]:
+                continue
+            if live:
+                if not new[1] or any(plain.startswith(new[1]) for _raw, plain in _runs(kept)):
+                    continue
+            elif any(_begins(run, new) for run in _runs(kept)):
+                continue
+            kept = _make_way(kept, new) + [(said, *new)]
+        return "\n\n".join(said for said, _r, _p in kept)[:SAY_CHARS]
 
     def merge(self, data: dict) -> None:
         for k, v in (data or {}).items():

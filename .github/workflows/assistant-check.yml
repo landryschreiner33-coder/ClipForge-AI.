@@ -16,10 +16,15 @@ on:
         type: choice
         options: [basic, standard]
         default: basic
+      machines:
+        description: 'Where to talk with it: both machines, or only the Linux one (16 GB of memory, enough for standard) or the Mac (7 GB)'
+        type: choice
+        options: [both, linux, mac]
+        default: both
 permissions:
   contents: read
-concurrency:
-  group: assistant-check-${{ github.ref }}
+concurrency:  # a newer push cancels an older one; a run by hand never cancels a push's run, nor one with other choices
+  group: assistant-check-${{ github.ref }}-${{ github.event_name }}-${{ inputs.level || 'basic' }}-${{ inputs.machines || 'both' }}
   cancel-in-progress: true
 jobs:
   check:
@@ -27,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        os: ${{ fromJSON(inputs.machines == 'linux' && '["ubuntu-latest"]' || inputs.machines == 'mac' && '["macos-15"]' || '["ubuntu-latest", "macos-15"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
