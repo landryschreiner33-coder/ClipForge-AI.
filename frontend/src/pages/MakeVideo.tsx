@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, fmtTime } from "../api";
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptDrop } from "../components/ScriptDrop";
@@ -6,7 +6,7 @@ import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow } fr
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast, usePoll } from "../components/ui";
 import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
-import { navigate } from "../router";
+import { navigate, redirect, useLeaveGuard } from "../router";
 import { Asset, PlanFields, Script, SetupFile, SetupMessage, SetupMode, SetupQuestion, studio, VideoSetup } from "../studio";
 import "../videoSetup.css";
 
@@ -36,7 +36,7 @@ function ideaFromLink(): string {
 function ModelLine({ model }: { model: VideoSetup["model"] | null }) {
   if (!model) return null;
   return model.ready
-    ? <p className="small muted">ClipForge AI uses {model.label}{model.local ? ", on this computer" : ", over the internet"}. It reads text only: your idea, the conversation, your file names and what is said in your videos. <a href="#/settings/ai">Change</a></p>
+    ? <p className="small muted">ClipForge AI uses {model.label}{model.local ? ", on this computer" : ", over the internet"}. It reads text only: your idea, the conversation, your file names, what is said in your videos, and the memories, know-how and helper notes that fit your idea. <a href="#/settings/ai">Change</a></p>
     : <p className="small muted">ClipForge AI has no model yet, so its built-in rules read what you say (lengths, shapes, feel, music, captions, what to keep or cut, how it opens). <a href="#/settings/ai">Set up the free built-in model</a> to talk about anything.</p>;
 }
 
@@ -60,6 +60,7 @@ function Start() {
   const [model, setModel] = useState<VideoSetup["model"] | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const removed = useRef(new Set<string>());  // taken out: an upload still finishing does not bring it back
 
   useEffect(() => {
     let alive = true;
@@ -85,6 +86,7 @@ function Start() {
   });
   const addLinked = (assets: Asset[]) => {
     const rows = assets.map(linkedRow);
+    rows.forEach((r) => removed.current.delete(r.key));
     setLinked((l) => [...l, ...rows.filter((r) => !l.some((x) => x.key === r.key))]);
     setOrder((o) => [...o, ...rows.map((r) => r.key).filter((k) => !o.includes(k))]);
   };
@@ -113,8 +115,9 @@ function Start() {
           <section className="panel" aria-labelledby="vs-files-h">
             <h2 id="vs-files-h">Your files</h2>
             <FileDrop accept={ACCEPT} multiple label="Drop videos, pictures and sounds here (as many as you like)"
+              onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))}
               onAssets={(rows) => { setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
-                ...rows.map((r) => r.key).filter((k) => !o.includes(k))]); }} />
+                ...rows.map((r) => r.key).filter((k) => !o.includes(k) && !removed.current.has(k))]); }} />
             {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
             {browsing && <LocalFiles onLinked={addLinked} onClose={() => setBrowsing(false)} />}
             {ordered.length > 1 && <p className="small muted">Videos and pictures start in this order. ClipForge AI listens to every video as soon as you start, so it knows what is said in them while you plan.</p>}
@@ -126,7 +129,11 @@ function Start() {
                   <UploadRow row={f} extra={<>
                     <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.file.name} up`} disabled={i === 0} onClick={() => move(f.key, -1)}><Icon name="chev" className="vs-up" /></button>
                     <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.file.name} down`} disabled={i === ordered.length - 1} onClick={() => move(f.key, 1)}><Icon name="chev" className="vs-down" /></button>
-                    <button type="button" className="btn btn-small btn-icon" aria-label={`Remove ${f.file.name}`} onClick={() => setOrder((o) => o.filter((k) => k !== f.key))}><Icon name="x" /></button>
+                    <button type="button" className="btn btn-small btn-icon" aria-label={`Remove ${f.file.name}`} onClick={() => {
+                      removed.current.add(f.key);
+                      if (!f.asset) f.cancel?.();  // no need to finish uploading it
+                      setOrder((o) => o.filter((k) => k !== f.key));
+                    }}><Icon name="x" /></button>
                   </>} />
                 </li>
               ))}
@@ -197,12 +204,20 @@ function Planning({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [building, setBuilding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [uploading, setUploading] = useState(0);
   const changed = useChanged(s?.plan);
   const log = useRef<HTMLDivElement>(null);
+  const sayBox = useRef<HTMLTextAreaElement>(null);
+  const handButton = useRef<HTMLButtonElement>(null);
+  // the conversation and the plan are saved as you go; what is not saved yet is said before you leave
+  const unsaved = [editing && "your changes to the plan", text.trim() && "the message you are writing",
+    uploading > 0 && "files still uploading"].filter(Boolean).join(", ");
+  useLeaveGuard(useMemo(() => (unsaved ? { what: unsaved } : null), [unsaved]));
   const last = s?.messages[s.messages.length - 1];
 
   useEffect(() => {
-    if (s && !s.planning) navigate(`video/${s.id}`);  // built (here, or from the ClipForge AI panel), or never planned here
+    if (s && !s.planning) redirect(`video/${s.id}`);  // built (here, or from the ClipForge AI panel), or never planned here
   }, [s?.planning, s?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = log.current;
@@ -232,8 +247,9 @@ function Planning({ id }: { id: string }) {
     try {
       const out = await studio.sayToSetup(id, t, question);
       setData(out.setup);
-      if (!question) setText("");
+      if (!question) setText((now) => (now.trim() === t ? "" : now));  // words typed while it sent stay
       if (out.setup.thinking || out.setup.listening) refresh();
+      if (question) window.requestAnimationFrame(() => sayBox.current?.focus());  // the answers you tapped are gone
     } catch (e) {
       setProblem(errorText(e));
     }
@@ -244,7 +260,7 @@ function Planning({ id }: { id: string }) {
     setProblem("");
     try {
       const out = await studio.buildSetup(id, mode);
-      navigate(out.href);
+      redirect(out.href);  // Back from the editor does not land on a page that sends you on again
     } catch (e) {
       setProblem(errorText(e));
       setBuilding(false);
@@ -258,7 +274,16 @@ function Planning({ id }: { id: string }) {
       if (!ok) return;  // the form stays open with what you typed; the problem shows above
       toast("Plan saved");
     }
+    closeForm();
+  };
+  const closeForm = () => {
     setEditing(false);
+    window.requestAnimationFrame(() => handButton.current?.focus());
+  };
+  const stop = async () => {
+    setStopping(true);
+    await run(() => studio.stopSetup(id));
+    setStopping(false);
   };
   const ids = s.files.map((f) => f.id);
   const reorder = (next: string[]) => run(() => studio.changeSetup(id, { asset_ids: next }));
@@ -281,7 +306,7 @@ function Planning({ id }: { id: string }) {
   return (
     <div className="page">
       <PageHead kind="Make" title={s.name} crumbs={[{ label: "Projects", href: "#/projects" }, { label: s.name }]}
-        sub="Planning with ClipForge AI. Everything here is saved as you go: leave any time and come back from Projects." />
+        sub="Planning with ClipForge AI. The conversation and the plan are saved as you go: leave any time and come back from Projects." />
       {problem && <Banner tone="bad" title="That didn't work">{problem}</Banner>}
       <div className="studio-grid">
         <section className="panel" aria-labelledby="vs-talk-h">
@@ -295,14 +320,14 @@ function Planning({ id }: { id: string }) {
           <div className="vs-talk" ref={log} role="log" aria-live="polite" aria-label="Conversation with ClipForge AI">
             {s.messages.length === 0 && <p className="cfai-empty">Tell ClipForge AI your idea below.</p>}
             {s.messages.map((m) => (
-              <Message key={m.id} m={m} open={m === last ? open : []} busy={sending || building}
+              <Message key={m.id} m={m} open={m === last ? open : []} busy={sending || building} stopping={stopping}
                 onAnswer={(q, choice) => void say(choice, q.id)} onJustDoIt={() => void build("auto")}
-                onStop={() => void run(() => studio.stopSetup(id))} />
+                onStop={() => void stop()} />
             ))}
           </div>
           <form className="vs-say" onSubmit={(e) => { e.preventDefault(); void say(text); }}>
             <label className="sr-only" htmlFor="vs-say-box">Tell ClipForge AI</label>
-            <textarea id="vs-say-box" value={text} maxLength={4000} onChange={(e) => setText(e.target.value)} onKeyDown={keyDown}
+            <textarea id="vs-say-box" ref={sayBox} value={text} maxLength={4000} onChange={(e) => setText(e.target.value)} onKeyDown={keyDown}
               placeholder={s.messages.some((m) => m.role === "owner") ? "Change something: “make it 8 minutes”, “no music”, “open with the jump”…"
                 : "Tell ClipForge AI your idea: what happens, who it's for, how long, the feel…"} />
             <div className="vs-say-row">
@@ -318,18 +343,18 @@ function Planning({ id }: { id: string }) {
             <div className="panel-head"><h2 id="vs-plan-h">The plan</h2>
               {s.planned && <span className="small muted">{s.source === "ai" ? "Written by ClipForge AI" : "Read by the built-in rules"}</span>}</div>
             {editing
-              ? <PlanForm plan={s.plan} files={s.files} busy={saving} saveLabel="Save the plan" onSave={savePlan} onCancel={() => setEditing(false)} />
+              ? <PlanForm plan={s.plan} files={s.files} busy={saving} saveLabel="Save the plan" onSave={savePlan} onCancel={closeForm} />
               : <PlanSheet name={s.name} plan={s.plan} files={s.files} changed={changed} />}
             {!editing && <div className="vs-plan-actions">
               <button type="button" className="btn btn-primary" disabled={building || s.thinking} onClick={() => void build()}>
                 <Icon name="create" />{building ? "Starting…" : "Build my video"}</button>
-              <button type="button" className="btn" onClick={() => setEditing(true)}><Icon name="edit" />Change it by hand</button>
+              <button type="button" ref={handButton} className="btn" onClick={() => setEditing(true)}><Icon name="edit" />Change it by hand</button>
             </div>}
             {s.thinking && !editing && <p className="small muted">Build my video waits until ClipForge AI has answered.</p>}
             {s.locked.length > 0 && !editing && <p className="small muted">What you changed by hand stays as you set it until you talk about it again.</p>}
           </section>
           <FilesPanel s={s} onMove={move} onRemove={(fid) => void reorder(ids.filter((x) => x !== fid))}
-            onAdded={() => refresh()} onProblem={setProblem} />
+            onAdded={() => refresh()} onProblem={setProblem} onUploading={setUploading} />
           <MoreChoices s={s} run={run} />
         </div>
       </div>
@@ -338,8 +363,8 @@ function Planning({ id }: { id: string }) {
 }
 
 /** One message of the conversation. The newest answer carries the open questions with quick answers. */
-function Message({ m, open, busy, onAnswer, onJustDoIt, onStop }: {
-  m: SetupMessage; open: SetupQuestion[]; busy: boolean; onAnswer: (q: SetupQuestion, choice: string) => void;
+function Message({ m, open, busy, stopping, onAnswer, onJustDoIt, onStop }: {
+  m: SetupMessage; open: SetupQuestion[]; busy: boolean; stopping: boolean; onAnswer: (q: SetupQuestion, choice: string) => void;
   onJustDoIt: () => void; onStop: () => void;
 }) {
   if (m.role === "owner") return <div className="cfai-msg owner"><p className="vs-text">{m.text}</p></div>;
@@ -347,7 +372,7 @@ function Message({ m, open, busy, onAnswer, onJustDoIt, onStop }: {
     return (
       <div className="cfai-msg ai" aria-busy="true">
         <div className="vs-thinking"><span className="inline-spinner" aria-hidden="true" />Thinking about your video…</div>
-        <div><button type="button" className="btn btn-small" onClick={onStop}><Icon name="stop" />Stop</button></div>
+        <div><button type="button" className="btn btn-small" disabled={stopping} onClick={onStop}><Icon name="stop" />{stopping ? "Stopping…" : "Stop"}</button></div>
       </div>
     );
   }
@@ -413,9 +438,9 @@ function Heard({ f }: { f: SetupFile }) {
 }
 
 /** The draft's files, with what was heard in each; reorder, take out or add more. */
-function FilesPanel({ s, onMove, onRemove, onAdded, onProblem }: {
+function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   s: VideoSetup; onMove: (id: string, by: number) => void; onRemove: (id: string) => void; onAdded: () => void;
-  onProblem: (text: string) => void;
+  onProblem: (text: string) => void; onUploading: (count: number) => void;
 }) {
   const [uploads, setUploads] = useState<Picked[]>([]);
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
@@ -426,8 +451,9 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem }: {
     studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
     return () => { alive = false; };
   }, []);
-  const add = (assetIds: string[]) => {
-    const fresh = assetIds.filter((a) => !added.current.has(a));
+  const add = (assetIds: string[], again = false) => {
+    if (again) assetIds.forEach((a) => added.current.delete(a));  // picked on purpose: also one taken out before
+    const fresh = assetIds.filter((a) => !added.current.has(a) && !s.files.some((f) => f.id === a));
     if (!fresh.length) return;
     fresh.forEach((a) => added.current.add(a));
     studio.addVideoMedia(s.id, fresh).then(onAdded).catch((e) => {
@@ -435,9 +461,17 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem }: {
       onProblem(errorText(e));
     });
   };
-  // a file joins the video as soon as its upload finishes
-  useEffect(() => add(uploads.filter((r) => r.asset).map((r) => r.asset!.id)), [uploads]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // files join the video in the order you dropped them, each as soon as it and the ones before it have uploaded
+  useEffect(() => {
+    const ready: string[] = [];
+    for (const r of uploads) {
+      if (r.asset) ready.push(r.asset.id);
+      else if (!r.error) break;
+    }
+    add(ready);
+  }, [uploads]);  // eslint-disable-line react-hooks/exhaustive-deps
   const sending = uploads.filter((r) => !r.asset && !r.error);
+  useEffect(() => onUploading(sending.length), [sending.length]);  // eslint-disable-line react-hooks/exhaustive-deps
   const videos = s.files.filter((f) => f.kind === "video").length;
   return (
     <section className="panel" aria-labelledby="vs-files-h">
@@ -465,9 +499,10 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem }: {
       <p className="small muted">Videos and pictures play in this order. Moving one keeps your order over the plan's.</p>
       <Disclosure summary="Add files">
         <div className="stack-3">
-          <FileDrop accept={ACCEPT} multiple label="Drop more videos, pictures and sounds" onAssets={setUploads} />
+          <FileDrop accept={ACCEPT} multiple label="Drop more videos, pictures and sounds" onAssets={setUploads}
+            onPicked={(keys) => add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!.id), true)} />
           {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer</button>}
-          {browsing && <LocalFiles onLinked={(assets) => add(assets.map((a) => a.id))} onClose={() => setBrowsing(false)} />}
+          {browsing && <LocalFiles onLinked={(assets) => add(assets.map((a) => a.id), true)} onClose={() => setBrowsing(false)} />}
         </div>
       </Disclosure>
     </section>

@@ -1,5 +1,45 @@
 # AI changelog
 
+## Make a YouTube video: review fixes — 2026-11-10 (Claude Code)
+
+A review of PR #38 (branch `claude/project-thread-2wwa4c`) found misreadings and rough edges; all fixed with a test
+for each. No release. Details: [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The built-in rules** (`studio/video_setup.py`): a no in front of captions, zooms, sound effects, music or a shape
+  ("I don't want captions", "skip the captions", "without background music", "not a TikTok"), while "don't forget
+  the captions" and "I don't mind music" are a yes and "not sure about captions" says neither; keep and cut only when
+  asked for, turned round by "don't"/"never"/"can't" ("don't ever cut the sunset" keeps it), let go by "you don't
+  have to"; the length asked for, not the footage's ("my footage is 2 hours, I want a 15 minute video" is 15),
+  "not 12 minutes", "hold on a sec"; editing off only for the whole video; shape words only about the video; no
+  story from a list of changes, no title from "call it a day"; "start from the beginning" clears the opening; named
+  sounds read clause by clause. "As long as it needs" is its own choice (`NO_LENGTH` = -1: no fit, the style's
+  length does not apply).
+- **Merging**: with a model, its reading of the newest message wins; the rules only fill what it left as it was or
+  empty; a part said in an earlier message or set by hand is not changed unless the newest message talks about it;
+  a hand edit made while it was answering stays (`locked_at`). Without a model only the newest message is read, so a
+  kept or cut item taken out by hand stays out.
+- **Stop and Build**: an answer that arrives after Stop changes nothing (taken in under the lock, only while still
+  "thinking"); three answers at a time; Build after a stopped first answer reads everything said (what you set by
+  hand since stays) and plans in the build job; a build-time request that runs too long is told to stop; every
+  online request that went out counts toward the daily limit, also a failed one.
+- **After the build** (`change_plan`, `video_flow.smart_job`, `_jump`): only the brief fields the change moved are
+  set (editor choices and `ai_edit` stay); the plan's music and voiceovers carry `"brief": true` and are placed again
+  from the plan (a sound changed by hand stays yours); a new order is the bin's order; the look is compared with the
+  current version; Undo/redo/going back bring back the plan each version was made with (`setup.plans`) and the brief
+  fields it set; a failed edit puts the plan, brief, name and order back; supporting media only at the build.
+  `smart_edit.plan_words` is empty for videos made without a plan.
+- **Inputs and privacy**: `asset_ids`, `remember` and file numbers are checked (422, not 500); the listening job is
+  keyed by the set of files (`video_flow.bin_key`); what is sent now names memories, know-how and helper notes
+  (`_sent`, Make a YouTube video, `docs/legal/privacy.html`).
+- **The pages**: the plan form saves only what you changed since it opened; Length is From your style / As long as it
+  needs / About…; the music file is never also a voiceover; Back from the editor skips the planning page
+  (`router.redirect`); a file taken out stays out while others upload, and can be picked again; added files keep the
+  order you dropped them in; unsaved words, form changes and uploads are named before you leave; words typed while
+  a message sends stay; focus returns after a quick answer, Save or Cancel; Stop shows Stopping…; the editor's plan
+  says what an empty plan means and hides Supporting media.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py` (new tests for each fix),
+  `e2e/sandbox/video-setup.spec.ts` (Back after Build); `frontend/dist` rebuilt.
+
 ## Make a YouTube video: drop in your files, tell ClipForge AI your idea, plan it together — 2026-11-08 (Claude Code)
 
 Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI your idea and plan, and it

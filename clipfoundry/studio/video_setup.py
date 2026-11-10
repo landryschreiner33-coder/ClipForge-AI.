@@ -30,6 +30,7 @@ TRI = ("captions", "pictures", "sound_effects", "zooms", "cold_open")
 TEXT = {"title": 120, "summary": 300, "video_type": 80, "audience": 120, "goal": 200, "opening": 200}
 LISTS = {"story": (8, 160), "keep": (12, 80), "cut": (12, 80), "notes": (6, 200)}
 LENGTH_MIN, LENGTH_MAX = 0.25, 240.0
+NO_LENGTH = -1.0  # "as long as it needs": decided, with no length to fit (0 = not decided: your style decides)
 MODES = ("ask", "auto")
 MESSAGE_CHARS = 4000     # one message from the owner (an idea and a plan can be long; the chat's own limit)
 SAY_CHARS = 600          # ClipForge AI's own words in one answer
@@ -86,7 +87,11 @@ def _length(value: object) -> float:
         v = float(str(value).replace(",", ".")) if isinstance(value, (int, float, str)) else 0.0
     except ValueError:
         return 0.0
-    if not math.isfinite(v) or v <= 0:
+    if not math.isfinite(v):
+        return 0.0
+    if v == NO_LENGTH:
+        return NO_LENGTH
+    if v <= 0:
         return 0.0
     return round(min(LENGTH_MAX, max(LENGTH_MIN, v)), 2)
 
@@ -114,7 +119,7 @@ def _file(value: object, files: list[dict], allowed: list[dict]) -> str:
     ids = {f["id"] for f in allowed}
     if isinstance(value, bool):
         return ""
-    if isinstance(value, int) or (isinstance(value, str) and value.strip().isdigit()):
+    if isinstance(value, int) or (isinstance(value, str) and re.fullmatch(r"[0-9]{1,6}", value.strip())):
         n = int(value)
         return files[n - 1]["id"] if 1 <= n <= len(files) and files[n - 1]["id"] in ids else ""
     return value if isinstance(value, str) and value in ids else ""
@@ -160,6 +165,8 @@ def clean_plan(raw: object, files: list[dict]) -> dict:
     order = [_file(v, files, visual) for v in _as_list(raw.get("order"))[:MAX_FILES_IN_PLAN]]
     order = [x for x in dict.fromkeys(order) if x]
     out["order"] = order + [f["id"] for f in visual if f["id"] not in order] if order else []
+    if out["cold_open"] == "off":
+        out["opening"] = ""  # it opens with the beginning
     return out
 
 
@@ -183,7 +190,9 @@ def plan_to_brief(plan: dict) -> dict:
     for key in ("video_type", "audience", "goal"):
         if plan.get(key):
             b[key] = plan[key]
-    if plan.get("length_min"):
+    if plan.get("length_min") == NO_LENGTH:
+        b["target_duration_s"] = 0  # as long as it needs: no fit, and your style's length does not apply
+    elif plan.get("length_min"):
         b["target_duration_s"] = round(float(plan["length_min"]) * 60, 1)
     if plan.get("aspect_ratio"):
         b["aspect_ratio"] = plan["aspect_ratio"]
@@ -239,7 +248,9 @@ def plan_lines(plan: dict, files: list[dict]) -> list[str]:
         out.append(f"For: {plan['audience']}")
     if plan.get("goal"):
         out.append(f"Goal: {plan['goal']}")
-    if plan.get("length_min"):
+    if plan.get("length_min") == NO_LENGTH:
+        out.append("Length: as long as it needs")
+    elif plan.get("length_min"):
         out.append(f"Length: about {_minutes(plan['length_min'])} minutes")
     if plan.get("aspect_ratio"):
         out.append(f"Shape: {SHAPE_WORDS[plan['aspect_ratio']]}")
@@ -291,6 +302,47 @@ _UNIT_S = r"(?:seconds?|secs?)\b"
 _NO_LENGTH = re.compile(r"\b(?:as long as (?:it needs|needed|it takes|you want|you like)|any length|no (?:set |fixed )?"
                         r"length|(?:doesn'?t|does not) matter how long|however long)\b")
 _TIMESTAMP_BEFORE = re.compile(r"\b(?:at|after|until|till|from|first|last|minute|around the|the first|the last)\s+$")
+_LENGTHS = ((r"\bhalf (?:an |a )?hour\b", "half"), (r"\b(?:an |one )?hour and a half\b", "hour_half"),
+            (rf"{_NUM}\s*(?:-|–|to)\s*{_NUM}\s*{_UNIT_MIN}", "range"),
+            (rf"\b(?:under|less than|at most|max(?:imum)?|no (?:more|longer) than|shorter than|below)"
+             rf"\s+{_NUM}[\s-]*{_UNIT_MIN}", "under"),
+            (rf"\b{_NUM}[\s-]*{_UNIT_H}", "h"), (rf"\b{_NUM}[\s-]*{_UNIT_MIN}", "min"),
+            (rf"\b{_NUM}[\s-]*{_UNIT_S}", "s"),
+            (rf"\b(?:make it|keep it|cut it(?: down)? to|trim it(?: down)? to|get it(?: down)? to|"
+             rf"bring it(?: down)? to|aim for|target)\s+(?:about |around |roughly |like |maybe |just |only )?{_NUM}"
+             rf"(?=\s*(?:$|[.,;!?\n]|or so\b|ish\b|please\b|tops\b|max\b|or less\b))", "bare"))
+# a number that is not the length asked for: how long the footage, a talk or a drive is ("my footage is 2 hours",
+# "20 minutes of footage", "my 30 minute talk", "we drove 6 hours"), "not 12 minutes", "hold on a sec"
+_SOURCE_BEFORE = re.compile(
+    r"\b(?:(?:footage|videos?|clips?|recordings?|talk|interview|stream|vod|podcast|drive|trip|walk|hike|flight|ride|"
+    r"game|match|session|lecture|meeting|raw|everything|it all|all of it|material|stuff|movie|film|original|files?)"
+    r"\s+(?:is|was|are|were|runs?|ran|lasts?|lasted|totals?|totaled|comes? to|came to|adds? up to|added up to)|"
+    r"(?:i|we) (?:have|had|got|'ve got|'ve|filmed|shot|recorded|captured)|there(?:'s| is| are| was| were)|"
+    r"(?:drove|driving|spent|spend|spending|waited|waiting|walked|walking|hiked|hiking|flew|flying|played|playing|"
+    r"streamed|streaming|took|takes|taking|sat|stayed|camped|fished|fishing|swam|swimming|biked|rode|riding|worked|"
+    r"working|cooked|baked|slept|filmed|recorded|talked|talking|lasted|lasts))"
+    r"(?:\s+(?:for|about|around|roughly|like|over|almost|nearly|maybe|probably|just|only|the|first|last|a|an|"
+    r"another|some|of))*\s*$")
+_SOURCE_AFTER = re.compile(
+    r"^(?:[\s-]*long)?\s*(?:of\b|worth of\b|(?:talk|interview|stream|vod|podcast|recording|drive|walk|hike|ride|"
+    r"flight|trip|session|lecture|class|meeting|game|match|lesson|sermon|speech|presentation|webinar|call|footage|"
+    r"raw|movie|film|ago|later|earlier|before|after|away|each|apiece|per|every)\b|in\b(?!\s+(?:length|total)))")
+_NOT_BEFORE = re.compile(r"\b(?:not|isn'?t|wasn'?t|never|instead of|rather than|than)(?:\s+(?:like|even|about|"
+                         r"around|just|only|a|an))*\s*$")
+_IDIOM_BEFORE = re.compile(r"\b(?:hold on|hang on|wait|give me|gimme|just|in|one|take|took|for|half)\s*$")
+_LENGTH_SIGNAL = re.compile(
+    r"\b(?:make|keep|cut|trim|get|bring|turn|into|to|want|need|like|aim|target|targeting|around|about|roughly|"
+    r"approximately|approx|under|less than|at most|max|maximum|no more than|no longer than|shorter than|below|only|"
+    r"just|should|be|final|total|length|runtime|duration|at least|over|maybe|tops)\b"
+    r"(?:\s+(?:it|the video|this|that|everything|to|be|a|an|about|around|roughly|just|only|like|maybe|max|under|"
+    r"down|up|is|of))*\s*$")
+_VIDEO_AFTER = re.compile(r"^(?:[\s-]*long)?(?:\s+or so|\s*-?ish|\s+tops|\s+max(?:imum)?|\s+or (?:less|shorter|"
+                          r"under|so))?\s+(?:[a-z'&-]+\s+){0,2}?(?:video|edit|cut|version|vlog|movie|film|montage|"
+                          r"recap|highlights?|episode|upload|one|short|tutorial|review)\b|^[\s-]*long\b")
+_CLAUSE_EDGE = re.compile(r"[.,;!?\n]|\b(?:and|but|then|so)\b")
+_FILLER = re.compile(r"\b(?:about|around|roughly|approximately|approx|like|maybe|max|maximum|tops|or so|ish|long|"
+                     r"in length|total|please|thanks|just|only|at most|video|the video|it|be|a|an|or less|or shorter|"
+                     r"i think|probably|ok|okay|for)\b|[-~]")
 
 
 def _num(token: str) -> float:
@@ -298,87 +350,175 @@ def _num(token: str) -> float:
     return float(_NUMBER_WORDS[t]) if t in _NUMBER_WORDS else float(t.replace(",", "."))
 
 
+def _alone(t: str, m: re.Match) -> bool:
+    """Whether a length is all its clause says ("10 minutes, vertical, no music"; "not 12 minutes, 8 minutes")."""
+    a = max([e.end() for e in _CLAUSE_EDGE.finditer(t, 0, m.start())] or [0])
+    b = next((e.start() for e in _CLAUSE_EDGE.finditer(t, m.end())), len(t))
+    return not _FILLER.sub(" ", t[a:m.start()] + " " + t[m.end():b]).strip()
+
+
 def _read_length(t: str) -> float | None:
+    """The length the owner asks for, in minutes (NO_LENGTH for "as long as it needs"), or None. How long the
+    footage, a talk or a drive is, a time in the video ("at 2 minutes", "3 minutes in"), "not 12 minutes" and
+    "hold on a sec" are not one; of the lengths asked for, the last one wins."""
     if _NO_LENGTH.search(t):
-        return 0.0
-    if re.search(r"\bhalf (?:an )?hour\b", t):
-        return 30.0
-    if re.search(r"\b(?:an |one )?hour and a half\b", t):
-        return 90.0
-
-    def ok(m: re.Match) -> bool:
-        before, after = t[:m.start()], t[m.end():]
-        return not _TIMESTAMP_BEFORE.search(before) and not re.match(r"\s+in\b", after)
-
-    for pattern, scale in ((rf"{_NUM}\s*(?:-|–|to)\s*{_NUM}\s*{_UNIT_MIN}", "range"),
-                           (rf"\b(?:under|less than|at most|max(?:imum)?|no (?:more|longer) than|shorter than|below)"
-                            rf"\s+{_NUM}[\s-]*{_UNIT_MIN}", "under"),
-                           (rf"\b{_NUM}[\s-]*{_UNIT_H}", 60.0), (rf"\b{_NUM}[\s-]*{_UNIT_MIN}", 1.0),
-                           (rf"\b{_NUM}[\s-]*{_UNIT_S}", 1 / 60)):
-        for m in re.finditer(pattern, t):
-            if not ok(m):
-                continue
-            try:
-                if scale == "range":
-                    return round((_num(m.group(1)) + _num(m.group(2))) / 2, 2)
-                if scale == "under":
-                    return round(_num(m.group(1)) * 0.9, 2)
-                return round(_num(m.group(1)) * float(scale), 2)
-            except ValueError:
-                continue
-    return None
-
-
-def _pick(t: str, options: list[tuple[str, str]]) -> str | None:
-    """The value whose pattern matches last in the text; an earlier option's match hides any later option's match
-    inside it ("no captions" is not also "captions")."""
+        return NO_LENGTH
     taken: list[tuple[int, int]] = []
-    best: tuple[int, str] | None = None
-    for value, pattern in options:
+    asked: list[tuple[int, float]] = []
+    for pattern, kind in _LENGTHS:
         for m in re.finditer(pattern, t):
             if any(a <= m.start() < b or a < m.end() <= b for a, b in taken):
                 continue
             taken.append((m.start(), m.end()))
+            before, after = t[:m.start()], t[m.end():]
+            if _TIMESTAMP_BEFORE.search(before) or _SOURCE_BEFORE.search(before[-80:]) or \
+                    _SOURCE_AFTER.match(after) or _NOT_BEFORE.search(before[-40:]):
+                continue
+            try:
+                if kind == "half":
+                    minutes = 30.0
+                elif kind == "hour_half":
+                    minutes = 90.0
+                elif kind == "range":
+                    minutes = (_num(m.group(1)) + _num(m.group(2))) / 2
+                elif kind == "under":
+                    minutes = _num(m.group(1)) * 0.9
+                elif kind == "bare":  # "make it 10" after "the interview is 45 minutes": the unit said before
+                    units = re.findall(r"\b(minutes?|mins?|hours?|hrs?|seconds?|secs?)\b", before)
+                    if not units:
+                        continue
+                    scale = 60.0 if units[-1].startswith(("h", "hr")) else 1 / 60 if units[-1].startswith("s") \
+                        else 1.0
+                    minutes = _num(m.group(1)) * scale
+                else:
+                    if m.group(1) in ("a", "an", "one") and kind in ("s", "min") and \
+                            _IDIOM_BEFORE.search(before):
+                        continue  # "hold on a sec", "wait a minute"
+                    minutes = _num(m.group(1)) * {"h": 60.0, "min": 1.0, "s": 1 / 60}[kind]
+            except ValueError:
+                continue
+            if kind in ("under", "bare") or _LENGTH_SIGNAL.search(before[-60:]) or _VIDEO_AFTER.match(after) or \
+                    _alone(t, m):
+                asked.append((m.start(), round(minutes, 2)))
+    return max(asked)[1] if asked else None
+
+
+# "I don't want captions", "skip the music", "turn off the zooms": a no in the same clause, a few words before
+_NO_WORDS = (r"\b(?:no|not|never|without|don'?t|do not|didn'?t|doesn'?t|won'?t|can'?t|cannot|hate|avoid|skip|lose|"
+             r"drop|remove|get rid of|turn off|switch off|turn the|disable|leave out|none|zero|nothing)\b")
+_NEGATED = re.compile(_NO_WORDS + r"(?:\s+[\w'-]+){0,4}\s*$")
+# "I don't know about captions" leaves it open; "don't forget the captions", "I don't mind music", "no worries, add
+# music" and "not too many zooms" are no no
+_UNSURE = re.compile(r"\b(?:don'?t know|do not know|not sure|unsure|don'?t care|doesn'?t matter|either way)\b")
+_NOT_A_NO = re.compile(r"\b(?:(?:don'?t|do not|never) (?:forget|miss)|(?:don'?t|do not) mind|no (?:worries|problem)|"
+                       r"not (?:only|just)|no matter|not too (?:many|much|long|short|loud|fast|slow))\b")
+_CLAUSE = re.compile(r"[.!?;:,\n]|\b(?:but|then|so|plus)\b|\band (?=(?:add|use|put|make|keep|include|show|turn|give|"
+                     r"do|have|let|with)\b)")
+
+
+def _negated(t: str, start: int) -> bool | None:
+    """Whether the words just before `start`, in its clause, say no to what follows: True or False, or None when
+    they leave it open ("I don't know about captions")."""
+    clause = _CLAUSE.split(t[:start])[-1]
+    if _UNSURE.search(clause):
+        return None
+    clause = _NOT_A_NO.sub(" ", clause)
+    if re.search(r"\bturn the\b", clause) and not re.search(r"\boff\b", t[start:start + 40].split(".")[0]):
+        clause = clause.replace("turn the", "")
+    return bool(_NEGATED.search(clause))
+
+
+def _pick(t: str, options: list[tuple]) -> str | None:
+    """The value whose pattern matches last in the text; an earlier option's match hides any later option's match
+    inside it ("no captions" is not also "captions"). An option's third value is what a match said with a no in front
+    of it means ("off"), or None to pass over it ("not a TikTok" says no shape); without one a no changes nothing."""
+    taken: list[tuple[int, int]] = []
+    best: tuple[int, str] | None = None
+    for option in options:
+        value, pattern = option[0], option[1]
+        flip = option[2] if len(option) > 2 else value
+        for m in re.finditer(pattern, t):
+            if any(a <= m.start() < b or a < m.end() <= b for a, b in taken):
+                continue
+            taken.append((m.start(), m.end()))
+            v = value
+            if flip != value:
+                said_no = _negated(t, m.start())
+                if said_no is None:
+                    continue  # "not sure about captions" says neither
+                if said_no:
+                    if flip is None:
+                        continue
+                    v = flip
             if best is None or m.start() > best[0]:
-                best = (m.start(), value)
+                best = (m.start(), v)
     return best[1] if best else None
 
 
-_SHAPES = [("9:16", r"\b9\s*[:x×/]\s*16\b|\bvertical\b|\btik ?tok\b|\bshorts\b|\breels?\b|\binstagram stor(?:y|ies)\b"),
-           ("1:1", r"\b1\s*[:x×/]\s*1\b|\bsquare\b"),
-           ("4:5", r"\b4\s*[:x×/]\s*5\b"),
-           ("16:9", r"\b16\s*[:x×/]\s*9\b|\bwide ?screen\b|\blandscape\b|\bhorizontal\b")]
+# a shape word counts when it is said about the video ("make it square", "a vertical video", "square please"), not
+# "the old town square" or "the landscape up there"
+_FORMAT_NOUN = r"(?:videos?|format|shape|crop|frame|mode|orientation|version|aspect(?: ratio)?|screen|ratio)"
+_SHAPE_FRAME = (r"(?:(?:make|do|film|crop|edit|cut|shoot|export|render|keep|have|want|need|put|turn|switch|change)\s+"
+                r"(?:it|this|the video|that|them|everything)\s+(?:in\s+|into\s+|to\s+|as\s+)?(?:a\s+)?|"
+                r"\b(?:in|as|go|into|to|use|try|prefer|switch to|change to)\s+(?:a\s+)?|^)")
+
+
+def _shape(word: str) -> str:
+    return (rf"{_SHAPE_FRAME}{word}\b|\b{word}\s+{_FORMAT_NOUN}\b|\b{word}(?=\s*(?:please|thanks)\b)|"
+            rf"(?<=[,;:.!?\n] ){word}(?=\s*(?:$|[,;:.!?\n]))")
+
+
+_SHAPES = [("9:16", r"\b9\s*[:x×/]\s*16\b|" + _shape("vertical") + r"|\btik ?toks?\b|\byoutube shorts?\b|"
+                    r"\b(?:for|on|as|to)\s+(?:a\s+)?(?:shorts|reels?)\b|\b(?:instagram|ig|facebook) (?:reels?|"
+                    r"stor(?:y|ies))\b", None),
+           ("1:1", r"\b1\s*[:x×/]\s*1\b|" + _shape("square"), None),
+           ("4:5", r"\b4\s*[:x×/]\s*5\b", None),
+           ("16:9", r"\b16\s*[:x×/]\s*9\b|\bwide ?screen\b|" + _shape("landscape") + "|" + _shape("horizontal"),
+            None)]
 _FEELS = [("energetic", r"\b(?:energetic|high[- ]energy|hype[ds]?|upbeat|exciting|intense|punchy|lively|fun|"
-                        r"fast[- ]paced)\b"),
+                        r"fast[- ]paced)\b", None),
           ("calm", r"\b(?:calm|chill|relax(?:ed|ing)?|slow|peaceful|cinematic|emotional|storytelling|gentle|"
-                   r"co[sz]y|mellow)\b"),
-          ("balanced", r"\b(?:balanced|in between|medium pace|normal pace)\b")]
-_EDITS = [("off", r"\b(?:(?:don'?t|do not|no need to)\s+(?:edit|cut)\s+(?:anything|it|them|my clips)|no edit(?:s|ing)?|"
-                  r"keep (?:everything|it all|all of it|my clips(?: as they are)?)|as[- ]is|uncut|unedited|"
-                  r"leave (?:it|them|everything) as (?:it is|they are))\b"),
+                   r"co[sz]y|mellow)\b", None),
+          ("balanced", r"\b(?:balanced|in between|medium pace|normal pace)\b", None)]
+# "Keep my clips as they are" means the whole video; "keep everything light", "leave the drive as is" and "don't cut
+# it too short" do not
+_WHOLE = r"(?:it|them|everything|it all|all of it|my clips|all my clips|the clips|my footage|the footage|the video)"
+_EDITS = [("off", r"\b(?:(?:don'?t|do not|no need to)\s+(?:cut|trim)\s+(?:anything|a thing|any of it|my clips|"
+                  r"my footage)\b|(?:don'?t|do not|no need to)\s+(?:edit|touch)\s+(?:anything|it|them|my clips|"
+                  r"my footage)(?=\s*(?:$|[.,;!?\n]|and\b|please\b|at all\b))|"
+                  r"no edit(?:s|ing)?(?=\s*(?:$|[.,;!?\n]|please\b|at all\b))|"
+                  r"keep (?:everything|it all|all of it|my clips|all my clips|the clips|my footage)"
+                  r"(?=\s*(?:$|[.,;!?\n]|please\b))|"
+                  rf"(?:leave|keep|use|post|upload)\s+{_WHOLE}\s+(?:as[- ]is|as (?:it is|they are)|uncut|unedited|"
+                  r"raw)\b)"),
           ("tight", r"\b(?:fast[- ]paced|snappy|jump[- ]cuts?|quick cuts?|tight(?:ly)? (?:edit(?:ed)?|cut)|"
-                    r"cut (?:it )?(?:tight|fast))\b"),
-          ("smart", r"\b(?:edit it for me|edit it|clean it up|you edit|smart edit)\b")]
-_MUSICS = [("none", r"\b(?:no (?:background )?music|without (?:any )?music|no soundtrack|(?:don'?t|do not) (?:add|use|put)"
-                    r" (?:any )?music|skip the music|music off)\b"),
+                    r"cut (?:it )?(?:tight|fast))\b", None),
+          ("smart", r"\b(?:edit it for me|edit it|clean it up|you edit|smart edit)\b", None)]
+_MUSICS = [("none", r"\b(?:no (?:background )?music|without (?:any )?(?:background )?music|no soundtrack|"
+                    r"(?:don'?t|do not) (?:add|use|put|want|need) (?:any )?(?:background )?music|"
+                    r"no need for (?:any )?music|skip the music|music off)\b"),
            ("library", r"\b(?:free music|royalty[- ]free music|clipforge'?s? (?:own )?music|music (?:made|you make)|"
-                       r"make (?:the |some )?music)\b"),
-           ("find", r"\b(?:find (?:me )?(?:some )?music|look for music|search for music)\b"),
+                       r"make (?:the |some )?music)\b", None),
+           ("find", r"\b(?:find (?:me )?(?:some )?music|look for music|search for music)\b", None),
            ("mine", r"\b(?:my (?:own )?(?:music|song|track|beat|soundtrack)|use (?:the|this|my) (?:song|track|"
-                    r"music file))\b"),
-           ("auto", r"\b(?:add (?:some )?music|background music|with music|some music|music under)\b")]
+                    r"music file))\b", None),
+           ("auto", r"\b(?:add (?:some )?(?:background )?music|background music|with music|some music|"
+                    r"music under)\b", "none")]
 _SWITCHES = {
     "captions": [("off", r"\b(?:no (?:captions|subtitles|subs)|without (?:captions|subtitles|subs)|captions off|"
-                         r"(?:don'?t|do not) (?:add|burn in|put|use) (?:any )?(?:captions|subtitles|subs))\b"),
-                 ("on", r"\b(?:captions?|subtitles?|subs)\b")],
-    "pictures": [("off", r"\b(?:no (?:pictures|photos|images|b-?roll|stills)|without (?:my )?(?:pictures|photos|images)|"
+                         r"(?:don'?t|do not) (?:add|burn in|put|use) (?:any )?(?:captions|subtitles|subs)|"
+                         r"(?:captions|subtitles|subs) (?:aren'?t|are not|not) (?:needed|necessary|wanted))\b"),
+                 ("on", r"\b(?:captions?|subtitles?|subs)\b", "off")],
+    "pictures": [("off", r"\b(?:no (?:pictures|photos|images|b-?roll|stills)|"
+                         r"without (?:my )?(?:pictures|photos|images)|"
                          r"(?:don'?t|do not) (?:show|use|add) (?:my |any )?(?:pictures|photos|images))\b"),
                  ("on", r"\b(?:(?:show|use|add) (?:my |the )?(?:pictures|photos|images)|b-?roll|"
-                        r"(?:pictures|photos|images) over)\b")],
+                        r"(?:pictures|photos|images) over)\b", "off")],
     "sound_effects": [("off", r"\b(?:no (?:sound effects|sfx|whoosh(?:es)?)|without (?:sound )?effects)\b"),
-                      ("on", r"\b(?:sound effects?|sfx|whoosh(?:es)?)\b")],
+                      ("on", r"\b(?:sound effects?|sfx|whoosh(?:es)?)\b", "off")],
     "zooms": [("off", r"\b(?:no zoom(?:s|ing|-ins?)?|(?:don'?t|do not) zoom|no punch[- ]?ins?)\b"),
-              ("on", r"\b(?:zoom(?:s|ing)?(?: in)?|punch[- ]?ins?)\b")],
+              ("on", r"\b(?:zoom(?:s|ing)?(?: in)?|punch[- ]?ins?)\b(?!\s+(?:call|calls|meeting|meetings|link|chat))",
+               "off")],
 }
 _OPEN = re.compile(r"\b(?:start|open|begin|kick off)(?:s|ing)?\s+(?:it\s+|the video\s+|things\s+)?(?:off\s+)?"
                    r"(?:with|on|by showing)\s+(.+?)(?=[.;!?\n]|,|\s+then\b|\s+and then\b|$)")
@@ -386,19 +526,40 @@ _GENERIC_OPEN = re.compile(r"^(?:(?:the|a|an|my|our)\s+)?(?:(?:very\s+)?(?:best|
                            r"biggest|craziest|coolest|top|wildest)\b|hook\b|something\s+(?:exciting|good|big|funny|"
                            r"cool)\b)")
 _FROM_START = re.compile(r"\b(?:(?:start|begin)s?(?:ing)? (?:from|at) the (?:very )?(?:beginning|start)|no cold open|"
-                         r"(?:in|keep the) (?:chronological )?order|chronological(?:ly)?)\b")
+                         r"(?:in|keep the) (?:chronological )?order(?! to\b)|chronological(?:ly)?)\b")
 _COLD_ON = re.compile(r"\b(?:cold open|hook first|open with a hook|start with a hook)\b")
-_SEQ = re.compile(r"\b(?:first(?:ly)?|then|after that|afterwards|next|and then|finally|lastly|at the end|end with)\b")
+# "first" starts a story ("first the drive, then …"), "the first part" does not
+_SEQ = re.compile(r"(?<!\bthe )(?<!\bmy )(?<!\bour )(?<!\ba )(?<!\bthis )(?<!\bthat )\b(?:first(?:ly)?(?!\s+(?:part|"
+                  r"half|bit|section|minutes?|seconds?|clip|shot|scene|few|time|day|thing|one|two|three|video|of)\b)|"
+                  r"then|after that|afterwards|next|and then|finally|lastly|at the end|end with)\b")
 _SEQ_NEEDS = re.compile(r"\b(?:then|after that|afterwards|finally|lastly)\b")
-_NOT_A_TOPIC = re.compile(r"^(?:it|its|it's|everything|all|them|that|this|things|my clips|the clips|anything|in mind|"
-                          r"going|up|on|to|down|back|the pace|the length|short|long|it short|in order)\b")
-_OPTION_TOPIC = re.compile(r"^(?:(?:the|any|all)\s+)?(?:music|song|soundtrack|captions|subtitles|subs|zooms?|"
-                           r"sound effects|sfx|pictures|photos|images|b-?roll|questions)\b")
-_END = r"(?=[.;!?\n]|,|\s+but\b|\s+and (?:skip|cut|remove|keep|leave|drop|delete|take|include|don'?t)\b|\s+then\b|$)"
-_KEEP = re.compile(r"\b(?:keep|include|(?:don'?t|do not) (?:cut|remove|skip|lose)|make sure (?:to |you )?(?:keep|"
-                   r"include|show)|leave in|must (?:keep|have|include))\s+(.+?)" + _END)
-_CUT = re.compile(r"(?<!don't )(?<!dont )(?<!do not )\b(?:cut(?: out)?|remove|skip|leave out|get rid of|drop|delete|"
-                  r"take out|lose)\s+(.+?)" + _END)
+_NOT_A_TOPIC = re.compile(r"^(?:it|its|it's|everything|all|them|that|this|things|my clips|the clips|clips|footage|"
+                          r"video|anything|in mind|going|up|on|to|down|back|the pace|the length|short|long|it short|"
+                          r"in order)\b")
+_OPTION_TOPIC = re.compile(r"^(?:(?:the|any|all)\s+)?(?:background\s+)?(?:music|song|soundtrack|captions|subtitles|"
+                           r"subs|zooms?|sound effects|sfx|pictures|photos|images|b-?roll|questions)\b")
+_END = (r"(?=[.;!?\n]|,|\s+but\b|\s+and (?:skip|cut|remove|keep|leave|drop|delete|take|include|don'?t|never|please|"
+        r"also|make sure)\b|\s+then\b|$)")
+# keep and cut: only what is asked for ("cut the traffic", "can you cut…", "we need to cut…"); a "don't", "never" or
+# "can't" in front turns it round ("don't ever cut the sunset" keeps it, "don't include the gas station" cuts it), "you
+# don't have to keep X" lets it go, and what happens in the story ("my dad tries to remove the hook") is no request
+_KEEP_CUT = re.compile(r"\b(?:(?P<keep>keep|include|leave in|hold on to)|(?P<cut>cut(?: out)?|remove|skip|leave out|"
+                       r"get rid of|drop|delete|take out|lose|trim out))\s+(?P<item>.+?)" + _END)
+_REQUEST_EDGE = re.compile(r"[.!?;:,\n]|\b(?:and|but|then|so|or|plus|also)\b")
+_POLITE = (r"(?:(?:please|just|also|oh|ok|okay|definitely|absolutely|really|actually|honestly|yeah|yes|hey|maybe|"
+           r"and|but|so|then)\s+)*")
+_ASKING = (r"(?:(?:make sure (?:to |you |that you )?|be sure to |remember to |"
+           r"(?:i|we) (?:want|need|would like|'d like) (?:you )?to |i wanna |(?:can|could|would|will) you (?:please )?|"
+           r"(?:don'?t|do not|never) forget (?:to )?|"
+           r"you (?:can|should|could|may|might|need to|have to|must) |(?:we|you) (?:need|have) to |"
+           r"we (?:should|must|can) |must |feel free to |let'?s |try (?:to|and) |go ahead and )*)")
+_REFUSING = (r"(?:(?:i|we) (?:don'?t|do not) want (?:you )?to |(?:make sure|be sure) (?:not to|you don'?t|you do not) |"
+             r"(?:try|remember) not to |(?:we|you|i) (?:can'?t|cannot|mustn'?t|must not|shouldn'?t|should not|won'?t) |"
+             r"(?:can'?t|cannot|mustn'?t|must not|shouldn'?t|should not) |(?:please )?(?:don'?t|do not|never)"
+             r"(?: ever)? )")
+_LETTING_GO = (r"(?:(?:you |we )?(?:don'?t|do not) (?:have|need) to |no need to |(?:it'?s|its) (?:ok|okay|fine) "
+               r"(?:not )?to )")
+_REQUEST = re.compile(rf"^{_POLITE}(?:(?P<no>{_REFUSING})|(?P<soft>{_LETTING_GO})|{_ASKING})$")
 _AUDIENCE = re.compile(r"\bfor\s+(?:my |our |the |all )?(friends and family|family and friends|family|friends|kids|"
                        r"children|students|subscribers|viewers|fans|followers|clients|customers|team|classmates|class|"
                        r"parents|grandparents|co-?workers|colleagues|beginners|gamers|everyone|anyone|"
@@ -412,8 +573,10 @@ _TYPES = [("Travel vlog", r"\btravel vlog\b|\btravel\b|\btrip\b|\bvacation\b|\bh
           ("Q&A", r"\bq\s*&\s*a\b|\bq and a\b"), ("Story time", r"\bstory ?time\b"),
           ("Fitness video", r"\bworkout\b|\bfitness\b"), ("Explainer", r"\bexplainer\b"),
           ("Highlights montage", r"\bmontage\b|\bhighlight reel\b"), ("Talking head", r"\btalking head\b")]
-_TITLE = re.compile(r"\b(?:call it|title it|titled|name it|the title is|name the video)\s*[:\-]?\s*[\"“']?"
-                    r"([^\"”'.!?\n]{2,120})", re.I)
+# "call it Lake Days", not "we call it a day"
+_TITLE = re.compile(r"\b(?:(?<!we )(?<!i )(?<!they )(?<!you )(?<!let's )(?<!lets )(?<!to )call it(?!\s+(?:a day|"
+                    r"a night|quits|even|done|good|a wrap|off)\b)|title it|titled|name it|the title is|name the video|"
+                    r"call the video|call this video)\s*[:\-]?\s*[\"“']?([^\"”'.!?\n]{2,120})", re.I)
 _VOICE = re.compile(r"\b(?:voice ?-?over|narration|narrator|voice track)\b")
 _MUSICAL = re.compile(r"\b(?:music|song|track|beat|soundtrack|tune)\b|\bunder (?:it|the video|everything)\b")
 _ARTICLE = re.compile(r"^(?:the|my|our|a|an|all the|all)\s+")
@@ -423,6 +586,11 @@ _INSTRUCTION = (r"(?:please\s+)?(?:(?:use|put|add) (?:my|the|our|a|an|some|this|
                 r"remove|skip|leave out|include|don'?t|do not|no (?:music|captions|subtitles|zooms?|sound effects))\b")
 _STORY_STOP = re.compile(r"(?:[,;]\s*|\s+and\s+)" + _INSTRUCTION + r".*$")
 _ASK = re.compile(r"^" + _INSTRUCTION)
+# a list of changes is no story ("make the first part shorter, then speed up the end"; "then I'll upload it")
+_NOT_STORY = re.compile(r"^(?:please\s+)?(?:make|speed|slow|add|use|put|cut|trim|remove|keep|change|move|swap|upload|"
+                        r"post|shorten|lengthen|fix|zoom|mute|turn|set|give|end it|i'?ll|i will|i want|i'?d|i would|"
+                        r"i need|let me|let'?s|you can|can you|could you|don'?t|do not|include|skip|leave out|drop|"
+                        r"delete)\b")
 
 
 def _phrase(text: str, size: int) -> str:
@@ -438,13 +606,28 @@ def _stem(filename: str) -> str:
     return _norm(re.sub(r"\.[a-z0-9]{2,5}$", "", filename.lower()).replace("_", " ").replace("-", " "))
 
 
+def _keep_and_cut(t: str) -> tuple[list[str], list[str]]:
+    keep: list[str] = []
+    cut: list[str] = []
+    for m in _KEEP_CUT.finditer(t):
+        lead = _REQUEST_EDGE.split(t[:m.start()])[-1].strip()
+        ask = _REQUEST.match(f"{lead} " if lead else "")
+        if not ask or ask.group("soft"):
+            continue  # not asked for ("my dad tries to remove…"), or let go ("you don't have to keep…")
+        item = _phrase(m.group("item"), LISTS["keep"][1])
+        if not item or _NOT_A_TOPIC.match(item) or _OPTION_TOPIC.match(item):
+            continue
+        (keep if bool(m.group("keep")) != bool(ask.group("no")) else cut).append(item)
+    return keep, cut
+
+
 def rules_read(text: str, files: list[dict]) -> tuple[dict, set[str]]:
     """What one message says explicitly, as plan fields (checked values), and the set of those fields."""
     t = " ".join((text or "").lower().replace("’", "'").split())
     out: dict = {}
     length = _read_length(t)
     if length is not None:
-        out["length_min"] = length if length == 0 else _length(length)
+        out["length_min"] = NO_LENGTH if length == NO_LENGTH else _length(length)
     for key, options in (("aspect_ratio", _SHAPES), ("feel", _FEELS), ("edit", _EDITS)):
         v = _pick(t, options)
         if v:
@@ -457,9 +640,13 @@ def rules_read(text: str, files: list[dict]) -> tuple[dict, set[str]]:
     audio = _audio(files)
     voices: list[str] = []
     music_named = ""
-    for sentence in _sentences(t):
-        named = [f for f in audio if _stem(f.get("filename", "")) and
-                 re.search(rf"\b{re.escape(_stem(f['filename']))}\b", _norm(sentence))]
+    for sentence in re.split(r"(?<=[.!?\n,;])\s+", t):  # "put my song under it, narration.m4a is the voiceover"
+        named = []
+        for f in audio:
+            stem = _stem(f.get("filename", ""))
+            hit = re.search(rf"\b{re.escape(stem)}\b", _norm(sentence)) if stem else None
+            if hit and _negated(_norm(sentence), hit.start()) is False:
+                named.append(f)
         if _VOICE.search(sentence):
             voices += [f["id"] for f in named]
             if not named and re.search(r"\bmy (?:voice ?-?over|narration)\b", sentence):
@@ -479,12 +666,12 @@ def rules_read(text: str, files: list[dict]) -> tuple[dict, set[str]]:
         out["music"] = music
     # how it opens, and the story told in order
     if _FROM_START.search(t):
-        out["cold_open"] = "off"
+        out["cold_open"], out["opening"] = "off", ""
     m = _OPEN.search(t)
     if m:
         said = _phrase(m.group(1), TEXT["opening"])
         if _FROM_START.search(m.group(0)) or re.match(r"^(?:the )?(?:very )?(?:beginning|start)\b", said):
-            out["cold_open"] = "off"
+            out["cold_open"], out["opening"] = "off", ""
         elif _GENERIC_OPEN.match(m.group(1).strip()):
             out["cold_open"] = "on"
         elif said:
@@ -499,16 +686,14 @@ def rules_read(text: str, files: list[dict]) -> tuple[dict, set[str]]:
                       r"(?:with|on|by showing)\s+)", "", sentence)
         parts = [re.sub(r"^(?:and|with|by)\s+|\s+(?:and|with)$", "", _STORY_STOP.sub("", p.strip(" ,;:.!?-")))
                  .strip(" ,;:.!?-") for p in _SEQ.split(body)]
-        parts = [p[:LISTS["story"][1]] for p in parts if len(p) >= 2 and not _ASK.match(p)]
+        parts = [p[:LISTS["story"][1]] for p in parts if len(p) >= 2 and not _ASK.match(p) and
+                 not _NOT_STORY.match(p)]
         if len(parts) >= 2:
             out["story"] = parts[:LISTS["story"][0]]
             break
-    keep = [_phrase(m.group(1), LISTS["keep"][1]) for m in _KEEP.finditer(t)]
-    keep = [k for k in keep if k and not _NOT_A_TOPIC.match(k) and not _OPTION_TOPIC.match(k)]
+    keep, cut = _keep_and_cut(t)
     if keep:
         out["keep"] = _items(keep, *LISTS["keep"])
-    cut = [_phrase(m.group(1), LISTS["cut"][1]) for m in _CUT.finditer(t)]
-    cut = [c for c in cut if c and not _NOT_A_TOPIC.match(c) and not _OPTION_TOPIC.match(c)]
     if cut:
         out["cut"] = _items(cut, *LISTS["cut"])
     m = _AUDIENCE.search(t)
@@ -518,7 +703,7 @@ def rules_read(text: str, files: list[dict]) -> tuple[dict, set[str]]:
     found = [(m.start(), n, name) for n, (name, pattern) in enumerate(_TYPES) for m in [re.search(pattern, t)] if m]
     if found:
         out["video_type"] = min(found)[2]
-    m = _TITLE.search(" ".join((text or "").split()))
+    m = _TITLE.search(" ".join((text or "").replace("’", "'").split()))
     if m:
         out["title"] = m.group(1).strip(" ,;:-")[:TEXT["title"]]
     return out, set(out)
@@ -642,27 +827,37 @@ def _union(a: list[str], b: list[str], limit: int) -> list[str]:
     return out[:limit]
 
 
-def merge(base: dict, model: dict | None, *, explicit: dict, mentioned: set[str], locked: dict) -> dict:
-    """The new plan: the old one, then the model's (it never silently empties what was decided unless the newest
-    message talks about it), then what the newest message said explicitly (an explicit "10 minutes" wins; "keep X"
-    takes X out of the cut list and the other way round), then what the owner set by hand, unless the newest
-    message talks about that part."""
+def merge(base: dict, model: dict | None, *, explicit: dict, mentioned: set[str], locked: dict,
+          decided: set[str] | frozenset = frozenset()) -> dict:
+    """The new plan: the old one, then the model's reading (it never silently empties what was decided, nor changes
+    what the owner said in an earlier message (`decided`), unless the newest message talks about it), then what the
+    built-in rules read in the newest message (`explicit`) where the model left that part as it was or empty, or
+    where there is no model ("keep X" takes X out of the cut list and the other way round; with a model, only when
+    it changed neither list), then what the owner set by hand, unless the newest message talks about that part. A
+    model's reading of the newest message wins over the rules'."""
     out = copy.deepcopy(base)
     if model:
         for key in MODEL_FIELDS:
             v = model.get(key, out.get(key))
-            if _empty(v) and not _empty(out.get(key)) and key not in mentioned:
+            if key not in mentioned and (key in decided or (_empty(v) and not _empty(out.get(key)))):
                 continue
             out[key] = copy.deepcopy(v)
+
+    def model_changed(key: str) -> bool:
+        return bool(model) and not _empty(model.get(key)) and model.get(key) != base.get(key)
+
+    lists_changed = model_changed("keep") or model_changed("cut")
     for key, v in explicit.items():
         if key not in out:
             continue
         if key in ("keep", "cut"):
+            if lists_changed:
+                continue
             other = "cut" if key == "keep" else "keep"
             gone = {_norm(x) for x in v}
             out[key] = _union(out[key], v, LISTS[key][0])
             out[other] = [x for x in out[other] if _norm(x) not in gone]
-        else:
+        elif not model_changed(key):
             out[key] = copy.deepcopy(v)
     for key, v in locked.items():
         if key in out and key not in mentioned:
@@ -781,7 +976,8 @@ PLANNER = (
     "need for a good video and cannot guess (who it is for, the length, which moment opens it…); [] when the plan "
     "is clear enough, and [] whenever the instructions below say no questions.\n"
     "Plan fields: title (a short video title), summary (what the video is, 1 or 2 sentences), video_type, audience, "
-    "goal, length_min (minutes; 0 = as long as it needs), aspect_ratio (16:9 for YouTube, 9:16 vertical for Shorts "
+    "goal, length_min (minutes; 0 = not decided yet, -1 = as long as it needs with no length to fit), "
+    "aspect_ratio (16:9 for YouTube, 9:16 vertical for Shorts "
     "or TikTok, 1:1, 4:5; \"\" = the owner's style), feel (calm, balanced, energetic), edit (smart = edit it for me, "
     "tight = fast-paced, off = keep the clips as they are), opening (the moment or line that opens the video, in the "
     "words said in it when you can), story (the parts in the order they play, at most 8), keep and cut (short "
@@ -851,8 +1047,9 @@ def _sent(settings: dict) -> dict:
 
     label = llm.provider_label(settings)
     local = llm.is_local(settings)
-    what = ("your idea and the conversation, your file names and lengths and what is said in your videos, as text. "
-            "Never the video, its sound or where your files are.")
+    what = ("your idea and the conversation, your file names and lengths, what is said in your videos, the Brain "
+            "memories and built-in know-how that fit your idea and your helper agents' notes, as text. Never the "
+            "video, its sound or where your files are.")
     return {"provider": label, "remote": not local,
             "sent": f"Stays on this computer: {label} reads {what}" if local else
             f"Sent over the internet to {label}: {what}"}
@@ -872,12 +1069,17 @@ def _setup(project: dict) -> dict:
             "plan": st.get("plan") if isinstance(st.get("plan"), dict) else empty_plan(),
             "idea": str(st.get("idea") or ""), "locked": dict(st.get("locked") or {}),
             "rounds": int(st.get("rounds") or 0), "asked": list(st.get("asked") or []),
+            "locked_at": {k: float(v) for k, v in dict(st.get("locked_at") or {}).items()
+                          if isinstance(v, (int, float))},
             "open": list(st.get("open") or []), "style_id": str(st.get("style_id") or "saved"),
             "reference_id": str(st.get("reference_id") or ""), "remember": dict(st.get("remember") or {}),
             "owner_order": bool(st.get("owner_order")), "pending": bool(st.get("pending")),
             "consulted": bool(st.get("consulted")), "named": bool(st.get("named")),
             "source": str(st.get("source") or ""), "planned": bool(st.get("planned")),
-            "look": dict(st.get("look") or {}), "by": str(st.get("by") or "")}
+            "look": dict(st.get("look") or {}), "by": str(st.get("by") or ""),
+            # after the build: the plan each version was made with, and a plan change whose edit is running
+            "plans": {k: v for k, v in dict(st.get("plans") or {}).items() if isinstance(v, dict)},
+            "change": dict(st["change"]) if isinstance(st.get("change"), dict) else {}}
 
 
 _lock = threading.RLock()  # one change to a draft's setup at a time (the page, the chat and a model's answer)
@@ -939,8 +1141,8 @@ def summarize(words: list[dict]) -> dict:
     sents = build_sentences(words)
     first = _text(" ".join(w["w"] for w in words[:40]), 160)
     best = sorted(((hook_score(s), s) for s in sents), key=lambda x: -x[0])[:2]
-    lines = [{"t": round(s["start"], 1), "text": _text(s["text"], 140)} for v, s in sorted(best, key=lambda x: x[1]["start"])
-             if v > 0]
+    lines = [{"t": round(s["start"], 1), "text": _text(s["text"], 140)}
+             for v, s in sorted(best, key=lambda x: x[1]["start"]) if v > 0]
     counts = Counter(t for w in words for t in content_tokens(w["w"]))
     topics = [t for t, n in counts.most_common(8) if n >= 2][:6]
     return {"words": len(words), "first": first, "lines": lines, "topics": topics,
@@ -1181,7 +1383,7 @@ _MORE = {1: "One more question", 2: "Two more questions", 3: "Three more questio
 
 
 def _rules_say(old: dict, new: dict, files: list[dict], *, first: bool, questions: list[dict], problem: str,
-               hint: bool, more: bool = False) -> str:
+               hint: bool, more: bool = False, building: bool = False) -> str:
     before = set(plan_lines(old, files))
     changed = [ln for ln in plan_lines(new, files) if ln not in before]
     if first:
@@ -1189,8 +1391,8 @@ def _rules_say(old: dict, new: dict, files: list[dict], *, first: bool, question
     elif changed:
         lead = "Got it. " + "; ".join(changed)[:400] + "."
     else:
-        lead = ("I didn't find anything to change in that. Tell me things like “make it 5 minutes”, “no music” or "
-                "“open with the jump”, or change the plan by hand.")
+        lead = ("I didn't find anything to change in that. Tell me things like “make it 5 minutes”, “no music” "
+                "or “open with the jump”, or change the plan by hand.")
     if problem:
         lead = f"My model could not answer ({problem[:160]}), so my built-in rules read your message. " + lead
     elif hint:
@@ -1200,7 +1402,7 @@ def _rules_say(old: dict, new: dict, files: list[dict], *, first: bool, question
         lead += f" {_MORE.get(len(questions), 'More questions')} below, or press Just do it."
     elif questions:
         lead += " A few quick questions first, or press Just do it:"
-    elif first:
+    elif first and not building:
         lead += " Change anything you like, then press Build my video."
     return lead
 
@@ -1225,20 +1427,41 @@ def still_open(open_q: list[dict], answered: str, plan: dict) -> list[dict]:
 
 
 def _apply(project_id: str, answer: dict | None, *, newest: str, source: str, first: bool, problem: str = "",
-           hint: bool = False, building: bool = False, answered: str = "") -> tuple[dict, list[dict], str, list[dict]]:
+           hint: bool = False, building: bool = False, answered: str = "", said: dict | None = None,
+           asked_at: float | None = None, message_id: str = "") -> tuple[dict, list[dict], str, list[dict]]:
     """Merge one turn into the draft's plan and store it: (plan, open questions, what ClipForge AI says, files).
-    `answered` is the question the owner's newest message answered (its other questions stay open)."""
+    `answered` is the question the owner's newest message answered (its other questions stay open); `said` is what
+    the built-in rules read (by default in the newest message); a part changed by hand after the owner's message was
+    written (`asked_at`) stays as it was set; with `message_id` (the answer being written) nothing changes when it
+    was stopped meanwhile or the video is no longer being planned (`_Stop`)."""
     with _lock:
+        if message_id:
+            row = db.fetch("brain_chat_messages", message_id)
+            if not row or row.get("status") != "thinking":
+                raise _Stop()
         project = db.fetch("studio_projects", project_id)
+        if message_id and not is_draft(project):
+            raise _Stop("The video was built or deleted before I answered.")
         st = _setup(project)
         files = _files(project)
-        chat = _chat(project["workspace_id"], project_id)
-        said = standing(_owner_messages(chat["id"]), files)
+        if said is None:
+            said = rules_read(newest, files)[0]
+            if answered:
+                said.update(answer_fields(answered, newest, files))
+        decided: set[str] = set()
+        if answer is not None and answer.get("plan") is not None:  # what the owner said before stays theirs
+            earlier = _owner_messages(_chat(project["workspace_id"], project_id)["id"])
+            if earlier and earlier[-1][0] == newest:
+                earlier = earlier[:-1]
+            decided = set(standing(earlier, files)) if newest else set()
         mentioned = mentions(newest)
+        if asked_at is not None:  # changed by hand after this message was written: the message did not see it
+            mentioned -= {k for k in mentioned if st["locked_at"].get(k, 0.0) > asked_at}
         old = clean_plan(st["plan"], files)
         plan = clean_plan(merge(old, answer["plan"] if answer else None, explicit=said, mentioned=mentioned,
-                                locked=st["locked"]), files)
+                                locked=st["locked"], decided=decided), files)
         st["locked"] = {k: v for k, v in st["locked"].items() if k not in mentioned}
+        st["locked_at"] = {k: v for k, v in st["locked_at"].items() if k in st["locked"]}
         questions: list[dict] = []
         fresh: list[dict] = []
         if st["mode"] == "ask" and not building:
@@ -1262,7 +1485,7 @@ def _apply(project_id: str, answer: dict | None, *, newest: str, source: str, fi
     say = (answer or {}).get("say") or ""
     if not say:
         say = _rules_say(old, plan, files, first=first, questions=questions, problem=problem, hint=hint,
-                         more=bool(questions) and not fresh)
+                         more=bool(questions) and not fresh, building=building)
     elif problem:
         say = f"{say} ({problem[:160]})"
     return plan, questions, say, files
@@ -1293,7 +1516,8 @@ def _turn(project: dict, chat: dict, owner: dict, *, first: bool) -> dict:
                 _answer_data(plan, files, questions, say, "rules", {}))
 
 
-_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="video-setup")
+# a few at once: one draft's slow answer (or a build planning) never waits behind another's
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="video-setup")
 
 
 def _stopped(message_id: str) -> bool:
@@ -1353,6 +1577,7 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
     newest = owner.get("text") or ""
     settings = db.get_settings()
     answer, problem, extra = None, "", dict(_sent(settings))
+    attempted = False
     try:
         st = _setup(project)
         files = _files(project)
@@ -1368,48 +1593,84 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
                 log.exception("memory use not recorded")
         if _stopped(message_id):
             raise _Stop()
+        attempted = True  # a request to an online AI counts toward today's limit even when it fails
         raw = ask_model(settings, _persona() + "\n\n" + PLANNER, _history(chat["id"], owner_id), request,
                         files, timeout=answer_timeout(settings), cancel=lambda: _stopped(message_id))
         answer = parse_answer(raw, files)
     except _Stop:
-        _finish(message_id, status="done", text="(Stopped.)", data={"tool": "plan", "source": "ai", **extra,
-                                                                    "say": "(Stopped.)"})
+        _finish_stopped(message_id, extra)
         return
     except (SetupError, llm.ProviderError) as exc:
         problem = _text(str(exc), 200)
     except Exception as exc:  # noqa: BLE001 - the rules still answer
         if exc.__class__.__name__ == "Canceled":
-            _finish(message_id, status="done", text="(Stopped.)", data={"tool": "plan", "source": "ai", **extra,
-                                                                        "say": "(Stopped.)"})
+            _finish_stopped(message_id, extra)
             return
         log.exception("planning answer %s failed", message_id)
         problem = f"it failed ({exc.__class__.__name__})"
     try:
         source = "ai" if answer is not None else "rules"
-        plan, questions, say, files = _apply(project_id, answer, newest=newest, source=source, first=first,
-                                             problem=problem, answered=(owner.get("data") or {}).get("answers") or "")
-        if source == "rules":
+        if source == "rules" and not attempted:
             extra = {k: v for k, v in extra.items() if k not in ("remote",)}
-        _finish(message_id, status="done", text=words(say, plan, files, questions),
-                data=_answer_data(plan, files, questions, say, source, extra))
+        with _lock:  # Stop (and Build) wait for this; a stopped answer changes nothing
+            plan, questions, say, files = _apply(project_id, answer, newest=newest, source=source, first=first,
+                                                 problem=problem, answered=(owner.get("data") or {}).get("answers")
+                                                 or "", asked_at=float(owner.get("created_at") or 0) or None,
+                                                 message_id=message_id)
+            _finish(message_id, status="done", text=words(say, plan, files, questions),
+                    data=_answer_data(plan, files, questions, say, source, extra))
+    except _Stop as stop_:
+        if str(stop_):
+            row = db.fetch("brain_chat_messages", message_id)
+            if row and row.get("status") == "thinking":
+                _finish(message_id, status="failed", text=str(stop_))
     except Exception as exc:  # noqa: BLE001 - never leaves the message thinking
         log.exception("planning answer %s could not be saved", message_id)
         _finish(message_id, status="failed", text=f"The plan could not be saved ({exc.__class__.__name__}).")
 
 
+def _finish_stopped(message_id: str, extra: dict) -> None:
+    with _lock:
+        row = db.fetch("brain_chat_messages", message_id)
+        if row and row.get("status") == "thinking":
+            _finish(message_id, status="done", text="(Stopped.)", data={"tool": "plan", "source": "ai", **extra,
+                                                                        "say": "(Stopped.)"})
+
+
 class _Stop(Exception):
-    pass
+    """The answer being written no longer applies (stopped, or the video is no longer being planned)."""
 
 
 # ------------------------------------------------------------------ what the owner does
+def _remember(value: object) -> dict:
+    """"Remember this as my style": {"enabled": bool, "name": text of at most 60 characters}."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) - {"enabled", "name"}:
+        raise SetupError("remember must be {\"enabled\": true or false, \"name\": text}.")
+    out: dict = {}
+    if "enabled" in value:
+        if not isinstance(value["enabled"], bool):
+            raise SetupError("remember.enabled must be true or false.")
+        out["enabled"] = value["enabled"]
+    if "name" in value:
+        if not isinstance(value["name"], str):
+            raise SetupError("remember.name must be text.")
+        out["name"] = _text(value["name"], 60)
+    return out
+
+
 def start(ws: str, user_id: str, *, asset_ids: list[str], idea: str = "", mode: str = "", name: str = "",
           style_id: str = "saved", reference_id: str = "", script=None, remember: dict | None = None) -> dict:
     """A new draft video from the files and the owner's idea. "Ask me questions": ClipForge AI answers with a plan
     (and maybe questions). "Just do it": the video is built at once (ClipForge AI plans first in the build job when a
     model is set up). Every video is listened to from now on."""
-    asset_ids = [str(a) for a in dict.fromkeys(asset_ids or [])]
+    if not isinstance(asset_ids, list) or not all(isinstance(a, str) for a in asset_ids):
+        raise SetupError("asset_ids must be a list of file ids.")
+    asset_ids = list(dict.fromkeys(asset_ids))
     if not asset_ids:
         raise SetupError("Drop in at least one video first.")
+    remember = _remember(remember)
     try:
         found = [video_flow._owned(ws, aid) for aid in asset_ids]  # noqa: SLF001 - only your own files
     except video_flow.VideoError as exc:
@@ -1427,13 +1688,13 @@ def start(ws: str, user_id: str, *, asset_ids: list[str], idea: str = "", mode: 
         raise SetupError(str(exc)) from exc
     st = _setup({})
     st.update(mode=mode, idea=idea, style_id=style_id or "saved", reference_id=reference_id or "",
-              remember=dict(remember or {}), named=bool((name or "").strip()), by=user_id)
+              remember=remember, named=bool((name or "").strip()), by=user_id)
     project = db.insert("studio_projects", {
         "id": "vid-" + os.urandom(6).hex(), "workspace_id": ws, "name": (name or "").strip()[:120] or "My video",
         "status": "draft", "message": DRAFT_MESSAGE, "asset_ids": asset_ids, "brief": {}, "style_id": "",
         "guidance": {}, "script": payload, "setup": st,
         "media": {"mode": "suggest", "commercial": bool(db.get_settings().get("autopilot_commercial_use", True))}})
-    enqueue(ws, "video_media", project["id"], len(asset_ids))  # ClipForge AI hears what is said while you talk
+    enqueue(ws, "video_media", project["id"], video_flow.bin_key(asset_ids))  # heard while you talk
     try:
         prefs.set_appearance(ws, user_id, {"video_setup_mode": mode}, None)
     except prefs.PrefError:
@@ -1506,14 +1767,16 @@ def stop(ws: str, project_id: str) -> None:
     if not _owned_draft(ws, project_id).get("setup"):
         return  # a video never planned here: its chat is not this page's to stop
     chat = _chat(ws, project_id)
-    for row in db.select("brain_chat_messages", "chat_id = ? AND status = 'thinking'", (chat["id"],)):
-        try:
-            from ..brain import assistant
+    with _lock:  # an answer being saved lands before this or never
+        for row in db.select("brain_chat_messages", "chat_id = ? AND status = 'thinking'", (chat["id"],)):
+            try:
+                from ..brain import assistant
 
-            getattr(assistant, "stop", lambda _m: None)(row["id"])
-        except ImportError:
-            pass
-        _finish(row["id"], status="done", text="(Stopped.)", data={**(row.get("data") or {}), "say": "(Stopped.)"})
+                getattr(assistant, "stop", lambda _m: None)(row["id"])
+            except ImportError:
+                pass
+            _finish(row["id"], status="done", text="(Stopped.)",
+                    data={**(row.get("data") or {}), "say": "(Stopped.)"})
 
 
 EDITABLE = set(MODEL_FIELDS)
@@ -1540,13 +1803,17 @@ def patch(ws: str, user_id: str, project_id: str, changes: dict) -> dict:
             except prefs.PrefError:
                 log.exception("setup mode not remembered")
         if "asset_ids" in changes:
-            ids = [str(a) for a in dict.fromkeys(changes["asset_ids"] or [])]
+            given_ids = changes["asset_ids"]
+            if not isinstance(given_ids, list) or not all(isinstance(a, str) for a in given_ids):
+                raise SetupError("asset_ids must be a list of file ids.")
+            ids = list(dict.fromkeys(given_ids))
             if not ids or not set(ids) <= set(project["asset_ids"]):
                 raise SetupError("Keep at least one of this video's files; add new ones with Add files.")
             fields["asset_ids"] = ids
             visual_before = [a for a in project["asset_ids"] if a in ids]
             if ids != visual_before:
                 st["owner_order"] = True
+                st["plan"] = {**st["plan"], "order": []}  # your order is the order now: the plan names none
         files = _files({**project, **fields})
         if not any(f["kind"] == "video" for f in files):
             raise SetupError("Keep at least one video.")
@@ -1558,9 +1825,13 @@ def patch(ws: str, user_id: str, project_id: str, changes: dict) -> dict:
             if bad:
                 raise SetupError("Unknown plan fields: " + ", ".join(sorted(bad)))
             # the page names files by id, the stored plan by number for the model; clean_plan reads both
+            if given.get("opening") and "cold_open" not in given:
+                given = {**given, "cold_open": "on"}  # an opening you set is how it opens
             plan = clean_plan({**plan_for_model(st["plan"], files), **given}, files)
+            now = time.time()
             for key in given:
                 st["locked"][key] = plan[key]
+                st["locked_at"][key] = now
             if "order" in given:
                 st["owner_order"] = False  # the plan's order is the order now
             st["plan"] = plan
@@ -1582,9 +1853,7 @@ def patch(ws: str, user_id: str, project_id: str, changes: dict) -> dict:
                 raise SetupError(str(exc)) from exc
             st["style_id"], st["reference_id"] = style_id, reference_id
         if "remember" in changes:
-            if not isinstance(changes["remember"], dict):
-                raise SetupError("Remember must be a JSON object.")
-            st["remember"] = {k: changes["remember"][k] for k in ("enabled", "name") if k in changes["remember"]}
+            st["remember"] = _remember(changes["remember"])
         if "script" in changes:
             try:
                 fields["script"] = video_flow.script_payload(changes["script"])
@@ -1629,20 +1898,38 @@ def start_build(ws: str, user_id: str, project_id: str, *, mode: str = "", pendi
                   media={**(project.get("media") or {}),
                          "mode": "auto" if brief.get("find_media") == "auto" else "suggest"})
     if not pending:
-        video_flow.remember_style(ws, user_id, project["name"], choices, st["remember"])
+        try:
+            video_flow.remember_style(ws, user_id, project["name"], choices, st["remember"])
+        except Exception:  # noqa: BLE001 - the video is built either way
+            log.exception("style not remembered")
     enqueue(ws, "video_build", project_id, 0)
     return {"id": project_id, "href": f"#/video/{project_id}"}
 
 
 def build(ws: str, user_id: str, project_id: str, mode: str = "") -> dict:
-    """The owner pressed Build my video (or Just do it on a question)."""
-    _draft(ws, project_id)
+    """The owner pressed Build my video (or Just do it on a question). When ClipForge AI never got to plan (its first
+    answer was stopped), the built-in rules read everything said first, and the build job plans with the model after
+    listening when one is set up."""
+    project = _draft(ws, project_id)
     if db.scalar("SELECT COUNT(*) FROM brain_chat_messages m JOIN brain_chats c ON c.id = m.chat_id WHERE "
                  "c.project_id = ? AND m.status = 'thinking'", (project_id,)):
         raise SetupError("ClipForge AI is still answering; wait a moment, then build.", 409)
-    out = start_build(ws, user_id, project_id, mode=mode)
     chat = _chat(ws, project_id)
-    say_text = "Building your video with this plan. It opens on the editor page, where you can keep changing it."
+    pending = False
+    if not _setup(project)["planned"]:
+        said = _owner_messages(chat["id"])
+        if said:
+            last = db.scalar("SELECT MAX(created_at) FROM brain_chat_messages WHERE chat_id = ? AND role = 'owner'",
+                             (chat["id"],))
+            _apply(project_id, None, newest=" ".join(t for t, _q in said)[-MESSAGE_CHARS:], source="rules",
+                   first=True, building=True, said=standing(said, _files(project)),
+                   asked_at=float(last or 0) or None)  # what you set by hand since then stays
+            settings = db.get_settings()
+            pending = model_ready(settings) and not limit_reached(ws, settings)
+    out = start_build(ws, user_id, project_id, mode=mode, pending=pending)
+    say_text = ("On it. I'm listening to your files, then I'll plan the video and edit it. It opens on the editor "
+                "page." if pending else
+                "Building your video with this plan. It opens on the editor page, where you can keep changing it.")
     _add(chat, "ai", say_text, {"tool": "plan", "say": say_text, "building": True})
     return out
 
@@ -1659,6 +1946,7 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
     files = _files(project)
     chat = _chat(project["workspace_id"], project["id"])
     answer, problem, extra = None, "", dict(_sent(settings))
+    gave_up, attempted = threading.Event(), threading.Event()
     if model_ready(settings) and not limit_reached(project["workspace_id"], settings):
         lease.progress(0.66, "ClipForge AI is planning your video")
         try:
@@ -1667,8 +1955,12 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
             def plan_now() -> tuple[str, dict]:
                 request, used, _s = _gather(project, {**st, "mode": "auto"}, files, settings, newest, chat,
                                             words_by_file)
+                if gave_up.is_set():
+                    raise SetupError("no answer in time")
+                attempted.set()
                 return ask_model(settings, _persona() + "\n\n" + PLANNER, [], request, files,
-                                 timeout=answer_timeout(settings), cancel=lease.canceled), used
+                                 timeout=answer_timeout(settings),
+                                 cancel=lambda: gave_up.is_set() or lease.canceled()), used
 
             call = _pool.submit(plan_now)
             deadline = time.monotonic() + AGENT_BUDGET_S + answer_timeout(settings) + 30
@@ -1679,6 +1971,7 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
                 except concurrent.futures.TimeoutError:
                     lease.progress(0.67, "ClipForge AI is planning your video")
                     if time.monotonic() > deadline:
+                        gave_up.set()  # the model call sees this and stops
                         raise SetupError("no answer in time") from None
             raw, used = got
             extra.update({k: v for k, v in used.items() if k != "memory_ids"})
@@ -1693,8 +1986,11 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
             log.exception("planning in the build failed")
             problem = f"it failed ({exc.__class__.__name__})"
     with _lock:
-        plan, _q, say_text, files = _apply(project["id"], answer, newest="", source="ai" if answer else "rules",
-                                           first=True, problem=problem, building=True)
+        said = _owner_messages(chat["id"])  # the model answered all of it at once; the rules fill what it left
+        plan, _q, say_text, files = _apply(project["id"], answer,
+                                           newest=" ".join(t for t, _q in said)[-MESSAGE_CHARS:] if answer else "",
+                                           source="ai" if answer else "rules", first=True, problem=problem,
+                                           building=True, said=standing(said, files) if answer else {})
         project = db.fetch("studio_projects", project["id"])
         st = _setup(project)
         brief, fields = project.get("brief") or {}, {}
@@ -1717,15 +2013,34 @@ def plan_in_build(project: dict, assets: dict[str, dict], words_by_file: dict[st
         _store(project["id"], st, **fields)
     if answer is None and not problem:
         say_text = "Here's the plan I'm editing with, made by my built-in rules."
+    sent = extra if answer or attempted.is_set() else {}  # a request that went out counts, answered or not
     _add(chat, "ai", words(say_text + " Editing it now.", plan, files, []),
          _answer_data(plan, files, [], say_text + " Editing it now.", "ai" if answer else "rules",
-                      {**(extra if answer else {}), "building": True}))
+                      {**sent, "building": True}))
     return db.fetch("studio_projects", project["id"])
 
 
+def _brief_changes(old: dict, new: dict) -> dict:
+    """The brief fields a plan change sets: only those whose value the change moved ({key: None} takes one out).
+    "Edit it for me" and ClipForge AI's reading (ai_edit) are never set by a plan change."""
+    before, after = plan_to_brief(old), plan_to_brief(new)
+    return {k: after.get(k) for k in (set(before) | set(after)) - {"ai_edit"} if before.get(k) != after.get(k)}
+
+
+def _with(brief: dict, moved: dict) -> dict:
+    out = dict(brief)
+    for k, v in moved.items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
 def change_plan(ws: str, user_id: str, project_id: str, base_revision: int, changes: dict) -> dict:
-    """After the build: change the plan and edit the video again as a new version (Undo takes it back). The shape
-    and captions you changed in the plan are applied too; the rest of your look and your fixes stay."""
+    """After the build: change the plan and edit the video again as a new version (Undo takes it back, and the plan
+    with it). Only the parts you changed reach the brief, so your choices on the editor page stay; the shape and
+    captions you changed are applied to the look; a new file order is the order the video plays."""
     project = _owned_draft(ws, project_id)
     if project["status"] == "draft" or not project.get("plan_revision"):
         raise SetupError("The rough cut is not ready yet.", 409)
@@ -1737,40 +2052,132 @@ def change_plan(ws: str, user_id: str, project_id: str, base_revision: int, chan
     bad = set(changes) - EDITABLE
     if bad:
         raise SetupError("Unknown plan fields: " + ", ".join(sorted(bad)))
+    if "find_media" in changes:
+        raise SetupError("Supporting media is looked for when the video is built; use Find media on this page.")
     with _lock:
         project = db.fetch("studio_projects", project_id)
         st = _setup(project)
         files = _files(project)
         old = clean_plan(st["plan"], files)
-        raw = {**plan_for_model(old, files), **changes}
-        new = clean_plan(raw, files)
-        keep = {k: v for k, v in (project.get("brief") or {}).items() if k not in PLAN_BRIEF_KEYS}
+        if changes.get("opening") and "cold_open" not in changes:
+            changes = {**changes, "cold_open": "on"}  # an opening you set is how it opens
+        new = clean_plan({**plan_for_model(old, files), **changes}, files)
+        brief_before = project.get("brief") or {}
         try:
-            brief = video_flow.check_brief(ws, {**keep, **plan_to_brief(new)})
+            brief = video_flow.check_brief(ws, _with(brief_before, _brief_changes(old, new)))
             style_choice = st["style_id"] if project.get("setup") else (project.get("style_id") or "settings")
             _style, snapshot, _choices = video_flow.guidance_for(ws, project["name"], brief, style_choice,
                                                                  st["reference_id"])
         except (video_flow.VideoError, styles.StyleError) as exc:
             raise SetupError(str(exc)) from exc
+        # the look you see now is what changes: the plan's shape and captions against the current version's
+        current = video_flow.plan_at(project_id, base_revision)
         look: dict = {}
-        if new["aspect_ratio"] and new["aspect_ratio"] != old["aspect_ratio"]:
+        if "aspect_ratio" in changes and new["aspect_ratio"] and \
+                new["aspect_ratio"] != (current.get("output") or {}).get("aspect"):
             look["aspect"] = new["aspect_ratio"]
-        if new["captions"] in ("on", "off") and new["captions"] != old["captions"]:
+        if "captions" in changes and new["captions"] in ("on", "off") and \
+                (new["captions"] == "on") != bool((current.get("captions") or {}).get("enabled")):
             look["captions"] = new["captions"] == "on"
-        for key in changes:
-            st["locked"][key] = new[key]
-        st.update(plan=new, look=look, planned=True)
         fields: dict = {"brief": brief, "guidance": snapshot}
+        if "order" in changes and new["order"]:
+            ids = list(project["asset_ids"])
+            order = [a for a in new["order"] if a in ids]
+            fields["asset_ids"] = order + [a for a in ids if a not in order]
+            st["owner_order"] = False
         if "title" in changes and new["title"]:
             fields["name"], st["named"] = new["title"], True
+        st["plans"].setdefault(str(base_revision), old)  # the plan the current version was made with
+        st["change"] = {"base": base_revision, "plan": old, "brief": brief_before, "name": project["name"],
+                        "asset_ids": list(project["asset_ids"]), "named": st["named"]}
+        now = time.time()
+        for key in changes:
+            st["locked"][key] = new[key]
+            st["locked_at"][key] = now
+        st.update(plan=new, look=look, planned=True)
         _store(project_id, st, **fields)
     job = enqueue(ws, "video_smart", project_id, base_revision)
     return {"job": job["id"]}
 
 
-PLAN_BRIEF_KEYS = {"video_type", "audience", "goal", "target_duration_s", "aspect_ratio", "feel", "smart_edit",
-                   "ai_edit", "open_with", "must_keep", "avoid", "music", "music_asset_id", "voiceover_asset_ids",
-                   "captions", "broll_images", "sound_effects", "punch_in", "cold_open", "find_media", "plan"}
+PLANS_KEPT = 30  # versions whose plan is remembered for Undo
+
+
+def edited(project_id: str, revision: int) -> None:
+    """A version was saved by the build or an edit: remember the plan it was made with (Undo and going back to it
+    bring that plan back), and a plan change is done."""
+    with _lock:
+        project = db.fetch("studio_projects", project_id)
+        if not project or not project.get("setup"):
+            return
+        st = _setup(project)
+        if not st["planned"]:
+            return
+        plans = {k: v for k, v in st["plans"].items() if k.isdigit()}
+        plans[str(revision)] = clean_plan(st["plan"], _files(project))
+        st["plans"] = dict(sorted(plans.items(), key=lambda kv: int(kv[0]))[-PLANS_KEPT:])
+        st["change"] = {}
+        _store(project_id, st)
+
+
+def edit_failed(project_id: str, base_revision: int) -> None:
+    """The edit for a plan change never saved a version: the plan, the brief, the name and the order go back."""
+    with _lock:
+        project = db.fetch("studio_projects", project_id)
+        if not project or not project.get("setup"):
+            return
+        st = _setup(project)
+        change = st["change"]
+        if change.get("base") != base_revision:
+            return
+        st.update(plan=change.get("plan") or st["plan"], look={}, named=bool(change.get("named")), change={})
+        fields = {"brief": change.get("brief") or {}, "name": change.get("name") or project["name"]}
+        if isinstance(change.get("asset_ids"), list) and set(change["asset_ids"]) == set(project["asset_ids"]):
+            fields["asset_ids"] = change["asset_ids"]
+        _store(project_id, st, **fields)
+
+
+def _plan_of(project_id: str, revision: int, plans: dict) -> dict | None:
+    """The plan a version was made with: its own, or the one of the version it reopened or followed."""
+    seen: set[int] = set()
+    r = revision
+    while r and r not in seen and len(seen) < 64:
+        seen.add(r)
+        if str(r) in plans:
+            return plans[str(r)]
+        try:
+            meta = video_flow._meta(video_flow._revision_row(project_id, r))  # noqa: SLF001
+        except Exception:  # noqa: BLE001 - an old or missing version: nothing to bring back
+            return None
+        r = meta.get("same_as") or meta.get("prev")
+    return None
+
+
+def went_back(project_id: str, target: int) -> None:
+    """Undo, redo or going back reopened version `target`: the plan it was made with comes back, with the brief
+    fields that plan set (your other choices stay), and a pending look change is dropped."""
+    with _lock:
+        project = db.fetch("studio_projects", project_id)
+        if not project or not project.get("setup"):
+            return
+        st = _setup(project)
+        files = _files(project)
+        then = _plan_of(project_id, target, st["plans"])
+        if then is None:
+            return
+        then, now = clean_plan(then, files), clean_plan(st["plan"], files)
+        st["look"] = {}
+        fields: dict = {}
+        if then != now:
+            moved = _brief_changes(now, then)
+            if moved:
+                try:
+                    fields["brief"] = video_flow.check_brief(project["workspace_id"],
+                                                             _with(project.get("brief") or {}, moved))
+                except video_flow.VideoError:
+                    log.warning("the plan of version %s no longer fits the brief", target)
+            st["plan"] = then
+        _store(project_id, st, **fields)
 
 
 def look_used(project_id: str) -> None:

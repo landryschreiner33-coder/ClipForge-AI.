@@ -27,7 +27,11 @@ here.
    adding more files, and More choices (name, style and example, remember the look, your script).
 5. **Build my video.** The plan drives the edit (below). The planning talk continues as the video's ClipForge AI
    chat, and the plan stays on the editor page ("Your plan"), where "Change the plan" and "Edit it again with this
-   plan" make a new version that Undo takes back.
+   plan" make a new version that Undo takes back, with the plan it was made with. Only the parts you changed reach
+   the brief, so choices made on the editor page (Edit it for me, ClipForge AI's reading) stay; the plan's music
+   and voiceovers are placed again from the plan (a sound you moved or changed by hand stays yours); a new file
+   order is the order the video plays; the shape and captions are compared with the version you see. If that edit
+   fails, the plan, the brief, the name and the order go back. Supporting media is only looked for at the build.
 
 Leaving the page keeps everything: the video is a **draft** project from the first message on ("Planning with
 ClipForge AI" in Projects; opening it, or its old `#/video/<id>` link, returns to this page). Drafts can be deleted
@@ -45,7 +49,7 @@ Stored in `studio_projects.setup.plan`; every field is optional, "" or empty mea
 | `video_type` | "Travel vlog", "Tutorial" … | 80 | brief `video_type` |
 | `audience` | who it is for | 120 | brief `audience` |
 | `goal` | what it should do | 200 | brief `goal` |
-| `length_min` | wanted length in minutes | 0.25–240, 0 = none | brief `target_duration_s` (fit to length) |
+| `length_min` | wanted length in minutes | 0.25–240; 0 = your style decides; -1 = as long as it needs | brief `target_duration_s` (fit to length; -1 sends 0: no fit) |
 | `aspect_ratio` | 16:9, 9:16, 1:1, 4:5 | enum | brief `aspect_ratio` |
 | `feel` | calm, balanced, energetic | enum | brief `feel` (joins) |
 | `edit` | smart ("Edit it for me"), tight ("Fast-paced"), off ("Keep my clips") | enum | brief `smart_edit` |
@@ -61,8 +65,11 @@ Stored in `studio_projects.setup.plan`; every field is optional, "" or empty mea
 | `notes` | anything else to keep in mind | 6 × 200 | edit prompt |
 
 `video_setup.plan_to_brief` turns a plan into brief fields; `brief.plan` keeps `summary`, `opening`, `story` and
-`notes` for ClipForge AI's edit prompt. The form for changing it by hand sends only the fields you changed; a field
-you set by hand stays as you set it until a later message talks about that part again.
+`notes` for ClipForge AI's edit prompt. The form for changing it by hand sends only the fields you changed since it
+opened (a change ClipForge AI made meanwhile stays); a field you set by hand stays as you set it until a later message
+talks about that part again, and a hand edit made while ClipForge AI was answering an earlier message stays too
+(`setup.locked_at`). An opening set by hand turns the cold open on; "start from the beginning" (cold open off)
+clears the opening. Moving files by hand on the planning page empties the plan's `order` (your order is the order).
 
 ## How the plan drives the edit
 
@@ -102,7 +109,10 @@ Every time the owner says something, ClipForge AI answers with a message and the
 It answers one JSON object `{"say", "questions", "plan"}` (a JSON schema for the built-in model, so a small model
 cannot answer in another shape; 1,200 tokens at most). The answer is data: every field is checked against the
 bounds above, unknown fields are dropped, file numbers must exist, the order must be a permutation. "Stop" ends an
-answer being written; what was planned before stays.
+answer being written; what was planned before stays, and an answer that arrives after Stop changes nothing (it is
+taken in under the same lock Stop takes, only while its message is still "thinking" and the video is still being
+planned). Up to three answers are written at once, so one draft's slow answer or a build that plans never waits
+behind another.
 
 **Without a model, or when the model fails**, the built-in rules read what the owner said: lengths ("10 minutes",
 "under 5 min", "an hour"), shapes ("vertical", "TikTok", "square", "16:9"), feel words, how much to edit
@@ -112,9 +122,23 @@ with "first … then … finally …". A story part stops where another instruct
 use my summer song as the music" keeps the music out of the story). The answer says the rules answered, puts any
 problem first, and says once how to set up the free built-in model.
 
-**Merging.** The new plan is the old plan, then the model's plan, then what the rules found said explicitly in the
-newest messages (an explicit "10 minutes" wins over a model that wrote 8), then the fields the owner set by hand
-(kept unless the newest message changes that field).
+What the rules do not take as an instruction: a no in front ("I don't want captions", "skip the music", "turn off
+the zooms", "not a TikTok"; "don't forget the captions" and "I don't mind music" are a yes, and "not sure about
+captions" says neither); a keep or cut that is not asked for ("my dad tries to remove the hook", "we cut the
+cake"), while "don't ever cut the sunset" keeps it, "don't include the gas station" cuts it and "you don't have to
+keep the sunset" lets it go; a number that says how long the footage, a talk or a drive is ("my footage is 2 hours
+long, I want a 15 minute video" is 15; "the interview is 45 minutes, make it 10" is 10; "we drove 6 hours" and "hold
+on a sec" are none), a time in the video, or "not 12 minutes"; "keep everything light and fun" or "leave the drive
+as is" (only the whole video kept as it is turns editing off); a shape word about something else ("the old town
+square", "the landscape up there", "fishing reels"); a list of changes told with "then" (no story) and "we call it a
+day" (no title).
+
+**Merging.** The new plan is the old plan, then the model's reading, then what the rules read in the newest message
+only where the model left that part as it was or empty (keep and cut only when the model changed neither list),
+then the fields the owner set by hand (kept unless the newest message changes that field). A model's reading of the
+message wins over the rules' (its 8 over the rules' 10), but a model never changes, without the newest message
+talking about it, a part the owner said in an earlier message or a part it silently emptied. Without a model, only
+the newest message is read on top of the plan, so a kept or cut item you took out by hand stays out.
 
 **Questions** (only in "Ask me questions"): at most 3 on screen and 2 rounds per draft, never one that was asked
 before or that the plan already answers. Without a model the rules ask, in the first round only, for what matters
@@ -125,7 +149,11 @@ counts the same way. "Just do it" on a question switches the mode and builds.
 
 **Just do it** builds at once. When there is no plan yet, the build job plans after listening (so the plan uses
 every word said), posts the plan to the chat, sets the brief and continues; the editor page shows it. When the build
-cannot start (no video, say), the draft stays and the chat says why, so nothing is lost.
+cannot start (no video, say), the draft stays and the chat says why, so nothing is lost. **Build my video** before
+ClipForge AI ever answered (its first answer was stopped) does the same: the rules read everything said (a part
+you set by hand since stays as you set it), and the build job plans with the model after listening when one is set
+up. A planning request in the build job that runs
+past its time is told to stop (and still counts toward the online daily limit).
 
 ## Drafts
 
@@ -133,12 +161,15 @@ A video is being planned here when `video_setup.is_draft(project)`: `studio_proj
 `setup` and `workflow = "full_video"`. Another video can wait as "draft" too (an animated short stopped before its
 first version, PR #36), so the pages, the Projects link and the chat route all use this check, and the video and
 setup views carry it as `planning` (the editor page sends a planning video to its setup page, the setup page sends
-any other video to its editor). A draft has `plan_revision = 0`, no build job, and `setup` = `{"mode", "plan", "idea",
-"locked", "rounds", "asked", "open", "style_id", "reference_id", "remember", "owner_order", "pending",
-"consulted", "named", "source", "planned", "look", "by"}` (`open`: the questions on screen; `named`: the owner named
-the video, so the plan's title no longer renames it; `source`: who wrote the plan last, `ai` or `rules`; `planned`:
-a plan exists; `look`: the shape or captions a plan change after the build asks the next edit to apply, then
-cleared; `by`: who pressed Build, for "Remember this style"). The bin is listened to
+any other video to its editor, and Build my video opens the editor, each in place of the history entry
+(`router.redirect`), so Back never lands on a page that only sends you on). A draft has `plan_revision = 0`, no
+build job, and `setup` = `{"mode", "plan", "idea", "locked", "locked_at", "rounds", "asked", "open", "style_id",
+"reference_id", "remember", "owner_order", "pending", "consulted", "named", "source", "planned", "look", "by",
+"plans", "change"}` (`locked_at`: when each hand edit was made; `plans`: the plan each version was made with, the
+last 30, for Undo; `change`: a plan change whose edit is running, to put back if it fails; `open`: the questions on
+screen; `named`: the owner named the video, so the plan's title no longer renames it; `source`: who wrote the plan
+last, `ai` or `rules`; `planned`: a plan exists; `look`: the shape or captions a plan change after the build asks
+the next edit to apply, then cleared; `by`: who pressed Build, for "Remember this style"). The bin is listened to
 (`video_media` job) as soon as the draft exists and whenever files are added. The planning talk is the draft's own
 ClipForge AI chat (`brain_chats` with its `project_id`): owner rows (`data.answers`: the question a quick answer
 answered), and AI rows with `data.tool = "plan"`, `data.say`, `data.plan`, `data.lines`, `data.questions`,
@@ -181,21 +212,25 @@ the second merge rebuilds; both test sets pass together):
 
 ## Privacy and limits
 
-Text only: the idea, the conversation, file names, lengths and what is said in the videos (bounded as above).
-Never the video, the sound or file paths. Each answer says whether it stayed on this computer or went over the
-internet, and to whom. Every planning answer from an online model counts against `ai_edit_requests_per_day`
-(shared with the chat and change requests); a model on this computer has no limit. A model request may take
+Text only: the idea, the conversation, file names, lengths, what is said in the videos, the Brain memories and
+built-in know-how that fit the idea and the helper agents' notes (bounded as above). Never the video, the sound or
+file paths. Each answer says whether it stayed on this computer or went over the internet, and to whom. Every
+planning request to an online model counts against `ai_edit_requests_per_day` (shared with the chat and change
+requests), also one that failed or was given up on; a model on this computer has no limit. A model request may take
 `max(60, ai_edit_timeout_s × 2)` seconds, at most 300; in the build job it renews the job's lease while it waits.
 
 ## Tests
 
 - `tests/test_video_setup.py`: the rules (lengths, shapes, feel, music, keep and cut, openings, stories and where a
-  story part stops), merging, bounds on a model's answer, questions and carry-over, plan to brief.
+  story part stops, and every misreading the review found), merging (the model's reading first), bounds on a
+  model's answer, questions and carry-over, plan to brief, "as long as it needs".
 - `tests/test_video_setup_flow.py`: a draft from files and an idea, talking, quick answers keeping the other
   questions, hand edits, files and order, Build my video, Just do it with and without a model and when it cannot
   start, a model answering in the background, broken and wild answers, the online daily limit, changing the plan
-  after the build, the opening and fit to length, every route, and a message to a draft's chat from the ClipForge AI
-  panel (runs when the assistant's chat routes are present).
+  after the build (your editor choices stay, the plan's sounds and order follow it, Undo brings the plan back, a
+  failed edit puts it back), Stop with a late answer, a hand edit made while it thinks, Build after a stopped first
+  answer, odd inputs, a failed online request counted, the opening and fit to length, every route, and a message to
+  a draft's chat from the ClipForge AI panel (runs when the assistant's chat routes are present).
 - In a browser against `e2e/sandbox/run_sandbox.py` (temporary data, made-up transcripts): the whole flow on desktop
   and at 390 px phone width, with no console errors; the existing e2e app-shell and create/library suites pass.
 

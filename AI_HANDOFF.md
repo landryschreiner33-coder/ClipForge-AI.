@@ -1,6 +1,6 @@
 # AI handoff
 
-## Make a YouTube video: drop in your files, tell ClipForge AI your idea, plan it together — 2026-11-08 (Claude Code, cloud session)
+## Make a YouTube video: plan it with ClipForge AI — 2026-11-08, review fixes 2026-11-10 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI
 your idea and plan, and it can ask questions or not. Make a YouTube video is now two pages. On the first you drop in
@@ -13,10 +13,11 @@ video from the plan: the brief, the opening you asked for, ClipForge AI's edit, 
 all follow it. The plan stays on the editor page, where changing it edits again as a new version. A video being
 planned waits in Projects as a draft, so leaving the page loses nothing.
 
-- **Branch / PR:** `claude/project-thread-2wwa4c` from the release line at 95a70e0, draft PR into
-  `claude/project-thread-x72wkd`. No release; Landry has not said to merge. It works with and without the
-  assistant's PR #37 (`claude/project-thread-sa113l`): merged together in a scratch copy, only `frontend/dist`
-  conflicts (rebuild it after the second merge) and both sets of tests pass.
+- **Branch / PR:** `claude/project-thread-2wwa4c`, PR #38 into `claude/project-thread-x72wkd` (the release line,
+  merged in again on Nov 9 with PR #36 and PR #40). Review fixes on Nov 10 (see AI_CHANGELOG.md). Landry's standing
+  word (Nov 9) is to merge finished work into the release line; releases still need an explicit OK. It works with
+  and without the assistant's PR #37 (`claude/project-thread-sa113l`): merged in a scratch copy on Nov 10, only
+  `frontend/dist` (rebuild it) and the change logs (keep both) conflict, and both sets of tests pass.
 - **Design and limits:** [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md) (what the owner sees, the plan's
   fields and bounds, how the plan drives the edit, the planner, drafts and routes, what is shared with the assistant,
   privacy); [docs/clipforge/ROUTE_MAP.md](docs/clipforge/ROUTE_MAP.md); [AI_CHANGELOG.md](AI_CHANGELOG.md).
@@ -36,12 +37,14 @@ planned waits in Projects as a draft, so leaving the page loses nothing.
   projects (status "draft") so nothing is lost; ClipForge AI's "Make a YouTube video" tool only shows a button that
   opens the page with the idea filled in (the owner drops in the files) instead of starting a video by itself; the
   old one-step `POST /api/studio/videos` stays for scripts and tests; the plan form sends only what you changed, and
-  a line you set by hand stays until a message talks about it again.
+  a line you set by hand stays until a message talks about it again. With a model, its reading of a message wins over
+  the built-in rules' (the rules only fill what it left); "As long as it needs" is its own choice (-1), not "from
+  your style" (0); after the build a plan change only moves the brief fields it changed, and Undo brings the plan
+  back with the video.
 - **Not done:** the built-in model's real planning answers, real footage and speech, and a real Mac cannot be tested
   from the cloud computer (the tests use a fake model and made-up transcripts); speaking the idea instead of typing
   it; planning several videos from one drop.
-- **Waiting on Landry:** a look at the PR; a real test on Landry's computer with the built-in model; the merge; the release
-  (explicit OK).
+- **Waiting on Landry:** a real test on Landry's computer with the built-in model; the release (explicit OK).
 
 ## Story clips: Full story, Story parts, five minutes at most, a still picture — 2026-11-09 (Claude Code, cloud session)
 

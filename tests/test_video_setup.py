@@ -33,7 +33,7 @@ def test_lengths_are_read_from_plain_words():
     assert "length_min" not in read("the jump happens 3 minutes in")
     assert "length_min" not in read("at 2 minutes he falls in")
     plan, said = vs.rules_read("As long as it needs", FILES)
-    assert plan["length_min"] == 0 and "length_min" in said
+    assert plan["length_min"] == vs.NO_LENGTH and "length_min" in said
 
 
 def test_shape_feel_and_how_much_to_edit():
@@ -62,6 +62,9 @@ def test_music_files_captions_and_switches():
     assert read("free music made by clipforge")["music"] == "library"
     assert read("find music for me")["music"] == "find"
     assert read("narration.m4a is the voiceover")["voiceover_files"] == ["a2"]
+    p = read("put summer song under it, narration.m4a is the voiceover")  # one clause each
+    assert p["music_file"] == "a1" and p["voiceover_files"] == ["a2"]
+    assert "music_file" not in read("don't put summer song under it")
     assert read("no captions")["captions"] == "off"
     assert read("add subtitles")["captions"] == "on"
     p = read("no sound effects and no zooms")
@@ -79,7 +82,7 @@ def test_opening_story_keep_and_cut():
     assert p["cut"] == ["boring traffic part", "gas station"]
     assert p["keep"] == ["sunset"]
     p = read("start from the beginning")
-    assert p["cold_open"] == "off" and "opening" not in p
+    assert p["cold_open"] == "off" and p.get("opening", "") == ""
     p = read("open with the best moment")
     assert p["cold_open"] == "on" and "opening" not in p
     assert read("don't cut the part where we fall")["keep"] == ["part where we fall"]
@@ -104,6 +107,109 @@ def test_audience_type_and_title():
     assert "audience" not in read("for 10 minutes")
 
 
+def test_keep_and_cut_read_negatives_and_only_requests():
+    # a "don't" / "never" / "can't" in front of a cut verb keeps the part; a negated keep cuts it
+    for text in ("Please don't ever cut the sunset.", "never cut the sunset", "we can't lose the sunset",
+                 "I do not want you to remove the sunset", "make sure you don't cut the sunset"):
+        p = read(text)
+        assert p.get("keep") == ["sunset"] and "cut" not in p, text
+    for text in ("don't include the gas station", "please don't keep the gas station"):
+        p = read(text)
+        assert p.get("cut") == ["gas station"] and "keep" not in p, text
+    # "you don't have to keep it" lets it go without cutting it
+    p = read("you don't have to keep the sunset")
+    assert "keep" not in p and "cut" not in p
+    # what happens in the story is not an instruction
+    for text in ("my dad tries to remove the fish hook", "then we cut the cake", "he drops the phone in the lake",
+                 "she skips the line"):
+        p = read(text)
+        assert "keep" not in p and "cut" not in p, text
+    # requests in other words still count
+    assert read("can you cut the gas station")["cut"] == ["gas station"]
+    assert read("I want you to keep the dock jump")["keep"] == ["dock jump"]
+    assert read("we need to cut the traffic part")["cut"] == ["traffic part"]
+
+
+def test_the_length_is_the_one_asked_for():
+    for text, minutes in (("My footage is 2 hours long, I want a 15 minute video", 15),
+                          ("The interview is 45 minutes, make it 10", 10),
+                          ("Turn my 30 minute talk into a 5 minute video", 5),
+                          ("not 12 minutes, 8 minutes", 8),
+                          ("make it 10 minutes. actually make it 8 minutes", 8),
+                          ("10 minutes, vertical, no music, upbeat, for my friends and family", 10),
+                          ("It should be 10 minutes and the drive took 2 hours", 10)):
+        assert read(text).get("length_min") == minutes, text
+    for text in ("We drove 6 hours", "I have 20 minutes of footage", "hold on a sec", "wait a minute",
+                 "my footage is about 40 minutes", "the drive was 2 hours and the lake was cold",
+                 "each picture for 3 seconds each"):
+        assert "length_min" not in read(text), text
+
+
+def test_as_long_as_it_needs_is_a_decision():
+    assert read("As long as it needs")["length_min"] == vs.NO_LENGTH
+    p = vs.clean_plan({"length_min": vs.NO_LENGTH}, FILES)
+    assert p["length_min"] == vs.NO_LENGTH
+    assert "Length: as long as it needs" in vs.plan_lines(p, FILES)
+    assert vs.plan_to_brief(p)["target_duration_s"] == 0  # no fit, and your style's length does not apply
+    assert vs.rules_questions(p, set(), set()) == [q for q in vs.rules_questions(p, set(), set())
+                                                   if q["id"] != "length"]
+    assert "target_duration_s" not in vs.plan_to_brief(vs.clean_plan({}, FILES))  # undecided: your style decides
+
+
+def test_editing_off_needs_the_whole_video():
+    for text in ("Keep everything light and fun", "keep it all upbeat", "leave the drive as is",
+                 "the drive, don't cut it too short", "don't edit it too much", "the uncut part of the drive"):
+        assert read(text).get("edit") != "off", text
+    for text in ("keep everything", "keep my clips as they are", "don't edit anything", "leave it as is",
+                 "don't cut anything, keep my clips as they are", "post it unedited"):
+        assert read(text).get("edit") == "off", text
+
+
+def test_switches_music_and_shape_hear_no():
+    for text in ("I don't want captions", "skip the captions", "turn off captions", "no need for captions",
+                 "no captions please"):
+        assert read(text).get("captions") == "off", text
+    assert read("no zooms and add captions")["captions"] == "on"
+    assert read("I don't want zooms")["zooms"] == "off"
+    assert read("please avoid sound effects")["sound_effects"] == "off"
+    assert "zooms" not in read("we had a zoom call")
+    for text in ("without background music", "I don't want background music", "no music", "I don't want any music",
+                 "lose the background music"):
+        assert read(text).get("music") == "none", text
+    assert "cut" not in read("lose the background music")
+    assert read("add some background music")["music"] == "auto"
+    # a no that is no no, and a "not sure" that says neither
+    for text in ("Don't forget the captions", "I don't mind captions", "I don't want music but don't forget subtitles"):
+        assert read(text).get("captions") == "on", text
+    assert read("no worries, add some background music")["music"] == "auto"
+    assert read("Don't forget to add music")["music"] == "auto"
+    assert read("not too many zooms")["zooms"] == "on"
+    for text in ("not sure about captions", "I don't care about captions"):
+        assert "captions" not in read(text), text
+    assert read("don't forget to keep the sunset")["keep"] == ["sunset"]
+    for text in ("not a TikTok", "I don't want it vertical", "the old town square", "my new fishing reels",
+                 "The landscape up there was unreal", "we wore shorts all day"):
+        assert "aspect_ratio" not in read(text), text
+    for text, shape in (("make it square", "1:1"), ("square please", "1:1"), ("in landscape", "16:9"),
+                        ("a vertical video", "9:16"), ("for instagram reels", "9:16"), ("make it vertical", "9:16")):
+        assert read(text).get("aspect_ratio") == shape, text
+
+
+def test_story_title_and_opening_edge_cases():
+    assert "story" not in read("Make the first part shorter, then speed up the end")
+    assert "story" not in read("I want it shorter, then I'll upload it")
+    assert read("first the drive, then swimming, then dinner")["story"] == ["the drive", "swimming", "dinner"]
+    assert "title" not in read("after the sunset we call it a day")
+    assert "title" not in read("let's call it a night")
+    assert read("call it lake days")["title"] == "lake days"
+    p = read("Actually, start from the beginning instead")
+    assert p["cold_open"] == "off" and p["opening"] == ""
+    assert "cold_open" not in read("I want to cut the boring parts in order to make it shorter")
+    # an opening only stays while the video opens with it
+    p = vs.clean_plan({"opening": "the dock jump", "cold_open": "off"}, FILES)
+    assert p["opening"] == "" and p["cold_open"] == "off"
+
+
 def test_mentions_say_which_parts_of_the_plan_a_message_touches():
     assert vs.mentions("make it a bit shorter") >= {"length_min"}
     assert "feel" in vs.mentions("more chill please")
@@ -125,7 +231,7 @@ def test_rules_ask_only_for_what_is_missing_and_never_twice():
 
 def test_quick_answers_fill_the_plan():
     assert vs.answer_fields("length", "About 10 minutes", FILES) == {"length_min": 10}
-    assert vs.answer_fields("length", "As long as it needs", FILES) == {"length_min": 0}
+    assert vs.answer_fields("length", "As long as it needs", FILES) == {"length_min": vs.NO_LENGTH}
     assert vs.answer_fields("length", "Under 5 minutes", FILES) == {"length_min": 4.5}
     assert vs.answer_fields("audience", "My subscribers", FILES) == {"audience": "My subscribers"}
     assert vs.answer_fields("audience", "people who love fishing", FILES) == {"audience": "people who love fishing"}
@@ -136,7 +242,8 @@ def test_quick_answers_fill_the_plan():
 def test_words_typed_under_who_is_it_for_count_only_when_they_name_people():
     # the only question on screen is "Who is it for?" and the owner types instead of tapping
     for typed, who in (("my gaming friends", "my gaming friends"), ("it's for my mom", "my mom"),
-                       ("It’s for my Mom!", "my Mom"), ("kids who want to learn guitar", "kids who want to learn guitar"),
+                       ("It’s for my Mom!", "my Mom"),
+                       ("kids who want to learn guitar", "kids who want to learn guitar"),
                        ("travel lovers", "travel lovers")):
         assert vs.answer_fields("audience", typed, FILES) == {"audience": who}, typed
     # a message about another part of the video is not taken as who it is for
@@ -206,13 +313,25 @@ def test_plan_lines_read_like_a_person_wrote_them():
 
 
 # ------------------------------------------------------------------ merging a new plan
-def test_merge_explicit_words_and_hand_edits_win():
+def test_merge_the_model_reads_first_and_hand_edits_win():
     base = vs.clean_plan({"length_min": 10, "feel": "calm", "keep": ["sunset"], "cut": ["drive"]}, FILES)
     model = vs.clean_plan({"length_min": 8, "feel": "energetic", "keep": ["sunset"], "cut": ["drive"],
                            "audience": "Family"}, FILES)
-    # the newest message said "make it 12 minutes"; the owner set the feel by hand earlier
+    # the rules read "12 minutes" in the newest message, but the model changed the length: its reading wins; the
+    # owner set the feel by hand earlier
     out = vs.merge(base, model, explicit={"length_min": 12}, mentioned={"length_min"}, locked={"feel": "calm"})
-    assert out["length_min"] == 12 and out["feel"] == "calm" and out["audience"] == "Family"
+    assert out["length_min"] == 8 and out["feel"] == "calm" and out["audience"] == "Family"
+    # where the model left a part as it was (or empty), what the rules read fills it in
+    lazy = vs.clean_plan({**base, "audience": "Family"}, FILES)
+    out = vs.merge(base, lazy, explicit={"length_min": 12, "aspect_ratio": "9:16"}, mentioned={"length_min"},
+                   locked={})
+    assert out["length_min"] == 12 and out["aspect_ratio"] == "9:16"
+    # keep and cut: the rules' reading only when the model changed neither list
+    out = vs.merge(base, lazy, explicit={"keep": ["drive"]}, mentioned={"keep", "cut"}, locked={})
+    assert out["keep"] == ["sunset", "drive"] and out["cut"] == []
+    moved = vs.clean_plan({**base, "keep": ["sunset", "dock jump"]}, FILES)
+    out = vs.merge(base, moved, explicit={"cut": ["sunset"]}, mentioned={"keep", "cut"}, locked={})
+    assert out["keep"] == ["sunset", "dock jump"] and out["cut"] == ["drive"]
     # a newer message about the feel lets the model change it
     out = vs.merge(base, model, explicit={}, mentioned={"feel"}, locked={"feel": "calm"})
     assert out["feel"] == "energetic" and out["length_min"] == 8

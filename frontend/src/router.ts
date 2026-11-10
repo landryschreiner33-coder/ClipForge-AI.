@@ -73,6 +73,14 @@ export function navigate(path: string) {
   window.location.hash = path.startsWith("#") ? path : `#/${path.replace(/^\/+/, "")}`;
 }
 
+/** Go to `path` in place of the current history entry (a page that sends you on): Back does not return to it. */
+export function redirect(path: string) {
+  const url = path.startsWith("#") ? path : `#/${path.replace(/^\/+/, "")}`;
+  passing = url.replace(/^#?\/?/, "").replace(/\/+$/, "");  // nothing to ask: the page you were on sent you
+  history.replaceState({ ...(history.state || {}), cfPosition: position }, "", url);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 // ------------------------------------------------------------------ unsaved changes
 export type LeaveGuard = {
   /** What would be lost, in words ("Trim, Captions"). */

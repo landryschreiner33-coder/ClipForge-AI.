@@ -843,13 +843,14 @@ def plan_skeleton(project: dict, values: dict, assets: dict[str, dict], clips: l
     brief = project.get("brief") or {}
     audio = []
     if brief.get("music") == "supplied" and brief.get("music_asset_id") in assets:
-        audio.append(_audio_item("a1", assets[brief["music_asset_id"]], "music",
-                                 gain_db=float(values.get("music_level_db", -18)),
-                                 duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500))
+        audio.append({**_audio_item("a1", assets[brief["music_asset_id"]], "music",
+                                    gain_db=float(values.get("music_level_db", -18)),
+                                    duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
+                      "brief": True})  # placed from the brief: a later edit places it again
     at = 0
     for aid in brief.get("voiceover_asset_ids") or []:
         if aid in assets:
-            item = _audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at)
+            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), "brief": True}
             audio.append(item)
             at += engine.item_length(item) or 0
     return {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
@@ -912,6 +913,8 @@ def hook_score(s: dict) -> float:
 def plan_words(brief: dict) -> set[str]:
     """The words the owner's plan is about (its summary, opening, story and must-keeps), for fitting the length."""
     plan = brief.get("plan") if isinstance(brief.get("plan"), dict) else {}
+    if not plan and not brief.get("open_with"):
+        return set()  # a video made without a plan ranks as it always did
     parts = [plan.get("summary"), plan.get("opening") or brief.get("open_with"), brief.get("must_keep")]
     parts += list(plan.get("story") or [])
     return {t for p in parts if isinstance(p, str) for t in content_tokens(p)}

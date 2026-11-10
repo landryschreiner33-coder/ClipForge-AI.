@@ -10,7 +10,7 @@ import { PlanPanel } from "../components/VideoPlan";
 import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
-import { navigate } from "../router";
+import { redirect } from "../router";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
@@ -352,7 +352,7 @@ export default function VideoReview({ id }: { id: string }) {
     return () => window.clearInterval(t);
   }, [load]);
   // a video still being planned with ClipForge AI opens on its setup page
-  useEffect(() => { if (v?.planning) navigate(`create/video/${v.id}`); }, [v?.planning, v?.id]);
+  useEffect(() => { if (v?.planning) redirect(`create/video/${v.id}`); }, [v?.planning, v?.id]);
 
   const act = useCallback(async (call: () => Promise<Video & { note?: string }>) => {
     setBusy(true);

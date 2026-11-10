@@ -435,13 +435,13 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
             notes.append(f"Trimmed silence at the start/end of {a['filename']}.")
     audio = []
     if values.get("music") == "supplied" and brief.get("music_asset_id") in assets:
-        audio.append(_audio_item("a1", assets[brief["music_asset_id"]], "music",
-                                 gain_db=float(values.get("music_level_db", -18)),
-                                 duck=bool(values.get("duck_music", True))))
+        audio.append({**_audio_item("a1", assets[brief["music_asset_id"]], "music",
+                                    gain_db=float(values.get("music_level_db", -18)),
+                                    duck=bool(values.get("duck_music", True))), "brief": True})
     at = 0
     for aid in brief.get("voiceover_asset_ids") or []:  # one after another from the start, as you listed them
         if aid in assets:
-            item = _audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at)
+            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), "brief": True}
             audio.append(item)
             at += engine.item_length(item) or 0
     plan = {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
@@ -572,6 +572,10 @@ def build(job: dict, lease: Lease) -> dict:
     rev = save_revision(project["id"], plan, "Rough cut from your brief", None,
                         {"action": "build", "prev": None, "redo": None}) if project["plan_revision"] == 0 \
         else project["plan_revision"]
+    if project.get("setup"):
+        from . import video_setup
+
+        video_setup.edited(project["id"], rev)  # the plan this version was made with
     db.update("studio_projects", project["id"], status="ready", message="Rough cut ready; making a preview")
     enqueue(project["workspace_id"], "video_preview", project["id"], rev)
     if (project.get("brief") or {}).get("find_media") in ("suggest", "auto") and \
@@ -741,6 +745,20 @@ def smart_job(job: dict, lease: Lease) -> dict:
     project = db.fetch("studio_projects", job["target_id"])
     if not project:
         raise VideoError("The project was deleted.")
+    if not project.get("setup"):
+        return _smart_job(project, job, lease)
+    from . import video_setup
+
+    try:
+        out = _smart_job(project, job, lease)
+    except BaseException:
+        video_setup.edit_failed(project["id"], job["revision"])  # a plan change that was never edited goes back
+        raise
+    video_setup.edited(project["id"], out["revision"])
+    return out
+
+
+def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     base = job["revision"]
     if project["plan_revision"] != base:
         raise VideoError("The video changed before this edit started; nothing was changed. Press Edit it for me "
@@ -763,10 +781,12 @@ def smart_job(job: dict, lease: Lease) -> dict:
         if isinstance(look.get("captions"), bool) and isinstance(new.get("captions"), dict):
             new["captions"]["enabled"] = look["captions"]
     clip_ids = {c["id"] for c in new["clips"]}
-    mine = [i for i in current.get("audio") or [] if not i.get("auto") and
+    # the sounds you placed stay; ClipForge's own and the brief's (your plan's music and voiceovers) are placed again
+    mine = [i for i in current.get("audio") or [] if not i.get("auto") and not i.get("brief") and
             (not i.get("anchor") or i["anchor"].get("clip_id") in clip_ids)]
-    lost = [i["label"] for i in current.get("audio") or [] if not i.get("auto") and i not in mine]
-    auto = [i for i in new.get("audio") or [] if i.get("auto") or i["role"] != "voiceover"]
+    lost = [i["label"] for i in current.get("audio") or [] if not i.get("auto") and not i.get("brief") and
+            i not in mine]
+    auto = [i for i in new.get("audio") or [] if i.get("auto") or i.get("brief") or i["role"] != "voiceover"]
     if any(i["role"] == "music" for i in mine):
         auto = [i for i in auto if i["role"] != "music"]
     auto = [i for i in auto if not any(m["asset_id"] == i["asset_id"] and m["role"] == i["role"] for m in mine)]
@@ -814,8 +834,14 @@ def add_media(project_id: str, asset_ids: list[str]) -> dict:
     if added:
         bin_ids = list(project["asset_ids"]) + added
         db.update("studio_projects", project_id, asset_ids=bin_ids, updated_at=time.time())
-        enqueue(project["workspace_id"], "video_media", project_id, len(bin_ids))
+        enqueue(project["workspace_id"], "video_media", project_id, bin_key(bin_ids))
     return {"added": added}
+
+
+def bin_key(asset_ids: list[str]) -> int:
+    """The listening job's key for this set of files: a new set (a file taken out and another added) is heard again;
+    each file is transcribed once anyway."""
+    return int(hashlib.sha1("\n".join(sorted(asset_ids)).encode()).hexdigest()[:12], 16)
 
 
 @handler("video_media")
@@ -1007,6 +1033,7 @@ def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
         else:
             item["anchor"] = None
             item["start_ms"] = _ms(edit.get("start_ms"), "The start")
+        item.pop("brief", None)  # you changed it: a later edit keeps it
         return f"Moved {item['label']}"
     if op == "audio_trim":
         if item.get("loop"):
@@ -1017,6 +1044,7 @@ def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
             if b - a < 100:
                 raise VideoError("A sound must stay at least 0.1 s long.")
             item["in_ms"], item["out_ms"] = a, b
+        item.pop("brief", None)  # you changed it: a later edit keeps it
         return f"Trimmed {item['label']}"
     if op == "audio_set":
         field, value = edit.get("field"), edit.get("value")
@@ -1040,6 +1068,7 @@ def _audio_edit(p: dict, edit: dict, assets: dict[str, dict]) -> str:
                 item["duck"] = False
         else:
             raise VideoError(f"“{field}” cannot be set to that.")
+        item.pop("brief", None)  # you changed it: a later edit keeps it
         return f"Changed {str(field).replace('_', ' ')} of {item['label']}"
     raise VideoError("Unknown edit.")
 
@@ -1369,6 +1398,10 @@ def _jump(project_id: str, base_revision: int, target: int, note: str, meta: dic
     rev = save_revision(project_id, plan, note, base_revision, {**meta, "same_as": target}, also=also)
     if after is not None:
         after()
+    if project.get("setup"):
+        from . import video_setup
+
+        video_setup.went_back(project_id, target)  # "Your plan" and the brief it set go back with the video
     enqueue(project["workspace_id"], "video_preview", project_id, rev)
     return {"revision": rev, "note": note}
 

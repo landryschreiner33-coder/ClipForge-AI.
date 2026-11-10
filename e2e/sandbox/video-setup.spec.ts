@@ -114,6 +114,11 @@ test("drop in files, tell ClipForge AI the idea, answer a question, change the p
   await expect(plan).toBeVisible({ timeout: 60_000 });
   await expect(plan).toContainText("Lake Days");
   await expect(plan).toContainText("About 5 minutes");
+  // Back from the editor does not land on the planning page, which would only send you on again
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/projects$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/#\/video\/vid-[\w-]+$/);
   await page.goto(planning);
   await expect(page).toHaveURL(/#\/video\/vid-[\w-]+$/);
   expect(errors).toEqual([]);

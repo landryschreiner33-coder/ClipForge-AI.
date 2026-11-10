@@ -13,6 +13,8 @@ const FEELS: Record<string, string> = { calm: "Calm", balanced: "Balanced", ener
 const EDITS: Record<SmartLevel, string> = { smart: "Edit it for me", tight: "Fast-paced", off: "Keep my clips as they are" };
 const MUSIC: Record<string, string> = { auto: "Pick for me", library: "Free music made by ClipForge", find: "Find music for me", none: "No music" };
 const TRI_WORDS: Record<string, string> = { on: "On", off: "Off" };
+/** length_min: 0 = not decided (your style decides), NO_LENGTH = as long as it needs (no length to fit). */
+export const NO_LENGTH = -1;
 
 export function minutes(m: number): string {
   if (m < 1) return `${Math.round(m * 60)} seconds`;
@@ -32,7 +34,7 @@ export function planRows(p: PlanFields, files: FileLike[]): PlanRow[] {
   add("video_type", "Kind", p.video_type);
   add("audience", "For", p.audience);
   add("goal", "Goal", p.goal);
-  add("length_min", "Length", p.length_min ? `About ${minutes(p.length_min)}` : "");
+  add("length_min", "Length", p.length_min === NO_LENGTH ? "As long as it needs" : p.length_min > 0 ? `About ${minutes(p.length_min)}` : "");
   add("aspect_ratio", "Shape", p.aspect_ratio ? SHAPES[p.aspect_ratio] : "");
   add("feel", "Feel", p.feel ? FEELS[p.feel] : "");
   add("edit", "Editing", EDITS[p.edit] || EDITS.smart);
@@ -102,27 +104,33 @@ const lines = (text: string, count: number) => text.split("\n").map((x) => x.tri
 const items = (text: string, count: number) => text.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, count);
 
 /** The plan as a form: every part can be set by hand ("From your style" leaves it to your style and Brain). Only what
- * you changed is saved, and stays as you set it until you talk about it again. */
+ * you changed since the form opened is saved (a change ClipForge AI made meanwhile stays), and stays as you set it
+ * until you talk about it again. */
 export function PlanForm({ plan, files, busy, saveLabel, onSave, onCancel, hide = [] }: {
   plan: PlanFields; files: FileLike[]; busy?: boolean; saveLabel: string; hide?: (keyof PlanFields)[];
   onSave: (changes: Partial<PlanFields>) => void | Promise<void>; onCancel: () => void;
 }) {
+  const opened = useRef(plan);  // what the form shows was read from this plan
   const [p, setP] = useState<PlanFields>(plan);
   const [story, setStory] = useState(plan.story.join("\n"));
   const [notes, setNotes] = useState(plan.notes.join("\n"));
   const [keep, setKeep] = useState(plan.keep.join(", "));
   const [cut, setCut] = useState(plan.cut.join(", "));
-  const [length, setLength] = useState(plan.length_min ? String(plan.length_min) : "");
+  const [lengthMode, setLengthMode] = useState(plan.length_min === NO_LENGTH ? "any" : plan.length_min > 0 ? "set" : "");
+  const [length, setLength] = useState(plan.length_min > 0 ? String(plan.length_min) : "");
   const set = <K extends keyof PlanFields>(k: K, v: PlanFields[K]) => setP((x) => ({ ...x, [k]: v }));
   const sounds = files.filter((f) => f.kind === "audio");
-  const voices = sounds.filter((f) => !(p.music === "mine" && f.id === p.music_file));
+  const isMusic = (id: string) => p.music === "mine" && id === p.music_file;
+  const voices = sounds.filter((f) => !isMusic(f.id));
   const shown = (k: keyof PlanFields) => !hide.includes(k);
   const save = () => {
     const minutesSet = parseFloat(length.replace(",", "."));
+    const lengthMin = lengthMode === "any" ? NO_LENGTH : lengthMode === "set" && Number.isFinite(minutesSet) && minutesSet > 0 ? minutesSet : 0;
     const next: PlanFields = { ...p, story: lines(story, 8), notes: lines(notes, 6), keep: items(keep, 12), cut: items(cut, 12),
-      length_min: Number.isFinite(minutesSet) && minutesSet > 0 ? minutesSet : 0 };
+      length_min: lengthMin, voiceover_files: p.voiceover_files.filter((id) => !isMusic(id)) };
+    const was = opened.current;
     const changes = Object.fromEntries((Object.keys(next) as (keyof PlanFields)[])
-      .filter((k) => JSON.stringify(next[k]) !== JSON.stringify(plan[k])).map((k) => [k, next[k]])) as Partial<PlanFields>;
+      .filter((k) => shown(k) && JSON.stringify(next[k]) !== JSON.stringify(was[k])).map((k) => [k, next[k]])) as Partial<PlanFields>;
     void onSave(changes);
   };
   const tri = (k: "captions" | "pictures" | "sound_effects" | "zooms", label: string) => (
@@ -139,7 +147,9 @@ export function PlanForm({ plan, files, busy, saveLabel, onSave, onCancel, hide 
       </div>
       <label className="field"><span>Goal</span><input value={p.goal} maxLength={200} onChange={(e) => set("goal", e.target.value)} /></label>
       <div className="vs-pair">
-        <label className="field"><span>Length in minutes</span><input inputMode="decimal" value={length} placeholder="As long as it needs" onChange={(e) => setLength(e.target.value)} /></label>
+        <label className="field"><span>Length</span><select value={lengthMode} onChange={(e) => setLengthMode(e.target.value)}>
+          <option value="">From your style</option><option value="any">As long as it needs</option><option value="set">About…</option></select></label>
+        {lengthMode === "set" && <label className="field"><span>Minutes</span><input inputMode="decimal" value={length} placeholder="10" autoFocus onChange={(e) => setLength(e.target.value)} /></label>}
         <label className="field"><span>Shape</span><select value={p.aspect_ratio} onChange={(e) => set("aspect_ratio", e.target.value as PlanFields["aspect_ratio"])}>
           <option value="">From your style</option>{Object.entries(SHAPES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></label>
         <label className="field"><span>Feel</span><select value={p.feel} onChange={(e) => set("feel", e.target.value as PlanFields["feel"])}>
@@ -162,7 +172,10 @@ export function PlanForm({ plan, files, busy, saveLabel, onSave, onCancel, hide 
           <option value="">From your style</option><option value="auto">Pick for me</option><option value="library">Free music made by ClipForge</option>
           {sounds.length > 0 && <option value="mine">One of my sound files</option>}
           <option value="find">Find music for me</option><option value="none">No music</option></select></label>
-        {p.music === "mine" && <label className="field"><span>Which file is the music</span><select value={p.music_file} onChange={(e) => set("music_file", e.target.value)}>
+        {p.music === "mine" && <label className="field"><span>Which file is the music</span><select value={p.music_file} onChange={(e) => {
+          const id = e.target.value;
+          setP((x) => ({ ...x, music_file: id, voiceover_files: x.voiceover_files.filter((v) => v !== id) }));  // one job per file
+        }}>
           <option value="">Choose for me</option>{sounds.map((f) => <option key={f.id} value={f.id}>{f.filename}</option>)}</select></label>}
       </div>
       {voices.length > 0 && <fieldset className="stack-2"><legend className="label">Voiceover</legend>
@@ -176,9 +189,9 @@ export function PlanForm({ plan, files, busy, saveLabel, onSave, onCancel, hide 
         {tri("sound_effects", "Sound effects")}
         {tri("zooms", "Zooms")}
       </div>
-      <label className="field"><span>Supporting media</span><select value={p.find_media} onChange={(e) => set("find_media", e.target.value as PlanFields["find_media"])}>
+      {shown("find_media") && <label className="field"><span>Supporting media</span><select value={p.find_media} onChange={(e) => set("find_media", e.target.value as PlanFields["find_media"])}>
         <option value="">Don't look for pictures or music</option><option value="suggest">Suggest pictures for my review</option>
-        <option value="auto">Add eligible pictures as a version I can undo</option></select></label>
+        <option value="auto">Add eligible pictures as a version I can undo</option></select></label>}
       <label className="field"><span>Also keep in mind, one per line</span><textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
       <div className="row wrap">
         <button type="submit" className="btn btn-primary" disabled={busy}><Icon name="check" />{saveLabel}</button>
@@ -194,20 +207,25 @@ export function PlanPanel({ v, onStarted }: { v: Video; onStarted: () => void })
   const setup = v.setup!;
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const changeButton = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setEditing(false);
+    window.requestAnimationFrame(() => changeButton.current?.focus());  // back where you were
+  };
   const changed = useChanged(setup.plan);
   const running = v.jobs.some((j) => j.kind === "video_smart" && (j.status === "running" || j.status === "queued"));
   const files = v.bin.map((id) => v.assets.find((a) => a.id === id)).filter((a): a is NonNullable<typeof a> => !!a)
     .map((a) => ({ id: a.id, kind: a.kind, filename: a.filename }));
   const save = async (changes: Partial<PlanFields>) => {
     if (!Object.keys(changes).length) {
-      setEditing(false);
+      close();
       return;
     }
     setBusy(true);
     try {
       await studio.changePlan(v.id, v.plan_revision, changes);
       toast("Editing your video again with the new plan. It becomes a new version that Undo takes back.");
-      setEditing(false);
+      close();
       onStarted();
     } catch (e) {
       toast(errorText(e), true);
@@ -220,11 +238,13 @@ export function PlanPanel({ v, onStarted }: { v: Video; onStarted: () => void })
         <span className="small muted">{setup.source === "ai" ? "Planned with ClipForge AI" : "Read by the built-in rules"}</span></div>
       {setup.pending && <p className="small muted">ClipForge AI plans once it has listened to your files; the plan below fills in then.</p>}
       {editing
-        ? <PlanForm plan={setup.plan} files={files} busy={busy} saveLabel="Edit it again with this plan" onSave={save} onCancel={() => setEditing(false)} />
-        : <PlanSheet name={v.name} plan={setup.plan} files={files} changed={changed} />}
+        ? <PlanForm plan={setup.plan} files={files} busy={busy} saveLabel="Edit it again with this plan" onSave={save} onCancel={close}
+          hide={["find_media"]} />
+        : <PlanSheet name={v.name} plan={setup.plan} files={files} changed={changed}
+          empty="Nothing in the plan: your style decided everything. Change the plan to decide parts yourself." />}
       {!editing && v.plan && (
         <div className="vs-plan-actions">
-          <button type="button" className="btn" disabled={running || busy} onClick={() => setEditing(true)}><Icon name="edit" />Change the plan</button>
+          <button type="button" ref={changeButton} className="btn" disabled={running || busy} onClick={() => setEditing(true)}><Icon name="edit" />Change the plan</button>
           {running && <span className="small muted">Editing with your plan…</span>}
         </div>
       )}

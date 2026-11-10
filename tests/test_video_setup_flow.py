@@ -130,7 +130,8 @@ def test_talking_changes_the_plan_and_quick_answers_and_hand_edits_stay(env):
     from clipfoundry.studio import video_setup
 
     files = _files(env)
-    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="Our lake trip, about 10 minutes")
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask",
+                          idea="Our lake trip, about 10 minutes")
     assert [q["id"] for q in v["open"]] == ["audience", "feel"]
     # a quick answer to a question (the page says which question it answers)
     out = video_setup.say(WS, v["id"], "Friends and family", "audience")
@@ -295,8 +296,9 @@ def test_with_a_model_it_answers_in_the_background_and_what_you_said_wins(env, m
     done = _settled(ai["id"])
     assert done["status"] == "done" and done["data"]["source"] == "ai"
     v = video_setup.view(WS, v["id"])
-    # the model's plan, checked; the owner's explicit "10 minute" wins over its 8; files named by number became ids
-    assert v["plan"]["length_min"] == 10 and v["plan"]["opening"] == "the jump off the dock"
+    # the model's plan, checked: its reading of the message wins over the built-in rules' (its 8 over their 10);
+    # files named by number became ids
+    assert v["plan"]["length_min"] == 8 and v["plan"]["opening"] == "the jump off the dock"
     assert v["plan"]["music_file"] == files[3]["id"] and v["plan"]["order"] == [files[1]["id"], files[0]["id"],
                                                                                 files[2]["id"]]
     assert v["name"] == "Lake Days" and v["open"][0]["q"] == "Should the drive be short?"
@@ -426,9 +428,11 @@ def test_just_do_it_with_a_model_plans_in_the_build_job_after_listening(env, mon
     from clipfoundry.studio import video_flow, video_setup
 
     files = _files(env)
-    fake = _model(monkeypatch, {"say": "Planned: a lake vlog.", "plan": PLAN, "questions": [{"q": "?", "choices": []}]})
+    fake = _model(monkeypatch, {"say": "Planned: a lake vlog.", "plan": {**PLAN, "length_min": 6, "captions": "off",
+                                                                          "zooms": ""},
+                                "questions": [{"q": "?", "choices": []}]})
     v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="auto", style_id="settings",
-                          remember={"enabled": False}, idea="our lake trip, 6 minutes, no captions")
+                          remember={"enabled": False}, idea="our lake trip, 6 minutes, no captions, no zooms")
     row = db.fetch("studio_projects", v["id"])
     assert row["status"] == "building" and row["setup"]["pending"] is True
     assert row["brief"]["target_duration_s"] == 360 and fake.calls == []  # the rules' plan until the job plans
@@ -439,7 +443,8 @@ def test_just_do_it_with_a_model_plans_in_the_build_job_after_listening(env, mon
     assert any(m == "ClipForge AI is planning your video" for _f, m in lease.reports)
     assert got["setup"]["pending"] is False and got["setup"]["source"] == "ai"
     b = got["brief"]
-    assert b["target_duration_s"] == 360 and b["captions"] is False  # what was said wins
+    assert b["target_duration_s"] == 360 and b["captions"] is False  # the model's plan, made after listening
+    assert b["punch_in"] is False  # what the rules read fills what the model left open
     assert b["open_with"] == "the jump off the dock" and b["music"] == "supplied"
     assert b["music_asset_id"] == files[3]["id"] and got["name"] == "Lake Days"
     assert got["asset_ids"][:3] == [files[1]["id"], files[0]["id"], files[2]["id"]]
@@ -604,8 +609,9 @@ def test_a_video_waiting_as_a_draft_that_was_not_planned_here_stays_its_own(env)
     from clipfoundry.studio import routes, video_flow, video_setup
 
     now = time.time()
-    db.insert("studio_projects", {"id": "vid-short", "workspace_id": WS, "name": "My short", "workflow": "animated_short",
-                                  "status": "draft", "created_at": now, "updated_at": now})
+    db.insert("studio_projects", {"id": "vid-short", "workspace_id": WS, "name": "My short",
+                                  "workflow": "animated_short", "status": "draft", "created_at": now,
+                                  "updated_at": now})
     short = db.fetch("studio_projects", "vid-short")
     assert not video_setup.is_draft(short) and not video_setup._draft_chat({}, short)  # noqa: SLF001
     entry = [x for x in routes.library() if x["id"] == "vid-short"][0]
@@ -625,3 +631,200 @@ def test_a_video_waiting_as_a_draft_that_was_not_planned_here_stays_its_own(env)
     row = db.fetch("studio_projects", v["id"])
     assert not video_setup.is_draft(row) and video_flow.view(row)["planning"] is False
     assert video_setup.view(WS, v["id"])["planning"] is False
+
+
+# ------------------------------------------------------------------ stop, hand edits while it thinks, odd inputs
+def _spy_answers(monkeypatch) -> threading.Event:
+    """Set once a model's answer has been taken in (or turned away)."""
+    from clipfoundry.studio import video_setup
+
+    done = threading.Event()
+    real = video_setup._apply
+
+    def spy(*a, **k):
+        try:
+            return real(*a, **k)
+        finally:
+            if k.get("message_id"):
+                done.set()
+
+    monkeypatch.setattr(video_setup, "_apply", spy)
+    return done
+
+
+def _asked(fake: FakeModel, n: int = 1) -> None:
+    end = time.time() + 5
+    while len(fake.calls) < n and time.time() < end:
+        time.sleep(0.01)
+    assert len(fake.calls) >= n, "the model was never asked"
+
+
+def test_stop_means_stop_even_when_the_answer_comes_late(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    done = _spy_answers(monkeypatch)
+    fake = _model(monkeypatch, {"say": "Here's a plan.", "plan": PLAN, "questions": []})
+    fake.gate.clear()
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a 6 minute lake vlog")
+    ai = _last_ai(v)
+    _asked(fake)
+    video_setup.stop(WS, v["id"])
+    fake.gate.set()  # the model answers anyway, after Stop
+    assert done.wait(5)
+    row = db.fetch("brain_chat_messages", ai["id"])
+    assert row["status"] == "done" and row["text"] == "(Stopped.)"
+    v = video_setup.view(WS, v["id"])
+    assert v["plan"] == video_setup.empty_plan() and v["name"] == "My video" and not v["planned"]
+    video_setup.patch(WS, WS, v["id"], {"plan": {"feel": "calm"}})
+    # Build after a stopped first answer: the built-in rules read what was said, the build job plans after listening
+    out = video_setup.build(WS, WS, v["id"])
+    row = db.fetch("studio_projects", v["id"])
+    assert out["href"] == f"#/video/{v['id']}" and row["status"] == "building" and row["setup"]["pending"] is True
+    assert row["brief"]["target_duration_s"] == 360 and row["brief"]["feel"] == "calm"
+    # a part set by hand after the message stays, even when the message talked about it
+    fake.gate.clear()
+    done.clear()
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a 6 minute lake vlog")
+    _asked(fake, 2)
+    video_setup.stop(WS, v["id"])
+    fake.gate.set()
+    assert done.wait(5)
+    v = video_setup.patch(WS, WS, v["id"], {"plan": {"length_min": 9}})
+    assert not v["planned"]
+    video_setup.build(WS, WS, v["id"])
+    assert db.fetch("studio_projects", v["id"])["brief"]["target_duration_s"] == 540
+    assert "listening to your files" in [m for m in video_setup.view(WS, v["id"])["messages"]
+                                         if m["role"] == "ai"][-1]["text"]
+
+
+def test_a_hand_edit_made_while_it_thinks_stays(env, monkeypatch):
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    done = _spy_answers(monkeypatch)
+    fake = _model(monkeypatch, {"say": "More energy!", "plan": PLAN, "questions": []})  # feel: energetic
+    fake.gate.clear()
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a lake vlog, more energy")
+    _asked(fake)
+    v = video_setup.patch(WS, WS, v["id"], {"plan": {"feel": "calm", "length_min": 7}})  # after the message
+    fake.gate.set()
+    assert done.wait(5)
+    _settled(_last_ai(v)["id"])
+    v = video_setup.view(WS, v["id"])
+    assert v["plan"]["feel"] == "calm" and v["plan"]["length_min"] == 7 and {"feel", "length_min"} <= set(v["locked"])
+    assert v["plan"]["title"] == "Lake Days"  # the rest of the answer is taken in
+
+
+def test_odd_inputs_are_refused_not_errors(env, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.studio import video_flow, video_setup
+
+    files = _files(env)
+    ids = [f["id"] for f in files]
+    for bad in ({"enabled": "yes"}, {"name": 5}, {"other": 1}, ["x"]):
+        with pytest.raises(video_setup.SetupError):
+            video_setup.start(WS, WS, asset_ids=ids, mode="ask", idea="a vlog", remember=bad)
+    for bad in ("v1", [1, 2], None):
+        with pytest.raises(video_setup.SetupError):
+            video_setup.start(WS, WS, asset_ids=bad, mode="ask")
+    v = video_setup.start(WS, WS, asset_ids=ids, mode="ask", remember={"enabled": True, "name": " Lake " * 30})
+    assert len(db.fetch("studio_projects", v["id"])["setup"]["remember"]["name"]) <= 60
+    for change in ({"asset_ids": "abc"}, {"asset_ids": [1]}, {"remember": {"name": ["x"]}}):
+        with pytest.raises(video_setup.SetupError):
+            video_setup.patch(WS, WS, v["id"], change)
+    assert video_setup.clean_plan({"order": ["²", "9" * 40], "music": "mine", "music_file": "٣"}, [
+        {"id": "x", "kind": "video", "filename": "a.mp4"}])["order"] == []
+    # a file taken out and another added: the new set is listened to
+    video_setup.patch(WS, WS, v["id"], {"asset_ids": [ids[0], ids[2], ids[3]]})
+    extra = _asset(env, "extra.mp4", "video", 30)
+    video_flow.add_media(v["id"], [extra["id"]])
+    assert len(db.select("studio_jobs", "target_id = ? AND kind = 'video_media'", (v["id"],))) == 2
+
+
+def test_a_failed_online_request_still_counts_toward_the_daily_limit(env, monkeypatch):
+    from clipfoundry.pipeline import llm
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    fake = _model(monkeypatch, llm.ProviderError("the server is down"), ollama_url="http://192.0.2.1:11434",
+                  ai_edit_requests_per_day=1)
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask", idea="a lake vlog")
+    done = _settled(_last_ai(v)["id"])
+    assert done["data"]["source"] == "rules" and done["data"]["remote"] is True and len(fake.calls) == 1
+    out = video_setup.say(WS, v["id"], "make it 5 minutes")
+    assert out["ai"]["status"] == "done" and "today's limit" in out["ai"]["data"]["say"] and len(fake.calls) == 1
+
+
+def test_after_the_build_a_plan_change_keeps_your_choices_and_undo_brings_the_plan_back(env, monkeypatch):
+    from test_studio_smart_edit import _Lease
+
+    from clipfoundry import db
+    from clipfoundry.studio import video_flow, video_setup
+
+    files = _files(env)
+    voice = _asset(env, "narration.m4a", "audio", 20)
+    for f in files[:2]:
+        _heard(f, _words(_lines(1.0, ["Here we are at the lake with the whole family today."])[0]))
+    ids = [files[0]["id"], files[1]["id"], files[3]["id"], voice["id"]]
+    v = video_setup.start(WS, WS, asset_ids=ids, mode="ask", style_id="settings", remember={"enabled": False},
+                          idea="10 minutes, put summer song under it, narration.m4a is the voiceover")
+    queued = []
+
+    def fake_enqueue(ws, kind, target, rev=0, **_k):
+        queued.append((kind, rev))
+        return {"id": f"job-{kind}-{rev}"}
+
+    monkeypatch.setattr(video_setup, "enqueue", fake_enqueue)
+    monkeypatch.setattr(video_flow, "enqueue", fake_enqueue)
+    video_setup.build(WS, WS, v["id"])
+    row = db.fetch("studio_projects", v["id"])
+    assert row["brief"]["music"] == "supplied" and row["brief"]["voiceover_asset_ids"] == [voice["id"]]
+    plan = video_flow.rough_cut(row, video_flow._assets(row), {})
+    assert {i["role"] for i in plan["audio"] if i.get("brief")} == {"music", "voiceover"}
+    video_flow.save_revision(v["id"], plan, "Rough cut from your brief", None, {"action": "build", "prev": None,
+                                                                                "redo": None})
+    video_setup.edited(v["id"], 1)
+    # on the editor page the owner turned ClipForge AI's reading off and chose a calm feel
+    db.update("studio_projects", v["id"], brief={**row["brief"], "ai_edit": False, "feel": "calm"})
+    with pytest.raises(video_setup.SetupError):  # looked for when the video is built
+        video_setup.change_plan(WS, WS, v["id"], 1, {"find_media": "auto"})
+    video_setup.change_plan(WS, WS, v["id"], 1, {"music": "none", "voiceover_files": [], "length_min": 5,
+                                                 "order": [files[1]["id"], files[0]["id"]]})
+    row = db.fetch("studio_projects", v["id"])
+    b = row["brief"]
+    assert b["ai_edit"] is False and b["feel"] == "calm"  # your choices on the editor page stay
+    assert b["music"] == "none" and "music_asset_id" not in b and "voiceover_asset_ids" not in b
+    assert b["target_duration_s"] == 300 and row["asset_ids"][:2] == [files[1]["id"], files[0]["id"]]
+    video_flow.smart_job({"target_id": v["id"], "revision": 1}, _Lease())
+    new = video_flow.plan_at(v["id"], 2)
+    assert not any(i["role"] in ("music", "voiceover") for i in new["audio"])  # the plan's sounds went with it
+    assert [c["asset_id"] for c in new["clips"] if c["kind"] == "video"][0] == files[1]["id"]
+    # Undo brings the plan back, with the brief it set; your editor choices still stay
+    video_flow.undo(v["id"], 2)
+    row = db.fetch("studio_projects", v["id"])
+    assert row["setup"]["plan"]["music"] == "mine" and row["setup"]["plan"]["length_min"] == 10
+    assert row["brief"]["music"] == "supplied" and row["brief"]["target_duration_s"] == 600
+    assert row["brief"]["ai_edit"] is False and row["brief"]["feel"] == "calm"
+    # a plan change whose edit fails goes back, look and all
+    rev = row["plan_revision"]
+    video_setup.change_plan(WS, WS, v["id"], rev, {"captions": "off", "aspect_ratio": "9:16"})
+    assert db.fetch("studio_projects", v["id"])["setup"]["look"] == {"aspect": "9:16", "captions": False}
+
+    def broken(*_a, **_k):
+        raise video_flow.VideoError("the edit broke")
+
+    monkeypatch.setattr(video_flow, "rough_cut", broken)
+    with pytest.raises(video_flow.VideoError):
+        video_flow.smart_job({"target_id": v["id"], "revision": rev}, _Lease())
+    row = db.fetch("studio_projects", v["id"])
+    assert row["setup"]["plan"]["captions"] == "" and row["setup"]["plan"]["aspect_ratio"] == ""
+    assert row["setup"]["look"] == {} and "captions" not in row["brief"] and row["setup"]["change"] == {}
+
+
+def test_plan_words_are_only_for_videos_with_a_plan():
+    from clipfoundry.studio import smart_edit
+
+    assert smart_edit.plan_words({"must_keep": "soup"}) == set()  # made the old way: ranks as it always did
+    assert smart_edit.plan_words({"open_with": "the ravens", "must_keep": "soup"}) == {"ravens", "soup"}

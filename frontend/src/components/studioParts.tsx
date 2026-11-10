@@ -19,8 +19,8 @@ const PARALLEL = 3;
 
 /** File drop + picker. Any number of files, in as many batches as you like: each uploads in resumable chunks, a few
  * at a time, and each row shows bytes received (never a guess), with cancel and resume. */
-export function FileDrop({ accept, multiple, label, onAssets }: { accept: string; multiple?: boolean; label: string;
-  onAssets: (rows: Picked[]) => void }) {
+export function FileDrop({ accept, multiple, label, onAssets, onPicked }: { accept: string; multiple?: boolean; label: string;
+  onAssets: (rows: Picked[]) => void; onPicked?: (keys: string[]) => void }) {
   const [rows, setRows] = useState<Picked[]>([]);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -68,6 +68,7 @@ export function FileDrop({ accept, multiple, label, onAssets }: { accept: string
       return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key) };
     });
     fresh.forEach((r) => files.current.set(r.key, r.file));
+    onPicked?.(fresh.map((r) => r.key));  // picked on purpose, also a file picked before
     setRows((rs) => {
       const next = multiple ? [...rs, ...fresh.filter((f) => !rs.some((r) => r.key === f.key))] : fresh;
       onAssets(next);
