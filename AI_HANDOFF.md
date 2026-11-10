@@ -1,6 +1,6 @@
 # AI handoff
 
-## Local makers: pictures, video and voice made on this computer — 2026-11-08/09 (Claude Code, cloud session)
+## Local makers: pictures, video and voice made on this computer — 2026-11-08/10 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry found seven open-source projects and asked for the useful ones to be plugged into
 ClipForge, all running locally on his Apple silicon Mac and on Windows. ClipForge can now make pictures, short video
@@ -12,10 +12,10 @@ maker and ClipForge AI use it through one door. The other projects were skipped 
 exclude the United States or forbid use in a paid app, cloud-only services, heavy servers, or overlap with ComfyUI).
 
 - **Branch / PR:** `claude/project-thread-nnvh05` from the release line at 95a70e0, PR #39 into
-  `claude/project-thread-x72wkd`, merged on Nov 9 on Landry's standing OK to merge finished work ("when something is
-  done merge it"), after PR #40: the branch took the release line in and `frontend/dist` was rebuilt from the combined
-  code. The makers' code was checked at 53dd380 (Local makers check run 42704530253 on Mac, Windows and Linux). No
-  release.
+  `claude/project-thread-x72wkd`, merged on Nov 10 on Landry's standing OK to merge finished work ("when something is
+  done merge it"), after PR #40 and PR #36: the branch took the release line in twice (850adf0, aff2a0e) and
+  `frontend/dist` was rebuilt from the combined code. The app code was last changed in 19dfe77 and the machine
+  check in d2a8e21 (Local makers check run 42749843276 passed on Mac, Windows and Linux). No release.
 - **Design and limits:** [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md) (Landry's list with the
   reason for each verdict, the models and their licences, the door, how it was checked, what the cloud cannot check);
   [AI_CHANGELOG.md](AI_CHANGELOG.md).
@@ -52,9 +52,23 @@ exclude the United States or forbid use in a paid app, cloud-only services, heav
   file in the app's folders counted as ClipForge's (now only one recorded in the index before the download), and
   Remove did not make a ComfyUI shared from another ClipForge process let go of the files (`release_files()`), and
   removing ComfyUI itself deleted it from under such a process (now refused). Only
-  one of the three planned reviewers ran (a usage limit until Nov 11); the process and Windows parts were checked by
-  hand instead. Known limit: the job guard is per process, so a second ClipForge process making a picture with the
-  shared ComfyUI is not seen by Remove in the first (today only the app process makes pictures).
+  one of the three planned reviewers ran then (a usage limit); the other two ran on Nov 10 (below). Known limit: the
+  job guard is per process, so a second ClipForge process making a picture with the shared ComfyUI is not seen by
+  Remove in the first (today only the app process makes pictures).
+- **Final review (Nov 10, on the code combined with PR #40 and PR #36):** lifecycle, platforms and newest-code
+  reviewers, then fixes each with a test that failed first: ComfyUI started from a short-lived thread on Linux died
+  with that thread (the parent-death signal follows the thread; now one lasting starter thread); uv's set-up joins
+  the Windows kill-on-close job; Stop while ComfyUI starts, a picture stopped while ComfyUI is reached is never sent,
+  closing ClipForge stops a set-up first; a ComfyUI another ClipForge process started hands its graphics memory back,
+  before heavy work waits; made files refuse network-share and other-drive paths before looking (Windows would sign
+  in to the share); Windows long paths when deleting, and Remove says when files stayed; set-up space counted twice
+  and uv's cache deleted afterwards, `uv venv --clear --force`, set-up again after the folder moved; the process list
+  read as UTF-8 on Windows and the Mac (folders like `C:\Users\José` were not recognised, `Müller` raised); a
+  stopped download of the shared text encoder stays with the model whose download it was; Remove of only a stopped
+  download says so and leaves the ComfyUI app's loaded models alone. Two tests run the shorts maker against the door.
+- **Follow-ups outside the engines (not this PR's code):** `clipfoundry/builtin_ai.py` starts llama-server with the
+  same Linux parent-death signal from whichever thread asks; `clipfoundry/craft/routes.py` resolves a requested
+  path before checking it (the Windows network-share risk).
 - **Not done:** real Metal generation and speed on Landry's Mac, a real Wan clip, Windows with NVIDIA, the ComfyUI
   desktop app, the shorts maker end to end with real engines (all need Landry's computer); smaller fp8 files for small
   NVIDIA cards; LTX-Video.

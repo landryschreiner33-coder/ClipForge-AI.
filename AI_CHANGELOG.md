@@ -1,11 +1,55 @@
 # AI changelog
 
+## Local makers: the final review's fixes, combined with story clips and animated shorts — 2026-11-10 (Claude Code)
+
+PR #39 (branch `claude/project-thread-nnvh05`) took in the release line twice before merging: PR #40 (story clips,
+merge 850adf0) and PR #36 (animated shorts, merge aff2a0e; `api.py` keeps both routers, `frontend/dist` rebuilt from
+the combined code). Merged into the release line on Landry's standing OK to merge finished work. No release.
+
+- **The shorts maker against the real door:** two tests in `tests/test_local_engines.py` run
+  `clipfoundry/makers/local_engines.py` against `clipfoundry.engines` (cards before set-up, an engine picture made
+  into a still clip, Stop, the built-in voice and its "machine-generated" rule); the shorts test of the set-up note
+  checks both notes (with and without the engines package).
+- **Fixed after the final review** (lifecycle, platforms and the newest code; a skeptic per finding; each fix with a
+  test that failed first):
+  - on Linux the parent-death signal follows the *thread* that started ComfyUI, so a ComfyUI started from a picture
+    job's thread stopped when that job ended: it is now started from one lasting thread, and still ends with
+    ClipForge; on Windows ComfyUI's set-up (uv) runs inside ClipForge's kill-on-close job too;
+  - Stop works while ComfyUI is starting (the half-started ComfyUI is stopped), a picture stopped while ComfyUI is
+    being reached is never sent, and closing ClipForge stops a set-up under way first;
+  - a ComfyUI another ClipForge process started is asked to hand its graphics memory back, and heavy work asks before
+    it waits for graphics memory;
+  - `GET /api/engines/made/<file>` refuses anything but plain folder and file names before looking at a file (on
+    Windows, looking at `\\server\share\x` connects and signs in to that server as the person);
+  - deleting ComfyUI's folders uses Windows long paths, and Remove says so when files could not be deleted;
+  - set-up checks for twice the packages' space (uv unpacks into its cache, then copies) and deletes uv's cache
+    afterwards; `uv venv --clear --force` replaces whatever an earlier environment left; ComfyUI counts as set up
+    only while the Python named in its `pyvenv.cfg` is still there (a moved ClipForge folder is set up again);
+  - the process list is read as UTF-8 on Windows (PowerShell is told to write it) and on the Mac (ps in a UTF-8
+    locale): a ClipForge folder under `C:\Users\José` was never recognised, and under `C:\Users\Müller` reading the
+    list failed;
+  - a stopped download of the shared text encoder stays with the model whose download it was (another model showed
+    "Partly downloaded" and its Remove deleted it); Remove of only a stopped download says so, says that a model
+    ClipForge did not download stays ready, and no longer makes the ComfyUI app unload its models.
+- **Checks:** `tests/test_local_engines.py` 79 passed; on 19dfe77 the full fast suite (2179 passed, 2 skipped) and
+  `pytest -m slow` (30 passed, 1 skipped); the Local makers check (now also reading a folder named with é, ü and 東
+  back from each computer's process list, and failing if set-up leaves uv's cache) passed on GitHub's Mac, Windows
+  and Linux on d2a8e21 (run 42749843276; Linux made its real FLUX.2 klein picture in about 4 minutes). The first run
+  (42749458528, on 19dfe77) failed only on Windows, in the check's own log line: the folder was read back correctly,
+  but printing 東 to a code-page-1252 console failed; the check now writes UTF-8.
+- **Not verified** (needs Landry's computer): as before, Metal speed and memory, a real Wan clip, Windows with an
+  NVIDIA card, the ComfyUI desktop app, and the shorts maker end to end with real engines.
+- **Follow-ups outside the engines:** `clipfoundry/builtin_ai.py` starts llama-server with the same Linux
+  parent-death signal from whichever thread asks; `clipfoundry/craft/routes.py` resolves a requested path before
+  checking it (the Windows network-share risk fixed here for made files).
+
 ## Local makers: pictures, video and voice made on this computer — 2026-11-08 (Claude Code)
 
 Landry asked (Nov 7) to look at seven open-source projects he found (FreeVideo, WanGP, ComfyUI Desktop, InvokeAI,
 OpenHiggsfield, VoiceStudio, Tencent WeKnora), plug the useful ones into ClipForge, and keep everything local on his
 Apple silicon Mac and on Windows. Branch `claude/project-thread-nnvh05` from the release line at 95a70e0; PR #39,
-merged on Nov 9 after PR #40 (Landry's standing OK to merge finished work). No release.
+merged on Nov 10 after PR #40 and PR #36 (Landry's standing OK to merge finished work; see the entry above). No
+release.
 Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md).
 
 - **The door** (`clipfoundry/engines/__init__.py`, new package): `make_image`, `make_video`, `speak`, `voices`,

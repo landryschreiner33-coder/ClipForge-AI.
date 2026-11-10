@@ -187,7 +187,7 @@ The online studio does not offer local makers (the routes answer 404 in cloud mo
 
 ## How it was checked
 
-- **Tests:** `tests/test_local_engines.py` (60 tests) with a stand-in ComfyUI and a local file server: every pin is
+- **Tests:** `tests/test_local_engines.py` (79 tests) with a stand-in ComfyUI and a local file server: every pin is
   filled; licences and Mac-safe number formats; ComfyUI's start command (offline, no add-on nodes, folders that
   exist); PyTorch per computer and driver; uv's set-up commands (no Python on the PATH or in the registry, every
   package bounded by the checked day, PyTorch on its own); set-up refusals; resumed, wrong, oversized and cancelled
@@ -200,23 +200,35 @@ The online studio does not offer local makers (the routes answer 404 in cloud mo
   request twice with ComfyUI's cache; progress that never goes backwards; plain errors (also ComfyUI 0.43's own model
   loader's); cancel, and waiting until ComfyUI has really stopped; use rules agreed before a download and kept in
   each note; the voice's text handling, chunks and word times; the Settings view, routes and the app-header guard;
-  cloud mode.
+  cloud mode. Added after the final review (Nov 10): on Linux a ComfyUI started from a short-lived job's thread
+  outlives it and still ends with ClipForge; Stop while ComfyUI is starting, and a picture stopped while ComfyUI is
+  being reached is never sent; closing ClipForge stops a set-up under way; a ComfyUI another ClipForge process started
+  hands its memory back, before heavy work waits for graphics memory; made files refuse other drives and network
+  shares before anything is looked at; Windows long paths, and Remove saying when files could not be deleted; no
+  second copy of PyTorch left after set-up; a moved ClipForge folder means set-up again; a ClipForge folder with é,
+  ü or 東 in the process list (Windows, Mac); another model's stopped download of the shared text encoder stays with
+  it; Remove on a ready model whose only ClipForge file is a stopped download says so. Two tests run the
+  animated-shorts maker (`clipfoundry/makers/local_engines.py`) against this door.
   `tests/conftest.py` makes it impossible for any test to download from the internet.
 - **Real machines** (`.github/workflows/local-engines-check.yml`, `scripts/local_engines_check.py`), on every push
   that touches the engines, on GitHub's Mac (Apple silicon), Windows and Linux machines:
   - compares every pin with its source (Hugging Face's checksums at the pinned commit, PyPI, GitHub's archive);
+  - reads back, from the computer's own process list, a folder named with é, ü and 東 (how ClipForge recognises a
+    ComfyUI it started);
   - sets ClipForge's own ComfyUI up from nothing exactly as the app does (and fails if the set-up left a Python on
-    the PATH or in the Windows registry), and starts it;
+    the PATH or in the Windows registry, or left uv's cache behind), and starts it;
   - makes a real picture (PNG) and a real H.264 clip with ComfyUI's model-free nodes;
   - sends every ClipForge graph to the real ComfyUI with stand-in model files: each must pass ComfyUI's validation
     and stop only at loading the stand-in model;
   - downloads the voice and speaks two voices, checking length, loudness and every word in order;
   - on Linux, downloads FLUX.2 klein 4B and makes a real picture on the processor.
 
-  Every check passed on all three machines on Nov 8, and again on Nov 9 on the second review's fixes (run
-  42704530253). Setting ComfyUI up from nothing took 25–26 s on Linux and 36–55 s on the Mac and Windows; starting
-  it took 13–23 s; making the real FLUX.2 klein picture on Linux's processor took about 3 minutes, after downloading
-  the model (16 GB; 25 minutes on Nov 9, when Hugging Face was slow); the voice spoke at 2–4.4 times real time.
+  Every check passed on all three machines on Nov 8, on Nov 9 on the second review's fixes (run 42704530253), and
+  on Nov 10 on the final code (run 42749843276), where each machine also read the folder named with é, ü and 東 back
+  exactly. On Nov 10 setting ComfyUI up from nothing (now also deleting uv's cache) took 49 s on Linux and Windows
+  and 74 s on the Mac; starting it took 12–19 s; the real FLUX.2 klein picture on Linux's processor took about 4
+  minutes after a 1.5-minute model download (25 minutes on Nov 9, when Hugging Face was slow); the voice spoke at
+  1.8–3.3 times real time.
 
 ## What cannot be checked from the cloud
 
@@ -231,6 +243,10 @@ Face):
 
 ## Follow-ups
 
+- Outside the engines, found by the final review: `clipfoundry/builtin_ai.py` starts llama-server with the same
+  Linux parent-death signal from whichever thread asks, so on Linux it can stop when that thread ends (fixed here for
+  ComfyUI with one lasting starter thread); `clipfoundry/craft/routes.py` resolves a requested path before checking
+  it, so on Windows a network-share path could make it connect to that share (fixed here for made files).
 - When ComfyUI publishes 0.44 as a release, move the pin after the machine check passes.
 - Supertonic's licence asks for "reasonable efforts to use the latest version" of the model: when the pins move, check
   Supertone/supertonic-3 for a newer revision (the pinned one is from May 6 2026).
