@@ -27,6 +27,7 @@ CLEAN_SOUND_MODES = ["off", "auto", "gentle", "strong"]  # pipeline/cleanup.py
 AI_PROVIDERS = ["heuristic", "builtin", "ollama", "openai_compatible", "anthropic", "nvidia"]
 BUILTIN_AI_LEVELS = ["auto", "basic", "standard", "pro"]
 EDIT_ENGINES = ("auto", "filmcraft", "ffmpeg")
+ENGINES_COMFYUI = ("clipforge", "app", "off")
 NVIDIA_MODES = ["development", "production"]
 CLIP_COUNTS = [3, 5, 10]
 
@@ -242,6 +243,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Make a YouTube video previews (studio/proxies.py): a small copy of each big video (wider than 1280 pixels or
     # longer than ten minutes) is made once and read by previews instead of the full file; finals use the original
     "preview_proxies": True,
+    # Local makers (engines/, Settings → Pictures, video, voice): pictures and short video clips from words through
+    # ComfyUI, speech through a built-in voice; everything runs on this computer once it is downloaded
+    "engines_comfyui": "clipforge",    # clipforge: ClipForge's own ComfyUI | app: a ComfyUI already on this computer
+                                       # (the ComfyUI desktop app or a manual install) | off: no pictures or video
+    "engines_comfyui_url": "",         # the "app" address; empty: look on 127.0.0.1:8000 (desktop app), then :8188
+    "engines_picture": "",             # the picture model (engines/catalog.py id); empty: the best one set up
+    "engines_video": "",               # the video model; empty: the one set up
+    "engines_voice": "",               # the voice; empty: the one set up
+    "engines_idle_minutes": 10.0,      # ClipForge's ComfyUI stops after this long without work, freeing its memory
 }
 
 SECRET_KEYS = {"openai_api_key", "anthropic_api_key", "youtube_client_secret", "tiktok_client_secret",
@@ -293,6 +303,16 @@ def validate_settings(values: dict[str, Any]) -> dict[str, Any]:
             continue
         elif key == "builtin_ai_level" and v not in BUILTIN_AI_LEVELS:
             continue
+        elif key == "engines_comfyui" and v not in ENGINES_COMFYUI:
+            continue
+        elif key == "engines_comfyui_url":
+            v = v.rstrip("/")[:300]
+            if v and not v.lower().startswith(("http://", "https://")):
+                continue
+        elif key in ("engines_picture", "engines_video", "engines_voice"):
+            v = v[:80]
+            if v and not all(c.isalnum() or c in "-._" for c in v):
+                continue
         elif key == "crf":
             v = max(10, min(35, v))
         elif key == "max_fps":
@@ -354,7 +374,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "discovery_creator_limit": (1, 30),
     "brain_min_clips": (30, 1000), "brain_max_step": (0.01, 0.10), "brain_min_views": (1, 100000),
     "brain_min_testers": (2, 100), "ai_edit_requests_per_day": (0, 1000), "ai_edit_timeout_s": (5.0, 300.0),
-    "builtin_ai_idle_minutes": (1.0, 120.0),
+    "builtin_ai_idle_minutes": (1.0, 120.0), "engines_idle_minutes": (1.0, 120.0),
     "nvidia_daily_requests": (0, 5000), "nvidia_daily_tokens": (0, 5_000_000),
     "nvidia_max_input_tokens": (500, 32000), "nvidia_max_output_tokens": (100, 4000),
     "nvidia_timeout_s": (5.0, 300.0), "nvidia_price_per_mtok_usd": (-1.0, 1000.0),

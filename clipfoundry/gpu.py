@@ -49,6 +49,12 @@ def _make_room(kind: str) -> None:
         builtin_ai.make_room(kind)
     except Exception:  # noqa: BLE001 - freeing memory is a courtesy, never a reason to fail the job
         pass
+    try:
+        from . import engines
+
+        engines.make_room(kind)  # ClipForge's own ComfyUI unloads its picture and video models
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class GpuManager:
@@ -111,11 +117,11 @@ class GpuManager:
         finally:
             st.delete(wait_key)
         try:
+            _make_room(kind)  # first: the memory the wait below needs may be held by ClipForge's own engines
             if need_free_mb:
                 self._wait_for_memory(need_free_mb, t0, max_wait_s, cancelled, on_wait)
             st.put("gpu:holder", {**me, "since": time.time()})
             self._local.depth = 1
-            _make_room(kind)
             yield
         except Exception as exc:
             if is_cuda_error(exc):

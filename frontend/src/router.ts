@@ -30,7 +30,7 @@ const ALIASES: [RegExp, string][] = [
   [/^create$/, "create/clips"],
   [/^create\/(?!(clips|video|short|link|transcript)$)(?!video\/[\w-]+$).*$/, "create/clips"],
   [/^settings\/accounts$/, "accounts"],
-  [/^settings\/(?!(appearance|media|ai|apps|defaults|integrations|advanced)$).*$/, "settings"],
+  [/^settings\/(?!(appearance|media|ai|apps|makers|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],
   [/^dev(\/(?!robots$).*)?$/, "dev/robots"],
 ];

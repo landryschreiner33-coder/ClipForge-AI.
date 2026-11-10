@@ -254,6 +254,39 @@ export const craft = {
     req<EditorSession>("POST", `/api/studio/videos/${id}/filmcraft/prepare`, { revision }),
 };
 
+/** Settings → Pictures, video, voice: the local makers (ComfyUI for pictures and video, the built-in voice). */
+export type EngineRole = "image" | "video" | "voice";
+export type EngineModel = { id: string; role: EngineRole; name: string; maker: string; licence: string; licence_url: string;
+  about: string; rule: string; bytes: number; download_bytes: number; ready: boolean; can_download: boolean;
+  removable: boolean; memory_gb: number; vram_gb: number; seconds: Record<string, number>;
+  fit: "good" | "slow" | "cpu" | ""; recommended: boolean };
+export type EngineTask = { state: string; what: string; status: string; done: number; total: number; error: string;
+  step: number; steps: number };
+export type EngineTrial = { state: string; role: string; progress: number; message: string; file: string; error: string;
+  seconds: number };
+export type EnginesView = { online: boolean;
+  roles: Record<EngineRole, { ready: boolean; engine: string; why: string; model?: string }>;
+  comfyui: { mode: "clipforge" | "app" | "off"; url: string; app_found: string | null; installed: boolean; running: boolean;
+    version: string; supported: boolean; mac_too_old: boolean; flavor: string; flavor_label: string; download_bytes: number;
+    disk_bytes: number; gpu: { name?: string; vram_mb?: number; driver?: string }; idle_minutes: number; licence: string;
+    source: string };
+  models: EngineModel[]; chosen: Record<EngineRole, string>; memory_mb: number; vram_mb: number; task: EngineTask;
+  trial: EngineTrial;
+  voice_rule: string;
+  /** After a Remove: what was kept because another model still needs it. */
+  note?: string };
+
+export const engines = {
+  view: () => req<EnginesView>("GET", "/api/engines"),
+  /** `agreed`: the person agreed to the model's use rules (a model with a rule is only downloaded then). */
+  setUp: (what: "comfyui" | "model", model = "", agreed = false) =>
+    req<EngineTask>("POST", "/api/engines/setup", { what, model, agreed }),
+  cancel: () => req<EngineTask>("POST", "/api/engines/cancel"),
+  remove: (what: "comfyui" | "model", model = "") => req<EnginesView>("POST", "/api/engines/remove", { what, model }),
+  tryIt: (role: EngineRole, text = "", voice = "") => req<EngineTrial>("POST", "/api/engines/try", { role, text, voice }),
+  stopTry: () => req<EngineTrial>("POST", "/api/engines/try/cancel"),
+};
+
 /** FilmCraft (the free open-source editor from the ArtCraft team) on this computer. */
 export type FilmCraftStatus = { available: boolean; installed: boolean; app?: boolean; cli?: boolean; version?: string;
   page: string; releases?: string; reason?: string; message?: string };
