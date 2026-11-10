@@ -293,3 +293,49 @@ def test_deleting_an_example_of_a_linked_file_keeps_the_owners_file(env, tmp_pat
     folder = Path(stored["path"]).parent
     assert reference._drop_file(stored["id"], "local") == "The video file was deleted."  # noqa: SLF001
     assert not folder.exists() and db.fetch("assets", stored["id"]) is None
+
+
+@needs_ffmpeg
+def test_the_same_file_linked_twice_at_once_is_one_asset(env, monkeypatch):
+    """Adding the same file twice at the same moment (two pages, or a double click) gives both the one asset, also
+    when another ClipForge program linked it between the check and the save."""
+    import threading
+
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    file = make_video(env / "clip.mp4", seconds=1.0)
+    arrived, both_in = [], threading.Event()
+    real = uploads._inspect
+
+    def slow_inspect(*a, **k):
+        arrived.append(1)
+        if len(arrived) >= 2:
+            both_in.set()
+        both_in.wait(1.5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(uploads, "_inspect", slow_inspect)
+    got: list = []
+    threads = [threading.Thread(target=lambda: got.append(uploads.link_local("local", str(file)))) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert len(got) == 2 and got[0]["id"] == got[1]["id"]
+    assert [p.name for p in uploads.assets_dir("local").iterdir()] == [got[0]["id"]]
+
+    # another program saved the same file between this one's check and its save
+    other = make_video(env / "other.mp4", seconds=1.2)
+    digest = uploads.quick_hash(other)
+
+    def other_program_saves_first(f, kind, folder, *a, **k):
+        db.insert("assets", {"id": "as-other0000000000", "workspace_id": "local", "kind": "video",
+                             "filename": "other.mp4", "sha256": digest, "size": other.stat().st_size,
+                             "path": str(other), "probe": {"duration": 1.2}})
+        return real(f, kind, folder, *a, **k)
+
+    monkeypatch.setattr(uploads, "_inspect", other_program_saves_first)
+    assert uploads.link_local("local", str(other))["id"] == "as-other0000000000"
+    assert sorted(p.name for p in uploads.assets_dir("local").iterdir()) == sorted([got[0]["id"]])
+    assert other.is_file()  # the owner's file is never touched

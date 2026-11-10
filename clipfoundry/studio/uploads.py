@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import sqlite3
+import stat
 import subprocess
 import threading
 import time
@@ -38,6 +40,7 @@ DISK_RESERVE = 2 << 30            # ...less this reserve, so the computer keeps 
 
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
+_same_bytes = [threading.Lock() for _ in range(64)]  # one file is stored by one save at a time (see _store)
 
 
 class UploadError(ValueError):
@@ -50,6 +53,40 @@ class UploadError(ValueError):
 def _lock(upload_id: str) -> threading.Lock:
     with _guard:
         return _locks.setdefault(upload_id, threading.Lock())
+
+
+def _content_lock(workspace_id: str, digest: str) -> threading.Lock:
+    """The lock of one file's content: two saves of the same bytes (the same file dropped twice, or added on two
+    pages, finishing at the same moment) take turns, so the second finds what the first stored."""
+    key = hashlib.sha256(f"{workspace_id}\0{digest}".encode()).digest()
+    return _same_bytes[key[0] % len(_same_bytes)]
+
+
+def _discard(folder: Path) -> None:
+    """Remove a folder this module just made (a copy that was not kept). The stored copy in it is read-only, which
+    Windows refuses to delete until it is made writable again."""
+    def unlock(func, path, _exc):  # noqa: ANN001
+        try:
+            os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(folder, onexc=unlock)  # type: ignore[call-arg]
+    except TypeError:  # Python < 3.12
+        shutil.rmtree(folder, onerror=unlock)
+    except OSError:
+        pass
+
+
+def _stored_already(workspace_id: str, digest: str, folder: Path) -> dict | None:
+    """After a save was refused because the same bytes are stored already (another ClipForge program, such as
+    Autopilot's, stored them between the check and the save): that asset, with this save's own folder removed."""
+    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
+    if existing:
+        _discard(folder)
+    return existing[0] if existing else None
 
 
 def uploads_dir() -> Path:
@@ -296,25 +333,34 @@ def _inspect(file: Path, kind: str, folder: Path, label: str = "This file") -> t
 
 
 def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: str, size: int) -> dict:
-    """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it."""
-    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-    if existing:
-        source.unlink(missing_ok=True)
-        return existing[0]
-    asset_id = "as-" + os.urandom(8).hex()
-    folder = assets_dir(workspace_id) / asset_id
-    folder.mkdir(parents=True)
-    dest = folder / ("original" + Path(filename).suffix.lower())
-    shutil.move(str(source), dest)
-    os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
-    try:
-        info, thumb = _inspect(dest, kind, folder)
-    except UploadError:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": filename,
-                                "sha256": digest, "size": size, "path": str(dest), "thumb_path": thumb,
-                                "probe": info})
+    """Move a verified file into private asset storage (or reuse the asset with the same bytes) and probe it. Two
+    saves of the same bytes take turns; when another ClipForge program saved them in the meantime, its asset is used
+    and this copy is removed."""
+    with _content_lock(workspace_id, digest):
+        existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
+        if existing:
+            source.unlink(missing_ok=True)
+            return existing[0]
+        asset_id = "as-" + os.urandom(8).hex()
+        folder = assets_dir(workspace_id) / asset_id
+        folder.mkdir(parents=True)
+        dest = folder / ("original" + Path(filename).suffix.lower())
+        shutil.move(str(source), dest)
+        os.chmod(dest, 0o440)  # immutable original: edits only ever reference it
+        try:
+            info, thumb = _inspect(dest, kind, folder)
+        except UploadError:
+            _discard(folder)
+            raise
+        try:
+            return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind,
+                                        "filename": filename, "sha256": digest, "size": size, "path": str(dest),
+                                        "thumb_path": thumb, "probe": info})
+        except sqlite3.IntegrityError:
+            stored = _stored_already(workspace_id, digest, folder)
+            if stored is None:
+                raise
+            return stored
 
 
 def link_local(workspace_id: str, path: str) -> dict:
@@ -350,23 +396,30 @@ def link_local(workspace_id: str, path: str) -> dict:
     if size <= 0:
         raise UploadError("The file is empty.")
     digest = quick_hash(file, size)
-    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-    if existing:
-        if not Path(existing[0]["path"]).is_file():  # the same file, found again after it was moved
-            db.update("assets", existing[0]["id"], path=str(file))
-            return db.fetch("assets", existing[0]["id"]) or existing[0]
-        return existing[0]
-    asset_id = "as-" + os.urandom(8).hex()
-    folder = assets_dir(workspace_id) / asset_id
-    folder.mkdir(parents=True)
-    try:
-        info, thumb = _inspect(file, kind, folder, file.name)
-    except UploadError:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": name,
-                                "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
-                                "probe": info})
+    with _content_lock(workspace_id, digest):
+        existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
+        if existing:
+            if not Path(existing[0]["path"]).is_file():  # the same file, found again after it was moved
+                db.update("assets", existing[0]["id"], path=str(file))
+                return db.fetch("assets", existing[0]["id"]) or existing[0]
+            return existing[0]
+        asset_id = "as-" + os.urandom(8).hex()
+        folder = assets_dir(workspace_id) / asset_id
+        folder.mkdir(parents=True)
+        try:
+            info, thumb = _inspect(file, kind, folder, file.name)
+        except UploadError:
+            _discard(folder)
+            raise
+        try:
+            return db.insert("assets", {"id": asset_id, "workspace_id": workspace_id, "kind": kind, "filename": name,
+                                        "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
+                                        "probe": info})
+        except sqlite3.IntegrityError:  # another ClipForge program linked it a moment ago
+            stored = _stored_already(workspace_id, digest, folder)
+            if stored is None:
+                raise
+            return stored
 
 
 def store_file(workspace_id: str, path: Path, filename: str) -> dict:
