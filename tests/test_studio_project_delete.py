@@ -700,3 +700,47 @@ def test_a_link_to_a_kept_copy_left_by_a_delete_goes_at_the_next_start_and_the_c
     assert db.fetch("assets", kept["id"]) and os.stat(kept["path"]).st_nlink == 2  # the copy and the other link
     assert stat.S_IMODE(os.stat(kept["path"]).st_mode) == 0o440
     assert not (config.data_dir() / "delete-later.json").exists()
+
+
+def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_your_media_uses_stay(env):
+    """An animated short names its scene files in its scenes (each scene's picture, its earlier pictures and the
+    scene's clip, which is in the plan only once the scene is placed): they go with the short when nothing else uses
+    them. A picture another short's scene uses, and a file imported for no project, stay. The short's build is
+    stopped first and named in the window."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    picture, earlier, placed, unplaced, shared, imported = (_stored(n) for n in range(31, 37))
+    short = _video("Shark facts", [], workflow="animated_short", short={"topic": "sharks"})["id"]
+    other = _video("Owl facts", [], workflow="animated_short")["id"]
+    db.insert("edit_plans", {"project_id": short, "revision": 1, "plan": {"clips": [{"asset_id": placed["id"]}]}},
+              key="project_id")
+
+    def scene(project_id: str, n: int, **files) -> None:
+        db.insert("short_scenes", {"project_id": project_id, "workspace_id": "local", "position": n,
+                                   "narration": f"Scene {n}", **files})
+
+    scene(short, 1, picture_asset_id=picture["id"], clip_asset_id=placed["id"],
+          pictures=[{"asset_id": earlier["id"], "prompt": "a shark, drawn as-is", "seed": 7}])
+    scene(short, 2, picture_asset_id=shared["id"], clip_asset_id=unplaced["id"])
+    scene(short, 3, picture_asset_id=imported["id"])
+    scene(other, 1, picture_asset_id=shared["id"])
+    db.insert("media_imports", {"workspace_id": "local", "project_id": "", "provider": "openverse", "kind": "image",
+                                "external_id": "x1", "status": "ready", "asset_id": imported["id"]})
+    build = db.insert("studio_jobs", {"workspace_id": "local", "kind": "short_build", "target_id": short,
+                                      "revision": 1, "idempotency_key": f"short_build:{short}:1"})
+
+    plan = project_delete.plan("local", short, "full_video")
+    assert plan["working"] == "ClipForge is still working on it (making the short). Deleting stops that first."
+    assert plan["counts"]["files"] == 4 and plan["counts"]["files_kept"] == 2
+    assert any("“clip33.mp4”" in line and "and 1 more" in line for line in plan["goes"])
+    assert any("“clip35.mp4”, “clip36.mp4” stay in ClipForge because another project" in line
+               for line in plan["stays"])
+    out = project_delete.delete("local", short, "full_video")
+    assert out["deleted"] and db.fetch("studio_jobs", build["id"])["status"] == "canceled"
+    for gone in (picture, earlier, placed, unplaced):
+        assert db.fetch("assets", gone["id"]) is None and not os.path.exists(gone["path"])
+    for kept in (shared, imported):
+        assert db.fetch("assets", kept["id"]) and os.path.isfile(kept["path"])
+    assert not db.select("short_scenes", "project_id = ?", (short,))
+    assert len(db.select("short_scenes", "project_id = ?", (other,))) == 1

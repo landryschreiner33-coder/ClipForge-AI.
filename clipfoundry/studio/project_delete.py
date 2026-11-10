@@ -58,8 +58,9 @@ JOB_WORDS = {"video_build": "building the video", "video_smart": "editing it for
              "video_preview": "making a preview", "video_render": "rendering the finished video",
              "filmcraft_edit": "editing it in FilmCraft", "video_media": "reading the files added to it",
              "media_suggest": "finding media", "media_import": "adding media", "asset_prepare": "preparing a file",
-             "link_import": "downloading its video"}
+             "link_import": "downloading its video", "short_build": "making the short"}
 _ASSET_REF = re.compile(r"as-[A-Za-z0-9_-]{2,64}")  # an asset id anywhere in a project's saved choices
+SCENE_FILES = ("picture_asset_id", "clip_asset_id", "pictures")  # what an animated short's scene names (short_scenes)
 
 
 class DeleteError(ValueError):
@@ -157,8 +158,9 @@ def _asset_folder(asset: dict) -> Path | None:
 
 def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
     """Everything that names media outside this project, as one text to search: other clips projects and their link
-    imports, examples, and every other video (its media, brief and setup, and every saved revision, so an older
-    revision can still be restored). An asset id found anywhere in it counts as a use: when in doubt the file stays."""
+    imports, examples, and every other video (its media, brief and setup, every saved revision, so an older revision
+    can still be restored, its media imports, and an animated short's scenes). An asset id found anywhere in it counts
+    as a use: when in doubt the file stays."""
     other_clips = project_id if kind == "clips" else ""
     other_video = project_id if kind == "full_video" else ""
     with db.connect() as conn:
@@ -171,14 +173,23 @@ def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
         texts += [r[0] or "" for r in conn.execute(
             "SELECT plan FROM edit_plans WHERE project_id != ? AND project_id IN (SELECT id FROM studio_projects "
             "WHERE workspace_id = ?)", (other_video, ws))]
+        texts += [r[0] or "" for r in conn.execute(  # an import for no project at all ('') is a use too
+            "SELECT asset_id FROM media_imports WHERE project_id != ? OR project_id = ''", (other_video,))]
+        texts += [" ".join(str(v or "") for v in tuple(r)) for r in conn.execute(
+            f"SELECT {', '.join(SCENE_FILES)} FROM short_scenes WHERE project_id != ?", (other_video,))]
     return "\n".join(texts)
 
 
 def _video_asset_ids(row: dict) -> list[str]:
-    """Every asset a video names: its media, its brief and setup, and every saved revision of its plan."""
+    """Every asset a video names: its media, its brief and setup, every saved revision of its plan, and an animated
+    short's scene files (each scene's picture, its earlier pictures and its clip, also one not in the plan yet)."""
     text = json.dumps(row, default=str)
     for rev in db.select("edit_plans", "project_id = ?", (row["id"],), "revision ASC"):
         text += json.dumps(rev.get("plan"), default=str)
+    with db.connect() as conn:
+        for r in conn.execute(f"SELECT {', '.join(SCENE_FILES)} FROM short_scenes WHERE project_id = ?",
+                              (row["id"],)):
+            text += " " + " ".join(str(v or "") for v in tuple(r))
     return list(dict.fromkeys(_ASSET_REF.findall(text)))
 
 
