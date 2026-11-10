@@ -955,3 +955,42 @@ def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_be
     upload(once, t - 4, t + 0.5)
     vid3 = _video("Once", [once["id"]], created_at=t + 30)["id"]
     assert project_delete.plan("local", vid3, "full_video")["counts"]["files"] == 1
+
+
+def test_a_video_being_planned_goes_with_its_planning_chat_and_an_answer_written_after_changes_nothing(env,
+                                                                                                    monkeypatch):
+    """A draft made on Make a YouTube video (studio/video_setup.py) is a full video with status "draft" and a plan
+    being made in its own chat. Deleting it stops the reading of its files and removes the chat with ClipForge AI's
+    answer still being written; that answer, when it finishes after the delete, makes no chat or message again."""
+    from clipfoundry import config, db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete, video_setup
+
+    later = []
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: None)  # the heavy-work thread is busy elsewhere
+    monkeypatch.setattr(video_setup, "model_ready", lambda settings: True)
+    monkeypatch.setattr(video_setup, "limit_reached", lambda ws, settings: "")
+    monkeypatch.setattr(video_setup._pool, "submit", lambda fn, *a: later.append((fn, a)))  # written in the background
+    monkeypatch.setattr(video_setup, "ask_model", lambda *a, **k: pytest.fail("no answer is asked for a deleted video"))
+    trip = _stored(81, filename="trip.mp4")
+    draft = video_setup.start("local", "owner", asset_ids=[trip["id"]], idea="A fun trip video", mode="ask")
+    vid = draft["id"]
+    assert video_setup.is_draft(db.fetch("studio_projects", vid)) and len(later) == 1
+    chat = db.select("brain_chats", "project_id = ?", (vid,))[0]
+    assert {r["status"] for r in db.select("brain_chat_messages", "chat_id = ?", (chat["id"],))} == {"done",
+                                                                                                   "thinking"}
+
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["working"] == ("ClipForge is still working on it (reading the files added to it). Deleting stops that "
+                               "first.")
+    assert "Its chat about it (2 messages)." in plan["goes"]
+    assert "ClipForge's copy of “trip.mp4”, which no other project uses." in plan["goes"]
+    out = project_delete.delete("local", vid, "full_video")
+    assert out["deleted"] and db.fetch("studio_projects", vid) is None
+    assert all(j["status"] != "queued" for j in db.select("studio_jobs", "target_id = ?", (vid,)))
+    assert not db.select("brain_chats", "project_id = ?", (vid,)) and not db.select("brain_chat_messages")
+    assert not (config.data_dir() / "videos" / vid).exists()
+
+    fn, args = later[0]
+    fn(*args)  # the answer finishes after the delete
+    assert not db.select("brain_chats", "project_id = ?", (vid,)) and not db.select("brain_chat_messages")

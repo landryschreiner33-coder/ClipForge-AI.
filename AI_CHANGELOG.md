@@ -85,7 +85,10 @@ No release.
   twice in the day (the project was made from one drop at most). Passed on: a project's own later upload of a file
   ClipForge already had counts as added again, so that file is left behind (needs a record of which project took an
   upload); the same file dropped on two pages at the very same moment shares one upload, so it can still go.
-- **Tests:** `tests/test_studio_project_delete.py` (26 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+- **With Make a YouTube video's planning (PR #38, merged in):** a video being planned is a full video with status
+  `draft`; deleting it stops the reading of its files, removes its planning chat with an answer still being written,
+  and that answer finishing afterwards makes no chat or message again (a test drives the setup page's own `start`).
+- **Tests:** `tests/test_studio_project_delete.py` (27 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
   passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story

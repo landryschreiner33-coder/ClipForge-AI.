@@ -12,7 +12,8 @@ post is busy with it, or the video is still being copied in, the window says why
 in another program (Windows) is deleted the next time ClipForge starts.
 
 - **Branch / PR:** `claude/project-thread-8i3krg` from the release line at 95a70e0 (story clips, PR #40, animated
-  shorts, PR #36, and the local makers, PR #39, merged in on top), PR #35 into `claude/project-thread-x72wkd`,
+  shorts, PR #36, the local makers, PR #39, the safety follow-ups, PR #41, and Make a YouTube video's planning,
+  PR #38, merged in on top), PR #35 into `claude/project-thread-x72wkd`,
   merged under Landry's standing word to merge finished work.
   Not released: a release still needs Landry's explicit OK.
 - **Code:** new `clipfoundry/studio/project_delete.py`, `frontend/src/components/DeleteProject.tsx` / `.css`,
@@ -24,7 +25,9 @@ in another program (Windows) is deleted the next time ClipForge starts.
 - **For other work:** a table that belongs to one project goes in `VIDEO_TABLES` or `CLIPS_TABLES` (a listed table that
   does not exist yet is skipped). A new place that keeps asset ids must be read by `_used_elsewhere` (and by
   `_video_asset_ids` when it names a video's own files, as an animated short's scenes do), or deleting another
-  project can remove a file it still needs. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
+  project can remove a file it still needs. Work a delete cannot see (a thread, not a studio job) must re-check that
+  its project still exists before it writes anything for it: the planning answer (`video_setup._think`) opens the
+  project's chat with `open_chat`, which makes a new empty chat if the delete lands between its two reads. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
   plan's `as_of` to `delete` when a person read the plan first); deleting from a project's own chat deletes that
   chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
   or it stays after the project is deleted.
