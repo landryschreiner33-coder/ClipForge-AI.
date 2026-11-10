@@ -207,26 +207,43 @@ def _d(value) -> dict:
 
 
 def _short_made(project_id: str) -> tuple[set[str], list[str]]:
-    """What ClipForge made for an animated short's scenes: each scene's clip (also one only an older version of the
-    plan names) and the pictures it made, not a picture the owner chose (that one is ClipForge's copy of their file).
-    Also what the makers on this computer made for them ("pictures", "video clips", "voices"): they keep their own
-    original of each, with its words, in their folder (engines/made), which a delete does not reach."""
+    """What ClipForge made for an animated short's scenes: each scene's clip and the pictures it made, as the scenes
+    are now and as every saved version kept them (also a scene deleted since), but not a picture the owner chose:
+    that one is ClipForge's copy of their file. Who made a scene's picture is its info.picture.source, which still
+    says "upload" while a new picture waits to replace the owner's. Also what the makers on this computer made for
+    the short ("pictures", "video clips", "voices"), from the same places and from the short's voice notes (a build
+    stopped before any clip was made): they keep their own original of each, with its words, in their folder
+    (engines/made), which a delete does not reach."""
     made: set[str] = set()
     used = dict.fromkeys(("pictures", "video clips", "voices"), False)
-    for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
-        made.update(_d(c).get("asset_id") or "" for c in _d(rev.get("plan")).get("clips") or []
-                    if _d(c).get("scene_id"))
-    for scene in db.select("short_scenes", "project_id = ?", (project_id,)):
-        info = _d(scene.get("info"))
-        earlier = [_d(e) for e in scene.get("pictures") or []]
-        made.add(scene.get("clip_asset_id") or "")
-        if scene.get("picture_source") != "upload":
-            made.add(scene.get("picture_asset_id") or "")
+
+    def scene(row: dict, earlier: list[dict]) -> None:
+        info = _d(row.get("info"))
+        who = _d(info.get("picture")).get("source") or ("upload" if row.get("picture_source") == "upload" else "")
+        made.add(row.get("clip_asset_id") or "")
+        if who != "upload":
+            made.add(row.get("picture_asset_id") or "")
         made.update(e.get("asset_id") or "" for e in earlier if e.get("source") != "upload")
-        used["pictures"] |= _d(info.get("picture")).get("source") == "engine" or any(
-            e.get("source") == "engine" for e in earlier)
+        used["pictures"] |= who == "engine" or any(e.get("source") == "engine" for e in earlier)
         used["video clips"] |= _d(info.get("motion")).get("how") == "engine"
         used["voices"] |= _d(info.get("voice")).get("engine") == "engine"
+
+    for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
+        plan = _d(rev.get("plan"))
+        made.update(_d(c).get("asset_id") or "" for c in plan.get("clips") or [] if _d(c).get("scene_id"))
+        for row in _d(_d(plan.get("short")).get("rows")).values():
+            scene(_d(row), [])
+    for row in db.select("short_scenes", "project_id = ?", (project_id,)):
+        scene(row, [_d(e) for e in row.get("pictures") or []])
+    notes = config.data_dir() / "videos" / project_id / "short" / "voice"
+    if not used["voices"] and notes.is_dir():
+        for note in notes.glob("*.json"):
+            try:
+                if _d(json.loads(note.read_text(encoding="utf-8"))).get("engine") == "engine":
+                    used["voices"] = True
+                    break
+            except (OSError, ValueError):
+                continue
     return made - {""}, [what for what, yes in used.items() if yes]
 
 
@@ -265,18 +282,25 @@ AGAIN_S = 24 * 3600  # how long a file added again stays protected while no proj
 
 
 def _added_again(asset: dict, row: dict, seen: float) -> bool:
-    """The owner added this file again, by uploading it once more, after the project was made and within the day
-    before `seen` (when the window was shown): ClipForge keeps one copy per file, so that upload is this file, and a
-    page may be about to use it, so it stays. An upload is "again" only when it started after ClipForge had the
-    file: the upload that stored it, and the same file sent alongside it, started before (they are the project's
-    own, also when the project was made first or saving was slow), while an upload of a file ClipForge got another
-    way (Find media, a link, a short's build) is again. The time the project was made is used, not the time it last
-    changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
-    window said."""
-    since = max(float(row.get("created_at") or 0), seen - AGAIN_S)
-    return bool(db.scalar(
-        "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND created_at > ? AND updated_at > ? "
-        "LIMIT 1", (asset["id"], float(asset.get("created_at") or 0), since)))
+    """The owner added this file again, so a page may be about to use it, and it stays. ClipForge keeps one copy per
+    file, so every upload of the same bytes is this file. Only uploads that finished in the day before `seen` (when
+    the window was shown) count, and the uploads that started before ClipForge had the file count as one drop (the
+    one that stored it and the same file sent alongside it, also when saving was slow). It is "again" when, in that
+    day:
+    * an upload finished after the project was made that did not make it: one that started after ClipForge had the
+      file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
+      the project was made (another page's: a page makes its project only from finished uploads); or
+    * the file was dropped twice: the project was made from one drop at most, so another page may hold the other.
+    The time the project was made is used, not the time it last changed: stopping its work (deleting does that
+    first) changes the project, and the answer must stay what the window said."""
+    stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
+    done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND updated_at > ?"
+    if db.scalar(f"SELECT 1 {done} AND (created_at > ? OR created_at < ?) LIMIT 1",
+                 (asset["id"], max(made, day), stored, made)):
+        return True
+    later = int(db.scalar(f"SELECT COUNT(*) {done} AND created_at > ?", (asset["id"], day, stored)) or 0)
+    first = 1 if db.scalar(f"SELECT 1 {done} AND created_at <= ? LIMIT 1", (asset["id"], day, stored)) else 0
+    return later + first >= 2
 
 
 def _pending() -> tuple[str | None, set[str]]:
