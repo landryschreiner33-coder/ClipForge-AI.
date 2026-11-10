@@ -28,7 +28,8 @@ from .runner import CraftError
 MAX_PROJECT = 256 << 20    # FilmCraft's own limit for a project it opens
 MAX_FILE = 512 << 20       # ...and for a file the page hands it
 FILES = "/files/"
-_PATHISH = re.compile(r"^(?:/|~|\\\\|[A-Za-z]:[\\/]|file:)", re.I)
+_PATHISH = re.compile(r"^(?:/|~|\\|[A-Za-z]:[\\/]|file:)", re.I)  # a leading \ too: \\server\share, \/server/share
+_CLIMB = re.compile(r"(?:^|[\\/])\.\.[\\/]|[\\/]\.\.$")  # ..\x, a/../b, a/.. (not ".." said on its own)
 _VIRTUAL = ("/projects/", "/exports/")  # the editor's own folders for projects and exports: nothing is read there
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]+")
 _PLAIN = re.compile(r"[^A-Za-z0-9._-]+")  # the names ClipForge gives files in the editor (FilmCraft keeps them)
@@ -61,10 +62,20 @@ def file_name(n: int, path: Path) -> str:
     return f"{n:02d}-{stem}{ext}"
 
 
+def _elsewhere(value: str) -> bool:
+    """Another computer (\\\\server\\share, //server/share or any mix of the two slashes) or a Windows device path.
+    Never looked up: on Windows, looking at one connects to that server and signs in as the person, and every text in a
+    project (an AI's title, a project saved from the editor) is looked up as a possible file."""
+    return value.strip().replace("\\", "/").startswith("//")
+
+
 def _resolve(value: str, base: Path) -> Path | None:
     if not value or value.startswith(FILES) or value.startswith(_VIRTUAL):
         return None
-    p = Path(value[7:] if value.startswith("file://") else value)
+    raw = value[7:] if value.startswith("file://") else value
+    if _elsewhere(raw):
+        return None
+    p = Path(raw)
     p = p if p.is_absolute() else base / p
     try:
         return p.resolve() if p.is_file() else None
@@ -162,7 +173,7 @@ def accept(data: bytes, manifest: Path) -> tuple[bytes | None, list[str]]:
             return value
         if v.startswith(_VIRTUAL) and ".." not in v:
             return value
-        if _PATHISH.match(v) or re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I):
+        if _PATHISH.match(v) or _CLIMB.search(v) or re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I):
             bad.append(v[:80])
         return value
 

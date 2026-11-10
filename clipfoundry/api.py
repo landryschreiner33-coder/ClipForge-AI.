@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from . import __version__, config, db, embedder, phone, taste
 from .asyncio_windows import disconnect_cleanup
 from .jobs import worker
+from .pathguard import plain_parts
 from .pipeline import cleanup, cuda, export, llm, postpack, render, transcribe, versions
 from .pipeline.common import read_json
 from .pipeline.ffmpeg_utils import FFmpegError, find_binary, nvenc_available, videotoolbox_available
@@ -937,9 +938,12 @@ if (config.FRONTEND_DIST / "assets").exists():
 def spa(full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(404)
-    candidate = (config.FRONTEND_DIST / full_path).resolve()
-    if full_path and candidate.is_file() and config.FRONTEND_DIST.resolve() in candidate.parents:
-        return FileResponse(candidate)
+    parts = plain_parts(full_path)  # before anything looks at the file system (pathguard.py)
+    if parts:
+        dist = config.FRONTEND_DIST.resolve()
+        candidate = dist.joinpath(*parts).resolve()
+        if candidate.is_file() and dist in candidate.parents:
+            return FileResponse(candidate)
     index = config.FRONTEND_DIST / "index.html"
     if index.exists():
         return FileResponse(index)

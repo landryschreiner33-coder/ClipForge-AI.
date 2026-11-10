@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from .. import db
 from ..cloud import principal
 from ..cloud import settings as cloud_settings
+from ..pathguard import plain_parts
 from . import apps
 from .runner import CraftError
 
@@ -62,11 +63,14 @@ def craft_install(body: InstallBody) -> dict:
 def filmcraft_web(path: str) -> FileResponse:
     """FilmCraft's web build, from this computer (same address as the page, so the page can hand it files)."""
     _desktop()
+    parts = plain_parts(path or "index.html")  # before anything looks at the file system (pathguard.py)
+    if parts is None:
+        raise HTTPException(404)
     root = apps.web_root("filmcraft")
     if not root:
         raise HTTPException(404, "FilmCraft's editor is not set up yet.")
     base = root.resolve()
-    target = (base / (path or "index.html")).resolve()
+    target = base.joinpath(*parts).resolve()
     if target.is_dir():
         target = target / "index.html"
     if base not in target.parents or not target.is_file():
