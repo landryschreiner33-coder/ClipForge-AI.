@@ -154,9 +154,40 @@ def test_filmcraft_projects_never_send_the_editor_to_another_computer(tmp_path, 
     assert [t["text"] for t in opened["titles"]] == NETWORK  # text stays text
 
 
+@pytest.mark.skipif(os.name == "nt", reason="stands in for a share with a //path, which is a share on Windows")
+def test_filmcraft_projects_still_use_the_videos_files_on_a_share_the_owner_allowed(tmp_path, monkeypatch):
+    """Footage on a network share the owner lets ClipForge read (a mapped drive resolves to \\\\nas\\media, or a share
+    listed in CLIPFOUNDRY_LOCAL_ROOTS) is named by its share address in the project: the editor still gets it, and
+    other computers are still not looked at. Here a //path on this computer stands in for the share."""
+    from clipfoundry.craft import web
+    from clipfoundry.studio import local_files
+
+    share = tmp_path / "nas"
+    clip = share / "trip" / "clip.mp4"
+    clip.parent.mkdir(parents=True)
+    clip.write_bytes(b"x")
+    as_share = "/" + str(share)  # //tmp/.../nas: the drive of a share, written the way Windows writes one
+    monkeypatch.setattr(local_files, "roots", lambda: [{"label": "nas", "path": as_share}])
+    folder = tmp_path / "r1" / "filmcraft"
+    folder.mkdir(parents=True)
+    project = folder / "edit.fcproj"
+    project.write_text(json.dumps({"media": [{"File": {"path": "/" + str(clip)}},
+                                             {"File": {"path": "//evil.example/share/x.mp4"}}]}))
+    looked = _record(monkeypatch)
+    got = web.session(project, tmp_path / "web-r1.json", "/api/studio/videos/v/filmcraft/files")
+    assert not _evil(looked), _evil(looked)
+    assert [m["name"] for m in got["media"]] == ["01-clip.mp4"]
+    opened = json.loads((tmp_path / "web-r1.fcproj").read_text())
+    assert [m["File"]["path"] for m in opened["media"]] == ["/files/01-clip.mp4", "//evil.example/share/x.mp4"]
+    # the save from the editor maps it back to the share's file
+    clean, need = web.accept(json.dumps({"media": [{"File": {"path": "/files/01-clip.mp4"}}]}).encode(),
+                             tmp_path / "web-r1.json")
+    assert not need and json.loads(clean)["media"][0]["File"]["path"] == str(clip.resolve())
+
+
 @pytest.mark.parametrize("bad", ["\\/evil.example/share/x.mp4", "/\\evil.example\\share\\x.mp4",
                                  "\\evil\\x.mp4", "..\\..\\evil.mp4", "a/../../evil.mp4", "media/..",
-                                 " \\\\evil.example\\share\\x.mp4"])
+                                 "C:..\\evil.mp4", "C:..", " \\\\evil.example\\share\\x.mp4"])
 def test_a_saved_filmcraft_project_naming_another_computer_is_refused(tmp_path, bad):
     """A save from the editor (a project the person downloaded and opened there, say) that names another computer or
     climbs out of the folder is refused, so neither the editor nor FilmCraft's render ever opens it."""
