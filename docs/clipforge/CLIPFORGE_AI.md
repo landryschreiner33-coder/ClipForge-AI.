@@ -253,7 +253,7 @@ tool, at most 1,500 characters each). The model is asked again only when it has 
 |---|---|---|
 | a looking tool (`look`) | runs at once | yes: the model answers with the results |
 | a making tool (`make`) | runs at once | only when it failed, or when a helper worked and ClipForge AI has said nothing yet |
-| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs (the model reads that nothing is done yet); when it cannot be offered, its step fails ("Could not delete …", with the reason) | no; when it cannot be offered, the model reads why |
+| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs (the model reads that nothing is done yet); one that cannot be done now shows with the reason and no OK (`blocked`); when it cannot be offered at all, its step fails ("Could not delete …", with the reason) | no, whatever became of it: the button or the failed step says that, and asked again, the real Basic model said a delete it could not offer was done ("It's gone now."). Beside a tool the model does read, it reads that it was not done |
 | an unknown tool, or arguments that do not pass the checks | nothing runs (wrong arguments show as a failed step) | yes: the model reads what was wrong (for an unknown tool, the tools it has) |
 | a tool that breaks (any error, not only a refusal) | its step fails ("Could not …", with the reason) | yes: the model reads that it did not work |
 

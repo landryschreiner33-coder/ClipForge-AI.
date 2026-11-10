@@ -200,15 +200,21 @@ def test_a_tool_that_breaks_fails_its_own_step_and_the_model_answers_on(data, mo
     assert "- open_project: it failed (KeyError)" in fake.last_user(1)
     assert [x["text"] for x in brain.list_(WS)] == ["I always want warm colours"]
 
-    # a button whose preview breaks: no button, a failed step, and the model reads that it failed
+    # a button whose preview breaks: no button and a failed step that says why; the model is not asked again about
+    # it (asked again, the real Basic model said a delete it could not offer was done)
     monkeypatch.setattr(tools.get("rename_project"), "preview", broken)
     fake = install(monkeypatch, say("", ("rename_project", {"project": "Hike day", "name": "Summit"})),
-                   say("Renaming did not work just now."))
+                   say("Done: it is called Summit now."))
     m = settled(c["id"], _say(c["id"], "call it Summit")["id"])
-    assert m["status"] == "done" and m["text"] == "Renaming did not work just now." and m["data"]["pending"] == []
+    assert m["status"] == "done" and m["text"] == "" and m["data"]["pending"] == [] and len(fake.calls) == 1
     assert m["data"]["steps"] == [{"tool": "rename_project", "label": "Could not rename Hike day to Summit",
                                    "ok": False, "why": "it failed (KeyError)"}]
-    assert "- rename_project: it failed (KeyError)" in fake.last_user(1)
+    # beside a looking step the model reads, it reads that the change was not done
+    fake = install(monkeypatch, say("", ("rename_project", {"project": "Hike day", "name": "Summit"}),
+                                    ("find_projects", {})), say("Renaming did not work just now."))
+    m = settled(c["id"], _say(c["id"], "call it Summit, and what else do I have?")["id"])
+    assert m["text"] == "Renaming did not work just now." and len(fake.calls) == 2
+    assert "- rename_project: not done, and no button was shown: it failed (KeyError)." in fake.last_user(1)
 
 
 def test_an_answer_that_fails_keeps_its_words_and_says_nothing_changed_only_when_true(data, monkeypatch):

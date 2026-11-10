@@ -80,7 +80,8 @@ the old rules still answer, and the chat offers the built-in model in one press.
   video"; press Stop on a long answer; in a video's chat ask "What would make this video better?".
 - **Judgement calls to know about:** the built-in model and Ollama get the smaller budgets (an 8,192-token context);
   change and delete tools never run on the model's word, even after a "yes" in the conversation: only the card's OK
-  runs them; "remember: …" and an exact "forget …" skip the model, while "I like …" and "always …" now go to the
+  runs them, and a change or delete that cannot be offered (or is blocked) is shown with its reason and never sent
+  back to the model (the Basic model, asked again, said a delete it could not offer was done); "remember: …" and an exact "forget …" skip the model, while "I like …" and "always …" now go to the
   conversation, where the model saves lasting preferences with `remember` (and ClipForge keeps a plainly said one
   itself when a small model forgets); `remember` saves at once only the owner's own words from this message and
   never changes a memory the owner already has (anything else is a "Remember “…”?" card); a video's chat still proposes

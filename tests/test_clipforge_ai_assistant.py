@@ -512,10 +512,17 @@ def test_a_change_or_delete_becomes_a_button_and_never_runs(data, monkeypatch):
                             "risk": "change", "label": "Zap the intro", "detail": ["It goes away."], "blocked": "",
                             "state": "waiting", "result": ""}]  # shown once, even when asked twice
 
-    fake = install(monkeypatch, say("", ("boom", {})), say("That cannot be done now: it is busy."))
+    # a button that cannot be pressed now shows why; the model is not asked again about it
+    fake = install(monkeypatch, say("", ("boom", {})), say("Done: everything is gone."))
     out = _think(fake, tl)
-    assert out.rounds == 2 and out.pending[0]["state"] == "blocked" and out.pending[0]["blocked"] == "it is busy"
-    assert out.pending[0]["risk"] == "delete" and "- boom: cannot be done right now: it is busy" in fake.last_user(1)
+    assert out.rounds == 1 and out.pending[0]["state"] == "blocked" and out.pending[0]["blocked"] == "it is busy"
+    assert out.pending[0]["risk"] == "delete" and out.text == "" and len(fake.calls) == 1
+    # beside a looking step the model reads, it reads that nothing was done
+    fake = install(monkeypatch, say("", ("boom", {}), ("peek", {"words": "the intro"})), say("It is busy now."))
+    out = _think(fake, tl)
+    assert out.rounds == 2 and out.text == "It is busy now."
+    assert "- boom: not done: shown to the owner as a button that cannot be pressed right now: it is busy" in \
+        fake.last_user(1)
 
 
 def test_the_last_round_offers_no_tools_and_an_answer_has_at_most_max_steps_rounds(data, monkeypatch):
@@ -995,12 +1002,12 @@ def test_a_blocked_delete_is_shown_but_cannot_be_pressed(data, monkeypatch):
     pd = _fake_deleter(monkeypatch, blocked="it is being rendered right now")
     p = db.create_project("Busy talk", workspace_id=WS)
     fake = install(monkeypatch, say("", ("delete_project", {"project": "Busy talk"})),
-                   say("It cannot be deleted while it is being rendered."))
+                   say("I've deleted Busy talk."))
     c = chat.open_chat(WS)
     m = settled(c["id"], _say(c["id"], "delete Busy talk")["id"])
     act = m["data"]["pending"][0]
     assert act["state"] == "blocked" and act["blocked"] == "it is being rendered right now"
-    assert act["label"] == "Delete the clips project “Busy talk”" and len(fake.calls) == 2
+    assert act["label"] == "Delete the clips project “Busy talk”" and len(fake.calls) == 1 and m["text"] == ""
     assert chat.decide(WS, c["id"], m["id"], "a1", True)["data"]["pending"][0]["state"] == "blocked"
     assert pd.deleted == [] and db.get_project(p["id"])
 
@@ -1033,19 +1040,24 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
 
     _no_deleter(monkeypatch)
     p = db.create_project("Old talk", workspace_id=WS)
+    # asked again here, the real Basic model said "It's been removed." and then "I've deleted the project ... It's
+    # gone now." on GitHub's machines (runs 42777938926 and 42818369465): it is not asked again about it, and the
+    # owner sees that it could not be offered, and why
     fake = install(monkeypatch, say("", ("delete_project", {"project": "Old talk"})),
-                   say("I cannot delete projects from here yet; use the Projects page."))
+                   say("I've deleted the project 'Old talk' for you. It's gone now."))
     c = chat.open_chat(WS)
     m = settled(c["id"], _say(c["id"], "delete Old talk")["id"])
     assert m["status"] == "done" and m["data"]["pending"] == [] and db.get_project(p["id"])
-    assert m["text"] == "I cannot delete projects from here yet; use the Projects page."
-    assert "- delete_project: This version of ClipForge cannot delete projects from the chat yet; use the Projects " \
-           "page." in fake.last_user(1)
-    # the owner sees that it could not be offered, whatever the model says: the real Basic model answered "It's been
-    # removed." here on GitHub's machines
+    assert m["text"] == "" and len(fake.calls) == 1
     assert m["data"]["steps"] == [{"tool": "delete_project", "label": "Could not delete Old talk", "ok": False,
                                    "why": "This version of ClipForge cannot delete projects from the chat yet; use "
                                           "the Projects page."}]
+    # what the model said before it knew stays; nothing after it
+    install(monkeypatch, say("I'll delete Old talk for you.", ("delete_project", {"project": "Old talk"})),
+            say("It's been removed."))
+    m = settled(c["id"], _say(c["id"], "please delete Old talk")["id"])
+    assert m["text"] == "I'll delete Old talk for you." and [s["label"] for s in m["data"]["steps"]] == [
+        "Could not delete Old talk"]
     # a model that asks for it again (twice in a round, then once more) shows the same failure once
     again = ("delete_project", {"project": "Old talk"})
     install(monkeypatch, say("", again, again), say("Trying again.", again), say("I cannot delete it from here."))

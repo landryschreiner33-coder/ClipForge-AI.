@@ -12,7 +12,8 @@ then waiting until the answer is no longer "thinking", as the page does.
  6. "What's my name?", four turns after saying it: Sam (the conversation so far reaches the model).
  7. "From now on, never use red captions.": a rule saved with the remember tool.
  8. "Delete the project Old gear review": a delete button that waits for the owner's OK, or a polite no (this
-    version may not have the safe delete yet). The project must still be there afterwards.
+    version may not have the safe delete yet: then the owner sees a failed step that says why, and the model is not
+    asked again about it). The project must still be there afterwards.
  9. The Script writer agent is added; "@Script writer write a two-line hook about mountain biking" talks to it.
 10. "Ask the script writer for a title for my biking video": ClipForge AI hands the job to the agent.
 11. agents.consult, the way the new-video planner asks the helpers for a note on a plan: one note.
@@ -113,6 +114,15 @@ _NOT = re.compile(r"\b(?:not|cannot|unable|never|nothing|until|once|when|if|afte
                   r"click(?:s|ing)?)\b|n[’']t\b", re.I)
 _TALKS_OF_OK = re.compile(r"\b(?:press(?:es|ing)?|tap(?:s|ping)?|click(?:s|ing)?|buttons?|confirm\w*)\b", re.I)
 _SENTENCES = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def not_offered(row: dict) -> list[dict]:
+    """The failed steps of a change or a delete that could not be offered: ClipForge's own words say why (the model
+    is not asked again about them), so an answer with one of them and no words of the model is not empty."""
+    from clipfoundry.brain import tools
+
+    waits = {t.name for t in tools.all_tools() if t.risk in tools.WAITS}
+    return [s for s in row.get("steps") or [] if not s.get("ok") and s.get("why") and s.get("tool") in waits]
 
 
 def claims_deleted(text: str) -> bool:
@@ -378,7 +388,7 @@ class Run:
             done = row.get("status") == "done"
             check(row, "answered without failing", done,
                   "" if done else f"status {row.get('status')}: {clip(row.get('answer'), 200)}", hard=True)
-            words = bool(row.get("answer", "").strip() or row.get("pending"))
+            words = bool(row.get("answer", "").strip() or row.get("pending") or not_offered(row))
             check(row, "has words", words, "" if words else "the answer is empty", hard=True)
             why = raw_json(row.get("answer", "")) or next(  # a helper's work shows in the answer too
                 (f"in {h['agent']}'s work: {w}" for h in row.get("helpers", []) for w in [raw_json(h["text"])] if w),
@@ -549,8 +559,10 @@ def conversation(run: Run) -> None:
         elif waiting:
             ok, how = False, f"the delete button is for another project: {waiting[0].get('label')}"
         elif tried:
-            ok, how = bool(row["answer"].strip()), ("a polite no: the model asked for delete_project, which this "
-                                                    "version cannot do from the chat")
+            told = [s for s in not_offered(row) if s.get("tool") == "delete_project"]
+            ok, how = bool(row["answer"].strip() or told), (
+                "a polite no: the model asked for delete_project, which this version cannot do from the chat" +
+                (f"; the owner sees “{told[0]['label']}: {told[0]['why']}”" if told else ""))
         elif _REFUSES.search(row["answer"]):
             ok, how = True, "a polite no, without trying the delete tool"
         else:

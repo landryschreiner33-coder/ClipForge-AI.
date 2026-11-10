@@ -6,8 +6,9 @@ model, the helper agents, the date), the memories and the know-how that fit the 
 the conversation so far. The model answers with one JSON object: what it says, the tools it uses now (at most three)
 and, when the owner should pick, a question with choices. Looking and making tools run at once and their results go
 back to the model, which answers again with them (at most MAX_STEPS rounds); changing and deleting tools only show a
-button, and nothing happens until the owner presses it. The answer streams into the chat message while it is
-written, so the page shows it growing.
+button, and nothing happens until the owner presses it (one that cannot be offered is a failed step, and the model
+is not asked again about it). The answer streams into the chat message while it is written, so the page shows it
+growing.
 
 Other parts of ClipForge that speak as ClipForge AI use the same pieces: `persona()` (who it is), `history()` (the
 conversation so far for a model) and `app_context()` (what it knows right now).
@@ -520,22 +521,24 @@ def _failed(name: str, words: str, why: str, out: Outcome) -> None:
 def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = "",
            why: str = "") -> tuple[str, bool]:
     """Show `tool` with `args` as a button that waits for the owner's OK: a change, a delete, or what a tool asks
-    first (`why`, from tools.AskFirst; `said`: the tool the model used then). Returns the line the model reads."""
+    first (`why`, from tools.AskFirst; `said`: the tool the model used then). Returns the line the model reads and
+    whether it must read it: never. What the owner sees says what became of it (a waiting button, a button that
+    cannot be pressed now and why, or a failed step and why), and a model asked again could only talk about it: the
+    real Basic model, asked again after a delete it could not offer, said twice that the project was deleted."""
     from ..pipeline import llm
 
     name = said or tool.name
     try:
         pv = tool.preview(ctx, args) if tool.preview else {}
-    except ToolError as exc:  # the owner sees it could not be offered, whatever the model says next
+    except ToolError as exc:  # the owner sees it could not be offered, and why
         _failed(name, tool.words(args), str(exc), out)
-        return f"{name}: {exc}", True
+        return f"{name}: not done, and no button was shown: {exc}", False
     except llm.Canceled:
         raise
     except Exception as exc:  # noqa: BLE001 - a preview that breaks fails its step, never the whole answer
         log.exception("the preview of %s failed", tool.name)
         _failed(name, tool.words(args), f"it failed ({exc.__class__.__name__})", out)
-        return (f"{name}: it failed ({exc.__class__.__name__}), so no button was shown. Tell the owner it did not "
-                "work.", True)
+        return f"{name}: not done, and no button was shown: it failed ({exc.__class__.__name__}).", False
     args = {**args, **(pv.get("args") or {})}
     if any(p["tool"] == tool.name and p["args"] == args for p in out.pending):
         return f"{name}: already shown to the owner.", False
@@ -545,7 +548,7 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
                         "detail": [str(d) for d in pv.get("detail") or []][:10], "blocked": blocked,
                         "state": "blocked" if blocked else "waiting", "result": ""})
     if blocked:
-        return f"{name}: cannot be done right now: {blocked}", True
+        return f"{name}: not done: shown to the owner as a button that cannot be pressed right now: {blocked}", False
     shown = f"{name}: {why} It is shown" if why else f"{name}: shown"
     return (f"{shown} to the owner as a button. Nothing is done yet: it happens only if they press OK. Tell them "
             "what it will do when they press OK, never that it is done."), False
@@ -555,7 +558,8 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
     """One tool the model asked for: run it (look, make) or show it for the owner's OK (change, delete, and what a
     tool asks first with tools.AskFirst). Returns the line the model reads next and whether the model needs to read
     it before the answer is complete. A tool that breaks fails its own step and the model reads that it failed: the
-    answer goes on."""
+    answer goes on. A change or delete that cannot be offered fails its step too, but is no reason to ask the model
+    again (`_offer`)."""
     from ..pipeline import llm
 
     name = call["tool"]

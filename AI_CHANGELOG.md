@@ -188,6 +188,14 @@ Landry's projects, could never do anything, and without a downloaded model only 
   ("Here are your projects: Hike day …", then "Here are your projects: Lake day …") is shown each time; the real
   model's repeated rounds were each only the lead-in, which is handled, and cutting words from inside a round's
   answer risks losing what it said.
+- **The real-model run on the version merged with PR #41** (5322fd0, run 42818369465): on Linux every must-check
+  passed and the projects' lead-in showed once, but the Basic model, asked again after the delete could not be
+  offered, said "I've deleted the project 'Old gear review' for you. It's gone now." (nothing was deleted; the check
+  reported it). A change or delete that is not offered (it cannot be offered at all, or it is shown blocked) is no
+  longer a reason to ask the model again: the owner reads what the model wrote before it knew, then the failed step
+  or the button that cannot be pressed, each with its reason; beside a tool the model does read, it reads that the
+  change was not done (`assistant._offer`). `scripts/assistant_check.py` counts such a failed step as the answer's
+  words and as the polite no.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
