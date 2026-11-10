@@ -12,17 +12,19 @@ import { POSE_OF } from "../office/panels";
 import Portrait from "../office/Portrait";
 import { OfficeView, useOfficeSelection } from "./Office";
 import "../office/studio.css";
+import "./shorts.css";
 
 const RUNNING = new Set(["queued", "processing", "importing", "uploading", "building", "rendering"]);
 const STOPPED = new Set(["error", "failed", "needs_input"]);
 // what a full video's status means while no step has said more
 const VIDEO_WORDS: Record<string, string> = { building: "Building the rough cut", rendering: "Rendering",
   queued: "Waiting to start", importing: "Getting the video from your link" };
-const KIND_WORD = (i: LibraryItem) => i.kind === "full_video" ? "YouTube video"
-  : i.mode === "full_stories" ? "Clips · Full stories" : "Clips · Highlights";
+const KIND_WORD = (i: LibraryItem) => i.kind === "full_video" ? (i.mode === "animated_short" ? "Animated short" : "YouTube video")
+  : i.mode === "full_stories" ? (i.story_split === "parts" ? "Clips · Story parts" : "Clips · Full stories")
+  : "Clips · Highlights";
 
 /**
- * Studio: Home and the Office in one place (studio upgrade handoff, section 4). The two things ClipForge makes, what
+ * Studio: Home and the Office in one place (studio upgrade handoff, section 4). The three things ClipForge makes, what
  * needs you (only when there is something to do), the current project with its real stage, measured progress and
  * the team on it, the office itself, then recent projects and publishing. Nothing here estimates or invents work.
  */
@@ -64,15 +66,16 @@ export default function Studio() {
     <div className="page studio-page">
       <section className="home-hero" aria-labelledby="studio-title">
         <h1 id="studio-title" tabIndex={-1}>What are you making today?</h1>
-        <div className="make-choices">
+        <div className="make-choices three">
           <a className="make-choice" href="#/create/clips">
             <div className="frame-shape vertical" aria-hidden="true"><span className="cap" /></div>
             <div>
               <h2>Make clips</h2>
               <p>Vertical clips for TikTok and YouTube, with captions, from one long video.</p>
-              <div className="mode-names" aria-label="Two ways">
+              <div className="mode-names" aria-label="Three ways">
                 <span>Highlights: the strongest short moments</span>
-                <span>Full stories: one complete clip per story</span>
+                <span>Full story: one complete clip per story</span>
+                <span>Story parts: each story in Part 1, Part 2…</span>
               </div>
               <span className="btn btn-primary go"><Icon name="film" />Make clips</span>
             </div>
@@ -83,6 +86,14 @@ export default function Studio() {
               <h2>Make a YouTube video</h2>
               <p>Upload your clips, answer four short questions, and get an edited video you can still change.</p>
               <span className="btn btn-primary go"><Icon name="create" />Make a YouTube video</span>
+            </div>
+          </a>
+          <a className="make-choice" href="#/create/short">
+            <div className="frame-shape vertical" aria-hidden="true"><span className="pic" /><span className="cap" /></div>
+            <div>
+              <h2>Make an animated short</h2>
+              <p>A voice-over short of moving pictures from your script, or one ClipForge AI writes.</p>
+              <span className="btn btn-primary go"><Icon name="spark" />Make an animated short</span>
             </div>
           </a>
         </div>

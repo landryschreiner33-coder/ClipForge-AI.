@@ -1,4 +1,7 @@
-"""Make clips: Highlights or Full stories from one uploaded file or link.
+"""Make clips: Highlights, Full stories or Story parts from one uploaded file or link.
+
+Story parts is Full stories cut into parts: the project is a Full stories project (the same styles, skills and
+examples apply) whose options say how its stories are cut ("story_split": "whole" or "parts", studio/story_review.py).
 
 The project gets its own folder with the source as a hard link to the immutable asset (no copy, and deleting the
 project never deletes the original), a frozen guidance snapshot, and, for "Make & upload clips", the explicit
@@ -23,8 +26,18 @@ REUSE_BASES = {
 }
 
 
+# What Make clips can ask for, and how each story setting cuts the stories (story_review.SPLITS)
+STORY_SPLITS = {"full_stories": "whole", "story_parts": "parts"}
+REQUEST_MODES = (*CLIP_MODES, "story_parts")
+
+
 class FlowError(ValueError):
     pass
+
+
+def guidance_mode(mode: str) -> str:
+    """The project type whose styles, skills and examples apply: Story parts are Full stories cut into parts."""
+    return "full_stories" if mode == "story_parts" else mode
 
 
 def _link_source(asset: dict, pdir: Path) -> Path:
@@ -95,10 +108,11 @@ def prepare(workspace_id: str, *, mode: str, style_id: str = "saved", choices: d
             title: str = "", reference_id: str = "") -> dict:
     """Validate a Make clips request and freeze its guidance; the same for a file and a link, so a link import can
     never lose the chosen mode, style, skill overrides, destinations or reuse statement."""
-    if mode not in CLIP_MODES:
-        raise FlowError("Choose Highlights or Full stories.")
+    if mode not in REQUEST_MODES:
+        raise FlowError("Choose Highlights, Full stories or Story parts.")
     from . import reference
 
+    request_mode, mode = mode, guidance_mode(mode)
     try:
         style = _style(workspace_id, style_id)
         examples = reference.guidance_inputs(workspace_id, mode, reference_id)
@@ -114,7 +128,11 @@ def prepare(workspace_id: str, *, mode: str, style_id: str = "saved", choices: d
                                 context={"title": title, "caption_text": ""}, **examples)
     if snapshot["problems"]:
         raise FlowError("; ".join(snapshot["problems"]))
-    return {"mode": mode, "guidance": snapshot, "destinations": request, "options": guidance.render_values(snapshot)}
+    options = guidance.render_values(snapshot)
+    if request_mode in STORY_SPLITS:
+        options["story_split"] = STORY_SPLITS[request_mode]
+    return {"mode": mode, "request_mode": request_mode, "guidance": snapshot, "destinations": request,
+            "options": options}
 
 
 def remember_mode(workspace_id: str, user_id: str, mode: str) -> None:
@@ -143,8 +161,8 @@ def attach_source(project_id: str, asset: dict, *, submit: bool = True) -> dict:
 def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_id: str = "saved",
            choices: dict | None = None, skills_on: list[str] | None = None, skills_off: list[str] | None = None,
            upload: dict | None = None, reference_id: str = "") -> dict:
-    if mode not in CLIP_MODES:
-        raise FlowError("Choose Highlights or Full stories.")
+    if mode not in REQUEST_MODES:
+        raise FlowError("Choose Highlights, Full stories or Story parts.")
     try:
         asset = uploads.asset(asset_id, workspace_id)
     except uploads.UploadError as exc:
@@ -155,7 +173,7 @@ def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_i
     ready = prepare(workspace_id, mode=mode, style_id=style_id, choices=choices, skills_on=skills_on,
                     skills_off=skills_off, upload=upload, title=name, reference_id=reference_id)
     project = db.create_project(name, source_filename=asset["filename"], status="queued", workspace_id=workspace_id,
-                                asset_id=asset_id, clip_mode=mode, guidance=ready["guidance"],
+                                asset_id=asset_id, clip_mode=ready["mode"], guidance=ready["guidance"],
                                 destinations=ready["destinations"], options=ready["options"])
     remember_mode(workspace_id, user_id, mode)
     return attach_source(project["id"], asset)

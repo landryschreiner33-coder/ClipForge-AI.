@@ -17,6 +17,7 @@ class Worker:
         self.q: queue.Queue = queue.Queue()
         self.cancelled: set[str] = set()
         self.current: str | None = None
+        self.current_kind: str | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
@@ -71,6 +72,10 @@ class Worker:
         if self.current:
             self.cancelled.add(self.current)
             keys.append(self.current)
+            if self.current_kind == "studio":  # a studio job checks its own row, not this set
+                from .studio import jobs as studio_jobs
+
+                studio_jobs.cancel(self.current)
         return len(keys)
 
     def resume(self, work: dict) -> dict:
@@ -109,7 +114,7 @@ class Worker:
     def _loop(self) -> None:
         while True:
             kind, key, extra = self.q.get()
-            self.current = key
+            self.current, self.current_kind = key, kind
             try:
                 if key in self.cancelled:
                     self._mark_cancelled(kind, key)
@@ -121,12 +126,13 @@ class Worker:
                     self._run_version(key)
                 elif kind == "studio":
                     from .studio import jobs as studio_jobs, link_import, video_flow  # noqa: F401 - handlers
+                    from .makers import shorts  # noqa: F401 - handlers
 
                     studio_jobs.run(key)
             except Exception:  # noqa: BLE001 - never let the worker die
                 log.exception("job crashed")
             finally:
-                self.current = None
+                self.current = self.current_kind = None
                 self.q.task_done()
 
     def _mark_cancelled(self, kind: str, key: str) -> None:

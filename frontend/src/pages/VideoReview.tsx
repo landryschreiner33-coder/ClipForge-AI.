@@ -7,6 +7,7 @@ import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindM
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptPanel } from "../components/ScriptPanel";
 import { PlanPanel } from "../components/VideoPlan";
+import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
 import { navigate } from "../router";
@@ -389,7 +390,8 @@ export default function VideoReview({ id }: { id: string }) {
   const working = v.jobs.find((j) => j.status === "running" || j.status === "queued");
   const preview = v.preview ? v.artifacts.find((a) => a.kind === "preview" && a.revision === v.preview!.revision) : undefined;
   const finals = v.artifacts.filter((a) => a.kind === "final");
-  const failed = v.jobs.find((j) => j.status === "failed" && j.revision >= v.plan_revision);
+  // a short's build reports itself in the Scenes panel (its revision is a build number, not a version)
+  const failed = v.jobs.find((j) => j.status === "failed" && j.kind !== "short_build" && j.revision >= v.plan_revision);
   const vertical = plan?.output.aspect === "9:16" || plan?.output.aspect === "4:5";
   const bin = v.bin.map((aid) => media[aid]).filter(Boolean);
   const pictures = bin.filter((a) => a.kind !== "audio");
@@ -404,7 +406,7 @@ export default function VideoReview({ id }: { id: string }) {
 
   return (
     <div className="page">
-      <PageHead kind="Full video" title={v.name} crumbs={[{ label: "Projects", href: "#/projects" }, { label: v.name }]}
+      <PageHead kind={v.short ? "Animated short" : "Full video"} title={v.name} crumbs={[{ label: "Projects", href: "#/projects" }, { label: v.name }]}
         sub={plan ? <span aria-live="polite">{busy ? "Saving…" : `Saved · version ${v.plan_revision}`} · {fmtTime(v.duration)} · {plan.output.aspect} · {plan.output.fps} fps</span> : v.message}
         actions={plan && <>
           <button type="button" className="btn" disabled={busy || !v.can_undo} onClick={() => void undo()} title="Undo (Ctrl+Z)"><Icon name="back" />Undo</button>
@@ -424,19 +426,22 @@ export default function VideoReview({ id }: { id: string }) {
               {v.preview?.stale && <span className="pill warn">Older: shows version {v.preview.revision}; version {v.plan_revision} is being prepared</span>}</div>
             {preview ? <video key={preview.id} className={`preview-video ${vertical ? "vertical" : ""}`} controls preload="metadata"
               src={`/api/studio/videos/${v.id}/media?kind=preview&revision=${preview.revision}`} />
-              : <p className="muted">The preview appears here when the rough cut is ready.</p>}
+              : <p className="muted">{v.short ? "The preview appears here when the scenes are ready." : "The preview appears here when the rough cut is ready."}</p>}
             {plan && <Timeline v={v} selected={selected} onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />}
             <p className="small muted">The preview is a small, fast copy of the same plan. The final render uses your full original files.</p>
           </section>),
-        outputs: plan ? (
+        outputs: (plan || v.short || v.setup) && (
           <div className="stack-5">
+            {v.short && <ShortScenes v={v} busy={busy} onVideo={setV} />}
+            {!plan && v.setup && <PlanPanel v={v} onStarted={() => void load()} />}
+            {plan && <>
             {v.setup && <PlanPanel key={`plan-${v.plan_revision}`} v={v} onStarted={() => void load()} />}
-            <SmartPanel key={v.plan_revision} v={v} plan={plan} busy={busy} onStarted={() => void load()} />
-            <ScriptPanel key={`script-${v.plan_revision}`} v={v} plan={plan} busy={busy} edit={edit} onStarted={() => void load()}
-              onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />
+            {!v.short && <SmartPanel key={v.plan_revision} v={v} plan={plan} busy={busy} onStarted={() => void load()} />}
+            {!v.short && <ScriptPanel key={`script-${v.plan_revision}`} v={v} plan={plan} busy={busy} edit={edit} onStarted={() => void load()}
+              onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />}
             <section className="panel" aria-labelledby="vr-seq">
               <div className="panel-head"><h2 id="vr-seq">Sequence ({plan.clips.length})</h2>
-                <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "shorten_intro", seconds: 5 })}>Shorten the introduction</button></div>
+                {!v.short && <button type="button" className="btn btn-small" disabled={busy} onClick={() => edit({ op: "shorten_intro", seconds: 5 })}>Shorten the introduction</button>}</div>
               <ol className="seq edit-seq">
                 {plan.clips.slice(0, shown).map((c, i) => {
                   const o = plan.outline.find((x) => x.clip_id === c.id);
@@ -529,11 +534,13 @@ export default function VideoReview({ id }: { id: string }) {
               </Disclosure>
             </section>
             <FindMedia v={v} onChanged={() => void load()} />
-          </div>) : v.setup ? <PlanPanel v={v} onStarted={() => void load()} /> : null,
+            </>}
+          </div>),
         guidance: <section className="panel" aria-labelledby="vr-brain"><h2 id="vr-brain">Used from your Brain</h2><UsedFromBrain snapshot={v.guidance} compact /></section>,
         transcript: (<div className="stack-5">{plan && (
             <section className="panel" aria-labelledby="vr-look"><h2 id="vr-look">Look</h2>
               <label><input type="checkbox" checked={plan.captions.enabled} disabled={busy} onChange={(e) => edit({ op: "set", field: "captions", value: e.target.checked })} /> Captions</label>
+              {plan.captions.enabled && <label><input type="checkbox" checked={!!plan.captions.highlight} disabled={busy} onChange={(e) => edit({ op: "set", field: "caption_highlight", value: e.target.checked })} /> Highlight the word being said</label>}
               {plan.captions.enabled && <div className="grid-2">
                 <label className="field"><span>Caption size</span><select value={plan.captions.size || "medium"} disabled={busy} onChange={(e) => edit({ op: "set", field: "caption_size", value: e.target.value })}>
                   <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
@@ -554,6 +561,8 @@ export default function VideoReview({ id }: { id: string }) {
             </section>
           )}
           <section className="panel" aria-labelledby="vr-versions"><h2 id="vr-versions">Versions</h2>
+            {v.short?.voice_rule && <p className="short-label-note"><Icon name="alert" className="sm" />
+              <span><b>Before you post it.</b> {v.short.voice_rule}</span></p>}
             {finals.length > 0 && <ul className="file-list">{finals.map((a) => (
               <li key={a.id} className="file-row"><Icon name="check" /><div><b>Version {a.revision}</b><span className="block small muted">{fmtTime(a.duration)} · checked{a.audio_ok ? ", audio timing valid" : ""}{a.engine === "filmcraft" ? " · made in FilmCraft" : ""}</span>{a.fallback && <span className="block"><MadeWithLine m={a} /></span>}</div>
                 <a className="btn btn-small" href={`/api/studio/videos/${v.id}/media?kind=final&revision=${a.revision}&download=1`}><Icon name="download" />Download</a></li>

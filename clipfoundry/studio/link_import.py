@@ -181,7 +181,8 @@ def start(workspace_id: str, user_id: str, *, url: str, request_id: str = "", mo
                                skills_off=skills_off, upload=upload, title=link["title"],
                                reference_id=reference_id)
     project = db.create_project(link["title"][:120], source_url=link["url"], status="importing", stage="download",
-                                message="Waiting to download the video", workspace_id=workspace_id, clip_mode=mode,
+                                message="Waiting to download the video", workspace_id=workspace_id,
+                                clip_mode=ready["mode"],
                                 guidance=ready["guidance"], destinations=ready["destinations"],
                                 options=ready["options"],
                                 info={"link": {"url": link["url"], "original": url.strip()[:600],

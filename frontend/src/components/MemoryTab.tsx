@@ -6,7 +6,7 @@ import { ConfirmDialog, EmptyState, Icon, Pill, toast } from "./ui";
 const KIND_WORD: Record<MemoryKind, string> = { rule: "Rule", fact: "Fact", episode: "What it did", asset: "Asset", answer: "Answer" };
 const SOURCE_WORD: Record<Memory["source"], string> = { said: "You said it", did: "From what it did", guessed: "Its guess", imported: "Imported" };
 const WHERE_WORD: Record<string, string> = { change_request: "a change you asked for", filmcraft: "the FilmCraft finishing pass",
-  smart_edit: "a smart edit", chat: "the chat", guidance: "guidance" };
+  smart_edit: "a smart edit", chat: "the chat", guidance: "guidance", short_script: "writing a short" };
 const scopeWord = (m: Memory) => m.scope === "all" ? "Every video" : m.scope.startsWith("project:") ? "One video"
   : m.scope.startsWith("platform:") ? m.scope.slice(9) : m.scope.replace(":", " ");
 const date = (at: number) => new Date(at * 1000).toLocaleDateString();
