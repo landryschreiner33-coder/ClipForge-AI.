@@ -60,7 +60,7 @@ ALLOWED = {
     "markers.add",
 }
 FILE_KEYS = {"path", "paths", "file", "files", "folder", "dir", "lut", "output", "destination", "url", "src"}
-_PATHISH = re.compile(r"^(?:/|~|\\\\|[A-Za-z]:[\\/]|file:|[a-z][a-z0-9+.-]*://)", re.I)
+_PATHISH = re.compile(r"^(?:/|~|\\|[A-Za-z]:[\\/]|file:|[a-z][a-z0-9+.-]*://)", re.I)  # \ too: \/server/share
 
 SYSTEM = """You finish video edits in FilmCraft, a professional video editor, by choosing its tools. The cut (which
 clips, in which order, how long) is final; you only improve how it looks and sounds: colour, effects with keyframes,

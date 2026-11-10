@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 
 from .. import config
 from ..cloud import settings as cloud_settings
+from ..pathguard import plain_parts
 from ..publish.common import app_request, local_only
 from . import EngineError
 
@@ -157,22 +158,11 @@ def _made_url(path: Path) -> str:
     return "/api/engines/made/" + rel.as_posix()
 
 
-def _made_parts(path: str) -> tuple[str, ...] | None:
-    """A made file's address as plain folder and file names, or None. Nothing else may reach the file system: on
-    Windows, looking at a \\\\server\\share path connects to that server and signs in as the person."""
-    if not path or path.startswith("/") or any(c in path for c in "\\:\0"):
-        return None
-    parts = PurePosixPath(path).parts
-    if not parts or any(p in (".", "..") for p in parts):
-        return None
-    return parts
-
-
 @router.get("/api/engines/made/{path:path}", dependencies=[Depends(local_only)])
 def engines_made(path: str) -> FileResponse:
     """A picture, clip or voice-over the makers made (only files under <data>/engines/made)."""
     _desktop()
-    parts = _made_parts(path)
+    parts = plain_parts(path)  # before anything looks at the file system (pathguard.py)
     if parts is None or PurePosixPath(parts[-1]).suffix.lower() not in TYPES:
         raise HTTPException(404)
     base = made_root()
