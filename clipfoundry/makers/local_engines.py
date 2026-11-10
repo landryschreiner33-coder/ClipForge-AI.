@@ -40,6 +40,20 @@ def made_here(path: Path | str) -> bool:
     return made in target.parents and target.is_file()
 
 
+def discard_made(path: Path | str | None) -> None:
+    """A file a maker saved in engines/made that the caller asked for and cannot use (unusable, or the work was
+    stopped) goes, with its note (the same name with .json). Nothing outside engines/made is ever touched, and this
+    never raises."""
+    if not path:
+        return
+    try:
+        if made_here(path):
+            Path(path).unlink(missing_ok=True)
+            Path(path).with_suffix(".json").unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("a maker's unused file could not be deleted: %s", exc)
+
+
 def status(role: str) -> dict:
     """{"ready": bool, "engine": str, "why": str, "available": bool} for one role. Never raises."""
     mod = module()

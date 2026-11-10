@@ -804,6 +804,32 @@ def test_a_clip_from_a_picture(app_settings, fake_comfy, tmp_path):
         engines.make_video("x", image=tmp_path / "nope.png")
 
 
+def test_what_comfyui_hands_back_that_is_not_a_picture_or_a_video_is_not_kept(app_settings, fake_comfy, monkeypatch,
+                                                                              tmp_path):
+    """A file ComfyUI hands back that is not a picture, or an empty video, is refused, and it does not stay in
+    engines/made with its note: nobody can use it."""
+    from clipfoundry import engines
+
+    def made_files() -> set[Path]:
+        root = config.data_dir() / "engines" / "made"
+        return {p for p in root.rglob("*") if p.is_file()} if root.is_dir() else set()
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    start = tmp_path / "start.png"
+    start.write_bytes(png_bytes(64, 64))
+    before = made_files()
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    monkeypatch.setitem(globals(), "png_bytes", lambda w, h: b"GIF89a: not a PNG at all")
+    with pytest.raises(EngineError, match="not a picture"):
+        engines.make_image("a cat")
+    assert made_files() == before
+    fake_comfy.have(catalog.WAN22_TI2V_5B)
+    monkeypatch.setitem(globals(), "MP4", b"\0\0\0\x18ftypmp42")
+    with pytest.raises(EngineError, match="empty video"):
+        engines.make_video("The waves roll in", image=start, seconds=2.0, width=480, height=832, seed=1)
+    assert made_files() == before
+
+
 def test_comfyui_problems_reach_the_person_in_plain_words(app_settings, fake_comfy):
     from clipfoundry import engines
 

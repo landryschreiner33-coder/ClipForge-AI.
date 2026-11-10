@@ -16,6 +16,7 @@ levels, tracks, pictures over the video and the word fixes of unchanged scenes.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import errno
 import hashlib
@@ -681,10 +682,13 @@ def _drop(asset_id: str, workspace_id: str, project_id: str) -> bool:
     """Delete a file this short's build stored, when nothing names it (checked again in the step that deletes its
     row): its row, its place on the short's list and its folder (the read-only copy, its transcript, thumbnail and
     a maker's original kept with it). Nothing outside ClipForge's data folder, and no file of the owner's, is ever
-    deleted. True when it went."""
+    deleted. A file just handed out again (the same bytes uploaded or stored once more: the one it went to records
+    it a moment later) is left for a later tidy. True when it went."""
     from ..studio import project_delete
 
-    with db.connect() as conn:
+    row = db.fetch("assets", asset_id)
+    lock = uploads._content_lock(workspace_id, row["sha256"]) if row else None  # noqa: SLF001
+    with lock or contextlib.nullcontext(), db.connect() as conn:  # a save of the same bytes waits for this
         conn.execute("BEGIN IMMEDIATE")
         asset = db._decode("assets", conn.execute("SELECT * FROM assets WHERE id = ?",  # noqa: SLF001
                                                   (asset_id,)).fetchone())
@@ -692,11 +696,13 @@ def _drop(asset_id: str, workspace_id: str, project_id: str) -> bool:
             conn.execute("DELETE FROM short_files WHERE asset_id = ? AND project_id = ?", (asset_id, project_id))
             return False
         if asset["workspace_id"] != workspace_id or uploads.is_linked(asset) or \
+                float(asset.get("reused_at") or 0) > time.time() - uploads.REUSE_HOLD_S or \
                 project_delete._asset_folder(asset) is None or _named(conn, asset_id, project_id):  # noqa: SLF001
             return False
         conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
         conn.execute("DELETE FROM short_files WHERE asset_id = ?", (asset_id,))
-    project_delete.remove_asset_files(asset)
+        conn.commit()
+        project_delete.remove_asset_files(asset)
     return True
 
 
@@ -755,19 +761,6 @@ def _take_original(original: object, folder: Path, stem: str = MAKER) -> None:
                 shutil.move(str(item), str(dest))
     except OSError as exc:
         log.warning("a maker's original could not be kept with the short: %s", exc)
-
-
-def _discard_original(original: object) -> None:
-    """A maker's file the short asked for and could not use goes with its note (the reason stays with the scene)."""
-    if not original:
-        return
-    src = Path(str(original))
-    try:
-        if local_engines.made_here(src):
-            src.unlink(missing_ok=True)
-            src.with_suffix(".json").unlink(missing_ok=True)
-    except OSError as exc:
-        log.warning("a maker's unused file could not be deleted: %s", exc)
 
 
 def _plain(exc: BaseException, what: str = "scene") -> str:
@@ -963,7 +956,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                                           listen=True, cancel=lease.canceled, used=state)
         except BaseException:
             tmp.unlink(missing_ok=True)
-            _discard_original(got.get("original"))
+            local_engines.discard_made(got.get("original"))
             raise
         state["listened"] = state["listened"] or how == "listened"
         write_json(meta_path, {"duration_s": float(got["duration_s"]), "words": words, "timing": how,
@@ -995,7 +988,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
                 try:
                     stored = uploads.store_file(ws, made_path, f"Scene {n} picture{made_path.suffix}")
                 except BaseException:
-                    _discard_original(got.get("note"))
+                    local_engines.discard_made(got.get("note"))
                     raise
                 _list_file(pid, ws, stored["id"])
                 _take_original(got.get("note"), uploads.work_dir(stored))  # the picture maker's note, kept with it
@@ -1045,7 +1038,7 @@ def _make_scene(project: dict, scene: dict, short: dict, voice_id: str, n: int, 
         try:
             clip = uploads.store_file(ws, Path(result["path"]), f"Scene {n}.mp4")
         except BaseException:
-            _discard_original(original)
+            local_engines.discard_made(original)
             raise
         _list_file(pid, ws, clip["id"])
         _take_original(original, uploads.work_dir(clip))  # the video maker's clip and note, kept with this one
@@ -1092,10 +1085,10 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
         return motion.video_clip(Path(video), wav, out, duration_s=duration_s, fps=FPS, size=SIZE,
                                  cancel=lease.canceled), "", Path(video)
     except (Canceled, Cancelled):
-        _discard_original(video)
+        local_engines.discard_made(video)
         raise
     except local_engines.errors() as exc:
-        _discard_original(video)
+        local_engines.discard_made(video)
         if isinstance(exc, OSError):
             log.warning("animating scene %s: %s", scene["id"], exc)
             return None, "The video maker's video for this scene could not be saved, so the camera moves instead.", \
@@ -1103,7 +1096,7 @@ def _animate(scene: dict, short: dict, look, picture: dict, wav: Path, out: Path
         return None, f"The video maker could not animate this scene ({str(exc)[:140]}); the camera moves instead.", \
             None
     except Exception as exc:  # noqa: BLE001 - the camera move stands in
-        _discard_original(video)
+        local_engines.discard_made(video)
         if lease.canceled():
             raise Canceled() from exc
         if exc.__class__.__name__ == "MotionError" and str(exc):

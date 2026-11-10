@@ -80,13 +80,30 @@ def _discard(folder: Path) -> None:
         pass
 
 
+REUSE_HOLD_S = 3600.0  # how long a file handed out again is left alone by a short's tidying (makers/shorts._drop)
+
+
+def _reuse(workspace_id: str, digest: str) -> dict | None:
+    """The stored file with these bytes, marked as handed out again just now, or None. Whoever gets it records it a
+    moment later (an upload, a link, a short's scene); until then nothing names it, so tidying would see an unused
+    file: the mark keeps it (shorts._drop). The mark and the check are one step each in the database, so a file
+    deleted in between is not handed out."""
+    with db.connect() as conn:
+        marked = conn.execute("UPDATE assets SET reused_at = ? WHERE workspace_id = ? AND sha256 = ?",
+                              (time.time(), workspace_id, digest)).rowcount
+    rows = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest)) if marked else []
+    return rows[0] if rows else None
+
+
 def _stored_already(workspace_id: str, digest: str, folder: Path) -> dict | None:
     """After a save was refused because the same bytes are stored already (another ClipForge program, such as
-    Autopilot's, stored them between the check and the save): that asset, with this save's own folder removed."""
-    existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-    if existing:
-        _discard(folder)
-    return existing[0] if existing else None
+    Autopilot's, stored them between the check and the save): that asset, with this save's own folder removed.
+    Refused (409, try again) when that asset was deleted again in the meantime."""
+    existing = _reuse(workspace_id, digest)
+    _discard(folder)
+    if existing is None:  # stored and deleted again in between: this save is refused, nothing is left behind
+        raise UploadError("ClipForge was saving the same file at that moment. Try again.", 409)
+    return existing
 
 
 def uploads_dir() -> Path:
@@ -305,8 +322,9 @@ def complete(upload_id: str) -> dict:
             raise UploadError("The file arrived damaged (its fingerprint does not match). Upload it again.", 422)
         try:
             stored = _store(row["workspace_id"], part, row["filename"], row["kind"], digest, row["size"])
-        except UploadError:
-            db.update("uploads", upload_id, status="failed", error=f"Not a readable {row['kind']} file.")
+        except UploadError as exc:
+            db.update("uploads", upload_id, status="failed",
+                      error=str(exc) if exc.status == 409 else f"Not a readable {row['kind']} file.")
             raise
         db.update("uploads", upload_id, status="complete", asset_id=stored["id"])
         return asset_view(stored)
@@ -337,10 +355,10 @@ def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: st
     saves of the same bytes take turns; when another ClipForge program saved them in the meantime, its asset is used
     and this copy is removed."""
     with _content_lock(workspace_id, digest):
-        existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-        if existing:
+        existing = _reuse(workspace_id, digest)
+        if existing is not None:
             source.unlink(missing_ok=True)
-            return existing[0]
+            return existing
         asset_id = "as-" + os.urandom(8).hex()
         folder = assets_dir(workspace_id) / asset_id
         folder.mkdir(parents=True)
@@ -357,10 +375,7 @@ def _store(workspace_id: str, source: Path, filename: str, kind: str, digest: st
                                         "filename": filename, "sha256": digest, "size": size, "path": str(dest),
                                         "thumb_path": thumb, "probe": info})
         except sqlite3.IntegrityError:
-            stored = _stored_already(workspace_id, digest, folder)
-            if stored is None:
-                raise
-            return stored
+            return _stored_already(workspace_id, digest, folder)
 
 
 def link_local(workspace_id: str, path: str) -> dict:
@@ -397,12 +412,12 @@ def link_local(workspace_id: str, path: str) -> dict:
         raise UploadError("The file is empty.")
     digest = quick_hash(file, size)
     with _content_lock(workspace_id, digest):
-        existing = db.select("assets", "workspace_id = ? AND sha256 = ?", (workspace_id, digest))
-        if existing:
-            if not Path(existing[0]["path"]).is_file():  # the same file, found again after it was moved
-                db.update("assets", existing[0]["id"], path=str(file))
-                return db.fetch("assets", existing[0]["id"]) or existing[0]
-            return existing[0]
+        existing = _reuse(workspace_id, digest)
+        if existing is not None:
+            if not Path(existing["path"]).is_file():  # the same file, found again after it was moved
+                db.update("assets", existing["id"], path=str(file))
+                return db.fetch("assets", existing["id"]) or existing
+            return existing
         asset_id = "as-" + os.urandom(8).hex()
         folder = assets_dir(workspace_id) / asset_id
         folder.mkdir(parents=True)
@@ -416,10 +431,7 @@ def link_local(workspace_id: str, path: str) -> dict:
                                         "sha256": digest, "size": size, "path": str(file), "thumb_path": thumb,
                                         "probe": info})
         except sqlite3.IntegrityError:  # another ClipForge program linked it a moment ago
-            stored = _stored_already(workspace_id, digest, folder)
-            if stored is None:
-                raise
-            return stored
+            return _stored_already(workspace_id, digest, folder)
 
 
 def taken(workspace_id: str, asset_ids, project_id: str) -> None:

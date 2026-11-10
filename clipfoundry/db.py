@@ -1315,6 +1315,9 @@ ADDED_COLUMNS = {
     # the project that took a finished upload (studio/uploads.taken): deleting a project counts only uploads no
     # project took as files the owner added again
     "uploads": {"taken": "TEXT DEFAULT ''"},
+    # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
+    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py)
+    "assets": {"reused_at": "REAL DEFAULT 0"},
 }
 
 

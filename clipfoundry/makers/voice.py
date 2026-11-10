@@ -477,7 +477,11 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
             raw = _sapi_read(voice_id, text, work, cancel)
         else:
             raw = _espeak_read(voice_id, _no_commands(text), work, speed, cancel)
-        length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0)
+        try:
+            length, shift = _save(raw, out, work, cancel, tempo=speed if kind in TEMPO_KINDS else 1.0)
+        except BaseException:
+            local_engines.discard_made(original)  # the engine's file that could not be used (or Stop) goes
+            raise
     except _Failed as exc:
         if not exc.reason:
             who = "The local voice engine" if kind == "engine" else f"“{name}”"
@@ -510,9 +514,13 @@ def _engine_read(engine_id: str, text: str, speed: float, lang: str, cancel) -> 
         _check(cancel)
         log.exception("The voice engine failed")
         raise _Failed(repr(exc), reason="The local voice engine could not read this") from exc
-    _check(cancel)
     made = got.get("path") if isinstance(got, dict) else None
     path = Path(str(made)) if made else None
+    try:
+        _check(cancel)
+    except BaseException:
+        local_engines.discard_made(path)  # stopped as it finished: what it made goes
+        raise
     if path is None or not path.is_file():
         raise _Failed(f"the voice engine answered {got!r}", reason="The local voice engine did not make a sound file")
     words = None if str(got.get("word_timing") or "").lower() == "estimated" else got.get("words")

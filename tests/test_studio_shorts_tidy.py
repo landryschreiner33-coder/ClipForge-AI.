@@ -171,6 +171,61 @@ def test_deleting_the_short_reaches_every_file_on_its_list(env):
     assert not (config.data_dir() / "videos" / pid).exists()
 
 
+def _loose(env, name: str, colour: str) -> dict:
+    """A file stored as a build stores one (its bytes made here, so no other test's file has them)."""
+    from clipfoundry.studio import uploads
+
+    loose = env["tmp"] / f"{name}.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={colour}:s=108x192:r=30:d=0.5",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(loose)], check=True)
+    return uploads.store_file("local", loose, f"{name}.mp4")
+
+
+def test_a_file_only_another_shorts_list_names_stays_until_that_short_lets_it_go(env):
+    """Files are stored once, so two shorts' builds can store the same bytes and both list them before a scene
+    takes them. Then only the other short's list names the file: tidying this short and deleting it both leave it,
+    and it goes once the other short lets it go too."""
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import project_delete
+
+    pid = _make(env)["id"]
+    other = _make(env, script="Owls turn their heads almost all the way round.")["id"]
+    both = _loose(env, "Scene 7", "navy")
+    shorts._list_file(pid, "local", both["id"])
+    shorts._list_file(other, "local", both["id"])
+    assert shorts._tidy_files(pid, "local") == 0 and shorts._drop(both["id"], "local", pid) is False
+    assert _kept(both["id"])
+    project_delete.delete("local", pid, "full_video")
+    assert _kept(both["id"]) and both["id"] in _listed(other)
+    assert shorts._tidy_files(other, "local") == 1 and _gone(both)
+
+
+def test_tidying_leaves_a_file_an_upload_of_the_same_bytes_was_just_given(env, monkeypatch):
+    """The owner uploads bytes ClipForge already has as a short's stray file: the upload is given the stored copy
+    and records it a moment later. A tidy that runs in between does not delete that copy from under the upload."""
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import uploads
+
+    pid = _make(env)["id"]
+    stray = _loose(env, "Scene 8", "teal")
+    shorts._list_file(pid, "local", stray["id"])  # as a stopped build leaves it: nothing names it
+    data = Path(stray["path"]).read_bytes()
+    up = uploads.start("local", "mine.mp4", len(data))
+    uploads.put_chunk(up["id"], 0, data)
+    real_update, tidied = db.update, []
+
+    def tidy_first(table, value, key="id", **fields):
+        if table == "uploads" and fields.get("status") == "complete":  # the copy is handed out, not recorded yet
+            tidied.append(shorts._tidy_files(pid, "local"))
+        return real_update(table, value, key, **fields)
+
+    monkeypatch.setattr(db, "update", tidy_first)
+    assert uploads.complete(up["id"])["id"] == stray["id"]
+    assert tidied == [0] and _kept(stray["id"])
+    assert shorts._tidy_files(pid, "local") == 0 and _kept(stray["id"])  # the upload names it now
+
+
 # ------------------------------------------------------------------ the makers on this computer
 class FakeMakers:
     """The local makers: each writes its file and a note into engines/made, as clipfoundry/engines does."""

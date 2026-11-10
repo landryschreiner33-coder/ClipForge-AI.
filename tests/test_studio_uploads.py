@@ -287,6 +287,42 @@ def test_a_file_another_clipforge_stored_a_moment_earlier_is_used_and_the_copy_i
     assert len(db.select("assets", "workspace_id = 'local'")) == 1 and (other / "original.mp4").is_file()
 
 
+def test_a_file_another_clipforge_stored_and_deleted_again_meanwhile_refuses_the_save_cleanly(api, tmp_path,
+                                                                                             monkeypatch,
+                                                                                             windows_deletes):
+    """If the other program's copy is deleted again before the save can use it, the save is refused (try again):
+    the upload ends failed, not "receiving", and its own read-only copy is removed."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    data = video(tmp_path)
+    upload_id = _received(api, data)
+    digest = hashlib.sha256(data).hexdigest()
+    real = uploads._inspect
+    made: list = []
+
+    def stored_and_deleted_meanwhile(file, kind, folder, *a, **k):
+        made.append(folder)
+        db.insert("assets", {"id": "as-other0000000001", "workspace_id": "local", "kind": "video",
+                             "filename": "talk.mp4", "sha256": digest, "size": len(data), "path": "/nowhere.mp4"})
+        return real(file, kind, folder, *a, **k)
+
+    real_reuse = uploads._reuse
+
+    def deleted_before_reuse(workspace_id, d):
+        db.execute("DELETE FROM assets WHERE id = 'as-other0000000001'")
+        return real_reuse(workspace_id, d)
+
+    monkeypatch.setattr(uploads, "_inspect", stored_and_deleted_meanwhile)
+    monkeypatch.setattr(uploads, "_stored_already", lambda ws, d, folder, real=uploads._stored_already: (
+        monkeypatch.setattr(uploads, "_reuse", deleted_before_reuse), real(ws, d, folder))[1])
+    r = api.post(f"/api/uploads/{upload_id}/complete")
+    assert r.status_code == 409 and "Try again" in r.text
+    got = api.get(f"/api/uploads/{upload_id}").json()
+    assert got["status"] == "failed"
+    assert made and not made[0].exists() and not db.select("assets", "workspace_id = 'local'")
+
+
 def test_a_copy_that_cannot_be_read_is_removed_also_when_it_is_read_only(api, windows_deletes):
     """A stored copy is kept read-only; an upload that turns out not to be a readable file removes it all the same
     (Windows refuses to delete a read-only file unless it is made writable first)."""
