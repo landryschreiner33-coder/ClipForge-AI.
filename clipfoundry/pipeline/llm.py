@@ -536,10 +536,24 @@ def _conv_anthropic(settings: dict, system: str, turns: list[dict], o: dict) -> 
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
+PART_LEFT_OUT = "\n[part of this message was not sent]\n"
+
+
+def _start_and_end(text: str, limit: int) -> str:
+    """`text` in at most `limit` characters: its start and its end, and a note where its middle was."""
+    if len(text) <= limit:
+        return text
+    keep = max(0, limit - len(PART_LEFT_OUT))
+    head = keep * 2 // 3
+    return text[:head] + PART_LEFT_OUT + text[len(text) - (keep - head):]
+
+
 def _conv_flat(settings: dict, system: str, turns: list[dict], o: dict) -> str:
     """A provider that takes one prompt (NVIDIA): the conversation written out, the newest message last. NVIDIA cuts a
-    prompt longer than its input limit at the end, where the newest message is, so the oldest messages are left out
-    first (counted without links and email addresses, which NVIDIA's check removes)."""
+    prompt longer than its input limit at its last whole line, which can drop the newest message, so the oldest
+    messages are left out first (counted without links and email addresses, which NVIDIA's check removes); when even
+    that is too long, the newest message goes alone, and one too long on its own keeps its start and its end (the
+    question can be at either)."""
     from . import nvidia
 
     lines = [nvidia.scrub(("The owner" if t["role"] == "user" else "You") + ": " + t["content"]) for t in turns[:-1]]
@@ -556,6 +570,8 @@ def _conv_flat(settings: dict, system: str, turns: list[dict], o: dict) -> str:
     while len(prompt) > limit and gone < len(lines):
         gone += 1
         prompt = written(lines[gone:], True)
+    if len(prompt) > limit:  # the owner's words come before the note that earlier ones were left out
+        prompt = _start_and_end(last, limit)
     fn = PROVIDERS[settings.get("ai_provider", "heuristic")]
     flat = {**settings, "_system": system, "_ai_task": o["task"], "_timeout": o["timeout"],
             **({"_max_tokens": int(o["max_tokens"])} if o["max_tokens"] else {}),

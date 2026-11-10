@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import types
+import unicodedata
 
 import pytest
 
@@ -597,8 +598,17 @@ def test_repeated_words_keep_the_rounds_in_order_and_never_swallow_an_answer(dat
                           ("No problem, let me look.", "No."), ("Not really sure, let me look.", "Not really."),
                           ("Vlog 10 has the most views; let me check it.", "Vlog 1."),
                           ("Step 10: add the outro.", "Step 1"), ("Yesterday's render: let me check it.", "Yes."),
-                          ("ใช้เวลาสักครู่ ขอดูก่อนนะ", "ใช่"), ("हम देखते हैं।", "हाँ।"), ("不用担心，我来查一下。", "不。")]:
+                          ("ใช้เวลาสักครู่ ขอดูก่อนนะ", "ใช่"), ("हम देखते हैं।", "हाँ।"), ("不用担心，我来查一下。", "不。"),
+                          # a hyphen, or a point or comma inside a number, does not end a phrase
+                          ("No-one has commented on Hike day yet; let me check your other videos.", "No."),
+                          ("1,000 views on Hike day so far; let me check which video is rendering.", "1."),
+                          ("Step 1.5 is where the music starts; let me check the order.", "Step 1"),
+                          ("Can't tell yet, let me look.", "Can.")]:
         assert text(first, answer) == f"{first}\n\n{answer}", answer
+    for first, again in [("Yes, let me look first.", "Yes."), ("Sure — let me check.", "Sure."),
+                         ("“Yes,” I said, let me check.", "Yes"), ("Done!! Anything else?", "Done."),
+                         ("No **", "No **"), ("ใช่ 👍", "ใช่ 👍")]:  # no more words after them: the same words
+        assert text(first, again) == first, again
     # while it is written it may still become the same words, so it shows once it is said
     assert text("Now let me check whether anything is running.", live="No") == \
         "Now let me check whether anything is running."
@@ -623,6 +633,17 @@ def test_repeated_words_keep_the_rounds_in_order_and_never_swallow_an_answer(dat
     assert text("📂 Here are your projects:", live="📂 Here are your projects: Hike day.") == \
         "📂 Here are your projects: Hike day."
     assert text("👍", live="👍 Do") == "👍 Do"
+    # an emoji drawn with its look picked (❤️, ⚠️, 🎞️) has no words either
+    assert text("Let me look.", "Here are your projects:", "🎞️ Here are your projects: Hike day.") == \
+        "Let me look.\n\n🎞️ Here are your projects: Hike day."
+    assert text("❤️", "❤️ Thanks!") == "❤️ Thanks!" and text("Let me look.", live="⚠️") == "Let me look."
+    # a repeated lead-in never flashes up while it is written: an accent written after its letter (as macOS writes
+    # file names), a Greek capital sigma that is final until the next letter comes
+    for first, live in [("Here are your projects: Café vlog and Lake day.", "Here are your projects: Cafe"),
+                        ("ΟΔΟΣΑ ΤΩΝ ΒΙΝΤΕΟ:", "ΟΔΟΣ")]:
+        assert text(first, live=live) == first, live
+    nfd = unicodedata.normalize("NFD", "Café vlog, Lake day.")
+    assert all(text("Café vlog, Lake day.", live=nfd[:n]) == "Café vlog, Lake day." for n in range(1, len(nfd) + 1))
 
 
 def test_on_change_is_called_while_the_answer_streams(data, monkeypatch):
@@ -1020,6 +1041,16 @@ def test_without_the_safe_delete_the_tool_fails_politely(data, monkeypatch):
     assert m["text"] == "I cannot delete projects from here yet; use the Projects page."
     assert "- delete_project: This version of ClipForge cannot delete projects from the chat yet; use the Projects " \
            "page." in fake.last_user(1)
+    # the owner sees that it could not be offered, whatever the model says: the real Basic model answered "It's been
+    # removed." here on GitHub's machines
+    assert m["data"]["steps"] == [{"tool": "delete_project", "label": "Could not delete Old talk", "ok": False,
+                                   "why": "This version of ClipForge cannot delete projects from the chat yet; use "
+                                          "the Projects page."}]
+    # a model that asks for it again (twice in a round, then once more) shows the same failure once
+    again = ("delete_project", {"project": "Old talk"})
+    install(monkeypatch, say("", again, again), say("Trying again.", again), say("I cannot delete it from here."))
+    m = settled(c["id"], _say(c["id"], "delete Old talk now")["id"])
+    assert [s["label"] for s in m["data"]["steps"]] == ["Could not delete Old talk"] and db.get_project(p["id"])
     # a button shown earlier fails politely too when it is pressed
     msg = db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": "ai", "text": "x",
                                             "status": "done", "data": {"tool": "talk", "pending": [

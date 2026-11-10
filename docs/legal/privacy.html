@@ -306,8 +306,9 @@
 </p>
 <p>
   A change you ask for in a video's chat is also kept with that video's change requests, like one typed in the
-  editor (your words as typed, the change proposed, the memories and know-how it used, and a note of what was sent to
-  an AI service), until you delete the data folder; Clear this chat does not remove it. When its model is an online
+  editor (the change in words, as you typed it or as ClipForge AI wrote it from what you said; the change proposed;
+  the memories and know-how it used; and a note of what was sent to an AI service), until you delete the data
+  folder; Clear this chat does not remove it. When its model is an online
   service, each request ClipForge AI or a helper agent sends is recorded (the time, the task, the model and, for its
   own answers, the chat message it was for) to keep the daily limit, "AI requests a day" in Settings → Advanced,
   until you delete the data folder. With NVIDIA, its answers are also saved as described under "Optional NVIDIA AI"
@@ -352,13 +353,15 @@
       read account usage; it does not run a search or send Brain text, video titles or topics</td></tr>
     <tr><td>An AI service you choose</td><td>Only if you choose an AI helper in Settings → ClipForge AI or in
       Settings → Advanced (AI scoring); none is chosen by default. The built-in model runs on this computer,
-      so with it nothing leaves your computer. With another helper, whenever a feature uses it: for example when clips
+      so with it none of the text in this row leaves your computer (downloading it, once, contacts GitHub and Hugging
+      Face, as listed further down). With another helper, whenever a feature uses it: for example when clips
       are made, scored and titled, when you ask the editor for a change it does not understand on its own, for smart
       editing, FilmCraft, a short's script and Full stories, and each time you talk with ClipForge AI or one of its
       helper agents</td><td>Text only: never your files, their pictures or their sound. To make clips: the video's
-      name, the words said in it (read in order, a part at a time), the words said in its strongest moments (up to 12
-      by default) with the sentence just before each one and each moment's length, and the memories and know-how that
-      fit, so moments can be found and scored; and the words said in each clip, so titles and captions can be
+      name, the words said in it (read in order, a part at a time), the words said in its strongest moments (up to 12 by
+      default) with the sentence just before each one and each moment's length, the memories and know-how that fit, and
+      a one-line summary of the kinds of clips you usually keep, learned from the clips you leave out, put back, export
+      or publish, so moments can be found and scored; and the words said in each clip, so titles and captions can be
       written. The other features send the words and details they work on (for example your brief or topic, the words
       said with their times, and the list of clips); the editor, smart editing, FilmCraft and the script writer also
       send the memories and know-how that fit. When you talk with ClipForge AI: your message and the conversation so
@@ -379,18 +382,24 @@
       as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
       only for work you start yourself, never for Autopilot's unattended work</td><td>The text described in the row
       above for the features you use with it (for example the words said in a video's strongest moments and the
-      video's name, so they can be scored and titled, and your conversations with ClipForge AI), with links and email
-      addresses removed from all of it; each request's words are cut to your size limit (a conversation with
-      ClipForge AI leaves out its oldest messages first), while the instructions sent with them, which hold your
-      memories and project details, are not cut; fixed recognized editing-priority names; and your NVIDIA API key. An
+      video's name, so they can be scored and titled, and your conversations with ClipForge AI), with web addresses
+      that start with http://, https:// or www. and email addresses removed from all of it (an address written
+      without them, such as youtube.com/@yourname, is sent as written); each request's words are cut to your size
+      limit (a conversation with ClipForge AI leaves out its oldest messages first, and a message too long on its own
+      loses its middle), while the instructions sent with them, which hold your memories and project details, are
+      not cut; fixed recognized editing-priority names; and your NVIDIA API key. An
       answer that is not in the right form is asked for once more; that second request counts toward NVIDIA's budget
       but not again toward "AI requests a day". Never raw Brain teaching notes, example files, video, audio, account
       tokens or lists of viewers.
       Choosing selected viewers for your uploads does not keep these excerpts on your computer. NVIDIA handles them
       under its own terms, which you should read before turning this on</td></tr>
     <tr><td>Hugging Face</td><td>The first time you use each speech-recognition model, and again if its files are
-      missing or damaged</td><td>A request to download the model. If you have signed in to Hugging Face on this
-      computer, the download also sends your Hugging Face sign-in token</td></tr>
+      missing or damaged; and when you download ClipForge AI's built-in model (in Settings → ClipForge AI or from
+      its chat)</td><td>A request to download the model. If you have signed in to Hugging Face on this
+      computer, a speech-recognition model's download also sends your Hugging Face sign-in token; the built-in
+      model's download sends no token</td></tr>
+    <tr><td>GitHub</td><td>When you download ClipForge AI's built-in model, if the program that runs it (llama.cpp)
+      is not on this computer yet</td><td>A request to download that program from its public release page</td></tr>
     <tr><td>YouTube, TikTok and other video sites</td><td>You explicitly submit a public video link, or existing
       source/download settings allow acquisition in optional discovery or stream tools</td><td>Requests to identify
       and download the supplied/selected media, or record the stream. These downloads use the guarded importer,

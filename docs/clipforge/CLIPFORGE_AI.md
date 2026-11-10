@@ -253,9 +253,11 @@ tool, at most 1,500 characters each). The model is asked again only when it has 
 |---|---|---|
 | a looking tool (`look`) | runs at once | yes: the model answers with the results |
 | a making tool (`make`) | runs at once | only when it failed, or when a helper worked and ClipForge AI has said nothing yet |
-| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs | no; when it cannot be offered, the model reads why |
+| a changing or deleting tool (`change`, `delete`) | becomes a button with what it would do; nothing runs (the model reads that nothing is done yet); when it cannot be offered, its step fails ("Could not delete …", with the reason) | no; when it cannot be offered, the model reads why |
 | an unknown tool, or arguments that do not pass the checks | nothing runs (wrong arguments show as a failed step) | yes: the model reads what was wrong (for an unknown tool, the tools it has) |
 | a tool that breaks (any error, not only a refusal) | its step fails ("Could not …", with the reason) | yes: the model reads that it did not work |
+
+The same failed step again in one answer (a model that asks for the same thing twice) is shown once (`_add_step`).
 
 Every string the model wrote (what it says, the question and its choices, every tool argument) is made whole before
 it is used or saved (`tools.whole`, `tools.clean`): a character a model wrote as two escaped halves (an emoji) is put
@@ -263,18 +265,23 @@ back together, and a stray half is left out, so an answer can always be saved, s
 
 The last round offers no tools ("Now reply to the owner. No more tools in this answer."). The words of every round are
 joined with an empty line, in the order they were said (`Outcome.text`). The Basic model on GitHub's machines began
-three rounds with the same "Here are your projects:", which read as a stutter, so rounds are compared by their words
-(lower case, without punctuation; a word is letters, marks and digits, so Thai tone marks and Devanagari vowel signs
-count). A round whose words are only the start of the words of an earlier round, or of several earlier rounds in a
-row, adds nothing; one that begins with the words of one or more earlier rounds in a row and goes on replaces them, at
-the end, so the answer still ends with its last round. A round of fewer than three words counts as said again only
-where its words end a phrase ("Got it." is in "Got it, I'll remember that.", but the answer "No." is not in "No
-problem, let me look."; "Step 1" is never in "Step 10"), and a round without words (an emoji) only with the very same
-characters. The round being written is shown once it has a word that is not only the start of the words of earlier
-rounds in a row (its last word may be unfinished), so a repeated lead-in, or a lone "**" before the first word, never
-flashes up. A round that only says earlier words again adds nothing even when it is the last round, so an answer can
-still end on an earlier round: "Here are your projects:", "Let me check the clips." and "Here are your projects:"
-again show as the first two.
+three rounds that were each only "Here are your projects:", which read as a stutter, so rounds are compared by their
+words (decomposed and without case, so a text that grows keeps its start; without punctuation; a word is letters,
+marks and digits, so Thai tone marks and Devanagari vowel signs count, but not the selector that picks how an emoji
+looks, as in ❤️). A round whose words are only the start of the words of an earlier round, or of several earlier
+rounds in a row, adds nothing; one that begins with the words of one or more earlier rounds in a row and goes on
+replaces them, at the end, so the answer still ends with its last round. A round of fewer than three words counts as
+said again only where its words end a phrase: no more words follow, or a stop does (",", ".", ":", "!", "?", "…", a
+dash with a space after it, and "。", "，", "।" and the like), but not a hyphen, an apostrophe or a point or comma
+inside a number ("Got it." is in "Got it, I'll remember that.", but the answer "No." is not in "No problem, let me
+look." nor in "No-one has …"; "Step 1" is never in "Step 10" nor in "Step 1.5"). A round without words (an emoji) is
+said again only with the very same characters. The round being written is shown once it has a word that is not only
+the start of the words of earlier rounds in a row (its last word may be unfinished), so a repeated lead-in, or a lone
+"**" before the first word, never flashes up. A round that only says earlier words again adds nothing even when it is
+the last round, so an answer can still end on an earlier round: "Here are your projects:", "Let me check the clips."
+and "Here are your projects:" again show as the first two. Words said again from the middle of an earlier round, or
+a lead-in that each round goes on from with different words ("Here are your projects: Hike day …", then "Here are
+your projects: Lake day …"), are shown as said.
 
 **Streaming.** `llm.converse(…, on_text)` reports the answer while it is written; `partial_say` reads the words of
 `say` written so far (escapes, and a character written as two escapes, put back together) and the message is saved
@@ -364,15 +371,17 @@ editor) uses `allowance.counted(ws, settings, write)`: the check and its row are
 two parts asking at the same moment never send one more than the limit.
 
 **Every kind of model** (`clipfoundry/pipeline/llm.py`, `converse(settings, messages, *, system, task, json_object,
-json_schema, max_tokens, timeout, temperature, num_ctx, on_text, cancel)`): the whole conversation with a system
-text, for the built-in model (`builtin_ai.converse`: llama.cpp's `llama-server`, streamed as server-sent events),
-Ollama (`/api/chat`, streamed), OpenAI-style servers such as LM Studio or OpenRouter (`/chat/completions`, streamed),
-Anthropic and NVIDIA (answered at once; NVIDIA gets the conversation written out as one prompt, without links and
-email addresses in it or in the instructions, and its oldest messages left out first when it is longer than NVIDIA's
-input limit, which would otherwise cut the newest message off its end). `timeout` bounds the
-whole streamed answer, not only its first word; `<think>` parts are left out; a server that fails in the middle of an
-answer is said in plain words; `Canceled` (a `ProviderError`) when `cancel()` stopped it. The built-in engine is
-never stopped as idle while it answers.
+json_schema, max_tokens, timeout, temperature, num_ctx, on_text, cancel)`): the whole conversation with a system text,
+for the built-in model (`builtin_ai.converse`: llama.cpp's `llama-server`, streamed as server-sent events), Ollama
+(`/api/chat`, streamed), OpenAI-style servers such as LM Studio or OpenRouter (`/chat/completions`, streamed), Anthropic
+and NVIDIA (answered at once; NVIDIA gets the conversation written out as one prompt, without web addresses that start
+with http://, https:// or www. and without email addresses, in it or in the instructions, and its oldest messages left
+out first when it is longer than NVIDIA's input limit, which would otherwise cut it at its last whole line and could
+drop the newest message; when it does not fit even with every earlier message left out, the newest message goes alone,
+keeping its start and its end if it is too long on its own, `_start_and_end`). `timeout` bounds the whole streamed
+answer, not only its first word; `<think>` parts are left out; a server that fails in the middle of an answer is said in
+plain words; `Canceled` (a `ProviderError`) when `cancel()` stopped it. The built-in engine is never stopped as idle
+while it answers.
 
 ## Actions
 

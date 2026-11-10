@@ -138,30 +138,56 @@ Landry's projects, could never do anything, and without a downloaded model only 
   answers in 6 to 21 s) and on a Mac (359 s, 2.8 tokens a second, answers in 19 to 61 s): every must-check held. The
   Basic model again did not name the projects it found (the step's buttons showed them), did not save the two
   memories itself (ClipForge kept the owner's words), did not hand the title job to the Script writer, and the Script
-  writer said it would write instead of writing; its three rounds that each began "Here are your projects:" showed
-  that line three times, which `Outcome.text` now shows once. The run on the final version is linked in PR #37.
-- **Last review pass** (an independent review of the stutter fix, the check workflow, the privacy page and the
-  docs; each finding reproduced, each fix with a test): an answer's rounds stay in the order they were said, and a
-  round that says earlier rounds again and goes on replaces them at the end, so the answer's last words come last (a
-  "Let me check …" said before the answer no longer ends up after it); a short answer that only starts like an
-  earlier round ("No." after "Now let me check …", "Step 1" after "Step 10") is kept, and one of fewer than three
-  words counts as said again only where its words end a phrase ("Got it." in "Got it, I'll remember that."); words
-  are compared with their marks (Thai, Hindi); a round that only repeats the start of several earlier rounds in a row
-  adds nothing, and the round being written shows only once it has a new word, so a repeated lead-in (one round's or
-  several rounds') or a lone "**" does not flash up. With NVIDIA, ClipForge AI's instructions (memories, project
-  details, helpers' instructions) lose links and email addresses like the conversation, and a conversation longer
-  than NVIDIA's input limit loses its oldest messages first (the limit cut its end, where the newest message is).
+  writer said it would write instead of writing; its three rounds that were each only "Here are your projects:"
+  showed that line three times, which `Outcome.text` now shows once. The run on the final version is linked in PR #37.
+- **Last review pass** (an independent review of the stutter fix, the check workflow, the privacy page and the docs;
+  each finding reproduced, each fix with a test): an answer's rounds stay in the order they were said, and a round that
+  says earlier rounds again and goes on replaces them at the end, so the answer's last words come last (a "Let me check
+  …" said before the answer no longer ends up after it); a short answer that only starts like an earlier round ("No."
+  after "Now let me check …", "Step 1" after "Step 10") is kept, and one of fewer than three words counts as said again
+  only where its words end a phrase ("Got it." in "Got it, I'll remember that."); words are compared with their marks
+  (Thai, Hindi); a round that only repeats the start of several earlier rounds in a row adds nothing, and the round
+  being written shows only once it has a new word, so a repeated lead-in (one round's or several rounds') or a lone "**"
+  does not flash up. With NVIDIA, ClipForge AI's instructions (memories, project details, helpers' instructions) lose
+  web addresses that start with http://, https:// or www. and email addresses, like the conversation, and a conversation
+  longer than NVIDIA's input limit loses its oldest messages first (the limit cut its end, where the newest message is).
   `assistant-check.yml` can run on both machines, only Linux or only the Mac (`machines`), gives an answer 900 s on
-  GitHub's machines when there is no graphics chip for the model (the Mac, and Linux at the Standard level), and a
-  run by hand never cancels a push's run, nor one with other choices. The daily-limit messages now point to where the
-  limit is ("Settings → Advanced, “AI requests a day”"; they said Settings → ClipForge AI). The privacy page now
-  matches the code: what the chats, memories (guesses expire after 60 days; Tidy), helpers, the change requests made
-  in a video's chat (kept until the data folder is deleted; Clear this chat leaves them) and the request records
-  keep; which features send text to the AI helper you choose (scoring and titling, the editor, smart editing,
-  FilmCraft, a short's script, Full stories, ClipForge AI and its helpers; never files, pictures or sound) and what a
-  conversation sends (standing rules, the date and time, the chat's video, part labels that are often file names);
-  and, for NVIDIA, that links and email addresses go from everything, the size limit cuts each request's words but
-  not its instructions, and its one repair request is not counted again against "AI requests a day".
+  GitHub's machines when there is no graphics chip for the model (the Mac, and Linux at the Standard level), and a run
+  by hand never cancels a push's run, nor one with other choices. The daily-limit messages now point to where the limit
+  is ("Settings → Advanced, “AI requests a day”"; they said Settings → ClipForge AI). The privacy page now matches the
+  code: what the chats, memories (guesses expire after 60 days; Tidy), helpers, the change requests made in a video's
+  chat (kept until the data folder is deleted; Clear this chat leaves them) and the request records keep; which features
+  send text to the AI helper you choose (scoring and titling, the editor, smart editing, FilmCraft, a short's script,
+  Full stories, ClipForge AI and its helpers; never files, pictures or sound) and what a conversation sends (standing
+  rules, the date and time, the chat's video, part labels that are often file names); and, for NVIDIA, that web
+  addresses starting with http://, https:// or www. and email addresses go from everything, the size limit cuts each
+  request's words but not its instructions, and its one repair request is not counted again against "AI requests a day".
+  The run on the merged version (a1d489d, run 42777938926) passed on Linux and on a Mac and showed the projects' lead-in
+  once ("Let me look. Here are your projects:"), but on Linux the Basic model answered "Delete the project Old gear
+  review" with "… It's been removed." although the delete could not be offered (nothing was deleted). A change or delete
+  that cannot be offered is now a failed step the owner sees ("Could not delete Old talk", with the reason), like any
+  other tool that fails; the note the model reads for a waiting button says that nothing is done yet; and the check
+  reports words that say a project was deleted or removed, also beside a waiting button.
+- **A last independent read of these fixes** (a code reader and a privacy-page reader; 11 points, each checked
+  here, each fix with a test that failed first): with NVIDIA, a newest message that did not fit with the note "Earlier
+  messages were left out" lost its whole text (NVIDIA cuts at the last whole line, which was the note's): it now
+  goes alone, and one too long on its own keeps its start and its end (`llm._start_and_end`). A short answer is no
+  longer taken for a repeat where a hyphen, an apostrophe or a point or comma inside a number follows the same
+  words ("No." after "No-one has …", "1." after "1,000 views", "Step 1" after "Step 1.5"); only a stop, or
+  no more words, ends a phrase (`_ends_phrase`). Emoji drawn with a look selector (❤️, ⚠️, 🎞️) count as having no
+  words, like 📂; rounds are compared decomposed and without case, so an accent written after its letter (as macOS
+  writes file names) or a Greek capital sigma no longer makes a repeated lead-in flash up while it is written. The
+  same failed step asked for twice in one answer shows once (`_add_step`). The check's delete detector reads each
+  sentence on its own ("It's been removed. Let me know if …" is a claim), knows "successfully deleted", and no longer
+  takes "Tap OK to delete it. Its clips are removed too." for one (30 phrasings checked). The privacy page: a change
+  asked for in a chat is kept in the words ClipForge AI wrote from what was said (not always the words as typed);
+  downloading the built-in model contacts GitHub (llama.cpp) and Hugging Face (its files, no sign-in token sent),
+  now listed; clip making also sends a one-line summary of the kinds of clips the owner keeps; and NVIDIA's row says
+  exactly which addresses go (those starting with http://, https:// or www., and email addresses; "youtube.com/@name"
+  is sent as written). Left as it is, and written down: a lead-in that each round goes on from with different words
+  ("Here are your projects: Hike day …", then "Here are your projects: Lake day …") is shown each time; the real
+  model's repeated rounds were each only the lead-in, which is handled, and cutting words from inside a round's
+  answer risks losing what it said.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines with the Basic level (results above);
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's

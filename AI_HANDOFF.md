@@ -19,9 +19,10 @@ the old rules still answer, and the chat offers the built-in model in one press.
 - **Design and limits:** [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant",
   "Actions", "Helper agents", "API", "Not done yet"; [AI_CHANGELOG.md](AI_CHANGELOG.md).
 - **Privacy page:** `docs/legal/privacy.html` has a "ClipForge AI" part (what its chats, memories, helpers, the change
-  requests made in a video's chat and the online request records keep, and until when) and says which features send
-  text to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: links and
-  email addresses removed from everything, the size limit on each request's words). When deleting projects (PR #35)
+  requests made in a video's chat and the online request records keep, and until when) and says which features send text
+  to the AI helper you choose and what a conversation sends ("An AI service you choose", NVIDIA's row: web addresses
+  starting with http://, https:// or www. and email addresses removed from everything, the size limit on each request's
+  words), and that downloading the built-in model contacts GitHub and Hugging Face. When deleting projects (PR #35)
   lands, that part must say what a delete removes (the video's chat, its memories, its change requests). The public
   website (gh-pages) is not updated: that needs Landry's OK.
 - **Code:** new `clipfoundry/brain/assistant.py`, `tools.py`, `toolbox.py`, `agents.py`, `allowance.py` (the daily

@@ -353,14 +353,43 @@ REPEAT_WORDS = 3  # a round of fewer words is said again only where its words en
 
 
 def _wordy(ch: str) -> bool:
-    return unicodedata.category(ch)[0] in "LMN"
+    """A letter, a digit or a mark that belongs to a word (a Thai tone mark, a Devanagari vowel sign); not a
+    selector that picks how an emoji looks (the one in ❤️), nor a mark drawn around a sign (a keycap)."""
+    cat = unicodedata.category(ch)
+    return cat[0] in "LN" or (cat in ("Mn", "Mc") and not ("︀" <= ch <= "️" or
+                                                          "\U000e0100" <= ch <= "\U000e01ef"))
+
+
+def _fold(text: str) -> str:
+    """`text` as rounds are compared: decomposed and without case, so a text that grows keeps the start it had (an
+    accent written after its letter, a capital sigma that becomes final)."""
+    return unicodedata.normalize("NFD", text).casefold()
+
+
+_STOPS = ".,;:!?…"           # end a phrase when no letter or digit follows ("1.5", "1,000" go on)
+_FULL_STOPS = "。，、；：！？।॥،؛؟"  # always end one: Chinese and Japanese put no space after them
+_DASHES = "-–—"              # end a phrase only with a space after them ("No-one" is one word)
+_CLOSERS = "\"'”’»)]}」』"    # quotes and brackets that close the words before them
+
+
+def _ends_phrase(rest: str) -> bool:
+    """Whether the text right after some words (`_after`) shows that they end a phrase: no more words, or a stop."""
+    if not any(_wordy(ch) for ch in rest):
+        return True
+    rest = rest.lstrip(_CLOSERS)
+    ch, nxt = rest[0], rest[1:2]
+    if ch in _FULL_STOPS:
+        return True
+    if ch in _STOPS:
+        return not (nxt and _wordy(nxt))
+    return ch in _DASHES and (not nxt or nxt.isspace())
 
 
 def _plain(text: str) -> str:
-    """`text`'s words for comparing rounds: lower case, without punctuation or symbols. A word is letters, marks and
+    """`text`'s words for comparing rounds: without case, punctuation or symbols. A word is letters, marks and
     digits, so a Thai tone mark or a Devanagari vowel sign still tells two words apart."""
     words, word = [], []
-    for ch in unicodedata.normalize("NFC", text).lower():
+    for ch in _fold(text):
         if _wordy(ch):
             word.append(ch)
         elif word:
@@ -384,17 +413,16 @@ def _after(text: str, words: int) -> str:
 
 def _begins(said: tuple[str, str], start: tuple[str, str], before: str = "") -> bool:
     """Whether a finished round begins by saying another round's words again (right after the words `before`). Each
-    round is (its words as said, stripped and lower case; its words plainly). Whole words ("Step 1" is not in
+    round is (its words as said, stripped and folded; its words plainly). Whole words ("Step 1" is not in
     "Step 10"); a round without words only with the very same characters; one of fewer than REPEAT_WORDS words only
-    where its words end a phrase."""
+    where its words end a phrase ("No." is not in "No-one has", "Step 1" not in "Step 1.5")."""
     (raw, plain), (s_raw, s_plain) = said, start
     if not s_plain:
         return not before and raw.startswith(s_raw)
     head = f"{before} {s_plain}".strip()
     if not f"{plain} ".startswith(f"{head} "):
         return False
-    rest = _after(raw, len(head.split()))
-    return len(s_plain.split()) >= REPEAT_WORDS or not rest or not _wordy(rest[0])
+    return len(s_plain.split()) >= REPEAT_WORDS or _ends_phrase(_after(raw, len(head.split())))
 
 
 def _make_way(kept: list[tuple[str, str, str]], new: tuple[str, str]) -> list[tuple[str, str, str]]:
@@ -441,9 +469,9 @@ class Outcome:
         saying earlier rounds again, and goes on, is shown in their place at the end (`_runs`, `_begins`,
         `_make_way`). The round being written shows once it has a word that is not only the start of earlier rounds'
         words (its last word may be unfinished)."""
-        kept: list[tuple[str, str, str]] = []  # (the round as said, stripped and lower case, its words plainly)
+        kept: list[tuple[str, str, str]] = []  # (the round as said, stripped and folded, its words plainly)
         for said, live in [(s, False) for s in self.says] + ([(self.live, True)] if self.live else []):
-            new = (unicodedata.normalize("NFC", said).strip().lower(), _plain(said))
+            new = (_fold(said).strip(), _plain(said))
             if not new[0]:
                 continue
             if live:
@@ -478,9 +506,15 @@ def _could_not(words: str) -> str:
     return f"Could not {verb} {rest}".strip() if verb else f"Could not finish “{words}”"
 
 
+def _add_step(out: Outcome, step: dict) -> None:
+    """A step the owner sees. The same failure again (a model that asks for it twice) is shown once."""
+    if step.get("ok") or step not in out.steps:
+        out.steps.append(step)
+
+
 def _failed(name: str, words: str, why: str, out: Outcome) -> None:
     """A failed step in the owner's words: "Could not look at Hike day", and why."""
-    out.steps.append({"tool": name, "label": _could_not(words), "ok": False, "why": why})
+    _add_step(out, {"tool": name, "label": _could_not(words), "ok": False, "why": why})
 
 
 def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = "",
@@ -492,7 +526,8 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
     name = said or tool.name
     try:
         pv = tool.preview(ctx, args) if tool.preview else {}
-    except ToolError as exc:
+    except ToolError as exc:  # the owner sees it could not be offered, whatever the model says next
+        _failed(name, tool.words(args), str(exc), out)
         return f"{name}: {exc}", True
     except llm.Canceled:
         raise
@@ -512,7 +547,8 @@ def _offer(tool: tools.Tool, args: dict, ctx: Ctx, out: Outcome, *, said: str = 
     if blocked:
         return f"{name}: cannot be done right now: {blocked}", True
     shown = f"{name}: {why} It is shown" if why else f"{name}: shown"
-    return f"{shown} to the owner as a button; it happens only if they press OK. Tell them what it will do.", False
+    return (f"{shown} to the owner as a button. Nothing is done yet: it happens only if they press OK. Tell them "
+            "what it will do when they press OK, never that it is done."), False
 
 
 def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tuple[str, bool]:
@@ -530,7 +566,7 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
     try:
         args = tools.check_args(tool, call.get("args"))
     except ToolError as exc:
-        out.steps.append({"tool": name, "label": tool.words({}), "ok": False, "why": str(exc)})
+        _add_step(out, {"tool": name, "label": tool.words({}), "ok": False, "why": str(exc)})
         return f"{name}: {exc}", True
     if tool.risk in tools.WAITS:
         return _offer(tool, args, ctx, out)
@@ -560,7 +596,7 @@ def use(tool_list: list[tools.Tool], call: dict, ctx: Ctx, out: Outcome) -> tupl
     finally:
         out.data.pop("helper_live", None)  # a helper's job is over: its work shows once, in its card
     step = {"tool": name, "label": res.summary or tool.words(args), "ok": res.ok}
-    out.steps.append({**step, "why": why} if why else step)
+    _add_step(out, {**step, "why": why} if why else step)
     out.merge(res.data)
     return f"{name}: {res.text}", tool.risk == "look" or not res.ok
 

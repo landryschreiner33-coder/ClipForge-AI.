@@ -144,6 +144,28 @@ def test_a_conversation_sends_no_links_or_addresses_and_keeps_its_newest_message
     assert whole.startswith("The conversation so far:\nThe owner: message 18:")
 
 
+def test_a_newest_message_too_long_with_the_note_is_sent_alone_and_never_lost(data, fake):
+    """NVIDIA cuts a prompt at its last whole line: with every earlier message left out, the note saying so was the
+    last whole line within the limit, so the owner's message went entirely, even one that fit on its own. It goes
+    alone now, and one too long on its own keeps its start and its end."""
+    from clipfoundry.pipeline import llm
+
+    fake.answers = [(200, {"choices": [{"message": {"content": '{"say": "ok"}'}}],
+                           "usage": {"prompt_tokens": 50, "completion_tokens": 5}})]
+    s = ready(nvidia_max_input_tokens=500)  # 2,000 characters
+    hi = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": '{"say": "Hi!"}'}]
+    fits = "Please tighten this script: " + "x" * 1920 + " What do you think?"  # 1,992 characters with its label
+    long = "Please tighten this script:\n" + "One more line of my script.\n" * 120 + "What do you think?"
+    for msgs, cut in [(hi + [{"role": "user", "content": fits}], False),
+                      (hi + [{"role": "user", "content": long}], True), ([{"role": "user", "content": long}], True)]:
+        llm.converse(s, msgs, system="SYS", task="chat", json_object=True)
+        prompt = fake.calls[-1]["body"]["messages"][1]["content"]
+        assert prompt.startswith("The owner's new message: Please tighten this script:") and len(prompt) <= 2000
+        assert prompt.endswith("What do you think?") and ("[part of this message was not sent]" in prompt) == cut
+        assert "not sent]" not in prompt.replace("[part of this message was not sent]", "")  # NVIDIA cut nothing
+    assert fake.calls[0]["body"]["messages"][1]["content"] == "The owner's new message: " + fits
+
+
 def test_development_mode_is_never_used_for_unattended_autopilot_work(data, fake):
     from clipfoundry.pipeline import llm
 
