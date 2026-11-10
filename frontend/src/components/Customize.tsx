@@ -86,7 +86,8 @@ function CustomizePanel({ cloud }: { cloud: boolean }) {
     }
   };
   const reset = () => {
-    setA({ ...DEFAULT_APPEARANCE, pinned: a.pinned, clips_mode: a.clips_mode, remember_style: a.remember_style });
+    setA({ ...DEFAULT_APPEARANCE, pinned: a.pinned, clips_mode: a.clips_mode, remember_style: a.remember_style,
+      video_setup_mode: a.video_setup_mode });
     setL(defaultLayout(device));
     setMode("system");
     setOffice("full");

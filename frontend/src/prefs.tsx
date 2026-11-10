@@ -11,10 +11,12 @@ import { studio } from "./studio";
 export type Appearance = { palette: "studio" | "midnight" | "graphite" | "plum"; accent: string;
   density: "comfortable" | "compact"; text_size: "standard" | "large" | "larger"; motion: "system" | "full" | "reduced";
   office_size: "compact" | "expanded"; pinned: string[]; clips_mode: "highlights" | "full_stories" | "story_parts";
-  remember_style: boolean };
+  remember_style: boolean;
+  /** Make a YouTube video: ClipForge AI asks questions when something is unclear, or just does it. */
+  video_setup_mode: "ask" | "auto" };
 export const DEFAULT_APPEARANCE: Appearance = { palette: "studio", accent: "violet", density: "comfortable",
   text_size: "standard", motion: "system", office_size: "expanded", pinned: [], clips_mode: "highlights",
-  remember_style: true };
+  remember_style: true, video_setup_mode: "ask" };
 const DEFAULT = DEFAULT_APPEARANCE;
 const LOCAL = "clipforge.appearance";  // per-browser copy, so the first paint already has the right palette
 

@@ -38,7 +38,7 @@ SIZED = ("review",)
 REVIEW_SIZE = {"preview": 0.6, "outputs": 0.4, "transcript": 0.6, "guidance": 0.4}
 DEFAULT_APPEARANCE = {"palette": "studio", "accent": "violet", "density": "comfortable", "text_size": "standard",
                       "motion": "system", "office_size": "expanded", "pinned": [], "clips_mode": "highlights",
-                      "remember_style": True}
+                      "remember_style": True, "video_setup_mode": "ask"}
 NAME_MAX = 32
 
 
@@ -106,7 +106,8 @@ def _pins(v: object) -> list[str]:
 
 def set_appearance(workspace_id: str, user_id: str, value: dict, expected: int | None) -> dict:
     allowed = {"palette": PALETTES, "accent": ACCENTS, "density": DENSITIES, "text_size": TEXT_SIZES,
-               "motion": MOTIONS, "office_size": OFFICE_SIZES, "clips_mode": CLIP_MODES}
+               "motion": MOTIONS, "office_size": OFFICE_SIZES, "clips_mode": CLIP_MODES,
+               "video_setup_mode": ("ask", "auto")}  # Make a YouTube video: questions when needed, or just do it
     out = dict(get_appearance(workspace_id, user_id)["value"])
     for key, v in (value or {}).items():
         if key == "theme":  # from a page loaded before the update: there is only the dark theme now
