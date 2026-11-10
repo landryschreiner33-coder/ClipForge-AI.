@@ -12,6 +12,7 @@ tzdata>=2024.1             # time zones for the scheduler (Windows has no built-
 
 pypdf>=4.0                 # scripts given as PDF (Make a YouTube video → Your script)
 python-docx>=1.1           # scripts given as Word files
+pillow>=10.0               # Animated shorts: a scene's designed card when no picture engine is set up
 
 # Optional features (safe to remove if you never use them)
 yt-dlp>=2024.1.1           # "From URL" import of public videos (no DRM/login bypass)

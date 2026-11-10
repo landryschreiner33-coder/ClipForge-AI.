@@ -34,8 +34,10 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import time
 from pathlib import Path
+from typing import Callable
 
 from .. import config, db
 from ..pipeline import artifact
@@ -455,25 +457,33 @@ def _meta(row: dict) -> dict:
     return meta
 
 
-def save_revision(project_id: str, plan: dict, note: str, base: int | None, meta: dict | None = None) -> int:
+def save_revision(project_id: str, plan: dict, note: str, base: int | None, meta: dict | None = None,
+                  also: Callable[[sqlite3.Connection, int], None] | None = None) -> int:
     """Save `plan` as the next version. A version finished by hand in FilmCraft (`plan["filmcraft"]`) stays so only
     when it is saved from FilmCraft or reopened as it was (undo, redo, going back); any other edit starts again from
-    ClipForge's own cut, and the FilmCraft version stays in the history."""
+    ClipForge's own cut, and the FilmCraft version stays in the history. Reading the current version and saving the
+    next is one step, so two saves at the same moment never collide; `also(conn, revision)` runs in that same step
+    (an animated short puts its scenes back with the version)."""
     if (meta or {}).get("action") not in HAND_KEEPS and "filmcraft" in plan:
         plan = {k: v for k, v in plan.items() if k != "filmcraft"}
-    row = db.fetch("studio_projects", project_id)
-    if base is not None and base != row["plan_revision"]:
-        raise Conflict(f"This video was changed elsewhere (now revision {row['plan_revision']}). Reload it to see "
-                       "the newer edit; nothing was overwritten.")
-    rev = row["plan_revision"] + 1
-    meta = meta if meta is not None else {"action": "edit", "prev": row["plan_revision"] or None, "redo": None}
-    db.execute("INSERT INTO edit_plans (project_id, revision, plan, note, created_at, meta) VALUES (?, ?, ?, ?, ?, ?)",
-               (project_id, rev, json.dumps(plan), note[:300], time.time(), json.dumps(meta)))
-    changed = db.execute("UPDATE studio_projects SET plan_revision = ?, updated_at = ? WHERE id = ? AND "
-                         "plan_revision = ?", (rev, time.time(), project_id, row["plan_revision"]))
-    if not changed:
-        db.execute("DELETE FROM edit_plans WHERE project_id = ? AND revision = ?", (project_id, rev))
-        raise Conflict("This video was changed elsewhere at the same moment. Reload it and try again.")
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT plan_revision FROM studio_projects WHERE id = ?", (project_id,)).fetchone()
+        if row is None:
+            raise VideoError("This video was deleted.")
+        current = int(row["plan_revision"] or 0)
+        if base is not None and base != current:
+            raise Conflict(f"This video was changed elsewhere (now revision {current}). Reload it to see the newer "
+                           "edit; nothing was overwritten.")
+        rev = current + 1
+        meta = meta if meta is not None else {"action": "edit", "prev": current or None, "redo": None}
+        conn.execute("INSERT INTO edit_plans (project_id, revision, plan, note, created_at, meta) VALUES "
+                     "(?, ?, ?, ?, ?, ?)", (project_id, rev, json.dumps(plan), note[:300], time.time(),
+                                            json.dumps(meta)))
+        conn.execute("UPDATE studio_projects SET plan_revision = ?, updated_at = ? WHERE id = ?",
+                     (rev, time.time(), project_id))
+        if also is not None:
+            also(conn, rev)
     return rev
 
 
@@ -610,6 +620,16 @@ def prepare_smart(project: dict, assets: dict[str, dict], words: dict[str, list[
 SMART_KEEP = ("output", "layout", "captions", "title", "word_fixes", "ducking", "tracks", "clean_sound")
 
 
+def is_short(project: dict) -> bool:
+    """An animated short (makers/shorts.py): made from a script with a voice and pictures, not from footage."""
+    return (project or {}).get("workflow") == "animated_short"
+
+
+def _footage_only(project: dict, what: str) -> None:
+    if is_short(project):
+        raise VideoError(f"{what} works on filmed videos. To change an animated short, change its scenes.")
+
+
 def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
     """Run the smart edit again on this project with these choices, as a background job that saves a new version
     (Undo returns to the current one). Your look, captions, word fixes and the sounds and pictures you placed
@@ -617,6 +637,7 @@ def smart_again(project_id: str, base_revision: int, choices: dict) -> dict:
     project = db.fetch("studio_projects", project_id)
     if not project or not project["plan_revision"]:
         raise VideoError("The rough cut is not ready yet.")
+    _footage_only(project, "“Edit it for me”")
     if base_revision != project["plan_revision"]:
         raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
     unknown = set(choices) - set(SMART_OPTIONS) - {"target_duration_s"}
@@ -643,6 +664,7 @@ def set_script(project_id: str, base_revision: int, script) -> dict:
     project = db.fetch("studio_projects", project_id)
     if not project or not project["plan_revision"]:
         raise VideoError("The rough cut is not ready yet.")
+    _footage_only(project, "Following a script with your footage")
     if base_revision != project["plan_revision"]:
         raise Conflict(f"This video was changed elsewhere (now version {project['plan_revision']}). Reload it first.")
     payload = script_payload(script)
@@ -1085,6 +1107,8 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             return p, _clip_set(p, edit, field, value)
         if field == "captions" and type(value) is bool:
             p["captions"]["enabled"] = value
+        elif field == "caption_highlight" and type(value) is bool:
+            p["captions"]["highlight"] = value
         elif field == "caption_position" and value in engine.CAPTION_POSITIONS:
             p["captions"]["position"] = value
         elif field == "caption_size" and value in engine.CAPTION_SIZES:
@@ -1264,7 +1288,14 @@ def _jump(project_id: str, base_revision: int, target: int, note: str, meta: dic
     problems = engine.validate(plan, _assets(project, plan))
     if problems:
         raise VideoError("; ".join(problems))
-    rev = save_revision(project_id, plan, note, base_revision, {**meta, "same_as": target})
+    also, after = None, None
+    if is_short(project):
+        from ..makers import shorts  # noqa: PLC0415 - makers build on this module
+
+        also, after = shorts.going_back(project_id, plan)  # its scenes and choices go back with the plan
+    rev = save_revision(project_id, plan, note, base_revision, {**meta, "same_as": target}, also=also)
+    if after is not None:
+        after()
     enqueue(project["workspace_id"], "video_preview", project_id, rev)
     return {"revision": rev, "note": note}
 
@@ -1375,7 +1406,8 @@ def filmcraft_edit_job(job: dict, lease: Lease) -> dict:
 # ------------------------------------------------------------------ renders
 def plan_hash(plan: dict) -> str:
     """What decides a render's pixels and sound: the plan without its notes, outline, chapters and edit report."""
-    core = {k: v for k, v in engine.upgrade(plan).items() if k not in ("notes", "outline", "chapters", "smart")}
+    core = {k: v for k, v in engine.upgrade(plan).items()
+            if k not in ("notes", "outline", "chapters", "smart", "short")}  # "short": an animated short's own records
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
 
 
@@ -1419,6 +1451,8 @@ def _craft_render(project: dict, job: dict, plan: dict, assets: dict, words: dic
     choice = settings.get("edit_engine", "auto")
     if not hand and (preview or choice == "ffmpeg"):
         return None, ""
+    if not hand and choice == "auto" and plan.get("maker") == "animated_short":
+        return None, ""  # FilmCraft's captions cannot highlight the word being said; the built-in engine keeps them
     if not apps.find_cli("filmcraft"):
         if hand:
             raise VideoError("This version was finished in FilmCraft's editor, and FilmCraft is not set up here to "
@@ -1491,7 +1525,7 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
         except BaseException as exc:
             if not preview:  # the plan and any earlier finished version stay as they were
                 canceled = lease.canceled()
-                db.update("studio_projects", project["id"], status="ready",
+                db.update("studio_projects", project["id"], status=_settled(project["id"]),
                           message="Render canceled; nothing changed" if canceled else
                           f"Render failed: {str(exc)[:200]}")
             out.unlink(missing_ok=True)
@@ -1514,9 +1548,16 @@ def _render(job: dict, lease: Lease, preview: bool) -> dict:
                ("art-" + os.urandom(6).hex(), project["id"], job["revision"], kind, str(out), sha,
                 json.dumps({k: v for k, v in info.items() if k != "words"}), time.time()))
     if not preview:
-        db.update("studio_projects", project["id"], status="ready", rendered_revision=job["revision"],
+        db.update("studio_projects", project["id"], status=_settled(project["id"]), rendered_revision=job["revision"],
                   message=f"Version {job['revision']} rendered and checked")
     return {"sha256": sha, "duration": info["duration"]}
+
+
+def _settled(project_id: str) -> str:
+    """The status a video goes back to after a final render: "ready", but "building" for an animated short whose
+    scenes are still being made (its build says when it is done)."""
+    p = db.fetch("studio_projects", project_id) or {}
+    return "building" if is_short(p) and (p.get("short") or {}).get("stage") in ("making", "writing") else "ready"
 
 
 @handler("video_preview")
@@ -1581,7 +1622,17 @@ def view(project: dict) -> dict:
                      for j in jobs],
             "revisions": revisions, "can_undo": bool(meta.get("prev")), "can_redo": bool(meta.get("redo")),
             "script": script_view(project.get("script") or {}),
+            "workflow": project.get("workflow") or "full_video", "short": _short_view(project, plan),
             "capabilities": engine.capabilities(), **_media_view(project, plan, assets), **_smart_view(plan)}
+
+
+def _short_view(project: dict, plan: dict | None) -> dict | None:
+    """An animated short's scenes and options for the editor page (makers/shorts.py); None for other videos."""
+    if not is_short(project):
+        return None
+    from ..makers import shorts  # noqa: PLC0415 - makers build on this module
+
+    return shorts.view(project, plan)
 
 
 def script_view(script: dict) -> dict | None:

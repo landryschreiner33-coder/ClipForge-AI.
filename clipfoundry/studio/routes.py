@@ -553,7 +553,8 @@ def reset_all_robots(body: ResetAll) -> dict:
 # ------------------------------------------------------------------ one library
 @router.get("/api/studio/projects")
 def library(kind: str = "", q: str = "") -> list[dict]:
-    """Clips projects (Highlights and Full stories) and full videos in one list, newest first."""
+    """Clips projects (Highlights and Full stories), full videos and animated shorts in one list, newest first.
+    `kind`: "clips", "full_video" (filmed videos) or "short" (animated shorts); empty for all."""
     ws = principal.workspace_id()
     out = []
     if kind in ("", "clips"):
@@ -568,13 +569,19 @@ def library(kind: str = "", q: str = "") -> list[dict]:
                         "clip_count": p.get("clip_count") or 0, "updated_at": p["updated_at"],
                         "thumbnail": f"/api/projects/{p['id']}/thumbnail" if p.get("source_path") else "",
                         "href": f"#/project/{p['id']}"})
-    if kind in ("", "full_video"):
+    if kind in ("", "full_video", "short"):
+        from ..makers import shorts
+
         for v in db.select("studio_projects", "workspace_id = ?", (ws,), "updated_at DESC"):
-            first = (v.get("asset_ids") or [""])[0]
+            short = shorts.is_short(v)
+            if kind and (kind == "short") != short:
+                continue  # "full_video" lists filmed videos, "short" animated shorts
+            first = shorts.cover_asset(v["id"], v) if short else (v.get("asset_ids") or [""])[0]
             # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
             asset = db.fetch("assets", first) if first else None
             pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
-            out.append({"id": v["id"], "kind": "full_video", "mode": "full_video", "name": v["name"],
+            out.append({"id": v["id"], "kind": "full_video", "mode": shorts.WORKFLOW if short else "full_video",
+                        "name": v["name"],
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
                         "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "", "href": f"#/video/{v['id']}"})
     if q:
@@ -796,6 +803,12 @@ def cancel_video(video_id: str) -> dict:
                                                      (video_id,)))
     if n and v["status"] == "rendering":
         db.update("studio_projects", video_id, status="ready", message="Render canceled; the plan is unchanged")
+    elif v.get("workflow") == "animated_short":
+        from ..makers import shorts
+
+        # a canceled build says so itself (studio_jobs.on_stop); this also frees a short whose build was lost, so
+        # the page offers Make the short again. Nothing changes when nothing is being made.
+        shorts.stopped(video_id)
     return {"canceled": n, **video_flow.view(_video(video_id))}
 
 
