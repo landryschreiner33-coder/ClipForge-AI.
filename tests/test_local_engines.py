@@ -1445,3 +1445,75 @@ def test_a_clip_note_carries_the_models_use_rule(app_settings, fake_comfy):
     fake_comfy.have(catalog.WAN22_TI2V_5B)
     path = engines.make_video("The waves roll in", seconds=1.0, seed=2)
     assert json.loads(path.with_suffix(".json").read_text())["rule"] == catalog.WAN22_TI2V_5B.rule
+
+
+# ------------------------------------------------------------------ the animated shorts maker through the door
+# The shorts maker (clipfoundry/makers) reaches these makers only through makers/local_engines.py. Its own tests stand
+# in for this package; these use the real one, so the two sides are checked against each other.
+def _silent_wav(path: Path, seconds: float = 0.5, rate: int = 48000) -> Path:
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00\x00" * int(seconds * rate))
+    return path
+
+
+def test_the_shorts_maker_draws_its_pictures_through_the_door(app_settings, fake_comfy, monkeypatch, tmp_path):
+    from PIL import Image
+
+    from clipfoundry import engines
+    from clipfoundry.makers import local_engines, looks, motion, pictures
+    from clipfoundry.pipeline.common import Cancelled
+
+    monkeypatch.setattr(makers, "machine", lambda: mac(16))
+    assert local_engines.module() is engines and EngineError in local_engines.errors()
+    look = looks.get("comic")
+
+    state = local_engines.status("image")  # no picture model yet: the short draws its own cards and says why
+    assert state["available"] and not state["ready"] and state["why"]
+    got = pictures.make("Octopuses have three hearts.", "an octopus", look, tmp_path / "cards", seed=1)
+    assert got["source"] == "card" and not got["tried"] and got["why"] == state["why"]
+
+    fake_comfy.have(catalog.FLUX2_KLEIN_4B)
+    makers.forget_found()
+    state = local_engines.status("image")
+    assert state["ready"] and state["engine"]
+    got = pictures.make("Octopuses have three hearts.", "an octopus", look, tmp_path / "out", seed=3)
+    assert got["source"] == "engine" and got["why"] == "" and got["engine"] == state["engine"], got
+    assert "octopus" in fake_comfy.prompts[-1]["4"]["inputs"]["text"]
+    with Image.open(got["path"]) as im:
+        assert im.size == (1088, 1920)  # the model's nearest size to the short's 1080 x 1920 frame
+    clip = motion.still_clip(Path(got["path"]), _silent_wav(tmp_path / "voice.wav"), tmp_path / "scene.mp4",
+                             duration_s=0.5, fps=10)
+    assert Path(clip["path"]).read_bytes()[4:8] == b"ftyp"
+
+    with pytest.raises(Cancelled):  # Stop stops the short, not only its picture
+        pictures.make("Octopuses have three hearts.", "an octopus", look, tmp_path / "stop", seed=4,
+                      cancel=lambda: True)
+
+
+def test_the_shorts_maker_reads_with_the_built_in_voice_through_the_door(monkeypatch, tmp_path):
+    from clipfoundry import db
+    from clipfoundry.makers import local_engines
+    from clipfoundry.makers import voice as short_voice
+
+    db.init()
+    fake = StandInVoice()
+    monkeypatch.setattr(voice, "_get", lambda: fake)
+    monkeypatch.setattr(voice, "installed", lambda m=None: True)
+    short_voice.clear_cache()
+    try:
+        assert local_engines.status("voice")["ready"]
+        offered = {v["id"]: v for v in short_voice.voices()}
+        assert {f"engine:{v['id']}" for v in voice.VOICES} <= set(offered)
+        got = short_voice.speak("Octopuses have three hearts. They also have blue blood.", tmp_path / "scene.wav",
+                                voice="engine:M3", lang="en")
+        assert got["engine"] == "engine" and got["fallback"] == "", got
+        assert fake.said and {s[1] for s in fake.said} == {"M3"}
+        assert got["words"] is None  # the door only estimates word times, so the short times the words itself
+        assert "machine-generated" in got["rule"]  # the voice's use rule travels with the short
+        with wave.open(str(tmp_path / "scene.wav"), "rb") as w:
+            assert w.getnchannels() == 1 and w.getnframes() > 0
+    finally:
+        short_voice.clear_cache()
