@@ -97,6 +97,28 @@ the old rules still answer, and the chat offers the built-in model in one press.
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
 
+## Safety follow-ups: built-in AI engine lifetime and other computers' addresses — 2026-11-10 (Claude Code, cloud session)
+
+**Plain-English summary:** two small safety gaps found by the review of the local makers are fixed, plus the same
+gap in four more places. On Linux the built-in AI's engine could stop a few seconds after answering (it was tied to
+the thread that started it), so the next question loaded the model again; it now lives as long as ClipForge. On
+Windows, a web page or a crafted project could make ClipForge look at a file on another computer, which signs in to
+that computer as the person; ClipForge now refuses such addresses before looking at anything, while footage on a
+share the owner uses still works.
+
+- **Branch / PR:** `claude/project-thread-3rqurx` from the release line at ff890b6, PR #41, merged into
+  `claude/project-thread-x72wkd` on Landry's standing OK after the fast and slow suites and the FilmCraft, built-in
+  AI and Local makers checks on GitHub's machines passed. No release.
+- **Code:** `clipfoundry/builtin_ai.py` (`_popen`, `_spawn_loop`: identical to PR #37's, so it merges cleanly),
+  `engines/comfy_server.py` (uses `builtin_ai._popen`), new `clipfoundry/pathguard.py` (`plain_parts`),
+  `craft/routes.py`, `engines/routes.py`, `api.py` (catch-all), `studio/local_files.py` (`other_computer`,
+  `ELSEWHERE`), `studio/uploads.py` (`link_local`), `craft/web.py` (`_resolve` with roots, `_PATHISH`, `_CLIMB`),
+  `craft/ai.py` (`_PATHISH`). Details and checks: [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Verify:** `python -m pytest -q -p no:cacheprovider tests/test_builtin_ai_lifetime.py tests/test_network_paths.py
+  tests/test_pathguard.py tests/test_craft.py`; the whole suite with `-m "not slow"` and `-m slow`.
+- **Open follow-up:** FFmpeg opens files named inside a downloaded DASH manifest (see the changelog); a demuxer
+  allow-list for media from outside is the fix, with real-media checks.
+
 ## Local makers: pictures, video and voice made on this computer — 2026-11-08/10 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry found seven open-source projects and asked for the useful ones to be plugged into

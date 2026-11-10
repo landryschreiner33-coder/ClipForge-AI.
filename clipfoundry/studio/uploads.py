@@ -326,6 +326,8 @@ def link_local(workspace_id: str, path: str) -> dict:
 
     if cloud_settings.enabled():
         raise UploadError("Files cannot be used where they are in the cloud; upload the file instead.", 403)
+    if local_files.other_computer(str(path or ""), local_files.roots()):
+        raise UploadError(local_files.ELSEWHERE, 403)  # before anything looks at it (local_files.other_computer)
     raw = Path(str(path or "").strip())
     if not str(raw) or not raw.is_absolute():
         raise UploadError("Give the full path of the file, starting at the root folder or the drive.", 400)
