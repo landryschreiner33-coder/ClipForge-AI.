@@ -87,6 +87,91 @@ the old rules still answer, and the chat offers the built-in model in one press.
   "Not done yet").
 - **Waiting on Landry:** a try of the chat and the helpers on Landry's computer; the release (explicit OK).
 
+## Story clips: Full story, Story parts, five minutes at most, a still picture — 2026-11-09 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry uploads videos of a creator who reads Reddit posts aloud while he plays a game. Story
+clips made from them moved the camera, Full stories kept cutting one story into many clips, and there was only one
+setting. Now story clips show the whole gameplay picture, centred and still, with the captions just above it; Make
+clips has **Full story** (one clip per story) and **Story parts** (each story cut at its most gripping places into
+Part 1, Part 2…, each its own clip); and no story clip is ever longer than five minutes, whatever the setting or hand
+edit. On 40 test recordings of this kind of video (four posts each) the release line made 9 to 21 clips; this makes 4.
+An independent review before the PR found problems with cut points, kinds of story videos the stricter rules missed,
+caption placement and framing details; all are fixed and tested.
+
+- **Branch / PR:** `claude/project-thread-6ouxbx`, restarted from the release line at 95a70e0 (PRs #30–#33), draft PR
+  into `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Design and limits:** [docs/clipforge/STORY_CLIPS.md](docs/clipforge/STORY_CLIPS.md) (why stories were split, the
+  rules, the part planner, every place the five-minute limit is enforced, the still picture, the measured numbers);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/pipeline/story_parts.py`; changed `pipeline/stories.py`, `captions.py`, `render.py`,
+  `blueprint.py`, `studio/story_review.py`, `guidance.py`, `capabilities.py` (a word only), `clips_flow.py`,
+  `link_import.py`, `prefs.py`, `routes.py`, `db.py` (three columns), `api.py` (trim limit); `frontend/src/pages/MakeClips.tsx`,
+  `ClipEditor.tsx`, `Studio.tsx`, `Projects.tsx`, `components/StoryReview.tsx`, `studioParts.tsx`, `App.tsx`,
+  `prefs.tsx`, `studio.ts`; `frontend/dist` rebuilt; tests `tests/test_story_parts.py`, `tests/test_story_clips.py`
+  (new), `tests/test_full_stories.py`, `tests/story_fixtures.py`, `tests/test_smarter_ai.py`.
+- **Verify:** `python -m pytest -q -p no:cacheprovider tests/test_story_parts.py tests/test_story_clips.py
+  tests/test_full_stories.py tests/test_smarter_ai.py`; `python -m pytest -m slow -q -p no:cacheprovider
+  tests/test_story_clips.py tests/test_studio_render.py` (real renders, needs ffmpeg and espeak-ng); `cd frontend &&
+  npx tsc --noEmit -p . && npm run build`. On Landry's computer: Make clips → Full story on one of the gamer videos
+  (one clip per post, the picture still, captions above it), then Story parts on the same video (Part 1, Part 2… with
+  "Part N" at the top), and a story longer than five minutes (split into parts in both settings).
+- **Judgement calls to know about:** a story boundary now needs something said (an announcement, a post's title where
+  the subject changes, an intro/sponsor/outro run, a story's first words after a long pause) or a long break with a
+  change of subject measured by the meaning model;
+  ClipForge AI can no longer split at a change of subject alone (an existing test's expectation changed on purpose).
+  Story parts is a Full stories project with `options.story_split = "parts"`, so Full stories styles, skills and
+  examples apply to both. Only a framing chosen for the project (Customize or its example video) or the clip editor
+  can move the picture of a story clip; a saved style, a skill, a shared example, a Brain note or the settings cannot.
+  A subject to follow chosen for the project with no framing gets the vertical frame (otherwise the choice would do
+  nothing). A story of 5:00 or less is one clip in Full story; parts are planned at most 299.5 s.
+  Captions sit above the picture unless any level chose a caption position. Parts are 62–175 s when the story allows
+  (TikTok counts over a minute as long; under the three-minute Shorts and Reels limit).
+- **Not done:** real speech recognition on Landry's own videos (needs his computer); ClipForge AI's real model choosing
+  among cut places (stand-in answers only); captions above the picture for 4:3 sources with a "Part N" headline, High
+  energy captions above a 16:10 source with a "Part N" headline, square or vertical sources (they use the lower
+  third).
+- **Waiting on Landry:** a look at the PR; a real-video test on his computer; the merge; the release (explicit OK).
+
+## Make → Animated short: viral voice-over shorts — 2026-11-08 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for the animated voice-over shorts seen on TikTok, from a pasted script or
+one ClipForge writes, all running on his Mac. Make → Animated short now turns a script into scenes, gives each a
+voice, a picture and a gentle camera move, and puts them together with big captions where the spoken word lights up,
+music under the voice and a whoosh on the cuts. Every scene can be changed on its own afterwards (words, picture,
+move, order, add, delete), and the normal editor, preview, render and FilmCraft work on it. Without the local
+engines it still works: the computer's own voice and designed cards with each scene's key words.
+
+- **Branch / PR:** `claude/project-thread-5qybvh` from the release line at 95a70e0, draft PR into
+  `claude/project-thread-x72wkd`. No release; Landry has not said to merge.
+- **Depends on, loosely:** the local engines (`clipfoundry/engines`, thread "Plug local open-source tools into
+  ClipForge", branch `claude/project-thread-nnvh05`). `makers/local_engines.py` is the only door; without the module
+  every role reports "not part of this version" and the fallbacks run. Either branch can merge first.
+- **Design and limits:** [docs/clipforge/ANIMATED_SHORTS.md](docs/clipforge/ANIMATED_SHORTS.md);
+  [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/makers/` (scenes, writer, voice, pictures, cards, motion, looks, local_engines, shorts,
+  routes); changed `db.py`, `api.py`, `jobs.py`, `cloud/ownership.py`, `studio/engine.py` (`captions.highlight`),
+  `studio/video_flow.py`, `studio/routes.py`, `brain/knowhow.py`, `brain/memories.py`, `requirements.txt` (pillow);
+  frontend `pages/MakeShort.tsx`, `components/ShortScenes.tsx`, `shorts.ts`, `pages/shorts.css` (new), `App.tsx`,
+  `Studio.tsx`, `Projects.tsx`, `VideoReview.tsx`, `MemoryTab.tsx`, `router.ts`, `studio.ts`; `frontend/dist` rebuilt.
+- **Verify:** `python -m pytest -q tests/test_studio_shorts_flow.py tests/test_studio_shorts_parts.py
+  tests/test_studio_shorts_voice.py tests/test_studio_shorts_captions.py tests/test_clipforge_ai_knowhow.py`; the
+  real render: `python -m pytest -q -m slow tests/test_studio_shorts_render.py` (needs espeak-ng); `cd frontend && npm
+  run build`. On Landry's Mac: Make → Animated short with a pasted script (the `say` voices), then with the local
+  makers set up (real pictures and the Supertonic voice: the reminder next to Download should appear), and Write it
+  for me with the built-in AI.
+- **Judgement calls to know about:** captions default to the look's own style; a scene is 6-16 words (one picture
+  every 2-4 s); the engine's own estimated word times are ignored in favour of listening or the sound; "auto" voice
+  is pinned when a short is first made so later scenes match; a short allows 600 words and 80 scenes; the owner's
+  editor changes (order, trims, removed clips, levels, word fixes) survive scenes being made again.
+- **Not done / not testable here:** the real engines, `say`, SAPI, a real model writing scripts and the speech
+  model's word times; a Windows run.
+- **Waiting on Landry:** a look at the PR, a try on his Mac, the merge and any release (explicit OK each time).
+- **Nov 9 review round:** undo/redo/restore now put a short's scenes and choices back with the version (the critical
+  finding), Stop and Stop all jobs always free a short, and the other review findings are fixed (see the 2026-11-09
+  entry in [AI_CHANGELOG.md](AI_CHANGELOG.md)). New tests: `tests/test_studio_shorts_undo.py`, `_stops.py`,
+  `_edits.py`. Still only on real machines: the engines, Landry's downloaded voices, a real model writing and the
+  speech model's word times.
+
 ## ClipForge AI far smarter: meaning, scout and judge, eyes, ears, your taste — 2026-11-07 (Claude Code, cloud session)
 
 **Plain-English summary:** Landry asked for the built-in AI and the editing to be "100 times smarter", research first,

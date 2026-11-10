@@ -11,6 +11,7 @@ import Office from "./pages/Office";
 import Studio from "./pages/Studio";
 import MakeClips from "./pages/MakeClips";
 import MakeVideo from "./pages/MakeVideo";
+import MakeShort from "./pages/MakeShort";
 import VideoReview from "./pages/VideoReview";
 import Customize from "./components/Customize";
 import Projects from "./pages/Projects";
@@ -40,7 +41,7 @@ const SECTION_NAV: Record<string, NavKey> = {
 };
 const SECTION_TITLE: Record<string, string> = {
   "": "Studio", create: "Make", projects: "Projects", project: "Clips project", clip: "Edit clip", publish: "Prepare post",
-  video: "Full video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
+  video: "Video", brain: "Brain", publishing: "Publishing", post: "Post review", accounts: "Accounts",
   office: "Studio · Office", missions: "Autopilot", setup: "Set up", dev: "Robot gallery", settings: "Settings",
 };
 
@@ -50,7 +51,7 @@ function page(route: Route) {
     case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return id === "video" ? <MakeVideo /> : id === "transcript" ? <Create />
+    case "create": return id === "video" ? <MakeVideo /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "project": return <ProjectView id={id} key={id} />;
@@ -215,8 +216,9 @@ function Shell({ me }: { me: Me }) {
                 aria-expanded={makeOpen} onClick={() => setMakeOpen((o) => !o)}><Icon name="plus" />Make</button>
               {makeOpen && (
                 <div role="menu" aria-label="Make">
-                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights or full stories, vertical</span></a>
+                  <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
                   <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
+                  <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                 </div>
               )}
             </div>

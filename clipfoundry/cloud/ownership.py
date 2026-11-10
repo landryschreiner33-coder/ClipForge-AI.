@@ -46,6 +46,7 @@ RESOLVERS: dict[str, Callable[[str], str | None]] = {
     "asset_id": lambda v: _one("SELECT workspace_id FROM assets WHERE id = ?", v),
     "upload_id": lambda v: _one("SELECT workspace_id FROM uploads WHERE id = ?", v),
     "video_id": lambda v: _one("SELECT workspace_id FROM studio_projects WHERE id = ?", v),
+    "scene_id": lambda v: _one("SELECT workspace_id FROM short_scenes WHERE id = ?", v),
     "story_id": lambda v: _one("SELECT workspace_id FROM story_proposals WHERE id = ?", v),
     "connection_id": lambda v: _one("SELECT workspace_id FROM social_connections WHERE id = ?", v),
     "style_id": lambda v: _one("SELECT workspace_id FROM styles WHERE id = ?", v),

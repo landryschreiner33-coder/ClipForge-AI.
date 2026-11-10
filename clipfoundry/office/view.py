@@ -85,7 +85,8 @@ def _task(j: dict) -> dict:
     next_role = {"hunt_source": "boost", "analyze_source": "quill", "post_live": "quill",
                  "regenerate_clip": "quill", "package_clip": "check", "quality_check": "harbor",
                  "schedule_tick": "lock", "publish": "metric", "live_capture": "spark",
-                 "link_import": "archive", "video_build": "splice", "video_render": "harbor"}.get(j["kind"], "")
+                 "link_import": "archive", "video_build": "splice", "short_build": "splice",
+                 "video_render": "harbor"}.get(j["kind"], "")
     blocked = (j.get("error") or message) if j["status"] in ("waiting", "retrying", "failed") else \
         (("Queued behind earlier work" if j.get("origin") == "owner" else "Waiting for background work to start")
          if j["status"] == "queued" else "")

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import shutil
 import sys
@@ -28,6 +29,7 @@ from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import local_routes, routes as studio_routes
 from .craft import routes as craft_routes
+from .makers import routes as maker_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
 from .autopilot import host as autopilot_host
@@ -63,6 +65,7 @@ async def lifespan(_: FastAPI):
         worker.resume(db.interrupted_work())
         worker.start()
         from .studio import edit_requests, jobs as studio_jobs, link_import, media_sources, reference, video_flow  # noqa: F401
+        from .makers import shorts  # noqa: F401 - the short_build job handler
         from .brain import chat as brain_chat
 
         studio_jobs.recover()  # builds, renders and link downloads that were waiting or running continue
@@ -111,6 +114,7 @@ app.include_router(connection_routes.router)
 app.include_router(studio_routes.router)
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
+app.include_router(maker_routes.router)  # Make → Animated short
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)
 app.include_router(brain_routes.router)
@@ -618,6 +622,14 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
             taste.record(clip, "reselected" if body.selected else "deselected")
     if body.edit is not None:
         edit = dict(clip.get("edit") or {})
+        for k in ("start", "end"):  # a trim is a time in seconds: never "NaN" or infinity (it would render it all)
+            if body.edit.get(k) is not None:
+                try:
+                    finite = math.isfinite(float(body.edit[k]))
+                except (TypeError, ValueError):
+                    finite = False
+                if not finite:
+                    raise HTTPException(400, f"The clip's {k} must be a time in seconds.")
         for k, v in body.edit.items():
             if k not in EDIT_KEYS or (k == "clean_sound" and v is not None and v not in config.CLEAN_SOUND_MODES):
                 continue
@@ -625,6 +637,27 @@ def patch_clip(clip_id: str, body: ClipPatch) -> dict:
                 edit.pop(k, None)
             else:
                 edit[k] = v
+        if clip.get("category") == "story" and ("start" in body.edit or "end" in body.edit):
+            # no story clip is longer than five minutes (studio/story_review.py); other changes stay possible on
+            # a longer clip made before the limit
+            from .pipeline.story_parts import MAX_CLIP_S
+
+            try:
+                length = float(edit.get("end", clip["end"])) - float(edit.get("start", clip["start"]))
+            except (TypeError, ValueError):
+                length = 0.0
+            if length > MAX_CLIP_S + 0.001:
+                raise HTTPException(400, f"A story clip can be at most 5 minutes long; this trim would make it "
+                                         f"{int(length) // 60}:{int(length) % 60:02d}. Split the story into parts "
+                                         "under Stories instead.")
+            was = dict(clip.get("edit") or {})
+            try:
+                before = float(was.get("end", clip["end"])) - float(was.get("start", clip["start"]))
+                whole = bool(was.get("hook_overlay")) and float(was.get("hook_seconds") or 0) >= before
+            except (TypeError, ValueError):
+                whole = False
+            if whole and "hook_seconds" not in body.edit and length > 0:
+                edit["hook_seconds"] = math.ceil(length) + 1  # "Part N" showed for the whole part: it still does
         fields["edit"] = edit
     db.update_clip(clip_id, **fields)
     return get_clip(clip_id)

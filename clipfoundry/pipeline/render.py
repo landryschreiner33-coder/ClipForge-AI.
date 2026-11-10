@@ -434,20 +434,22 @@ def render_clip(project: dict, clip: dict, words_all: list[dict], settings: dict
         for i in emphasis:
             words_out[i] = {**words_out[i], "em": True}
     hook_text = opts.get("hook") if opts.get("hook") is not None else clip.get("hook", "")
-    ass = captions.build_ass(words_out, opts, tl.duration, hook_text or "")
+    # where the picture sits: captions "above" it need its top edge (fit keeps the whole frame, centred)
+    dw, dh = _decode_size(src_w, src_h)
+    layout = opts.get("layout", "fill")
+    fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
+    picture_top = (OUTPUT_H - dh * fit_scale) / 2 if layout == "fit" else None
+    ass = captions.build_ass(words_out, {**opts, "picture_top": picture_top}, tl.duration, hook_text or "")
     (out_dir / "captions.ass").write_text(ass, encoding="utf-8")
     (out_dir / "captions.srt").write_text(captions.build_srt(words_out, opts.get("caption_style", "clean")),
                                           encoding="utf-8")
 
     # ---- geometry
-    dw, dh = _decode_size(src_w, src_h)
     cw_frac, ch_frac = reframe.crop_fraction(src_w, src_h)
     base_w, base_h = cw_frac * dw, ch_frac * dh
     base_zoom = max(1.0, min(2.5, float(opts.get("zoom", 1.0) or 1.0)))
     n_out_frames = int(round(tl.duration * fps))
     zc = zoom_curve(words_out, n_out_frames, fps, 0.07 if opts.get("auto_zoom") else 0.0, emphasis) * base_zoom
-    layout = opts.get("layout", "fill")
-    fit_scale = min(OUTPUT_W / dw, OUTPUT_H / dh)
 
     frame_bytes = dw * dh * 3
     n_src_frames = plan.n

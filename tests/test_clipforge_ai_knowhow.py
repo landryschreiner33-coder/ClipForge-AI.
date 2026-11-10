@@ -17,7 +17,7 @@ def test_the_playbooks_are_short_plain_and_picked_by_words_and_by_job():
     from clipfoundry.brain import knowhow
 
     ids = [t.id for t in knowhow.TOPICS]
-    assert len(ids) == len(set(ids)) == 12
+    assert len(ids) == len(set(ids)) == 13
     for t in knowhow.TOPICS:
         assert 3 <= len(t.lines) <= 5 and all(len(line) <= 260 for line in t.lines) and len(t.text) <= 800
         assert t.tasks and set(t.tasks) <= set(knowhow.TASKS)
@@ -46,7 +46,11 @@ def test_the_playbooks_are_short_plain_and_picked_by_words_and_by_job():
     picked = knowhow.select("how loud", "chat", limit=1)
     assert picked.snapshot() == [{"id": "sound", "title": "Voice and sound mix", "score": picked.topics[0]["score"]}]
     assert "remember: …" in knowhow.answer_text(knowhow.answer("how loud should my video be?"))
-    assert all(knowhow.principles(t) for t in ("clips", "change", "smart_edit", "finish", "post"))
+    assert all(knowhow.principles(t) for t in ("clips", "change", "smart_edit", "finish", "post", "short"))
+    # writing an animated short reads its own playbook first, then hooks and endings
+    assert knowhow.answer("how do I write a faceless animated short with a voice over")["id"] == "shorts"
+    assert knowhow.select("", "short", limit=3, budget_chars=10 ** 6).ids == ["shorts", "hooks", "endings"]
+    assert knowhow.select("the history of octopuses", "short", limit=3, budget_chars=1800).ids[0] == "shorts"
     assert knowhow.principles("chat") == ""
     assert [t["id"] for t in knowhow.topics()] == ids
 
@@ -241,7 +245,7 @@ def test_the_know_how_api_lists_the_playbooks_and_what_a_question_would_read(env
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as api:
         r = api.get("/api/brain/memories/knowhow")
-        assert r.status_code == 200 and len(r.json()["topics"]) == 12 and "November 2026" in r.json()["source"]
+        assert r.status_code == 200 and len(r.json()["topics"]) == 13 and "November 2026" in r.json()["source"]
         assert r.json()["topics"][0]["id"] == "hooks" and r.json()["topics"][0]["lines"]
         r = api.post("/api/brain/memories/knowhow/select", json={"query": "how loud should my video be", "task": "chat"})
         assert r.status_code == 200 and r.json()["answer"]["id"] == "sound" and r.json()["topics"][0]["id"] == "sound"
