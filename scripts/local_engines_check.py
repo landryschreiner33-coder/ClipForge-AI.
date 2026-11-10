@@ -566,6 +566,9 @@ def check_process_names(report: dict) -> None:
 
 # ------------------------------------------------------------------ main
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):  # a Windows console's code page cannot show every letter (東)
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", default="", help="the folder to work in (default: a new temporary one)")
     ap.add_argument("--out", default="local-engines-check.json")
