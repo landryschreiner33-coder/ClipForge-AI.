@@ -1312,6 +1312,9 @@ ADDED_COLUMNS = {
     "sources": {"rights_info": "TEXT DEFAULT '{}'", "access": "TEXT DEFAULT '{}'",
                 "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
                 "intake": "TEXT DEFAULT '{}'"},
+    # the project that took a finished upload (studio/uploads.taken): deleting a project counts only uploads no
+    # project took as files the owner added again
+    "uploads": {"taken": "TEXT DEFAULT ''"},
 }
 
 

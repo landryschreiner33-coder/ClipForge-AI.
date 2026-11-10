@@ -422,6 +422,20 @@ def link_local(workspace_id: str, path: str) -> dict:
             return stored
 
 
+def taken(workspace_id: str, asset_ids, project_id: str) -> None:
+    """A project took these files: for each, the newest finished upload of it that no project took yet becomes this
+    project's. ClipForge keeps one copy per file, so the owner's upload of a file it already had gives that copy;
+    deleting a project keeps a file the owner uploaded again in the last day in case a page is about to use it
+    (project_delete._added_again), and only an upload no project took counts. The same file dropped on two pages at
+    the same moment is one upload: the first project to take it has it."""
+    with db.connect() as conn:
+        for aid in dict.fromkeys(str(a) for a in asset_ids or () if a):
+            conn.execute(
+                "UPDATE uploads SET taken = ? WHERE id = (SELECT id FROM uploads WHERE workspace_id = ? AND "
+                "asset_id = ? AND status = 'complete' AND taken = '' ORDER BY updated_at DESC, created_at DESC "
+                "LIMIT 1)", (project_id, workspace_id, aid))
+
+
 def store_file(workspace_id: str, path: Path, filename: str) -> dict:
     """A file ClipForge obtained itself (a supplied link's download, an imported library item) becomes a private
     asset exactly like an upload: hashed, probed, stored once per workspace and content hash. `path` is moved."""

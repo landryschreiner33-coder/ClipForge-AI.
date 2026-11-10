@@ -325,3 +325,41 @@ def test_what_a_maker_made_that_the_short_could_not_use_is_deleted_with_its_note
     left = [p for p in _made_files() if p.parent.parent.name != "voice"]
     assert left == [], left  # the voices were used: they are kept with the short, not here
     assert shorts.voice_originals(project["id"]).is_dir()
+
+
+def test_a_picture_you_chose_for_two_scenes_goes_with_the_short(env, tmp_path):
+    """The owner uploads their own picture for one scene and later uploads it again for another ("Use my picture"
+    twice: ClipForge keeps one copy, so both are that copy). Both uploads are the short's own, so deleting the short
+    removes ClipForge's copy of the picture instead of keeping it as a file the owner added again."""
+    import time
+
+    from clipfoundry import db
+    from clipfoundry.makers import shorts
+    from clipfoundry.studio import project_delete, uploads
+
+    project = _make(env)
+    pid = project["id"]
+    png = tmp_path / "owl.png"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=orange:s=64x64", "-frames:v", "1",
+                    str(png)], check=True)
+
+    def upload() -> dict:
+        data = png.read_bytes()
+        up = uploads.start("local", "owl.png", len(data))
+        uploads.put_chunk(up["id"], 0, data)
+        return uploads.complete(up["id"])
+
+    scenes = _scenes(pid, _plan(pid))
+    owl = upload()
+    shorts.update_scene(_fresh(pid), scenes[0]["id"], {"picture_asset_id": owl["id"]})
+    _run(env)
+    time.sleep(0.01)
+    assert upload()["id"] == owl["id"]  # the same picture again, for the next scene
+    shorts.update_scene(_fresh(pid), scenes[1]["id"], {"picture_asset_id": owl["id"]})
+    _run(env)
+    assert [r["taken"] for r in db.select("uploads", "asset_id = ?", (owl["id"],))] == [pid, pid]
+    plan = project_delete.plan("local", pid, "full_video")
+    assert any(line.startswith("ClipForge's cop") and "“owl.png”" in line for line in plan["goes"])
+    assert not any("added it again" in line for line in plan["stays"])
+    project_delete.delete("local", pid, "full_video")
+    assert db.fetch("assets", owl["id"]) is None

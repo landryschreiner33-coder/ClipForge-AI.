@@ -176,4 +176,5 @@ def create(workspace_id: str, user_id: str, *, asset_id: str, mode: str, style_i
                                 asset_id=asset_id, clip_mode=ready["mode"], guidance=ready["guidance"],
                                 destinations=ready["destinations"], options=ready["options"])
     remember_mode(workspace_id, user_id, mode)
+    uploads.taken(workspace_id, [asset_id], project["id"])  # the owner's upload of the video is this project's
     return attach_source(project["id"], asset)

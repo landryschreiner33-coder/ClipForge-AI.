@@ -1706,6 +1706,8 @@ def update_scene(project: dict, scene_id: str, body: dict) -> None:
         return out
 
     _change_scene(scene_id, put)
+    if chosen is not None or picture_info is not None:  # the owner's upload of their picture is this short's
+        uploads.taken(project["workspace_id"], [body["picture_asset_id"]], project["id"])
     _rebuild(project)
 
 

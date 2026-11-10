@@ -299,13 +299,14 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     page may be about to use it, so it stays. An upload is "again" only when it started after ClipForge had the
     file: the upload that stored it, and the same file sent alongside it, started before (they are the project's
     own, also when the project was made first or saving was slow), while an upload of a file ClipForge got another
-    way (Find media, a link, a short's build) is again. The time the project was made is used, not the time it last
-    changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
-    window said."""
+    way (Find media, a link, a short's build) is again. An upload a project took (uploads.taken: this one or
+    another, also one deleted since) was for that project, not added again. The time the project was made is used,
+    not the time it last changed: stopping its work (deleting does that first) changes the project, and the answer
+    must stay what the window said."""
     since = max(float(row.get("created_at") or 0), seen - AGAIN_S)
     return bool(db.scalar(
-        "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND created_at > ? AND updated_at > ? "
-        "LIMIT 1", (asset["id"], float(asset.get("created_at") or 0), since)))
+        "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND created_at > ? AND "
+        "updated_at > ? LIMIT 1", (asset["id"], float(asset.get("created_at") or 0), since)))
 
 
 def _pending() -> tuple[str | None, set[str]]:

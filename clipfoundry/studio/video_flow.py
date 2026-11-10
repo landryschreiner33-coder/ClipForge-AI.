@@ -257,6 +257,8 @@ def create(workspace_id: str, user_id: str, *, name: str, asset_ids: list[str], 
                                    "full_video")
     if "enabled" in remember:  # the owner's explicit choice is the next brief's default
         prefs.set_appearance(workspace_id, user_id, {"remember_style": bool(remember["enabled"])}, None)
+    music = [brief.get("music_asset_id")] if brief.get("music") == "supplied" else []
+    uploads.taken(workspace_id, [*asset_ids, *music, *voiceovers], project["id"])  # the owner's uploads for it
     enqueue(workspace_id, "video_build", project["id"], 0)
     return project
 
@@ -738,6 +740,8 @@ def add_media(project_id: str, asset_ids: list[str]) -> dict:
         _owned(project["workspace_id"], aid)  # only your own files
         if aid not in project["asset_ids"]:
             added.append(aid)
+    # the owner's uploads of these files are this video's, also of a file the bin has already
+    uploads.taken(project["workspace_id"], asset_ids, project_id)
     if added:
         bin_ids = list(project["asset_ids"]) + added
         db.update("studio_projects", project_id, asset_ids=bin_ids, updated_at=time.time())
