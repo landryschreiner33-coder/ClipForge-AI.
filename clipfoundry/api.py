@@ -29,6 +29,7 @@ from .publish import jobs as publish_jobs
 from .publish import connection_routes
 from .studio import local_routes, project_delete, routes as studio_routes
 from .craft import routes as craft_routes
+from .engines import routes as engine_routes
 from .makers import routes as maker_routes
 from .publish import routes as publish_routes
 from .publish.common import PublishError
@@ -92,6 +93,9 @@ async def lifespan(_: FastAPI):
 
             craft_runner.stop_all(closing=False)  # FilmCraft/EffectCraft renders stop with the server
             builtin_ai.shutdown()  # the engine's memory goes back to the computer
+            from . import engines
+
+            engines.shutdown()  # ClipForge's ComfyUI stops; the voice's memory is freed
 
 
 def _youtube_retention() -> None:
@@ -116,6 +120,7 @@ app.include_router(studio_routes.router)
 app.include_router(local_routes.router)  # desktop: files used where they are, and background preparation
 app.include_router(project_delete.router)  # what deleting a project does, and deleting a full video
 app.include_router(craft_routes.router)  # editing apps (before the UI catch-all route)
+app.include_router(engine_routes.router)  # local makers: pictures, video, voice (before the UI catch-all)
 app.include_router(maker_routes.router)  # Make → Animated short
 app.include_router(autopilot_routes.router)
 app.include_router(office_routes.router)

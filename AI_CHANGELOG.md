@@ -1,6 +1,6 @@
 # AI changelog
 
-## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-09 (Claude Code)
+## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-10 (Claude Code)
 
 Landry asked to be able to delete projects. Branch `claude/project-thread-8i3krg` from the release line at 95a70e0.
 No release.
@@ -76,6 +76,128 @@ No release.
 - **Known limit:** a file used where it is ("Add from this computer") that is added again for a new page that has
   not saved it yet is not protected the way an upload is (adding it again leaves no record). Only what ClipForge made
   from it goes, never the owner's file; the file may then need to be added again on that page.
+
+## Local makers: the final review's fixes, combined with story clips and animated shorts — 2026-11-10 (Claude Code)
+
+PR #39 (branch `claude/project-thread-nnvh05`) took in the release line twice before merging: PR #40 (story clips,
+merge 850adf0) and PR #36 (animated shorts, merge aff2a0e; `api.py` keeps both routers, `frontend/dist` rebuilt from
+the combined code). Merged into the release line on Landry's standing OK to merge finished work. No release.
+
+- **The shorts maker against the real door:** two tests in `tests/test_local_engines.py` run
+  `clipfoundry/makers/local_engines.py` against `clipfoundry.engines` (cards before set-up, an engine picture made
+  into a still clip, Stop, the built-in voice and its "machine-generated" rule); the shorts test of the set-up note
+  checks both notes (with and without the engines package).
+- **Fixed after the final review** (lifecycle, platforms and the newest code; a skeptic per finding; each fix with a
+  test that failed first):
+  - on Linux the parent-death signal follows the *thread* that started ComfyUI, so a ComfyUI started from a picture
+    job's thread stopped when that job ended: it is now started from one lasting thread, and still ends with
+    ClipForge; on Windows ComfyUI's set-up (uv) runs inside ClipForge's kill-on-close job too;
+  - Stop works while ComfyUI is starting (the half-started ComfyUI is stopped), a picture stopped while ComfyUI is
+    being reached is never sent, and closing ClipForge stops a set-up under way first;
+  - a ComfyUI another ClipForge process started is asked to hand its graphics memory back, and heavy work asks before
+    it waits for graphics memory;
+  - `GET /api/engines/made/<file>` refuses anything but plain folder and file names before looking at a file (on
+    Windows, looking at `\\server\share\x` connects and signs in to that server as the person);
+  - deleting ComfyUI's folders uses Windows long paths, and Remove says so when files could not be deleted;
+  - set-up checks for twice the packages' space (uv unpacks into its cache, then copies) and deletes uv's cache
+    afterwards; `uv venv --clear --force` replaces whatever an earlier environment left; ComfyUI counts as set up
+    only while the Python named in its `pyvenv.cfg` is still there (a moved ClipForge folder is set up again);
+  - the process list is read as UTF-8 on Windows (PowerShell is told to write it) and on the Mac (ps in a UTF-8
+    locale): a ClipForge folder under `C:\Users\José` was never recognised, and under `C:\Users\Müller` reading the
+    list failed;
+  - a stopped download of the shared text encoder stays with the model whose download it was (another model showed
+    "Partly downloaded" and its Remove deleted it); Remove of only a stopped download says so, says that a model
+    ClipForge did not download stays ready, and no longer makes the ComfyUI app unload its models.
+- **Checks:** `tests/test_local_engines.py` 79 passed; on 19dfe77 the full fast suite (2179 passed, 2 skipped) and
+  `pytest -m slow` (30 passed, 1 skipped); the Local makers check (now also reading a folder named with é, ü and 東
+  back from each computer's process list, and failing if set-up leaves uv's cache) passed on GitHub's Mac, Windows
+  and Linux on d2a8e21 (run 42749843276; Linux made its real FLUX.2 klein picture in about 4 minutes). The first run
+  (42749458528, on 19dfe77) failed only on Windows, in the check's own log line: the folder was read back correctly,
+  but printing 東 to a code-page-1252 console failed; the check now writes UTF-8.
+- **Not verified** (needs Landry's computer): as before, Metal speed and memory, a real Wan clip, Windows with an
+  NVIDIA card, the ComfyUI desktop app, and the shorts maker end to end with real engines.
+- **Follow-ups outside the engines:** `clipfoundry/builtin_ai.py` starts llama-server with the same Linux
+  parent-death signal from whichever thread asks; `clipfoundry/craft/routes.py` resolves a requested path before
+  checking it (the Windows network-share risk fixed here for made files).
+
+## Local makers: pictures, video and voice made on this computer — 2026-11-08 (Claude Code)
+
+Landry asked (Nov 7) to look at seven open-source projects he found (FreeVideo, WanGP, ComfyUI Desktop, InvokeAI,
+OpenHiggsfield, VoiceStudio, Tencent WeKnora), plug the useful ones into ClipForge, and keep everything local on his
+Apple silicon Mac and on Windows. Branch `claude/project-thread-nnvh05` from the release line at 95a70e0; PR #39,
+merged on Nov 10 after PR #40 and PR #36 (Landry's standing OK to merge finished work; see the entry above). No
+release.
+Design, every choice and the research: [docs/clipforge/LOCAL_ENGINES.md](docs/clipforge/LOCAL_ENGINES.md).
+
+- **The door** (`clipfoundry/engines/__init__.py`, new package): `make_image`, `make_video`, `speak`, `voices`,
+  `status`, with `progress(fraction, message)` / `cancel()` and one `EngineError` whose message is written for the
+  person. The animated-shorts maker (its own thread) and ClipForge AI call only this. What is made goes to
+  `data/engines/made/<kind>/<day>/` with a `.json` note (model, licence, words, seed, time).
+- **ComfyUI as the picture and video engine** (`comfy_server.py`, `comfy.py`, `graphs.py`, `makers.py`, `models.py`):
+  GPL-3.0, so always a separate program over HTTP on 127.0.0.1, never imported. Either ClipForge's own copy (one
+  button: uv 0.13.7 from PyPI, a private Python 3.12, PyTorch 2.14.1 for Metal / CUDA 13.0 with driver ≥ 580 / the
+  processor, ComfyUI 0.43.0 from GitHub's archive of the tag, its packages as of Nov 7 via `--exclude-newer`), started
+  on demand with `--offline --disable-all-custom-nodes`, stopped after 10 idle minutes, shared between ClipForge
+  processes; or the ComfyUI desktop app found on 127.0.0.1:8000 / :8188. The graphs are ComfyUI's official examples.
+- **Models, all Apache-2.0, full precision** (fp8/int8 do not run on Metal): FLUX.2 klein 4B (recommended on 16 GB
+  Macs and 8 GB NVIDIA cards), Z-Image Turbo (best detail and lettering), Wan 2.2 TI2V 5B (clips up to 5 s from words
+  or a picture). Comfy-Org repositories pinned to commits; the shared Qwen3 4B text encoder is downloaded once.
+  `makers.machine()/fit()/ranked()` recommend the one that suits the computer; Settings says when one will be slow.
+- **The voice** (`voice.py`): Supertonic 3 (OpenRAIL-M; what it makes must be disclosed as machine-generated, so
+  the rule asks for a "Voice is AI-generated" line in the caption) on the processor through ONNX Runtime, ClipForge's
+  own code checked against Supertone's reference; 10 voices, 31 languages, sentence chunks, estimated word timings,
+  WAV out.
+- **Use rules agreed before a download** (`catalog.Model.rule`): Supertonic's OpenRAIL-M rules and the request on Wan's
+  model card are shown in the download dialog, whose button reads "Agree and download"; `setup()` and
+  `POST /api/engines/setup` refuse such a model without `agreed: true`; every picture, clip and voice note carries
+  the rule.
+- **Downloads** (`catalog.py`, `files.py`, `tasks.py`): every file pinned by address, size and SHA-256; resumable,
+  free-space check, safe unpacking, one set-up at a time with Cancel; a model file ClipForge did not download is never
+  replaced (same or different size).
+- **Settings → Pictures, video, voice** (`routes.py`, `frontend/src/components/LocalMakers.tsx`, `studio.ts`): what is
+  ready and why not, the three ComfyUI choices, set-up, each model with licence, size, memory and fit, Download / Use
+  this / Remove (shown only when ClipForge downloaded the files there), a quick try for each part, the voice's licence
+  rule. `frontend/dist` rebuilt. Not offered online (routes answer 404 in cloud mode).
+- **Fixed after a code review (Nov 8, a test written first for each):** a ComfyUI app's model in a subfolder is sent
+  by the name ComfyUI lists; Remove deletes only ClipForge's own downloads in the ComfyUI in use, keeps the shared text
+  encoder while the other model has its files, refuses while a picture is being made, and lets ComfyUI release the
+  files first (Windows); each job saves under its own name (the same request twice failed on ComfyUI's cache); uv's
+  Python stays out of `~/.local/bin` and the Windows registry (`--no-bin --no-registry`, and the machine check fails
+  if not); the venv's seed packages and PyTorch's dependencies are bounded by the checked day too (PyTorch installed
+  alone with `--no-deps`); a complete `.part` file is finished instead of failing on HTTP 416, a refused range starts
+  over once, the final rename retries on Windows; progress never goes backwards; Stop and time-outs wait until ComfyUI
+  has let go of the graph; clearer words for a too-old ComfyUI and a missing model file.
+- **Fixed after a second review (Nov 8, a test written first for each):** Remove keeps the shared text encoder only
+  for a model that is complete or that ClipForge was part way through downloading (a file of the person's own with the
+  same name as one of the other model's files, such as FLUX.1's `ae.safetensors`, made it keep 8 GB for a model that
+  was not there, which nothing could remove afterwards), and says what it kept; a stopped download can be removed
+  (the row says "Partly downloaded"); a picture or clip job now counts from starting ComfyUI to saving its file
+  (`comfy_server.job()`), and Remove (`removing()`) is refused meanwhile and holds new jobs back while it runs, so it
+  can no longer stop the ComfyUI a job is starting; ComfyUI 0.43's own model loader (used on NVIDIA cards) has its
+  damaged-file words turned into plain words too. Found while checking those fixes: a `.part` file counts as
+  ClipForge's in the app's folders only when ClipForge recorded it before its download started (another program's
+  half-downloaded file of the same name was offered for removal), and Remove asks a ComfyUI that another ClipForge
+  process started and shares to unload its models (`Server.release_files()`), since stopping it is not this
+  process's to do and Windows would otherwise refuse the delete; removing ComfyUI itself is refused while such a
+  process runs it (it deleted the program from under it).
+- **Skipped, with reasons** (details in the design doc): FreeVideo (its MiniMax H3 model's licence excludes the
+  United States); WanGP (custom licence needs a paid deal to ship inside a sold app; Wan 2.2 already runs through
+  ComfyUI); InvokeAI (the same models already run through ComfyUI); OpenHiggsfield (only a page for a paid online
+  service, and its code has no licence; the zip was unpacked apart and only read); WeKnora (a team-sized server
+  needing several extra programs; a small passage search in the Brain is a follow-up); VoiceStudio kept for later
+  (its default voice model is non-commercial and the app is heavy; it could add a creator's own cloned voice).
+- **Checks:** `tests/test_local_engines.py` (60, a stand-in ComfyUI and a local file server, each test with its own
+  data folder; `tests/conftest.py` stops any test from downloading); the full fast suite (2029 passed, 2 skipped) and
+  `pytest -m slow` (27 passed, 1 skipped), both on 53dd380;
+  `.github/workflows/local-engines-check.yml` + `scripts/local_engines_check.py` on GitHub's Mac, Windows and Linux
+  machines: every pin compared with its source, ComfyUI set up from nothing and started, a model-free PNG and H.264
+  clip, every graph accepted by the real ComfyUI, the voice (two voices, every word in order, 1.8–3.5× real time),
+  and on Linux a real FLUX.2 klein picture on the processor (about 3 minutes once downloaded); all passed again on
+  53dd380 (run 42704530253). The Settings page was checked in a browser at desktop and phone sizes, again on the
+  final code (download dialogs, a stopped download shown as "Partly downloaded" and removed). Found and fixed by the machine check: ComfyUI exits at once (code 2) when its
+  `--user-directory` does not exist yet.
+- **Not verified** (needs Landry's computer): Metal speed and memory on a 16 GB and a larger Mac, a real Wan clip,
+  Windows with an NVIDIA card, the ComfyUI desktop app, the shorts maker end to end with real engines.
 
 ## Animated shorts: undo keeps the scenes, Stop always frees a short, and the review's fixes — 2026-11-09 (Claude Code)
 
