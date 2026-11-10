@@ -22,8 +22,10 @@ in another program (Windows) is deleted the next time ClipForge starts.
   `tests/test_integration.py` (the page's header on its delete); `frontend/dist` rebuilt. Details:
   [AI_CHANGELOG.md](AI_CHANGELOG.md).
 - **For other work:** a table that belongs to one project goes in `VIDEO_TABLES` or `CLIPS_TABLES` (a listed table that
-  does not exist yet is skipped). ClipForge AI's delete tool calls `plan()` and `delete()`; deleting from a project's
-  own chat deletes that chat too.
+  does not exist yet is skipped). A new place that keeps asset ids must be read by `_used_elsewhere` (and by
+  `_video_asset_ids` when it names a video's own files, as an animated short's scenes do), or deleting another
+  project can remove a file it still needs. ClipForge AI's delete tool calls `plan()` and `delete()`; deleting from
+  a project's own chat deletes that chat too.
 - **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
   run build`; in the app, delete a full video and a clips project from Projects and read the window first.
 - **Not done:** a real Windows PC check (read-only and in-use files are simulated); a Delete action on a full video's

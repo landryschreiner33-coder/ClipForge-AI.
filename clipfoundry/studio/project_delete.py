@@ -1,9 +1,11 @@
-"""Delete a project: a clips project (Highlights or Full stories, the `projects` table) or a full video (Make a
-YouTube video, `studio_projects`). The Projects page, a project's own page and ClipForge AI's actions all use this.
+"""Delete a project: a clips project (Highlights, Full stories or Story parts, the `projects` table) or a full video
+(Make a YouTube video or an animated short, `studio_projects`). The Projects page, a project's own page and
+ClipForge AI's actions all use this.
 
 What goes is everything ClipForge keeps only for that project:
 * its clips with their versions, scores and suggested post text, or its edit history (every revision), previews,
-  finished videos, change requests and media searches, and its folder in the data folder;
+  finished videos, change requests and media searches, an animated short's scenes with the pictures and clips made
+  for them, and its folder in the data folder;
 * the media it was made from when no other project or example uses it: ClipForge's copy of an upload or of a
   downloaded link (with the transcript and preview copy made from it), or, for a file used where it is, only what
   ClipForge made from it;
@@ -13,8 +15,9 @@ What goes is everything ClipForge keeps only for that project:
 
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
-every video, a platform or a mode, and the taste ClipForge AI learned from choices. Deleting a project is tidying up,
-not a verdict on its clips, so it is not a taste lesson.
+every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
+within the last day (a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
+clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
 happen; `delete` does it and returns the same sentences. Work running for the project is stopped first. Autopilot's
@@ -225,19 +228,24 @@ def _own_source(row: dict, pdir: Path) -> str:
 
 
 AGAIN_S = 24 * 3600  # how long a file added again stays protected while no project uses it yet
+STORE_S = 5.0  # the upload that first stores a file finishes within moments of the file's own record
 
 
-def _added_again(asset_id: str, row: dict) -> bool:
+def _added_again(asset: dict, row: dict) -> bool:
     """The owner added this file again, by uploading it once more, after the project was made and within the last
-    day (ClipForge keeps one copy per file, so that upload is this asset): a page may be about to use it, so it
-    stays. One upload is the project's own. The time the project was made is used, not the time it last changed:
-    stopping its work (deleting does that first) changes the project, and the answer must stay what the window
-    said."""
+    day (ClipForge keeps one copy per file, so that upload is this file): a page may be about to use it, so it
+    stays. The upload that first stored the file is not "again" (it is the project's own, also when the project was
+    made first); one upload of a file ClipForge got another way (Find media, a link, a short's build) is. The time
+    the project was made is used, not the time it last changed: stopping its work (deleting does that first)
+    changes the project, and the answer must stay what the window said."""
     with db.connect() as conn:
-        count, newest = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM uploads WHERE asset_id = ? AND status = "
-                                     "'complete'", (asset_id,)).fetchone()
+        done = [float(r[0] or 0) for r in conn.execute(
+            "SELECT updated_at FROM uploads WHERE asset_id = ? AND status = 'complete' ORDER BY updated_at",
+            (asset["id"],))]
+    if done and done[0] <= float(asset.get("created_at") or 0) + STORE_S:
+        done = done[1:]  # the upload that stored it first
     since = max(float(row.get("created_at") or 0), time.time() - AGAIN_S)
-    return int(count or 0) >= 2 and float(newest or 0) > since
+    return bool(done) and done[-1] > since
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -324,7 +332,7 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
             continue
         if aid in elsewhere:
             s.keep.append(asset)
-        elif _added_again(aid, row):
+        elif _added_again(asset, row):
             s.again.append(asset)
         else:
             s.drop.append(asset)
@@ -366,7 +374,7 @@ def _n(count: int, one: str, many: str | None = None) -> str:
 def _names(assets: list[dict], limit: int = 3) -> str:
     names = [f"“{(a.get('filename') or 'a file')[:60]}”" for a in assets[:limit]]
     more = len(assets) - limit
-    return ", ".join(names) + (f" and {_n(more, 'more')}" if more > 0 else "")
+    return ", ".join(names) + (f" and {more} more" if more > 0 else "")
 
 
 def _view(s: _Survey) -> dict:

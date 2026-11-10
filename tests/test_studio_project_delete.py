@@ -744,3 +744,38 @@ def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_yo
         assert db.fetch("assets", kept["id"]) and os.path.isfile(kept["path"])
     assert not db.select("short_scenes", "project_id = ?", (short,))
     assert len(db.select("short_scenes", "project_id = ?", (other,))) == 1
+
+
+def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_upload_that_stored_it_is_not(env):
+    """A file ClipForge got itself (Find media, a link, a short's build) has no upload of its own, so one upload of
+    the same bytes for a new page is the owner adding it again, and it stays. The upload that first stored a file is
+    the project's own, also when the project was made before it (a planned video's files arrive after it)."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    found = _stored(41)
+    with db.connect() as conn:  # Find media brought it in an hour ago
+        conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (time.time() - 3600, found["id"]))
+    vid = _video("Bridge video", [found["id"]], created_at=time.time() - 3500)["id"]
+    assert project_delete.plan("local", vid, "full_video")["counts"]["files"] == 1
+    db.insert("uploads", {"workspace_id": "local", "filename": "bridge.jpg", "size": 3000, "status": "complete",
+                          "asset_id": found["id"]})  # the owner uploads the same file for a new video
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
+    assert "“clip41.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+
+    own = _stored(42)
+    db.insert("uploads", {"workspace_id": "local", "filename": "clip42.mp4", "size": 3000, "status": "complete",
+                          "asset_id": own["id"]})  # the upload that stored it, after the planned video was made
+    planned = _video("Planned video", [own["id"]], status="draft", created_at=time.time() - 60)["id"]
+    assert project_delete.plan("local", planned, "full_video")["counts"]["files"] == 1
+    project_delete.delete("local", planned, "full_video")
+    assert db.fetch("assets", own["id"]) is None and not os.path.exists(own["path"])
+
+
+def test_the_window_counts_the_files_it_does_not_name(env):
+    from clipfoundry.studio import project_delete
+
+    files = [{"filename": f"take{n}.mp4"} for n in range(1, 6)]
+    assert project_delete._names(files) == "“take1.mp4”, “take2.mp4”, “take3.mp4” and 2 more"
+    assert project_delete._names(files[:4]) == "“take1.mp4”, “take2.mp4”, “take3.mp4” and 1 more"

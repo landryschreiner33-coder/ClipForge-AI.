@@ -40,7 +40,7 @@ No release.
   blocks; memories go by their scope only (a memory saved again for another project keeps its first project_id); a
   file the owner uploaded again after the project was made, within the last day, stays (ClipForge keeps one copy per
   file, and a new page may be about to use it; counted from the project's `created_at`, which deleting's own stop
-  cannot move, and a single upload is the project's own); a clips project's own copy of its video (a live recording, a download) is named in
+  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its video (a live recording, a download) is named in
   what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
   deleted at the next start (`finish_later`, only ClipForge's own project, video, link and upload folders), and the
   answer says so (`left_behind`); both DELETE routes only answer ClipForge's own page on this computer (the
@@ -56,7 +56,13 @@ No release.
   in it); the space freed counts a reused render once; "added again" no longer flips to "goes" when the delete's
   own stop changes the project; while deleting, the buttons keep keyboard focus inside the window (aria-disabled)
   and after a refusal focus moves to Close; a failed pin save that is retried no longer pins a deleted project.
-- **Tests:** `tests/test_studio_project_delete.py` (18 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+- **After the animated shorts and story clips joined the release line (2026-11-10):** an animated short's scene
+  files (each scene's picture, its earlier pictures and the scene's clip, also one not in the plan yet) go with
+  it when nothing else uses them; a file another short's scene names, or any media import (also one made for no
+  project), counts as a use and stays; the window names a short's build ("making the short"); one upload of a
+  file ClipForge got another way (Find media, a link) counts as added again; and a window that lists more than
+  four files says "and 2 more", not "and 2 mores". Story parts projects are clips projects and need nothing new.
+- **Tests:** `tests/test_studio_project_delete.py` (21 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
   passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story
