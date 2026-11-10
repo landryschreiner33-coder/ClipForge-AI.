@@ -371,7 +371,7 @@ function LeaveDialog({ target, onClose }: { target: string; onClose: () => void 
       }}>Discard and leave</button>
       {g.save && <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>Save and leave</button>}
     </>}>
-      <p className="muted">You changed {g.what}. If you leave now, those changes are lost.</p>
+      <p className="muted">{g.say || `You changed ${g.what}. If you leave now, those changes are lost.`}</p>
     </Dialog>
   );
 }

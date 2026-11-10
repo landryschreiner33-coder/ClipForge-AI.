@@ -14,8 +14,11 @@ all follow it. The plan stays on the editor page, where changing it edits again 
 planned waits in Projects as a draft, so leaving the page loses nothing.
 
 - **Branch / PR:** `claude/project-thread-2wwa4c`, PR #38 into `claude/project-thread-x72wkd` (the release line,
-  merged in again on Nov 9 with PR #36 and PR #40). Review fixes on Nov 10 (see AI_CHANGELOG.md). Landry's standing
-  word (Nov 9) is to merge finished work into the release line; releases still need an explicit OK. It works with
+  merged in again on Nov 9 with PR #36 and PR #40). Fixes from two reviews on Nov 10 (see AI_CHANGELOG.md): the
+  built-in rules' reading rewritten, merging that keeps what a stopped message said and every hand edit, Undo and
+  failed or canceled plan changes that bring back what the next edit uses, sounds changed by hand that stay, and the
+  pages' guards before you leave or build. Landry's standing word (Nov 9) is to merge finished work into the release
+  line; releases still need an explicit OK. It works with
   and without the assistant's PR #37 (`claude/project-thread-sa113l`): merged in a scratch copy on Nov 10, only
   `frontend/dist` (rebuild it) and the change logs (keep both) conflict, and both sets of tests pass.
 - **Design and limits:** [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md) (what the owner sees, the plan's
@@ -37,10 +40,14 @@ planned waits in Projects as a draft, so leaving the page loses nothing.
   projects (status "draft") so nothing is lost; ClipForge AI's "Make a YouTube video" tool only shows a button that
   opens the page with the idea filled in (the owner drops in the files) instead of starting a video by itself; the
   old one-step `POST /api/studio/videos` stays for scripts and tests; the plan form sends only what you changed, and
-  a line you set by hand stays until a message talks about it again. With a model, its reading of a message wins over
-  the built-in rules' (the rules only fill what it left); "As long as it needs" is its own choice (-1), not "from
-  your style" (0); after the build a plan change only moves the brief fields it changed, and Undo brings the plan
-  back with the video.
+  a line you set by hand stays until a message written after it talks about it again. With a model, its reading of
+  a message wins over the built-in rules' (the rules only fill what it did not use); "As long as it needs" is its own
+  choice (-1), not "from your style" (0); after the build a plan change only moves the brief fields it changed, and
+  Undo brings the plan back with the video, with the brief values, guidance and order it was made with. A plan's
+  sound that you change by hand (move, role, trim, level) becomes yours and stays as you left it, even if the plan's
+  music changes later. Planning never sends Brain notes to NVIDIA (its agreement says they are never sent); the
+  ClipForge AI chat (`brain/chat.py`, older code outside this work) still recalls memories for any provider, NVIDIA
+  included, which the NVIDIA privacy row does not mention: worth a look in the assistant's work.
 - **Not done:** the built-in model's real planning answers, real footage and speech, and a real Mac cannot be tested
   from the cloud computer (the tests use a fake model and made-up transcripts); speaking the idea instead of typing
   it; planning several videos from one drop.

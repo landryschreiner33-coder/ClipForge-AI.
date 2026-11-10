@@ -842,15 +842,18 @@ def plan_skeleton(project: dict, values: dict, assets: dict[str, dict], clips: l
 
     brief = project.get("brief") or {}
     audio = []
+    # a planned video's music and voiceovers follow its plan: each edit places them again (`brief`); without a plan
+    # they are yours once placed, as they always were
+    planned = {"brief": True} if project.get("setup") else {}
     if brief.get("music") == "supplied" and brief.get("music_asset_id") in assets:
         audio.append({**_audio_item("a1", assets[brief["music_asset_id"]], "music",
                                     gain_db=float(values.get("music_level_db", -18)),
                                     duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
-                      "brief": True})  # placed from the brief: a later edit places it again
+                      **planned})
     at = 0
     for aid in brief.get("voiceover_asset_ids") or []:
         if aid in assets:
-            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), "brief": True}
+            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), **planned}
             audio.append(item)
             at += engine.item_length(item) or 0
     return {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,

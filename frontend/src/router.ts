@@ -85,6 +85,8 @@ export function redirect(path: string) {
 export type LeaveGuard = {
   /** What would be lost, in words ("Trim, Captions"). */
   what: string;
+  /** The whole sentence to show instead of "You changed {what}…", for what is not a change (an upload). */
+  say?: string;
   /** Save, then leave. Resolves false (or throws) when saving did not work, so the page stays. */
   save?: () => Promise<boolean | void>;
   /** Forget the unsaved changes (the page's own state). */

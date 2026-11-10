@@ -43,7 +43,7 @@ from .. import config, db
 from ..pipeline import artifact
 from ..pipeline.ffmpeg_utils import extract_audio
 from . import engine, guidance, prefs, styles, uploads
-from .jobs import Lease, enqueue, handler
+from .jobs import Lease, enqueue, handler, on_stop
 
 FEEL_TRANSITIONS = {"calm": ("dissolve", 800), "balanced": ("dissolve", 400), "energetic": ("cut", 0)}
 IMAGE_MS = 4000
@@ -434,14 +434,17 @@ def rough_cut(project: dict, assets: dict[str, dict], words: dict[str, list[dict
         if ws and (start > 500 or length - end > 500):
             notes.append(f"Trimmed silence at the start/end of {a['filename']}.")
     audio = []
+    # a planned video's music and voiceovers follow its plan: each edit places them again (`brief`); without a plan
+    # they are yours once placed, as they always were
+    planned = {"brief": True} if project.get("setup") else {}
     if values.get("music") == "supplied" and brief.get("music_asset_id") in assets:
         audio.append({**_audio_item("a1", assets[brief["music_asset_id"]], "music",
                                     gain_db=float(values.get("music_level_db", -18)),
-                                    duck=bool(values.get("duck_music", True))), "brief": True})
+                                    duck=bool(values.get("duck_music", True))), **planned})
     at = 0
     for aid in brief.get("voiceover_asset_ids") or []:  # one after another from the start, as you listed them
         if aid in assets:
-            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), "brief": True}
+            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), **planned}
             audio.append(item)
             at += engine.item_length(item) or 0
     plan = {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
@@ -758,6 +761,17 @@ def smart_job(job: dict, lease: Lease) -> dict:
     return out
 
 
+@on_stop("video_smart")
+def _smart_stopped(job: dict, how: str) -> None:
+    """An edit that will never run (canceled before it started, or given up after repeated interruptions): a plan
+    change waiting for it goes back. One canceled while it runs puts the plan back itself as it stops."""
+    if how == "canceled" and job.get("attempts") and float(job.get("lease_until") or 0) > time.time():
+        return
+    from . import video_setup
+
+    video_setup.edit_failed(str(job.get("target_id") or ""), int(job.get("revision") or 0))
+
+
 def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     base = job["revision"]
     if project["plan_revision"] != base:
@@ -787,9 +801,11 @@ def _smart_job(project: dict, job: dict, lease: Lease) -> dict:
     lost = [i["label"] for i in current.get("audio") or [] if not i.get("auto") and not i.get("brief") and
             i not in mine]
     auto = [i for i in new.get("audio") or [] if i.get("auto") or i.get("brief") or i["role"] != "voiceover"]
-    if any(i["role"] == "music" for i in mine):
-        auto = [i for i in auto if i["role"] != "music"]
-    auto = [i for i in auto if not any(m["asset_id"] == i["asset_id"] and m["role"] == i["role"] for m in mine)]
+    if any(i["role"] == "music" for i in mine):  # your song stays; ClipForge adds none under it (the plan's does go)
+        auto = [i for i in auto if i["role"] != "music" or i.get("brief")]
+    # a file you placed yourself is not placed again: the plan's file on any track, another on the same one
+    auto = [i for i in auto if not any(m["asset_id"] == i["asset_id"] and (i.get("brief") or m["role"] == i["role"])
+                                       for m in mine)]
     new["audio"] = []
     for n, item in enumerate(mine + auto, 1):
         new["audio"].append({**item, "id": f"a{n}"})
@@ -1222,6 +1238,7 @@ def apply_edit(plan: dict, edit: dict, words: dict[str, list[dict]],
             for i in p["audio"]:
                 if i["role"] == "music":
                     i["gain_db"] = float(value)
+                    i.pop("brief", None)  # the level you set stays: the next edit keeps this music as it is
         elif field == "aspect" and value in engine.ASPECTS:
             p["output"]["aspect"] = value
         elif field == "duck_depth_db":

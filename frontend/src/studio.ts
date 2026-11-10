@@ -186,7 +186,8 @@ export type VideoSetup = { id: string; name: string; status: string; message: st
   lines: string[]; locked: string[]; source: string; planned: boolean; rounds: number; open: SetupQuestion[];
   files: SetupFile[]; chat_id: string; messages: SetupMessage[]; thinking: boolean; listening: boolean;
   style_id: string; reference_id: string; remember: { enabled?: boolean; name?: string }; script: Script | null;
-  model: { ready: boolean; label: string; local: boolean };
+  /** `brain`: Brain notes may go to the model (never to NVIDIA). */
+  model: { ready: boolean; label: string; local: boolean; brain?: boolean };
   /** Still being planned here; false once it is being made (or for a video never planned here). */
   planning: boolean; href: string };
 

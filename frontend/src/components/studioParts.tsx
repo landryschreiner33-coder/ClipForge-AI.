@@ -7,6 +7,8 @@ export type Picked = { key: string; file: File; progress: UploadProgress | null;
   retry?: () => void;
   /** Stop this file's upload (or take it out of the waiting line); it can be resumed later. */
   cancel?: () => void;
+  /** Take this file out: its upload stops and its row goes (picking it again starts it over). */
+  forget?: () => void;
   /** The owner's own file used where it is on this computer (Add from this computer): nothing was uploaded. */
   linked?: boolean };
 
@@ -61,11 +63,22 @@ export function FileDrop({ accept, multiple, label, onAssets, onPicked }: { acce
     if (ctl) ctl.abort();
     else update(key, { error: "Not started. Resume upload when you want it." });
   };
+  const forget = (key: string) => {
+    waiting.current = waiting.current.filter((k) => k !== key);
+    running.current.get(key)?.abort();
+    files.current.delete(key);
+    setRows((rs) => {
+      const next = rs.filter((r) => r.key !== key);
+      onAssets(next);
+      return next;
+    });
+  };
   const add = (list: FileList | null) => {
     if (!list?.length) return;
     const fresh: Picked[] = Array.from(multiple ? list : [list[0]]).map((file) => {
       const key = `${file.name}|${file.size}|${file.lastModified}`;
-      return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key) };
+      return { key, file, progress: null, asset: null, error: "", retry: () => start(key), cancel: () => stop(key),
+        forget: () => forget(key) };
     });
     fresh.forEach((r) => files.current.set(r.key, r.file));
     onPicked?.(fresh.map((r) => r.key));  // picked on purpose, also a file picked before

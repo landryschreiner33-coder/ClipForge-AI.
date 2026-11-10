@@ -210,12 +210,127 @@ def test_story_title_and_opening_edge_cases():
     assert p["opening"] == "" and p["cold_open"] == "off"
 
 
+def test_the_videos_length_beats_a_parts_and_plain_lengths_count():
+    for text, minutes in (("Make it 10 minutes. The drone shot is about 30 seconds, use all of it", 10),
+                          ("The video should be 10 minutes and the intro should be about 30 seconds", 10),
+                          ("10 minute video. My favorite part is the dock jump, it's only like 20 seconds", 10),
+                          ("12 minutes, with the drive cut down to 2 minutes", 12),
+                          ("I want a 12 minute vlog. The ceremony was about 20 minutes so trim it", 12),
+                          ("My footage is 2 hours, make it 15", 15), ("the talk runs 1 hour, trim it down to 12", 12),
+                          ("the clip is 90 seconds, make it 60", 1), ("15 minutes for youtube", 15),
+                          ("10 minutes is good", 10), ("I'd say 10 minutes", 10), ("Length: 10 minutes", 10),
+                          ("I don’t want it longer than 10 minutes", 9), ("10 to 12 minutes would be great", 11),
+                          ("Give me 10 minutes of the best bits", 10),
+                          ("As long as it needs, but no more than 15 minutes", 13.5),
+                          ("however long it takes, 10 minutes max", 10),
+                          ("Make it 10 minutes. Actually, as long as it needs", vs.NO_LENGTH)):
+        assert read(text).get("length_min") == minutes, text
+    for text in ("I've got about 3 hours, so make it short and fun", "I’ve got like 2 hours, make it short",
+                 "Use whatever music you want, as long as you like it", "we need to cut 20 minutes",
+                 "it's more than 10 minutes"):
+        assert "length_min" not in read(text), text
+
+
+def test_a_no_counts_only_when_it_says_no_to_the_thing():
+    for text in ("Grandma can't hear well and needs captions", "Don't make the captions too big",
+                 "don't put the captions over our faces", "No emojis in the captions please",
+                 "I hate when videos don't have captions", "I never add captions myself, can you add them"):
+        assert read(text).get("captions") != "off", text
+    for text in ("no music and captions on", "Don't lose the captions", "Never remove the captions",
+                 "People who watch without sound need captions", "I don't want to skip the captions"):
+        assert read(text)["captions"] == "on", text
+    for text in ("I don't want music and captions", "please get rid of the captions", "no need for captions"):
+        assert read(text)["captions"] == "off", text
+    assert read("make it calm, no music and sound effects on")["sound_effects"] == "on"
+    for text in ("Don't make the background music too loud", "I don't have any background music, can you add some?",
+                 "It feels empty without background music", "I don't want music during the vows, only at the party",
+                 "I don't want music over the talking parts", "I can't wait to hear it with music"):
+        assert read(text).get("music") != "none", text
+    assert read("Use free music. I don't want music with lyrics though")["music"] == "library"
+    assert read("add music, but I don't want music during the speeches")["music"] == "auto"
+    for text in ("no music in the video please", "it's better without music", "no music at all"):
+        assert read(text)["music"] == "none", text
+    for text in ("can't wait for the zooms", "Don't overdo the zooms"):
+        assert read(text).get("zooms") != "off", text
+    assert "feel" not in read("don't make it too fast-paced")
+    for text in ("Don't cut a thing from the first dance, cut the rest down to 10 minutes",
+                 "don't trim my footage too much", "No need to cut anything from the interview, just add captions"):
+        assert read(text).get("edit") != "off", text
+    assert read("Don't cut a thing from the first dance, cut the rest down to 10 minutes")["length_min"] == 10
+
+
+def test_shapes_titles_requests_and_stories_in_everyday_words():
+    for text, shape in (("It should be vertical", "9:16"), ("I'd like it vertical", "9:16"),
+                        ("Let's do vertical", "9:16"), ("I think vertical works best", "9:16"),
+                        ("I need it to be square", "1:1"), ("Go with square", "1:1"),
+                        ("This one is for YouTube so horizontal is fine", "16:9"), ("make a reel for my insta", "9:16"),
+                        ("A lake vlog. It should be around 15 minutes, horizontal for youtube, calm.", "16:9")):
+        assert read(text).get("aspect_ratio") == shape, text
+    for text in ("the landscape is beautiful there", "we met at the square", "It'll be landscape shots mostly"):
+        assert "aspect_ratio" not in read(text), text
+    for text, title in (("Call it Mom’s 60th Birthday", "Mom’s 60th Birthday"),
+                        ("Title it “Dad’s Big Catch”", "Dad’s Big Catch"), ("Let's call it Lake Days", "Lake Days"),
+                        ("I'd like to call it Summer at the Lake", "Summer at the Lake"),
+                        ("We call it Lake Days", "Lake Days"), ("Title: Lake Days. Length: 10 minutes.", "Lake Days")):
+        assert read(text).get("title") == title, text
+    assert "title" not in read("the locals call it the blue lagoon")
+    for text, key, item in (("I'd like you to cut the traffic part", "cut", "traffic part"),
+                            ("Can we cut the traffic part?", "cut", "traffic part"),
+                            ("Could we keep the sunset?", "keep", "sunset"),
+                            ("I think you should cut the gas station", "cut", "gas station"),
+                            ("I really want to keep the sunset", "keep", "sunset"),
+                            ("Need to cut the traffic part", "cut", "traffic part")):
+        assert read(text).get(key) == [item], text
+    assert read("First we drive up, then set up the tent, then swim, then make dinner, and finally the sunset")[
+        "story"] == ["we drive up", "set up the tent", "swim", "make dinner", "the sunset"]
+    assert read("First turn on the machine, then add the beans, then grind, then brew")["story"] == [
+        "turn on the machine", "add the beans", "grind", "brew"]
+    assert read("first the drive, then swimming, then make it 8 minutes")["story"] == ["the drive", "swimming"]
+
+
+def test_a_named_sound_takes_the_role_its_sentence_gives_it():
+    beach = [{"id": "b1", "kind": "audio", "filename": "beach vibes.mp3", "duration": 200.0},
+             {"id": "b2", "kind": "audio", "filename": "me talking.m4a", "duration": 60.0},
+             {"id": "v1", "kind": "video", "filename": "dock_jump.mp4", "duration": 190.0}]
+    p = vs.rules_read("For the background music, use beach vibes.mp3", beach)[0]
+    assert p["music"] == "mine" and p["music_file"] == "b1"
+    assert vs.rules_read("Music wise, beach vibes please", beach)[0]["music_file"] == "b1"
+    assert vs.rules_read("For the voiceover, use me talking.m4a", beach)[0]["voiceover_files"] == ["b2"]
+    assert "music_file" not in vs.rules_read("For the music, don't use beach vibes", beach)[0]
+
+
+def test_reading_a_long_odd_message_stays_quick():
+    import time
+
+    for text in (("you have to " * 330 + "keep the sunset")[:4000], ("you need to " * 330)[:4000],
+                 ("can you please " * 260)[:4000], ("make sure you can " * 220)[:4000], ("don't " * 650)[:4000],
+                 ("no music and " * 300)[:4000], ("10 minutes " * 360)[:4000]):
+        started = time.perf_counter()
+        vs.rules_read(text, FILES)
+        vs.mentions(text)
+        assert time.perf_counter() - started < 2.0, text[:30]
+
+
 def test_mentions_say_which_parts_of_the_plan_a_message_touches():
     assert vs.mentions("make it a bit shorter") >= {"length_min"}
     assert "feel" in vs.mentions("more chill please")
     assert "music" in vs.mentions("change the song")
     assert {"keep", "cut"} <= vs.mentions("you don't have to keep the sunset")
     assert vs.mentions("thanks!") == set()
+    assert "length_min" in vs.mentions("cut it in half") and "opening" in vs.mentions("lead with the sunset instead")
+    assert "length_min" in vs.mentions("as long as it needs")
+    for text in ("Use whatever song you want, as long as you like it", "long story short, we got lost",
+                 "it was a long drive"):
+        assert "length_min" not in vs.mentions(text), text
+    # "as long as you like it" does not let go of a length said before
+    said = vs.standing([("Make it 10 minutes", ""), ("Use whatever song you want, as long as you like it", "")], FILES)
+    assert said["length_min"] == 10
+    # a quick answer talks about what its question asked
+    assert vs.asks_about({"id": "q1", "q": "Should it open with the sunset?"}) == ["cold_open", "opening"]
+    assert vs.asks_about({"id": "length", "q": "About how long should it be?", "field": "length_min"}) == [
+        "length_min"]
+    assert "opening" not in vs.standing([("Open with the dock jump", ""), ("Yes", "q1", ["cold_open", "opening"])],
+                                        FILES)
 
 
 # ------------------------------------------------------------------ the questions
@@ -345,6 +460,10 @@ def test_merge_the_model_reads_first_and_hand_edits_win():
     # a story said in the newest message replaces the old one
     out = vs.merge({**base, "story": ["a", "b"]}, None, explicit={"story": ["c", "d"]}, mentioned={"story"}, locked={})
     assert out["story"] == ["c", "d"]
+    # where the model's reading of a part was not used (said before, and not talked about now), the rules' reading
+    # of it still fills it: one of the two always counts
+    out = vs.merge(base, model, explicit={"feel": "balanced"}, mentioned=set(), locked={}, decided={"feel"})
+    assert out["feel"] == "balanced" and out["length_min"] == 8
 
 
 # ------------------------------------------------------------------ the model's answer

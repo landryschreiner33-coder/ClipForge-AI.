@@ -3,7 +3,7 @@ import { errorText, fmtTime } from "../api";
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptDrop } from "../components/ScriptDrop";
 import { ExampleSelect, FileDrop, linkedRow, Picked, StyleSelect, UploadRow } from "../components/studioParts";
-import { Banner, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast, usePoll } from "../components/ui";
+import { Banner, Dialog, Disclosure, Icon, LoadingPage, PageHead, Toggle, toast, usePoll } from "../components/ui";
 import { PlanForm, PlanSheet, useChanged } from "../components/VideoPlan";
 import { useAppearance } from "../prefs";
 import { navigate, redirect, useLeaveGuard } from "../router";
@@ -36,7 +36,7 @@ function ideaFromLink(): string {
 function ModelLine({ model }: { model: VideoSetup["model"] | null }) {
   if (!model) return null;
   return model.ready
-    ? <p className="small muted">ClipForge AI uses {model.label}{model.local ? ", on this computer" : ", over the internet"}. It reads text only: your idea, the conversation, your file names, what is said in your videos, and the memories, know-how and helper notes that fit your idea. <a href="#/settings/ai">Change</a></p>
+    ? <p className="small muted">ClipForge AI uses {model.label}{model.local ? ", on this computer" : ", over the internet"}. It reads text only: your idea, the conversation, the plan so far, your file names, what is said in your videos, {model.brain === false ? "know-how and helper notes (never your Brain notes)" : "your Brain rules, and the memories, know-how and helper notes that fit your idea"}. <a href="#/settings/ai">Change</a></p>
     : <p className="small muted">ClipForge AI has no model yet, so its built-in rules read what you say (lengths, shapes, feel, music, captions, what to keep or cut, how it opens). <a href="#/settings/ai">Set up the free built-in model</a> to talk about anything.</p>;
 }
 
@@ -131,7 +131,7 @@ function Start() {
                     <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.file.name} down`} disabled={i === ordered.length - 1} onClick={() => move(f.key, 1)}><Icon name="chev" className="vs-down" /></button>
                     <button type="button" className="btn btn-small btn-icon" aria-label={`Remove ${f.file.name}`} onClick={() => {
                       removed.current.add(f.key);
-                      if (!f.asset) f.cancel?.();  // no need to finish uploading it
+                      f.forget?.();  // its upload stops and it leaves the drop's list too (picking it again starts over)
                       setOrder((o) => o.filter((k) => k !== f.key));
                     }}><Icon name="x" /></button>
                   </>} />
@@ -206,14 +206,19 @@ function Planning({ id }: { id: string }) {
   const [saving, setSaving] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [uploading, setUploading] = useState(0);
+  const [formDirty, setFormDirty] = useState(false);
+  const [unsent, setUnsent] = useState<SetupMode | "" | null>(null);  // Build pressed with words not sent yet
   const changed = useChanged(s?.plan);
   const log = useRef<HTMLDivElement>(null);
   const sayBox = useRef<HTMLTextAreaElement>(null);
   const handButton = useRef<HTMLButtonElement>(null);
   // the conversation and the plan are saved as you go; what is not saved yet is said before you leave
-  const unsaved = [editing && "your changes to the plan", text.trim() && "the message you are writing",
-    uploading > 0 && "files still uploading"].filter(Boolean).join(", ");
-  useLeaveGuard(useMemo(() => (unsaved ? { what: unsaved } : null), [unsaved]));
+  const losing = [editing && formDirty && "your changes in the plan form", text.trim() && "the message you are writing",
+    uploading > 0 && (uploading === 1 ? "a file still uploading" : `${uploading} files still uploading`)]
+    .filter((x): x is string => !!x);
+  const unsaved = losing.length ? `If you leave now, you lose ${losing.length > 1
+    ? `${losing.slice(0, -1).join(", ")} and ${losing[losing.length - 1]}` : losing[0]}.` : "";
+  useLeaveGuard(useMemo(() => (unsaved ? { what: losing.join(", "), say: unsaved } : null), [unsaved]));  // eslint-disable-line react-hooks/exhaustive-deps
   const last = s?.messages[s.messages.length - 1];
 
   useEffect(() => {
@@ -247,13 +252,19 @@ function Planning({ id }: { id: string }) {
     try {
       const out = await studio.sayToSetup(id, t, question);
       setData(out.setup);
-      if (!question) setText((now) => (now.trim() === t ? "" : now));  // words typed while it sent stay
+      // words typed while it sent stay; the ones sent go
+      if (!question) setText((now) => (now.startsWith(words) ? now.slice(words.length).replace(/^[\s,;]+/, "") : now.trim() === t ? "" : now));
       if (out.setup.thinking || out.setup.listening) refresh();
       if (question) window.requestAnimationFrame(() => sayBox.current?.focus());  // the answers you tapped are gone
     } catch (e) {
       setProblem(errorText(e));
     }
     setSending(false);
+  };
+  /** Build my video, Just do it: words typed but not sent are asked about first (the page leaves when it builds). */
+  const tryBuild = (mode: SetupMode | "" = "") => {
+    if (text.trim()) setUnsent(mode);
+    else void build(mode);
   };
   const build = async (mode: SetupMode | "" = "") => {
     setBuilding(true);
@@ -278,6 +289,7 @@ function Planning({ id }: { id: string }) {
   };
   const closeForm = () => {
     setEditing(false);
+    setFormDirty(false);
     window.requestAnimationFrame(() => handButton.current?.focus());
   };
   const stop = async () => {
@@ -302,6 +314,8 @@ function Planning({ id }: { id: string }) {
     }
   };
   const open = last && last.role === "ai" && last.status === "done" ? s.open : [];
+  const waitFor = uploading > 0 ? "Build my video waits until your files have uploaded."
+    : editing && formDirty ? "Save or cancel your changes to the plan first." : "";
 
   return (
     <div className="page">
@@ -321,7 +335,7 @@ function Planning({ id }: { id: string }) {
             {s.messages.length === 0 && <p className="cfai-empty">Tell ClipForge AI your idea below.</p>}
             {s.messages.map((m) => (
               <Message key={m.id} m={m} open={m === last ? open : []} busy={sending || building} stopping={stopping}
-                onAnswer={(q, choice) => void say(choice, q.id)} onJustDoIt={() => void build("auto")}
+                waitFor={waitFor} onAnswer={(q, choice) => void say(choice, q.id)} onJustDoIt={() => tryBuild("auto")}
                 onStop={() => void stop()} />
             ))}
           </div>
@@ -343,14 +357,16 @@ function Planning({ id }: { id: string }) {
             <div className="panel-head"><h2 id="vs-plan-h">The plan</h2>
               {s.planned && <span className="small muted">{s.source === "ai" ? "Written by ClipForge AI" : "Read by the built-in rules"}</span>}</div>
             {editing
-              ? <PlanForm plan={s.plan} files={s.files} busy={saving} saveLabel="Save the plan" onSave={savePlan} onCancel={closeForm} />
+              ? <PlanForm plan={s.plan} files={s.files} busy={saving} saveLabel="Save the plan" onSave={savePlan} onCancel={closeForm}
+                onDirty={setFormDirty} />
               : <PlanSheet name={s.name} plan={s.plan} files={s.files} changed={changed} />}
             {!editing && <div className="vs-plan-actions">
-              <button type="button" className="btn btn-primary" disabled={building || s.thinking} onClick={() => void build()}>
+              <button type="button" className="btn btn-primary" disabled={building || s.thinking || uploading > 0} onClick={() => tryBuild()}>
                 <Icon name="create" />{building ? "Starting…" : "Build my video"}</button>
               <button type="button" ref={handButton} className="btn" onClick={() => setEditing(true)}><Icon name="edit" />Change it by hand</button>
             </div>}
             {s.thinking && !editing && <p className="small muted">Build my video waits until ClipForge AI has answered.</p>}
+            {!s.thinking && !editing && uploading > 0 && <p className="small muted">Build my video waits until your files have uploaded.</p>}
             {s.locked.length > 0 && !editing && <p className="small muted">What you changed by hand stays as you set it until you talk about it again.</p>}
           </section>
           <FilesPanel s={s} onMove={move} onRemove={(fid) => void reorder(ids.filter((x) => x !== fid))}
@@ -358,14 +374,23 @@ function Planning({ id }: { id: string }) {
           <MoreChoices s={s} run={run} />
         </div>
       </div>
+      {unsent !== null && (
+        <Dialog title="Send your message first?" onClose={() => setUnsent(null)} actions={<>
+          <button type="button" className="btn btn-quiet" onClick={() => setUnsent(null)}>Stay</button>
+          <button type="button" className="btn" onClick={() => { const mode = unsent; setUnsent(null); void build(mode); }}>Build without it</button>
+          <button type="button" className="btn btn-primary" data-autofocus onClick={() => { setUnsent(null); void say(text); }}>Send it first</button>
+        </>}>
+          <p className="muted">You wrote a message but did not send it. Send it so ClipForge AI plans with it, then build; or build with the plan as it is.</p>
+        </Dialog>
+      )}
     </div>
   );
 }
 
 /** One message of the conversation. The newest answer carries the open questions with quick answers. */
-function Message({ m, open, busy, stopping, onAnswer, onJustDoIt, onStop }: {
-  m: SetupMessage; open: SetupQuestion[]; busy: boolean; stopping: boolean; onAnswer: (q: SetupQuestion, choice: string) => void;
-  onJustDoIt: () => void; onStop: () => void;
+function Message({ m, open, busy, stopping, waitFor, onAnswer, onJustDoIt, onStop }: {
+  m: SetupMessage; open: SetupQuestion[]; busy: boolean; stopping: boolean; waitFor: string;
+  onAnswer: (q: SetupQuestion, choice: string) => void; onJustDoIt: () => void; onStop: () => void;
 }) {
   if (m.role === "owner") return <div className="cfai-msg owner"><p className="vs-text">{m.text}</p></div>;
   if (m.status === "thinking") {
@@ -395,9 +420,9 @@ function Message({ m, open, busy, stopping, onAnswer, onJustDoIt, onStop }: {
             </div>
           ))}
           <div className="chip-row">
-            <button type="button" className="chip vs-just" disabled={busy} onClick={onJustDoIt}><Icon name="spark" size={14} /> Just do it</button>
+            <button type="button" className="chip vs-just" disabled={busy || !!waitFor} onClick={onJustDoIt}><Icon name="spark" size={14} /> Just do it</button>
           </div>
-          <p className="hint">Tap an answer, write your own below, or press Just do it to build with the plan as it is.</p>
+          <p className="hint">{waitFor || "Tap an answer, write your own below, or press Just do it to build with the plan as it is."}</p>
         </div>
       )}
       {helpers.length > 0 && (
@@ -452,7 +477,8 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
     return () => { alive = false; };
   }, []);
   const add = (assetIds: string[], again = false) => {
-    if (again) assetIds.forEach((a) => added.current.delete(a));  // picked on purpose: also one taken out before
+    // picked on purpose: also one taken out before (one still in the video stays known, so taking it out later holds)
+    if (again) assetIds.filter((a) => !s.files.some((f) => f.id === a)).forEach((a) => added.current.delete(a));
     const fresh = assetIds.filter((a) => !added.current.has(a) && !s.files.some((f) => f.id === a));
     if (!fresh.length) return;
     fresh.forEach((a) => added.current.add(a));

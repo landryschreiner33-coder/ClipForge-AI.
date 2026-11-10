@@ -139,6 +139,47 @@ test("Just do it on a question builds with the plan as it is", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("words not sent and plan changes not saved are asked about before they are lost", async ({ page }) => {
+  const errors = watch(page);
+  await page.goto("/#/create/video");
+  await drop(page, [media.dock]);
+  await page.locator(".vs-idea textarea").fill("A fishing trip with my brother, about 10 minutes");
+  await page.locator(".vs-modes label", { hasText: "Ask me questions" }).click();
+  await page.locator(".vs-go button").click();
+  await expect(page).toHaveURL(/#\/create\/video\/vid-/);
+  const planning = page.url();
+  await expect(line(page, "Length")).toHaveText("About 10 minutes");
+  // the plan form opened and left as it was: nothing jumps to Minutes, and leaving asks nothing
+  await page.getByRole("button", { name: "Change it by hand" }).click();
+  const form = page.locator(".vs-form");
+  await expect(form).toBeVisible();
+  await expect(form.locator(":focus")).toHaveCount(0);
+  await page.locator(".crumbs a", { hasText: "Projects" }).click();
+  await expect(page).toHaveURL(/#\/projects$/);
+  await page.goto(planning);
+  // a change in the form is named before you leave
+  await page.getByRole("button", { name: "Change it by hand" }).click();
+  await form.locator("label.field", { hasText: "Feel" }).locator("select").selectOption("calm");
+  await expect(page.locator(".vs-just")).toBeDisabled();  // Just do it waits for the form
+  await expect(page.locator(".vs-asks .hint")).toHaveText("Save or cancel your changes to the plan first.");
+  await page.locator(".crumbs a", { hasText: "Projects" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("If you leave now, you lose your changes in the plan form.");
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  await expect(page).toHaveURL(planning);
+  await form.getByRole("button", { name: "Cancel" }).click();
+  // Build my video with words typed but not sent: send them first, and they count
+  const say = page.getByLabel("Tell ClipForge AI");
+  await say.fill("make it 5 minutes");
+  await page.getByRole("button", { name: "Build my video" }).click();
+  await expect(dialog).toContainText("You wrote a message but did not send it");
+  await dialog.getByRole("button", { name: "Send it first" }).click();
+  await expect(line(page, "Length")).toHaveText("About 5 minutes");
+  await expect(say).toHaveValue("");
+  await expect(page).toHaveURL(planning);
+  expect(errors).toEqual([]);
+});
+
 test("Just do it from the start builds at once, and the choice is remembered for next time", async ({ page }) => {
   const errors = watch(page);
   await page.goto("/#/create/video");
