@@ -891,3 +891,39 @@ def test_editor_page_flow_open_files_save_and_the_web_build(env, tools, monkeypa
         s = api.get(f"/api/studio/videos/{vid}/filmcraft/editor?revision=2", headers=H).json()
         assert s["hand"] and s["ready"] and any(m["name"].endswith("my-logo.png") or "logo" in m["name"]
                                                 for m in s["media"])
+
+
+def test_filmcraft_editor_files_refuse_other_drives_and_network_shares_before_looking(env, monkeypatch):  # noqa: F811
+    """On Windows, looking at \\\\server\\share\\x.js connects to that server and signs in as the person, and any web
+    page can ask this computer's ClipForge for /craft/filmcraft/<address> (an image or script tag needs no
+    permission). FilmCraft's editor files are only plain folder and file names inside its folder: anything else is
+    refused before a file is looked at."""
+    from fastapi.testclient import TestClient
+
+    from clipfoundry.api import app
+    from clipfoundry.craft import apps
+
+    web_dir = env / "web"
+    (web_dir / "assets").mkdir(parents=True)
+    (web_dir / "index.html").write_text("<!doctype html><title>FilmCraft</title>")
+    (web_dir / "assets" / "app.js").write_text("export {}")
+    (web_dir / "assets" / "index.html").write_text("<!doctype html><title>inner</title>")
+    monkeypatch.setattr(apps, "web_root", lambda key: web_dir)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
+        looked = []
+        for name in ("resolve", "is_file", "is_dir", "exists", "stat"):
+            real = getattr(Path, name)
+            monkeypatch.setattr(Path, name, lambda self, *a, _real=real, **k: (looked.append(str(self)),
+                                                                                _real(self, *a, **k))[1])
+        for bad in ("//evil.example/share/x.js", "%5C%5Cevil.example%5Cshare%5Cx.js", "assets%5C..%5Cevil.js",
+                    "C:/evil/x.js", "C:evil.js", "index.html:evil", "assets/%2E%2E/%2E%2E/evil.js",
+                    "%2Fevil%2Fx.js", "evil%00.js"):
+            assert api.get(f"/craft/filmcraft/{bad}").status_code == 404, bad
+        assert not [p for p in looked if "evil" in p], looked
+        r = api.get("/craft/filmcraft/index.html")
+        assert r.status_code == 200 and "FilmCraft" in r.text
+        assert api.get("/craft/filmcraft/").status_code == 200  # the editor's own page
+        r = api.get("/craft/filmcraft/assets/app.js")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/javascript")
+        assert "inner" in api.get("/craft/filmcraft/assets/").text  # a folder serves its index.html
+        assert api.get("/craft/filmcraft/assets/missing.js").status_code == 404

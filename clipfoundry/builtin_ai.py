@@ -19,10 +19,12 @@ Nothing here is required: without the built-in model the rules decide alone, exa
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import logging
 import os
+import queue
 import secrets
 import shutil
 import socket
@@ -541,6 +543,36 @@ def _linux_pdeathsig() -> None:  # runs in the child before exec: die with the p
         pass
 
 
+_spawns: queue.Queue = queue.Queue()
+_spawner: threading.Thread | None = None
+_spawner_lock = threading.Lock()
+
+
+def _spawn_loop() -> None:
+    while True:
+        cmd, kwargs, done = _spawns.get()
+        try:
+            done.set_result(subprocess.Popen(cmd, **kwargs))  # noqa: S603 - a verified program, fixed arguments
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller
+            done.set_exception(exc)
+
+
+def _popen(cmd: list[str], kwargs: dict) -> subprocess.Popen:
+    """Start the engine. On Linux it is started from one thread that lives as long as ClipForge: the engine is told
+    to stop when the thread that started it ends (PR_SET_PDEATHSIG belongs to a thread, not to the process), so an
+    engine started from a short-lived thread (a background warm-up, a finished job) would go with that thread."""
+    global _spawner
+    if not sys.platform.startswith("linux"):
+        return subprocess.Popen(cmd, **kwargs)  # noqa: S603 - a verified program, fixed arguments
+    with _spawner_lock:
+        if _spawner is None or not _spawner.is_alive():
+            _spawner = threading.Thread(target=_spawn_loop, daemon=True, name="builtin-ai-spawner")
+            _spawner.start()
+    done: concurrent.futures.Future = concurrent.futures.Future()
+    _spawns.put((cmd, kwargs, done))
+    return done.result()
+
+
 def build_command(exe: Path, files: dict[str, Path], port: int, key: str, threads: int) -> list[str]:
     cmd = [str(exe), "-m", str(files["model"]), "--host", "127.0.0.1", "--port", str(port), "--api-key", key,
            "-a", ALIAS, "-c", str(CONTEXT), "-ngl", "auto", "-np", "1", "--no-webui", "--offline",
@@ -648,7 +680,7 @@ class Server:
                 kwargs["preexec_fn"] = _linux_pdeathsig
             log.info("starting the built-in model (%s) on port %s", MODELS[level]["model"], port)
             try:
-                proc = subprocess.Popen(cmd, **kwargs)  # noqa: S603 - a verified program, fixed arguments
+                proc = _popen(cmd, kwargs)
             except OSError as exc:
                 raise BuiltinError(f"The built-in model could not start: {exc}") from exc
             finally:
