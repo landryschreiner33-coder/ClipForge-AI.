@@ -23,12 +23,15 @@ import re
 import time
 from pathlib import Path
 
+from .. import config
+from ..studio import local_files
 from .runner import CraftError
 
 MAX_PROJECT = 256 << 20    # FilmCraft's own limit for a project it opens
 MAX_FILE = 512 << 20       # ...and for a file the page hands it
 FILES = "/files/"
-_PATHISH = re.compile(r"^(?:/|~|\\\\|[A-Za-z]:[\\/]|file:)", re.I)
+_PATHISH = re.compile(r"^(?:/|~|\\|[A-Za-z]:[\\/]|file:)", re.I)  # a leading \ too: \\server\share, \/server/share
+_CLIMB = re.compile(r"(?:^|[\\/])\.\.[\\/]|[\\/]\.\.$|^[A-Za-z]:\.\.(?:[\\/]|$)")  # ..\x, a/../b, a/.., C:..\x
 _VIRTUAL = ("/projects/", "/exports/")  # the editor's own folders for projects and exports: nothing is read there
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]+")
 _PLAIN = re.compile(r"[^A-Za-z0-9._-]+")  # the names ClipForge gives files in the editor (FilmCraft keeps them)
@@ -61,10 +64,18 @@ def file_name(n: int, path: Path) -> str:
     return f"{n:02d}-{stem}{ext}"
 
 
-def _resolve(value: str, base: Path) -> Path | None:
+def _resolve(value: str, base: Path, roots: list[dict]) -> Path | None:
+    """The file a text in the project names, or None. Every text is a possible file (FilmCraft names files in many
+    places), so another computer's address (\\\\server\\share, //server/share; an AI's title or a project saved
+    from the editor can say anything) is never looked up: on Windows, looking at one connects to that server and signs
+    in as the person. A share the owner lets ClipForge read (`roots`: local_files.roots, mapped drives included, and
+    ClipForge's own data folder) is looked up as before."""
     if not value or value.startswith(FILES) or value.startswith(_VIRTUAL):
         return None
-    p = Path(value[7:] if value.startswith("file://") else value)
+    raw = value[7:] if value.startswith("file://") else value
+    if local_files.other_computer(raw, roots):
+        return None
+    p = Path(raw)
     p = p if p.is_absolute() else base / p
     try:
         return p.resolve() if p.is_file() else None
@@ -78,9 +89,10 @@ def session(project: Path, manifest: Path, url: str) -> dict:
     doc = _load(project.read_bytes())
     names: dict[str, str] = {}
     by_path: dict[str, str] = {}
+    roots = [*local_files.roots(), {"label": "data", "path": str(config.data_dir().resolve())}]  # a share too
 
     def visit(_key: str, value: str) -> str:
-        real = _resolve(value, project.parent)
+        real = _resolve(value, project.parent, roots)
         if real is None:
             return value
         name = by_path.get(str(real))
@@ -162,7 +174,7 @@ def accept(data: bytes, manifest: Path) -> tuple[bytes | None, list[str]]:
             return value
         if v.startswith(_VIRTUAL) and ".." not in v:
             return value
-        if _PATHISH.match(v) or re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I):
+        if _PATHISH.match(v) or _CLIMB.search(v) or re.match(r"^[a-z][a-z0-9+.-]*://", v, re.I):
             bad.append(v[:80])
         return value
 

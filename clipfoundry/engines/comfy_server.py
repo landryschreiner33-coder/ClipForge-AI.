@@ -432,23 +432,6 @@ def build_command(port: int, flavor: str) -> list[str]:
     return cmd
 
 
-_starter_lock = threading.Lock()
-_starter = None  # concurrent.futures.ThreadPoolExecutor with one thread, made on first use
-
-
-def _popen_lasting(cmd: list[str], **kwargs) -> subprocess.Popen:
-    """subprocess.Popen from one thread that lasts as long as ClipForge. On Linux ComfyUI is told to stop when its
-    parent ends (the parent-death signal), and Linux counts the *thread* that started a program as its parent, not
-    the whole ClipForge: started from a job's thread, ComfyUI stopped as soon as that job ended."""
-    global _starter
-    with _starter_lock:
-        if _starter is None:
-            from concurrent.futures import ThreadPoolExecutor
-
-            _starter = ThreadPoolExecutor(max_workers=1, thread_name_prefix="comfy-start")
-    return _starter.submit(subprocess.Popen, cmd, **kwargs).result()
-
-
 class Server:
     """One ComfyUI process at a time, started on demand and stopped when idle."""
 
@@ -542,8 +525,7 @@ class Server:
             if progress:
                 progress(0.01, "Starting ComfyUI")
             try:
-                start = _popen_lasting if "preexec_fn" in kwargs else subprocess.Popen
-                proc = start(cmd, **kwargs)  # noqa: S603 - the checked environment, fixed arguments
+                proc = builtin_ai._popen(cmd, kwargs)  # noqa: SLF001 - on Linux, from the one lasting thread
             except OSError as exc:
                 raise EngineError(f"ComfyUI could not start: {exc}") from exc
             finally:
