@@ -354,9 +354,11 @@ change) and, on a helper's own answer, `agent`. Limits: a message is at most 4,0
 **The daily limit for an online AI** (`clipfoundry/brain/allowance.py`, "AI requests a day" in Settings → Advanced,
 `ai_edit_requests_per_day`; 0 never sends one) counts requests, one by one: every round of
 ClipForge AI's answer, every round of a helper it asks or you talk to, every note a helper writes for the new-video
-planner, and the editor's change requests sent to an online AI (its `sent` line starts with
-`allowance.SENT_ONLINE`, "Sent over the internet"). Each request ClipForge AI or a helper sends is one `ai_usage` row
-(provider `clipforge_ai:<workspace>`, the day, the task `chat`, `helper` or `helper_note`, the model, the message).
+planner, every planning answer of that planner (`studio/video_setup.py`, in a draft's chat or in the build job), and
+the editor's change requests sent to an online AI (its `sent` line starts with `allowance.SENT_ONLINE`, "Sent over the
+internet"). Each request ClipForge AI, a helper or the planner sends is one `ai_usage` row (provider
+`clipforge_ai:<workspace>`, the day, the task `chat`, `helper`, `helper_note` or `video_plan`, the model, the message or
+the video).
 At the limit a message is not answered ("Today's limit of N requests to your online AI is reached (Settings →
 Advanced, “AI requests a day”). Nothing was sent."); an answer that reaches it midway keeps what it wrote and did and ends with "…
 So I stopped here."; a helper says so instead of working; the planner gets no more notes. A model on this computer

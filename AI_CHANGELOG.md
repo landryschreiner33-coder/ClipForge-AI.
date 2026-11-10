@@ -201,6 +201,102 @@ Landry's projects, could never do anything, and without a downloaded model only 
   the Standard level (what a Mac with 16 GB of memory or more gets) and Pro (chosen by hand) were not run. Landry's
   own computer was not tested. Ollama, LM Studio and the online services were played by stand-ins.
 
+## Make a YouTube video: review fixes — 2026-11-10 (Claude Code)
+
+Two reviews of PR #38 (branch `claude/project-thread-2wwa4c`) found misreadings and rough edges; all fixed with a
+test for each (each new test failed on the code before its fix). No release. Details:
+[docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The built-in rules** (`studio/video_setup.py`, the reading part rewritten in the second review): a no only when it
+  says no to the thing ("I don't want captions", "skip the captions", "not a TikTok"; not "Grandma can't hear well
+  and needs captions", "don't make the captions too big", "no music during the vows", "I hate when videos don't have
+  captions"; "don't lose the captions" is a yes); keep and cut only when asked for, in everyday ways ("I'd like you
+  to cut…", "can we cut…", "could we keep…"), turned round by "don't"/"never" and let go by "you don't have to"; the
+  video's length, not the footage's, a part's or a cut's ("my footage is 2 hours, make it 15" is 15 minutes; "the
+  intro should be about 30 seconds" is none), said in everyday ways ("10 minutes is good", "Length: 10 minutes", "not
+  longer than 10 minutes"), the last one said winning; "as long as it needs" is its own choice (`NO_LENGTH` = -1),
+  "as long as you like it" is not; editing off only for the whole video; shape words only about the video ("vertical
+  works best", "make a reel"); titles as typed ("Let's call it Mom's 60th"), none from "call it a day"; stories
+  whose steps are things that happen; a named sound takes the role its sentence gives it. A long odd message is read
+  in well under a second (at most 16 words in front of a keep or cut are read).
+- **Merging**: each answer reads every message since the last one an answer merged, so what a stopped message said
+  counts with the next; with a model its reading wins and the rules fill what it did not use; a part said in a
+  message merged before, or set by hand, changes only when a later message talks about it, compared per part with
+  when the hand edit was made (`locked_at`); a quick answer talks about what its question asked (`data.about`);
+  files put in order by hand hold that order against an answer written meanwhile. Without a model only those
+  messages are read, so a kept or cut item taken out by hand stays out.
+- **Stop and Build**: an answer that arrives after Stop changes nothing (taken in under the lock, only while still
+  "thinking"); a request not yet sent when Stop or a canceled build comes is never sent; three answers at a time;
+  Build after a stopped first answer reads everything said (a part set by hand after the last message about it
+  stays, in the build job's plan too) and plans in the build job; a build-time request that runs too long is given
+  up (told to stop through the assistant's `llm.converse`; through `llm.complete` it runs to its end and is
+  dropped); every online request that went out counts toward the daily limit, also a failed or canceled one.
+- **After the build** (`change_plan`, `video_flow.smart_job`, `_jump`): only the brief fields the change moved are
+  set (editor choices and `ai_edit` stay); the plan's music and voiceovers carry `"brief": true` (planned videos
+  only) and are placed again from the plan, while a sound moved, changed or made quieter by hand stays yours, one you
+  placed yourself is never placed twice, and your own song keeps the plan's music; a new order is the bin's order;
+  the look is compared with the current version; Undo/redo/going back bring back the plan each version was made
+  with (`setup.plans`), the brief values it was made with (`setup.made`), the guidance made from them and the file
+  order, and drop a plan change still waiting; a plan change whose edit fails or is canceled before it starts
+  (`@on_stop("video_smart")`) puts back the plan, brief, guidance, name and order. `smart_edit.plan_words` is empty
+  for videos made without a plan, and their sounds stay as you left them.
+- **Inputs and privacy**: `asset_ids`, `remember` and file numbers are checked (422, not 500); the listening job is
+  keyed by the set of files (`video_flow.bin_key`); what is sent now names the Brain rules, the memories, the plan so
+  far, know-how and helper notes (`_sent`, the page's model line, `docs/legal/privacy.html`); planning never sends
+  Brain notes to NVIDIA, whose agreement says they are never sent (`brain_allowed`; NVIDIA's privacy row and
+  `nvidia.data_note` now name what planning sends).
+- **The pages**: the plan form saves only what you changed since it opened; Length is From your style / As long as it
+  needs / About… (choosing About… moves focus to Minutes; opening the form no longer does); the music file is never
+  also a voiceover; Back from the editor skips the planning page (`router.redirect`); Build my video and Just do it
+  wait for uploads, and words typed but not sent are asked about first; leaving names what would be lost in one
+  sentence (`LeaveGuard.say`), and an open plan form counts only when changed; a file taken out stays out, also one
+  picked again while it was in the video, and one taken out while uploading leaves no Resume row
+  (`Picked.forget`); added files keep the order you dropped them in; only the words sent leave the message box;
+  focus returns after a quick answer, Save or Cancel; Stop shows Stopping…; the editor's plan says what an empty
+  plan means (and "Nothing decided yet" while it still plans) and hides Supporting media.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py` (new tests for each fix),
+  `e2e/sandbox/video-setup.spec.ts` (Back after Build; words not sent and form changes asked about);
+  `frontend/dist` rebuilt.
+
+## Make a YouTube video: drop in your files, tell ClipForge AI your idea, plan it together — 2026-11-08 (Claude Code)
+
+Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI your idea and plan, and it
+can ask questions or not. Branch `claude/project-thread-2wwa4c` from the release line at 95a70e0. No release. Design,
+bounds and routes: [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The start page** (`frontend/src/pages/MakeVideo.tsx`, rewritten; `#/create/video`, `?idea=` fills the box):
+  your videos, pictures and sounds in one drop and in play order, your idea in your own words (4,000 characters),
+  "Ask me questions" or "Just do it" (remembered: `video_setup_mode` in `prefs.py`, `prefs.tsx`, `Customize.tsx`),
+  and More choices (style and example, remember the look, your script, the name).
+- **The planning page** (`#/create/video/<id>`): the conversation with ClipForge AI (quick answers, "Just do it",
+  Stop, notes from your helper agents), the plan as a slate whose changed lines light up
+  (`components/VideoPlan.tsx`: `PlanSheet`, `PlanForm`, `useChanged`; `videoSetup.css`), your files with what was
+  heard in each, adding more files, and Build my video. A video being planned is a draft project
+  (`studio_projects.status = "draft"` with a `setup`, new column in `db.py`; `video_setup.is_draft`, so an animated
+  short stopped before its first version keeps its own page and chat); Projects lists it and opens it here, and
+  `#/video/<id>` sends it here (`planning` in the video view; `VideoReview.tsx`, `router.ts`, `App.tsx`).
+- **The planner** (`clipfoundry/studio/video_setup.py`, new): built-in rules for lengths, shapes, feel, how much to
+  edit, music, captions, keep and cut, openings, stories, audiences and video types; with a model, one bounded text
+  request (files, what is said in them, memories, know-how, helper notes, the conversation, the plan) answered as
+  `{"say", "questions", "plan"}` inside a JSON schema and checked field by field; questions at most 3 at a time and
+  2 rounds, a quick answer keeps the others, typing drops them; merging keeps explicit words and hand edits; the
+  online daily limit and "what was sent where" like the chat.
+- **The plan drives the edit**: `plan_to_brief` fills the brief (length, shape, feel, editing, captions, music, keep,
+  cut, the opening); `video_flow.py` gains `open_with` and `plan` brief fields and plans inside the build job when
+  "Just do it" had no plan yet; `ai_editor.py` starts every window with the owner's plan (700 characters);
+  `smart_edit.py` opens with the sentence that matches the asked opening and ranks passages that match the plan
+  higher when fitting to length; the plan's file order sets the bin's order.
+- **After the build**: "Your plan" on the editor page; `PUT /api/studio/videos/{id}/plan` edits again as a new
+  version that Undo takes back.
+- **Routes** (`studio/routes.py`): `POST /api/studio/videos/setup`, `GET|PATCH /api/studio/videos/{id}/setup`,
+  `POST .../setup/say|stop|build`, `PUT .../plan`, `GET /api/studio/video-setup/model`; the old one-step
+  `POST /api/studio/videos` is unchanged.
+- **With the assistant (PR #37)**: a draft's chat answers through `chat.route` in the chat's own message shape, the
+  `make_youtube_video` tool shows a button to this page, helper agents' notes come from `agents.consult`; each part
+  is optional, so either PR can merge first.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py`; `e2e/sandbox/video-setup.spec.ts` walks
+  the whole flow in the sandbox (and at phone width); `frontend/dist` rebuilt.
+
 ## Safety follow-ups: the built-in AI's engine outlives a request's thread; other computers' addresses are never looked at — 2026-11-10 (Claude Code)
 
 Branch `claude/project-thread-3rqurx` from the release line at ff890b6, PR #41. The two follow-ups the PR #39 review

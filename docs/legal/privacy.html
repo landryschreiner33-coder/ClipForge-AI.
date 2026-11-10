@@ -308,12 +308,11 @@
   A change you ask for in a video's chat is also kept with that video's change requests, like one typed in the
   editor (the change in words, as you typed it or as ClipForge AI wrote it from what you said; the change proposed;
   the memories and know-how it used; and a note of what was sent to an AI service), until you delete the data
-  folder; Clear this chat does not remove it. When its model is an online
-  service, each request ClipForge AI or a helper agent sends is recorded (the time, the task, the model and, for its
-  own answers, the chat message it was for) to keep the daily limit, "AI requests a day" in Settings → Advanced,
-  until you delete the data folder. With NVIDIA, its answers are also saved as described under "Optional NVIDIA AI"
-  above. Talking with it does not train a model. What it sends, and where, is under "An AI service you choose" in
-  section 3.
+  folder; Clear this chat does not remove it. When its model is an online service, each request ClipForge AI, a helper
+  agent or the video planner in Make a YouTube video sends is recorded (the time, the task, the model and the chat
+  message or video it was for) to keep the daily limit, "AI requests a day" in Settings → Advanced, until you delete
+  the data folder. With NVIDIA, its answers are also saved as described under "Optional NVIDIA AI" above. Talking with
+  it does not train a model. What it sends, and where, is under "An AI service you choose" in section 3.
 </p>
 
 <h2>3. When information leaves your computer</h2>
@@ -356,13 +355,14 @@
       so with it none of the text in this row leaves your computer (downloading it, once, contacts GitHub and Hugging
       Face, as listed further down). With another helper, whenever a feature uses it: for example when clips
       are made, scored and titled, when you ask the editor for a change it does not understand on its own, for smart
-      editing, FilmCraft, a short's script and Full stories, and each time you talk with ClipForge AI or one of its
-      helper agents</td><td>Text only: never your files, their pictures or their sound. To make clips: the video's
-      name, the words said in it (read in order, a part at a time), the words said in its strongest moments (up to 12 by
-      default) with the sentence just before each one and each moment's length, the memories and know-how that fit, and
-      a one-line summary of the kinds of clips you usually keep, learned from the clips you leave out, put back, export
-      or publish, so moments can be found and scored; and the words said in each clip, so titles and captions can be
-      written. The other features send the words and details they work on (for example your brief or topic, the words
+      editing, FilmCraft, a short's script and Full stories, when you plan a video in Make a YouTube video, and each
+      time you talk with ClipForge AI or one of its helper agents</td><td>Text only: never your files, their pictures
+      or their sound. To make clips: the video's name, the words said in it (read in order, a part at a time), the
+      words said in its strongest moments (up to 12 by default) with the sentence just before each one and each
+      moment's length, the memories and know-how that fit, and a one-line summary of the kinds of clips you usually
+      keep, learned from the clips you leave out, put back, export or publish, so moments can be found and scored; and
+      the words said in each clip, so titles and captions can be written. The other features send the words and
+      details they work on (for example your brief or topic, the words
       said with their times, and the list of clips); the editor, smart editing, FilmCraft and the script writer also
       send the memories and know-how that fit. When you talk with ClipForge AI: your message and the conversation so
       far (the oldest messages are left out first when it does not fit); your standing rules (up to 8) and the other
@@ -370,9 +370,13 @@
       kind, counts, status and age; the details of the chat's video and of the projects it looks at (a video's brief,
       its script's name, each part's label, often a file's name, with the words said in it, and its status note; a
       clips project's clip titles, scores and lengths); your helper agents' names and jobs (and, for the helper doing
-      a job, its instructions); and the results of the looking steps it takes (such as what is running). Each request
-      ClipForge AI or a helper agent sends to an online service counts once against "AI requests a day" in
-      Settings → Advanced (0 sends none).
+      a job, its instructions); and the results of the looking steps it takes (such as what is running). When you plan
+      a video in Make a YouTube video: your idea and the conversation, the plan so far (also what you set by hand),
+      your file names and lengths, what is said in your videos, your standing rules and the other memories that fit
+      your idea, built-in know-how and your helper agents' notes, never where your files are (a helper agent that
+      helps with plans writes its note from your idea and your files' names, lengths and what is said in them, with
+      its own name, job and instructions). Each request ClipForge AI, a helper agent or the video planner sends to an
+      online service counts once against "AI requests a day" in Settings → Advanced (0 sends none).
       If you choose an AI program on your own computer (such as Ollama or LM Studio),
       ClipFoundry sends this text only to the address you set for that program; an Ollama cloud model (a model name
       ending in "cloud") answers online even through the Ollama on your computer. If you choose a cloud AI service (for
@@ -382,7 +386,8 @@
       as the AI provider and agree once that excerpts may leave this computer (off by default). In development mode
       only for work you start yourself, never for Autopilot's unattended work</td><td>The text described in the row
       above for the features you use with it (for example the words said in a video's strongest moments and the
-      video's name, so they can be scored and titled, and your conversations with ClipForge AI), with web addresses
+      video's name, so they can be scored and titled, your conversations with ClipForge AI, and your video plans
+      without your memories, which planning leaves out for NVIDIA), with web addresses
       that start with http://, https:// or www. and email addresses removed from all of it (an address written
       without them, such as youtube.com/@yourname, is sent as written); each request's words are cut to your size
       limit (a conversation with ClipForge AI leaves out its oldest messages first, and a message too long on its own

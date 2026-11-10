@@ -90,8 +90,12 @@ def view(settings: dict) -> dict:
                 "nvidia_max_input_tokens", "nvidia_price_per_mtok_usd", "nvidia_daily_spend_cap_usd")},
             "data_note": ("When on, the sentences of the strongest clip candidates (links and email addresses "
                           "removed), the video's name and fixed recognized editing-priority labels are sent to "
-                          "NVIDIA. Raw Brain notes, example files, video, audio, account tokens and "
-                          "viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
+                          "NVIDIA. With NVIDIA as ClipForge AI's model, what you use it for is sent as text too "
+                          "(links and email addresses removed): your conversations with ClipForge AI and its helper "
+                          "agents, with the memories that fit them and your projects' details; and when you plan a "
+                          "video in Make a YouTube video, your idea, the conversation, the plan, your file names and "
+                          "what is said in your videos. Raw Brain notes, example files, video, audio, account tokens "
+                          "and viewer lists are never sent. Choosing selected viewers does not keep these excerpts on "
                           "this PC. Check NVIDIA's current terms for retention and training before you turn it on."),
             "development_note": ("Development mode uses NVIDIA's hosted catalog, which NVIDIA describes as "
                                  "development and prototyping access. ClipForge uses it only for work you start "

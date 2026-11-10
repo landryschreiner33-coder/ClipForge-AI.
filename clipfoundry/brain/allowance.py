@@ -1,12 +1,14 @@
 """The day's allowance of requests to an online AI ("AI requests a day" in Settings → Advanced,
 `ai_edit_requests_per_day`; 0 means never send one). Every request ClipForge AI, its helper agents and the editor's
 change requests send to an online model counts, one by one: one answer can be several requests (its rounds, and the
-rounds of the helpers it asks), and the planner's notes from helper agents count too. A model on this computer is
-never counted or limited (the editor keeps its own limit of its requests to it, as always).
+rounds of the helpers it asks), and the new-video planner's requests (studio/video_setup.py) and its notes from helper
+agents count too. A model on this computer is never counted or limited (the editor keeps its own limit of its
+requests to it, as always).
 
-Each request ClipForge AI or a helper sends is one row of `ai_usage` with provider "clipforge_ai:<workspace>" (the
-local day it counts against, its task: chat, helper or helper_note, the model and the chat message it was for); a
-change request the editor sends is its own `edit_requests` row (source ai), as before.
+Each request ClipForge AI, a helper or the planner sends is one row of `ai_usage` with provider
+"clipforge_ai:<workspace>" (the local day it counts against, its task: chat, helper, helper_note or video_plan, the
+model and the chat message or video it was for); a change request the editor sends is its own `edit_requests` row
+(source ai), as before.
 """
 from __future__ import annotations
 
