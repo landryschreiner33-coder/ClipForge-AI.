@@ -261,7 +261,13 @@ def test_a_picture_maker_set_up_later_swaps_the_cards_on_one_press(env, monkeypa
     pid = project["id"]
     view = shorts.view(_fresh(pid))
     assert view["cards_to_swap"] == 0 and all(x["picture"]["source"] == "card" for x in view["scenes"])
-    assert any("this ClipForge has no picture maker yet" in n for n in view["notes"])
+    # this ClipForge has the local makers (clipfoundry/engines), none set up: the note says where to set one up
+    assert local_engines.available()
+    assert any("no picture maker is set up. Set one up in Settings → Pictures, video, voice" in n
+               for n in view["notes"])
+    monkeypatch.setattr(local_engines, "module", lambda: None)  # a ClipForge without the local makers
+    monkeypatch.setattr(shorts, "_status_cache", {})
+    assert any("this ClipForge has no picture maker yet" in n for n in shorts.view(_fresh(pid))["notes"])
 
     class Engines:
         def status(self, role):

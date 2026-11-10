@@ -672,6 +672,12 @@ input[type="range"] { width: 100%; accent-color: var(--primary); min-height: 32p
 .file-row progress { grid-column: 1 / -1; }
 .row-actions { display: flex; gap: var(--s2); flex-wrap: wrap; justify-content: flex-end; }
 .row-actions.wrap { flex-wrap: wrap; }
+/* Settings → Pictures, video, voice: a model's buttons go under its words, and on a phone so does its state. */
+.maker-row > .row-actions { grid-column: 2 / -1; justify-content: flex-start; }
+@media (max-width: 640px) {
+  .maker-row { grid-template-columns: auto minmax(0, 1fr); }
+  .maker-row > .pill { grid-column: 2; justify-self: start; }
+}
 .dest-list { display: grid; gap: var(--s2); }
 .dest { display: grid; grid-template-columns: auto 32px minmax(0, 1fr); gap: var(--s3); align-items: center; padding: var(--s3);
   border: 1px solid var(--line); border-radius: var(--r-control); background: var(--well); min-height: var(--control); cursor: pointer; }
