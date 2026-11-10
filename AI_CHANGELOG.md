@@ -1,5 +1,48 @@
 # AI changelog
 
+## Safety follow-ups: the built-in AI's engine outlives a request's thread; other computers' addresses are never looked at — 2026-11-10 (Claude Code)
+
+Branch `claude/project-thread-3rqurx` from the release line at ff890b6, PR #41. The two follow-ups the PR #39 review
+found outside the engines, plus the same gap wherever a sweep of the whole app found it. Merged on Landry's standing
+OK to merge finished work; no release.
+
+- **The built-in AI's engine (llama-server) on Linux** was told to stop when its parent ends, and Linux counts the
+  *thread* that started it as its parent: started from a request's worker thread (which retires after about ten idle
+  seconds) or a job thread, it stopped with that thread, so the next answer loaded the model again.
+  `builtin_ai._popen` now starts it from one lasting thread (the same code as PR #37, so that branch merges cleanly),
+  and ComfyUI uses the same starter instead of its own. It still ends when ClipForge ends.
+- **Other computers' addresses:** on Windows, merely looking at `\\server\share\x` or `//server/share/x` connects to
+  that server and signs in as the person (their password hash goes with it). Any web page can make the browser ask
+  ClipForge's address for something, a FilmCraft project can carry any text, and the AI's FilmCraft steps can be
+  steered by words in a video. Now refused before anything looks at the file system:
+  - `GET /craft/filmcraft/<file>` (FilmCraft's editor) and the app page's catch-all route: only plain folder and
+    file names (`clipfoundry/pathguard.py`, shared with made files);
+  - `GET /api/local/browse` and linking a file (`local_files.other_computer`): another computer is refused from the
+    text alone; a share the owner listed in `CLIPFOUNDRY_LOCAL_ROOTS`, or a mapped drive, still works;
+  - FilmCraft's editor looked up every text in a project as a possible file: another computer's address is no longer
+    looked up (the video's own files on an allowed share or in a data folder on a share still are); a saved project
+    naming `\/server/share`, a path starting with a backslash, or climbing with `..` is refused, so FilmCraft's render
+    never opens it; the AI's finishing steps refuse a leading backslash too.
+- **How it was found and checked:** a sweep of the whole app for both problems (five areas, then a skeptic per
+  finding: six network-path cases confirmed, no other thread-bound child process), then an independent review of the
+  change (three lenses, a skeptic per finding), which found one regression (the video's own files on an allowed share
+  were skipped in FilmCraft's editor), fixed with a test. Every fix has a test that failed first and records each
+  file-system call: `tests/test_builtin_ai_lifetime.py`, `tests/test_network_paths.py`, `tests/test_pathguard.py`,
+  the last test of `tests/test_craft.py`.
+- **Checks:** on the final code (b65d795) the full fast suite 2271 passed, 2 skipped, and `pytest -m slow` 30 passed,
+  1 skipped (on b830fdf: 2268 and 30). On GitHub's machines, on b65d795: the FilmCraft check with the real FilmCraft
+  and built-in AI (run 42783880588, macOS 15 + Ubuntu), the built-in AI check with the real engine (run 42783952354,
+  Ubuntu, macOS 15, Windows) and the Local makers check starting the real ComfyUI through the shared starter (run
+  42783957349, Mac, Windows, Linux) all passed.
+- **Not verified:** a real Windows computer (Windows path rules were checked with PureWindowsPath and by recording
+  file-system calls; no SMB server was contacted), a real FilmCraft project with footage on a NAS, the real
+  llama-server (the stand-in engine was used).
+- **Follow-up (not fixed here, different fix):** FFmpeg reads a downloaded "video" that is really a DASH manifest
+  (`<MPD>` in a file named .mp4) and opens the files it names (checked with ffprobe 6.1 here), so on Windows a
+  manifest naming `file:////server/share/v.mp4` would make ffprobe contact that server. The fix is a demuxer
+  allow-list (`-format_whitelist`) on every FFmpeg input of media from outside, as `knowledge.probe_example` already
+  does; it needs care so no supported format is refused, and real-media checks.
+
 ## Local makers: the final review's fixes, combined with story clips and animated shorts — 2026-11-10 (Claude Code)
 
 PR #39 (branch `claude/project-thread-nnvh05`) took in the release line twice before merging: PR #40 (story clips,
