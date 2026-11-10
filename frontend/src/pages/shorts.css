@@ -1,0 +1,167 @@
+/* Animated shorts (pages/MakeShort.tsx, components/ShortScenes.tsx, the Studio's three make choices). Page stylesheets
+   load before styles.css, so every rule that changes a shared class is scoped (.make-short, .short-scenes,
+   .make-choices.three) and drawn from the design tokens (docs/clipforge/DESIGN_SPEC.md). */
+
+/* ------------------------------------------------------------------ the Make page */
+.make-short .short-script { min-height: 220px; }
+.make-short .short-count { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); color: var(--text-2); }
+.make-short .short-warn, .make-short .short-writer { display: flex; gap: 6px; align-items: flex-start; }
+.make-short .short-warn { color: var(--warn); }
+.make-short .short-warn .icon, .make-short .short-writer .icon { margin-top: 2px; }
+.make-short .short-rows { display: grid; }
+.make-short .short-rows > .setting:first-child { padding-top: 0; }
+.make-short .short-rows > .setting:last-child { padding-bottom: 0; }
+.make-short .short-control { min-width: 0; }
+.make-short .short-skel-control { height: var(--control); }
+.make-short .short-skel-motion { height: 96px; }
+.make-short .mode-pick label.off { cursor: not-allowed; border-style: dashed; }
+.make-short .mode-pick label.off b { color: var(--disabled); }
+.make-short .short-facts dd { overflow-wrap: anywhere; }
+.make-short .short-name { max-width: 480px; }
+.make-short .short-make { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s3) var(--s4); }
+.make-short .short-next { flex: 1 1 260px; min-width: 0; }
+.make-short .short-make .btn-large { min-width: 13rem; }
+
+/* looks: radio cards with the look's colours; the chosen one rises to the accent tint and shows a check */
+.look-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); }
+.look-card {
+  position: relative; display: grid; align-content: start; gap: 6px; min-width: 0; padding: var(--s3);
+  border: 1px solid var(--line-strong); border-radius: var(--r-panel); background: var(--well); box-shadow: var(--sink); cursor: pointer;
+}
+.look-card:hover { border-color: var(--control-border); }
+.look-card:has(input:checked) { border-color: var(--primary); background: var(--primary-tint); box-shadow: none; }
+.look-card:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.look-card input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.look-card b { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-small); overflow-wrap: anywhere; }
+.look-card .small { line-height: 1.4; }
+.look-swatch {
+  position: relative; display: block; height: 56px; overflow: hidden; border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.look-swatch::after {
+  content: ""; position: absolute; left: 22%; right: 22%; top: 58%; height: 6px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.look-swatch i { position: absolute; left: 8px; top: 8px; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.22); }
+.look-check {
+  position: absolute; top: calc(var(--s3) + 6px); right: calc(var(--s3) + 6px); display: none; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: var(--on-primary); box-shadow: var(--lift-sm);
+}
+.look-check .icon { width: 14px; height: 14px; stroke-width: 2.4; }
+.look-card:has(input:checked) .look-check { display: grid; }
+.look-skel { height: 128px; border-radius: var(--r-panel); }
+
+/* "Hear it" keeps its width while it changes to Stop */
+.short-voice-row { display: flex; gap: var(--s2); align-items: center; min-width: 0; }
+.short-voice-row select { flex: 1 1 auto; min-width: 0; }
+.hear-btn { flex: none; min-width: 6.75rem; }
+.hear-btn.btn-small { min-width: 5.5rem; }
+
+/* ------------------------------------------------------------------ the Scenes panel on the editor page */
+.short-scenes .short-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.short-scenes h2[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+.short-scenes .short-writing {
+  display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); border-radius: var(--r-control);
+  background: var(--well); box-shadow: var(--sink); color: var(--text-2); font-size: var(--fs-small);
+}
+.short-scenes .scene-list { display: grid; gap: var(--s3); margin: 0; padding: 0; list-style: none; }
+.short-scenes .short-scene {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--s3); align-items: start; padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-control); background: var(--well); box-shadow: var(--sink);
+}
+.short-scenes .short-scene.failed { box-shadow: var(--sink), inset 3px 0 0 var(--bad); }
+.short-scenes .short-scene.off { border-style: dashed; }
+.short-scenes .scene-thumb {
+  position: relative; display: block; width: 72px; aspect-ratio: 9 / 16; overflow: hidden; border-radius: 8px;
+  background: var(--raised); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.short-scenes .scene-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.short-scenes .scene-thumb-state {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4px; padding: 4px;
+  text-align: center; font-size: var(--fs-tiny); color: var(--text-2); overflow-wrap: anywhere;
+}
+.short-scenes .scene-thumb-state.over { background: rgba(5, 6, 10, 0.72); color: var(--text); }
+.short-scenes .scene-thumb-state .icon { width: 18px; height: 18px; color: var(--text-3); }
+.short-scenes .short-scene.failed .scene-thumb-state .icon { color: var(--bad); }
+.short-scenes .scene-main { display: grid; gap: var(--s2); min-width: 0; }
+.short-scenes .scene-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--s2); min-height: 30px; }
+.short-scenes .scene-title { margin: 0; font-size: var(--fs-h3); }
+.short-scenes .scene-move { display: flex; gap: var(--s1); }
+.short-scenes .scene-main textarea { min-height: 76px; }
+.short-scenes .scene-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--s2); font-size: var(--fs-small); color: var(--text-2); }
+/* the words stay beside the icon (a long message wraps inside its own box); a button goes under them */
+.short-scenes .scene-status > span { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.short-scenes .scene-status .icon { color: var(--text-3); }
+.short-scenes .scene-status.good .icon { color: var(--good); }
+.short-scenes .scene-status.bad { color: var(--text); }
+.short-scenes .scene-status.bad .icon { color: var(--bad); }
+.short-scenes .scene-status.info .inline-spinner { color: var(--info); }
+.short-scenes .scene-unsaved { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s2); font-size: var(--fs-small); color: var(--text-2); }
+.short-scenes .scene-unsaved > .icon { color: var(--warn); }
+.short-scenes .scene-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.short-scenes .scene-picture { display: grid; gap: var(--s3); min-width: 0; }
+.short-scenes details.plain > .more-body { padding-left: 0; }
+.short-scenes .scene-upload .drop { min-height: 0; padding: var(--s4); gap: var(--s2); }
+.short-scenes .scene-earlier { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
+.short-scenes .scene-earlier-btn {
+  display: block; width: 44px; aspect-ratio: 9 / 16; padding: 0; overflow: hidden; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--raised);
+}
+.short-scenes .scene-earlier-btn:hover:not(:disabled) { border-color: var(--primary); }
+.short-scenes .scene-earlier-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+.short-scenes .scene-earlier-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.short-scenes .scene-add {
+  display: grid; gap: var(--s2); padding: var(--s3); border: 1px dashed var(--line-strong); border-radius: var(--r-control);
+  background: var(--surface);
+}
+.short-scenes .short-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: var(--s3); }
+.short-scenes .short-choices > .short-voice-field { grid-column: 1 / -1; }
+.short-scenes .short-made dd { overflow-wrap: anywhere; }
+.short-scenes .short-notes { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; color: var(--text-2); }
+/* next to Download on the editor page: what the voice's licence asks before the short is posted */
+.short-label-note { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 var(--s3); font-size: var(--fs-small); color: var(--text-2); }
+.short-label-note > .icon { flex: none; margin-top: 2px; color: var(--warn); }
+.short-label-note b { color: var(--text); }
+.scene-quote { margin: 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); color: var(--text-2); font-size: var(--fs-small); overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------ the Studio page: three things to make */
+.frame-shape .pic {
+  position: absolute; left: 9px; right: 9px; top: 12px; bottom: 36%; overflow: hidden; border-radius: 6px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 42%, var(--frame)), var(--primary-tint));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+.frame-shape .pic::before { content: ""; position: absolute; top: 8px; right: 8px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); opacity: 0.85; }
+.frame-shape .pic::after {
+  content: ""; position: absolute; left: -25%; right: -25%; bottom: -55%; height: 90%; border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 55%, var(--frame));
+}
+@media (min-width: 1241px) {
+  .make-choices.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .make-choices.three .make-choice {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: 128px 1fr; align-items: stretch; gap: var(--s4); min-height: 0;
+    padding: var(--s5);
+  }
+  .make-choices.three .make-choice .frame-shape { align-self: end; justify-self: start; }
+  .make-choices.three .make-choice .frame-shape.vertical { width: 72px; height: 128px; }
+  .make-choices.three .make-choice .frame-shape.wide { width: 176px; height: 99px; }
+  /* the three buttons line up along the bottom */
+  .make-choices.three .make-choice > div:last-child { display: flex; flex-direction: column; align-items: flex-start; }
+  .make-choices.three .make-choice > div:last-child > :nth-last-child(2) { margin-bottom: var(--s4); }
+  .make-choices.three .make-choice .go { margin-top: auto; }
+}
+@media (min-width: 861px) and (max-width: 1240px) {
+  .make-choices.three { grid-template-columns: minmax(0, 1fr); }
+  .make-choices.three .make-choice { min-height: 0; padding: var(--s5) var(--s6); }
+  .make-choices.three .make-choice .frame-shape.vertical { width: 72px; height: 128px; }
+  .make-choices.three .make-choice .frame-shape.wide { width: 160px; height: 90px; }
+}
+
+/* ------------------------------------------------------------------ narrow windows */
+@media (max-width: 760px) {
+  .look-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .make-short .short-make .btn-large { width: 100%; min-width: 0; }
+  .short-scenes .short-scene { grid-template-columns: 56px minmax(0, 1fr); gap: var(--s2); padding: var(--s2); }
+  .short-scenes .scene-thumb { width: 56px; }
+}

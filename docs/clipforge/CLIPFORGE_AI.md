@@ -79,7 +79,7 @@ are words for the model. The Brain page's "Used from your brain" and a request's
 
 ## Know-how
 
-`clipfoundry/brain/knowhow.py` is what ClipForge AI knows about editing before you teach it anything: twelve
+`clipfoundry/brain/knowhow.py` is what ClipForge AI knows about editing before you teach it anything: thirteen
 **playbooks** in plain words with the numbers an editor needs, distilled in November 2026 from two guides the owner
 gave it (a cinematic filmmaking and post-production guide and a viral short-form video strategy guide) and from
 ClipForge's own rules. They are built in (the same on every computer, never downloaded, never sent anywhere on their
@@ -100,6 +100,7 @@ header says so.
 | Platforms and export | 1080x1920 H.264 High, closed GOP, Rec. 709, AAC 256-320 kbps; what each platform judges; the keyword in the first 3-5 s, 3-5 hashtags | post packages |
 | Reading a retention graph | what each shape of the curve means and the fix | |
 | Talking-head edits | pauses and takes, punch-ins, more than one speaker, pictures on cue | smart edits |
+| Animated voice-over shorts | the hook in 2 s, one picture per 6-14 words with a push-in or pan, 175 wpm, concrete pictures with the same character and no words in them, only sure facts, the payoff and the loop | writing an animated short (with hooks and endings) |
 
 **Picking** (`knowhow.select(query, task, limit, budget_chars)`): the share of the question's words a playbook
 covers, rarer words counting more and the words a playbook is *about* (its title and its own word list) counting
@@ -116,6 +117,7 @@ know-how (built in; what the owner said always wins over it):" and one paragraph
 | Ask for a change | the best two for the request (pacing by default), after the memories; left out before the memories when a long video needs the room; the request's `knowhow` column records them | 900 |
 | Smart edit's AI advice | the best two for the brief (talking heads, endings, pacing by default), before the brief of every window | 700 |
 | The FilmCraft pass | the best two for the title (colour, effects, sound by default), after the memories | 1,500 |
+| Writing an animated short | the best three for the topic (shorts, hooks, endings by default), after the memories (recorded as used in "short_script"); see docs/clipforge/ANIMATED_SHORTS.md | 2,000 |
 | Clip scoring, post packages | the principles line only | |
 
 The Brain → Memory page lists every playbook (`GET /api/brain/memories/knowhow`); an answer's "From its know-how"

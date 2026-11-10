@@ -28,7 +28,7 @@ const ALIASES: [RegExp, string][] = [
   [/^autopilot(\/.*)?$/, "missions"],
   [new RegExp(`^missions/(?!${MISSIONS}$).*$`), "missions"],
   [/^create$/, "create/clips"],
-  [/^create\/(?!(clips|video|link|transcript)$).*$/, "create/clips"],
+  [/^create\/(?!(clips|video|short|link|transcript)$).*$/, "create/clips"],
   [/^settings\/accounts$/, "accounts"],
   [/^settings\/(?!(appearance|media|ai|apps|makers|defaults|integrations|advanced)$).*$/, "settings"],
   [/^setup\/(?!(videos|mode|posting)$).*$/, "setup"],

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from ..pipeline.text_utils import content_tokens
 
 HEADER = "ClipForge AI's craft know-how (built in; what the owner said always wins over it):"
-TASKS = ("chat", "clips", "change", "smart_edit", "finish", "post")
+TASKS = ("chat", "clips", "change", "smart_edit", "finish", "post", "short")
 SELECT_MIN = 0.20     # share of a question's (weighted) words a playbook must cover to be picked for it
 ANSWER_MIN = 0.30     # ... to answer the question on its own, without a model
 SOURCE = ("Distilled from two guides the owner gave ClipForge AI in November 2026 (cinematic filmmaking and "
@@ -200,6 +200,21 @@ TOPICS: tuple[Topic, ...] = (
               "keeps a talking head alive."),
           ("talking head", "interview", "podcast", "speaker", "speakers", "pauses", "pause", "um", "filler",
            "takes", "retake", "split screen", "two people", "guest", "pictures", "image", "images", "vlog")),
+    Topic("shorts", "Animated voice-over shorts", "Writing and cutting a faceless animated short: the hook, one "
+          "picture per few seconds, the voice and the captions.", ("chat", "short"), (
+              "The hook lands in the first 2 seconds: at most 12 words, a question or a surprising claim, no "
+              "greeting and no 'in this video'.",
+              "One picture per 6-14 spoken words, so it changes every 2-4 seconds; a slow push-in or pan keeps a "
+              "still picture moving.",
+              "Write for the ear at about 175 words a minute (45 seconds is about 130 words), in plain words joined "
+              "by 'but' or 'so', never 'and then'.",
+              "Each picture is concrete (who, what, where) and in one look, the main character is described the "
+              "same way every time, and no picture has words in it.",
+              "Say only facts you are sure of; end on the payoff with no outro, and a last line that leads back into "
+              "the first makes the short loop."),
+          ("animated short", "animated shorts", "animation short", "faceless", "voice over", "voiceover",
+           "narration", "narrator", "story short", "scenes", "scene", "slideshow", "ken burns", "ai pictures",
+           "facts short", "faceless channel", "animated story")),
 )
 BY_ID = {t.id: t for t in TOPICS}
 
@@ -210,6 +225,7 @@ DEFAULTS = {
     "smart_edit": ("talking", "endings", "pacing"),
     "finish": ("colour", "effects", "sound"),
     "post": ("hooks", "platforms"),
+    "short": ("shorts", "hooks", "endings"),
     "chat": (),
 }
 
@@ -228,6 +244,9 @@ PRINCIPLES = {
                "each its sound, and keep the voice first in the mix."),
     "post": ("The on-screen hook is 3-6 plain words; a loss or warning framing beats a promise; a title says the "
              "keyword early; 3-5 specific hashtags, never #fyp."),
+    "short": ("Write like a viral short's narrator: the hook lands in the first 2 seconds with no greeting, one "
+              "picture for every 6-14 spoken words, plain words at about 175 a minute, only facts you are sure of, "
+              "and the short ends on its payoff with no outro."),
 }
 
 

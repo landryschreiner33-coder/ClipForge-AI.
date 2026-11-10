@@ -1,5 +1,6 @@
 /** ClipForge studio API: uploads, Make clips, full videos, stories, styles, skills, accounts, preferences. */
 import { req, responseError } from "./api";
+import type { ShortView } from "./shorts";
 
 export type Asset = { id: string; kind: "video" | "audio" | "image"; filename: string; sha256: string; size: number;
   duration?: number; width?: number; height?: number; fps?: number; has_audio?: boolean; has_thumbnail: boolean;
@@ -84,6 +85,7 @@ export type BrainMap = { styles: (Style & { updated_at?: number })[];
   skills: Omit<Skill, "unsupported" | "blocked">[]; examples: BrainMapExample[]; projects: BrainMapProject[];
   omitted_projects: number; applied: { node: string; at: number; project: string }[]; recent_seconds: number };
 
+/** One project in the library. An animated short is a full video whose mode is "animated_short". */
 export type LibraryItem = { id: string; kind: "clips" | "full_video"; mode: string; name: string; status: string;
   /** Full stories projects: "whole" (Full story) or "parts" (Story parts). */
   story_split?: string;
@@ -120,7 +122,7 @@ export type AudioItem = { id: string; asset_id: string; role: AudioRole; label: 
 export type TrackName = "source" | "voiceover" | "music" | "effects";
 export type Plan = { schema: number; output: { aspect: string; fps: number }; layout: string; clean_sound?: string; clips: PlanClip[];
   transition: { type: string; ms: number }; title: { enabled: boolean; text: string; ms: number };
-  captions: { enabled: boolean; style: string; position: string; size?: string };
+  captions: { enabled: boolean; style: string; position: string; size?: string; /** The word being said lights up. */ highlight?: boolean };
   audio: AudioItem[]; tracks: Record<TrackName, { gain_db: number; mute: boolean }>; ducking?: { depth_db: number };
   word_fixes?: Record<string, Record<string, string>>;
   outline: { clip_id: string; label: string; summary: string; duration: number; keeps?: string[] }[]; notes: string[];
@@ -149,7 +151,11 @@ export type Video = { id: string; name: string; status: string; message: string;
   chapters?: { title: string; ms: number }[]; smart?: SmartReport | null;
   /** The script this video follows (null for none). */
   script?: Script | null;
-  ai_helper?: { configured: boolean; label: string; local: boolean } };
+  ai_helper?: { configured: boolean; label: string; local: boolean };
+  /** What made this video: "full_video" (Make a YouTube video) or "animated_short". */
+  workflow?: string;
+  /** An animated short's script, scenes and choices (docs/clipforge/ANIMATED_SHORTS.md); null for any other video. */
+  short?: ShortView | null };
 
 export type MediaKind = "image" | "footage" | "music" | "effect";
 export type MediaTerms = { known: boolean; commercial: boolean; modify: boolean; attribution: boolean; share_alike: boolean };
