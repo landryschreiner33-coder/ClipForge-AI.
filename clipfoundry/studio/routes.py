@@ -580,10 +580,12 @@ def library(kind: str = "", q: str = "") -> list[dict]:
             # only a picture that exists: a first file with no frame (audio, or not read yet) shows the plain frame
             asset = db.fetch("assets", first) if first else None
             pictured = bool(asset and asset.get("thumb_path") and Path(asset["thumb_path"]).is_file())
+            draft = video_setup.is_draft(v)  # still being planned with ClipForge AI: it opens on the setup page
             out.append({"id": v["id"], "kind": "full_video", "mode": shorts.WORKFLOW if short else "full_video",
                         "name": v["name"],
                         "status": v["status"], "message": v.get("message"), "updated_at": v["updated_at"],
-                        "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "", "href": f"#/video/{v['id']}"})
+                        "thumbnail": f"/api/assets/{first}/thumbnail" if pictured else "",
+                        "href": f"#/create/video/{v['id']}" if draft else f"#/video/{v['id']}"})
     if q:
         out = [x for x in out if q.lower() in x["name"].lower()]
     return sorted(out, key=lambda x: -x["updated_at"])
@@ -626,6 +628,119 @@ def make_video(body: VideoRequest) -> dict:
 @router.get("/api/studio/videos/{video_id}")
 def get_video(video_id: str) -> dict:
     return video_flow.view(_video(video_id))
+
+
+# ------------------------------------------------------------------ plan a YouTube video with ClipForge AI
+from . import video_setup  # noqa: E402
+
+
+def _setup_bad(exc: video_setup.SetupError) -> HTTPException:
+    return HTTPException(exc.status, str(exc))
+
+
+class SetupStart(BaseModel):
+    asset_ids: list[str]
+    idea: str = Field(default="", max_length=8000)
+    mode: str = ""                       # ask (questions when needed) | auto (just do it); "" = as last time
+    name: str = Field(default="", max_length=120)
+    style_id: str = "saved"
+    reference_id: str = ""
+    script: dict | None = None
+    remember: dict = {}
+
+
+@router.post("/api/studio/videos/setup")
+def start_video_setup(body: SetupStart) -> dict:
+    """A new draft video from your files and your idea: ClipForge AI answers with a plan (and maybe questions), or
+    with "Just do it" the video is built at once."""
+    p = principal.current()
+    try:
+        return video_setup.start(p.workspace_id, p.user_id, asset_ids=body.asset_ids, idea=body.idea, mode=body.mode,
+                                 name=body.name, style_id=body.style_id, reference_id=body.reference_id,
+                                 script=body.script, remember=body.remember)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+
+
+@router.get("/api/studio/video-setup/model")
+def video_setup_model() -> dict:
+    """Whether ClipForge AI has a model to plan a video with (the start page says so before anything is sent)."""
+    principal.workspace_id()
+    return video_setup.model_view()
+
+
+@router.get("/api/studio/videos/{video_id}/setup")
+def get_video_setup(video_id: str) -> dict:
+    try:
+        return video_setup.view(principal.workspace_id(), video_id)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+
+
+class SetupSay(BaseModel):
+    text: str = Field(max_length=8000)
+    question_id: str = Field(default="", max_length=40)  # the question a quick answer belongs to
+
+
+@router.post("/api/studio/videos/{video_id}/setup/say")
+def say_to_video_setup(video_id: str, body: SetupSay) -> dict:
+    ws = principal.workspace_id()
+    try:
+        out = video_setup.say(ws, video_id, body.text, body.question_id)
+        return {**out, "setup": video_setup.view(ws, video_id)}
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+
+
+@router.patch("/api/studio/videos/{video_id}/setup")
+def change_video_setup(video_id: str, body: dict) -> dict:
+    """Change a draft by hand: mode, plan fields, name, style, example, remember, the files' order, the script."""
+    p = principal.current()
+    try:
+        return video_setup.patch(p.workspace_id, p.user_id, video_id, body)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+
+
+@router.post("/api/studio/videos/{video_id}/setup/stop")
+def stop_video_setup(video_id: str) -> dict:
+    ws = principal.workspace_id()
+    try:
+        video_setup.stop(ws, video_id)
+        return video_setup.view(ws, video_id)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+
+
+class SetupBuild(BaseModel):
+    mode: str = ""
+
+
+@router.post("/api/studio/videos/{video_id}/setup/build")
+def build_video_setup(video_id: str, body: SetupBuild) -> dict:
+    """Build my video: the plan drives the edit (ClipForge AI plans first when it had not yet)."""
+    p = principal.current()
+    try:
+        out = video_setup.build(p.workspace_id, p.user_id, video_id, body.mode)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
+
+
+class PlanBody(BaseModel):
+    base_revision: int
+    plan: dict
+
+
+@router.put("/api/studio/videos/{video_id}/plan")
+def change_video_plan(video_id: str, body: PlanBody) -> dict:
+    """After the build: change the plan and edit the video again with it, as a new version Undo takes back."""
+    p = principal.current()
+    try:
+        out = video_setup.change_plan(p.workspace_id, p.user_id, video_id, body.base_revision, body.plan)
+    except video_setup.SetupError as exc:
+        raise _setup_bad(exc) from exc
+    return {**out, **video_flow.view(_video(video_id))}
 
 
 class VideoEdit(BaseModel):
@@ -779,7 +894,7 @@ def add_video_media(video_id: str, body: MediaBody) -> dict:
     """Add files to the project's media bin (also after the rough cut); place them with an insert or audio edit."""
     _video(video_id)
     try:
-        out = video_flow.add_media(video_id, body.asset_ids)
+        out = video_flow.add_media(video_id, body.asset_ids, yours=True)
     except video_flow.VideoError as exc:
         raise _bad(exc) from exc
     return {**out, **video_flow.view(_video(video_id))}

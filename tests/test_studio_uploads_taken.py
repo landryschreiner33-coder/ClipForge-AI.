@@ -113,7 +113,7 @@ def test_a_file_added_to_a_videos_bin_is_its_own_also_when_the_bin_has_it_alread
                             style_id="settings", remember={"enabled": False})["id"]
     _uploaded(clip)  # uploaded again and added to the bin it is in already
     _uploaded(extra)
-    assert video_flow.add_media(vid, [clip["id"], extra["id"]]) == {"added": [extra["id"]]}
+    assert video_flow.add_media(vid, [clip["id"], extra["id"]], yours=True) == {"added": [extra["id"]]}
     assert all(r["taken"] == vid for r in db.select("uploads", "1 = 1"))
     plan = project_delete.plan("local", vid, "full_video")
     assert plan["counts"]["files"] == 2 and plan["counts"]["files_kept"] == 0 and not _again(plan["stays"])
@@ -157,3 +157,25 @@ def test_a_project_takes_only_finished_uploads_no_project_took_and_the_newest_fi
     uploads.taken("local", [clip["id"]], "vid-b")
     uploads.taken("local", [clip["id"]], "vid-c")  # nothing left to take: nothing changes
     assert [db.fetch("uploads", u["id"])["taken"] for u in (older, newer)] == ["vid-b", "vid-a"]
+
+
+def test_the_same_file_sent_twice_in_one_drop_is_one_upload_of_the_project(env):
+    """Uploads that started before ClipForge had the file are one drop (the one that stored it and the same file
+    sent alongside it). The video took one of them, so the other is its own too; a later upload no project took is
+    another page's and keeps the file."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete, video_flow
+
+    clip = _had(41)
+    stored = float(clip["created_at"])
+    for started in (stored - 2, stored - 1):
+        db.insert("uploads", {"workspace_id": "local", "filename": clip["filename"], "size": 3000,
+                              "status": "complete", "asset_id": clip["id"], "created_at": started,
+                              "updated_at": stored + 1})
+    vid = video_flow.create("local", "local", name="Run", asset_ids=[clip["id"]], brief={}, style_id="settings",
+                            remember={"enabled": False})["id"]
+    assert sorted(r["taken"] for r in db.select("uploads", "1 = 1")) == ["", vid]
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 1 and not _again(plan["stays"])
+    _uploaded(clip)
+    assert _again(project_delete.plan("local", vid, "full_video")["stays"])

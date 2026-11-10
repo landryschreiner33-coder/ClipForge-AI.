@@ -6,8 +6,8 @@ What goes is everything ClipForge keeps only for that project:
 * its clips with their versions, scores and suggested post text, or its edit history (every revision), previews,
   finished videos, change requests and media searches, an animated short's scenes with every picture and clip its
   builds stored (its list, `short_files`, also names one no scene or version names) and the originals the picture,
-  video and voice makers on this computer made for them (kept with them, with their notes), and its folder in the
-  data folder;
+  video and voice makers on this computer made for them (kept with them, with their notes; one that could not be
+  kept with them stays in engines/made, and the window says so), and its folder in the data folder;
 * the media it was made from when no other project or example uses it: ClipForge's copy of an upload or of a
   downloaded link (with the transcript and preview copy made from it), or, for a file used where it is, only what
   ClipForge made from it;
@@ -18,7 +18,7 @@ What goes is everything ClipForge keeps only for that project:
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
 every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
-within the last day (a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
+within the last day (an upload no project took: a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
 clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
@@ -101,6 +101,7 @@ class _Survey:
     again: list[dict] = field(default_factory=list)  # media the owner uploaded again since: kept
     made: set[str] = field(default_factory=set)  # what ClipForge made for an animated short's scenes
     makers: list[str] = field(default_factory=list)  # the makers' originals that go with them ("pictures", ...)
+    makers_left: list[str] = field(default_factory=list)  # the makers' originals left in engines/made: they stay
     as_of: float = 0.0  # the moment "added again" is judged at: when the window was shown
     source_copy: str = ""  # a clips project's own copy of its video (a recording, a download, an older upload)
     folders: list[Path] = field(default_factory=list)
@@ -220,43 +221,91 @@ def _d(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _short_made(project_id: str) -> set[str]:
-    """What ClipForge made for an animated short's scenes: each scene's clip (also one only an older version of the
-    plan names), the pictures it made, not a picture the owner chose (that one is ClipForge's copy of their file),
-    and every file on the short's list (what its builds stored)."""
+def _short_made(project_id: str) -> tuple[set[str], dict[str, set[str]], bool]:
+    """What ClipForge made for an animated short's scenes: each scene's clip and the pictures it made, as the scenes
+    are now and as every saved version kept them (also a scene deleted since), but not a picture the owner chose:
+    that one is ClipForge's copy of their file. Who made a scene's picture is its info.picture.source, which still
+    says "upload" while a new picture waits to replace the owner's. Every file on the short's list (`short_files`:
+    what its builds stored) is made too. Also which of those the makers on this computer made ({"pictures": ids,
+    "video clips": ids}), and whether its voice engine read for it, from the same places and from the short's voice
+    notes (a build stopped before any clip was made): the short keeps their originals with what it made from them
+    (_maker_originals)."""
     made: set[str] = set()
-    for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
-        made.update(_d(c).get("asset_id") or "" for c in _d(rev.get("plan")).get("clips") or []
-                    if _d(c).get("scene_id"))
-    for scene in db.select("short_scenes", "project_id = ?", (project_id,)):
-        earlier = [_d(e) for e in scene.get("pictures") or []]
-        made.add(scene.get("clip_asset_id") or "")
-        if scene.get("picture_source") != "upload":
-            made.add(scene.get("picture_asset_id") or "")
+    engine: dict[str, set[str]] = {"pictures": set(), "video clips": set()}
+    voices = False
+
+    def scene(row: dict, earlier: list[dict]) -> None:
+        nonlocal voices
+        info = _d(row.get("info"))
+        who = _d(info.get("picture")).get("source") or ("upload" if row.get("picture_source") == "upload" else "")
+        made.add(row.get("clip_asset_id") or "")
+        if who != "upload":
+            made.add(row.get("picture_asset_id") or "")
         made.update(e.get("asset_id") or "" for e in earlier if e.get("source") != "upload")
+        if who == "engine":
+            engine["pictures"].add(row.get("picture_asset_id") or "")
+        engine["pictures"].update(e.get("asset_id") or "" for e in earlier if e.get("source") == "engine")
+        if _d(info.get("motion")).get("how") == "engine":
+            engine["video clips"].add(row.get("clip_asset_id") or "")
+        voices |= _d(info.get("voice")).get("engine") == "engine"
+
+    for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
+        plan = _d(rev.get("plan"))
+        made.update(_d(c).get("asset_id") or "" for c in plan.get("clips") or [] if _d(c).get("scene_id"))
+        for row in _d(_d(plan.get("short")).get("rows")).values():
+            scene(_d(row), [])
+    for row in db.select("short_scenes", "project_id = ?", (project_id,)):
+        scene(row, [_d(e) for e in row.get("pictures") or []])
     made.update(r["asset_id"] for r in db.select("short_files", "project_id = ?", (project_id,)))
-    return made - {""}
+    voices = voices or bool(_engine_voices(project_id))
+    return made - {""}, {k: v - {""} for k, v in engine.items()}, voices
 
 
-def _maker_originals(project_id: str, drop: list[dict], made: set[str]) -> list[str]:
-    """The originals the makers on this computer made for a short that deleting it removes ("pictures", "video
-    clips", "voices"): the short keeps each with what it made from it (a picture's or clip's own folder, its voice
-    folder), not in engines/made."""
+def _engine_voices(project_id: str) -> set[str]:
+    """The keys of the short's recorded voices that its voice engine read (their notes say so)."""
+    keys: set[str] = set()
+    notes = config.data_dir() / "videos" / project_id / "short" / "voice"
+    if notes.is_dir():
+        for note in notes.glob("*.json"):
+            try:
+                if _d(json.loads(note.read_text(encoding="utf-8"))).get("engine") == "engine":
+                    keys.add(note.stem)
+            except (OSError, ValueError):
+                continue
+    return keys
+
+
+def _maker_originals(project_id: str, drop: list[dict], made: set[str], engine: dict[str, set[str]],
+                     voices: bool) -> tuple[list[str], list[str]]:
+    """The originals the makers on this computer made for a short ("pictures", "video clips", "voices"): those it
+    keeps with what it made from them (a picture's or clip's own folder, its voice folder), which deleting it removes,
+    and those it could not keep there (made by a version from before it did, or the move failed), which stay in
+    engines/made."""
     from ..makers import shorts
 
     kinds = {"image": "pictures", "video": "video clips"}
-    have: set[str] = set()
+    goes: set[str] = set()
+    stays: set[str] = set()
     for asset in drop:
-        folder = _asset_folder(asset) if asset["id"] in made and asset.get("kind") in kinds else None
+        kind = kinds.get(asset.get("kind") or "")
+        if kind is None or asset["id"] not in made:
+            continue
+        folder = _asset_folder(asset)
         if folder is not None and (folder / f"{shorts.MAKER}.json").is_file():
-            have.add(kinds[asset["kind"]])
-    voices = shorts.voice_originals(project_id)
+            goes.add(kind)
+        elif asset["id"] in engine[kind]:
+            stays.add(kind)
+    kept = shorts.voice_originals(project_id)
     try:
-        if voices.is_dir() and any(voices.iterdir()):
-            have.add("voices")
+        have = {p.stem for p in kept.iterdir() if p.is_file()} if kept.is_dir() else set()
     except OSError:
-        pass
-    return [k for k in ("pictures", "video clips", "voices") if k in have]
+        have = set()
+    if have:
+        goes.add("voices")
+    if voices and (not have or _engine_voices(project_id) - have):
+        stays.add("voices")
+    order = ("pictures", "video clips", "voices")
+    return [k for k in order if k in goes], [k for k in order if k in stays]
 
 
 def _copying(folder: Path) -> bool:
@@ -294,19 +343,33 @@ AGAIN_S = 24 * 3600  # how long a file added again stays protected while no proj
 
 
 def _added_again(asset: dict, row: dict, seen: float) -> bool:
-    """The owner added this file again, by uploading it once more, after the project was made and within the day
-    before `seen` (when the window was shown): ClipForge keeps one copy per file, so that upload is this file, and a
-    page may be about to use it, so it stays. An upload is "again" only when it started after ClipForge had the
-    file: the upload that stored it, and the same file sent alongside it, started before (they are the project's
-    own, also when the project was made first or saving was slow), while an upload of a file ClipForge got another
-    way (Find media, a link, a short's build) is again. An upload a project took (uploads.taken: this one or
-    another, also one deleted since) was for that project, not added again. The time the project was made is used,
-    not the time it last changed: stopping its work (deleting does that first) changes the project, and the answer
-    must stay what the window said."""
-    since = max(float(row.get("created_at") or 0), seen - AGAIN_S)
-    return bool(db.scalar(
-        "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND created_at > ? AND "
-        "updated_at > ? LIMIT 1", (asset["id"], float(asset.get("created_at") or 0), since)))
+    """The owner added this file again, so a page may be about to use it, and it stays. ClipForge keeps one copy per
+    file, so every upload of the same bytes is this file. Only uploads that finished in the day before `seen` (when
+    the window was shown) count, and only uploads no project took (uploads.taken: every place a project takes the
+    owner's files marks the upload it came from; one a project took was for that project, also one deleted since).
+    The uploads that started before ClipForge had the file count as one drop (the one that stored it and the same
+    file sent alongside it, also when saving was slow). When this project took its own upload of the file, any other
+    such upload is another page's ("again"), apart from one of the same drop as its own. Otherwise (a project made
+    before uploads were marked, or by a path that does not mark them) it is "again" when, in that day:
+    * an upload finished after the project was made that did not make it: one that started after ClipForge had the
+      file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
+      the project was made (another page's: a page makes its project only from finished uploads); or
+    * the file was dropped twice: the project was made from one drop at most, so another page may hold the other.
+    The time the project was made is used, not the time it last changed: stopping its work (deleting does that
+    first) changes the project, and the answer must stay what the window said."""
+    stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
+    done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ?"
+    mine = db.scalar("SELECT MIN(created_at) FROM uploads WHERE asset_id = ? AND taken = ?", (asset["id"], row["id"]))
+    if mine is not None:  # its own drop is known: the drop that stored the file, or a later one
+        same_drop = float(mine) <= stored
+        return bool(db.scalar(f"SELECT 1 {done} AND (created_at > ? OR ? = 0) LIMIT 1",
+                              (asset["id"], day, stored, int(same_drop))))
+    if db.scalar(f"SELECT 1 {done} AND (created_at > ? OR created_at < ?) LIMIT 1",
+                 (asset["id"], max(made, day), stored, made)):
+        return True
+    later = int(db.scalar(f"SELECT COUNT(*) {done} AND created_at > ?", (asset["id"], day, stored)) or 0)
+    first = 1 if db.scalar(f"SELECT 1 {done} AND created_at <= ? LIMIT 1", (asset["id"], day, stored)) else 0
+    return later + first >= 2
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -385,7 +448,7 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
                 s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
                                     "('queued', 'running')", (imp["id"],))
         asset_ids = _video_asset_ids(row)
-        s.made = _short_made(project_id)
+        s.made, engine, voices = _short_made(project_id)
         vdir = config.data_dir() / "videos" / project_id
         if vdir.is_dir() and _inside_data(vdir):
             s.folders.append(vdir)
@@ -401,7 +464,7 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
         else:
             s.drop.append(asset)
     if kind == "full_video" and row.get("workflow") == "animated_short":
-        s.makers = _maker_originals(project_id, s.drop, s.made)
+        s.makers, s.makers_left = _maker_originals(project_id, s.drop, s.made, engine, voices)
     for asset in s.drop:  # preparing a file that is about to go is work on this project too
         s.targets.add(asset["id"])
         s.jobs += db.select("studio_jobs", "kind = 'asset_prepare' AND target_id = ? AND status IN "
@@ -497,6 +560,9 @@ def _view(s: _Survey) -> dict:
     if s.again:
         stays.append(f"{_names(s.again)} {'stays' if len(s.again) == 1 else 'stay'} in ClipForge because you added "
                      + ("it" if len(s.again) == 1 else "them") + " again since.")
+    if s.makers_left:
+        stays.append(f"Originals of the {_listed(s.makers_left)} made for it on this computer that ClipForge could "
+                     "not keep with it stay in engines/made, each with a note of the words it was made from.")
     if s.posted:
         stays.append("Anything already posted to YouTube or TikTok stays there, with its history.")
     stays.append("What ClipForge AI learned for all your videos stays: your rules and your taste.")

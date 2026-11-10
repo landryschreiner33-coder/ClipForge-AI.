@@ -1255,7 +1255,7 @@ JSON_FIELDS = {
     "oauth_connects": set(),
     "uploads": set(),
     "assets": {"probe"},
-    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short"},
+    "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short", "setup"},
     "short_scenes": {"pictures", "info"},
     "short_files": set(),
     "edit_plans": {"plan", "meta"},
@@ -1297,9 +1297,11 @@ ADDED_COLUMNS = {
     # owner's corrections); a style revision keeps its own copy so older projects can still cite it
     "styles": {"reference_id": "TEXT DEFAULT ''", "provenance": "TEXT DEFAULT '{}'"},
     "style_revisions": {"provenance": "TEXT DEFAULT '{}'"},
-    # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording
+    # a full-video project's supporting-media rules (mode, commercial use, share-alike) and credit wording; the
+    # plan made with ClipForge AI before the build, and how it was made (studio/video_setup.py)
     "studio_projects": {"media": "TEXT DEFAULT '{}'", "script": "TEXT DEFAULT '{}'",
-                        "short": "TEXT DEFAULT '{}'"},  # an animated short's options (makers/shorts.py)
+                        "short": "TEXT DEFAULT '{}'",  # an animated short's options (makers/shorts.py)
+                        "setup": "TEXT DEFAULT '{}'"},
     # the memories ClipForge AI read for a proposal (brain/memories.py)
     "edit_requests": {"memories": "TEXT DEFAULT '[]'", "knowhow": "TEXT DEFAULT '[]'"},
     "metadata_candidates": {"artifact_sha256": "TEXT DEFAULT ''"},

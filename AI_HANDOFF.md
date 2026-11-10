@@ -12,7 +12,8 @@ post is busy with it, or the video is still being copied in, the window says why
 in another program (Windows) is deleted the next time ClipForge starts.
 
 - **Branch / PR:** `claude/project-thread-8i3krg` from the release line at 95a70e0 (story clips, PR #40, animated
-  shorts, PR #36, and the local makers, PR #39, merged in on top), PR #35 into `claude/project-thread-x72wkd`,
+  shorts, PR #36, the local makers, PR #39, the safety follow-ups, PR #41, and Make a YouTube video's planning,
+  PR #38, merged in on top), PR #35 into `claude/project-thread-x72wkd`,
   merged under Landry's standing word to merge finished work.
   Not released: a release still needs Landry's explicit OK.
 - **Code:** new `clipfoundry/studio/project_delete.py`, `frontend/src/components/DeleteProject.tsx` / `.css`,
@@ -24,16 +25,101 @@ in another program (Windows) is deleted the next time ClipForge starts.
 - **For other work:** a table that belongs to one project goes in `VIDEO_TABLES` or `CLIPS_TABLES` (a listed table that
   does not exist yet is skipped). A new place that keeps asset ids must be read by `_used_elsewhere` (and by
   `_video_asset_ids` when it names a video's own files, as an animated short's scenes do), or deleting another
-  project can remove a file it still needs. ClipForge AI's delete tool calls `plan()` and `delete()`; deleting from
-  a project's own chat deletes that chat too.
+  project can remove a file it still needs. Work a delete cannot see (a thread, not a studio job) must re-check that
+  its project still exists before it writes anything for it: the planning answer (`video_setup._think`) opens the
+  project's chat with `open_chat`, which makes a new empty chat if the delete lands between its two reads. ClipForge AI's delete tool calls `plan()` and `delete()` (pass the
+  plan's `as_of` to `delete` when a person read the plan first); deleting from a project's own chat deletes that
+  chat too. A new kind of file ClipForge makes for one project should be recorded where `_video_asset_ids` reads it,
+  or it stays after the project is deleted.
 - **Verify:** `python -m pytest -q tests/test_studio_project_delete.py`; the fast and slow suites; `cd frontend && npm
   run build`; in the app, delete a full video and a clips project from Projects and read the window first.
 - **Not done:** a real Windows PC check (read-only and in-use files are simulated); a Delete action on a full video's
   own page (the Projects page has it; that page is being changed by the edit-setup thread). Deleting only works in
   the browser on the computer that runs ClipForge (like Autopilot and memories), not from another device on the
   network. A file used where it is and added again for a page that has not saved it yet is not protected the way a
-  re-upload is (only ClipForge's prepared data for it goes; the owner's file never does).
+  re-upload is (only ClipForge's prepared data for it goes; the owner's file never does). Passed on to the shorts,
+  makers and upload code: scene files no scene or saved version names any more stay after a short is deleted; the
+  makers' originals in engines/made stay (the window says so); two identical uploads finishing at the same moment
+  give an error and leave a stray copy; a project's own later upload of a file ClipForge already had counts as
+  "added again", so it is left behind (needs a record of which project took an upload). Known limit: the same file
+  dropped on two pages at the very same moment shares one upload, so deleting the project made on one page can
+  remove the file the other page is about to use (dropping it again fixes it).
 - **Waiting on Landry:** the release (explicit OK); a try on a real Windows PC and on Landry's Mac.
+
+## Make a YouTube video: plan it with ClipForge AI — 2026-11-08, review fixes 2026-11-10 (Claude Code, cloud session)
+
+**Plain-English summary:** Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI
+your idea and plan, and it can ask questions or not. Make a YouTube video is now two pages. On the first you drop in
+your videos, pictures and sounds (in the order they should play), tell ClipForge AI your idea in your own words, and
+choose "Ask me questions" or "Just do it". On the second you talk it through: ClipForge AI answers with a plan you can
+read (the name, what it is, who it is for, length, shape, feel, how it opens, the story in order, what to keep and cut,
+music, captions…), asks at most three short questions with quick answers when you chose questions, and changes the
+plan as you keep talking or as you change any line by hand. "Build my video", or "Just do it" at any point, edits the
+video from the plan: the brief, the opening you asked for, ClipForge AI's edit, fitting to length and the file order
+all follow it. The plan stays on the editor page, where changing it edits again as a new version. A video being
+planned waits in Projects as a draft, so leaving the page loses nothing.
+
+- **Branch / PR:** `claude/project-thread-2wwa4c`, PR #38 into `claude/project-thread-x72wkd` (the release line,
+  merged in again on Nov 9 with PR #36 and PR #40). Fixes from two reviews on Nov 10 (see AI_CHANGELOG.md): the
+  built-in rules' reading rewritten, merging that keeps what a stopped message said and every hand edit, Undo and
+  failed or canceled plan changes that bring back what the next edit uses, sounds changed by hand that stay, and the
+  pages' guards before you leave or build. Landry's standing word (Nov 9) is to merge finished work into the release
+  line; releases still need an explicit OK. It works with
+  and without the assistant's PR #37 (`claude/project-thread-sa113l`): merged in a scratch copy on Nov 10, only
+  `frontend/dist` (rebuild it) and the change logs (keep both) conflict, and both sets of tests pass.
+- **Design and limits:** [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md) (what the owner sees, the plan's
+  fields and bounds, how the plan drives the edit, the planner, drafts and routes, what is shared with the assistant,
+  privacy); [docs/clipforge/ROUTE_MAP.md](docs/clipforge/ROUTE_MAP.md); [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Code:** new `clipfoundry/studio/video_setup.py`; changed `db.py` (the `setup` column), `studio/routes.py`,
+  `video_flow.py`, `ai_editor.py`, `smart_edit.py`, `prefs.py`; `frontend/src/pages/MakeVideo.tsx` (rewritten), new
+  `components/VideoPlan.tsx` and `videoSetup.css`, changed `pages/VideoReview.tsx`, `App.tsx`, `router.ts`,
+  `studio.ts`, `prefs.tsx`, `components/Customize.tsx`; `frontend/dist` rebuilt; `tests/test_video_setup.py`,
+  `tests/test_video_setup_flow.py`, `e2e/sandbox/video-setup.spec.ts` (listed in `e2e/playwright.sandbox.config.ts`).
+- **Verify:** `python -m pytest -q tests/test_video_setup.py tests/test_video_setup_flow.py -p no:cacheprovider`, the
+  whole suite (`-m "not slow"` and `-m slow`); `cd frontend && npm ci && npm run build`; `cd e2e && npx playwright
+  test -c playwright.sandbox.config.ts video-setup.spec.ts` (starts its own sandbox). On Landry's computer: Make a
+  YouTube video with real footage and the built-in model on; tell it an idea, try both choices, answer a question,
+  change the plan by talking and by hand, build, then change the plan on the editor page.
+- **Judgement calls to know about:** "Ask me questions" is the first choice and the last choice is remembered; the
+  built-in rules ask at most three questions once (who it is for, length, feel) and a model at most three per round,
+  two rounds; a quick answer keeps the other questions while typing your own words drops them; drafts are real
+  projects (status "draft") so nothing is lost; ClipForge AI's "Make a YouTube video" tool only shows a button that
+  opens the page with the idea filled in (the owner drops in the files) instead of starting a video by itself; the
+  old one-step `POST /api/studio/videos` stays for scripts and tests; the plan form sends only what you changed, and
+  a line you set by hand stays until a message written after it talks about it again. With a model, its reading of
+  a message wins over the built-in rules' (the rules only fill what it did not use); "As long as it needs" is its own
+  choice (-1), not "from your style" (0); after the build a plan change only moves the brief fields it changed, and
+  Undo brings the plan back with the video, with the brief values, guidance and order it was made with. A plan's
+  sound that you change by hand (move, role, trim, level) becomes yours and stays as you left it, even if the plan's
+  music changes later. Planning never sends Brain notes to NVIDIA (its agreement says they are never sent); the
+  ClipForge AI chat (`brain/chat.py`, older code outside this work) still recalls memories for any provider, NVIDIA
+  included, which the NVIDIA privacy row does not mention: worth a look in the assistant's work.
+- **Not done:** the built-in model's real planning answers, real footage and speech, and a real Mac cannot be tested
+  from the cloud computer (the tests use a fake model and made-up transcripts); speaking the idea instead of typing
+  it; planning several videos from one drop.
+- **Waiting on Landry:** a real test on Landry's computer with the built-in model; the release (explicit OK).
+
+## Safety follow-ups: built-in AI engine lifetime and other computers' addresses — 2026-11-10 (Claude Code, cloud session)
+
+**Plain-English summary:** two small safety gaps found by the review of the local makers are fixed, plus the same
+gap in four more places. On Linux the built-in AI's engine could stop a few seconds after answering (it was tied to
+the thread that started it), so the next question loaded the model again; it now lives as long as ClipForge. On
+Windows, a web page or a crafted project could make ClipForge look at a file on another computer, which signs in to
+that computer as the person; ClipForge now refuses such addresses before looking at anything, while footage on a
+share the owner uses still works.
+
+- **Branch / PR:** `claude/project-thread-3rqurx` from the release line at ff890b6, PR #41, merged into
+  `claude/project-thread-x72wkd` on Landry's standing OK after the fast and slow suites and the FilmCraft, built-in
+  AI and Local makers checks on GitHub's machines passed. No release.
+- **Code:** `clipfoundry/builtin_ai.py` (`_popen`, `_spawn_loop`: identical to PR #37's, so it merges cleanly),
+  `engines/comfy_server.py` (uses `builtin_ai._popen`), new `clipfoundry/pathguard.py` (`plain_parts`),
+  `craft/routes.py`, `engines/routes.py`, `api.py` (catch-all), `studio/local_files.py` (`other_computer`,
+  `ELSEWHERE`), `studio/uploads.py` (`link_local`), `craft/web.py` (`_resolve` with roots, `_PATHISH`, `_CLIMB`),
+  `craft/ai.py` (`_PATHISH`). Details and checks: [AI_CHANGELOG.md](AI_CHANGELOG.md).
+- **Verify:** `python -m pytest -q -p no:cacheprovider tests/test_builtin_ai_lifetime.py tests/test_network_paths.py
+  tests/test_pathguard.py tests/test_craft.py`; the whole suite with `-m "not slow"` and `-m slow`.
+- **Open follow-up:** FFmpeg opens files named inside a downloaded DASH manifest (see the changelog); a demuxer
+  allow-list for media from outside is the fix, with real-media checks.
 
 ## Local makers: pictures, video and voice made on this computer — 2026-11-08/10 (Claude Code, cloud session)
 

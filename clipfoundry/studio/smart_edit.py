@@ -96,6 +96,11 @@ HOOK_MIN_S, HOOK_MAX_S = 2.5, 12.0
 HOOK_SKIP_S = 15.0           # the first 15 s of the video already open it: the hook comes from later
 HOOK_SHARE = 0.6             # ... and from the first part of the video, so it teases what comes
 HOOK_SCORE = 0.55            # a line weaker than this is no hook: the video then simply starts
+OPEN_MIN_VIDEO_S = 30.0      # the opening the owner asked for (brief.open_with): for a video at least this long,
+OPEN_MIN_S, OPEN_MAX_S = 1.5, 15.0  # a line said in this long that shares at least OPEN_SHARE of its words
+OPEN_SHARE = 0.5
+PLAN_BONUS = 0.15            # fit to length: a passage about the owner's plan ranks up to this much higher
+PLAN_BONUS_WORD = 0.05       # ... for each word it shares with the plan
 
 
 # ------------------------------------------------------------------ options
@@ -623,9 +628,11 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
             if cur:
                 beats.append((t, cur))
         protected = {id(beats[0][1]), id(beats[-1][1])} if beats else set()
+        about = plan_words(brief)
         ranked = sorted((b for b in beats if id(b[1]) not in protected and not any(
             p in b[0]["sents"][k]["text"].lower() for k in b[1] for p in keep_words)),
-            key=lambda b: sum(b[0]["scores"][k] for k in b[1]) / len(b[1]))
+            key=lambda b: sum(b[0]["scores"][k] for k in b[1]) / len(b[1]) +
+            plan_bonus(" ".join(b[0]["sents"][k]["text"] for k in b[1]), about))
         for t, ks in ranked:
             if estimate() <= target * 1.02:
                 break
@@ -768,7 +775,7 @@ def build(project: dict, assets: dict[str, dict], words: dict[str, list[dict]], 
         clips[0]["include"] = True  # never an empty video
     # ---- 3b. the cold open: the strongest line first, when the video is long enough to need one
     if opts["cold_open"] and talking:
-        hook = cold_open(clips, talks, table, ai, pad)
+        hook = cold_open(clips, talks, table, ai, pad, str(brief.get("open_with") or ""))
         if hook:
             clips.insert(0, hook["clip"])
             outline.insert(0, hook["outline"])
@@ -835,14 +842,18 @@ def plan_skeleton(project: dict, values: dict, assets: dict[str, dict], clips: l
 
     brief = project.get("brief") or {}
     audio = []
+    # a planned video's music and voiceovers follow its plan: each edit places them again (`brief`); without a plan
+    # they are yours once placed, as they always were
+    planned = {"brief": True} if project.get("setup") else {}
     if brief.get("music") == "supplied" and brief.get("music_asset_id") in assets:
-        audio.append(_audio_item("a1", assets[brief["music_asset_id"]], "music",
-                                 gain_db=float(values.get("music_level_db", -18)),
-                                 duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500))
+        audio.append({**_audio_item("a1", assets[brief["music_asset_id"]], "music",
+                                    gain_db=float(values.get("music_level_db", -18)),
+                                    duck=bool(values.get("duck_music", True)), fade_in_ms=1500, fade_out_ms=2500),
+                      **planned})
     at = 0
     for aid in brief.get("voiceover_asset_ids") or []:
         if aid in assets:
-            item = _audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at)
+            item = {**_audio_item(f"a{len(audio) + 1}", assets[aid], "voiceover", start_ms=at), **planned}
             audio.append(item)
             at += engine.item_length(item) or 0
     return {"schema": engine.SCHEMA, "timebase": 1000, "engine": engine.ENGINE,
@@ -902,13 +913,49 @@ def hook_score(s: dict) -> float:
     return round(value, 4)
 
 
-def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict, pad_s: float) -> dict | None:
-    """The cold open for a video of HOOK_MIN_VIDEO_S or more: ClipForge AI's hook sentence when it named one that
-    plays, else the kept sentence with the best `hook_score` after the first HOOK_SKIP_S of the video and inside
-    its first HOOK_SHARE (so it teases what comes), at least HOOK_SCORE. Returns {"clip", "outline", "note",
-    "said"} or None; the line still plays where it was said."""
+def plan_words(brief: dict) -> set[str]:
+    """The words the owner's plan is about (its summary, opening, story and must-keeps), for fitting the length."""
+    plan = brief.get("plan") if isinstance(brief.get("plan"), dict) else {}
+    if not plan and not brief.get("open_with"):
+        return set()  # a video made without a plan ranks as it always did
+    parts = [plan.get("summary"), plan.get("opening") or brief.get("open_with"), brief.get("must_keep")]
+    parts += list(plan.get("story") or [])
+    return {t for p in parts if isinstance(p, str) for t in content_tokens(p)}
+
+
+def plan_bonus(text: str, about: set[str]) -> float:
+    """How much higher a passage ranks for being about the plan: PLAN_BONUS_WORD per shared word, at most
+    PLAN_BONUS."""
+    if not about:
+        return 0.0
+    return min(PLAN_BONUS, PLAN_BONUS_WORD * len(about & set(content_tokens(text))))
+
+
+def asked_opening(kept: list[tuple[float, dict, dict]], open_with: str) -> tuple[float, dict, dict] | None:
+    """The kept line that is the opening the owner asked for: said in OPEN_MIN_S to OPEN_MAX_S, sharing at least
+    OPEN_SHARE of the request's words (most shared first, then the stronger line), anywhere in the video."""
+    want = set(content_tokens(open_with))
+    if not want:
+        return None
+    best = None
+    for pos, t, s in kept:
+        if not OPEN_MIN_S <= s["end"] - s["start"] <= OPEN_MAX_S:
+            continue
+        share = len(want & set(content_tokens(s["text"]))) / len(want)
+        if share >= OPEN_SHARE and (best is None or (share, hook_score(s)) > best[0]):
+            best = ((share, hook_score(s)), (pos, t, s))
+    return best[1] if best else None
+
+
+def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict, pad_s: float,
+              open_with: str = "") -> dict | None:
+    """The cold open: the opening the owner asked for (`open_with`, from their plan) when a kept line matches it,
+    for a video of OPEN_MIN_VIDEO_S or more; otherwise, for a video of HOOK_MIN_VIDEO_S or more, ClipForge AI's hook
+    sentence when it named one that plays, else the kept sentence with the best `hook_score` after the first
+    HOOK_SKIP_S of the video and inside its first HOOK_SHARE (so it teases what comes), at least HOOK_SCORE.
+    Returns {"clip", "outline", "note", "said"} or None; the line still plays where it was said."""
     played = sum(c["out_ms"] - c["in_ms"] for c in clips if c.get("include", True) and c.get("kind") == "video")
-    if played < HOOK_MIN_VIDEO_S * 1000:
+    if played < (OPEN_MIN_VIDEO_S if open_with.strip() else HOOK_MIN_VIDEO_S) * 1000:
         return None
     kept: list[tuple[float, dict, dict]] = []  # (output position, talk, sentence)
     at = 0
@@ -924,9 +971,16 @@ def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict,
         at += length
     if not kept:
         return None
-    pick = None
+    pick = asked_opening(kept, open_with) if open_with.strip() else None
+    if pick is not None and pick[0] < HOOK_SKIP_S:
+        return None  # the opening you asked for already opens the video
+    why = "the opening you asked for"
+    if pick is None and played < HOOK_MIN_VIDEO_S * 1000:
+        return None
     want = (ai.get("hook") or {}).get("i") if isinstance(ai.get("hook"), dict) else None
-    if want is not None and 0 <= int(want) < len(table):
+    if pick is not None:
+        want = None
+    if pick is None and want is not None and 0 <= int(want) < len(table):
         row = table[int(want)]
         pick = next(((pos, t, s) for pos, t, s in kept if t["asset"]["id"] == row["asset_id"]
                      and abs(s["start"] - row["start"]) < 0.05 and HOOK_MIN_S <= s["end"] - s["start"] <= HOOK_MAX_S),
@@ -948,8 +1002,10 @@ def cold_open(clips: list[dict], talks: list[dict], table: list[dict], ai: dict,
     return {"clip": clip, "said": said,
             "outline": {"clip_id": "hook", "label": t["asset"]["filename"], "duration": round((b_ms - a_ms) / 1000, 1),
                         "summary": f"Cold open: “{said}” (it plays again where it was said, at {_mmss(pos)})"},
-            "note": f"Opened with the strongest line, “{said}”, {why}; it plays again where it was said. Remove the "
-                    "first clip if you would rather start at the beginning."}
+            "note": (f"Opened with “{said}”, {why}" if why == "the opening you asked for" else
+                     f"Opened with the strongest line, “{said}”, {why}") +
+                    "; it plays again where it was said. Remove the first clip if you would rather start at the "
+                    "beginning."}
 
 
 def _mmss(seconds: float) -> str:

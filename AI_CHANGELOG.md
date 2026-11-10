@@ -27,7 +27,8 @@ No release.
   to 10 s for it, else 409 `stopping`, and the window asks again for up to 90 s.
 - **Routes:** `GET /api/projects/{id}/delete-plan`, `GET /api/studio/videos/{id}/delete-plan`,
   `DELETE /api/studio/videos/{id}` (new); `DELETE /api/projects/{id}` now runs the same code (before, it refused while
-  clips were being made and left the upload copy, the chat and the project's memories behind).
+  clips were being made and left the upload copy, the chat and the project's memories behind). Both DELETEs take the
+  plan's `as_of` (`?as_of=`), which the window sends back.
 - **Screens:** `frontend/src/components/DeleteProject.tsx` and `.css` (new): a trash button on every Projects card (top
   left, the Pin button's twin; `LibraryCard` takes an optional `onDelete`, so the Studio page's cards have none) and one
   confirmation window ("Deleted for good" and "Stays" from the server, "This can't be undone", focus starts on "Keep
@@ -40,8 +41,8 @@ No release.
   blocks; memories go by their scope only (a memory saved again for another project keeps its first project_id); a
   file the owner uploaded again after the project was made, within the last day, stays (ClipForge keeps one copy per
   file, and a new page may be about to use it; counted from the project's `created_at`, which deleting's own stop
-  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its video (a live recording, a download) is named in
-  what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
+  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its
+  video (a live recording, a download) is named in what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
   deleted at the next start (`finish_later`, only ClipForge's own project, video, link and upload folders), and the
   answer says so (`left_behind`); both DELETE routes only answer ClipForge's own page on this computer (the
   `app_request` guard the Autopilot and memory routes have, in words about deleting). Window: it cannot be closed
@@ -62,20 +63,187 @@ No release.
   project), counts as a use and stays; the window names a short's build ("making the short"); one upload of a
   file ClipForge got another way (Find media, a link) counts as added again; and a window that lists more than
   four files says "and 2 more", not "and 2 mores". Story parts projects are clips projects and need nothing new.
-- **Tests:** `tests/test_studio_project_delete.py` (21 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+- **After a last independent look on the combined code (2026-11-10):** a short's scene pictures and clips are not
+  copies of anything and every remake has the same name, so the window counts them on their own line ("What
+  ClipForge made for its scenes: 3 pictures and 3 clips."); a picture the owner chose for a scene, uploads, downloads
+  and ClipForge's library sounds keep "ClipForge's copy of …". When the makers on this computer made a short's
+  pictures, video clips or voices, the window says under Stays that their originals stay in engines/made with a note
+  of the words (the makers keep everything they make; deleting does not reach that folder). "Added again" is decided
+  by when an upload started: only one that started after ClipForge had the file counts, so a slow save or the same
+  file dropped twice at once no longer keeps a project's own file (this replaces a 5-second guess). The plan answers
+  with `as_of`, the window sends it with Delete, and the delete judges "added again" at that moment, so a file the
+  window said stays is not deleted because the window stayed open past the day. Passed on to the shorts and upload
+  code (not this change): scene files that no scene or saved version names any more (a replaced clip, a deleted
+  scene's files) stay after the short is deleted; the makers' originals could be removed with the short; two
+  identical files finishing their upload at the same moment give an error and leave a stray copy.
+- **After one more independent look at those fixes (same day):** a short's files are also read from every saved
+  version (a deleted scene's picture is counted as made, not named as a copy); the owner's own photo stays "ClipForge's
+  copy of …" while a new picture waits to replace it (who made a scene's picture is its info.picture.source); the
+  makers' line also shows after the voice or motion was switched, a scene was deleted or a build was stopped (saved
+  versions and the short's voice notes); and "added again" also keeps a file when another page's upload of it started
+  before the project was made and finished after it (the same file under two names), or when the file was dropped
+  twice in the day (the project was made from one drop at most). Passed on: a project's own later upload of a file
+  ClipForge already had counts as added again, so that file is left behind (needs a record of which project took an
+  upload); the same file dropped on two pages at the very same moment shares one upload, so it can still go.
+- **With Make a YouTube video's planning (PR #38, merged in):** a video being planned is a full video with status
+  `draft`; deleting it stops the reading of its files, removes its planning chat with an answer still being written,
+  and that answer finishing afterwards makes no chat or message again (a test drives the setup page's own `start`).
+- **Tests:** `tests/test_studio_project_delete.py` (27 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
   passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story
   clips): every test, fast and slow together, 2,064 passed and 3 skipped (two model folders and opentimelineio are
   not on this machine); one timing test (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, which gives a
   render 2.5 s to reach the GPU wait) failed once under load and passes on its own (3 of 3) and with its file; it
-  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30 checks (now also: focus after deleting, no pinned-list save, the window held open
-  while deleting with focus inside it, a refusal shown at once with focus on Close), the window loads in development
-  mode, and the two e2e delete tests pass against a seeded app (a deletable and a waiting project).
+  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30
+  checks (now also: focus after deleting, no pinned-list save, the window held open while deleting with focus inside
+  it, a refusal shown at once with focus on Close), the window loads in development mode, and the two e2e delete
+  tests pass against a seeded app (a deletable and a waiting project). After the
+  last review's fixes (41d54e8): every test, fast and slow together, 2,233 passed and 3 skipped; the click-through
+  passed 31 of 31 (now also: Delete sends the moment the window was judged); the two e2e delete tests pass.
 - **Not verified:** a real Windows PC (the read-only and in-use file handling is simulated in tests); Landry's Mac.
 - **Known limit:** a file used where it is ("Add from this computer") that is added again for a new page that has
   not saved it yet is not protected the way an upload is (adding it again leaves no record). Only what ClipForge made
   from it goes, never the owner's file; the file may then need to be added again on that page.
+
+## Make a YouTube video: review fixes — 2026-11-10 (Claude Code)
+
+Two reviews of PR #38 (branch `claude/project-thread-2wwa4c`) found misreadings and rough edges; all fixed with a
+test for each (each new test failed on the code before its fix). No release. Details:
+[docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The built-in rules** (`studio/video_setup.py`, the reading part rewritten in the second review): a no only when it
+  says no to the thing ("I don't want captions", "skip the captions", "not a TikTok"; not "Grandma can't hear well
+  and needs captions", "don't make the captions too big", "no music during the vows", "I hate when videos don't have
+  captions"; "don't lose the captions" is a yes); keep and cut only when asked for, in everyday ways ("I'd like you
+  to cut…", "can we cut…", "could we keep…"), turned round by "don't"/"never" and let go by "you don't have to"; the
+  video's length, not the footage's, a part's or a cut's ("my footage is 2 hours, make it 15" is 15 minutes; "the
+  intro should be about 30 seconds" is none), said in everyday ways ("10 minutes is good", "Length: 10 minutes", "not
+  longer than 10 minutes"), the last one said winning; "as long as it needs" is its own choice (`NO_LENGTH` = -1),
+  "as long as you like it" is not; editing off only for the whole video; shape words only about the video ("vertical
+  works best", "make a reel"); titles as typed ("Let's call it Mom's 60th"), none from "call it a day"; stories
+  whose steps are things that happen; a named sound takes the role its sentence gives it. A long odd message is read
+  in well under a second (at most 16 words in front of a keep or cut are read).
+- **Merging**: each answer reads every message since the last one an answer merged, so what a stopped message said
+  counts with the next; with a model its reading wins and the rules fill what it did not use; a part said in a
+  message merged before, or set by hand, changes only when a later message talks about it, compared per part with
+  when the hand edit was made (`locked_at`); a quick answer talks about what its question asked (`data.about`);
+  files put in order by hand hold that order against an answer written meanwhile. Without a model only those
+  messages are read, so a kept or cut item taken out by hand stays out.
+- **Stop and Build**: an answer that arrives after Stop changes nothing (taken in under the lock, only while still
+  "thinking"); a request not yet sent when Stop or a canceled build comes is never sent; three answers at a time;
+  Build after a stopped first answer reads everything said (a part set by hand after the last message about it
+  stays, in the build job's plan too) and plans in the build job; a build-time request that runs too long is given
+  up (told to stop through the assistant's `llm.converse`; through `llm.complete` it runs to its end and is
+  dropped); every online request that went out counts toward the daily limit, also a failed or canceled one.
+- **After the build** (`change_plan`, `video_flow.smart_job`, `_jump`): only the brief fields the change moved are
+  set (editor choices and `ai_edit` stay); the plan's music and voiceovers carry `"brief": true` (planned videos
+  only) and are placed again from the plan, while a sound moved, changed or made quieter by hand stays yours, one you
+  placed yourself is never placed twice, and your own song keeps the plan's music; a new order is the bin's order;
+  the look is compared with the current version; Undo/redo/going back bring back the plan each version was made
+  with (`setup.plans`), the brief values it was made with (`setup.made`), the guidance made from them and the file
+  order, and drop a plan change still waiting; a plan change whose edit fails or is canceled before it starts
+  (`@on_stop("video_smart")`) puts back the plan, brief, guidance, name and order. `smart_edit.plan_words` is empty
+  for videos made without a plan, and their sounds stay as you left them.
+- **Inputs and privacy**: `asset_ids`, `remember` and file numbers are checked (422, not 500); the listening job is
+  keyed by the set of files (`video_flow.bin_key`); what is sent now names the Brain rules, the memories, the plan so
+  far, know-how and helper notes (`_sent`, the page's model line, `docs/legal/privacy.html`); planning never sends
+  Brain notes to NVIDIA, whose agreement says they are never sent (`brain_allowed`; NVIDIA's privacy row and
+  `nvidia.data_note` now name what planning sends).
+- **The pages**: the plan form saves only what you changed since it opened; Length is From your style / As long as it
+  needs / About… (choosing About… moves focus to Minutes; opening the form no longer does); the music file is never
+  also a voiceover; Back from the editor skips the planning page (`router.redirect`); Build my video and Just do it
+  wait for uploads, and words typed but not sent are asked about first; leaving names what would be lost in one
+  sentence (`LeaveGuard.say`), and an open plan form counts only when changed; a file taken out stays out, also one
+  picked again while it was in the video, and one taken out while uploading leaves no Resume row
+  (`Picked.forget`); added files keep the order you dropped them in; only the words sent leave the message box;
+  focus returns after a quick answer, Save or Cancel; Stop shows Stopping…; the editor's plan says what an empty
+  plan means (and "Nothing decided yet" while it still plans) and hides Supporting media.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py` (new tests for each fix),
+  `e2e/sandbox/video-setup.spec.ts` (Back after Build; words not sent and form changes asked about);
+  `frontend/dist` rebuilt.
+
+## Make a YouTube video: drop in your files, tell ClipForge AI your idea, plan it together — 2026-11-08 (Claude Code)
+
+Landry asked for the YouTube video setup to work like this: drop in your stuff, tell the AI your idea and plan, and it
+can ask questions or not. Branch `claude/project-thread-2wwa4c` from the release line at 95a70e0. No release. Design,
+bounds and routes: [docs/clipforge/VIDEO_SETUP.md](docs/clipforge/VIDEO_SETUP.md).
+
+- **The start page** (`frontend/src/pages/MakeVideo.tsx`, rewritten; `#/create/video`, `?idea=` fills the box):
+  your videos, pictures and sounds in one drop and in play order, your idea in your own words (4,000 characters),
+  "Ask me questions" or "Just do it" (remembered: `video_setup_mode` in `prefs.py`, `prefs.tsx`, `Customize.tsx`),
+  and More choices (style and example, remember the look, your script, the name).
+- **The planning page** (`#/create/video/<id>`): the conversation with ClipForge AI (quick answers, "Just do it",
+  Stop, notes from your helper agents), the plan as a slate whose changed lines light up
+  (`components/VideoPlan.tsx`: `PlanSheet`, `PlanForm`, `useChanged`; `videoSetup.css`), your files with what was
+  heard in each, adding more files, and Build my video. A video being planned is a draft project
+  (`studio_projects.status = "draft"` with a `setup`, new column in `db.py`; `video_setup.is_draft`, so an animated
+  short stopped before its first version keeps its own page and chat); Projects lists it and opens it here, and
+  `#/video/<id>` sends it here (`planning` in the video view; `VideoReview.tsx`, `router.ts`, `App.tsx`).
+- **The planner** (`clipfoundry/studio/video_setup.py`, new): built-in rules for lengths, shapes, feel, how much to
+  edit, music, captions, keep and cut, openings, stories, audiences and video types; with a model, one bounded text
+  request (files, what is said in them, memories, know-how, helper notes, the conversation, the plan) answered as
+  `{"say", "questions", "plan"}` inside a JSON schema and checked field by field; questions at most 3 at a time and
+  2 rounds, a quick answer keeps the others, typing drops them; merging keeps explicit words and hand edits; the
+  online daily limit and "what was sent where" like the chat.
+- **The plan drives the edit**: `plan_to_brief` fills the brief (length, shape, feel, editing, captions, music, keep,
+  cut, the opening); `video_flow.py` gains `open_with` and `plan` brief fields and plans inside the build job when
+  "Just do it" had no plan yet; `ai_editor.py` starts every window with the owner's plan (700 characters);
+  `smart_edit.py` opens with the sentence that matches the asked opening and ranks passages that match the plan
+  higher when fitting to length; the plan's file order sets the bin's order.
+- **After the build**: "Your plan" on the editor page; `PUT /api/studio/videos/{id}/plan` edits again as a new
+  version that Undo takes back.
+- **Routes** (`studio/routes.py`): `POST /api/studio/videos/setup`, `GET|PATCH /api/studio/videos/{id}/setup`,
+  `POST .../setup/say|stop|build`, `PUT .../plan`, `GET /api/studio/video-setup/model`; the old one-step
+  `POST /api/studio/videos` is unchanged.
+- **With the assistant (PR #37)**: a draft's chat answers through `chat.route` in the chat's own message shape, the
+  `make_youtube_video` tool shows a button to this page, helper agents' notes come from `agents.consult`; each part
+  is optional, so either PR can merge first.
+- **Checks**: `tests/test_video_setup.py`, `tests/test_video_setup_flow.py`; `e2e/sandbox/video-setup.spec.ts` walks
+  the whole flow in the sandbox (and at phone width); `frontend/dist` rebuilt.
+
+## Safety follow-ups: the built-in AI's engine outlives a request's thread; other computers' addresses are never looked at — 2026-11-10 (Claude Code)
+
+Branch `claude/project-thread-3rqurx` from the release line at ff890b6, PR #41. The two follow-ups the PR #39 review
+found outside the engines, plus the same gap wherever a sweep of the whole app found it. Merged on Landry's standing
+OK to merge finished work; no release.
+
+- **The built-in AI's engine (llama-server) on Linux** was told to stop when its parent ends, and Linux counts the
+  *thread* that started it as its parent: started from a request's worker thread (which retires after about ten idle
+  seconds) or a job thread, it stopped with that thread, so the next answer loaded the model again.
+  `builtin_ai._popen` now starts it from one lasting thread (the same code as PR #37, so that branch merges cleanly),
+  and ComfyUI uses the same starter instead of its own. It still ends when ClipForge ends.
+- **Other computers' addresses:** on Windows, merely looking at `\\server\share\x` or `//server/share/x` connects to
+  that server and signs in as the person (their password hash goes with it). Any web page can make the browser ask
+  ClipForge's address for something, a FilmCraft project can carry any text, and the AI's FilmCraft steps can be
+  steered by words in a video. Now refused before anything looks at the file system:
+  - `GET /craft/filmcraft/<file>` (FilmCraft's editor) and the app page's catch-all route: only plain folder and
+    file names (`clipfoundry/pathguard.py`, shared with made files);
+  - `GET /api/local/browse` and linking a file (`local_files.other_computer`): another computer is refused from the
+    text alone; a share the owner listed in `CLIPFOUNDRY_LOCAL_ROOTS`, or a mapped drive, still works;
+  - FilmCraft's editor looked up every text in a project as a possible file: another computer's address is no longer
+    looked up (the video's own files on an allowed share or in a data folder on a share still are); a saved project
+    naming `\/server/share`, a path starting with a backslash, or climbing with `..` is refused, so FilmCraft's render
+    never opens it; the AI's finishing steps refuse a leading backslash too.
+- **How it was found and checked:** a sweep of the whole app for both problems (five areas, then a skeptic per
+  finding: six network-path cases confirmed, no other thread-bound child process), then an independent review of the
+  change (three lenses, a skeptic per finding), which found one regression (the video's own files on an allowed share
+  were skipped in FilmCraft's editor), fixed with a test. Every fix has a test that failed first and records each
+  file-system call: `tests/test_builtin_ai_lifetime.py`, `tests/test_network_paths.py`, `tests/test_pathguard.py`,
+  the last test of `tests/test_craft.py`.
+- **Checks:** on the final code (b65d795) the full fast suite 2271 passed, 2 skipped, and `pytest -m slow` 30 passed,
+  1 skipped (on b830fdf: 2268 and 30). On GitHub's machines, on b65d795: the FilmCraft check with the real FilmCraft
+  and built-in AI (run 42783880588, macOS 15 + Ubuntu), the built-in AI check with the real engine (run 42783952354,
+  Ubuntu, macOS 15, Windows) and the Local makers check starting the real ComfyUI through the shared starter (run
+  42783957349, Mac, Windows, Linux) all passed.
+- **Not verified:** a real Windows computer (Windows path rules were checked with PureWindowsPath and by recording
+  file-system calls; no SMB server was contacted), a real FilmCraft project with footage on a NAS, the real
+  llama-server (the stand-in engine was used).
+- **Follow-up (not fixed here, different fix):** FFmpeg reads a downloaded "video" that is really a DASH manifest
+  (`<MPD>` in a file named .mp4) and opens the files it names (checked with ffprobe 6.1 here), so on Windows a
+  manifest naming `file:////server/share/v.mp4` would make ffprobe contact that server. The fix is a demuxer
+  allow-list (`-format_whitelist`) on every FFmpeg input of media from outside, as `knowledge.probe_example` already
+  does; it needs care so no supported format is refused, and real-media checks.
 
 ## Local makers: the final review's fixes, combined with story clips and animated shorts — 2026-11-10 (Claude Code)
 

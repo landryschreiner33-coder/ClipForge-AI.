@@ -103,13 +103,44 @@ def story_so_far(chapters: list[dict], sentences_read: int) -> str:
     return text[:SO_FAR_CHARS]
 
 
+PLAN_CHARS = 700  # the owner's plan for the video (studio/video_setup.py), in every window
+
+
+def plan_block(brief: dict) -> str:
+    """The owner's plan for this video, made with ClipForge AI before the build (`brief.plan`, `brief.open_with`):
+    what it is, how it opens, the story in order and notes, with what to do with it; at most PLAN_CHARS. '' for a
+    video made without a plan."""
+    plan = brief.get("plan") if isinstance(brief.get("plan"), dict) else {}
+    lines = []
+    if isinstance(plan.get("summary"), str) and plan["summary"].strip():
+        lines.append(f"What it is: {plan['summary'].strip()}")
+    opening = plan.get("opening") or brief.get("open_with")
+    if isinstance(opening, str) and opening.strip():
+        lines.append(f"Open with: {opening.strip()}")
+    story = [x.strip() for x in plan.get("story") or [] if isinstance(x, str) and x.strip()]
+    if story:
+        lines.append("The story in order: " + "; ".join(f"{n}. {x}" for n, x in enumerate(story, 1)))
+    notes = [x.strip() for x in plan.get("notes") or [] if isinstance(x, str) and x.strip()]
+    if notes:
+        lines.append("Also: " + "; ".join(notes))
+    if not lines:
+        return ""
+    head = ("The owner's plan for this video (follow it: leave out what does not serve it, choose the hook it asks "
+            "for, name chapters after its parts):")
+    return (head + "\n" + "\n".join(lines))[:PLAN_CHARS]
+
+
 def build_prompt(window: list[dict], brief: dict, part: int, parts: int, memories: str = "",
                  knowhow: str = "", so_far: str = "") -> str:
-    """One window's request: the owner's memories, then the built-in know-how that fits the brief, then the brief,
-    the story so far and the numbered sentences."""
+    """One window's request: the owner's memories, then the built-in know-how that fits the brief, then the
+    owner's plan for the video (when it was planned with ClipForge AI), the brief, the story so far and the numbered
+    sentences."""
     want = [memories.strip()] if memories and memories.strip() else []
     if knowhow and knowhow.strip():
         want.append(knowhow.strip())
+    plan = plan_block(brief)
+    if plan:
+        want.append(plan)
     if so_far and so_far.strip():
         want.append(so_far.strip())
     for key, label in (("video_type", "Video type"), ("audience", "For"), ("goal", "Goal"),

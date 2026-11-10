@@ -13,7 +13,7 @@ from __future__ import annotations
 import getpass
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from ..cloud import settings as cloud_settings
 
@@ -97,6 +97,22 @@ def roots() -> list[dict]:
     return out
 
 
+def other_computer(path: str, tops: list[dict]) -> bool:
+    """Whether `path` names another computer (\\\\server\\share, //server/share or any mix of the two slashes) or a
+    Windows device path (\\\\?\\..., \\\\.\\...) rather than a folder of this computer, other than a network share the
+    owner listed as one of the roots. Decided from the text alone, before anything looks at it: on Windows, merely
+    looking at such a path connects to that server and signs in as the person, and any web page can ask for one."""
+    text = str(path or "").strip().replace("/", "\\")
+    if not text.startswith("\\\\"):
+        return False
+    shares = {PureWindowsPath(r["path"].replace("/", "\\")).drive.lower() for r in tops
+              if r["path"].replace("/", "\\").startswith("\\\\")}
+    return PureWindowsPath(text).drive.lower() not in shares
+
+
+ELSEWHERE = "ClipForge only looks at the folders of this computer and its drives, not at other computers."
+
+
 def allowed(path: Path) -> bool:
     """Whether a path (links followed) lies inside one of the roots."""
     try:
@@ -120,6 +136,8 @@ def browse(path: str = "") -> dict:
     if not (path or "").strip():
         return {"path": "", "parent": "", "roots": tops,
                 "folders": [{"name": r["label"], "path": r["path"]} for r in tops], "files": [], "truncated": False}
+    if other_computer(path, tops):
+        raise LocalError(ELSEWHERE, 403)
     raw = Path(path.strip())
     if not raw.is_absolute():
         raise LocalError("Give the full path of a folder, starting at the root folder or the drive.", 400)

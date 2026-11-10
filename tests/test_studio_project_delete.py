@@ -815,17 +815,24 @@ def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_p
     assert "What ClipForge made for its scenes: 3 pictures and 3 clips." in plan["goes"]
     assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
     assert not any("Scene" in line for line in plan["goes"])
-    assert not any("engines/made" in line or "originals" in line for line in plan["goes"] + plan["stays"])
+    # the picture maker and the voice engine made some of it, and nothing of theirs is kept with the short (made by
+    # a version from before it kept them): their originals stay in engines/made, and the window says so
+    assert not any("originals" in line for line in plan["goes"])
+    left = ("Originals of the pictures and voices made for it on this computer that ClipForge could not keep with it "
+            "stay in engines/made, each with a note of the words it was made from.")
+    assert left in plan["stays"]
     # what the picture maker and the voice engine made for it is kept with it: it goes too, and the window says so
     from clipfoundry.makers import shorts
 
-    (Path(pics[2]["path"]).parent / "maker.json").write_text('{"licence": "Apache-2.0"}')
+    for pic in pics:
+        (Path(pic["path"]).parent / "maker.json").write_text('{"licence": "Apache-2.0"}')
     voices = shorts.voice_originals(short)
     voices.mkdir(parents=True)
     (voices / "a1b2.wav").write_bytes(b"RIFF")
     plan = project_delete.plan("local", short, "full_video")
     assert ("What ClipForge made for its scenes: 3 pictures and 3 clips, with the originals of the pictures and "
             "voices made for it on this computer.") in plan["goes"]
+    assert not any("engines/made" in line for line in plan["stays"])
     plain = _video("Plain video", [_stored(57)["id"]])["id"]
     assert not any("originals" in line for line in project_delete.plan("local", plain, "full_video")["goes"])
     out = project_delete.delete("local", short, "full_video")
@@ -883,3 +890,126 @@ def test_a_file_the_window_said_stays_still_stays_when_delete_is_pressed_a_while
         done = api.delete(f"/api/studio/videos/{vid}?as_of={plan['as_of']}", headers=H)
     assert done.status_code == 200 and done.json()["deleted"] and done.json()["counts"]["files_kept"] == 1
     assert db.fetch("assets", asset["id"]) and os.path.isfile(asset["path"])
+
+
+def test_a_shorts_window_reads_its_saved_versions_and_a_picture_waiting_to_be_replaced(env):
+    """A short's saved versions keep each scene as it was (also a scene deleted since), so its picture and clip are
+    counted as made there too. The owner's own picture stays theirs while a new picture waits to replace it. The
+    makers' work is found wherever the short recorded it: a saved version (the voice or motion was switched since,
+    or the scene was deleted) or a voice note from a build stopped before any clip was made."""
+    from clipfoundry import config, db
+    from clipfoundry.studio import project_delete
+
+    pic1, pic2 = (_stored(n, kind="image", filename=f"Scene {k} picture.png") for n, k in ((61, 1), (62, 2)))
+    clip1, clip2 = (_stored(n, filename=f"Scene {k}.mp4") for n, k in ((63, 1), (64, 2)))
+    owl = _stored(65, kind="image", filename="my owl photo.png")
+    short = _video("Bees", [], workflow="animated_short")["id"]
+    rows = {"sc-1": {"picture_asset_id": pic1["id"], "clip_asset_id": clip1["id"], "picture_source": "auto",
+                     "info": {"picture": {"source": "card"}, "voice": {"engine": "engine"}, "motion": {"how": "camera"}}},
+            "sc-2": {"picture_asset_id": pic2["id"], "clip_asset_id": clip2["id"], "picture_source": "auto",
+                     "info": {"picture": {"source": "engine"}, "voice": {"engine": "say"}, "motion": {"how": "engine"}}}}
+    db.insert("edit_plans", {"project_id": short, "revision": 1, "plan": {
+        "clips": [{"asset_id": clip1["id"], "scene_id": "sc-1"}], "short": {"rows": rows}}}, key="project_id")
+    # scene 2 was deleted since; scene 1 now shows the owner's photo, a new picture waits, the voice was switched
+    db.insert("short_scenes", {"id": "sc-1", "project_id": short, "workspace_id": "local", "position": 1,
+                               "narration": "Bees dance", "picture_asset_id": owl["id"], "picture_source": "auto",
+                               "clip_asset_id": clip1["id"],
+                               "pictures": [{"asset_id": pic1["id"], "source": "card"},
+                                            {"asset_id": owl["id"], "source": "upload"}],
+                               "info": {"picture": {"source": "upload"}, "voice": {"engine": "espeak"},
+                                        "motion": {"how": "camera"}}})
+    plan = project_delete.plan("local", short, "full_video")
+    assert plan["counts"]["files"] == 5
+    assert "What ClipForge made for its scenes: 2 pictures and 2 clips." in plan["goes"]
+    assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
+    assert not any("Scene" in line for line in plan["goes"])
+    assert ("Originals of the pictures, video clips and voices made for it on this computer that ClipForge could "
+            "not keep with it stay in engines/made, each with a note of the words it was made from.") in plan["stays"]
+
+    stopped = _video("Stopped short", [], workflow="animated_short")["id"]
+    db.insert("short_scenes", {"project_id": stopped, "workspace_id": "local", "position": 1, "narration": "Ants"})
+    notes = config.data_dir() / "videos" / stopped / "short" / "voice"
+    notes.mkdir(parents=True)
+    (notes / "k1.json").write_text(json.dumps({"engine": "engine", "voice": "F1"}))
+    (notes / "k0.json").write_text("not json")
+    assert ("Originals of the voices made for it on this computer that ClipForge could not keep with it stay in "
+            "engines/made, each with a note of the words it was made from.") in project_delete.plan(
+        "local", stopped, "full_video")["stays"]
+    (notes / "k1.json").write_text(json.dumps({"engine": "say", "voice": "Samantha"}))
+    assert not any("engines/made" in line for line in project_delete.plan("local", stopped, "full_video")["stays"])
+
+
+def test_another_pages_upload_of_the_same_file_keeps_it_even_when_it_finished_before_or_after_the_project(env):
+    """A page makes a project only from finished uploads, so an upload that started before the project was made and
+    finished after it is another page's (the same file under another name, sent at the same time). And two drops of
+    a file in the last day mean another page may hold it: the project was made from one of them at most. Either way
+    the file stays. One drop (the uploads that started before ClipForge had the file count as one) still goes."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    def upload(asset: dict, started: float, done: float) -> None:
+        db.insert("uploads", {"workspace_id": "local", "filename": asset["filename"], "size": 3000,
+                              "status": "complete", "asset_id": asset["id"], "created_at": started,
+                              "updated_at": done})
+
+    late = _stored(71, filename="talk.mp4")
+    t = float(late["created_at"])
+    upload(late, t - 5, t)          # "talk (1).mp4" on this page: stored the file
+    upload(late, t - 10, t + 20)    # "talk.mp4" on another page: started first, finished after the video was made
+    vid = _video("Talk", [late["id"]], created_at=t + 5)["id"]
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
+    assert "“talk.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+
+    twice = _stored(72, filename="lake.mp4")
+    t = float(twice["created_at"])
+    upload(twice, t - 5, t)         # dropped on Make clips (stored it), that page is still open
+    upload(twice, t + 10, t + 20)   # dropped again on Make a YouTube video, which made the video
+    vid2 = _video("Lake", [twice["id"]], created_at=t + 30)["id"]
+    assert project_delete.plan("local", vid2, "full_video")["counts"]["files_kept"] == 1
+
+    once = _stored(73, filename="once.mp4")
+    t = float(once["created_at"])
+    upload(once, t - 5, t)          # the same file twice in one drop: both started before ClipForge had it
+    upload(once, t - 4, t + 0.5)
+    vid3 = _video("Once", [once["id"]], created_at=t + 30)["id"]
+    assert project_delete.plan("local", vid3, "full_video")["counts"]["files"] == 1
+
+
+def test_a_video_being_planned_goes_with_its_planning_chat_and_an_answer_written_after_changes_nothing(env,
+                                                                                                    monkeypatch):
+    """A draft made on Make a YouTube video (studio/video_setup.py) is a full video with status "draft" and a plan
+    being made in its own chat. Deleting it stops the reading of its files and removes the chat with ClipForge AI's
+    answer still being written; that answer, when it finishes after the delete, makes no chat or message again."""
+    from clipfoundry import config, db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete, video_setup
+
+    later = []
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: None)  # the heavy-work thread is busy elsewhere
+    monkeypatch.setattr(video_setup, "model_ready", lambda settings: True)
+    monkeypatch.setattr(video_setup, "limit_reached", lambda ws, settings: "")
+    monkeypatch.setattr(video_setup._pool, "submit", lambda fn, *a: later.append((fn, a)))  # written in the background
+    monkeypatch.setattr(video_setup, "ask_model", lambda *a, **k: pytest.fail("no answer is asked for a deleted video"))
+    trip = _stored(81, filename="trip.mp4")
+    draft = video_setup.start("local", "owner", asset_ids=[trip["id"]], idea="A fun trip video", mode="ask")
+    vid = draft["id"]
+    assert video_setup.is_draft(db.fetch("studio_projects", vid)) and len(later) == 1
+    chat = db.select("brain_chats", "project_id = ?", (vid,))[0]
+    assert {r["status"] for r in db.select("brain_chat_messages", "chat_id = ?", (chat["id"],))} == {"done",
+                                                                                                   "thinking"}
+
+    plan = project_delete.plan("local", vid, "full_video")
+    assert plan["working"] == ("ClipForge is still working on it (reading the files added to it). Deleting stops that "
+                               "first.")
+    assert "Its chat about it (2 messages)." in plan["goes"]
+    assert "ClipForge's copy of “trip.mp4”, which no other project uses." in plan["goes"]
+    out = project_delete.delete("local", vid, "full_video")
+    assert out["deleted"] and db.fetch("studio_projects", vid) is None
+    assert all(j["status"] != "queued" for j in db.select("studio_jobs", "target_id = ?", (vid,)))
+    assert not db.select("brain_chats", "project_id = ?", (vid,)) and not db.select("brain_chat_messages")
+    assert not (config.data_dir() / "videos" / vid).exists()
+
+    fn, args = later[0]
+    fn(*args)  # the answer finishes after the delete
+    assert not db.select("brain_chats", "project_id = ?", (vid,)) and not db.select("brain_chat_messages")

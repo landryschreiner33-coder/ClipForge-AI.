@@ -244,10 +244,11 @@ Face):
 
 ## Follow-ups
 
-- Outside the engines, found by the final review: `clipfoundry/builtin_ai.py` starts llama-server with the same
-  Linux parent-death signal from whichever thread asks, so on Linux it can stop when that thread ends (fixed here for
-  ComfyUI with one lasting starter thread); `clipfoundry/craft/routes.py` resolves a requested path before checking
-  it, so on Windows a network-share path could make it connect to that share (fixed here for made files).
+- Done (Nov 10, branch `claude/project-thread-3rqurx`): the two found outside the engines by the final review.
+  llama-server is now started from the same lasting thread as ComfyUI (`builtin_ai._popen`, which ComfyUI uses too),
+  and FilmCraft's editor files, like made files, refuse anything but plain names before looking
+  (`clipfoundry/pathguard.py`, shared). A sweep of the whole app found and fixed the same network-path gap in the app's
+  page route, the folder picker and FilmCraft projects; see AI_CHANGELOG.md.
 - When ComfyUI publishes 0.44 as a release, move the pin after the machine check passes.
 - Supertonic's licence asks for "reasonable efforts to use the latest version" of the model: when the pins move, check
   Supertone/supertonic-3 for a newer revision (the pinned one is from May 6 2026).
