@@ -59,8 +59,11 @@ No release.
 - **Tests:** `tests/test_studio_project_delete.py` (18 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
-  passed 18 of 18 checks. After the review fixes: every test (fast and slow together) ALL_RESULT; the
-  click-through passed 30 of 30 checks (now also: focus after deleting, no pinned-list save, the window held open
+  passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story
+  clips): every test, fast and slow together, 2,064 passed and 3 skipped (two model folders and opentimelineio are
+  not on this machine); one timing test (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, which gives a
+  render 2.5 s to reach the GPU wait) failed once under load and passes on its own (3 of 3) and with its file; it
+  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30 checks (now also: focus after deleting, no pinned-list save, the window held open
   while deleting with focus inside it, a refusal shown at once with focus on Close), the window loads in development
   mode, and the two e2e delete tests pass against a seeded app (a deletable and a waiting project).
 - **Not verified:** a real Windows PC (the read-only and in-use file handling is simulated in tests); Landry's Mac.
