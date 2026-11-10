@@ -40,6 +40,14 @@ export function AgentsTab() {
   const [editing, setEditing] = useState<Agent | "new" | null>(null);
   const [removing, setRemoving] = useState<Agent | null>(null);
   const [adding, setAdding] = useState("");
+  const mineTitle = useRef<HTMLHeadingElement>(null);
+  const removed = useRef(false);
+  // A removed helper takes its Remove button with it: the focus goes to the list's title instead of off the page.
+  useEffect(() => {
+    if (removing || !removed.current) return;
+    removed.current = false;
+    if (!document.activeElement || document.activeElement === document.body) mineTitle.current?.focus();
+  }, [removing]);
 
   const load = useCallback(async () => {
     try {
@@ -84,6 +92,7 @@ export function AgentsTab() {
   };
   const remove = async (a: Agent) => {
     await agentsApi.remove(a.id);
+    removed.current = true;
     await load();
     toast(`${a.name} is removed. What it wrote in your chats stays.`);
   };
@@ -104,15 +113,15 @@ export function AgentsTab() {
           <h2 id="agents-about">Helpers</h2>
           <p>Helpers are specialists that work with ClipForge AI. It hands them jobs, and you can talk to one directly by starting a
             message with @ and its name.</p>
-          <p className="small muted">They think with the same model as ClipForge AI, on this computer when that model is. A helper
-            looks things up and writes for you; it never changes or deletes anything.
+          <p className="small muted">They think with the same model as ClipForge AI, so when it runs on this computer, they do too. A
+            helper looks things up and writes for you; it never changes or deletes anything.
             {" "}<a className="textlink" href="#/brain/talk">Talk to ClipForge AI</a></p>
         </div>
       </section>
 
       <section className="stack-3" aria-labelledby="agents-mine">
         <div className="section-title">
-          <h2 id="agents-mine">Your helpers</h2>
+          <h2 id="agents-mine" ref={mineTitle} tabIndex={-1}>Your helpers</h2>
           <span className="small muted">{view.agents.length} of {view.limit}</span>
         </div>
         {problem && <p className="error-text" role="alert"><Icon name="alert" className="sm" />{problem}</p>}

@@ -73,7 +73,8 @@ def _fake_deleter(monkeypatch, blocked: str = "") -> types.ModuleType:
             raise DeleteError(mod.blocked, 409, "blocked")
         if mod.stopping:
             mod.stopping -= 1
-            raise DeleteError("ClipForge is still stopping its work on it. Try again in a few seconds.", 409, "stopping")
+            raise DeleteError("ClipForge is still stopping its work on it. Try again in a few seconds.", 409,
+                              "stopping")
         mod.deleted.append((ws, project_id, kind))
         if kind == "clips":
             db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
@@ -246,6 +247,82 @@ def test_history_is_the_conversation_for_a_model(data):
     assert assistant.history("no-such-chat") == []
 
 
+def test_a_long_answer_before_a_follow_up_is_kept_shortened_never_dropped(data, monkeypatch):
+    """"Make the intro shorter" after a long script: the model and a helper asked about it read the script (its start
+    and end when it does not fit whole), never just the follow-up."""
+    from clipfoundry import db
+    from clipfoundry.brain import agents, assistant, chat
+
+    c = chat.open_chat(WS)
+
+    def add(role, text, **extra):
+        return db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": role, "text": text,
+                                                 "data": extra, "status": "done"})
+
+    add("owner", "My channel is about mountain biking")
+    add("ai", "Nice! What are we making?")
+    add("owner", "Write a one-minute script")
+    script = "HOOK: the trail nobody rides. " + "Then we climb, and climb. " * 190 + "END: subscribe for part two."
+    add("ai", script)
+    add("owner", "make the intro shorter")
+    for as_json in (False, True):
+        h = assistant.history(c["id"], 5000, as_json=as_json)
+        assert [t["role"] for t in h] == ["assistant", "user"]  # nothing older fits: the script still does
+        words = json.loads(h[0]["content"])["say"] if as_json else h[0]["content"]
+        assert words.startswith("HOOK: the trail nobody rides.") and words.endswith("END: subscribe for part two.")
+        assert " … " in words and sum(len(t["content"]) + 8 for t in h) <= 5000
+    whole = assistant.history(c["id"], 12000)
+    assert [t["content"] for t in whole][-2:] == [script, "make the intro shorter"] and len(whole) == 5
+    assert assistant._shorten("abcdefghij", 10) == "abcdefghij"
+    assert len(assistant._shorten("x" * 50 + "y" * 50, 40)) <= 40
+    # too little room left for a useful part: it is left out, and so is everything older
+    tiny = assistant.history(c["id"], len("make the intro shorter") + 8 + assistant.HISTORY_PART - 1)
+    assert tiny == [{"role": "user", "content": "make the intro shorter"}]
+
+    # a helper asked to review "that script" reads it too
+    critic = agents.add(WS, template="critic")
+    fake = install(monkeypatch, say("The hook is strong; the middle drags."))
+    out = agents.run(WS, critic["id"], "Review the script above", chat=c, deadline=time.monotonic() + 30)
+    assert out["ok"]
+    read = "\n".join(m["content"] for m in fake.calls[0]["messages"])
+    assert "HOOK: the trail nobody rides." in read and "END: subscribe for part two." in read
+
+
+def test_the_shortened_answer_reaches_the_model_itself(data, monkeypatch):
+    """Through the real llm.converse (only Ollama's own call is recorded): a provider gets a conversation that starts
+    with the owner, so the script that opens the shortened history is kept behind a short turn on the owner's side,
+    never dropped, for ClipForge AI and for a helper asked about it."""
+    from clipfoundry import db
+    from clipfoundry.brain import agents, chat
+    from clipfoundry.pipeline import llm
+
+    db.save_settings({"ai_provider": "ollama", "ollama_url": "http://127.0.0.1:9", "ollama_model": "qwen-test"})
+    c = chat.open_chat(WS)
+    for role, text in (("owner", "Write a one-minute script"),
+                       ("ai", "HOOK: the trail nobody rides. " + "Then we climb, and climb. " * 190 +
+                        "END: subscribe for part two.")):
+        db.insert("brain_chat_messages", {"chat_id": c["id"], "workspace_id": WS, "role": role, "text": text,
+                                          "data": {}, "status": "done"})
+    got: list[list[dict]] = []
+
+    def ollama(settings, system, turns, o):
+        got.append(turns)
+        return json.dumps({"say": "Here is a shorter intro: the trail nobody rides.", "do": []})
+
+    monkeypatch.setitem(llm.CONVERSE, "ollama", ollama)
+    ai = _say(c["id"], "make the intro shorter")
+    assert settled(c["id"], ai["id"])["text"] == "Here is a shorter intro: the trail nobody rides."
+    critic = agents.add(WS, template="critic")
+    assert agents.run(WS, critic["id"], "Review the script above", chat=c, deadline=time.monotonic() + 30)["ok"]
+    assert len(got) == 2
+    for turns in got:
+        assert turns[0] == {"role": "user", "content": llm.EARLIER}
+        assert [t["role"] for t in turns[:3]] == ["user", "assistant", "user"]
+        said = turns[1]["content"]
+        said = json.loads(said)["say"] if said.startswith("{") else said  # an answer as the assistant writes them
+        assert said.startswith("HOOK: the trail nobody rides.") and said.endswith("END: subscribe for part two.")
+
+
 def test_app_context_says_what_clipforge_ai_knows_right_now(env):
     from clipfoundry import db
     from clipfoundry.brain import agents, assistant
@@ -312,14 +389,23 @@ def test_app_context_keeps_to_its_budget_with_many_projects_and_agents(data):
     assert "Helper 00" in ctx and "- “Talk number 0”" in ctx
 
 
-def test_a_video_still_being_planned_opens_on_its_setup_page(data):
+def test_a_video_still_being_planned_opens_on_its_setup_page(data, monkeypatch):
     from clipfoundry import db
     from clipfoundry.brain import toolbox
 
-    draft = db.insert("studio_projects", {"workspace_id": WS, "name": "New idea", "status": "draft"})
-    made = db.insert("studio_projects", {"workspace_id": WS, "name": "Hike", "status": "ready"})
+    # the setup column comes with the Make a YouTube video planner (another branch): stand-in rows here
+    rows = [{"id": "plan1", "name": "New idea", "status": "draft", "setup": {"idea": "my hike"},
+             "workflow": "full_video", "updated_at": 3},
+            {"id": "short1", "name": "Stopped short", "status": "draft", "setup": {}, "workflow": "animated_short",
+             "updated_at": 2},
+            {"id": "old1", "name": "Old draft", "status": "draft", "updated_at": 1.5},  # before the planner: no setup
+            {"id": "made1", "name": "Hike", "status": "ready", "workflow": "full_video", "updated_at": 1}]
+    real = db.select
+    monkeypatch.setattr(db, "select",
+                        lambda table, *a, **k: rows if table == "studio_projects" else real(table, *a, **k))
     hrefs = {p["name"]: p["href"] for p in toolbox.projects(WS)}
-    assert hrefs == {"New idea": f"#/create/video/{draft['id']}", "Hike": f"#/video/{made['id']}"}
+    assert hrefs == {"New idea": "#/create/video/plan1", "Stopped short": "#/video/short1",
+                     "Old draft": "#/video/old1", "Hike": "#/video/made1"}
 
 
 # ------------------------------------------------------------------ one answer's rounds
@@ -547,7 +633,7 @@ def test_remember_and_exact_forget_need_no_model(data, monkeypatch):
     m = _say(c["id"], "remember: my intro is 3 seconds.")
     assert m["status"] == "done" and m["data"]["tool"] == "remember" and m["data"]["memory"]["kind"] == "fact"
     assert m["text"].startswith("Remembered: “my intro is 3 seconds”")
-    m = _say(c["id"], "Remember that I never use zooms")
+    m = _say(c["id"], "Remember: I never use zooms")
     assert m["data"]["memory"]["text"] == "I never use zooms" and m["data"]["memory"]["kind"] == "rule"
     m = _say(c["id"], "forget my intro is 3 seconds")
     assert m["text"] == "Forgotten: “my intro is 3 seconds”." and m["data"]["tool"] == "forget"
@@ -602,9 +688,13 @@ def test_clipforge_ai_hands_a_job_to_a_helper_agent(data, monkeypatch):
     monkeypatch.setattr(assistant, "WRITE_EVERY_S", 0.0)
     rule = brain.remember(WS, "Never use clickbait", kind="rule")
     researcher = agents.add(WS, template="researcher")
+
+    def next_round(call):  # ClipForge AI's own next round, after the agent: it waits after its first words
+        fake.flowing.clear()
+        return ['{"say": "Researcher suggests', ' the summit at dawn.", "do": []}']
+
     fake = install(monkeypatch, say("", ("ask_agent", {"agent": "researcher", "task": "Find angles for my hike"})),
-                   ['{"say": "Angle: the summit', ' at dawn.", "do": []}'],
-                   say("Researcher suggests the summit at dawn."))
+                   ['{"say": "Angle: the summit', ' at dawn.", "do": []}'], next_round)
     c = chat.open_chat(WS)
     fake.pause_call = 1
     fake.flowing.clear()
@@ -614,6 +704,14 @@ def test_clipforge_ai_hands_a_job_to_a_helper_agent(data, monkeypatch):
         live = _row(m["id"])["data"]["helper_live"]  # the agent's work shows while it is written
         assert live == {"agent": agents.card(researcher), "task": "Find angles for my hike",
                         "text": "Angle: the summit"}
+        fake.started.clear()
+        fake.pause_call = 2
+        fake.flowing.set()  # the agent finishes; ClipForge AI's next round starts and waits after its first words
+        assert fake.started.wait(10)
+        row = _row(m["id"])  # the finished work shows once, in its card, while ClipForge AI writes on
+        assert row["status"] == "thinking" and row["text"] == "Researcher suggests"
+        assert [h["text"] for h in row["data"]["helpers"]] == ["Angle: the summit at dawn."]
+        assert "helper_live" not in row["data"]
     finally:
         fake.flowing.set()
     m = settled(c["id"], m["id"])
@@ -953,6 +1051,185 @@ def test_the_daily_limit_is_only_for_online_models(data, monkeypatch):
     m = _say(c["id"], "three")
     assert m["status"] == "failed" and m["text"].startswith("Today's limit of 0 requests to your online AI")
     assert "Nothing was sent." in m["text"] and fake.calls == []
+
+
+ONLINE = {"ai_provider": "openai_compatible", "openai_url": "https://api.groq.com/openai/v1",
+          "openai_model": "llama-3.3-70b-versatile"}
+
+
+def test_every_request_to_an_online_ai_counts_against_the_daily_limit(data, monkeypatch):
+    """One answer can be several requests (its rounds, and the rounds of a helper it asks): each one counts, and when
+    the day's requests run out mid-answer, what was written stays and nothing more is sent."""
+    from clipfoundry import db
+    from clipfoundry.brain import agents, allowance, chat
+
+    agents.add(WS, template="researcher")
+    fake = install(monkeypatch, say("", ("ask_agent", {"agent": "researcher", "task": "Find angles"})),
+                   say("Angle: the summit at dawn."), say("Researcher suggests the summit at dawn."),
+                   ai_edit_requests_per_day=5, **ONLINE)
+    c = chat.open_chat(WS)
+    m = settled(c["id"], _say(c["id"], "angles for my hike?")["id"])
+    assert m["status"] == "done" and m["text"] == "Researcher suggests the summit at dawn." and len(fake.calls) == 3
+    assert allowance.used(WS) == 3  # ClipForge AI's two rounds and the helper's one
+    rows = db.select("ai_usage", "provider = ?", (f"clipforge_ai:{WS}",), "created_at ASC")
+    assert [(r["task"], r["job_id"]) for r in rows] == [("chat", m["id"]), ("helper", ""), ("chat", m["id"])]
+    assert {r["model"] for r in rows} == {"Groq llama-3.3-70b-versatile"}
+
+    # two left: the helper's round is the last one; ClipForge AI's next round is not sent
+    fake = install(monkeypatch, say("", ("ask_agent", {"agent": "researcher", "task": "More angles"})),
+                   say("Angle: the lake."), say("never sent"), ai_edit_requests_per_day=5, **ONLINE)
+    m = settled(c["id"], _say(c["id"], "more angles?")["id"])
+    assert len(fake.calls) == 2 and allowance.used(WS) == 5
+    assert m["status"] == "done" and m["text"] == ("Today's limit of 5 requests to your online AI is reached (Settings "
+                                                   "→ ClipForge AI). So I stopped here.")
+    assert [h["text"] for h in m["data"]["helpers"]] == ["Angle: the lake."]  # the helper's work stands
+    m = _say(c["id"], "and one more?")  # nothing is left: not even started
+    assert m["status"] == "failed" and m["text"].endswith("Nothing was sent.") and len(fake.calls) == 2
+
+    # a helper's own run says so plainly, and so does @Name
+    researcher = agents.find(WS, "researcher")
+    out = agents.run(WS, researcher["id"], "anything", deadline=time.monotonic() + 30)
+    assert not out["ok"] and out["text"].startswith("Today's limit of 5 requests") and len(fake.calls) == 2
+    # a model on this computer is never counted
+    fake = install(monkeypatch, say("Local and free."))
+    assert settled(c["id"], _say(c["id"], "still there?")["id"])["text"] == "Local and free."
+    assert allowance.used(WS) == 5
+
+
+def test_the_planners_helper_notes_count_and_stop_at_the_limit(data, monkeypatch):
+    from clipfoundry.brain import agents, allowance
+
+    for template in ("researcher", "critic", "script_writer"):
+        agents.edit(WS, agents.add(WS, template=template)["id"], helps_plans=True)
+    fake = install(monkeypatch, say("Note one."), say("Note two."), say("never sent"), ai_edit_requests_per_day=2,
+                   **ONLINE)
+    notes = agents.consult(WS, "Plan a video about my hike", ref_id="plan1")
+    assert [n["text"] for n in notes] == ["Note one.", "Note two."] and len(fake.calls) == 2  # the third: none left
+    assert allowance.used(WS) == 2
+    assert agents.consult(WS, "Plan another") == [] and len(fake.calls) == 2
+    fake = install(monkeypatch, say("never sent"), ai_edit_requests_per_day=0, **ONLINE)  # 0 a day: never sends one
+    assert agents.consult(WS, "Plan a third") == [] and fake.calls == []
+
+
+def test_the_planner_does_not_wait_for_the_built_in_model_to_load(data, monkeypatch):
+    """The helper notes for a new plan have seconds, not the minutes a model load can take: while the built-in model
+    is not loaded they are skipped (it starts loading for next time)."""
+    from clipfoundry import builtin_ai
+    from clipfoundry.brain import agents, assistant
+
+    agents.edit(WS, agents.add(WS, template="critic")["id"], helps_plans=True)
+    fake = install(monkeypatch, say("A note."), ai_provider="builtin", builtin_ai_level="basic")
+    monkeypatch.setattr(assistant, "ready", lambda settings=None: True)
+    loaded = [False]
+    monkeypatch.setattr(builtin_ai.server, "warm", lambda settings: loaded[0])
+    assert agents.consult(WS, "Plan a video about my hike") == [] and fake.calls == []
+    loaded[0] = True
+    assert [n["text"] for n in agents.consult(WS, "Plan a video about my hike")] == ["A note."]
+
+
+def test_the_editors_change_requests_and_the_chat_share_one_daily_count(data, monkeypatch):
+    from clipfoundry import db
+    from clipfoundry.brain import allowance, chat
+
+    install(monkeypatch, say("One."), ai_edit_requests_per_day=2, **ONLINE)
+    c = chat.open_chat(WS)
+    settled(c["id"], _say(c["id"], "hello")["id"])
+    db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "x",
+                                "status": "ready", "source": "ai",
+                                "sent": "Sent over the internet to Groq: …"})  # one change request the editor sent
+    assert allowance.used(WS) == 2 and allowance.reached(WS, db.get_settings())
+    db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "y",
+                                "status": "ready", "source": "rules"})  # understood without a model: free
+    db.insert("edit_requests", {"workspace_id": WS, "project_id": "p1", "base_revision": 1, "text": "z",
+                                "status": "ready", "source": "ai",
+                                "sent": "Stays on this computer: Ollama …"})  # a model on this computer: free
+    assert allowance.used(WS) == 2 and allowance.used("other") == 0
+
+
+def test_a_model_on_this_computer_and_the_online_allowance_never_block_each_other(env, monkeypatch):
+    """The editor's requests to a model on this computer never use up the online allowance, and ClipForge AI's
+    online requests never stop the editor's requests to a model on this computer (they keep the editor's own daily
+    limit, as always)."""
+    from clipfoundry import db
+    from clipfoundry.brain import allowance, chat
+    from clipfoundry.studio import edit_requests as er
+    from test_studio_edit_requests import _ai, _wait
+
+    pid = _project(env)["id"]
+    fake_ai = _ai(monkeypatch, '{"operations": [{"op": "remove", "clip_id": "c4"}]}', ai_edit_requests_per_day=2)
+    r = _wait(er.ask(pid, WS, "Make the ending punchier")["id"])
+    assert r["status"] != "failed" and len(fake_ai.prompts) == 1
+    assert db.fetch("edit_requests", r["id"])["sent"].startswith("Stays on this computer")
+    assert allowance.used(WS) == 0
+    fake = install(monkeypatch, say("One."), say("Two."), ai_edit_requests_per_day=2, **ONLINE)
+    c = chat.open_chat(WS)
+    settled(c["id"], _say(c["id"], "hello")["id"])
+    settled(c["id"], _say(c["id"], "hello again")["id"])
+    assert len(fake.calls) == 2 and allowance.used(WS) == 2
+    fake_ai = _ai(monkeypatch, '{"operations": [{"op": "remove", "clip_id": "c3"}]}', ai_edit_requests_per_day=2)
+    r = _wait(er.ask(pid, WS, "Make the middle tighter")["id"])
+    assert r["status"] != "failed" and len(fake_ai.prompts) == 1  # its second of its own two today
+    r = er.ask(pid, WS, "Make it calmer")
+    assert r["status"] == "failed" and r["message"].startswith("Today's limit of 2 AI requests is reached")
+    assert len(fake_ai.prompts) == 1
+
+
+def test_the_editor_and_the_chat_count_under_one_lock(env, monkeypatch):
+    """The editor checks today's online allowance and counts its request in one step with ClipForge AI's: a chat
+    round sent while the editor builds its request leaves the editor at the limit, and it sends nothing."""
+    from clipfoundry import db
+    from clipfoundry.brain import allowance
+    from clipfoundry.studio import edit_requests as er
+    from test_studio_edit_requests import _ai
+
+    fake_ai = _ai(monkeypatch, '{"operations": [{"op": "remove", "clip_id": "c4"}]}', ai_edit_requests_per_day=3,
+                  **ONLINE)
+    settings = db.get_settings()
+    allowance.take(WS, settings, "chat")
+    allowance.take(WS, settings, "chat")  # two of today's three
+    pid = _project(env)["id"]
+    real = er._recall  # noqa: SLF001
+
+    def recall(*a, **k):  # meanwhile, ClipForge AI sends a round
+        allowance.take(WS, settings, "chat")
+        return real(*a, **k)
+
+    monkeypatch.setattr(er, "_recall", recall)
+    r = er.ask(pid, WS, "Make the ending punchier")
+    assert r["status"] == "failed" and r["message"].startswith("Today's limit of 3 requests to your online AI is "
+                                                               "reached (Settings → ClipForge AI). Nothing was sent;")
+    assert fake_ai.prompts == [] and allowance.used(WS) == 3
+
+
+def test_on_this_computer_means_a_loopback_address_and_never_an_ollama_cloud_model():
+    from clipfoundry.pipeline import llm
+    from clipfoundry.studio import ai_editor
+    from clipfoundry.studio import edit_requests as er
+
+    for url in ("http://localhost:11434", "http://127.0.0.1:11434", "http://[::1]:11434", "http://0.0.0.0:11434",
+                "http://127.0.1.1:1234/v1", "http://[0:0:0:0:0:0:0:1]:1234/v1", "http://[::ffff:127.0.0.1]:1234",
+                "http://studio.localhost:1234"):
+        assert llm.is_local({"ai_provider": "ollama", "ollama_url": url}), url
+        assert llm.is_local({"ai_provider": "openai_compatible", "openai_url": url}), url
+    for url in ("https://api.groq.com/openai/v1", "http://192.168.1.20:11434", "http://localhost.example.com:1234",
+                "http://[::ffff:8.8.8.8]:1234", "not a url", "http://[bad"):
+        assert not llm.is_local({"ai_provider": "openai_compatible", "openai_url": url}), url
+    cloud = {"ai_provider": "ollama", "ollama_url": "http://localhost:11434", "ollama_model": "gpt-oss:120b-cloud"}
+    assert not llm.is_local(cloud) and not llm.is_local({**cloud, "ollama_model": "glm-4.6:cloud"})
+    assert llm.is_local({**cloud, "ollama_model": "gpt-oss:20b"})
+    assert er.disclosure(cloud, "ollama").startswith("Sent over the internet to ")
+    assert ai_editor.disclosure(cloud, "ollama").startswith("Sent over the internet to ")
+    assert llm.is_local({"ai_provider": "builtin"}) and not llm.is_local({"ai_provider": "anthropic"})
+
+
+def test_an_answer_nested_deeper_than_any_real_one_is_read_as_words():
+    from clipfoundry.brain import assistant
+
+    deep = "[" * 1200 + "]" * 1200
+    assert assistant.parse_reply('{"say": "ok", "do": [{"tool": "recall", "args": {"q": ' + deep + '}}]}') == {
+        "say": "ok", "do": [], "ask": None}
+    assert assistant.parse_reply('{"say": "ok", "do": [{"tool": "recall", "args": "' + deep + '"}]}') == {
+        "say": "ok", "do": [{"tool": "recall", "args": {}}], "ask": None}
 
 
 def test_words_in_names_and_results_never_run_a_change_or_delete(data, monkeypatch):

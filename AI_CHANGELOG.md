@@ -2,10 +2,10 @@
 
 ## ClipForge AI becomes a real assistant: conversation, actions, helper agents — 2026-11-08 (Claude Code)
 
-Landry asked to make the built-in AI something he can actually talk to like a real AI, and to let him add agents that
-work alongside it. The old chat caught ordinary sentences with rules ("I want…" became a memory, anything in a video's
+Landry asked for a built-in AI to actually talk to like a real AI, and for agents to add that work alongside
+it. The old chat caught ordinary sentences with rules ("I want…" became a memory, anything in a video's
 chat became a change request), sent each question to the model alone with no conversation, never told the model about
-his projects, could never do anything, and without a downloaded model only gave canned answers. Branch
+Landry's projects, could never do anything, and without a downloaded model only gave canned answers. Branch
 `claude/project-thread-sa113l` from the release line at 95a70e0 (PR #33 merged). No release. Design and numbers:
 [docs/clipforge/CLIPFORGE_AI.md](docs/clipforge/CLIPFORGE_AI.md), "The assistant", "Actions", "Helper agents".
 
@@ -37,12 +37,15 @@ his projects, could never do anything, and without a downloaded model only gave 
   new-video planner a short note from each helper set to help with plans, inside a time budget. The memories a job
   read are recorded as used by `agent`.
 - **The chat** (`brain/chat.py`): with a model, every message goes to the assistant except the fast paths:
-  "remember: …" or "remember that …" saves exactly those words, "forget" with the exact words of a memory removes it,
-  and in a video's chat a change the editor's rules fully understand is proposed at once. Without a model the old
+  "remember: …" (with the colon, no question in it) saves exactly those words, "forget" with the exact words of a
+  memory removes it, and in a video's chat a change the editor's rules fully understand is proposed at once.
+  "Remember that …" is a turn of the conversation; when a plainly said lasting rule or fact ("From now on, never use
+  red captions.") ends without the model saving it, ClipForge keeps the owner's words itself, with Undo. Without a model the old
   rules answer as before and the chat offers to set up the built-in model. Messages up to 4,000 characters (was 500);
   one answer at a time per chat; `route()` lets another part answer some chats (the new-video planner, a draft
-  video's chat); `stop()`; `decide()`. With an online model each answer counts against the daily AI limit together
-  with that day's change requests; a model on this computer has no daily limit.
+  video's chat); `stop()`; `decide()`. With an online model every request counts against the daily AI limit (each round
+  of an answer, each round of a helper, each planner note, and the editor's change requests:
+  `brain/allowance.py`, new, rows in `ai_usage`); a model on this computer has no daily limit.
 - **Every kind of model** (`pipeline/llm.py` `converse()`, `builtin_ai.converse()`): whole conversations for the
   built-in model, Ollama, OpenAI-style servers, Anthropic and NVIDIA; streamed from the built-in model (llama-server's
   server-sent events), Ollama and OpenAI-style servers; a JSON schema where the provider takes one (asked once more
@@ -69,13 +72,65 @@ his projects, could never do anything, and without a downloaded model only gave 
   TESTS_PENDING passed; pyflakes on the changed files: TESTS_PENDING warnings; `cd frontend && npm run build`; a
   click-through in a real browser at desktop and phone widths (the chat, Brain → Agents, the setup card, the OK
   buttons, Stop) against a throwaway app with a fake streaming model (outside the repo): TESTS_PENDING failed steps.
+- **Safety and robustness pass** (after an independent review of the first version found 13 problems, each
+  reproduced before it was fixed): `remember` saves at once only the owner's own words from this message (60% of
+  its meaningful words in the message, `toolbox.grounded`); words from a transcript, a name, a result or a helper
+  become a "Remember “…”?" card (`save_memory`, a change tool the model is never offered, `tools.AskFirst`), and a
+  helper is told to suggest it instead; it never changes a memory the owner already has (switched off, kept for
+  one video or platform, or a guess: the step says so and links to Brain → Memory), so Undo only ever forgets what
+  that answer added, and a merged memory's video or platform follows its scope (`memories.remember`). Names, clip
+  titles, notes and transcript words are one line in what the model reads (`tools.one_line`; link import stores
+  titles as one line), so a downloaded title cannot fake a rule. A tool that breaks fails only its own step and the
+  model goes on; "Nothing was changed." is said only when true. Half of an emoji anywhere in an answer is left out
+  (`tools.whole`, `clean`). A long answer before a follow-up stays in the conversation, shortened (start and end),
+  and a helper reads as much of it as ClipForge AI. One round reads at most 21,000 characters on the built-in model
+  or Ollama (earlier results shortened first) and an overflowing model is said in plain words. The wait for the GPU
+  and loading the built-in model count in the answer's time; the planner's helper notes are skipped while the
+  built-in model is not loaded (`Server.warm` starts it in the background; on Linux the engine is now started from
+  one long-lived thread, because it was stopped with the thread that started it). What a helper saves shows with its
+  Undo chip; a finished helper's work shows once. On the page: a press can never send or act twice, the focus stays
+  in place after OK, Undo, Apply, Clear and Send, reading slows when the page is hidden and stops when the chat is
+  gone, a screen reader hears new messages (not the whole chat on opening) and download steps (not every megabyte),
+  and a request that never reached ClipForge says so in plain words.
+- **Second review pass** (a second independent review of the fixes found 15 more problems, each reproduced before
+  it was fixed and each with a test): the shortened earlier answer before a follow-up now really reaches the model
+  (`llm._turns` puts a short "(Earlier in this chat:)" turn on the owner's side before it instead of dropping it);
+  memories in other languages are compared by their own words, so a Russian rule is no longer the "twin" of a
+  Russian fact (`memories._norm` is Unicode-aware; older memories are matched by their old form too and Tidy updates
+  them); the "Remember …?" card shows a long memory whole, since OK keeps exactly the words it shows; `grounded`
+  also compares each part of a memory with the part of the owner's message it comes from: turned-around words (no,
+  never, don't, avoid, less …), numbers and limiting words (only, except, more …) must match, so "No zooms" is not
+  saved at once for "I love the zooms you added"; a reply to ClipForge AI's question ("Only this one") counts the
+  message it was about as the owner's words (`assistant.owner_words`); the rule safety net keeps only orders on one
+  line ("Never use …", not "Never had this problem before …") and waits when the model asked a question or a helper
+  kept a memory; a helper's memory keeps its line and Undo chip when the helper's next round fails; the background
+  load of the built-in model holds the graphics card (never next to a transcription); a model on this computer is
+  not asked with less than a useful part of the time left (`builtin_ai.answer_floor`), and a slow one is said to be
+  slow ("The model took longer than 300 seconds (40 of them waiting for the graphics card)."), not unreachable; the
+  daily limit counts only the editor's requests that went online, a model on this computer no longer lets ClipForge
+  AI's online requests block the editor (it keeps the editor's own limit, as always), and the editor counts under
+  the same lock as ClipForge AI (`allowance.counted`); "on this computer" now covers every loopback address
+  (127.x.x.x, ::1, 0.0.0.0) and an Ollama cloud model (`…-cloud`) counts as online and is disclosed as sent over the
+  internet (one check, `llm.is_local`, for the chat, the editor and the AI editor); an answer nested deeper than any
+  real one is read as words instead of failing; the chat page keeps reading an answer after a passing error (only a
+  deleted chat stops it). Settings → ClipForge AI calls the limit "AI requests a day" and says what it covers.
+- **Small models** (after the first real-model run): the round instructions ask the model to answer from the
+  results (name the projects), a helper is told to do the job in the same answer ("never only say that you will do
+  it"), ClipForge AI is told to always hand a job to a helper when the owner asks for that helper's work and is
+  shown one of the owner's own helpers in an example.
 - **The real model** (`scripts/assistant_check.py`, new, run by the new GitHub workflow `assistant-check.yml`): a
   conversation with the real built-in model through the app's own chat, in a fresh data folder (a greeting, the
   projects, a memory, the owner's name four turns later, a rule, a delete that must wait for OK, a helper by "@" and
   by hand-off, `consult`). Hard checks fail the run: nothing crashes, every answer finishes within the app's own time
-  limit and is neither empty nor raw JSON, nothing is deleted and no button runs without the OK, "remember that …" is
-  saved without the model, an "@Name" message is answered by that helper, and `consult` gives one note. How good the
-  answers are is reported without failing it. `--fake` checks the script itself with a stand-in model.
+  limit and is neither empty nor raw JSON, nothing is deleted and no button runs without the OK, "remember that …" and
+  "From now on, never use red captions." are kept (by the model's `remember` tool, or by ClipForge when the model
+  forgot), an "@Name" message is answered by that helper, and `consult` gives one note. How good the answers are is
+  reported without failing it (including whether the model saved the memories itself). `--fake` checks the script
+  itself with a stand-in model. The first run (on d02bb25, run 42478720316) passed on Linux and on a Mac (Basic
+  level, Qwen3-VL 2B: 11 turns in 307 s, 3.2 tokens a second, answers in 14 to 68 s); the small model did not name
+  the projects it found, did not save the red-captions rule itself, did not hand the title job to the Script
+  writer, and the Script writer said it was ready instead of writing: the "Small models" changes above answer that.
+  The run on this version: CHECK_PENDING.
 - **Not verified here:** the real built-in model's answers (the model hub is blocked from the cloud computer): the
   `assistant-check.yml` workflow runs them on GitHub's Linux and Mac machines, and its result must be read after the
   push. Landry's own computer was not tested. Ollama, LM Studio and the online services were played by stand-ins.

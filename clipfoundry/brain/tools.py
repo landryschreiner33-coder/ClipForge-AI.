@@ -10,8 +10,10 @@ before anything runs. Every tool has a risk:
 * ``delete`` removes something you have (a project).
 
 ``change`` and ``delete`` tools never run on the model's word: the chat shows what would happen and a button, and
-only the owner's press runs them (`chat.decide`). Other parts of ClipForge add their own tools with `register` (the
-new-video planner adds "make a YouTube video"); ClipForge's own tools are in toolbox.py.
+only the owner's press runs them (`chat.decide`). A looking or making tool that should not act on the model's word
+this time raises `AskFirst`: it becomes such a button too (`remember` does this for words that are not the owner's
+own). Other parts of ClipForge add their own tools with `register` (the new-video planner adds "make a YouTube
+video"); ClipForge's own tools are in toolbox.py.
 """
 from __future__ import annotations
 
@@ -34,10 +36,20 @@ class TryAgain(ToolError):
     """Not right now, but pressing OK again in a moment works (the message says so); the button stays."""
 
 
+class AskFirst(ToolError):
+    """Not on the model's word: the owner is asked first. The answer shows the tool named `tool` (a change tool, which
+    may be hidden from the model) with `call_args` as a button, like a change, and it runs only when the owner
+    presses OK (`chat.decide`). The message tells the model why. (Not `args`: an exception keeps its own `args`.)"""
+
+    def __init__(self, message: str, tool: str, call_args: dict):
+        super().__init__(message)
+        self.tool, self.call_args = tool, dict(call_args or {})
+
+
 @dataclass
 class Ctx:
     """Where a tool runs: the workspace, the chat and its video ('' in the general chat), the AI message it belongs
-    to, and the helper agent running it (None for ClipForge AI itself)."""
+    to, the helper agent running it (None for ClipForge AI itself) and the owner's own message this turn answers."""
     ws: str
     chat: dict = field(default_factory=dict)
     project_id: str = ""
@@ -46,6 +58,7 @@ class Ctx:
     deadline: float = 0.0             # time.monotonic() by which the turn must be finished (0: none)
     cancel: Callable[[], bool] | None = None
     on_helper: Callable[[dict], None] | None = None  # an agent's work as it is written (ask_agent)
+    owner_text: str = ""              # the owner's message of this turn (also a helper's, inside ask_agent)
 
 
 @dataclass
@@ -163,11 +176,13 @@ def _coerce(value: object, spec: dict) -> object:
 
 def check_args(tool: Tool, args: object) -> dict:
     """The arguments as the tool will get them: known names only, simple types coerced (\"3\" -> 3), strings
-    trimmed and cut to their maxLength, enums and required ones checked. Raises ToolError with what is wrong."""
+    made whole (`whole`), trimmed and cut to their maxLength, enums and required ones checked. Raises ToolError with
+    what is wrong."""
     if args is None:
         args = {}
     if not isinstance(args, dict):
         raise ToolError(f"{tool.name} takes its arguments as an object, like {{\"name\": value}}.")
+    args = clean(args)
     props = (tool.args or {}).get("properties") or {}
     out: dict = {}
     for name, spec in props.items():
@@ -241,6 +256,34 @@ def reply_schema(tools: list[Tool]) -> dict:
 def clip(text: object, limit: int = MAX_TEXT) -> str:
     s = str(text or "").strip()
     return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
+
+
+def one_line(text: object, limit: int = 0) -> str:
+    """Words from outside (a downloaded video's title as a project name, a clip title, words from a transcript) as one
+    line of a prompt: line breaks and runs of spaces become one space, and the “ ” quotes ClipForge puts around names
+    become plain ones, so a name can neither close its own quotes nor start a line that looks like ClipForge's own
+    (a fake "What the owner has told ClipForge AI" with a rule under it). Cut to `limit` characters when given."""
+    s = " ".join(whole(str(text or "")).split()).replace("“", '"').replace("”", '"')
+    return clip(s, limit) if limit else s
+
+
+def whole(text: str) -> str:
+    """`text` safe to save and to send as JSON: a character written as two halves (an emoji a model escaped as
+    \\ud83d\\ude00) put back together, and a stray half of one (\\ud83d with no pair) left out."""
+    if text.isascii():
+        return text
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "ignore")
+
+
+def clean(value: object) -> object:
+    """`value` with every string in it made whole (`whole`): in lists and objects too, keys included."""
+    if isinstance(value, str):
+        return whole(value)
+    if isinstance(value, (list, tuple)):
+        return [clean(v) for v in value]
+    if isinstance(value, dict):
+        return {(whole(k) if isinstance(k, str) else k): clean(v) for k, v in value.items()}
+    return value
 
 
 def dumps(value: object) -> str:

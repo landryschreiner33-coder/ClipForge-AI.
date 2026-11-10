@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -52,8 +53,37 @@ class Invalid(ValueError):
         self.status = status
 
 
-def _norm(text: str) -> str:
-    return " ".join(tokens(text))
+_WORDS = re.compile(r"(?:[^\W_]|')+")
+
+
+def _norm(text: object) -> str:
+    """The words of a memory, lower-cased and single-spaced, in any language (the letters and digits of every script;
+    punctuation and spacing ignored): two memories with the same norm say the same thing. Text without a letter or a
+    digit (only emoji) keeps itself. For words made of a-z, 0-9 and apostrophes it is the norm stored before Nov 9 2026
+    (`_legacy_norm`)."""
+    t = str(text or "").lower().replace("’", "'")
+    return " ".join(_WORDS.findall(t)) or " ".join(t.split())
+
+
+def _legacy_norm(text: object) -> str:
+    """The norm stored before Nov 9 2026: a-z and 0-9 words only, so every memory in another script stored ''."""
+    return " ".join(tokens(str(text or "")))
+
+
+def _same_words(ws: str, kind: str, text: object, *, other_than: str = "") -> dict | None:
+    """The oldest memory of this kind in the workspace that says the same words as `text` (`_norm`), or None. A norm
+    stored before Nov 9 2026 is found too and compared again by its text: those were the same for every memory in
+    another script."""
+    norm = _norm(text)
+    keys = sorted({norm, _legacy_norm(text)})
+    where = f"workspace_id = ? AND kind = ? AND norm IN ({', '.join('?' for _ in keys)})"
+    params: tuple = (ws, kind, *keys)
+    if other_than:
+        where, params = where + " AND id != ?", (*params, other_than)
+    for row in db.select("brain_memories", where, params, "created_at ASC"):
+        if _norm(row["text"]) == norm:
+            return row
+    return None
 
 
 def _clean(text: object, what: str = "remember") -> str:
@@ -108,8 +138,9 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
              project_id: str = "", platform: str = "", mode: str = "", tags: object = (), data: dict | None = None,
              confidence: float | None = None, expires_at: float | None = None) -> dict:
     """Keep a memory. The same words (case and spacing ignored) of the same kind in this workspace update the
-    existing memory instead of adding a twin: the stronger source and confidence win, the scope widens to `all`
-    when the new one says so, and a confirmed guess no longer expires."""
+    existing memory instead of adding a twin (`twin`): the stronger source and confidence win, the scope widens to
+    `all` when the new one says so (otherwise it takes the new scope, its video or platform with it), and a confirmed
+    guess no longer expires."""
     if kind not in KINDS:
         raise Invalid(f"A memory is one of: {', '.join(KINDS)}.")
     if source not in SOURCES:
@@ -124,10 +155,8 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
     if source == "guessed" and expires_at is None:
         expires_at = time.time() + GUESS_DAYS * 86400
     norm = _norm(text)
-    twin = db.select("brain_memories", "workspace_id = ? AND kind = ? AND norm = ?", (ws, kind, norm),
-                     "created_at ASC", 1)
-    if twin:
-        old = twin[0]
+    old = twin(ws, text, kind)
+    if old:
         stronger = source if RANK[source] >= RANK[old["source"]] else old["source"]
         fields = {"text": text if RANK[source] >= RANK[old["source"]] else old["text"], "source": stronger,
                   "confidence": max(conf, float(old.get("confidence") or 0)),
@@ -136,8 +165,9 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
                   "data": {**(old.get("data") or {}), **(data or {})}, "enabled": 1,
                   "expires_at": None if stronger != "guessed" else (old.get("expires_at") or expires_at),
                   "revision": int(old.get("revision") or 1) + 1}
-        if fields["scope"] == "all":
-            fields["project_id"], fields["platform"] = "", ""
+        merged = fields["scope"]  # the video or platform it is kept for always follows its scope
+        fields["project_id"] = merged[8:] if merged.startswith("project:") else ""
+        fields["platform"] = merged[9:] if merged.startswith("platform:") else ""
         if fields["text"] != old["text"] or old.get("meaning_model") != meaning.model():
             fields["meaning"], fields["meaning_model"] = meaning.make(fields["text"])
         db.update("brain_memories", old["id"], **fields)
@@ -149,6 +179,17 @@ def remember(ws: str, text: object, *, kind: str = "fact", source: str = "said",
            "meaning": vec, "meaning_model": vec_model, "enabled": 1,
            "expires_at": expires_at, "revision": 1}
     return db.insert("brain_memories", row)
+
+
+def twin(ws: str, text: object, kind: str | tuple[str, ...]) -> dict | None:
+    """The memory of this workspace that already says `text` (the same words, case and spacing ignored) as this kind
+    (or as one of these kinds, the first found first), or None: with one kind, the one `remember` updates instead of
+    adding a twin."""
+    for k in (kind,) if isinstance(kind, str) else kind:
+        row = _same_words(ws, k, text)
+        if row:
+            return row
+    return None
 
 
 def episode(ws: str, text: object, *, project_id: str = "", platform: str = "", data: dict | None = None,
@@ -188,9 +229,7 @@ def edit(ws: str, memory_id: str, *, text: object = None, kind: str | None = Non
     if not fields:
         return row
     if "norm" in fields or "kind" in fields:
-        twin = db.select("brain_memories", "workspace_id = ? AND kind = ? AND norm = ? AND id != ?",
-                         (ws, fields.get("kind", row["kind"]), fields.get("norm", row["norm"]), memory_id), "", 1)
-        if twin:
+        if _same_words(ws, fields.get("kind", row["kind"]), fields.get("text", row["text"]), other_than=memory_id):
             raise Invalid("Another memory already says that.", 409)
     fields["revision"] = int(row.get("revision") or 1) + 1
     db.update("brain_memories", memory_id, **fields)
@@ -428,7 +467,10 @@ def tidy(ws: str) -> dict:
     merged = 0
     groups: dict[tuple[str, str], list[dict]] = {}
     for r in db.select("brain_memories", "workspace_id = ?", (ws,), "created_at ASC"):
-        groups.setdefault((r["kind"], r["norm"]), []).append(r)
+        norm = _norm(r["text"])
+        if norm != r["norm"]:  # stored before Nov 9 2026, when every memory in another script had the same norm
+            db.execute("UPDATE brain_memories SET norm = ? WHERE id = ?", (norm, r["id"]))
+        groups.setdefault((r["kind"], norm), []).append(r)
     for twins in groups.values():
         if len(twins) < 2:
             continue
@@ -493,9 +535,7 @@ def import_(ws: str, data: object) -> dict:
             else:
                 out["skipped"] += 1
             continue
-        twin = db.select("brain_memories", "workspace_id = ? AND kind = ? AND norm = ?",
-                         (ws, fields["kind"], fields["norm"]), "", 1)
-        if twin:
+        if _same_words(ws, fields["kind"], text):
             out["skipped"] += 1
             continue
         row = {**fields, "workspace_id": ws, "used_count": int(m.get("used_count") or 0),

@@ -14,8 +14,10 @@ the heuristic evaluator on any error.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import time
 
 import httpx
 
@@ -260,7 +262,10 @@ def provider_label(settings: dict) -> str:
 
 
 def is_local(settings: dict, provider: str | None = None) -> bool:
-    """True when the provider runs on this computer (a localhost address)."""
+    """True when the provider runs on this computer: the built-in model, or Ollama or an OpenAI-style server at a
+    loopback address (localhost, 127.x.x.x, ::1, 0.0.0.0 …). An Ollama cloud model (a tag ending in "cloud", such as
+    gpt-oss:120b-cloud) is answered online even through the Ollama on this computer, so it is not local: what is
+    sent goes over the internet, and it counts against the daily limit for an online AI."""
     from urllib.parse import urlparse
 
     provider = provider or settings.get("ai_provider", "heuristic")
@@ -268,12 +273,26 @@ def is_local(settings: dict, provider: str | None = None) -> bool:
         return True  # always 127.0.0.1, started by ClipForge
     if provider == "ollama":
         url = settings.get("ollama_url") or "http://localhost:11434"
+        name, _, tag = str(settings.get("ollama_model") or "").lower().rpartition(":")
+        if name and tag.endswith("cloud"):
+            return False
     elif provider == "openai_compatible":
         url = settings.get("openai_url") or "http://localhost:1234/v1"
     else:
         return False
-    host = (urlparse(url).hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost")
+    try:
+        host = (urlparse(url).hostname or "").lower().rstrip(".")
+    except ValueError:  # a malformed address
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_loopback or ip.is_unspecified
 
 
 def _strip_thinking(text: str) -> str:
@@ -323,9 +342,15 @@ class Canceled(ProviderError):
     """The person stopped the answer while it was being written."""
 
 
+EARLIER = "(Earlier in this chat:)"  # the owner's side before an answer that opens the conversation
+
+
 def _turns(messages: list[dict]) -> list[dict]:
     """The exchange as alternating owner/assistant turns, starting with the owner (what every provider accepts):
-    other roles are dropped, empty turns skipped, two turns in a row by the same side joined."""
+    other roles are dropped, empty turns skipped, two turns in a row by the same side joined. An answer that comes
+    first (a chat that opens with ClipForge AI's words, or a long answer whose question no longer fit) is kept behind
+    a short `EARLIER` turn on the owner's side, never dropped: the follow-up after it is about it. Nothing to answer
+    (no turn of the owner's at all) is []."""
     out: list[dict] = []
     for m in messages:
         role = "assistant" if m.get("role") == "assistant" else "user" if m.get("role") == "user" else ""
@@ -336,8 +361,10 @@ def _turns(messages: list[dict]) -> list[dict]:
             out[-1] = {"role": role, "content": out[-1]["content"] + "\n\n" + text}
         else:
             out.append({"role": role, "content": text})
-    while out and out[0]["role"] != "user":
-        out.pop(0)
+    if not any(t["role"] == "user" for t in out):
+        return []
+    if out[0]["role"] != "user":
+        out.insert(0, {"role": "user", "content": EARLIER})
     return out
 
 
@@ -355,7 +382,7 @@ def _sse(r: httpx.Response, on_text, cancel, deadline: float, timeout: float) ->
         if cancel and cancel():
             raise Canceled("Stopped.")
         if time.monotonic() > deadline:
-            raise ProviderError(f"The model took longer than {int(timeout)} seconds.")
+            raise ProviderError(f"The model took longer than {round(timeout)} seconds.")
         if not line.startswith("data:"):
             continue
         data = line[5:].strip()
@@ -384,7 +411,7 @@ def _conv_builtin(settings: dict, system: str, turns: list[dict], o: dict) -> st
         return builtin_ai.converse(settings, [{"role": "system", "content": system}, *turns], timeout=o["timeout"],
                                    json_object=o["json_object"], json_schema=o["json_schema"],
                                    max_tokens=o["max_tokens"], temperature=o["temperature"], on_text=o["on_text"],
-                                   cancel=o["cancel"])
+                                   cancel=o["cancel"], limit=o.get("limit"))
     except builtin_ai.Canceled as exc:
         raise Canceled(str(exc)) from exc
     except builtin_ai.BuiltinError as exc:
@@ -420,7 +447,7 @@ def _conv_ollama(settings: dict, system: str, turns: list[dict], o: dict) -> str
             if o["cancel"] and o["cancel"]():
                 raise Canceled("Stopped.")
             if time.monotonic() > deadline:
-                raise ProviderError(f"The model took longer than {int(o['timeout'])} seconds.")
+                raise ProviderError(f"The model took longer than {round(o.get('limit') or o['timeout'])} seconds.")
             try:
                 chunk = json.loads(line) if line.strip() else {}
             except ValueError:
@@ -478,7 +505,8 @@ def _conv_openai(settings: dict, system: str, turns: list[dict], o: dict) -> str
                     body.pop("response_format")
                     continue
                 refused(r)
-            return _sse(r, o["on_text"], o["cancel"], time.monotonic() + o["timeout"], o["timeout"])
+            return _sse(r, o["on_text"], o["cancel"], time.monotonic() + o["timeout"],
+                        o.get("limit") or o["timeout"])
     raise ProviderError("The AI service did not answer.")
 
 
@@ -535,8 +563,8 @@ def converse(settings: dict, messages: list[dict], *, system: str = "", task: st
     `json_schema` makes the built-in model, Ollama and servers that support it answer in exactly that shape (others
     get `json_object` or the instructions alone); `on_text(text_so_far)` streams the answer as it is written (the
     built-in model, Ollama and OpenAI-style servers; the others answer all at once and never call it); `timeout`
-    bounds the whole answer, and a model on this computer waits for the GPU at most that long; `cancel()` also stops
-    that wait; `num_ctx` is Ollama's context size."""
+    bounds the whole answer, the wait for the GPU of a model on this computer included (the model gets what is left
+    of it); `cancel()` also stops that wait; `num_ctx` is Ollama's context size."""
     provider = settings.get("ai_provider", "heuristic")
     fn = CONVERSE.get(provider)
     if fn is None or provider not in PROVIDERS:
@@ -546,12 +574,14 @@ def converse(settings: dict, messages: list[dict], *, system: str = "", task: st
         raise ProviderError("Nothing to answer.")
     o = {"task": task, "json_object": json_object, "json_schema": json_schema, "max_tokens": max_tokens,
          "timeout": float(timeout or 180), "temperature": float(temperature), "num_ctx": num_ctx,
-         "on_text": on_text, "cancel": cancel}
+         "on_text": on_text, "cancel": cancel, "limit": float(timeout or 180)}  # limit: the whole time, as said
     if provider in ("anthropic", "nvidia"):
         o["on_text"] = None  # answered at once; the caller shows it when it arrives
+    deadline = time.monotonic() + o["timeout"]
+    waited = 0.0  # seconds spent waiting for the graphics card
     try:
         if provider in LOCAL_PROVIDERS and is_local(settings, provider):
-            from .. import gpu  # a local model shares the GPU with Whisper: one heavy GPU job at a time
+            from .. import builtin_ai, gpu  # a local model shares the GPU with Whisper: one heavy GPU job at a time
             from .common import Cancelled
 
             try:
@@ -559,12 +589,24 @@ def converse(settings: dict, messages: list[dict], *, system: str = "", task: st
                         settings.get("ollama_model") if provider == "ollama" else
                         settings.get("openai_model") or "local model"), cancelled=cancel,
                         max_wait_s=min(900.0, o["timeout"])):
+                    left = deadline - time.monotonic()  # the wait for the GPU counts in the time limit
+                    waited = o["limit"] - left
+                    if left < builtin_ai.answer_floor(o["limit"]):  # too little left to answer in
+                        raise ProviderError(f"The graphics card was busy with other work for {round(waited)} of the "
+                                            f"{round(o['limit'])} seconds this answer had, so there was no time left "
+                                            "to answer. Try again when that work is done.")
+                    o["timeout"] = left
                     return _strip_thinking(fn(settings, system, turns, o))
             except gpu.GpuBusy as exc:
                 raise ProviderError(str(exc)) from exc
             except Cancelled as exc:  # stopped while waiting for the GPU
                 raise Canceled("Stopped.") from exc
         return _strip_thinking(fn(settings, system, turns, o))
+    except httpx.TimeoutException as exc:
+        if isinstance(exc, httpx.ConnectTimeout):
+            raise ProviderError(f"{provider} is not reachable: {exc}") from exc
+        raise ProviderError(f"The model took longer than {round(o['limit'])} seconds" + (
+            f" ({round(waited)} of them waiting for the graphics card)" if waited >= 1 else "") + ".") from exc
     except httpx.HTTPError as exc:
         raise ProviderError(f"{provider} is not reachable: {exc}") from exc
 

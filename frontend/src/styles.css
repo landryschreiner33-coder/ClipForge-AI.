@@ -1058,6 +1058,10 @@ html[data-page-hidden="true"] .cfai-dots i { animation-play-state: paused; }
 .cfai-action-state.bad { color: var(--bad); }
 .cfai-action-state.warn { color: var(--warn); }
 .cfai-action-state.neutral { color: var(--text-2); }
+/* still waiting after a press: why not yet ("still stopping, press OK again in a moment") */
+.cfai-action-note { display: flex; gap: 6px; align-items: flex-start; margin: 0; padding: 6px var(--s2); border-radius: 6px;
+  background: var(--warn-tint); color: var(--text); font-size: var(--fs-small); line-height: 1.45; }
+.cfai-action-note .icon { color: var(--warn); margin-top: 2px; flex: none; }
 .cfai-ask { display: grid; gap: 6px; }
 .cfai-ask-q { font-weight: 600; }
 .cfai-chips { display: flex; gap: var(--s2); flex-wrap: wrap; }

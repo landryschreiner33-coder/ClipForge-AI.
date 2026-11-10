@@ -4,8 +4,9 @@ With a model set up (the built-in one, or an AI helper), everything you say goes
 (assistant.py): it answers like a person, with the conversation so far, your projects and your memories, and uses
 its tools (tools.py) to look things up and do things; anything that changes or deletes something waits for your OK
 button (`decide`). "@Name …" talks to one of your helper agents (agents.py). Two things never need the model:
-"remember: …" saves exactly your words, and "forget <the exact words>" removes that memory. In a video's chat, a
-change the rules understand on their own ("move clip 4 before clip 2") is proposed at once.
+"remember: …" (with the colon, and no question in it) saves exactly your words, and "forget <the exact words>"
+removes that memory; "remember that …" is a turn of the conversation, and the model saves it with its remember tool.
+In a video's chat, a change the rules understand on their own ("move clip 4 before clip 2") is proposed at once.
 
 Without a model, the rules answer alone, as before: teaching ("remember …", "always …", "never …"), forgetting,
 listing what it knows, explaining the last answer; a video's chat makes change requests; a question gets the
@@ -22,7 +23,7 @@ import time
 from typing import Callable
 
 from .. import db
-from . import agents, assistant, knowhow, memories, tools
+from . import agents, allowance, assistant, knowhow, memories, tools
 
 log = logging.getLogger("clipfoundry.brain.chat")
 
@@ -52,7 +53,7 @@ _EXPLAIN = re.compile(r"^(?:why\b|what did you use|explain\b|how did you decide)
 _HELP = re.compile(r"^(?:help|what can you do|\?)[\s?.!]*$", re.I)
 _HERE = re.compile(r"\b(?:for|in|on) this (?:video|one|project)\b|\bhere\b", re.I)
 
-_REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*(?::|that\b)\s*(.+)$", re.I | re.S)
+_REMEMBER_EXACT = re.compile(r"^(?:please\s+)?remember\s*:\s*(.+)$", re.I | re.S)
 _FORGET_WORD = re.compile(r"^(?:please\s+)?forget\b\s*[:,]?\s*", re.I)
 _lock = threading.Lock()
 _decide_lock = threading.Lock()
@@ -212,7 +213,7 @@ def send(ws: str, chat_id: str, text: object, base_revision: int | None = None) 
     owner = _add(chat, "owner", text)
     try:
         reply = _answer(chat, text, base_revision)
-    except ChatError as exc:
+    except (ChatError, memories.Invalid) as exc:  # a memory it cannot keep or find is said in plain words too
         reply = {"text": str(exc), "data": {"tool": "help"}, "status": "failed"}
     except Exception as exc:  # noqa: BLE001 - the chat never crashes on one message
         log.exception("chat message failed")
@@ -231,7 +232,7 @@ def _answer(chat: dict, text: str, base_revision: int | None) -> dict:
     if not assistant.ready():
         return _rules(chat, text, base_revision)
     m = _REMEMBER_EXACT.match(text)
-    if m and not text.rstrip().endswith("?"):  # "remember that day at the lake?" is a question for the conversation
+    if m and "?" not in m.group(1):  # "remember: is my intro too long?" is a question for the conversation
         return _remember(ws, pid, m.group(1).strip())
     m = _FORGET.match(text)
     if m and m.group(1).strip():
@@ -293,11 +294,6 @@ def _rules_change(ws: str, pid: str, text: str, base_revision: int | None) -> di
     return _change(ws, pid, text, base_revision)
 
 
-def _today_start() -> float:
-    lt = time.localtime()
-    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
-
-
 def _talk(chat: dict, text: str, agent: dict | None) -> dict:
     """A turn of the conversation: ClipForge AI (or the agent named with @) answers in the background."""
     from ..pipeline import llm
@@ -305,17 +301,9 @@ def _talk(chat: dict, text: str, agent: dict | None) -> dict:
     ws = chat["workspace_id"]
     settings = db.get_settings()
     local = llm.is_local(settings)
-    if not local:
-        limit = int(settings.get("ai_edit_requests_per_day", 40))
-        with _lock:
-            today = db.select("brain_chat_messages", "workspace_id = ? AND role IN ('ai', 'agent') AND created_at >= ?",
-                              (ws, _today_start()))
-            asked = sum(1 for m in today if (m.get("data") or {}).get("remote"))
-            asked += int(db.scalar("SELECT COUNT(*) FROM edit_requests WHERE workspace_id = ? AND source = 'ai' AND "
-                                   "created_at >= ?", (ws, _today_start())) or 0)
-        if asked >= limit:
-            return {"text": f"Today's limit of {limit} requests to your online AI is reached (Settings → ClipForge "
-                            "AI). Nothing was sent.", "data": {"tool": "talk"}, "status": "failed"}
+    if allowance.reached(ws, settings):  # every request to an online AI counts (an answer can make several)
+        return {"text": f"{allowance.message(settings)} Nothing was sent.", "data": {"tool": "talk"},
+                "status": "failed"}
     label = llm.provider_label(settings)
     what = ("the conversation, the memories and know-how that fit it, your project names and the details of the "
             "projects it looks at. Never your files or their sound.")
@@ -343,6 +331,8 @@ def _remember(ws: str, pid: str, said: str) -> dict:
     here = bool(pid) and bool(_HERE.search(said))
     if here:  # "for this video: …" / "… here" scopes the memory; the words themselves are not kept
         said = " ".join(_HERE.sub(" ", said).split()).strip(" :,-")
+    if len(" ".join(said.split())) > memories.MAX_TEXT:
+        raise ChatError(f"That is too long to remember: keep a memory under {memories.MAX_TEXT} characters.")
     kind = "rule" if _RULE_WORDS.search(said) else "fact"
     row = memories.remember(ws, said, kind=kind, source="said", project_id=pid if here else "")
     where = "this video" if here else "every video"
@@ -539,6 +529,8 @@ def decide(ws: str, chat_id: str, message_id: str, action_id: str, do: bool) -> 
         data["pending"] = acts
         if result is not None and result.data.get("links"):
             data["links"] = [*(data.get("links") or []), *result.data["links"]]
+        if result is not None and isinstance(result.data.get("memory"), dict):  # kept after the OK: its Undo chip
+            data["remembered"] = [*(data.get("remembered") or []), result.data["memory"]]
         if db.fetch("brain_chat_messages", message_id) is None:  # the action deleted this chat with its video
             return {"id": message_id, "chat_id": chat_id, "gone": True, "role": "ai", "status": "done",
                     "text": act.get("result") or "", "data": {"tool": "talk", "pending": acts}}

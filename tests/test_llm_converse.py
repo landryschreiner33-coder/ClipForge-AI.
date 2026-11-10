@@ -135,13 +135,15 @@ def test_the_conversation_alternates_and_starts_with_the_owner():
         {"role": "user", "content": None},
         {"role": "user", "content": "third"},
     ]
-    assert llm._turns(messages) == [{"role": "user", "content": "first\n\nsecond"},
+    assert llm._turns(messages) == [{"role": "user", "content": llm.EARLIER},  # the opening answer is kept
+                                    {"role": "assistant", "content": "Hello, I am ClipForge AI."},
+                                    {"role": "user", "content": "first\n\nsecond"},
                                     {"role": "assistant", "content": "answer one\n\nanswer two"},
                                     {"role": "user", "content": "third"}]
     assert messages[2]["content"] == "  first  "  # the caller's list is left as it was
     assert llm._turns([{"role": "user", "content": "a"}, {"role": "assistant", "content": ""},
                        {"role": "user", "content": "b"}]) == [{"role": "user", "content": "a\n\nb"}]
-    assert llm._turns([{"role": "assistant", "content": "only me"}]) == []
+    assert llm._turns([{"role": "assistant", "content": "only me"}]) == []  # nothing of the owner's to answer
     assert llm._turns([]) == []
 
 
@@ -393,6 +395,60 @@ def test_the_wait_for_the_gpu_counts_in_the_time_limit(model):
     assert llm.converse(_ollama(model), TALK, timeout=5) == "free again"
 
 
+def test_a_gpu_that_frees_partway_leaves_the_model_only_the_rest_of_the_time(model, monkeypatch):
+    """The answer's time limit covers the wait for the GPU: the model gets what is left of it, never the whole time
+    again (a chat during a transcription would otherwise think for twice its limit)."""
+    from clipfoundry.pipeline import llm
+
+    given: list[float] = []
+    real = llm.CONVERSE["ollama"]
+
+    def timed(settings, system, turns, o):
+        given.append(o["timeout"])
+        return real(settings, system, turns, o)
+
+    monkeypatch.setitem(llm.CONVERSE, "ollama", timed)
+    release = threading.Event()
+    holder = _hold_the_gpu(release)
+    threading.Timer(0.8, release.set).start()
+    model.script = [(200, {"message": {"content": "after the wait"}})]
+    t0 = time.monotonic()
+    assert llm.converse(_ollama(model), TALK, timeout=3.0) == "after the wait"
+    holder.join(10)
+    assert len(given) == 1 and 1.0 < given[0] <= 3.0 - 0.7 and time.monotonic() - t0 < 3.0
+
+    # freed with too little left to answer in: nothing is sent, and the owner reads why
+    release = threading.Event()
+    holder = _hold_the_gpu(release)
+    threading.Timer(1.3, release.set).start()
+    with pytest.raises(llm.ProviderError, match=r"^The graphics card was busy with other work for [12] of the 2 "
+                                                r"seconds this answer had, so there was no time left to answer\."):
+        llm.converse(_ollama(model), TALK, timeout=1.9)
+    holder.join(10)
+    assert len(given) == 1 and len(model.requests) == 1
+
+
+def test_too_little_time_after_the_wait_is_said_plainly_and_a_slow_model_is_not_called_unreachable(model):
+    """A model on this computer is asked only with a useful part of the time left (5 seconds, or a tenth of a long
+    limit: it reads the prompt before its first word), and a model that is still too slow is said to be slow, with
+    the time it had and how much of it went to waiting for the graphics card: never "not reachable"."""
+    from clipfoundry import builtin_ai
+    from clipfoundry.pipeline import llm
+
+    assert [builtin_ai.answer_floor(t) for t in (300, 120, 60, 10, 2)] == [30, 12, 6, 5, 1]
+    release = threading.Event()
+    holder = _hold_the_gpu(release)
+    threading.Timer(1.2, release.set).start()
+    model.script = [Stream(['{"message": {"content": "one"}}', '{"message": {"content": "two"}}'], pause=2.5)]
+    with pytest.raises(llm.ProviderError) as got:
+        llm.converse(_ollama(model), TALK, timeout=3.0)
+    holder.join(10)
+    assert str(got.value) == "The model took longer than 3 seconds (1 of them waiting for the graphics card)."
+    model.script = [Stream(['{"message": {"content": "one"}}', '{"message": {"content": "two"}}'], pause=2.0)]
+    with pytest.raises(llm.ProviderError, match=r"^The model took longer than 1 seconds\.$"):
+        llm.converse(_ollama(model), TALK, timeout=1.0)
+
+
 # ------------------------------------------------------------------ online services and the built-in model
 @pytest.fixture()
 def claude(monkeypatch):
@@ -436,7 +492,9 @@ def test_anthropic_gets_the_conversation_as_alternating_messages(claude):
     assert seen == []  # answered all at once, not streamed
     assert claude.made == [{"api_key": "sk-ant-test", "max_retries": 2, "timeout": 30.0}]
     assert claude.asked == [{"model": "claude-opus-5", "max_tokens": 2000, "system": "SYS",
-                             "messages": [{"role": "user", "content": "Make the intro shorter\n\nplease"},
+                             "messages": [{"role": "user", "content": llm.EARLIER},
+                                          {"role": "assistant", "content": "Hi!"},
+                                          {"role": "user", "content": "Make the intro shorter\n\nplease"},
                                           *TALK[1:]]}]
     llm.converse({"ai_provider": "anthropic", "anthropic_model": "claude-haiku-5"}, TALK, max_tokens=300)
     assert claude.made[-1]["api_key"] is None  # no key saved: the SDK finds one itself
@@ -504,9 +562,10 @@ def test_the_builtin_model_gets_the_system_text_first(data, monkeypatch):
     got = llm.converse({"ai_provider": "builtin"}, TALK, system="SYS", json_schema=SCHEMA, max_tokens=90,
                        timeout=12, temperature=0.1, on_text=seen.append, cancel=stop)
     assert got == '{"say": "Hi"}' and seen == ['{"say": "Hi']
-    assert calls == [{"messages": [{"role": "system", "content": "SYS"}, *TALK], "timeout": 12.0,
+    assert 11 < calls[0].pop("timeout") <= 12.0  # what is left of the 12 seconds after the wait for the GPU
+    assert calls == [{"messages": [{"role": "system", "content": "SYS"}, *TALK],
                       "json_object": False, "json_schema": SCHEMA, "max_tokens": 90, "temperature": 0.1,
-                      "on_text": seen.append, "cancel": stop}]
+                      "on_text": seen.append, "cancel": stop, "limit": 12.0}]  # limit: the whole time, for its words
 
     def stopped(*a, **k):
         raise builtin_ai.Canceled("Stopped.")

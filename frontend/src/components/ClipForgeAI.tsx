@@ -1,5 +1,6 @@
 import {
-  Fragment, KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
+  Fragment, KeyboardEvent as ReactKeyboardEvent, memo, MouseEvent as ReactMouseEvent, useCallback, useEffect, useId,
+  useLayoutEffect, useMemo, useRef, useState,
 } from "react";
 import { api, BuiltinTask, errorText } from "../api";
 import {
@@ -28,7 +29,12 @@ const ACTION_STATE: Record<Exclude<ChatActionState, "waiting">, { tone: string; 
 const POLL_WRITING_MS = 350;    // an answer being written: show it growing
 const POLL_REQUEST_MS = 1200;   // a proposed change being worked out
 const POLL_RETRY_MS = 2500;     // the app did not answer: try again a little later
+const POLL_HIDDEN_MS = 3000;    // nobody is looking at the page: less often (it catches up when you come back)
 const gbText = (bytes: number) => `${(bytes / 1e9).toFixed(1)} GB`;
+/** A press by keyboard or mouse, not by a finger: moving the focus into the message box then opens no phone keyboard. */
+const notTouch = (e: ReactMouseEvent) => e.detail === 0 || (e.nativeEvent as PointerEvent).pointerType === "mouse";
+/** Nothing has the focus: the button that had it went away, or was switched off while its work ran. */
+const focusLost = () => !document.activeElement || document.activeElement === document.body;
 /** A result line as a sentence: a full stop at the end unless it already ends one ("Renamed to “X”" → "…”."). */
 const sentence = (s: string) => {
   const t = s.trim();
@@ -76,13 +82,14 @@ function mentionOf(text: string, agents: ChatAgent[]): ChatAgent | null {
   return hits.sort((x, y) => y.name.length - x.name.length)[0] || null;
 }
 
-/** Messages from the server after `after`, put in place of the ones this page had; newer ones it already shows stay. */
+/** Messages from the server after `after`, put in place of the ones this page had; newer ones it already shows stay
+ * (you sent them while this answer was on its way). None at all: the chat was cleared somewhere else, so they go. */
 function merge(all: ChatMessage[], after: string, fresh: ChatMessage[]): ChatMessage[] {
   const at = after ? all.findIndex((m) => m.id === after) : -1;
   if (after && at < 0) return all;
   const head = all.slice(0, at + 1);
   const seen = new Set([...head, ...fresh].map((m) => m.id));
-  const newest = fresh.length ? fresh[fresh.length - 1].created_at : 0;
+  const newest = fresh.length ? fresh[fresh.length - 1].created_at : Infinity;
   const extra = all.slice(at + 1).filter((m) => !seen.has(m.id) && m.created_at >= newest);
   return [...head, ...fresh.filter((m) => !head.some((h) => h.id === m.id)), ...extra];
 }
@@ -149,6 +156,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const [acting, setActing] = useState(false);
   const [stopping, setStopping] = useState("");
   const [problem, setProblem] = useState("");
+  const [chatGone, setChatGone] = useState(false);  // only this stops reading an answer: never a passing failure
   const [lost, setLost] = useState("");
   const [retry, setRetry] = useState(0);
   const [clearing, setClearing] = useState(false);
@@ -156,11 +164,20 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
   const [caret, setCaret] = useState(0);
   const [hush, setHush] = useState<string | null>(null);
   const [pick, setPick] = useState(0);
+  const [heard, setHeard] = useState(false);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true);
   const nextCaret = useRef<number | null>(null);
   const opened = useRef(0);
+  // what is on its way right now, known at once (a second press in the same moment must not send or act twice)
+  const sendingNow = useRef(false);
+  const actingNow = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const open = useCallback(async () => {
     const n = ++opened.current;
@@ -170,11 +187,19 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
       setChat(c);
       setMsgs(c.messages);
       setProblem("");
+      setChatGone(false);
+      setLost("");
     } catch (e) {
       if (n === opened.current) setProblem(errorText(e));
     }
   }, [projectId]);
   useEffect(() => { void open(); }, [open]);
+  // The conversation reads new messages out to a screen reader, but not the whole chat when it first opens.
+  useEffect(() => {
+    if (!chat || heard) return;
+    const t = window.setTimeout(() => setHeard(true), 400);
+    return () => window.clearTimeout(t);
+  }, [chat, heard]);
 
   const ai = chat?.ai;
   const ready = !!ai?.ready;
@@ -187,8 +212,11 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
       : "Teach it something, or ask an editing question";
 
   // While an answer is written (or a proposed change worked out), read the messages from the first one still going.
+  // One read at a time; it stops when nothing is going any more, when this chat closes, or when the chat is gone
+  // (not when another request failed for a moment: the answer keeps coming in under that message).
+  const polling = !!chat && !chatGone && (!!writing || working);
   useEffect(() => {
-    if (!chat || (!writing && !working)) return;
+    if (!chat || !polling) return;
     const first = msgs.findIndex((m) => m.status === "thinking" || m.data?.request?.status === "thinking");
     const after = first > 0 ? msgs[first - 1].id : "";
     let gone = false;
@@ -200,15 +228,28 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
         setMsgs((all) => merge(all, after, fresh));
       } catch (e) {
         if (gone) return;
-        setLost(errorText(e));
+        const why = errorText(e);
+        if (/not found/i.test(why)) {  // the chat itself is gone: asking again would never help
+          setLost("");
+          setChatGone(true);
+          setProblem("This chat is gone. When its video is deleted, its chat goes with it.");
+          return;
+        }
+        setLost(why);
         setRetry((x) => x + 1);
       }
-    }, lost ? POLL_RETRY_MS : writing ? POLL_WRITING_MS : POLL_REQUEST_MS);
+    }, lost ? POLL_RETRY_MS : document.hidden ? POLL_HIDDEN_MS : writing ? POLL_WRITING_MS : POLL_REQUEST_MS);
     return () => {
       gone = true;
       window.clearTimeout(t);
     };
-  }, [chat, msgs, writing, working, lost, retry]);
+  }, [chat, polling, msgs, writing, lost, retry]);
+  // Back on the page: catch up now rather than at the slower pace.
+  useEffect(() => {
+    const back = () => { if (!document.hidden) setRetry((x) => x + 1); };
+    document.addEventListener("visibilitychange", back);
+    return () => document.removeEventListener("visibilitychange", back);
+  }, []);
   useEffect(() => {
     if (!writing) setStopping("");
   }, [writing]);
@@ -251,61 +292,74 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     try { setMsgs(await chatApi.messages(chat.id)); } catch { /* the toast already said why */ }
   };
 
-  const send = async (words: string, fromBox = false) => {
+  /** Send words to the chat. From the box (Enter or Send) the box empties and keeps the focus; a quick reply pressed
+   * from the keyboard puts the focus in the box too, since the reply goes away once it is answered. */
+  const send = async (words: string, fromBox = false, refocus = fromBox) => {
     const said = words.trim();
-    if (!chat || !said || sending || writing || busy) return;
+    if (!chat || !said || sendingNow.current || writing || busy) return;
     if (said.length > MAX_CHAT_TEXT) {
       toast(`Keep a message under ${MAX_CHAT_TEXT.toLocaleString("en-US")} characters.`, true);
       return;
     }
+    // before Send switches itself off while it sends (which would drop the focus on the page)
+    if (refocus) input.current?.focus({ preventScroll: true });
+    sendingNow.current = true;
     setSending(true);
     try {
       const r = await chatApi.say(chat.id, said, v?.plan_revision);
       stick.current = true;
+      setLost("");
       setMsgs((all) => [...all.filter((m) => m.id !== r.owner.id && m.id !== r.ai.id), r.owner, r.ai]);
-      if (fromBox) setText("");
+      // what was sent leaves the box; anything typed after it while it was sending stays
+      if (fromBox) setText((t) => (t.startsWith(words) ? t.slice(words.length).replace(/^\s+/, "") : t));
     } catch (e) {
       toast(errorText(e), true);
     }
+    sendingNow.current = false;
     setSending(false);
   };
-  const stop = async () => {
-    if (!chat || !writing) return;
+  const stop = async (e?: ReactMouseEvent) => {
+    if (!chat || !writing || stopping === writing.id) return;
+    if (e && notTouch(e)) input.current?.focus({ preventScroll: true });  // Stop switches itself off: the box is next
     setStopping(writing.id);
     try {
       if (writing.data?.tool === "change" && writing.data.request?.status === "thinking") replace(await chatApi.discard(chat.id, writing.id));
       else setMsgs(await chatApi.stop(chat.id));
-    } catch (e) {
+      setLost("");
+    } catch (err) {
       setStopping("");
-      toast(errorText(e), true);
+      toast(errorText(err), true);
     }
   };
   const act = async (m: ChatMessage, what: "apply" | "discard") => {
-    if (!chat) return;
+    if (!chat || actingNow.current) return;
+    actingNow.current = true;
     setActing(true);
     try {
       const r = await chatApi[what](chat.id, m.id);
       replace(r);
       if (what === "apply") {
-        toast(`Applied as version ${r.data.request?.applied_revision}. Undo takes it back.`);
+        const version = r.data?.request?.applied_revision;
+        toast(version ? `Applied as version ${version}. Undo takes it back.` : "Applied. Undo takes it back.");
         onApplied?.();
       }
     } catch (e) {
       toast(errorText(e), true);
       await reload();
     }
+    actingNow.current = false;
     setActing(false);
   };
   const decide = async (m: ChatMessage, a: ChatAction, doIt: boolean) => {
-    if (!chat) return;
+    if (!chat || actingNow.current) return;
+    actingNow.current = true;
     setActing(true);
     try {
       const r = await chatApi.decide(chat.id, m.id, a.id, doIt);
       const now = (r.data?.pending || []).find((p) => p.id === a.id);
       if (r.gone) {
         toast(`${sentence(now?.result || "Done")} Its chat went with it.`);
-        setActing(false);
-        navigate("#/projects");
+        if (alive.current) navigate("#/projects");  // only from its own page: you may have gone somewhere else meanwhile
         return;
       }
       replace(r);
@@ -318,15 +372,31 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
     } catch (e) {
       toast(errorText(e), true);
       await reload();
+    } finally {
+      actingNow.current = false;
+      setActing(false);
     }
-    setActing(false);
   };
+  // Stable handles for the messages (they redraw only when their own message changes while an answer is written).
+  const latest = useRef({ act, send, decide });
+  latest.current = { act, send, decide };
+  const onAct = useCallback((m: ChatMessage, what: "apply" | "discard") => latest.current.act(m, what), []);
+  const onSend = useCallback((words: string, keyboard = false) => latest.current.send(words, false, keyboard), []);
+  const onDecide = useCallback((m: ChatMessage, a: ChatAction, doIt: boolean) => latest.current.decide(m, a, doIt), []);
+  // "Clear this chat" goes with the messages, so the dialog cannot give the focus back to it: the conversation takes it.
+  const cleared = useRef(false);
   const clear = async () => {
     if (!chat) return;
     await chatApi.clear(chat.id);
+    cleared.current = true;
     setMsgs([]);
     toast("The chat is cleared. What ClipForge AI remembers stays (Brain → Memory).");
   };
+  useEffect(() => {
+    if (clearing || !cleared.current) return;
+    cleared.current = false;
+    if (focusLost()) log.current?.focus({ preventScroll: true });
+  }, [clearing]);
 
   // ---------------------------------------------------------------- talking to a helper: "@Name …"
   const mention = (a: ChatAgent) => {
@@ -364,7 +434,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
         setPick((i) => (i + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         choose(matches[Math.min(pick, matches.length - 1)]);
         return;
@@ -412,8 +482,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
       {ai && !ai.ready && <SetupCard ai={ai} onReady={() => { void open(); toast("ClipForge AI's model is ready. Say hello!"); }} />}
       {problem && <div className="cfai-problem" role="alert"><Icon name="alert" className="sm" /><span className="grow">{problem}</span>
         <button type="button" className="btn btn-small" onClick={() => void open()}><Icon name="refresh" />Try again</button></div>}
-      <div ref={log} className="cfai-log" role="log" aria-live="polite" aria-label="Conversation with ClipForge AI" tabIndex={0}
-        onScroll={onScroll}>
+      <div ref={log} className="cfai-log" role="log" aria-live={heard ? "polite" : "off"} aria-label="Conversation with ClipForge AI"
+        tabIndex={0} onScroll={onScroll}>
         {msgs.length === 0 && !problem && chat && (
           <div className="cfai-welcome">
             <span className="cfai-avatar lg" aria-hidden="true"><Icon name="spark" /></span>
@@ -423,16 +493,17 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
               : projectId ? "Ask me about this video or tell me what to change. I propose a checked change, and nothing changes until you press Apply."
                 : "Ask me anything about your videos and your channel, or tell me what to make. I know your projects and what you taught me, and I can do things in ClipForge when you ask."}</p>
             <div className="cfai-chips" role="group" aria-label="Try one of these">
-              {examples.map((x) => <button key={x} type="button" className="chip" disabled={sending || locked} onClick={() => void send(x)}>{x}</button>)}
+              {examples.map((x) => <button key={x} type="button" className="chip" disabled={sending || locked}
+                onClick={(e) => void send(x, false, notTouch(e))}>{x}</button>)}
             </div>
           </div>
         )}
         {msgs.map((m) => m.role === "owner"
           ? <Owner key={m.id} m={m} agents={agents} />
-          : <Answer key={m.id} m={m} last={m.id === lastId} busy={locked} sending={sending || !!writing} onAct={act} onSend={send}
-            onDecide={decide} />)}
+          : <Answer key={m.id} m={m} last={m.id === lastId} busy={locked} sending={sending || !!writing} onAct={onAct} onSend={onSend}
+            onDecide={onDecide} />)}
       </div>
-      {lost && <p className="cfai-meta" role="status"><Icon name="offline" className="xs" />ClipForge is not answering right now; trying again…</p>}
+      {lost && polling && <p className="cfai-meta"><Icon name="offline" className="xs" />ClipForge is not answering right now; trying again…</p>}
       {helpers.length > 0 && (
         <div className="cfai-helpers-row" role="group" aria-label="Ask a helper">
           <span className="small muted">Ask a helper:</span>
@@ -455,7 +526,8 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
           </ul>
         )}
         <span className="sr-only" aria-live="polite">{suggesting
-          ? `${matches.length} helper${matches.length === 1 ? "" : "s"} match. Up and down arrows choose, Enter picks.` : ""}</span>
+          ? `${matches.length} helper${matches.length === 1 ? "" : "s"} match. Up and down arrows choose, Enter picks.`
+          : lost && polling ? "ClipForge is not answering right now; trying again." : ""}</span>
         <label className="sr-only" htmlFor={`${uid}-box`}>{projectId ? "Message to ClipForge AI about this video" : "Message to ClipForge AI"}</label>
         <div className="cfai-input">
           <textarea ref={input} id={`${uid}-box`} rows={1} value={text} maxLength={MAX_CHAT_TEXT} readOnly={!!writing}
@@ -466,12 +538,13 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
             onChange={(e) => { setText(e.target.value); readCaret(e.target); }}
             onSelect={(e) => readCaret(e.currentTarget)} onKeyDown={onKey}
             onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} />
+          {/* two different buttons (keys), so a Send that has the focus never turns into a Stop under the next key press */}
           {writing ? (
-            <button type="button" className="btn" disabled={stopping === writing.id} onClick={() => void stop()}>
+            <button key="stop" type="button" className="btn" disabled={stopping === writing.id} onClick={(e) => void stop(e)}>
               {stopping === writing.id ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="stop" />}
               {stopping === writing.id ? "Stopping" : "Stop"}</button>
           ) : (
-            <button type="submit" className="btn btn-primary" disabled={!chat || busy || sending || !text.trim()}>
+            <button key="send" type="submit" className="btn btn-primary" disabled={!chat || busy || sending || !text.trim()}>
               {sending ? <span className="inline-spinner" aria-hidden="true" /> : <Icon name="spark" />}Send</button>
           )}
         </div>
@@ -499,7 +572,7 @@ export function ClipForgeAI({ projectId = "", v, busy = false, onApplied, tall =
 }
 
 /** Your message, with the helper it names ("@Critic …") marked. */
-function Owner({ m, agents }: { m: ChatMessage; agents: ChatAgent[] }) {
+const Owner = memo(function Owner({ m, agents }: { m: ChatMessage; agents: ChatAgent[] }) {
   const hit = mentionOf(m.text, agents);
   return (
     <div className="cfai-turn owner">
@@ -509,12 +582,15 @@ function Owner({ m, agents }: { m: ChatMessage; agents: ChatAgent[] }) {
       </div>
     </div>
   );
-}
+});
 
-/** ClipForge AI's answer, or a helper's when you talked to it with @. */
-function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
+/** Sends words to the chat; `keyboard`: pressed from the keyboard, so the focus goes to the message box. */
+type SendWords = (words: string, keyboard?: boolean) => Promise<void>;
+
+/** ClipForge AI's answer, or a helper's when you talked to it with @. It is drawn again only when it changes. */
+const Answer = memo(function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
   m: ChatMessage; last: boolean; busy: boolean; sending: boolean;
-  onAct: (m: ChatMessage, what: "apply" | "discard") => Promise<void>; onSend: (words: string) => Promise<void>;
+  onAct: (m: ChatMessage, what: "apply" | "discard") => Promise<void>; onSend: SendWords;
   onDecide: (m: ChatMessage, a: ChatAction, doIt: boolean) => Promise<void>;
 }) {
   const d: ChatData = m.data || {};
@@ -543,7 +619,7 @@ function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
         {ask && ask.choices.length > 0 && <Ask ask={ask} said={m.text} disabled={sending || busy} onSend={onSend} />}
         {d.tool === "forget" && (d.candidates || []).length > 0 && <div className="cfai-chips" role="group" aria-label="Forget one">
           {(d.candidates || []).map((c) => <button key={c.id} type="button" className="btn btn-small ask-choice" disabled={busy || sending}
-            onClick={() => void onSend(`forget ${c.text}`)}><Icon name="trash" />Forget “{c.text}”</button>)}
+            onClick={(e) => void onSend(`forget ${c.text}`, notTouch(e))}><Icon name="trash" />Forget “{c.text}”</button>)}
         </div>}
         {(remembered.length > 0 || (d.tool === "remember" && d.memory)) && <div className="cfai-chips">
           {remembered.map((mem) => <Remembered key={mem.id} mem={mem} />)}
@@ -553,7 +629,7 @@ function Answer({ m, last, busy, sending, onAct, onSend, onDecide }: {
       </div>
     </div>
   );
-}
+});
 
 /** The dots while an answer is written; "Thinking…" before its first words. */
 function Typing({ quiet = false, label = "Thinking…" }: { quiet?: boolean; label?: string }) {
@@ -607,12 +683,19 @@ function Helper({ h, live = false }: { h: HelperWork; live?: boolean }) {
  * messages already say the proposal in their words (`full` false): the card adds its state and buttons. */
 function Proposal({ r, full, busy, onAct, onSend }: {
   r: ChangeRequest; full: boolean; busy: boolean; onAct: (what: "apply" | "discard") => Promise<void>;
-  onSend: (words: string) => Promise<void>;
+  onSend: SendWords;
 }) {
   const p = r.proposal || {};
   const changes = p.changes || [];
+  const root = useRef<HTMLDivElement>(null);
+  // after Apply, Discard or Cancel the focus stays here: on a button still there, or on the card that says what happened
+  const pressed = useRefocus(!busy, () => root.current?.querySelector<HTMLElement>("button:not(:disabled)") || root.current, r.status);
+  const act = (what: "apply" | "discard") => {
+    pressed();
+    void onAct(what);
+  };
   return (
-    <div className="cfai-proposal">
+    <div ref={root} className="cfai-proposal" tabIndex={-1}>
       <div className="row wrap">
         <Pill tone={TONE[r.status]}>{WORD[r.status]}</Pill>
         <span className="small muted">{r.source !== "ai" ? "Understood without a model" : r.status === "thinking" ? `Asking ${r.provider}` : `Answered by ${r.provider}`}</span>
@@ -625,51 +708,82 @@ function Proposal({ r, full, busy, onAct, onSend }: {
       {full && r.status === "question" && <p>{r.message || p.question}</p>}
       {full && !["thinking", "ready", "question"].includes(r.status) && r.message && <p className="small">{r.message}</p>}
       {r.status === "ready" && <div className="row wrap">
-        <button type="button" className="btn btn-primary btn-small" disabled={busy} onClick={() => void onAct("apply")}><Icon name="check" />Apply as a new version</button>
-        <button type="button" className="btn btn-small" disabled={busy} onClick={() => void onAct("discard")}>Discard</button>
+        <button type="button" className="btn btn-primary btn-small" disabled={busy} onClick={() => act("apply")}><Icon name="check" />Apply as a new version</button>
+        <button type="button" className="btn btn-small" disabled={busy} onClick={() => act("discard")}>Discard</button>
       </div>}
-      {r.status === "thinking" && <div><button type="button" className="btn btn-small" disabled={busy} onClick={() => void onAct("discard")}><Icon name="stop" />Cancel</button></div>}
+      {r.status === "thinking" && <div><button type="button" className="btn btn-small" disabled={busy} onClick={() => act("discard")}><Icon name="stop" />Cancel</button></div>}
       {r.status === "question" && (p.choices || []).length > 0 && <div className="cfai-chips" role="group" aria-label="Choose one">
-        {(p.choices || []).map((c) => <button key={c.request} type="button" className="btn btn-small ask-choice" disabled={busy} onClick={() => void onSend(c.request)}>{c.label}</button>)}
+        {(p.choices || []).map((c) => <button key={c.request} type="button" className="btn btn-small ask-choice" disabled={busy}
+          onClick={(e) => void onSend(c.request, notTouch(e))}>{c.label}</button>)}
       </div>}
     </div>
   );
 }
 
-/** A change or delete waiting for your OK: what it does, then OK or No; afterwards what happened. */
+/**
+ * A button that switches itself off while its work runs (or goes away after it) drops the focus on the page, and a
+ * keyboard or screen reader user loses their place. Call the returned function on the press: once `done`, the focus
+ * goes to `to()`, unless something else took it meanwhile. `key` is what changes when the work is done.
+ */
+function useRefocus(done: boolean, to: () => HTMLElement | null | undefined, key: unknown) {
+  const was = useRef(false);
+  useEffect(() => {
+    if (!was.current || !done) return;
+    was.current = false;
+    if (focusLost()) to()?.focus({ preventScroll: true });
+  }, [done, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return useCallback(() => { was.current = true; }, []);
+}
+
+/** A change or delete waiting for your OK: what it does, then OK or No; afterwards what happened. A press that could
+ * not do it yet keeps the buttons and says why in a note ("still stopping, press OK again in a moment"). */
 function Action({ a, disabled, onDecide }: { a: ChatAction; disabled: boolean; onDecide: (doIt: boolean) => void }) {
   const danger = a.risk === "delete";
+  const waiting = a.state === "waiting";
   const after = a.state === "waiting" ? null : ACTION_STATE[a.state] || ACTION_STATE.blocked;
   const why = a.state === "blocked" ? a.blocked || a.result : a.result;
+  const ok = useRef<HTMLButtonElement>(null);
+  const outcome = useRef<HTMLParagraphElement>(null);
+  // after the press the focus goes to what happened, or back to OK when it still waits
+  const pressed = useRefocus(!disabled, () => (waiting ? ok.current : outcome.current), `${a.state} ${a.result}`);
+  const press = (doIt: boolean) => {
+    pressed();
+    onDecide(doIt);
+  };
+  // a question ("Remember “…”?") is marked as one; anything else as the change or delete it is
+  const icon: IconName = danger ? "trash" : /\?["”’)]*$/.test(a.label.trim()) ? "question" : "edit";
   return (
     <div className={`cfai-action${danger ? " danger" : ""} ${a.state}`} role="group" aria-label={a.label}>
-      <p className="cfai-action-label"><Icon name={danger ? "trash" : "edit"} className="sm" /><b>{a.label}</b></p>
+      <p className="cfai-action-label"><Icon name={icon} className="sm" /><b>{a.label}</b></p>
       {(a.detail || []).length > 0 && <ul className="cfai-action-detail">{a.detail.map((x, i) => <li key={i}>{x}</li>)}</ul>}
       {after ? (
-        <p className={`cfai-action-state ${after.tone}`}><Icon name={after.icon} className="xs" />
+        <p ref={outcome} tabIndex={-1} className={`cfai-action-state ${after.tone}`}><Icon name={after.icon} className="xs" />
           {a.state === "done" && why ? sentence(why) : `${after.word}${why ? `: ${sentence(why)}` : "."}`}</p>
       ) : (
-        <div className="row wrap">
-          <button type="button" className={`btn btn-small ${danger ? "btn-danger" : "btn-primary"}`} disabled={disabled}
-            onClick={() => onDecide(true)}><Icon name={danger ? "trash" : "check"} />{danger ? "OK, delete it" : "OK, do it"}</button>
-          <button type="button" className="btn btn-small" disabled={disabled} onClick={() => onDecide(false)}>No</button>
-          {/* a result while still waiting: "not yet, press OK again in a moment" */}
-          <span className="tiny muted" role={a.result ? "status" : undefined}>
-            {a.result ? sentence(a.result) : "Nothing happens until you press OK."}</span>
-        </div>
+        <>
+          {/* pressed, but not yet possible: the toast said it too; the note stays until the next press */}
+          {a.result && <p className="cfai-action-note"><Icon name="clock" className="xs" /><span>{sentence(a.result)}</span></p>}
+          <div className="row wrap">
+            <button ref={ok} type="button" className={`btn btn-small ${danger ? "btn-danger" : "btn-primary"}`} disabled={disabled}
+              onClick={() => press(true)}><Icon name={danger ? "trash" : "check"} />{danger ? "OK, delete it" : "OK, do it"}</button>
+            <button type="button" className="btn btn-small" disabled={disabled} onClick={() => press(false)}>No</button>
+            {!a.result && <span className="tiny muted">Nothing happens until you press OK.</span>}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
 /** ClipForge AI's question with its choices: one press answers. */
-function Ask({ ask, said, disabled, onSend }: { ask: ChatAsk; said: string; disabled: boolean; onSend: (words: string) => Promise<void> }) {
+function Ask({ ask, said, disabled, onSend }: { ask: ChatAsk; said: string; disabled: boolean; onSend: SendWords }) {
   const question = ask.question && !said.includes(ask.question.slice(0, 40)) ? ask.question : "";
   return (
     <div className="cfai-ask">
       {question && <p className="cfai-ask-q">{question}</p>}
       <div className="cfai-chips" role="group" aria-label={ask.question || "Quick replies"}>
-        {ask.choices.map((c) => <button key={c} type="button" className="chip" disabled={disabled} onClick={() => void onSend(c)}>{c}</button>)}
+        {ask.choices.map((c) => <button key={c} type="button" className="chip" disabled={disabled}
+          onClick={(e) => void onSend(c, notTouch(e))}>{c}</button>)}
       </div>
     </div>
   );
@@ -678,7 +792,11 @@ function Ask({ ask, said, disabled, onSend }: { ask: ChatAsk; said: string; disa
 /** "Remembered: …" with Undo (it forgets that memory). `short`: the answer already says what was remembered. */
 function Remembered({ mem, short = false }: { mem: Memory; short?: boolean }) {
   const [state, setState] = useState<"kept" | "busy" | "gone">("kept");
+  const chip = useRef<HTMLSpanElement>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const pressed = useRefocus(state !== "busy", () => (state === "gone" ? chip.current : undoButton.current), state);
   const undo = async () => {
+    pressed();
     setState("busy");
     try {
       await memoryApi.forget(mem.id);
@@ -696,11 +814,11 @@ function Remembered({ mem, short = false }: { mem: Memory; short?: boolean }) {
   };
   const gone = state === "gone";
   return (
-    <span className={`cfai-remembered${gone ? " gone" : ""}`}>
+    <span ref={chip} tabIndex={-1} className={`cfai-remembered${gone ? " gone" : ""}`}>
       <Icon name={gone ? "x" : "check"} className="xs" />
       <span>{gone ? `Forgotten: “${mem.text}”` : short ? "Saved to your memory" : `Remembered: “${mem.text}”`}</span>
-      {!gone && <button type="button" className="link-btn" disabled={state === "busy"} aria-label={`Undo: forget “${mem.text}”`}
-        onClick={() => void undo()}>Undo</button>}
+      {!gone && <button ref={undoButton} type="button" className="link-btn" disabled={state === "busy"}
+        aria-label={`Undo: forget “${mem.text}”`} onClick={() => void undo()}>Undo</button>}
     </span>
   );
 }

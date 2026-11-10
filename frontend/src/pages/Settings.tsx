@@ -762,9 +762,11 @@ function AdvancedTab({ c, health, st }: {
           hint="How many candidates per video stage 2 re-scores; caps paid calls (1 to 30)" errors={errors}>
           <NumInput k="ai_max_candidates" c={c} />
         </SettingRow>
-        <SettingRow k="ai_edit_requests_per_day" label="Editor requests a day"
-          hint={"\u201cTell the editor what to change\u201d sends a request to the AI service above only when ClipForge does not "
-            + "understand it on its own, as text (never video or sound). At most this many a day; 0 never sends one"}
+        <SettingRow k="ai_edit_requests_per_day" label="AI requests a day"
+          hint={"Requests to an online AI service each day, counted one by one: every round of a ClipForge AI answer, "
+            + "its helper agents, and \u201cTell the editor what to change\u201d when ClipForge does not understand a "
+            + "request on its own (as text, never video or sound). 0 never sends one. A model on this computer never "
+            + "limits ClipForge AI; the editor's requests to it stop at this many a day"}
           errors={errors}>
           <NumInput k="ai_edit_requests_per_day" c={c} />
         </SettingRow>

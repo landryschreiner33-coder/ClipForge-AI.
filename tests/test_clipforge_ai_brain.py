@@ -53,6 +53,43 @@ def test_a_memory_said_twice_is_one_memory_with_the_stronger_source(data):
     assert "meaning" not in v and "norm" not in v and v["has_meaning"] and not v["expired"]
 
 
+def test_memories_in_any_language_are_twins_only_when_they_say_the_same_words(data):
+    """Words of every script count (before Nov 9 2026 only a-z and 0-9 did, so all memories in Russian, Chinese or
+    Arabic had the same norm: a second one merged into the first and replaced its words, and Tidy deleted all but one).
+    Memories saved with that old norm are told apart by their words too."""
+    from clipfoundry import brain, db
+    from clipfoundry.brain import memories
+
+    channel = brain.remember(WS, "Мой канал о велоспорте в горах")
+    rule = brain.remember(WS, "Никогда не используй красные субтитры", kind="rule")
+    other = brain.remember(WS, "Мой канал о готовке")
+    assert len({channel["id"], other["id"]}) == 2 and brain.get(WS, channel["id"])["text"].endswith("в горах")
+    again = brain.remember(WS, "мой канал о велоспорте  в горах.")  # the same words: one memory
+    assert again["id"] == channel["id"] and again["revision"] == 2
+    assert memories.twin(WS, "Мой канал о велоспорте в горах", ("rule", "fact"))["id"] == channel["id"]
+    assert memories.twin(WS, "Никогда не используй синие субтитры", ("rule", "fact")) is None
+    assert memories.twin(WS, "我的频道是关于山地车的", ("rule", "fact")) is None
+    assert brain.remember(WS, "我的频道是关于山地车的")["id"] not in (channel["id"], other["id"], rule["id"])
+    assert memories._norm("Café au lait, s'il vous plaît!") == "café au lait s'il vous plaît"  # noqa: SLF001
+    assert memories._norm("Keep my intro < 3 s") == memories._legacy_norm("Keep my intro < 3 s")  # noqa: SLF001
+    assert memories._norm("🔥🔥") == "🔥🔥" and memories.twin(WS, "👍", "fact") is None  # noqa: SLF001
+    with pytest.raises(brain.Invalid):  # an edit into another memory's words is refused, in any language
+        brain.edit(WS, other["id"], text="Мой канал о велоспорте в горах")
+    assert brain.edit(WS, other["id"], text="Мой канал о походах")["text"] == "Мой канал о походах"
+
+    # saved before: every one of these had the norm ''
+    for row in (channel, other, rule):
+        db.execute("UPDATE brain_memories SET norm = '' WHERE id = ?", (row["id"],))
+    assert memories.twin(WS, "Мой канал о походах", "fact")["id"] == other["id"]
+    assert memories.twin(WS, "Мой канал о рыбалке", "fact") is None
+    assert brain.tidy(WS) == {"expired": 0, "merged": 0}  # nothing deleted: they say different things
+    assert len(brain.list_(WS)) == 4
+    assert db.fetch("brain_memories", channel["id"])["norm"] == "мой канал о велоспорте в горах"
+    assert brain.import_(WS, brain.export("nobody") | {"memories": [
+        {"kind": "fact", "text": "Мой канал о рыбалке"}, {"kind": "fact", "text": "Мой канал о походах"}]}) == \
+        {"added": 1, "updated": 0, "skipped": 1, "invalid": 0}
+
+
 def test_recall_puts_the_rules_first_finds_by_meaning_and_keeps_to_the_scope_and_budget(data):
     from clipfoundry import brain
 

@@ -188,6 +188,9 @@ def fake_reply(system: str, messages: list[dict]) -> dict:
     if "my name" in low:
         known = [n.group(1) for t in owner[:-1] for n in [re.search(r"\bmy name is (\w+)", t, re.I)] if n]
         return {"say": f"Your name is {known[-1]}." if known else "You haven't told me your name yet.", "do": []}
+    m = re.match(r"(?:please\s+)?remember that (.+?)[.!]?$", said, re.I)
+    if m:
+        return {"say": "Got it, I'll remember that.", "do": [{"tool": "remember", "args": {"text": m.group(1)}}]}
     if low.startswith(("from now on", "never", "always")):
         rule = re.sub(r"^from now on,?\s*", "", said, flags=re.I).strip().rstrip(".!")
         return {"say": f"Got it: {rule[:1].lower() + rule[1:]} from now on.",
@@ -241,6 +244,7 @@ def pretend_installed(level: str) -> None:
         raise builtin_ai.BuiltinError("--fake: the built-in model's engine is never started")
 
     builtin_ai.server.ensure = never
+    builtin_ai.server.warm = lambda settings: True  # the stand-in answers at once, like a loaded engine
 
 
 # ------------------------------------------------------------------ every request to the model
@@ -483,12 +487,14 @@ def conversation(run: Run) -> None:
               (f"; missing {_listed(missed)}" if missed else ""))
         run.save()
 
-    row, msg = run.turn("remember, no model", "Remember that my channel is about mountain biking")
+    row, msg = run.turn("remember that", "Remember that my channel is about mountain biking")
     if msg:
         saved = memories_like(r"mountain\s*bik")
-        check(row, "saved at once, without the model", row["tool"] == "remember" and not row["rounds"] and saved,
-              f"answered by {row['tool'] or 'nothing'} after {len(row['rounds'])} model rounds; saved: {saved}",
-              hard=True)
+        by_model = any("remember" in r.get("asked", []) for r in row["rounds"])
+        check(row, "saved (by the model's remember tool, or kept by ClipForge when the model forgot)", saved,
+              f"saved: {saved or 'nothing'}", hard=True)
+        check(row, "the model saved it itself with the remember tool", by_model,
+              "ClipForge kept the owner's words itself" if saved else "")
         run.save()
 
     row, msg = run.turn("channel", "What is my channel about?")
@@ -508,10 +514,10 @@ def conversation(run: Run) -> None:
     row, msg = run.turn("rule", "From now on, never use red captions.")
     if msg:
         rules = memories_like(r"\bred\b.*\b(?:caption|subtitle)", kind="rule")
-        used = [s for s in row["steps"] if s.get("tool") == "remember"]
-        check(row, "a rule saved with the remember tool", rules and any(s.get("ok") for s in used),
-              f"rules about red captions: {rules or 'none'}; remember used: {'yes' if used else 'no'}; "
-              f"memories now: {memories_like(r'.')}")
+        by_model = any("remember" in r.get("asked", []) for r in row["rounds"])
+        check(row, "a rule about red captions is kept", rules, f"memories now: {memories_like(r'.')}", hard=True)
+        check(row, "the model saved it itself with the remember tool", by_model,
+              "ClipForge kept the owner's words itself" if rules else "")
         run.save()
 
     row, msg = run.turn("delete without the OK", f"Delete the project {TO_DELETE}")
