@@ -36,17 +36,30 @@ def _opens(path: Path) -> bool:
         return False
 
 
+def _discard(made: Path | None) -> None:
+    """A picture the maker saved that the short cannot use goes, with its note (the reason is kept with the scene)."""
+    try:
+        if made is not None and local_engines.made_here(made):
+            made.unlink(missing_ok=True)
+            made.with_suffix(".json").unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: str = "", seed: int = 0,
          index: int = 0, cancel: Callable[[], bool] | None = None,
          progress: Callable[[float, str], None] | None = None) -> dict:
     """Make the picture into `out_dir`: {"path", "source": "engine" | "card", "engine", "why", "tried", "prompt",
-    "negative"}. `why` says why the engine did not make it ("" when it did); `tried`: the engine was asked (so a
-    card means it failed, not that none is set up)."""
+    "negative", "note"}. `why` says why the engine did not make it ("" when it did); `tried`: the engine was asked
+    (so a card means it failed, not that none is set up). The maker's picture is taken out of its folder
+    (engines/made), not copied, and `note` is the note it saved with it, for the caller to keep with the picture; a
+    picture of the maker's that cannot be used is deleted with its note."""
     from .looks import prompt_for
 
     out_dir.mkdir(parents=True, exist_ok=True)
     prompt, negative = prompt_for(look, picture, character)
     state = local_engines.status("image")
+    made: Path | None = None
     why = state["why"] or "No picture maker is set up."
     if state["ready"]:
         try:
@@ -59,13 +72,18 @@ def make(narration: str, picture: str, look: Look, out_dir: Path, *, character: 
             if not _opens(made):
                 raise _NoPicture("The picture maker's picture could not be opened, so ClipForge drew a card.")
             path = out_dir / f"picture-{seed}{suffix}"
-            shutil.copyfile(made, path)  # the engine's file stays the engine's
+            note = made.with_suffix(".json")
+            if local_engines.made_here(made):  # the short takes the maker's picture; its note goes with the short
+                shutil.move(str(made), str(path))
+            else:
+                shutil.copyfile(made, path)
             return {"path": path, "source": "engine", "engine": state["engine"], "why": "", "tried": True,
-                    "prompt": prompt, "negative": negative}
+                    "prompt": prompt, "negative": negative, "note": str(note) if note.is_file() else ""}
         except (Canceled, Cancelled):
             raise
         except _NoPicture as exc:
             why = str(exc)
+            _discard(made)
         except OSError as exc:  # its words are for the log
             log.warning("the picture engine's picture could not be saved: %s", exc)
             why = "The picture maker's picture could not be saved, so ClipForge drew a card. Check that the disk " \

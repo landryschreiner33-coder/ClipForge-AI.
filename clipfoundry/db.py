@@ -960,6 +960,14 @@ CREATE TABLE IF NOT EXISTS short_scenes (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_short_scenes_project ON short_scenes(project_id, position);
+CREATE TABLE IF NOT EXISTS short_files (     -- every file an animated short's builds stored: what tidying looks at
+    project_id TEXT NOT NULL,                 -- when nothing names one any more, and what deleting the short reaches
+    asset_id TEXT NOT NULL,                   -- (also a file no scene or saved version names)
+    workspace_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (project_id, asset_id)
+);
+CREATE INDEX IF NOT EXISTS idx_short_files_asset ON short_files(asset_id);
 -- ---------------------------------------------------------------- Clips → Full stories
 CREATE TABLE IF NOT EXISTS story_proposals (
     id TEXT PRIMARY KEY,
@@ -1249,6 +1257,7 @@ JSON_FIELDS = {
     "assets": {"probe"},
     "studio_projects": {"asset_ids", "brief", "guidance", "destinations", "media", "script", "short"},
     "short_scenes": {"pictures", "info"},
+    "short_files": set(),
     "edit_plans": {"plan", "meta"},
     "studio_artifacts": {"info"},
     "studio_jobs": {"result"},

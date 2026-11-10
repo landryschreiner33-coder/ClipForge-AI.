@@ -252,10 +252,25 @@ crash or a full disk) becomes a designed card with the reason.
 * Errors reach the owner in plain words (`_plain`): the voice, motion, card and upload messages are written for the
   owner; a full disk, a permission problem or another file problem, the video tool and anything else get a plain
   sentence, and the cause goes to the log.
-* Tidying: a clip a build made and then threw away (its scene changed or went meanwhile) is deleted when nothing
-  uses it (files are stored once, so the same bytes may be in use elsewhere: then it stays); working folders and
-  half-recorded voices an app closed mid-build left are deleted once they are an hour old. Pictures and clips that
-  any version uses stay, so undo can bring them back.
+* Tidying: every picture and clip a build stores goes on the short's list (table `short_files`) as soon as it is
+  stored. At the start and the end of each build, a file on the list that nothing names any more is deleted (its row,
+  its read-only copy and its folder with its transcript, thumbnail and maker's original): a clip a later build
+  replaced before any version kept it (a build overtaken by a newer change saves no version), a picture that left a
+  scene's earlier pictures, a deleted scene's files, a file a stopped build stored before a scene took it. A clip a
+  build made and then threw away (its scene changed or went meanwhile) goes at once. "Names" means a scene (picture,
+  earlier pictures, clip), any saved version (so undo can bring it back), any other video, clips project, upload,
+  link, example, import, source note or another short's list: files are stored once, so the same bytes may be in use
+  elsewhere, and then the file stays. It is checked again in the step that deletes the row. Working folders and
+  half-recorded voices an app closed mid-build left are deleted once they are an hour old; the oldest recorded voices
+  no scene uses go once a short has more than 120. Deleting the short (studio/project_delete.py) reaches every file on
+  its list, also one no scene or version names.
+* The makers on this computer (clipfoundry/engines) save what they make in `data/engines/made` with a note. What a
+  short uses is taken out of there and kept with what the short made from it, so it goes when that does: a made
+  picture becomes the scene's stored picture (its note is `maker.json` in the picture's folder), the video maker's
+  clip and note go into the scene clip's folder (`maker.mp4`, `maker.json`), and the voice engine's recording and
+  note go into the short's voice folder (`voice/maker/<voice key>.wav` and `.json`, tidied with that voice). A
+  picture or video clip of the maker's that the short could not use is deleted with its note (the reason is kept
+  with the scene). Voice samples (`voice-sample`) are not projects: their engine originals stay in engines/made.
 * `view(project)` is the `short` part of the editor page's video (`GET /api/studio/videos/<id>`): the options, stage
   and message, the scenes in the plan's order, progress, seconds (the video's length plus an estimate for scenes
   not in it yet), engines, `cards_to_swap` (designed cards a ready picture maker would replace: **Draw real

@@ -360,6 +360,8 @@ def test_the_engine_reads_and_its_word_times_follow_the_trim(env, monkeypatch):
 
     assert voice.speak("Hola", env / "es.wav", lang="es")["voice"] == "Lumi", "auto picks the asked language"
     assert got["rule"] == ""
+    # the engine's own file is named, for the short to keep with the voice made from it
+    assert got["original"] == str(env / f"engine{1}.wav") and Path(got["original"]).is_file()
 
     # times the engine only estimated give way to listening or the estimate from the sound; a licence's rule for
     # what the voice makes travels with it, so the short can show it

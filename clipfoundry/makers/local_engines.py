@@ -8,6 +8,7 @@ when the role is not ready, or when an engine call raises one of `errors()`.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 ROLES = ("image", "video", "voice")
 log = logging.getLogger(__name__)
@@ -24,6 +25,19 @@ def module():
 
 def available() -> bool:
     return module() is not None
+
+
+def made_here(path: Path | str) -> bool:
+    """Whether `path` is a file the makers saved in their own folder (<data>/engines/made): what a maker such as the
+    animated shorts takes into its project, with its note, instead of leaving a copy there."""
+    from .. import config
+
+    try:
+        made = (config.data_dir() / "engines" / "made").resolve()
+        target = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return made in target.parents and target.is_file()
 
 
 def status(role: str) -> dict:

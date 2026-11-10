@@ -347,8 +347,9 @@ def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang
 
     Returns {"path", "duration_s", "words": the engine's timed words (on this file's time) or None, "engine":
     "engine" | "say" | "sapi" | "espeak", "voice": its name, "fallback": why the asked voice was not used ("" when it
-    was), "voice_id", "rule": what the voice's licence asks of what it makes ("" for none)}. Raises VoiceError when no
-    voice can read the words."""
+    was), "voice_id", "rule": what the voice's licence asks of what it makes ("" for none), "original": the local
+    voice engine's own file in engines/made, with its note next to it ("" for the other voices; the caller keeps it
+    with what it made from it, or leaves it there)}. Raises VoiceError when no voice can read the words."""
     said = _speakable(text)
     if not said:
         raise VoiceError("There are no words to read. Write what the voice should say, then try again.")
@@ -378,7 +379,8 @@ def speak(text: str, out: Path, *, voice: str = "auto", speed: float = 1.0, lang
                 note = f"{reason}, so ClipForge used “{choice['name']}” instead." if reason else ""
                 return {"path": str(out), "duration_s": made["duration_s"], "words": made["words"],
                         "engine": choice["engine"], "voice": choice["name"],
-                        "fallback": f"{note} {detail}".strip(), "voice_id": choice["id"], "rule": made.get("rule", "")}
+                        "fallback": f"{note} {detail}".strip(), "voice_id": choice["id"], "rule": made.get("rule", ""),
+                        "original": made.get("original", "")}
     except OSError as exc:
         raise VoiceError("ClipForge could not save the voice. Check that the disk has free space, then try "
                          "again.") from exc
@@ -464,10 +466,11 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
     kind, name = choice["engine"], choice["name"]
     voice_id = choice["id"].split(":", 1)[1]
     work.mkdir(parents=True, exist_ok=True)
-    words, rule = None, ""
+    words, rule, original = None, "", ""
     try:
         if kind == "engine":
             raw, words, rule = _engine_read(voice_id, text, speed, lang, cancel)
+            original = str(raw)
         elif kind == "say":
             raw = _say_read(voice_id, _no_commands(text), work, cancel)
         elif kind == "sapi":
@@ -482,7 +485,8 @@ def _read_with(choice: dict, text: str, out: Path, speed: float, lang: str, work
                 exc.why, "The local voice engine could not read this" if kind == "engine"
                 else f"{who} did not work on this computer")
         raise
-    return {"duration_s": round(length, 3), "words": _shifted(words, shift, length) if words else None, "rule": rule}
+    return {"duration_s": round(length, 3), "words": _shifted(words, shift, length) if words else None, "rule": rule,
+            "original": original}
 
 
 def _engine_read(engine_id: str, text: str, speed: float, lang: str, cancel) -> tuple[Path, object, str]:

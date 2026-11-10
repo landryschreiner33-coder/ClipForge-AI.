@@ -6,7 +6,8 @@ needed, stopped when idle), or one already on this computer (the ComfyUI desktop
 
 Each job holds the graphics card the way transcription does (gpu.py), so the two never compete for its memory, and
 everything it makes is copied to <data>/engines/made/<kind>/<day>/ with a note next to it (model, licence, words,
-seed), which is how a made picture can be traced back.
+seed), which is how a made picture can be traced back. A maker that uses it (the animated shorts) takes the file and its
+note from there into its project, so they go when the project does.
 """
 from __future__ import annotations
 

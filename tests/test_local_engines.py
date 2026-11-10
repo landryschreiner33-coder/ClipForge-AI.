@@ -1556,6 +1556,10 @@ def test_the_shorts_maker_draws_its_pictures_through_the_door(app_settings, fake
     got = pictures.make("Octopuses have three hearts.", "an octopus", look, tmp_path / "out", seed=3)
     assert got["source"] == "engine" and got["why"] == "" and got["engine"] == state["engine"], got
     assert "octopus" in fake_comfy.prompts[-1]["4"]["inputs"]["text"]
+    # the short takes the maker's picture (no copy is left in engines/made) and is handed its note to keep with it
+    note = Path(got["note"])
+    assert json.loads(note.read_text())["prompt"].startswith(fake_comfy.prompts[-1]["4"]["inputs"]["text"][:20])
+    assert not note.with_suffix(".png").exists() and local_engines.made_here(note)
     with Image.open(got["path"]) as im:
         assert im.size == (1088, 1920)  # the model's nearest size to the short's 1080 x 1920 frame
     clip = motion.still_clip(Path(got["path"]), _silent_wav(tmp_path / "voice.wav"), tmp_path / "scene.mp4",
@@ -1584,6 +1588,8 @@ def test_the_shorts_maker_reads_with_the_built_in_voice_through_the_door(monkeyp
         got = short_voice.speak("Octopuses have three hearts. They also have blue blood.", tmp_path / "scene.wav",
                                 voice="engine:M3", lang="en")
         assert got["engine"] == "engine" and got["fallback"] == "", got
+        original = Path(got["original"])  # the engine's own, with its note: the short keeps both with the voice
+        assert local_engines.made_here(original) and original.with_suffix(".json").is_file()
         assert fake.said and {s[1] for s in fake.said} == {"M3"}
         assert got["words"] is None  # the door only estimates word times, so the short times the words itself
         assert "machine-generated" in got["rule"]  # the voice's use rule travels with the short

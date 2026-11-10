@@ -13,6 +13,7 @@ import json
 import os
 import stat
 import time
+from pathlib import Path
 
 import pytest
 
@@ -789,8 +790,8 @@ def test_the_window_counts_the_files_it_does_not_name(env):
 def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_picture_you_chose(env):
     """The pictures and clips ClipForge made for a short's scenes are not copies of anything (ClipForge has the only
     one), and every remake of a picture has the same name, so the window counts them instead of naming them. A
-    picture the owner chose for a scene is ClipForge's copy of their file. The pictures and voices the makers on this
-    computer made keep their originals in their own folder, and the window says so under what stays."""
+    picture the owner chose for a scene is ClipForge's copy of their file. The originals the makers on this computer
+    made for the short are kept with what it made from them, so they go with it, and the window says so."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
@@ -814,14 +815,24 @@ def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_p
     assert "What ClipForge made for its scenes: 3 pictures and 3 clips." in plan["goes"]
     assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
     assert not any("Scene" in line for line in plan["goes"])
-    assert ("The originals of the pictures and voices made for it on this computer stay in engines/made, each with a "
-            "note of the words it was made from.") in plan["stays"]
+    assert not any("engines/made" in line or "originals" in line for line in plan["goes"] + plan["stays"])
+    # what the picture maker and the voice engine made for it is kept with it: it goes too, and the window says so
+    from clipfoundry.makers import shorts
+
+    (Path(pics[2]["path"]).parent / "maker.json").write_text('{"licence": "Apache-2.0"}')
+    voices = shorts.voice_originals(short)
+    voices.mkdir(parents=True)
+    (voices / "a1b2.wav").write_bytes(b"RIFF")
+    plan = project_delete.plan("local", short, "full_video")
+    assert ("What ClipForge made for its scenes: 3 pictures and 3 clips, with the originals of the pictures and "
+            "voices made for it on this computer.") in plan["goes"]
     plain = _video("Plain video", [_stored(57)["id"]])["id"]
-    assert not any("engines/made" in line for line in project_delete.plan("local", plain, "full_video")["stays"])
+    assert not any("originals" in line for line in project_delete.plan("local", plain, "full_video")["goes"])
     out = project_delete.delete("local", short, "full_video")
     assert out["goes"] == plan["goes"]
     for gone in (*pics, clip1, clip2, old_clip, owl):
         assert db.fetch("assets", gone["id"]) is None and not os.path.exists(gone["path"])
+    assert not voices.exists()
 
 
 def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(env):

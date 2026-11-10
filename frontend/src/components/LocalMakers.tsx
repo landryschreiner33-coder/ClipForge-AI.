@@ -236,7 +236,8 @@ export default function LocalMakersSettings() {
         <ul className="small">
           <li>ComfyUI and its Python: ClipForge&apos;s data folder, tools/comfy. Models: the models folder, comfy (pictures and
             video) and voice. Everything made here: engines/made, with a note next to each file saying which model made it,
-            its licence, the words and the seed.</li>
+            its licence, the words and the seed. What an animated short uses is kept with that short instead, with its
+            note, and goes when the short is deleted.</li>
           <li>ComfyUI {c.version} is GPL-3.0 open source (<a href={c.source} target="_blank" rel="noreferrer">its source</a>). It
             runs as a separate program that ClipForge talks to on this computer only.</li>
           <li>Each download has a fixed address, size and checksum. A file that does not match is deleted and never used.</li>

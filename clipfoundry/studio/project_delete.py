@@ -4,8 +4,10 @@ ClipForge AI's actions all use this.
 
 What goes is everything ClipForge keeps only for that project:
 * its clips with their versions, scores and suggested post text, or its edit history (every revision), previews,
-  finished videos, change requests and media searches, an animated short's scenes with the pictures and clips made
-  for them, and its folder in the data folder;
+  finished videos, change requests and media searches, an animated short's scenes with every picture and clip its
+  builds stored (its list, `short_files`, also names one no scene or version names) and the originals the picture,
+  video and voice makers on this computer made for them (kept with them, with their notes), and its folder in the
+  data folder;
 * the media it was made from when no other project or example uses it: ClipForge's copy of an upload or of a
   downloaded link (with the transcript and preview copy made from it), or, for a file used where it is, only what
   ClipForge made from it;
@@ -15,10 +17,9 @@ What goes is everything ClipForge keeps only for that project:
 
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
-every video, a platform or a mode, the taste ClipForge AI learned from choices, a file the owner added again within
-the last day (a new page may be about to use it), and the originals the picture, video and voice makers on this
-computer keep of what they made, with its words, in their own folder (engines/made; the window says so). Deleting a
-project is tidying up, not a verdict on its clips, so it is not a taste lesson.
+every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
+within the last day (a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
+clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
 happen; `delete` does it and returns the same sentences. The window's moment (`as_of`) goes back with the delete, so
@@ -52,7 +53,8 @@ WAIT_S = 10.0  # how long a delete request waits for the project's stopped work 
 # project's work (an animated short's scenes, an agent's run) belongs here too; a listed table that does not exist
 # in this database is skipped, so a line can land before the feature that makes the table.
 VIDEO_TABLES = (("edit_plans", "project_id"), ("studio_artifacts", "project_id"), ("edit_requests", "project_id"),
-                ("media_suggestions", "project_id"), ("media_imports", "project_id"), ("short_scenes", "project_id"))
+                ("media_suggestions", "project_id"), ("media_imports", "project_id"), ("short_scenes", "project_id"),
+                ("short_files", "project_id"))
 CLIPS_TABLES = (("story_proposals", "project_id"), ("link_imports", "project_id"))
 POST_LIVE = ("publishing", "reconciling")       # a planned post uploading, or one that may already be live
 POST_PLANNED = ("awaiting_approval", "approved")  # planned and not started: canceled with the project
@@ -98,7 +100,7 @@ class _Survey:
     keep: list[dict] = field(default_factory=list)  # media something else uses: kept
     again: list[dict] = field(default_factory=list)  # media the owner uploaded again since: kept
     made: set[str] = field(default_factory=set)  # what ClipForge made for an animated short's scenes
-    makers: list[str] = field(default_factory=list)  # what the makers on this computer made for them (they keep it)
+    makers: list[str] = field(default_factory=list)  # the makers' originals that go with them ("pictures", ...)
     as_of: float = 0.0  # the moment "added again" is judged at: when the window was shown
     source_copy: str = ""  # a clips project's own copy of its video (a recording, a download, an older upload)
     folders: list[Path] = field(default_factory=list)
@@ -168,8 +170,9 @@ def _asset_folder(asset: dict) -> Path | None:
 def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
     """Everything that names media outside this project, as one text to search: other clips projects and their link
     imports, examples, and every other video (its media, brief and setup, every saved revision, so an older revision
-    can still be restored, its media imports, and an animated short's scenes). An asset id found anywhere in it counts
-    as a use: when in doubt the file stays."""
+    can still be restored, its media imports, and an animated short's scenes and the list of files its builds stored:
+    files are stored once, so another short's build may have stored the same bytes). An asset id found anywhere in it
+    counts as a use: when in doubt the file stays."""
     other_clips = project_id if kind == "clips" else ""
     other_video = project_id if kind == "full_video" else ""
     with db.connect() as conn:
@@ -186,12 +189,21 @@ def _used_elsewhere(ws: str, kind: str, project_id: str) -> str:
             "SELECT asset_id FROM media_imports WHERE project_id != ? OR project_id = ''", (other_video,))]
         texts += [" ".join(str(v or "") for v in tuple(r)) for r in conn.execute(
             f"SELECT {', '.join(SCENE_FILES)} FROM short_scenes WHERE project_id != ?", (other_video,))]
+        texts += [r[0] or "" for r in conn.execute("SELECT asset_id FROM short_files WHERE project_id != ?",
+                                                   (other_video,))]
     return "\n".join(texts)
+
+
+def named_elsewhere(ws: str, kind: str, project_id: str) -> str:
+    """`_used_elsewhere` for the animated shorts' tidying (makers/shorts.py): one text of every asset id named
+    outside this project; an id found in it stays."""
+    return _used_elsewhere(ws, kind, project_id)
 
 
 def _video_asset_ids(row: dict) -> list[str]:
     """Every asset a video names: its media, its brief and setup, every saved revision of its plan, and an animated
-    short's scene files (each scene's picture, its earlier pictures and its clip, also one not in the plan yet)."""
+    short's scene files (each scene's picture, its earlier pictures and its clip, also one not in the plan yet) and
+    every file on its list (`short_files`: one its builds stored that no scene or version names any more)."""
     text = json.dumps(row, default=str)
     for rev in db.select("edit_plans", "project_id = ?", (row["id"],), "revision ASC"):
         text += json.dumps(rev.get("plan"), default=str)
@@ -199,6 +211,8 @@ def _video_asset_ids(row: dict) -> list[str]:
         for r in conn.execute(f"SELECT {', '.join(SCENE_FILES)} FROM short_scenes WHERE project_id = ?",
                               (row["id"],)):
             text += " " + " ".join(str(v or "") for v in tuple(r))
+        text += " " + " ".join(r[0] or "" for r in conn.execute(
+            "SELECT asset_id FROM short_files WHERE project_id = ? ORDER BY created_at", (row["id"],)))
     return list(dict.fromkeys(_ASSET_REF.findall(text)))
 
 
@@ -206,28 +220,43 @@ def _d(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _short_made(project_id: str) -> tuple[set[str], list[str]]:
+def _short_made(project_id: str) -> set[str]:
     """What ClipForge made for an animated short's scenes: each scene's clip (also one only an older version of the
-    plan names) and the pictures it made, not a picture the owner chose (that one is ClipForge's copy of their file).
-    Also what the makers on this computer made for them ("pictures", "video clips", "voices"): they keep their own
-    original of each, with its words, in their folder (engines/made), which a delete does not reach."""
+    plan names), the pictures it made, not a picture the owner chose (that one is ClipForge's copy of their file),
+    and every file on the short's list (what its builds stored)."""
     made: set[str] = set()
-    used = dict.fromkeys(("pictures", "video clips", "voices"), False)
     for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
         made.update(_d(c).get("asset_id") or "" for c in _d(rev.get("plan")).get("clips") or []
                     if _d(c).get("scene_id"))
     for scene in db.select("short_scenes", "project_id = ?", (project_id,)):
-        info = _d(scene.get("info"))
         earlier = [_d(e) for e in scene.get("pictures") or []]
         made.add(scene.get("clip_asset_id") or "")
         if scene.get("picture_source") != "upload":
             made.add(scene.get("picture_asset_id") or "")
         made.update(e.get("asset_id") or "" for e in earlier if e.get("source") != "upload")
-        used["pictures"] |= _d(info.get("picture")).get("source") == "engine" or any(
-            e.get("source") == "engine" for e in earlier)
-        used["video clips"] |= _d(info.get("motion")).get("how") == "engine"
-        used["voices"] |= _d(info.get("voice")).get("engine") == "engine"
-    return made - {""}, [what for what, yes in used.items() if yes]
+    made.update(r["asset_id"] for r in db.select("short_files", "project_id = ?", (project_id,)))
+    return made - {""}
+
+
+def _maker_originals(project_id: str, drop: list[dict], made: set[str]) -> list[str]:
+    """The originals the makers on this computer made for a short that deleting it removes ("pictures", "video
+    clips", "voices"): the short keeps each with what it made from it (a picture's or clip's own folder, its voice
+    folder), not in engines/made."""
+    from ..makers import shorts
+
+    kinds = {"image": "pictures", "video": "video clips"}
+    have: set[str] = set()
+    for asset in drop:
+        folder = _asset_folder(asset) if asset["id"] in made and asset.get("kind") in kinds else None
+        if folder is not None and (folder / f"{shorts.MAKER}.json").is_file():
+            have.add(kinds[asset["kind"]])
+    voices = shorts.voice_originals(project_id)
+    try:
+        if voices.is_dir() and any(voices.iterdir()):
+            have.add("voices")
+    except OSError:
+        pass
+    return [k for k in ("pictures", "video clips", "voices") if k in have]
 
 
 def _copying(folder: Path) -> bool:
@@ -355,7 +384,7 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
                 s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
                                     "('queued', 'running')", (imp["id"],))
         asset_ids = _video_asset_ids(row)
-        s.made, s.makers = _short_made(project_id)
+        s.made = _short_made(project_id)
         vdir = config.data_dir() / "videos" / project_id
         if vdir.is_dir() and _inside_data(vdir):
             s.folders.append(vdir)
@@ -370,6 +399,8 @@ def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> 
             s.again.append(asset)
         else:
             s.drop.append(asset)
+    if kind == "full_video" and row.get("workflow") == "animated_short":
+        s.makers = _maker_originals(project_id, s.drop, s.made)
     for asset in s.drop:  # preparing a file that is about to go is work on this project too
         s.targets.add(asset["id"])
         s.jobs += db.select("studio_jobs", "kind = 'asset_prepare' AND target_id = ? AND status IN "
@@ -432,11 +463,15 @@ def _view(s: _Survey) -> dict:
     made = [a for a in s.drop if a["id"] in s.made and not uploads.is_linked(a)]  # the only copy: counted, not named
     copies = [a for a in s.drop if not uploads.is_linked(a) and a["id"] not in s.made]
     linked = [a for a in s.drop if uploads.is_linked(a)]
+    originals = f"the originals of the {_listed(s.makers)} made for it on this computer" if s.makers else ""
     if made:
         pictures = sum(1 for a in made if a.get("kind") == "image")
         parts = [_n(pictures, "picture")] if pictures else []
         parts += [_n(len(made) - pictures, "clip")] if len(made) > pictures else []
-        goes.append(f"What ClipForge made for its scenes: {' and '.join(parts)}.")
+        goes.append(f"What ClipForge made for its scenes: {' and '.join(parts)}" +
+                    (f", with {originals}." if originals else "."))
+    elif originals:
+        goes.append(originals[0].upper() + originals[1:] + ".")
     if copies:
         goes.append(f"ClipForge's {'copy' if len(copies) == 1 else 'copies'} of {_names(copies)}, which no other "
                     "project uses.")
@@ -461,9 +496,6 @@ def _view(s: _Survey) -> dict:
     if s.again:
         stays.append(f"{_names(s.again)} {'stays' if len(s.again) == 1 else 'stay'} in ClipForge because you added "
                      + ("it" if len(s.again) == 1 else "them") + " again since.")
-    if s.makers:
-        stays.append(f"The originals of the {_listed(s.makers)} made for it on this computer stay in engines/made, "
-                     "each with a note of the words it was made from.")
     if s.posted:
         stays.append("Anything already posted to YouTube or TikTok stays there, with its history.")
     stays.append("What ClipForge AI learned for all your videos stays: your rules and your taste.")
@@ -538,6 +570,26 @@ def _remove(folder: Path, copies: set[tuple[int, int]]) -> bool:
                 pass
     shutil.rmtree(folder, ignore_errors=True)
     return stuck
+
+
+def remove_asset_files(asset: dict) -> bool:
+    """Delete the folder ClipForge keeps for one asset whose rows are gone (what tidying an animated short does with
+    a file nothing names any more), the way deleting a project does: its read-only copy is made writable first
+    (Windows), nothing outside the data folder or of the owner's is touched, and a file another program still has
+    open is deleted at the next start. False when there was nothing of ClipForge's to delete."""
+    folder = _asset_folder(asset)
+    if folder is None or not folder.is_dir():
+        return False
+    copies: set[tuple[int, int]] = set()
+    if not uploads.is_linked(asset):
+        try:
+            st = os.stat(asset["path"])
+            copies.add((st.st_dev, st.st_ino))
+        except (OSError, TypeError, ValueError):
+            pass
+    if _remove(folder, copies):
+        _later([folder])
+    return True
 
 
 def _unpin(ws: str, project_id: str) -> None:
