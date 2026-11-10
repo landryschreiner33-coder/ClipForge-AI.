@@ -512,9 +512,10 @@ def cancel(project_id: str) -> dict:
 
 
 @app.delete("/api/projects/{project_id}", dependencies=[Depends(project_delete.from_this_computer)])
-def delete_project(project_id: str):
-    """The clips project and what only it uses; running work on it is stopped first (studio/project_delete.py)."""
-    return project_delete.answer_delete(project_id, "clips")
+def delete_project(project_id: str, as_of: float | None = None):
+    """The clips project and what only it uses; running work on it is stopped first (studio/project_delete.py).
+    `as_of` is the delete plan's moment, which the page sends back."""
+    return project_delete.answer_delete(project_id, "clips", as_of)
 
 
 @app.get("/api/projects/{project_id}/thumbnail")

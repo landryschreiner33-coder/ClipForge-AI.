@@ -15,6 +15,8 @@ export type DeletePlan = {
   /** Work still running on it, which deleting stops first; "" when there is none. */
   working: string;
   goes: string[]; stays: string[]; freed_bytes: number; counts: Record<string, number>;
+  /** When ClipForge judged it: sent back with Delete, so what the window said holds even if it stays open a while. */
+  as_of: number;
 };
 
 /** What a delete answers: the same words, and whether some files were in use (they go at the next start). */
@@ -25,7 +27,8 @@ const where = (kind: ProjectKind, id: string) =>
 
 export const projectDelete = {
   plan: (kind: ProjectKind, id: string) => req<DeletePlan>("GET", `${where(kind, id)}/delete-plan`),
-  remove: (kind: ProjectKind, id: string) => req<DeleteResult>("DELETE", where(kind, id)),
+  remove: (kind: ProjectKind, id: string, asOf?: number) =>
+    req<DeleteResult>("DELETE", where(kind, id) + (asOf ? `?as_of=${encodeURIComponent(String(asOf))}` : "")),
 };
 
 const STOP_WAIT_MS = 90_000;  // how long the window keeps asking while ClipForge stops the project's work
@@ -83,7 +86,7 @@ export function DeleteProjectConfirm({ kind, id, name, onClose, onDeleted }: {
     const end = Date.now() + STOP_WAIT_MS;
     for (;;) {
       try {
-        const done = await projectDelete.remove(kind, id);
+        const done = await projectDelete.remove(kind, id, plan?.as_of);
         gone(false, !!done.left_behind);
         return;
       } catch (e) {

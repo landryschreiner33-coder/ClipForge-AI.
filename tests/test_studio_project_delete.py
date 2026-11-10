@@ -30,7 +30,7 @@ def env(monkeypatch, tmp_path):
     return tmp_path
 
 
-def _stored(n: int, ws: str = "local", size: int = 3000) -> dict:
+def _stored(n: int, ws: str = "local", size: int = 3000, kind: str = "video", filename: str = "") -> dict:
     """An upload ClipForge keeps: its read-only copy and what was made from it, in the asset's own folder."""
     from clipfoundry import db
     from clipfoundry.studio import uploads
@@ -38,11 +38,11 @@ def _stored(n: int, ws: str = "local", size: int = 3000) -> dict:
     aid = f"as-{n:016x}"
     folder = uploads.assets_dir(ws) / aid
     folder.mkdir(parents=True)
-    original = folder / "original.mp4"
+    original = folder / ("original.png" if kind == "image" else "original.mp4")
     original.write_bytes(b"v" * size)
     os.chmod(original, 0o440)
     (folder / "transcript.json").write_text("{}")
-    return db.insert("assets", {"id": aid, "workspace_id": ws, "kind": "video", "filename": f"clip{n}.mp4",
+    return db.insert("assets", {"id": aid, "workspace_id": ws, "kind": kind, "filename": filename or f"clip{n}.mp4",
                                 "sha256": f"{n:064x}", "size": size, "path": str(original),
                                 "thumb_path": str(folder / "thumb.jpg"), "probe": {"duration": 5.0}})
 
@@ -539,6 +539,8 @@ def test_a_file_added_again_after_the_project_was_made_stays_while_it_is_new(env
 
     old = _stored(16)
     days = time.time() - 86400
+    with db.connect() as conn:  # stored three days ago, by its own upload
+        conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (days - 2 * 86400 + 1, old["id"]))
     for when in (days - 2 * 86400, days - 86400):  # its own upload, then once more two days ago
         db.insert("uploads", {"workspace_id": "local", "filename": "clip16.mp4", "size": 3000, "status": "complete",
                               "asset_id": old["id"], "created_at": when, "updated_at": when})
@@ -710,7 +712,9 @@ def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_yo
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
-    picture, earlier, placed, unplaced, shared, imported = (_stored(n) for n in range(31, 37))
+    picture, earlier = (_stored(n, kind="image", filename="Scene 1 picture.png") for n in (31, 32))
+    placed, unplaced = _stored(33, filename="Scene 1.mp4"), _stored(34, filename="Scene 2.mp4")
+    shared, imported = (_stored(n, kind="image") for n in (35, 36))
     short = _video("Shark facts", [], workflow="animated_short", short={"topic": "sharks"})["id"]
     other = _video("Owl facts", [], workflow="animated_short")["id"]
     db.insert("edit_plans", {"project_id": short, "revision": 1, "plan": {"clips": [{"asset_id": placed["id"]}]}},
@@ -733,7 +737,7 @@ def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_yo
     plan = project_delete.plan("local", short, "full_video")
     assert plan["working"] == "ClipForge is still working on it (making the short). Deleting stops that first."
     assert plan["counts"]["files"] == 4 and plan["counts"]["files_kept"] == 2
-    assert any("“clip33.mp4”" in line and "and 1 more" in line for line in plan["goes"])
+    assert "What ClipForge made for its scenes: 2 pictures and 2 clips." in plan["goes"]
     assert any("“clip35.mp4”, “clip36.mp4” stay in ClipForge because another project" in line
                for line in plan["stays"])
     out = project_delete.delete("local", short, "full_video")
@@ -766,7 +770,8 @@ def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_u
 
     own = _stored(42)
     db.insert("uploads", {"workspace_id": "local", "filename": "clip42.mp4", "size": 3000, "status": "complete",
-                          "asset_id": own["id"]})  # the upload that stored it, after the planned video was made
+                          "asset_id": own["id"], "created_at": own["created_at"] - 5})  # the upload that stored it,
+    # started before ClipForge had the file and finished after the planned video was made
     planned = _video("Planned video", [own["id"]], status="draft", created_at=time.time() - 60)["id"]
     assert project_delete.plan("local", planned, "full_video")["counts"]["files"] == 1
     project_delete.delete("local", planned, "full_video")
@@ -779,3 +784,91 @@ def test_the_window_counts_the_files_it_does_not_name(env):
     files = [{"filename": f"take{n}.mp4"} for n in range(1, 6)]
     assert project_delete._names(files) == "“take1.mp4”, “take2.mp4”, “take3.mp4” and 2 more"
     assert project_delete._names(files[:4]) == "“take1.mp4”, “take2.mp4”, “take3.mp4” and 1 more"
+
+
+def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_picture_you_chose(env):
+    """The pictures and clips ClipForge made for a short's scenes are not copies of anything (ClipForge has the only
+    one), and every remake of a picture has the same name, so the window counts them instead of naming them. A
+    picture the owner chose for a scene is ClipForge's copy of their file. The pictures and voices the makers on this
+    computer made keep their originals in their own folder, and the window says so under what stays."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    pics = [_stored(n, kind="image", filename="Scene 1 picture.png") for n in (51, 52, 53)]  # made three times
+    clip1, clip2, old_clip = (_stored(n, filename=f"Scene {k}.mp4") for n, k in ((54, 1), (55, 2), (58, 2)))
+    owl = _stored(56, kind="image", filename="my owl photo.png")
+    short = _video("Owl facts", [], workflow="animated_short")["id"]
+    db.insert("edit_plans", {"project_id": short, "revision": 1, "plan": {"clips": [
+        {"asset_id": old_clip["id"], "scene_id": "sc-gone"}]}}, key="project_id")  # a scene deleted since
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 1, "narration": "Owls",
+                               "picture_asset_id": pics[2]["id"], "clip_asset_id": clip1["id"],
+                               "pictures": [{"asset_id": p["id"], "source": "engine"} for p in pics],
+                               "info": {"picture": {"source": "engine"}, "voice": {"engine": "engine"},
+                                        "motion": {"how": "camera"}}})
+    db.insert("short_scenes", {"project_id": short, "workspace_id": "local", "position": 2, "narration": "Eyes",
+                               "picture_asset_id": owl["id"], "picture_source": "upload", "clip_asset_id": clip2["id"],
+                               "pictures": [{"asset_id": owl["id"], "source": "upload"}],
+                               "info": {"picture": {"source": "upload"}, "voice": {"engine": "say"}}})
+    plan = project_delete.plan("local", short, "full_video")
+    assert plan["counts"]["files"] == 7 and plan["counts"]["files_kept"] == 0
+    assert "What ClipForge made for its scenes: 3 pictures and 3 clips." in plan["goes"]
+    assert "ClipForge's copy of “my owl photo.png”, which no other project uses." in plan["goes"]
+    assert not any("Scene" in line for line in plan["goes"])
+    assert ("The originals of the pictures and voices made for it on this computer stay in engines/made, each with a "
+            "note of the words it was made from.") in plan["stays"]
+    plain = _video("Plain video", [_stored(57)["id"]])["id"]
+    assert not any("engines/made" in line for line in project_delete.plan("local", plain, "full_video")["stays"])
+    out = project_delete.delete("local", short, "full_video")
+    assert out["goes"] == plan["goes"]
+    for gone in (*pics, clip1, clip2, old_clip, owl):
+        assert db.fetch("assets", gone["id"]) is None and not os.path.exists(gone["path"])
+
+
+def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(env):
+    """Whether an upload added a file again is decided by when it started, not by a guess at how long saving takes:
+    the upload that stored the file, and the same file dropped twice at once, started before ClipForge had the file,
+    so they are the project's own also when the database was busy for a while and they finished late."""
+    from clipfoundry import db
+    from clipfoundry.studio import project_delete
+
+    asset = _stored(43, kind="image", filename="green.png")
+    stored = float(asset["created_at"])
+    for started, done in ((stored - 30, stored + 8), (stored - 29, stored + 8.04)):  # one drop, a slow save
+        db.insert("uploads", {"workspace_id": "local", "filename": "green.png", "size": 3000, "status": "complete",
+                              "asset_id": asset["id"], "created_at": started, "updated_at": done})
+    draft = _video("Draft", [asset["id"]], status="draft", created_at=stored - 40)["id"]
+    plan = project_delete.plan("local", draft, "full_video")
+    assert plan["counts"]["files"] == 1 and plan["counts"]["files_kept"] == 0
+    project_delete.delete("local", draft, "full_video")
+    assert db.fetch("assets", asset["id"]) is None and not os.path.exists(asset["path"])
+
+
+def test_a_file_the_window_said_stays_still_stays_when_delete_is_pressed_a_while_later(env, monkeypatch):
+    """The window is judged once, when it opens, and the page sends that moment back with Delete: a file it said
+    stays (the owner added it again almost a day ago) is not deleted because the window stayed open past the day."""
+    import types
+
+    from fastapi.testclient import TestClient
+
+    from clipfoundry import db
+    from clipfoundry.api import app
+    from clipfoundry.studio import project_delete
+
+    asset = _stored(44, filename="talk.mp4")
+    now = time.time()
+    with db.connect() as conn:  # stored two days ago for the video
+        conn.execute("UPDATE assets SET created_at = ? WHERE id = ?", (now - 2 * 86400, asset["id"]))
+    vid = _video("Talk", [asset["id"]], created_at=now - 2 * 86400 + 60)["id"]
+    db.insert("uploads", {"workspace_id": "local", "filename": "talk.mp4", "size": 3000, "status": "complete",
+                          "asset_id": asset["id"], "created_at": now - 86400 + 30, "updated_at": now - 86400 + 40})
+    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
+        plan = api.get(f"/api/studio/videos/{vid}/delete-plan").json()
+        assert plan["counts"]["files_kept"] == 1 and now <= plan["as_of"] <= time.time()
+        assert "“talk.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+        later = time.time() + 120  # the window stayed open: by now that upload is more than a day old
+        monkeypatch.setattr(project_delete, "time", types.SimpleNamespace(
+            time=lambda: later, monotonic=time.monotonic, sleep=time.sleep))
+        assert project_delete.plan("local", vid, "full_video")["counts"]["files_kept"] == 0  # a window opened now
+        done = api.delete(f"/api/studio/videos/{vid}?as_of={plan['as_of']}", headers=H)
+    assert done.status_code == 200 and done.json()["deleted"] and done.json()["counts"]["files_kept"] == 1
+    assert db.fetch("assets", asset["id"]) and os.path.isfile(asset["path"])

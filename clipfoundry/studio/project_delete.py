@@ -15,18 +15,21 @@ What goes is everything ClipForge keeps only for that project:
 
 What stays: the owner's own files where they are (never deleted, never changed), everything posted already (post
 history, results, and the clip fingerprints that stop a clip from being posted twice), the memories that apply to
-every video, a platform or a mode, the taste ClipForge AI learned from choices, and a file the owner added again
-within the last day (a new page may be about to use it). Deleting a project is tidying up, not a verdict on its
-clips, so it is not a taste lesson.
+every video, a platform or a mode, the taste ClipForge AI learned from choices, a file the owner added again within
+the last day (a new page may be about to use it), and the originals the picture, video and voice makers on this
+computer keep of what they made, with its words, in their own folder (engines/made; the window says so). Deleting a
+project is tidying up, not a verdict on its clips, so it is not a taste lesson.
 
 `plan` says all of this in plain sentences without changing anything, so a confirmation can show exactly what will
-happen; `delete` does it and returns the same sentences. Work running for the project is stopped first. Autopilot's
-work, a post that is uploading (or may already be live) and a video still being copied in are never interrupted:
-deleting waits for them.
+happen; `delete` does it and returns the same sentences. The window's moment (`as_of`) goes back with the delete, so
+a file the window said stays is not deleted because the window stayed open. Work running for the project is stopped
+first. Autopilot's work, a post that is uploading (or may already be live) and a video still being copied in are never
+interrupted: deleting waits for them.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -94,6 +97,9 @@ class _Survey:
     drop: list[dict] = field(default_factory=list)  # media nothing else uses: deleted
     keep: list[dict] = field(default_factory=list)  # media something else uses: kept
     again: list[dict] = field(default_factory=list)  # media the owner uploaded again since: kept
+    made: set[str] = field(default_factory=set)  # what ClipForge made for an animated short's scenes
+    makers: list[str] = field(default_factory=list)  # what the makers on this computer made for them (they keep it)
+    as_of: float = 0.0  # the moment "added again" is judged at: when the window was shown
     source_copy: str = ""  # a clips project's own copy of its video (a recording, a download, an older upload)
     folders: list[Path] = field(default_factory=list)
     planned_posts: list[str] = field(default_factory=list)
@@ -196,6 +202,34 @@ def _video_asset_ids(row: dict) -> list[str]:
     return list(dict.fromkeys(_ASSET_REF.findall(text)))
 
 
+def _d(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _short_made(project_id: str) -> tuple[set[str], list[str]]:
+    """What ClipForge made for an animated short's scenes: each scene's clip (also one only an older version of the
+    plan names) and the pictures it made, not a picture the owner chose (that one is ClipForge's copy of their file).
+    Also what the makers on this computer made for them ("pictures", "video clips", "voices"): they keep their own
+    original of each, with its words, in their folder (engines/made), which a delete does not reach."""
+    made: set[str] = set()
+    used = dict.fromkeys(("pictures", "video clips", "voices"), False)
+    for rev in db.select("edit_plans", "project_id = ?", (project_id,)):
+        made.update(_d(c).get("asset_id") or "" for c in _d(rev.get("plan")).get("clips") or []
+                    if _d(c).get("scene_id"))
+    for scene in db.select("short_scenes", "project_id = ?", (project_id,)):
+        info = _d(scene.get("info"))
+        earlier = [_d(e) for e in scene.get("pictures") or []]
+        made.add(scene.get("clip_asset_id") or "")
+        if scene.get("picture_source") != "upload":
+            made.add(scene.get("picture_asset_id") or "")
+        made.update(e.get("asset_id") or "" for e in earlier if e.get("source") != "upload")
+        used["pictures"] |= _d(info.get("picture")).get("source") == "engine" or any(
+            e.get("source") == "engine" for e in earlier)
+        used["video clips"] |= _d(info.get("motion")).get("how") == "engine"
+        used["voices"] |= _d(info.get("voice")).get("engine") == "engine"
+    return made - {""}, [what for what, yes in used.items() if yes]
+
+
 def _copying(folder: Path) -> bool:
     """A video is still being copied into this project folder (a clips project made by uploading a file): the folder
     or a file in it changed within the last minute. A copy that stopped halfway (the app was closed) leaves the
@@ -228,24 +262,21 @@ def _own_source(row: dict, pdir: Path) -> str:
 
 
 AGAIN_S = 24 * 3600  # how long a file added again stays protected while no project uses it yet
-STORE_S = 5.0  # the upload that first stores a file finishes within moments of the file's own record
 
 
-def _added_again(asset: dict, row: dict) -> bool:
-    """The owner added this file again, by uploading it once more, after the project was made and within the last
-    day (ClipForge keeps one copy per file, so that upload is this file): a page may be about to use it, so it
-    stays. The upload that first stored the file is not "again" (it is the project's own, also when the project was
-    made first); one upload of a file ClipForge got another way (Find media, a link, a short's build) is. The time
-    the project was made is used, not the time it last changed: stopping its work (deleting does that first)
-    changes the project, and the answer must stay what the window said."""
-    with db.connect() as conn:
-        done = [float(r[0] or 0) for r in conn.execute(
-            "SELECT updated_at FROM uploads WHERE asset_id = ? AND status = 'complete' ORDER BY updated_at",
-            (asset["id"],))]
-    if done and done[0] <= float(asset.get("created_at") or 0) + STORE_S:
-        done = done[1:]  # the upload that stored it first
-    since = max(float(row.get("created_at") or 0), time.time() - AGAIN_S)
-    return bool(done) and done[-1] > since
+def _added_again(asset: dict, row: dict, seen: float) -> bool:
+    """The owner added this file again, by uploading it once more, after the project was made and within the day
+    before `seen` (when the window was shown): ClipForge keeps one copy per file, so that upload is this file, and a
+    page may be about to use it, so it stays. An upload is "again" only when it started after ClipForge had the
+    file: the upload that stored it, and the same file sent alongside it, started before (they are the project's
+    own, also when the project was made first or saving was slow), while an upload of a file ClipForge got another
+    way (Find media, a link, a short's build) is again. The time the project was made is used, not the time it last
+    changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
+    window said."""
+    since = max(float(row.get("created_at") or 0), seen - AGAIN_S)
+    return bool(db.scalar(
+        "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND created_at > ? AND updated_at > ? "
+        "LIMIT 1", (asset["id"], float(asset.get("created_at") or 0), since)))
 
 
 def _pending() -> tuple[str | None, set[str]]:
@@ -259,9 +290,11 @@ def _pending() -> tuple[str | None, set[str]]:
     return worker.current, waiting - set(worker.cancelled)
 
 
-def _survey(ws: str, project_id: str, kind: str) -> _Survey:
+def _survey(ws: str, project_id: str, kind: str, as_of: float | None = None) -> _Survey:
     row = _load(ws, project_id, kind)
     s = _Survey(kind, row)
+    now = time.time()
+    s.as_of = min(now, as_of) if as_of is not None and math.isfinite(as_of) else now
     current, waiting = _pending()
     if kind == "clips":
         clip_ids = [r["id"] for r in db.select("clips", "project_id = ?", (project_id,))]
@@ -322,6 +355,7 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
                 s.jobs += db.select("studio_jobs", "kind = 'media_import' AND target_id = ? AND status IN "
                                     "('queued', 'running')", (imp["id"],))
         asset_ids = _video_asset_ids(row)
+        s.made, s.makers = _short_made(project_id)
         vdir = config.data_dir() / "videos" / project_id
         if vdir.is_dir() and _inside_data(vdir):
             s.folders.append(vdir)
@@ -332,7 +366,7 @@ def _survey(ws: str, project_id: str, kind: str) -> _Survey:
             continue
         if aid in elsewhere:
             s.keep.append(asset)
-        elif _added_again(asset, row):
+        elif _added_again(asset, row, s.as_of):
             s.again.append(asset)
         else:
             s.drop.append(asset)
@@ -371,6 +405,10 @@ def _n(count: int, one: str, many: str | None = None) -> str:
     return f"{count} {one if count == 1 else (many or one + 's')}"
 
 
+def _listed(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
 def _names(assets: list[dict], limit: int = 3) -> str:
     names = [f"“{(a.get('filename') or 'a file')[:60]}”" for a in assets[:limit]]
     more = len(assets) - limit
@@ -391,8 +429,14 @@ def _view(s: _Survey) -> dict:
         source = f"“{s.source_copy[:60]}”"
         goes.append(f"The recording of the live stream ({source}). ClipForge has the only copy."
                     if row.get("origin") == "live" else f"ClipForge's copy of the video it was made from ({source}).")
-    copies = [a for a in s.drop if not uploads.is_linked(a)]
+    made = [a for a in s.drop if a["id"] in s.made and not uploads.is_linked(a)]  # the only copy: counted, not named
+    copies = [a for a in s.drop if not uploads.is_linked(a) and a["id"] not in s.made]
     linked = [a for a in s.drop if uploads.is_linked(a)]
+    if made:
+        pictures = sum(1 for a in made if a.get("kind") == "image")
+        parts = [_n(pictures, "picture")] if pictures else []
+        parts += [_n(len(made) - pictures, "clip")] if len(made) > pictures else []
+        goes.append(f"What ClipForge made for its scenes: {' and '.join(parts)}.")
     if copies:
         goes.append(f"ClipForge's {'copy' if len(copies) == 1 else 'copies'} of {_names(copies)}, which no other "
                     "project uses.")
@@ -417,6 +461,9 @@ def _view(s: _Survey) -> dict:
     if s.again:
         stays.append(f"{_names(s.again)} {'stays' if len(s.again) == 1 else 'stay'} in ClipForge because you added "
                      + ("it" if len(s.again) == 1 else "them") + " again since.")
+    if s.makers:
+        stays.append(f"The originals of the {_listed(s.makers)} made for it on this computer stay in engines/made, "
+                     "each with a note of the words it was made from.")
     if s.posted:
         stays.append("Anything already posted to YouTube or TikTok stays there, with its history.")
     stays.append("What ClipForge AI learned for all your videos stays: your rules and your taste.")
@@ -424,7 +471,7 @@ def _view(s: _Survey) -> dict:
     if s.working:
         working = f"ClipForge is still working on it ({', '.join(s.working)}). Deleting stops that first."
     return {"id": row["id"], "kind": s.kind, "name": row["name"], "blocked": s.blocked, "working": working,
-            "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes,
+            "goes": goes, "stays": stays, "freed_bytes": s.freed_bytes, "as_of": s.as_of,
             "counts": {"clips": s.clips, "versions": s.versions, "revisions": s.revisions, "renders": s.renders,
                        "files": len(s.drop) + (1 if s.source_copy else 0), "files_kept": len(s.keep) + len(s.again),
                        "planned_posts": len(s.planned_posts),
@@ -433,7 +480,8 @@ def _view(s: _Survey) -> dict:
 
 def plan(ws: str, project_id: str, kind: str) -> dict:
     """What deleting this project would do, in plain sentences, without changing anything. `blocked` is "" when it
-    can be deleted now; otherwise the reason `delete` would give."""
+    can be deleted now; otherwise the reason `delete` would give. `as_of` is the moment it was judged: send it back
+    with the delete."""
     return _view(_survey(ws, project_id, kind))
 
 
@@ -603,12 +651,13 @@ POSTING = ("One of its clips is being posted right now, or ClipForge is still ch
            "Wait until that finishes (see Publishing), then delete the project.")
 
 
-def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0) -> dict:
+def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0, as_of: float | None = None) -> dict:
     """Delete the project and what only it uses (see the module notes); returns `plan`'s words with "deleted":
-    True ("left_behind": True when some files were in use; the next start removes them). Running work is asked to
-    stop and given up to `wait` seconds; DeleteError (409, "stopping") when it has not stopped by then, so the
-    caller can ask again in a moment."""
-    s = _survey(ws, project_id, kind)
+    True ("left_behind": True when some files were in use; the next start removes them). `as_of` is the plan's
+    moment (a file added again is judged as the window judged it). Running work is asked to stop and given up to
+    `wait` seconds; DeleteError (409, "stopping") when it has not stopped by then, so the caller can ask again in a
+    moment."""
+    s = _survey(ws, project_id, kind, as_of)
     if s.blocked:
         raise DeleteError(s.blocked, 409, "blocked")
     end = time.monotonic() + max(0.0, wait)
@@ -619,7 +668,7 @@ def delete(ws: str, project_id: str, kind: str, *, wait: float = 0.0) -> dict:
         if _running(s):
             raise DeleteError(STOPPING, 409, "stopping")
         # what is there now that the work has stopped: a step that ended may have queued the next one
-        s = _survey(ws, project_id, kind)
+        s = _survey(ws, project_id, kind, as_of)
         if s.blocked:
             raise DeleteError(s.blocked, 409, "blocked")
         if s.working:
@@ -711,10 +760,11 @@ def from_this_computer(request: Request) -> None:
     common.app_request(request)
 
 
-def answer_delete(project_id: str, kind: str):
-    """The HTTP answer to a delete: the words of what happened, or the reason with its code."""
+def answer_delete(project_id: str, kind: str, as_of: float | None = None):
+    """The HTTP answer to a delete: the words of what happened, or the reason with its code. `as_of` is the plan's
+    moment, which the page sends back."""
     try:
-        return {"ok": True, **delete(principal.workspace_id(), project_id, kind, wait=WAIT_S)}
+        return {"ok": True, **delete(principal.workspace_id(), project_id, kind, wait=WAIT_S, as_of=as_of)}
     except DeleteError as exc:
         return _refused(exc)
 
@@ -736,5 +786,5 @@ def video_plan(video_id: str):
 
 
 @router.delete("/api/studio/videos/{video_id}", dependencies=[Depends(from_this_computer)])
-def delete_video(video_id: str):
-    return answer_delete(video_id, "full_video")
+def delete_video(video_id: str, as_of: float | None = None):
+    return answer_delete(video_id, "full_video", as_of)
