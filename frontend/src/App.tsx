@@ -51,7 +51,7 @@ function page(route: Route) {
     case "office": return id === "team" ? <Team /> : <Office />;
     case "dev": return <RobotGallery />;
     case "setup": return <Setup step={id} />;
-    case "create": return id === "video" ? <MakeVideo /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
+    case "create": return id === "video" ? <MakeVideo key={route.parts[2] || "new"} id={route.parts[2] || ""} /> : id === "short" ? <MakeShort /> : id === "transcript" ? <Create />
       : <MakeClips key={id || "clips"} initialInput={id === "link" ? "link" : "file"} />;
     case "projects": return id === "feedback" ? <Feedback /> : <Projects />;
     case "project": return <ProjectView id={id} key={id} />;
@@ -217,7 +217,7 @@ function Shell({ me }: { me: Me }) {
               {makeOpen && (
                 <div role="menu" aria-label="Make">
                   <a role="menuitem" href="#/create/clips" onClick={() => setMakeOpen(false)}><b>Make clips</b><span>Highlights, full stories or story parts, vertical</span></a>
-                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>From your clips and four questions</span></a>
+                  <a role="menuitem" href="#/create/video" onClick={() => setMakeOpen(false)}><b>Make a YouTube video</b><span>Drop in your files and tell ClipForge AI your idea</span></a>
                   <a role="menuitem" href="#/create/short" onClick={() => setMakeOpen(false)}><b>Make an animated short</b><span>A voice-over short of moving pictures from your script, or one ClipForge AI writes</span></a>
                 </div>
               )}
@@ -371,7 +371,7 @@ function LeaveDialog({ target, onClose }: { target: string; onClose: () => void 
       }}>Discard and leave</button>
       {g.save && <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>Save and leave</button>}
     </>}>
-      <p className="muted">You changed {g.what}. If you leave now, those changes are lost.</p>
+      <p className="muted">{g.say || `You changed ${g.what}. If you leave now, those changes are lost.`}</p>
     </Dialog>
   );
 }

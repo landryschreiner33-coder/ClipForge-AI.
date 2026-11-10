@@ -6,9 +6,11 @@ import { FilmCraftPanel, MadeWithLine } from "../components/FilmCraft";
 import { Credits, FindMedia, MediaBanner, SourceLine } from "../components/FindMedia";
 import { LocalFiles } from "../components/LocalFiles";
 import { ScriptPanel } from "../components/ScriptPanel";
+import { PlanPanel } from "../components/VideoPlan";
 import { ShortScenes } from "../components/ShortScenes";
 import { FileDrop, Picked, UsedFromBrain } from "../components/studioParts";
 import { Banner, Disclosure, Icon, LoadingPage, PageHead, ProgressBar, toast } from "../components/ui";
+import { redirect } from "../router";
 import { AudioItem, AudioRole, fmtEdit, fmtTime, Overlay, Plan, PlanClip, SmartLevel, SmartReport, studio, TrackName, Video } from "../studio";
 
 const PAGE = 60;  // sequence rows drawn at a time (the list stays light however long the project is)
@@ -349,6 +351,8 @@ export default function VideoReview({ id }: { id: string }) {
     const t = window.setInterval(load, 2500);
     return () => window.clearInterval(t);
   }, [load]);
+  // a video still being planned with ClipForge AI opens on its setup page
+  useEffect(() => { if (v?.planning) redirect(`create/video/${v.id}`); }, [v?.planning, v?.id]);
 
   const act = useCallback(async (call: () => Promise<Video & { note?: string }>) => {
     setBusy(true);
@@ -426,10 +430,12 @@ export default function VideoReview({ id }: { id: string }) {
             {plan && <Timeline v={v} selected={selected} onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />}
             <p className="small muted">The preview is a small, fast copy of the same plan. The final render uses your full original files.</p>
           </section>),
-        outputs: (plan || v.short) && (
+        outputs: (plan || v.short || v.setup) && (
           <div className="stack-5">
             {v.short && <ShortScenes v={v} busy={busy} onVideo={setV} />}
+            {!plan && v.setup && <PlanPanel v={v} onStarted={() => void load()} />}
             {plan && <>
+            {v.setup && <PlanPanel key={`plan-${v.plan_revision}`} v={v} onStarted={() => void load()} />}
             {!v.short && <SmartPanel key={v.plan_revision} v={v} plan={plan} busy={busy} onStarted={() => void load()} />}
             {!v.short && <ScriptPanel key={`script-${v.plan_revision}`} v={v} plan={plan} busy={busy} edit={edit} onStarted={() => void load()}
               onSelect={(cid) => { setSelected(cid); document.getElementById(`clip-${cid}`)?.scrollIntoView({ block: "nearest" }); }} />}
