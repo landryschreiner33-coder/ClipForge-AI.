@@ -27,7 +27,8 @@ No release.
   to 10 s for it, else 409 `stopping`, and the window asks again for up to 90 s.
 - **Routes:** `GET /api/projects/{id}/delete-plan`, `GET /api/studio/videos/{id}/delete-plan`,
   `DELETE /api/studio/videos/{id}` (new); `DELETE /api/projects/{id}` now runs the same code (before, it refused while
-  clips were being made and left the upload copy, the chat and the project's memories behind).
+  clips were being made and left the upload copy, the chat and the project's memories behind). Both DELETEs take the
+  plan's `as_of` (`?as_of=`), which the window sends back.
 - **Screens:** `frontend/src/components/DeleteProject.tsx` and `.css` (new): a trash button on every Projects card (top
   left, the Pin button's twin; `LibraryCard` takes an optional `onDelete`, so the Studio page's cards have none) and one
   confirmation window ("Deleted for good" and "Stays" from the server, "This can't be undone", focus starts on "Keep
@@ -40,8 +41,8 @@ No release.
   blocks; memories go by their scope only (a memory saved again for another project keeps its first project_id); a
   file the owner uploaded again after the project was made, within the last day, stays (ClipForge keeps one copy per
   file, and a new page may be about to use it; counted from the project's `created_at`, which deleting's own stop
-  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its video (a live recording, a download) is named in
-  what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
+  cannot move, and the upload that first stored the file is the project's own); a clips project's own copy of its
+  video (a live recording, a download) is named in what goes; folders with a file still open in another program (Windows) are listed in `data/delete-later.json` and
   deleted at the next start (`finish_later`, only ClipForge's own project, video, link and upload folders), and the
   answer says so (`left_behind`); both DELETE routes only answer ClipForge's own page on this computer (the
   `app_request` guard the Autopilot and memory routes have, in words about deleting). Window: it cannot be closed
@@ -62,16 +63,41 @@ No release.
   project), counts as a use and stays; the window names a short's build ("making the short"); one upload of a
   file ClipForge got another way (Find media, a link) counts as added again; and a window that lists more than
   four files says "and 2 more", not "and 2 mores". Story parts projects are clips projects and need nothing new.
-- **Tests:** `tests/test_studio_project_delete.py` (21 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
+- **After a last independent look on the combined code (2026-11-10):** a short's scene pictures and clips are not
+  copies of anything and every remake has the same name, so the window counts them on their own line ("What
+  ClipForge made for its scenes: 3 pictures and 3 clips."); a picture the owner chose for a scene, uploads, downloads
+  and ClipForge's library sounds keep "ClipForge's copy of …". When the makers on this computer made a short's
+  pictures, video clips or voices, the window says under Stays that their originals stay in engines/made with a note
+  of the words (the makers keep everything they make; deleting does not reach that folder). "Added again" is decided
+  by when an upload started: only one that started after ClipForge had the file counts, so a slow save or the same
+  file dropped twice at once no longer keeps a project's own file (this replaces a 5-second guess). The plan answers
+  with `as_of`, the window sends it with Delete, and the delete judges "added again" at that moment, so a file the
+  window said stays is not deleted because the window stayed open past the day. Passed on to the shorts and upload
+  code (not this change): scene files that no scene or saved version names any more (a replaced clip, a deleted
+  scene's files) stay after the short is deleted; the makers' originals could be removed with the short; two
+  identical files finishing their upload at the same moment give an error and leave a stray copy.
+- **After one more independent look at those fixes (same day):** a short's files are also read from every saved
+  version (a deleted scene's picture is counted as made, not named as a copy); the owner's own photo stays "ClipForge's
+  copy of …" while a new picture waits to replace it (who made a scene's picture is its info.picture.source); the
+  makers' line also shows after the voice or motion was switched, a scene was deleted or a build was stopped (saved
+  versions and the short's voice notes); and "added again" also keeps a file when another page's upload of it started
+  before the project was made and finished after it (the same file under two names), or when the file was dropped
+  twice in the day (the project was made from one drop at most). Passed on: a project's own later upload of a file
+  ClipForge already had counts as added again, so that file is left behind (needs a record of which project took an
+  upload); the same file dropped on two pages at the very same moment shares one upload, so it can still go.
+- **Tests:** `tests/test_studio_project_delete.py` (26 tests). Fast suite 1,978 passed, 2 skipped (1,969 before);
   slow suite 27 passed, 1 skipped (espeak-ng installed); a click-through of the real app in a browser
   (deleting a video, an Autopilot project that has to wait, a clips project from its own page, phone width)
   passed 18 of 18 checks. After the review fixes, on the code merged with the release line at e3ad759 (story
   clips): every test, fast and slow together, 2,064 passed and 3 skipped (two model folders and opentimelineio are
   not on this machine); one timing test (`test_an_nvenc_encode_waits_while_the_gpu_is_transcribing`, which gives a
   render 2.5 s to reach the GPU wait) failed once under load and passes on its own (3 of 3) and with its file; it
-  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30 checks (now also: focus after deleting, no pinned-list save, the window held open
-  while deleting with focus inside it, a refusal shown at once with focus on Close), the window loads in development
-  mode, and the two e2e delete tests pass against a seeded app (a deletable and a waiting project).
+  does not touch deleting. `pytest -m slow` on its own: 29 passed, 1 skipped. The click-through passed 30 of 30
+  checks (now also: focus after deleting, no pinned-list save, the window held open while deleting with focus inside
+  it, a refusal shown at once with focus on Close), the window loads in development mode, and the two e2e delete
+  tests pass against a seeded app (a deletable and a waiting project). After the
+  last review's fixes (41d54e8): every test, fast and slow together, 2,233 passed and 3 skipped; the click-through
+  passed 31 of 31 (now also: Delete sends the moment the window was judged); the two e2e delete tests pass.
 - **Not verified:** a real Windows PC (the read-only and in-use file handling is simulated in tests); Landry's Mac.
 - **Known limit:** a file used where it is ("Add from this computer") that is added again for a new page that has
   not saved it yet is not protected the way an upload is (adding it again leaves no record). Only what ClipForge made
