@@ -1517,10 +1517,10 @@ def answer_timeout(settings: dict) -> float:
 
 
 # ------------------------------------------------------------------ the chat of a draft
-def _chat(ws: str, project_id: str) -> dict:
+def _chat(ws: str, project_id: str, create: bool = True) -> dict:
     from ..brain import chat as chat_mod
 
-    return chat_mod.open_chat(ws, project_id)
+    return chat_mod.open_chat(ws, project_id, create)
 
 
 def _add(chat: dict, role: str, text: str, data: dict | None = None, status: str = "done") -> dict:
@@ -1797,10 +1797,16 @@ def _think(project_id: str, message_id: str, owner_id: str, first: bool) -> None
     settings = db.get_settings()
     answer, problem, extra = None, "", dict(_sent(settings))
     attempted = False
+    from ..brain import chat as chat_mod
+
+    try:
+        chat = _chat(project["workspace_id"], project_id, create=False)  # never a new chat for a deleted video
+    except chat_mod.ChatError:
+        _finish(message_id, status="failed", text="The video was built or deleted before I answered.")
+        return
     try:
         st = _setup(project)
         files = _files(project)
-        chat = _chat(project["workspace_id"], project_id)
         request, used, _summaries = _gather(project, st, files, settings, newest, chat)
         extra.update({k: v for k, v in used.items() if k != "memory_ids"})
         if used["memory_ids"]:

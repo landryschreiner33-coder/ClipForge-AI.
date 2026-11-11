@@ -65,8 +65,10 @@ def _text(value: object, limit: int) -> str:
 
 
 # ------------------------------------------------------------------ chats and messages
-def open_chat(ws: str, project_id: str = "") -> dict:
-    """The chat of one video (it must be this workspace's), or the general chat; made when first opened."""
+def open_chat(ws: str, project_id: str = "", create: bool = True) -> dict:
+    """The chat of one video (it must be this workspace's), or the general chat; made when first opened (with
+    `create`; without it, a missing chat is an error). A video deleted while its chat is opened gets no new chat:
+    deleting removes the video and its chats together, so a chat made in between is removed again."""
     title = "ClipForge AI"
     if project_id:
         project = db.fetch("studio_projects", project_id)
@@ -78,7 +80,13 @@ def open_chat(ws: str, project_id: str = "") -> dict:
         if rows[0].get("title") != title:
             db.update("brain_chats", rows[0]["id"], title=title)
         return {**rows[0], "title": title}
-    return db.insert("brain_chats", {"workspace_id": ws, "project_id": project_id, "title": title})
+    if not create:
+        raise ChatError("Chat not found.", 404)
+    chat = db.insert("brain_chats", {"workspace_id": ws, "project_id": project_id, "title": title})
+    if project_id and not db.fetch("studio_projects", project_id):  # deleted in between
+        db.execute("DELETE FROM brain_chats WHERE id = ?", (chat["id"],))
+        raise ChatError("Video not found.", 404)
+    return chat
 
 
 def get_chat(ws: str, chat_id: str) -> dict:

@@ -1274,3 +1274,36 @@ def test_plan_words_are_only_for_videos_with_a_plan():
 
     assert smart_edit.plan_words({"must_keep": "soup"}) == set()  # made the old way: ranks as it always did
     assert smart_edit.plan_words({"open_with": "the ravens", "must_keep": "soup"}) == {"ravens", "soup"}
+
+
+def test_a_video_deleted_while_its_answer_is_written_gets_no_new_chat(env, monkeypatch):
+    """Deleting a video being planned removes its planning chat. If the delete lands while an answer is being
+    written, between reading the video and reading its chat, the answer stops: it never makes a new, empty chat for
+    the deleted video."""
+    from clipfoundry import db
+    from clipfoundry.brain import chat as chat_mod
+    from clipfoundry.studio import video_setup
+
+    files = _files(env)
+    v = video_setup.start(WS, WS, asset_ids=[f["id"] for f in files], mode="ask")
+    chat = video_setup._chat(WS, v["id"])
+    owner = video_setup._add(chat, "owner", "make it calm")
+    ai = video_setup._add(chat, "ai", "", status="thinking")
+    real_select, armed = db.select, [True]
+
+    def deleted_meanwhile(table, *a, **k):
+        if table == "brain_chats" and armed:
+            armed.clear()
+            with db.connect() as conn:  # what deleting the video does, in one step
+                conn.execute("DELETE FROM brain_chat_messages WHERE chat_id = ?", (chat["id"],))
+                conn.execute("DELETE FROM brain_chats WHERE project_id = ?", (v["id"],))
+                conn.execute("DELETE FROM studio_projects WHERE id = ?", (v["id"],))
+        return real_select(table, *a, **k)
+
+    monkeypatch.setattr(chat_mod.db, "select", deleted_meanwhile)
+    video_setup._think(v["id"], ai["id"], owner["id"], False)
+    assert not armed  # the delete landed where the answer read the chat
+    assert not real_select("brain_chats", "project_id = ?", (v["id"],))
+    with pytest.raises(chat_mod.ChatError):  # also a page that opens the chat of a video deleted meanwhile
+        armed.append(True)
+        chat_mod.open_chat(WS, v["id"])
