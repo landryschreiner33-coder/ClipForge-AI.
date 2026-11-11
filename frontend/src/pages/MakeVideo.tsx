@@ -87,6 +87,7 @@ function Start() {
   });
   const addLinked = (assets: Asset[]) => {
     const rows = assets.map(linkedRow);
+    assets.forEach(uploaded.add);  // each link is the page's own, like an upload
     rows.forEach((r) => removed.current.delete(r.key));
     setLinked((l) => [...l, ...rows.filter((r) => !l.some((x) => x.key === r.key))]);
     setOrder((o) => [...o, ...rows.map((r) => r.key).filter((k) => !o.includes(k))]);
@@ -117,8 +118,8 @@ function Start() {
           <section className="panel" aria-labelledby="vs-files-h">
             <h2 id="vs-files-h">Your files</h2>
             <FileDrop accept={ACCEPT} multiple label="Drop videos, pictures and sounds here (as many as you like)"
-              onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))}
-              onAssets={(rows) => { uploaded.note(rows); setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
+              onPicked={(keys) => keys.forEach((k) => removed.current.delete(k))} onUploaded={uploaded.add}
+              onAssets={(rows) => { setFiles(rows); setOrder((o) => [...o.filter((k) => k.startsWith("linked|") || rows.some((r) => r.key === k)),
                 ...rows.map((r) => r.key).filter((k) => !o.includes(k) && !removed.current.has(k))]); }} />
             {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer (big files, nothing is copied)</button>}
             {browsing && <LocalFiles onLinked={addLinked} onClose={() => setBrowsing(false)} />}

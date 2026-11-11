@@ -4,7 +4,7 @@ import {
   SceneStatus, ScenePatch, ShortLook, ShortOptions, ShortOptionsPatch, ShortScene, ShortView, shorts,
 } from "../shorts";
 import { PlanClip, studio, Video } from "../studio";
-import { FileDrop, Picked } from "./studioParts";
+import { FileDrop, Picked, useUploadsByFile } from "./studioParts";
 import { announce, Banner, ConfirmDialog, Disclosure, Icon, IconName, Pill, ProgressBar, Tone, toast } from "./ui";
 import "../pages/shorts.css";
 
@@ -205,6 +205,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
   const [uploading, setUploading] = useState(false);
   const [drop, setDrop] = useState(0);  // a new number is a new, empty drop area
   const seen = useRef(new Set<string>());
+  const uploaded = useUploadsByFile();  // every upload of a picture, also one dropped again after a change failed
   const addButton = useRef<HTMLButtonElement>(null);
   const early = s.stage === "review" || s.stage === "writing";
   const writing = s.stage === "writing";
@@ -246,14 +247,16 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
       if (seen.current.has(k) || (!wrong && !r.asset)) continue;
       seen.current.add(k);
       const assetId = r.asset?.id || "";
-      const uploadId = r.asset?.upload_id || "";
       window.setTimeout(() => {
         if (wrong) {
           setDrop((n) => n + 1);  // the old drop area goes, and its upload stops
           toast("That file is not a picture. Use a PNG, JPEG or WebP picture.", true);
         } else {
-          void patch({ picture_asset_id: assetId, upload_id: uploadId }, `Scene ${scene.n} uses your picture now.`)
-            .then((nv) => nv && setUploading(false));
+          void patch({ picture_asset_id: assetId, upload_ids: uploaded.of([assetId]) }, `Scene ${scene.n} uses your picture now.`)
+            .then((nv) => {
+              if (nv) setUploading(false);
+              else seen.current.delete(k);  // not changed: dropping the picture again tries again
+            });
         }
       }, 0);
       return;
@@ -360,7 +363,7 @@ function SceneRow({ scene, v, s, moves, off, run, adding, onAdding, onDelete }: 
             {uploading && !writing && (
               <div className="scene-upload">
                 <FileDrop key={drop} accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                  label={`Drop a PNG, JPEG or WebP picture for scene ${scene.n}`} onAssets={picked} />
+                  label={`Drop a PNG, JPEG or WebP picture for scene ${scene.n}`} onAssets={picked} onUploaded={uploaded.add} />
               </div>
             )}
             {scene.earlier.length > 0 && (

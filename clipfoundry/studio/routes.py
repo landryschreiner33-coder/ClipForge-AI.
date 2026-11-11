@@ -1050,6 +1050,7 @@ class ReferenceCreate(BaseModel):
     scope: str = "chosen"
     modes: list[str] = []
     project_only: bool = False
+    upload_ids: list[str] = []  # the page's uploads of the file (studio/uploads.taken)
 
 
 class ReferencePatch(BaseModel):
@@ -1085,11 +1086,12 @@ def list_references(all: int = 0) -> list[dict]:  # noqa: A002 - the query param
 
 @router.post("/api/studio/references")
 def add_reference(body: ReferenceCreate) -> dict:
-    data = body.model_dump(exclude={"asset_id", "ranges"})
+    data = body.model_dump(exclude={"asset_id", "ranges", "upload_ids"})
     if not data.get("title"):
         data.pop("title")
     try:
-        return reference.create(principal.workspace_id(), body.asset_id, data, body.ranges or None)
+        return reference.create(principal.workspace_id(), body.asset_id, data, body.ranges or None,
+                                upload_ids=body.upload_ids)
     except (reference.ReferenceError, ValueError) as exc:
         raise HTTPException(getattr(exc, "status", 422), str(exc)) from exc
 

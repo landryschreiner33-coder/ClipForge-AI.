@@ -398,7 +398,8 @@ def _owl(tmp_path):
 
 def test_a_picture_you_chose_for_two_scenes_goes_with_the_short(env, tmp_path):
     """The owner uploads their own picture for one scene and later uploads it again for another ("Use my picture"
-    twice: ClipForge keeps one copy, so both are that copy). The page sends each upload with the picture, so both are
+    twice: ClipForge keeps one copy, so all are that copy). The first time, the change failed and the owner dropped
+    the picture again, which uploaded it once more. The page sends every upload it made of the picture, so all are
     the short's own, and deleting the short removes ClipForge's copy of the picture instead of keeping it as a file
     the owner added again."""
     import time
@@ -411,14 +412,15 @@ def test_a_picture_you_chose_for_two_scenes_goes_with_the_short(env, tmp_path):
     pid = project["id"]
     scenes = _scenes(pid, _plan(pid))
     owl, first = _owl(tmp_path)
-    shorts.update_scene(_fresh(pid), scenes[0]["id"], {"picture_asset_id": owl["id"], "upload_id": first})
+    _, retry = _owl(tmp_path)  # dropped again after the first change failed
+    shorts.update_scene(_fresh(pid), scenes[0]["id"], {"picture_asset_id": owl["id"], "upload_ids": [first, retry]})
     _run(env)
     time.sleep(0.01)
     again, second = _owl(tmp_path)  # the same picture again, for the next scene
     assert again["id"] == owl["id"]
-    shorts.update_scene(_fresh(pid), scenes[1]["id"], {"picture_asset_id": owl["id"], "upload_id": second})
+    shorts.update_scene(_fresh(pid), scenes[1]["id"], {"picture_asset_id": owl["id"], "upload_ids": [second]})
     _run(env)
-    assert [r["taken"] for r in db.select("uploads", "asset_id = ?", (owl["id"],))] == [pid, pid]
+    assert [r["taken"] for r in db.select("uploads", "asset_id = ?", (owl["id"],))] == [pid, pid, pid]
     plan = project_delete.plan("local", pid, "full_video")
     assert any(line.startswith("ClipForge's cop") and "“owl.png”" in line for line in plan["goes"])
     assert not any("added it again" in line for line in plan["stays"])
@@ -438,7 +440,7 @@ def test_choosing_an_earlier_picture_again_takes_no_other_pages_upload(env, tmp_
     pid = project["id"]
     scene = _scenes(pid, _plan(pid))[0]
     owl, first = _owl(tmp_path)
-    shorts.update_scene(_fresh(pid), scene["id"], {"picture_asset_id": owl["id"], "upload_id": first})
+    shorts.update_scene(_fresh(pid), scene["id"], {"picture_asset_id": owl["id"], "upload_ids": [first]})
     _run(env)
     shorts.update_scene(_fresh(pid), scene["id"], {"new_picture": True})
     _run(env)

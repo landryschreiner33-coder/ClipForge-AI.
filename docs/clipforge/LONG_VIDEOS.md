@@ -28,7 +28,9 @@ it.
   file itself; everything ClipForge makes for it (its 16 kHz sound, transcript, proxy, thumbnail) lives in the
   asset's own folder under the data folder (`uploads.work_dir`), never next to the owner's file, which is never
   changed or made read-only. Its content id is a *quick hash* (`quick:` + SHA-256 of the size and three 1 MB
-  samples), so adding the same file twice is one asset without reading 17 GB. A moved or deleted file is reported
+  samples), so adding the same file twice is one asset without reading 17 GB. Each link answers with an `upload_id`
+  (a finished upload of the file, `uploads._hand_out`) that the page sends with its project like an upload's, so
+  deleting a project tells its own links from another page's. A moved or deleted file is reported
   by the editor's existing check ("The original file … is missing"). Cloud mode refuses linking and browsing.
 - **The upload limit on the desktop is the free disk space**, not 8 GB: a file larger than the space left in the
   data folder (minus a 2 GB reserve) is refused with the real numbers and the hint to add it without copying.

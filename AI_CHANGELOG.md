@@ -1,5 +1,65 @@
 # AI changelog
 
+## Leftover files and upload races after deleting projects — 2026-11-11 (Claude Code)
+
+Follow-ups from the delete-projects review (PR #35), passed on by the coordinator. Branch
+`claude/project-thread-h05xs8`, built on #35 and merged with the release line at bc7250f. No release.
+
+- **Animated shorts** (`clipfoundry/makers/shorts.py`): every file a build stores is listed for its short (new table
+  `short_files`). At the start and end of each build, a listed file that no scene, earlier picture, saved version or
+  other project names any more goes (`_tidy_files`, `_drop`, `_named`, one step under the file's lock); deleting the
+  short reaches every file on its list. A file just handed out again (`assets.reused_at`, an hour) is left alone. A
+  thrown-away clip that cannot be deleted yet never fails its scene (the next tidy has it).
+- **Local makers** (`makers/local_engines.py`, `pictures.py`, `voice.py`, `engines/makers.py`): the short takes the
+  maker's original and its note out of `data/engines/made` (`maker.json` / `maker.<ext>` beside the picture or clip,
+  voices under the short's `voice/maker/`), so they go with what the short made from them. A result that cannot be
+  used or was made as Stop was pressed is deleted with its note (`discard_made`, only ever inside engines/made); a
+  file ComfyUI hands back that is not a picture, or an empty video, is deleted. The delete window says which
+  originals go and which stay in engines/made (`project_delete._maker_originals`).
+- **Uploads** (`studio/uploads.py`): saves of the same bytes take turns (`_content_lock`); two identical files
+  finishing together are stored once and both finish (no HTTP 500, no stray folder; 409 "try again" only when the
+  stored copy was deleted in between). `complete()` answers with `upload_id`; the same file finished on two pages
+  (both resumed one upload) gives the second page an upload row of its own (`_again`).
+- **"Added again"**: pages send the uploads they used (`upload_ids` on Make a YouTube video, Add files, the editor's
+  media, Make clips, the classic video request, a scene's own picture, an example video), every upload they made of
+  the file: also one picked again, one dropped again after a change failed, and one that finished after another file
+  was picked instead (`FileDrop` reports every finished upload, `onUploaded`; `useUploadsByFile`).
+  `uploads.taken(ws, upload_ids, project_id, asset_ids)` marks exactly those (new column `uploads.taken`). Add from
+  this computer leaves such an upload too (`uploads._hand_out`, one step with marking the copy; the link answer has
+  `upload_id`), so links count like uploads. When deleting, a project that took uploads counts every other finished
+  upload of the file in the day as another page's ("again", kept), also one made before the project; a project made
+  before this keeps the older rules. A project's own later upload or link of a file ClipForge already had no longer
+  keeps that file forever; choosing an earlier picture again takes no upload.
+- **Deleting** (`studio/project_delete.py`): inside its own step (`BEGIN IMMEDIATE`), nothing else can change the
+  database, so it looks again at what names each file and at copies handed out since the window (`_handed_out`); those
+  stay, and the answer is worked out again ("… stays in ClipForge because it was used again just now"). A video's bin
+  names a file only while it exists, and before the page's upload is taken (`video_flow.add_media`).
+- **Deleting an example's video file** (`studio/reference._drop_file`): the file stays when anything else names it
+  (saved versions, shorts, imports; the delete's own check), when it was handed out again since the example was made,
+  or when another page's upload or link of it that no project or example took finished in the last day (also before
+  the example); the Examples page's own uploads are the example's (`upload_ids` on `POST /api/studio/references`). The
+  check and the delete are one step.
+- **Planning chat** (`brain/chat.open_chat(create=False)`, `studio/video_setup._think`): an answer for a video deleted
+  while it is written stops and never makes a new, empty chat; a chat made just as its video is deleted goes again.
+- **Docs:** `docs/clipforge/ANIMATED_SHORTS.md` (tidying, the makers' originals, a scene's own picture),
+  `LOCAL_ENGINES.md` (refused files are deleted), `VIDEO_SETUP.md` (`upload_ids`, the chat lookup), `LONG_VIDEOS.md`
+  (a link's `upload_id`).
+- **Tests:** `tests/test_studio_uploads_taken.py` (new), `test_studio_shorts_tidy.py` (new), and new cases in
+  `test_studio_uploads.py`, `test_studio_shorts_voice.py`, `test_local_engines.py`, `test_video_setup_flow.py`,
+  `test_studio_project_delete.py`, `test_studio_local_files.py`, `test_studio_reference.py`. Each fix has a test that
+  fails on the code before it. Four independent reviews; every confirmed finding fixed.
+- **Checked in the real app** (browser, fresh data folder): Make clips with the same file picked twice, Make a YouTube
+  video with two copies of one file and a picture, Add files on the draft (a file it has already, and a new one), the
+  delete window's words, and one big file dropped on two pages at once (each page got its own upload; deleting the
+  first page's video kept the file and the second page started its video). Then: Add from this computer on Make a
+  YouTube video (the link is the video's), Make clips with a file replaced while it uploaded and picked again (both
+  uploads sent and taken), an example video (its upload is the example's; deleting it with its file kept the file
+  another page had uploaded), and Add from this computer in the editor.
+- **Known limits (keeping is the safe side):** projects and examples made before this change took no uploads; such
+  a project keeps the older rules, and such an example's file stays when it is deleted within a day of its upload.
+  An upload a page started and then removed from its list counts as another page's for a day. The owner's own files
+  are never touched.
+
 ## Deleting projects, with a confirmation that says what goes and what stays — 2026-11-10 (Claude Code)
 
 Landry asked to be able to delete projects. Branch `claude/project-thread-8i3krg` from the release line at 95a70e0.

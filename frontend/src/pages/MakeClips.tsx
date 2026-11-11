@@ -139,7 +139,8 @@ export default function MakeClips({ initialInput = "file" }: { initialInput?: "f
               </label>
             </div>
             {input === "file" ? (
-              <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => { uploaded.note(rows); setFile(rows[0] || null); }} />
+              <FileDrop accept="video/*,.mkv,.m4v" label="Drop a video here" onAssets={(rows) => setFile(rows[0] || null)}
+                onUploaded={uploaded.add} />
             ) : (
               <div className="stack-3">
                 <label className="field"><span>Link to one video</span>

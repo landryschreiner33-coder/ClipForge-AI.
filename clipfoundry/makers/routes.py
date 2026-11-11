@@ -91,7 +91,7 @@ class SceneChange(BaseModel):
     picture_prompt: str | None = None
     move: str | None = None
     picture_asset_id: str | None = None
-    upload_id: str | None = None  # the page's upload of that picture (studio/uploads.taken)
+    upload_ids: list[str] | None = None  # the page's uploads of that picture (studio/uploads.taken)
     new_picture: bool | None = None
     again: bool | None = None
 

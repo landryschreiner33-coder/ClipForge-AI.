@@ -238,6 +238,9 @@ def test_routes_browse_link_and_prepare(env, tmp_path, monkeypatch):
         assert r.status_code == 200, r.text
         body = r.json()
         assert [a["filename"] for a in body["assets"]] == ["clip.mp4"] and body["assets"][0]["linked"] is True
+        hand_out = db.fetch("uploads", body["assets"][0]["upload_id"])  # the page sends it with its project
+        assert hand_out["status"] == "complete" and hand_out["asset_id"] == body["assets"][0]["id"]
+        assert hand_out["taken"] == "" and hand_out["filename"] == "clip.mp4"
         assert body["problems"] == [{"path": str(env / "notes.txt"), "detail": uploads.UNSUPPORTED}]
         aid = body["assets"][0]["id"]
         assert api.get(f"/api/assets/{aid}").json()["linked"] is True
@@ -285,6 +288,7 @@ def test_deleting_an_example_of_a_linked_file_keeps_the_owners_file(env, tmp_pat
     (work / "audio.wav").write_bytes(b"x")
     (work / "transcript.parts").mkdir()
     (work / "transcript.parts" / "0.json").write_text("{}")
+    uploads.taken("local", [linked["upload_id"]], "ref-example", [linked["id"]])  # the example took the page's link
     note = reference._drop_file(linked["id"], "local")  # noqa: SLF001
     assert "stays where it is" in note and db.fetch("assets", linked["id"]) is None
     assert not work.exists() and (env / "clip.mp4").is_file()  # ClipForge's folder is gone, the owner's file is not
@@ -366,3 +370,63 @@ def test_a_file_added_from_this_computer_again_stays_when_a_project_using_it_is_
     assert db.fetch("assets", linked["id"]) and file.is_file()
     video_flow.create("local", "local", name="New", asset_ids=[linked["id"]], brief={}, style_id="settings",
                       remember={"enabled": False})
+
+
+def test_a_file_linked_on_another_page_before_the_video_was_made_stays(env, monkeypatch):
+    """Two pages add the same file from this computer, and each gets its own record of it (`upload_id`, an upload
+    no project took yet). The first page makes its video and sends its own. Deleting that video keeps what ClipForge
+    made from the file for the second page, whose Start still works. Two videos made from one file the same day, each
+    page sending its own, let it go when both are deleted (the newer first); the owner's file always stays."""
+    from clipfoundry import db
+    from clipfoundry.jobs import worker
+    from clipfoundry.studio import project_delete, uploads, video_flow
+
+    monkeypatch.setattr(worker, "submit_studio", lambda job_id: None)
+    file = make_video(env / "clip.mp4", seconds=1.0)
+    first = uploads.link_local("local", str(file))
+    time.sleep(0.01)
+    second = uploads.link_local("local", str(file))
+    assert first["id"] == second["id"] and first["upload_id"] != second["upload_id"]
+
+    def video(name: str, linked: dict) -> str:
+        time.sleep(0.01)
+        return video_flow.create("local", "local", name=name, asset_ids=[linked["id"]], brief={},
+                                 style_id="settings", remember={"enabled": False}, upload_ids=[linked["upload_id"]])["id"]
+
+    old = video("Old", first)
+    plan = project_delete.plan("local", old, "full_video")
+    assert plan["counts"]["files"] == 0 and plan["counts"]["files_kept"] == 1
+    assert "“clip.mp4” stays in ClipForge because you added it again since." in plan["stays"]
+    project_delete.delete("local", old, "full_video", as_of=plan["as_of"])
+    assert db.fetch("assets", first["id"])
+    new = video("New", second)  # the second page's Start still works
+    newer = video("Newer", uploads.link_local("local", str(file)))  # one more page, one more video
+    project_delete.delete("local", newer, "full_video", as_of=project_delete.plan("local", newer, "full_video")["as_of"])
+    plan = project_delete.plan("local", new, "full_video")
+    assert plan["counts"]["files"] == 1 and plan["counts"]["files_kept"] == 0, plan["stays"]
+    project_delete.delete("local", new, "full_video", as_of=plan["as_of"])
+    assert db.fetch("assets", first["id"]) is None and file.is_file()
+    assert db.scalar("SELECT COUNT(*) FROM uploads") == 0
+
+
+def test_a_linked_file_deleted_while_it_is_handed_out_is_refused(env, monkeypatch):
+    """Add from this computer finds the file ClipForge has, and a project's delete removes it a moment later: the
+    page is told to add the file again (409) instead of getting a file that is gone, and nothing is left behind."""
+    from clipfoundry import db
+    from clipfoundry.studio import uploads
+
+    file = make_video(env / "clip.mp4", seconds=1.0)
+    linked = uploads.link_local("local", str(file))
+    real = uploads._reuse
+
+    def deleted_meanwhile(workspace_id, digest, *a, **k):
+        got = real(workspace_id, digest, *a, **k)
+        db.execute("DELETE FROM uploads WHERE asset_id = ?", (got["id"],))
+        db.execute("DELETE FROM assets WHERE id = ?", (got["id"],))
+        return got
+
+    monkeypatch.setattr(uploads, "_reuse", deleted_meanwhile)
+    with pytest.raises(uploads.UploadError) as refused:
+        uploads.link_local("local", str(file))
+    assert refused.value.status == 409 and "Add it again" in str(refused.value)
+    assert db.fetch("assets", linked["id"]) is None and db.scalar("SELECT COUNT(*) FROM uploads") == 0

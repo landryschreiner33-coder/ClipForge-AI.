@@ -97,7 +97,9 @@ def _meta(data: dict, current: dict | None = None) -> dict:
     return out
 
 
-def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = None) -> dict:
+def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = None, upload_ids=None) -> dict:
+    """A new example of the owner's video file. `upload_ids`: the uploads the Examples page made of the file, which
+    become the example's own (uploads.taken), so deleting it with its file tells them from another page's."""
     try:
         asset = uploads.asset(asset_id, workspace_id)
     except uploads.UploadError as exc:
@@ -110,6 +112,7 @@ def create(workspace_id: str, asset_id: str, data: dict, ranges: list | None = N
         "id": "ref-" + os.urandom(6).hex(), "workspace_id": workspace_id, "asset_id": asset_id,
         "ranges": [] if not ranges else [{"start_ms": int(a * 1000), "end_ms": int(b * 1000)} for a, b in clean],
         "status": "queued", "message": "Waiting to be analyzed", "round": 1, **meta})
+    uploads.taken(workspace_id, upload_ids, row["id"], [asset_id])
     enqueue(workspace_id, "reference_analysis", row["id"], 1)
     return view(row)
 
@@ -180,9 +183,11 @@ def delete(ref_id: str, workspace_id: str, *, keep_style: bool = True, delete_fi
 def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
     """Delete the example's video file when nothing else needs it. It stays when anything else names it (a project,
     any saved version of a video, an animated short, a media import, another example: project_delete's own check),
-    or when ClipForge handed the same file out again since the example was made, in the last day (an upload of the
-    same bytes, Add from this computer): a page may be about to use it. The check and the delete are one step, so a
-    hand-out waits for it (uploads._reuse). What ClipForge made for a linked file goes; the owner's file never does."""
+    or when, in the last day, the owner added the same file on a page whose upload no project or example took (also
+    before the example was made; Add from this computer leaves such an upload too) or ClipForge handed it out again
+    since the example was made: that page may be about to use it. The Examples page's own uploads are the
+    example's (create), so they do not count. The check and the delete are one step, so a hand-out waits for it
+    (uploads._reuse). What ClipForge made for a linked file goes; the owner's file never does."""
     from . import project_delete
 
     asset = db.fetch("assets", asset_id)
@@ -195,8 +200,11 @@ def _drop_file(asset_id: str, workspace_id: str, made: float = 0.0) -> str:
         now = conn.execute("SELECT reused_at FROM assets WHERE id = ?", (asset_id,)).fetchone()
         if now is None:
             return "The video file was deleted."
-        if float(now[0] or 0) > max(made, time.time() - project_delete.AGAIN_S):
-            return "The video file stays because you added it again since."
+        day = time.time() - project_delete.AGAIN_S
+        if float(now[0] or 0) > max(made, day) or conn.execute(
+                "SELECT 1 FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ? "
+                "LIMIT 1", (asset_id, day)).fetchone():
+            return "The video file stays because you added it again in the last day, and a page may be about to use it."
         for table, column in (("asset_sources", "asset_id"), ("uploads", "asset_id"), ("assets", "id")):
             conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (asset_id,))
         conn.commit()

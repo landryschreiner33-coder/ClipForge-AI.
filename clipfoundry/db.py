@@ -1315,13 +1315,12 @@ ADDED_COLUMNS = {
                 "channel_check": "TEXT DEFAULT '{}'", "user_added": "INTEGER DEFAULT 0",
                 "intake": "TEXT DEFAULT '{}'"},
     # the project that took a finished upload (studio/uploads.taken): deleting a project counts only uploads no
-    # project took as files the owner added again
+    # project took as files the owner added again (Add from this computer leaves such a row too)
     "uploads": {"taken": "TEXT DEFAULT ''"},
     # when ClipForge last handed out a stored file again (the same bytes uploaded, linked or stored once more): a
-    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py);
-    # relinked_at: when Add from this computer last handed it out again (no upload row records that), so deleting
-    # a project keeps it for the page that holds it (studio/project_delete._added_again)
-    "assets": {"reused_at": "REAL DEFAULT 0", "relinked_at": "REAL DEFAULT 0"},
+    # short's tidying leaves it alone for a while, so the one it was handed to can record it (studio/uploads.py),
+    # and a delete that started before it keeps it (studio/project_delete._handed_out)
+    "assets": {"reused_at": "REAL DEFAULT 0"},
 }
 
 

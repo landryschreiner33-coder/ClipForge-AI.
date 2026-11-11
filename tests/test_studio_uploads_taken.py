@@ -245,8 +245,8 @@ def test_the_pages_send_the_uploads_they_used(env):
         assert r.status_code == 200, r.text
         classic = r.json()["id"]
     assert _taken(u_clip, u_extra, u_rec, u_old) == [draft, draft, clips, classic]
-    assert SceneChange(picture_asset_id="as-1", upload_id="up-1").model_dump(exclude_none=True) == {
-        "picture_asset_id": "as-1", "upload_id": "up-1"}
+    assert SceneChange(picture_asset_id="as-1", upload_ids=["up-1", "up-2"]).model_dump(exclude_none=True) == {
+        "picture_asset_id": "as-1", "upload_ids": ["up-1", "up-2"]}
 
 
 def test_a_copy_handed_to_an_upload_while_the_video_is_deleted_stays(env, monkeypatch):

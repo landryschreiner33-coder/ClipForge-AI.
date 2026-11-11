@@ -351,9 +351,9 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     the window was shown) count, and only uploads no project took (uploads.taken: each page sends the uploads it made
     a project from or added to it, and those are that project's; one a project took was for that project, also one
     deleted since). When this project took uploads of its own, the page sent all of them, so any other such upload
-    is another page's ("again"). A file Add from this computer handed out again after the project was made, in that
-    day, is "again" too: a page may hold it, and that leaves no upload row (assets.relinked_at). Otherwise (a project made before uploads were marked, or only from files ClipForge
-    got another way) it is "again" when, in that day:
+    is another page's ("again"). Add from this computer leaves such an upload too (uploads._hand_out). Otherwise (a
+    project made before uploads were marked, or only from files ClipForge got another way) it is "again" when, in
+    that day:
     * an upload finished after the project was made that did not make it: one that started after ClipForge had the
       file (also a file ClipForge got another way: Find media, a link, a short's build), or one that started before
       the project was made (another page's: a page makes its project only from finished uploads); or
@@ -363,8 +363,6 @@ def _added_again(asset: dict, row: dict, seen: float) -> bool:
     changed: stopping its work (deleting does that first) changes the project, and the answer must stay what the
     window said."""
     stored, made, day = float(asset.get("created_at") or 0), float(row.get("created_at") or 0), seen - AGAIN_S
-    if float(asset.get("relinked_at") or 0) > max(made, day):  # Add from this computer gave it to a page since
-        return True
     done = "FROM uploads WHERE asset_id = ? AND status = 'complete' AND taken = '' AND updated_at > ?"
     if db.scalar("SELECT 1 FROM uploads WHERE taken = ? LIMIT 1", (row["id"],)):  # its pages sent their uploads
         return bool(db.scalar(f"SELECT 1 {done} LIMIT 1", (asset["id"], day)))
