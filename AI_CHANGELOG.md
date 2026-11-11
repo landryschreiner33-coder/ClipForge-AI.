@@ -32,8 +32,9 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
   also one made from a file ClipForge got another way (a link, Find media), which owns no upload; a project made
   before keeps the older rules. A project's own later upload or link of a file ClipForge already had no longer keeps
   that file forever; choosing an earlier picture again takes no upload. A scene's picture is changed once per upload
-  (a failed change is tried again when the picture is dropped again, never by the page on its own), and a copy of a
-  file taken out of a draft comes back when it is added again under another name.
+  (a failed change is tried again when the picture is dropped again, never by the page on its own). On a draft, a
+  file taken out stays out (also when an upload of it that began before finishes later, or when it came from the
+  first page and was dropped again), and a copy of it picked after it was taken out (another name) brings it back.
 - **Deleting** (`studio/project_delete.py`): inside its own step (`BEGIN IMMEDIATE`), nothing else can change the
   database, so it looks again at what names each file and at copies handed out since the window (`_handed_out`); those
   stay, and the answer is worked out again ("… stays in ClipForge because it was used again just now"). A video's bin
@@ -52,7 +53,7 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
 - **Tests:** `tests/test_studio_uploads_taken.py` (new), `test_studio_shorts_tidy.py` (new), and new cases in
   `test_studio_uploads.py`, `test_studio_shorts_voice.py`, `test_local_engines.py`, `test_video_setup_flow.py`,
   `test_studio_project_delete.py`, `test_studio_local_files.py`, `test_studio_reference.py`. Each fix has a test that
-  fails on the code before it. Five independent reviews; every confirmed finding fixed.
+  fails on the code before it. Six independent reviews; every confirmed finding fixed.
 - **Checked in the real app** (browser, fresh data folder): Make clips with the same file picked twice, Make a YouTube
   video with two copies of one file and a picture, Add files on the draft (a file it has already, and a new one), the
   delete window's words, and one big file dropped on two pages at once (each page got its own upload; deleting the
@@ -60,7 +61,9 @@ Follow-ups from the delete-projects review (PR #35), passed on by the coordinato
   YouTube video (the link is the video's), Make clips with a file replaced while it uploaded and picked again (both
   uploads sent and taken), an example video (its upload is the example's; deleting it with its file kept the file
   another page had uploaded), Add from this computer in the editor, and a draft's file taken out and then added
-  again as a copy under another name (it came back, and its upload is the video's).
+  again as a copy under another name (it came back, and its upload is the video's), a draft's file dropped again and
+  then taken out (it stayed out), and a file picked again whose slow upload finished after it was taken out (it
+  stayed out).
 - **Known limits (keeping is the safe side):** projects and examples made before this change took no uploads; such
   a project keeps the older rules, and such an example's file stays when it is deleted within a day of its upload.
   A project made since then by something other than a page (an API call, ClipForge AI's tools) from a file the owner

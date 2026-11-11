@@ -473,27 +473,33 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   const [uploads, setUploads] = useState<Picked[]>([]);
   const [local, setLocal] = useState<"unknown" | "yes" | "no">("unknown");
   const [browsing, setBrowsing] = useState(false);
-  const added = useRef(new Set<string>());
+  const added = useRef(new Set<string>());  // files this panel knows: one taken out stays out until picked again
   const sent = useRef(new Set<string>());  // uploads sent with their file
+  const clock = useRef(0);
+  const pickedAt = useRef(new Map<string, number>());  // when each row was picked
+  const takenOut = useRef(new Map<string, number>());  // when each file was taken out of the video
   useEffect(() => {
     let alive = true;
     studio.localBrowse("").then(() => alive && setLocal("yes")).catch(() => alive && setLocal("no"));
     return () => { alive = false; };
   }, []);
   const inVideo = (id: string) => s.files.some((f) => f.id === id);
-  const add = (assets: Asset[], again = false) => {
-    // picked on purpose: also one taken out before (one still in the video stays known, so taking it out later holds)
+  /** `again`: picked on purpose, also a file taken out before. `picked`: uploads of rows picked after their file
+   * was taken out (the same file again under another name), which are picked on purpose too. */
+  const add = (assets: Asset[], again = false, picked: Set<string> = new Set()) => {
     if (again) assets.filter((a) => !inVideo(a.id)).forEach((a) => added.current.delete(a.id));
-    // a new upload of a file taken out (the same file under another name) is picked on purpose too
-    const fresh = assets.filter((a) => !inVideo(a.id) && (!added.current.has(a.id) || (!!a.upload_id && !sent.current.has(a.upload_id))));
+    const fresh = assets.filter((a) => !inVideo(a.id) && (!added.current.has(a.id)
+      || (!!a.upload_id && picked.has(a.upload_id) && !sent.current.has(a.upload_id))));
     // each upload is sent once with its file, also one of a file the video has already, so it is the video's own
     const mine = assets.filter((a) => a.upload_id && !sent.current.has(a.upload_id) && (fresh.includes(a) || inVideo(a.id)));
     if (!fresh.length && !mine.length) return;
     const ups = uploadIds(mine);
-    fresh.forEach((a) => added.current.add(a.id));
+    // a file sent now is known, also one the video has already, so taking it out later holds
+    const known = [...new Set([...fresh, ...mine].map((a) => a.id))].filter((id) => !added.current.has(id));
+    known.forEach((id) => added.current.add(id));
     ups.forEach((u) => sent.current.add(u));
     studio.addVideoMedia(s.id, [...new Set([...fresh, ...mine].map((a) => a.id))], ups).then(onAdded).catch((e) => {
-      fresh.forEach((a) => added.current.delete(a.id));
+      known.forEach((id) => added.current.delete(id));
       ups.forEach((u) => sent.current.delete(u));
       onProblem(errorText(e));
     });
@@ -502,11 +508,14 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
   const have = s.files.map((f) => f.id).join(" ");
   useEffect(() => {
     const ready: Asset[] = [];
+    const picked = new Set<string>();
     for (const r of uploads) {
-      if (r.asset) ready.push(r.asset);
-      else if (!r.error) break;
+      if (r.asset) {
+        ready.push(r.asset);
+        if (r.asset.upload_id && (pickedAt.current.get(r.key) ?? 0) > (takenOut.current.get(r.asset.id) ?? 0)) picked.add(r.asset.upload_id);
+      } else if (!r.error) break;
     }
-    add(ready);
+    add(ready, false, picked);
   }, [uploads, have]);  // eslint-disable-line react-hooks/exhaustive-deps
   const sending = uploads.filter((r) => !r.asset && !r.error);
   useEffect(() => onUploading(sending.length), [sending.length]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -528,7 +537,7 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
               <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.filename} up`} disabled={i === 0} onClick={() => onMove(f.id, -1)}><Icon name="chev" className="vs-up" /></button>
               <button type="button" className="btn btn-small btn-icon" aria-label={`Move ${f.filename} down`} disabled={i === s.files.length - 1} onClick={() => onMove(f.id, 1)}><Icon name="chev" className="vs-down" /></button>
               <button type="button" className="btn btn-small btn-icon" aria-label={`Take ${f.filename} out of this video`}
-                disabled={s.files.length === 1 || (f.kind === "video" && videos === 1)} onClick={() => onRemove(f.id)}><Icon name="x" /></button>
+                disabled={s.files.length === 1 || (f.kind === "video" && videos === 1)} onClick={() => { takenOut.current.set(f.id, ++clock.current); onRemove(f.id); }}><Icon name="x" /></button>
             </div>
           </li>
         ))}
@@ -538,7 +547,10 @@ function FilesPanel({ s, onMove, onRemove, onAdded, onProblem, onUploading }: {
       <Disclosure summary="Add files">
         <div className="stack-3">
           <FileDrop accept={ACCEPT} multiple label="Drop more videos, pictures and sounds" onAssets={setUploads}
-            onPicked={(keys) => add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!), true)} />
+            onPicked={(keys) => {
+              keys.forEach((k) => pickedAt.current.set(k, ++clock.current));
+              add(uploads.filter((r) => keys.includes(r.key) && r.asset).map((r) => r.asset!), true);
+            }} />
           {local === "yes" && !browsing && <button type="button" className="btn local-pick" onClick={() => setBrowsing(true)}><Icon name="folder" />Add from this computer</button>}
           {browsing && <LocalFiles onLinked={(assets) => add(assets, true)} onClose={() => setBrowsing(false)} />}
         </div>

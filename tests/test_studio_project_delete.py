@@ -751,10 +751,13 @@ def test_an_animated_shorts_scene_files_go_with_it_but_files_another_short_or_yo
     assert len(db.select("short_scenes", "project_id = ?", (other,))) == 1
 
 
-def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_upload_that_stored_it_is_not(env):
+def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_upload_that_stored_it_is_not(
+        env, monkeypatch):
     """A file ClipForge got itself (Find media, a link, a short's build) has no upload of its own, so one upload of
-    the same bytes for a new page is the owner adding it again, and it stays. The upload that first stored a file is
-    the project's own, also when the project was made before it (a planned video's files arrive after it)."""
+    the same bytes for a new page is the owner adding it again, and it stays. For a project made before ClipForge
+    recorded which project took an upload, the upload that first stored a file is the project's own, also when the
+    project was made before it (a planned video's files arrive after it). A project made since then owns only the
+    uploads its page sent, so that upload, which no project took, keeps the file."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
 
@@ -774,6 +777,9 @@ def test_one_upload_of_a_file_clipforge_got_another_way_is_added_again_but_the_u
                           "asset_id": own["id"], "created_at": own["created_at"] - 5})  # the upload that stored it,
     # started before ClipForge had the file and finished after the planned video was made
     planned = _video("Planned video", [own["id"]], status="draft", created_at=time.time() - 60)["id"]
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: 0.0)  # made since
+    assert project_delete.plan("local", planned, "full_video")["counts"]["files_kept"] == 1
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # made before
     assert project_delete.plan("local", planned, "full_video")["counts"]["files"] == 1
     project_delete.delete("local", planned, "full_video")
     assert db.fetch("assets", own["id"]) is None and not os.path.exists(own["path"])
@@ -842,12 +848,16 @@ def test_a_shorts_window_counts_what_clipforge_made_for_its_scenes_and_names_a_p
     assert not voices.exists()
 
 
-def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(env):
-    """Whether an upload added a file again is decided by when it started, not by a guess at how long saving takes:
-    the upload that stored the file, and the same file dropped twice at once, started before ClipForge had the file,
-    so they are the project's own also when the database was busy for a while and they finished late."""
+def test_an_upload_that_started_before_the_file_was_stored_is_the_projects_own_even_when_saving_was_slow(
+        env, monkeypatch):
+    """For a project made before ClipForge recorded which project took an upload, whether an upload added a file
+    again is decided by when it started, not by a guess at how long saving takes: the upload that stored the file,
+    and the same file dropped twice at once, started before ClipForge had the file, so they are the project's own
+    also when the database was busy for a while and they finished late."""
     from clipfoundry import db
     from clipfoundry.studio import project_delete
+
+    monkeypatch.setattr(project_delete, "_marked_since", lambda: float("inf"))  # made before
 
     asset = _stored(43, kind="image", filename="green.png")
     stored = float(asset["created_at"])
